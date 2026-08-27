@@ -2193,6 +2193,152 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         )
     }
 
+    /// Regression: nushell parses none of the POSIX resume command (`&&`/`||` are
+    /// dedicated parse errors, `[ … ]` is a list literal, and even a POSIX-quoted
+    /// command head like `'claude' '--resume'` is rejected), so both the typed
+    /// sessions-panel resume and the restore launcher hard-failed for nushell login
+    /// shells. The typed path now renders through
+    /// `TerminalStartupTypedShellCommand.typedInput` which wraps the POSIX command as
+    /// `^/bin/sh -c "…"` for the nushell dialect; this drives that exact string
+    /// through a real `nu -c` with a hostile user config (PATH rebuilt, shim dir
+    /// dropped) and asserts the cmux wrapper still runs and re-injects hooks.
+    /// (The restore launcher's zsh script gained a matching `nu)` branch that
+    /// dispatches `/bin/sh -c` directly; same envelope, exercised by
+    /// `testResumeLauncherScriptDispatchesNushellThroughBinSh`.)
+    func testClaudeResumeCommandExecutesThroughWrapperInsideNushellTypedInput() throws {
+        let nuURL = [
+            ProcessInfo.processInfo.environment["CMUX_TEST_NU_BIN"],
+            "/opt/homebrew/bin/nu",
+            "/usr/local/bin/nu",
+            "/usr/bin/nu",
+        ]
+        .compactMap { $0 }
+        .map { URL(fileURLWithPath: $0) }
+        .first { FileManager.default.isExecutableFile(atPath: $0.path) }
+        guard let nuURL else {
+            throw XCTSkip("nushell is not installed; install nu to exercise the nushell typed-resume dispatch")
+        }
+
+        let sandbox = try makeClaudeResumeWrapperShimSandbox()
+        defer { sandbox.removeSandbox() }
+        let nuConfigDir = sandbox.homeURL.appendingPathComponent(".config/nushell", isDirectory: true)
+        try FileManager.default.createDirectory(at: nuConfigDir, withIntermediateDirectories: true)
+        // Hostile nushell config: rebuild PATH with the user's real claude first —
+        // the exact shadowing that breaks the shim for nushell users.
+        try (
+            "$env.PATH = [\"\(sandbox.realBinDirectoryURL.path)\", \"/usr/bin\", \"/bin\"]\n"
+        ).write(to: nuConfigDir.appendingPathComponent("env.nu"), atomically: true, encoding: .utf8)
+        try "".write(to: nuConfigDir.appendingPathComponent("config.nu"), atomically: true, encoding: .utf8)
+
+        let snapshot = Self.makeClaudeRestorableSnapshot(workingDirectory: sandbox.sandboxURL.path)
+        let resumeCommand = try XCTUnwrap(snapshot.resumeCommand)
+        let typedForNushell = TerminalStartupTypedShellCommand(dialect: .nushell)
+            .typedInput(posixCommand: resumeCommand)
+
+        let recorded = try runClaudeResumeCommand(
+            typedForNushell,
+            shellURL: nuURL,
+            arguments: ["-c"],
+            sandbox: sandbox,
+            environmentOverrides: [
+                "XDG_CONFIG_HOME": sandbox.homeURL.appendingPathComponent(".config").path
+            ]
+        )
+        XCTAssertTrue(
+            recorded.hasPrefix("wrapper "),
+            "nushell-typed resume must parse and exec the cmux wrapper. Recorded invocation: \(recorded.isEmpty ? "<none>" : recorded)"
+        )
+        XCTAssertTrue(
+            recorded.contains("--settings"),
+            "nushell-typed resume must re-inject the hook --settings via the wrapper. Recorded invocation: \(recorded.isEmpty ? "<none>" : recorded)"
+        )
+    }
+
+    /// The one-shot launcher's user-login-shell execution must route nushell
+    /// logins through `/bin/sh -c` (nushell has no `-lc` flags and cannot parse
+    /// the POSIX command) while leaving the POSIX branch untouched.
+    func testOneShotUserLoginShellLauncherDispatchesNushellThroughBinSh() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-oneshot-nu-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let scriptURL = try XCTUnwrap(OneShotTerminalLauncherStore(
+            fileManager: .default,
+            temporaryDirectory: tmp
+        ).writeLauncherScript(
+            command: "cd -- '/tmp/p' && 'claude' '--resume' 'SID'",
+            workingDirectory: nil,
+            execution: .userLoginShell
+        ))
+        let script = try String(contentsOf: scriptURL, encoding: .utf8)
+        XCTAssertTrue(
+            script.contains("nu) exec /bin/sh -c "),
+            "launcher must dispatch nushell logins through /bin/sh: \(script)"
+        )
+        XCTAssertTrue(
+            script.contains(#"*) exec "$SHELL" -lc "#),
+            "the POSIX dispatch branch must stay untouched: \(script)"
+        )
+    }
+
+    /// Regression for the first nushell dogfood round, adapted to the unified
+    /// one-shot launcher: a `.userLoginShell` script executed with a nushell
+    /// login shell must still run its POSIX payload (via /bin/sh) instead of
+    /// handing it to `nu -lc`, which would fail before the agent launches.
+    func testOneShotUserLoginShellLauncherRunsPosixPayloadUnderNushell() throws {
+        let sandbox = try makeClaudeResumeWrapperShimSandbox()
+        defer { sandbox.removeSandbox() }
+
+        // Fake nu login shell that records its argv; reaching it would mean
+        // the POSIX payload was (wrongly) handed to nushell.
+        let fakeNuURL = sandbox.sandboxURL.appendingPathComponent("nu", isDirectory: false)
+        let nuArgsURL = sandbox.sandboxURL.appendingPathComponent("nu-args.txt", isDirectory: false)
+        try (
+            "#!/bin/sh\n"
+                + "printf '%s\\n' \"$@\" > \(shellQuotedForTest(nuArgsURL.path))\n"
+        ).write(to: fakeNuURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeNuURL.path)
+
+        let scriptURL = try XCTUnwrap(OneShotTerminalLauncherStore(
+            fileManager: .default,
+            temporaryDirectory: sandbox.sandboxURL
+        ).writeLauncherScript(
+            command: "'claude' '--resume' 'claude-session-123'",
+            workingDirectory: nil,
+            execution: .userLoginShell
+        ))
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        process.arguments = [scriptURL.path]
+        process.environment = [
+            "HOME": sandbox.homeURL.path,
+            "SHELL": fakeNuURL.path,
+            "PATH": "\(sandbox.realBinDirectoryURL.path):/usr/bin:/bin",
+            "CMUX_CLAUDE_WRAPPER_SHIM": sandbox.shimURL.path,
+        ]
+        let scriptStderr = Pipe()
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = scriptStderr
+        try runWithBoundedWait(process, shellDescription: "/bin/zsh \(scriptURL.path)")
+
+        let stderrText = String(
+            data: scriptStderr.fileHandleForReading.readDataToEndOfFile(),
+            encoding: .utf8
+        ) ?? ""
+        let recorded = (try? String(contentsOf: sandbox.recordURL, encoding: .utf8)) ?? ""
+        XCTAssertTrue(
+            recorded.contains("--resume claude-session-123"),
+            "the POSIX payload must execute through /bin/sh under a nushell login. "
+                + "Recorded: \(recorded.isEmpty ? "<none>" : recorded), stderr: \(stderrText)"
+        )
+        let nuArgs = (try? String(contentsOf: nuArgsURL, encoding: .utf8)) ?? ""
+        XCTAssertTrue(
+            nuArgs.isEmpty,
+            "the POSIX payload must not be handed to the nushell binary: \(nuArgs)"
+        )
+    }
+
     /// Regression for the stale-shim fallback: `CMUX_CLAUDE_WRAPPER_SHIM` can outlive
     /// its file (macOS reaps idle temporary-directory contents after ~3 days), and bare
     /// `${VAR:-claude}` parameter expansion would exec the dead path and hard-fail
@@ -2475,8 +2621,8 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            entry.resumeCommand,
-            "cd /Users/tiffanysun/fun && /bin/sh -c "
+            entry.copyResumeCommand,
+            "cd -- '/Users/tiffanysun/fun' 2>/dev/null || [ ! -d '/Users/tiffanysun/fun' ] && /bin/sh -c "
                 + shellQuotedForTest("\(AgentResumeArgv.claudeWrapperShellExecutableToken) --resume a22293b7-bcef-4707-8439-2f538c8517a4")
         )
     }
@@ -2507,7 +2653,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             )
         )
 
-        let command = try XCTUnwrap(entry.resumeCommand)
+        let command = try XCTUnwrap(entry.copyResumeCommand)
         XCTAssertTrue(
             command.utf8.allSatisfy { $0 < 0x80 },
             "Terminal startup input must stay ASCII-only so UTF-8 paths are reconstructed by the shell instead of being mojibaked before execution."
@@ -7054,6 +7200,164 @@ extension SessionPersistenceTests {
         XCTAssertEqual(binding.checkpointId, "work")
         XCTAssertEqual(binding.cwd, "/tmp/project")
         XCTAssertEqual(binding.command, "'/opt/homebrew/bin/tmux' '-L' 'dev' 'attach' '-t' 'work'")
+    }
+
+    func testPlainSSHProcessDetectedResumeBindingRerunsInteractiveCommand() throws {
+        let binding = try XCTUnwrap(
+            TerminalSSHSessionDetector.resumeBinding(
+                processName: "ssh",
+                processPath: "/usr/bin/ssh",
+                arguments: [
+                    "/usr/bin/ssh",
+                    "-p", "2222",
+                    "-i", "/Users/test/.ssh/id_ed25519",
+                    "tinybox",
+                ],
+                environment: ["PWD": "/Users/test/project"]
+            )
+        )
+
+        XCTAssertEqual(binding.kind, "ssh")
+        XCTAssertEqual(binding.source, "process-detected")
+        XCTAssertTrue(binding.allowsAutomaticResume)
+        XCTAssertEqual(binding.cwd, "/Users/test/project")
+        XCTAssertEqual(
+            binding.command,
+            "'/usr/bin/ssh' '-p' '2222' '-i' '/Users/test/.ssh/id_ed25519' 'tinybox'"
+        )
+        XCTAssertEqual(binding.startupInput, binding.command + "\n")
+    }
+
+    func testPlainSSHProcessDetectedResumeBindingUsesResolvedExecutablePath() throws {
+        let binding = try XCTUnwrap(
+            TerminalSSHSessionDetector.resumeBinding(
+                processName: "ssh",
+                processPath: "/opt/company/bin/ssh",
+                arguments: ["ssh", "tinybox"],
+                environment: [:]
+            )
+        )
+
+        XCTAssertEqual(binding.command, "'/opt/company/bin/ssh' 'tinybox'")
+        XCTAssertEqual(binding.launchCommand?.executablePath, "/opt/company/bin/ssh")
+        XCTAssertEqual(binding.launchCommand?.arguments, ["/opt/company/bin/ssh", "tinybox"])
+    }
+
+    func testPlainSSHProcessDetectedResumeBindingRejectsRemoteCommand() {
+        let binding = TerminalSSHSessionDetector.resumeBinding(
+            processName: "ssh",
+            processPath: "/usr/bin/ssh",
+            arguments: ["ssh", "tinybox", "uname", "-a"],
+            environment: [:]
+        )
+
+        XCTAssertNil(binding)
+    }
+
+    func testPlainSSHProcessDetectedResumeBindingDoesNotReplaceManagedPTYBinding() {
+        let binding = TerminalSSHSessionDetector.resumeBinding(
+            processName: "ssh",
+            processPath: "/usr/bin/ssh",
+            arguments: ["ssh", "tinybox"],
+            environment: ["CMUX_SSH_PTY_SESSION_ID": "ssh-managed"]
+        )
+
+        XCTAssertNil(binding)
+    }
+
+    func testPlainSSHProcessDetectedResumeBindingRejectsRemoteCommandOption() {
+        let binding = TerminalSSHSessionDetector.resumeBinding(
+            processName: "ssh",
+            processPath: "/usr/bin/ssh",
+            arguments: ["ssh", "-o", "RemoteCommand=uname -a", "tinybox"],
+            environment: [:]
+        )
+
+        XCTAssertNil(binding)
+    }
+
+    func testPlainSSHProcessDetectedResumeBindingRejectsNonInteractiveSSHFlags() {
+        let invocations = [
+            ["ssh", "-n", "tinybox"],
+            ["ssh", "-T", "tinybox"],
+            ["ssh", "-G", "tinybox"],
+            ["ssh", "-V"],
+            ["ssh", "-o", "RequestTTY=no", "tinybox"],
+            ["ssh", "-o", "StdinNull=yes", "tinybox"],
+        ]
+
+        for arguments in invocations {
+            XCTAssertNil(
+                TerminalSSHSessionDetector.resumeBinding(
+                    processName: "ssh",
+                    processPath: "/usr/bin/ssh",
+                    arguments: arguments,
+                    environment: [:]
+                ),
+                "Expected non-interactive invocation to be rejected: \(arguments)"
+            )
+        }
+    }
+
+    func testPlainSSHProcessDetectedResumeBindingAllowsRemoteCommandNone() throws {
+        let binding = try XCTUnwrap(
+            TerminalSSHSessionDetector.resumeBinding(
+                processName: "ssh",
+                processPath: "/usr/bin/ssh",
+                arguments: ["ssh", "-o", "RemoteCommand=none", "tinybox"],
+                environment: [:]
+            )
+        )
+
+        XCTAssertEqual(binding.kind, "ssh")
+        XCTAssertEqual(binding.command, "'/usr/bin/ssh' '-o' 'RemoteCommand=none' 'tinybox'")
+    }
+
+    func testPlainSSHProcessDetectedBindingFallsBackToPaneTTYWhenScopeIsMissing() throws {
+        let workspaceID = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
+        let panelID = UUID(uuidString: "22222222-2222-2222-2222-222222222222")!
+        let process = CmuxTopProcessInfo(
+            pid: 4242,
+            parentPID: 1,
+            name: "ssh",
+            path: "/usr/bin/ssh",
+            ttyDevice: 9876,
+            cmuxWorkspaceID: nil,
+            cmuxSurfaceID: nil,
+            cmuxAttributionReason: nil,
+            processGroupID: 4242,
+            terminalProcessGroupID: 4242,
+            cpuPercent: 0,
+            residentBytes: 1,
+            virtualBytes: 1,
+            threadCount: 1
+        )
+        let snapshot = CmuxTopProcessSnapshot(
+            processes: [process],
+            sampledAt: Date(timeIntervalSince1970: 1_777_777_777),
+            includesProcessDetails: true
+        )
+        let key = SurfaceResumeBindingIndex.PanelKey(
+            workspaceId: workspaceID,
+            panelId: panelID
+        )
+        let detected = SurfaceResumeBindingIndex.processDetectedTmuxBindings(
+            fileManager: .default,
+            processSnapshot: snapshot,
+            capturedAt: 1_777_777_777,
+            ttyDeviceBindings: [key: 9876],
+            processArgumentsProvider: { _ in
+                CmuxTopProcessArguments(
+                    arguments: ["/usr/bin/ssh", "tinybox"],
+                    environment: [:]
+                )
+            }
+        )
+
+        let binding = try XCTUnwrap(detected[key]?.binding)
+        XCTAssertEqual(binding.kind, "ssh")
+        XCTAssertEqual(binding.source, "process-detected")
+        XCTAssertEqual(binding.command, "'/usr/bin/ssh' 'tinybox'")
     }
 
     func testTmuxProcessDetectedResumeBindingPreservesTmuxTmpdir() throws {

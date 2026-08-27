@@ -3,7 +3,7 @@ import Combine
 import AppKit
 
 /// Type of panel content
-public enum PanelType: String, Codable, Sendable {
+public enum PanelType: String, Codable, CaseIterable, Sendable {
     case terminal
     case browser
     case markdown

@@ -143,7 +143,10 @@
     "home": {
       "coderouterName": "coderouter",
       "coderouterDescription": "Rute LLM-forespørsler mellom leverandørkontoer med reservebytte og bruksbevisst planlegging.",
-      "coderouterLink": "åpne coderouter"
+      "coderouterLink": "åpne coderouter",
+      "iosAppName": "iOS-app",
+      "iosAppDescription": "Installer cmux iOS-appen via TestFlight (beta-tilgang).",
+      "iosLink": "Åpne iOS-appen"
     },
     "coderouter": {
       "metaTitle": "coderouter — cmux",
@@ -158,6 +161,7 @@
       "signOut": "Logg ut",
       "signingOut": "Logger ut…",
       "signOutError": "Kunne ikke logge ut. Prøv igjen.",
+      "organizationSwitchError": "Kunne ikke bytte organisasjon. Prøv igjen.",
       "signIn": "Logg inn"
     },
     "aiAccounts": {
@@ -210,7 +214,13 @@
       "claudeJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"expiresAt\":1770000000000}",
       "codexJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"idToken\":\"...\",\"accountID\":\"...\"}",
       "anthropicKeyPlaceholder": "sk-ant-...",
-      "openAiKeyPlaceholder": "sk-..."
+      "openAiKeyPlaceholder": "sk-...",
+      "cliAddBody": "Add provider accounts securely from your terminal. Sign in with your team, then run one of these commands:",
+      "codexTool": "Codex",
+      "codexCommand": "Copy codex command",
+      "opencodeTool": "OpenCode",
+      "opencodeCommand": "Copy opencode command",
+      "copied": "Copied"
     },
     "billing": {
       "plan": {
@@ -796,6 +806,22 @@
     "remoteTmux": {
       "moshContrast": "Bruk cmux mosh-tmux for roaming mellom nettverk. Den åpner en fullt integrert Mosh-terminal koblet til en navngitt tmux-økt; den erstatter ikke den innebygde speilingen av arbeidsområder, faner og delinger fra SSH tmux-kontrollmodus."
     },
+    "claudeCodeTeams": {
+      "shimStep1": "Oppretter en tmux-shim i den gjeldende overflatens midlertidige shim-katalog. Banen inneholder overflate-UUID-en og endres for hvert panel og hver oppstart, så ingen fast bane kan oppgis",
+      "shimStep2": "Setter TMUX og TMUX_PANE for å simulere tmux i oppstartsøkten for Claude Teams",
+      "shimDiagnostic": "Shim-en ruterer til cmux bare når <marker>CMUX_CLAUDE_TEAMS_CMUX_BIN</marker> er satt; ellers faller den transparent gjennom til neste ekte tmux-kjørbare fil. Derfor viser ikke <which>which tmux</which> om Claude Teams-avskjæringen er aktiv.",
+      "envTmux": "Syntetisk tmux-socketbane for økten som kjørte cmux claude-teams",
+      "envTmuxPane": "Syntetisk tmux-panelidentifikator for økten som kjørte cmux claude-teams; tom i opprettede agentpaneler",
+      "envSurface": "UUID-en til den gjeldende overflaten; bruk den som overflateidentifikator i et opprettet agentpanel",
+      "envScope": "De syntetiske verdiene <tmux>TMUX</tmux>, <tmuxPane>TMUX_PANE</tmuxPane> og relaterte tmux-kompatibilitetsverdier beskriver økten som kjørte <command>cmux claude-teams</command>, ikke de opprettede panelene. Fra et agentpanel bruker du <surface>CMUX_SURFACE_ID</surface> og kjører <tree>cmux tree --json</tree>; <caller>caller</caller>-objektet i utdataene identifiserer det kallende panelet.",
+      "dirShimPath": "Katalog per overflate under systemets midlertidige katalog (ingen fast sti)",
+      "dirShim": "Inneholder den aktive tmux-shimen og legges først i PATH for den overflaten",
+      "dirStore": "Varig lagring for tmux-compat-buffere, hooks og tilstand for plassering/oppsett av splitter",
+      "storeDetails": "Nøklene for splittruting er:",
+      "storeLastSplitSurface": "Knytter hver workspace-UUID til surface-UUID-en som ble opprettet av det siste splittet. Den initialiserer agentkolonneankeret som bestemmer hvor neste main-vertical-splitt havner.",
+      "storeMainVerticalLayouts": "Knytter hver workspace-UUID til <mainSurfaceId>mainSurfaceId</mainSurfaceId> (hoved- eller lederoverflaten) og <lastColumnSurfaceId>lastColumnSurfaceId</lastColumnSurfaceId> (den nederste overflaten i agentkolonnen). Påfølgende teammate-splitt målrettes mot kolonnen og stables nedover.",
+      "storeTroubleshooting": "Undersøk disse rutingsnøklene hvis et teammate-panel vises som en fane bak en eksisterende overflate i stedet for som et splitt ved siden av den."
+    },
     "layoutTitle": "cmux docs",
     "gettingStarted": {
       "title": "Kom i gang",
@@ -995,7 +1021,8 @@
         "browser": {
           "defaultSearchEngine": "Standard søkemotor for søk i nettleserens adresselinje som ikke er URLer. Bruk custom med customSearchEngineURLTemplate for andre leverandører.",
           "customSearchEngineName": "Visningsnavn som brukes når defaultSearchEngine er custom.",
-          "customSearchEngineURLTemplate": "Søke-URL som brukes når defaultSearchEngine er custom. Inkluder søkeplassholderen eller %s for det kodede søket. Uten plassholder legger cmux til q= i URLen."
+          "customSearchEngineURLTemplate": "Søke-URL som brukes når defaultSearchEngine er custom. Inkluder søkeplassholderen eller %s for det kodede søket. Uten plassholder legger cmux til q= i URLen.",
+          "urlAllowlist": "Verts- eller URL-mønstre som begrenser navigering i den innebygde nettleseren. Innstillinger foreslår lokale utviklingsopprinnelser; lagring av en liste aktiverer den valgfrie begrensningen. Fjern oppføringer for å blokkere dem, eller la brukerverdien være tom uten en administrert policy for å deaktivere begrensningen."
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "Global standard for hvor Cmd-N i en gruppe, + knappen i gruppehodet og konfigurerte gruppehandlinger plasserer det nye workspace: `afterCurrent` (etter aktivt workspace i gruppen, med top som fallback), `top` (andre plass, rett etter ankeret) eller `end` (etter siste medlem).",
@@ -1469,7 +1496,7 @@
       "metaTitle": "Dock",
       "metaDescription": "Legg til egendefinerte TUI-kontroller i cmux sin høyre sidepanel med Dock JSON.",
       "title": "Dock",
-      "intro": "Dock lar deg legge til TUI-kontroller i høyre sidepanel. Hver kontroll er en kommando fra JSON og vises i sin egen Ghostty-baserte terminalseksjon. Bruk det til feeder, logger, køer, git-status, utviklingsservere eller en hvilken som helst TUI teamet vil ha ved siden av hvert workspace.",
+      "intro": "Dock lar deg legge til terminal- og nettleserkontroller i høyre sidepanel. Terminalkontroller kjører kommandoer i Ghostty-baserte seksjoner, mens nettleserkontroller bygger inn nettsider. Bruk det til feeder, logger, køer, git-status, utviklingsservere, dashboards eller referansesider teamet vil ha ved siden av hvert workspace.",
       "configTitle": "Konfigurasjon",
       "configIntro": "cmux ser etter Dock-konfigurasjon i denne rekkefølgen:",
       "projectConfig": "for gjeldende repo, nærmeste overordnede prosjekt og nestede prosjektmapper.",
@@ -1483,9 +1510,12 @@
       "descriptionHeader": "Beskrivelse",
       "fieldId": "Stabil unik identifikator for kontrollen. Hold den kort og ikke bruk den på nytt for en annen kommando.",
       "fieldTitle": "Etikett som vises i Dock-headeren.",
-      "fieldCommand": "Kommando som kjøres i Dock-terminalen. Den starter i innloggingsskallet ditt.",
+      "fieldCommand": "Kommandoen som skal kjøres i Dock-terminalen. Påkrevd for terminalkontroller og startes i innloggingsskallet.",
+      "fieldType": "Valgfri kontrolltype: terminal (standard) eller browser.",
+      "fieldUrl": "Siden som skal åpnes. Påkrevd for nettleserkontroller.",
+      "fieldChrome": "Valgfri visning av nettleserens betjeningselementer. Standard er true; false skjuler adressefeltet og verktøylinjen, gjør Fokuser adressefelt virkningsløs i ruten, mens cmux browser goto/reload fortsatt er tilgjengelige.",
       "fieldCwd": "Valgfri arbeidskatalog. Relative stier løses fra prosjektroten for prosjektkonfigurasjoner eller fra hjemmekatalogen for globale konfigurasjoner.",
-      "fieldHeight": "Valgfri ønsket terminalhøyde i punkter. Kontroller uten height deler den gjenværende plassen.",
+      "fieldHeight": "Valgfri kontrollhøyde. Kontroller uten height deler den gjenværende plassen.",
       "fieldEnv": "Valgfrie miljøvariabler som bare sendes til den kontrollen.",
       "sharingTitle": "Deling med team",
       "sharingIntro": "Dock er laget for å deles via source control når kommandoene hører til repoet.",
@@ -1495,7 +1525,7 @@
       "agentPromptTitle": "Be en agent sette det opp",
       "agentPromptIntro": "Bruk denne prompten når du vil at en coding-agent skal lage Dock-kontroller. Den ber agenten kjøre `cmux docs dock`, inspisere prosjektet og spørre før den gjetter.",
       "agentPromptCodeTitle": "Agent-prompt",
-      "agentPrompt": "Set up cmux Dock controls for the current context.\n\nFirst, learn the feature before editing:\n1. Run `cmux docs dock` if the cmux CLI is available. If it is not, read https://cmux.com/docs/dock.\n2. Inspect the repository or current directory to understand the project type, scripts, package manager, dev servers, logs, task runners, test commands, and any existing TUI tools.\n3. If the desired Dock is ambiguous, ask the user what they want monitored or controlled before writing files.\n\nDock is cmux's right-sidebar terminal control area. A Dock config is JSON with a top-level `controls` array. Each control runs a command in its own Ghostty-backed terminal section using the user's login shell. Controls are useful for project dashboards, git/status views, dev server or build status, test watchers, log tails, queues, local services, or a custom TUI such as `cmux feed tui --opentui` when that feed is useful.\n\nChoose where to write the config:\n- In a repository or project directory, create or edit `.cmux/dock.json` so teammates can share it.\n- For a personal default outside a repo, create or edit `~/.config/cmux/dock.json`.\n- If both exist, project `.cmux/dock.json` is more specific for that project. Nested project configs apply to that directory tree; use the nearest relevant project config instead of writing unrelated controls globally.\n- If there is no repo and no clear project root, use the global config only after confirming the user wants a personal Dock.\n\nSchema:\n{\n  \"controls\": [\n    {\n      \"id\": \"short-stable-id\",\n      \"title\": \"Human label\",\n      \"command\": \"safe command to run\",\n      \"cwd\": \"optional/path\",\n      \"height\": 220,\n      \"env\": { \"NAME\": \"value\" }\n    }\n  ]\n}\n\nRules:\n- Keep ids stable, lowercase, and unique.\n- Use `cwd` for subdirectories; relative paths resolve from the config base.\n- Use `height` only when a control needs a fixed amount of vertical space.\n- Use `env` only for non-secret values needed by one control.\n- Do not put secrets, tokens, or machine-specific private paths in a shared project config.\n- Prefer commands that are safe to start repeatedly and make sense in a terminal.\n- Do not invent unavailable scripts. Read package files, Makefiles, Procfiles, README docs, config files, and existing tooling first.\n- Keep shared project Docks portable for teammates. Put personal or machine-specific controls in the global Dock.\n\nDeliverable:\n- Create or update the appropriate dock.json.\n- Preserve existing useful controls unless the user asked to replace them.\n- Validate that the JSON parses.\n- Summarize what each control does and any commands the user should review before trusting the Dock config."
+      "agentPrompt": "Set up cmux Dock controls for the current context.\n\nFirst, learn the feature before editing:\n1. Run `cmux docs dock` if the cmux CLI is available. If it is not, read https://cmux.com/docs/dock.\n2. Inspect the repository or current directory to understand the project type, scripts, package manager, dev servers, logs, task runners, test commands, and any existing TUI tools.\n3. If the desired Dock is ambiguous, ask the user what they want monitored or controlled before writing files.\n\nDock is cmux's right-sidebar terminal and browser control area. A Dock config is JSON with a top-level `controls` array. Terminal controls run commands in Ghostty-backed sections using the user's login shell; browser controls embed URLs. Controls are useful for project dashboards, git/status views, dev server or build status, test watchers, log tails, queues, local services, or fixed web dashboards.\n\nChoose where to write the config:\n- In a repository or project directory, create or edit `.cmux/dock.json` so teammates can share it.\n- For a personal default outside a repo, create or edit `~/.config/cmux/dock.json`.\n- If both exist, project `.cmux/dock.json` is more specific for that project. Nested project configs apply to that directory tree; use the nearest relevant project config instead of writing unrelated controls globally.\n- If there is no repo and no clear project root, use the global config only after confirming the user wants a personal Dock.\n\nSchema:\n{\n  \"controls\": [\n    {\n      \"id\": \"short-stable-id\",\n      \"title\": \"Human label\",\n      \"command\": \"safe command to run\",\n      \"cwd\": \"optional/path\",\n      \"height\": 220,\n      \"env\": { \"NAME\": \"value\" }\n    },\n    {\n      \"id\": \"dashboard\",\n      \"title\": \"Dashboard\",\n      \"type\": \"browser\",\n      \"url\": \"http://127.0.0.1:3000\",\n      \"chrome\": false\n    }\n  ]\n}\n\nRules:\n- Keep ids stable, lowercase, and unique.\n- `type` is optional: `terminal` is the default, or use `browser`.\n- Terminal controls require `command`; browser controls require `url`.\n- Browser controls default to `chrome: true`. Set `chrome: false` to hide browser chrome, including the address bar and toolbar; Focus Address Bar then does nothing for that pane, while `cmux browser goto` and `cmux browser reload` remain available.\n- Use `cwd` for subdirectories; relative paths resolve from the config base.\n- Use `height` only when a control needs a fixed amount of vertical space.\n- Use `env` only for non-secret values needed by one control.\n- Do not put secrets, tokens, or machine-specific private paths in a shared project config.\n- Prefer commands that are safe to start repeatedly and make sense in a terminal.\n- Do not invent unavailable scripts. Read package files, Makefiles, Procfiles, README docs, config files, and existing tooling first.\n- Keep shared project Docks portable for teammates. Put personal or machine-specific controls in the global Dock.\n\nDeliverable:\n- Create or update the appropriate dock.json.\n- Preserve existing useful controls unless the user asked to replace them.\n- Validate that the JSON parses.\n- Summarize what each control does and any commands the user should review before trusting the Dock config."
     },
     "sessionRestore": {
       "title": "Sesjongjenoppretting",

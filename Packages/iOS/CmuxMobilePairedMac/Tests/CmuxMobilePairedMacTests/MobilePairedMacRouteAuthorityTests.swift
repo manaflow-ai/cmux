@@ -97,6 +97,42 @@ import Testing
         #expect(current.instanceTag == "feature-b")
     }
 
+    @Test func emptyTagRestoreCannotCreateLegacySibling() async throws {
+        let (store, directory) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let taggedRoute = try route(id: "tagged", port: 51_003)
+        let staleRoute = try route(id: "stale", port: 51_004)
+        try await store.upsert(
+            macDeviceID: "shared-mac",
+            displayName: "Stable",
+            routes: [taggedRoute],
+            instanceTag: "stable",
+            markActive: false,
+            stackUserID: "user-1",
+            teamID: "team-a",
+            now: Date(timeIntervalSince1970: 10)
+        )
+
+        let wrote = try await store.upsertIfNewer(
+            macDeviceID: "shared-mac",
+            displayName: "Legacy restore",
+            routes: [staleRoute],
+            instanceTag: "   ",
+            customName: nil,
+            customColor: nil,
+            customIcon: nil,
+            markActive: false,
+            stackUserID: "user-1",
+            teamID: "team-a",
+            now: Date(timeIntervalSince1970: 20)
+        )
+
+        #expect(!wrote)
+        let rows = try await store.loadAll(stackUserID: "user-1", teamID: "team-a")
+        #expect(rows.count == 1)
+        #expect(rows.first?.instanceTag == "stable")
+    }
+
     private func makeStore() throws -> (MobilePairedMacStore, URL) {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

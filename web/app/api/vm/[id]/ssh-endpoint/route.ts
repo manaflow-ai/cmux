@@ -1,14 +1,12 @@
 import {
   jsonResponse,
-  notFoundVm,
   resolveVmRouteAccountScope,
+  vmResourceErrorResponse,
   withAuthedVmApiRoute,
 } from "../../../../../services/vms/routeHelpers";
 import { setSpanAttributes } from "../../../../../services/telemetry";
-import { isVmNotFoundError } from "../../../../../services/vms/errors";
 import { openSshEndpoint, runVmWorkflow } from "../../../../../services/vms/workflows";
 
-export const dynamic = "force-dynamic";
 
 /**
  * Returns the SSH endpoint the mac client will dial to reach this VM's cmuxd-remote.
@@ -40,13 +38,15 @@ export async function POST(
         const endpoint = await runVmWorkflow(openSshEndpoint({
           userId: user.id,
           billingTeamId: account.entitlements.billingTeamId,
+          callerPlanId: account.entitlements.planId,
           teamIds: user.teamIds,
           providerVmId: id,
         }));
         setSpanAttributes(span, { "cmux.ssh.credential_kind": endpoint.credential.kind });
         return jsonResponse(endpoint);
       } catch (err) {
-        if (isVmNotFoundError(err)) return notFoundVm(id);
+        const response = vmResourceErrorResponse(err, id);
+        if (response) return response;
         throw err;
       }
     },

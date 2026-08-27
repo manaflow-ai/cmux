@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import Combine
+import CmuxAppKitSupportUI
 import CmuxFoundation
 import CmuxWorkspaces
 import CmuxSettings
@@ -42,6 +43,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
     var placement: FileExplorerPanelPlacement = .rightSidebar
     var onFocus: (() -> Void)?
     var onContainerChange: ((FileExplorerContainerView?) -> Void)?
+    @Environment(\.colorScheme) private var colorScheme
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
@@ -56,12 +58,14 @@ struct FileExplorerPanelView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> FileExplorerContainerView {
         let container = FileExplorerContainerView(coordinator: context.coordinator, presentation: presentation)
+        container.appearance = WindowAppearanceSnapshot.appKitAppearance(for: colorScheme)
         context.coordinator.containerView = container
         context.coordinator.onContainerChange?(container)
         return container
     }
 
     func updateNSView(_ container: FileExplorerContainerView, context: Context) {
+        container.appearance = WindowAppearanceSnapshot.appKitAppearance(for: colorScheme)
         context.coordinator.store = store
         context.coordinator.state = state
         context.coordinator.onOpenFilePreview = onOpenFilePreview
@@ -543,7 +547,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
             endedAt screenPoint: NSPoint,
             operation: NSDragOperation
         ) {
-            FilePreviewDragPasteboardWriter.discardRegisteredDrag(from: NSPasteboard(name: .drag))
+            FilePreviewDragPasteboardWriter.discardRegisteredDrag(from: session)
         }
 
         @MainActor
@@ -617,15 +621,19 @@ struct FileExplorerPanelView: NSViewRepresentable {
 
         @objc private func contextMenuCopyPath(_ sender: NSMenuItem) {
             guard let node = sender.representedObject as? FileExplorerNode else { return }
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(node.path, forType: .string)
+            GhosttyApp.terminalPasteboard.writeString(
+                node.path,
+                to: .general
+            )
         }
 
         @objc private func contextMenuCopyRelativePath(_ sender: NSMenuItem) {
             guard let node = sender.representedObject as? FileExplorerNode else { return }
             let relativePath = FileExplorerTerminalPathInsertion.relativePath(for: node.path, rootPath: store.rootPath)
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(relativePath, forType: .string)
+            GhosttyApp.terminalPasteboard.writeString(
+                relativePath,
+                to: .general
+            )
         }
     }
 }
@@ -1495,14 +1503,18 @@ final class FileExplorerContainerView: NSView {
 
     @objc private func contextMenuCopySearchResultPath(_ sender: NSMenuItem) {
         guard let result = searchResult(forMenuItem: sender) else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(result.path, forType: .string)
+        GhosttyApp.terminalPasteboard.writeString(
+            result.path,
+            to: .general
+        )
     }
 
     @objc private func contextMenuCopySearchResultRelativePath(_ sender: NSMenuItem) {
         guard let result = searchResult(forMenuItem: sender) else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(result.relativePath, forType: .string)
+        GhosttyApp.terminalPasteboard.writeString(
+            result.relativePath,
+            to: .general
+        )
     }
 }
 
@@ -1597,7 +1609,7 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
         operation: NSDragOperation
     ) {
         guard tableView === searchResultsView else { return }
-        FilePreviewDragPasteboardWriter.discardRegisteredDrag(from: NSPasteboard(name: .drag))
+        FilePreviewDragPasteboardWriter.discardRegisteredDrag(from: session)
     }
 
     func menuNeedsUpdate(_ menu: NSMenu) {

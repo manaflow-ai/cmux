@@ -28,6 +28,7 @@ extension DockSplitStore {
     private static let maxDockPortalLayoutWakeAttempts = 8
 
     func scheduleDockPortalReconcile(reason: String) {
+        guard !isRetired else { return }
         let state = dockPortalReconcileState
         state.scheduledRequestCount += 1
         state.reason = reason

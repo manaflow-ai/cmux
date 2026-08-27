@@ -1,10 +1,11 @@
 //! Read-only tree snapshots shared by the renderer and input handling,
 //! plus the JSON parser for the remote `list-workspaces` shape.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use cmux_tui_core::resource::{
-    ContentPublicId, PanePublicId, ScreenPublicId, TerminalPublicId, WorkspacePublicId,
+    BrowserPublicId, ContentPublicId, PanePublicId, ScreenPublicId, TabPublicId, TerminalPublicId,
+    WorkspacePublicId,
 };
 use cmux_tui_core::{
     BrowserSource, MAX_VIEWPORT_PANE_WIDTH, MIN_VIEWPORT_PANE_WIDTH, Node, PaneId,
@@ -66,6 +67,8 @@ pub struct PaneView {
 #[derive(Clone)]
 pub struct TabView {
     pub surface: SurfaceId,
+    pub public_id: Option<TabPublicId>,
+    pub content_id: Option<ContentPublicId>,
     pub terminal_id: Option<TerminalPublicId>,
     pub short_id: String,
     pub name: Option<String>,
@@ -84,6 +87,23 @@ pub struct TabNotificationView {
 }
 
 impl TreeView {
+    /// Retain the server's authoritative tab topology, removing only tabs
+    /// with explicit detach/retire evidence. The local surface mirror is a
+    /// lazy cache and can be empty during startup or reconnect.
+    pub fn retain_not_retired(&mut self, retired: &HashSet<SurfaceId>) {
+        for workspace in &mut self.workspaces {
+            for screen in &mut workspace.screens {
+                for pane in &mut screen.panes {
+                    let active_surface = pane.tabs.get(pane.active_tab).map(|tab| tab.surface);
+                    pane.tabs.retain(|tab| !retired.contains(&tab.surface));
+                    pane.active_tab = active_surface
+                        .and_then(|surface| pane.tabs.iter().position(|tab| tab.surface == surface))
+                        .unwrap_or_else(|| pane.active_tab.min(pane.tabs.len().saturating_sub(1)));
+                }
+            }
+        }
+    }
+
     pub fn session_resource_selectors() -> ResourceSelectors {
         ResourceSelectors {
             machine: Some("current".to_string()),
@@ -294,6 +314,16 @@ pub fn tree_from_state_with_notifications(
                 .iter()
                 .map(|sid| TabView {
                     surface: *sid,
+                    public_id: state
+                        .surfaces
+                        .get(sid)
+                        .and_then(|surface| surface.resource_identity())
+                        .map(|identity| identity.tab_id.clone()),
+                    content_id: state
+                        .surfaces
+                        .get(sid)
+                        .and_then(|surface| surface.resource_identity())
+                        .map(|identity| identity.content_id.clone()),
                     terminal_id: state
                         .surfaces
                         .get(sid)
@@ -413,6 +443,22 @@ fn parse_pane(value: &Value) -> Option<PaneView> {
                     .filter_map(|tab| {
                         Some(TabView {
                             surface: tab.get("surface")?.as_u64()?,
+                            public_id: tab
+                                .get("tab_resource_id")
+                                .and_then(Value::as_str)
+                                .and_then(|value| TabPublicId::parse(value.to_string()).ok()),
+                            content_id: tab
+                                .get("content_resource_id")
+                                .and_then(Value::as_str)
+                                .and_then(|value| {
+                                    TerminalPublicId::parse(value.to_string())
+                                        .map(ContentPublicId::Terminal)
+                                        .or_else(|_| {
+                                            BrowserPublicId::parse(value.to_string())
+                                                .map(ContentPublicId::Browser)
+                                        })
+                                        .ok()
+                                }),
                             terminal_id: tab
                                 .get("terminal_resource_id")
                                 .and_then(Value::as_str)
@@ -600,6 +646,31 @@ mod tests {
 
         assert_eq!(screen.display_name(0), "0");
         assert_eq!(screen.display_name(9), "9");
+    }
+
+    #[test]
+    fn retain_not_retired_keeps_tabs_when_local_catalog_is_empty() {
+        // The fixture must be a COMPLETE tree: parse_tree drops
+        // underspecified workspaces/screens, and this test shipped with a
+        // minimal shape that parsed to an empty tree (the panic was masked
+        // in CI by a clippy failure earlier in the same job).
+        let mut tree = parse_tree(&json!({
+            "workspaces": [{
+                "id": 1, "active": true,
+                "screens": [{
+                    "id": 2, "active": true, "active_pane": 3,
+                    "layout": {"type": "leaf", "pane": 3},
+                    "panes": [{"id": 3, "active_tab": 1, "tabs": [
+                        {"surface": 7, "title": "a"},
+                        {"surface": 8, "title": "b"}
+                    ]}]
+                }]
+            }]
+        }));
+        tree.retain_not_retired(&HashSet::new());
+        let pane = &tree.workspaces[0].screens[0].panes[0];
+        assert_eq!(pane.tabs.len(), 2);
+        assert_eq!(pane.active_tab, 1);
     }
 
     #[test]
@@ -836,5 +907,22 @@ mod tests {
 
         assert!(!pane.tabs[0].supports_clear_history_key_fallback);
         assert!(pane.tabs[1].supports_clear_history_key_fallback);
+    }
+
+    #[test]
+    fn tree_parser_preserves_browser_source_and_rejects_unknown_values() {
+        let pane = parse_pane(&json!({
+            "id": 3,
+            "tabs": [
+                {"surface": 4, "kind": "browser", "browser_source": "external"},
+                {"surface": 5, "kind": "browser", "browser_source": "launched"},
+                {"surface": 6, "kind": "browser", "browser_source": "remote"}
+            ]
+        }))
+        .unwrap();
+
+        assert_eq!(pane.tabs[0].browser_source, Some(BrowserSource::External));
+        assert_eq!(pane.tabs[1].browser_source, Some(BrowserSource::Launched));
+        assert_eq!(pane.tabs[2].browser_source, None);
     }
 }

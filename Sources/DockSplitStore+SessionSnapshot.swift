@@ -17,6 +17,8 @@ extension DockSplitStore {
             return PIDPresence.current(pid: pid_t($0))
         }
     ) -> SessionSplitContainerSnapshot {
+        flushPendingTerminalTitleUpdates()
+        let notificationStore = resolvedNotificationStore()
         let layoutCodec = SessionSplitContainerLayoutCodec(controller: bonsplitController)
         let rawLayout = layoutCodec.snapshot(panelIdForTabId: { [self] in surfaceIdToPanelId[$0] })
         let orderedPanelIds = orderedSessionPanelIds()
@@ -44,21 +46,30 @@ extension DockSplitStore {
         let panelSnapshots = orderedPanelIds
             .prefix(SessionPersistencePolicy.maxPanelsPerWorkspace)
             .compactMap { panelId in
-                let transfer = detachedSurfaceTransfersByPanelId[panelId]
-                let observationWorkspaceId = transfer?.sessionRestoreWorkspaceId ?? workspaceId
+                // A Dock's owner UUID can change when its window/workspace is restored or
+                // when the panel moves between containers. The panel UUID is persisted,
+                // so select the newest safe record for that stable surface while preserving
+                // live process evidence for the current owner.
+                let observationWorkspaceId = detachedSurfaceTransfersByPanelId[panelId]?
+                    .sessionRestoreWorkspaceId ?? workspaceId
                 return sessionPanelSnapshot(
                     panelId: panelId,
                     includeScrollback: includeScrollback,
-                    observation: restorableAgentIndex?.entry(
+                    observation: restorableAgentIndex?.entryForStablePanel(
+                        workspaceId: observationWorkspaceId,
+                        panelId: panelId,
+                        processIdentityProvider: currentAgentProcessIdentity,
+                        processPresenceProvider: agentProcessPresence,
+                        revalidateProcessEvidence: false
+                    ),
+                    detectedResumeBinding: surfaceResumeBindingIndex?.bindingForStablePanel(
                         workspaceId: observationWorkspaceId,
                         panelId: panelId
                     ),
-                    detectedResumeBinding: surfaceResumeBindingIndex?.binding(
-                        workspaceId: observationWorkspaceId,
-                        panelId: panelId
-                    ),
+                    detectedResumeBindingIsAmbiguous: surfaceResumeBindingIndex?.hasAmbiguousPanel(panelId) == true,
                     terminalFontSizeSnapshotProjection:
                         terminalFontSizeSnapshotProjection,
+                    notificationStore: notificationStore,
                     currentAgentProcessIdentity: currentAgentProcessIdentity,
                     agentProcessPresence: agentProcessPresence
                 )
@@ -86,12 +97,34 @@ extension DockSplitStore {
         )
     }
 
+    /// Hashes the manual unread bits persisted for this global Dock's panels.
+    func sessionManualUnreadAutosaveFingerprint(
+        notificationStore: TerminalNotificationStore?
+    ) -> Int {
+        self.notificationStore = notificationStore
+        var hasher = Hasher()
+        let panelIds = Array(
+            orderedSessionPanelIds()
+                .prefix(SessionPersistencePolicy.maxPanelsPerWorkspace)
+        )
+        hasher.combine(panelIds.count)
+        for panelId in panelIds {
+            hasher.combine(panelId)
+            hasher.combine(notificationStore?.hasManualUnread(
+                forTabId: workspaceId,
+                surfaceId: panelId
+            ) ?? false)
+        }
+        return hasher.finalize()
+    }
+
     /// Captures one Dock panel for the Dock-local closed-item history without
     /// walking every other panel in the split tree.
     func closedPanelSessionSnapshot(
         panelId: UUID,
         restorableAgentIndex: RestorableAgentSessionIndex?
     ) -> SessionPanelSnapshot? {
+        flushPendingTerminalTitleUpdate(panelId: panelId)
         let transfer = detachedSurfaceTransfersByPanelId[panelId]
         let observationWorkspaceId =
             transfer?.sessionRestoreWorkspaceId ?? workspaceId
@@ -120,13 +153,27 @@ extension DockSplitStore {
         return sessionPanelSnapshot(
             panelId: panelId,
             includeScrollback: true,
-            observation: restorableAgentIndex?.entry(
+            observation: restorableAgentIndex?.entryForStablePanel(
                 workspaceId: observationWorkspaceId,
-                panelId: panelId
+                panelId: panelId,
+                processIdentityProvider: {
+                    guard $0 > 0, $0 <= Int(Int32.max) else { return nil }
+                    return AgentPIDProcessIdentity(pid: pid_t($0))
+                },
+                processPresenceProvider: {
+                    guard $0 > 0, $0 <= Int(Int32.max) else {
+                        return .absent
+                    }
+                    return PIDPresence.current(pid: pid_t($0))
+                },
+                revalidateProcessEvidence: false
             ),
             detectedResumeBinding: nil,
+            detectedResumeBindingIsAmbiguous:
+                surfaceResumeBindingsByPanelId[panelId]?.isProcessDetected == true,
             terminalFontSizeSnapshotProjection:
                 terminalFontSizeSnapshotProjection,
+            notificationStore: resolvedNotificationStore(),
             currentAgentProcessIdentity: {
                 guard $0 > 0, $0 <= Int(Int32.max) else { return nil }
                 return AgentPIDProcessIdentity(pid: pid_t($0))
@@ -163,27 +210,40 @@ extension DockSplitStore {
         includeScrollback: Bool,
         observation: RestorableAgentSessionIndex.Entry?,
         detectedResumeBinding: SurfaceResumeBindingSnapshot?,
+        detectedResumeBindingIsAmbiguous: Bool = false,
         terminalFontSizeSnapshotProjection:
             WorkspaceTerminalFontSizeSnapshotProjection?,
+        notificationStore: TerminalNotificationStore?,
         currentAgentProcessIdentity: (Int) -> AgentPIDProcessIdentity?,
         agentProcessPresence: (Int) -> PIDPresence
     ) -> SessionPanelSnapshot? {
         guard let panel = panels[panelId] else { return nil }
         let transfer = detachedSurfaceTransfersByPanelId[panelId]
         let tab = surfaceId(forPanelId: panelId).flatMap { bonsplitController.tab($0) }
-        let tabTitle = tab?.title
-        let customTitle = transfer?.customTitle ?? (tab?.hasCustomTitle == true ? tabTitle : nil)
+        let titleMetadata = resolvedDockTitleMetadata(
+            panel: panel,
+            transfer: transfer,
+            tab: tab
+        )
         let directory = sessionWorkingDirectory(panel: panel, transfer: transfer)
+        let isManuallyUnread = scope == .global
+            ? notificationStore?.hasManualUnread(
+                forTabId: workspaceId,
+                surfaceId: panelId
+            ) == true
+            : manualUnreadPanelIds.contains(panelId)
 
         let terminalSnapshot: SessionTerminalPanelSnapshot?
         let browserSnapshot: SessionBrowserPanelSnapshot?
+        let filePreviewSnapshot: SessionFilePreviewPanelSnapshot?
         switch panel.panelType {
         case .terminal:
             guard let terminal = panel as? TerminalPanel else { return nil }
             let managedResumeBinding = managedAgentResumeBinding(panelId: panelId)
             let resumeBinding = effectiveSessionResumeBinding(
                 panelId: panelId,
-                detected: detectedResumeBinding
+                detected: detectedResumeBinding,
+                detectedIsAmbiguous: detectedResumeBindingIsAmbiguous
             )
             let restorableAgent = effectiveSessionRestorableAgent(
                 panelId: panelId,
@@ -285,6 +345,7 @@ extension DockSplitStore {
                 wasAgentRunning: agentWasRunning
             )
             browserSnapshot = nil
+            filePreviewSnapshot = nil
         case .browser:
             guard let browser = panel as? BrowserPanel, browser.shouldPersistSessionSnapshot() else {
                 return nil
@@ -299,12 +360,23 @@ extension DockSplitStore {
                 pageZoom: Double(browser.currentPageZoomFactor()),
                 developerToolsVisible: browser.isDeveloperToolsVisible(),
                 isMuted: browser.isMuted,
+                chromeVisibility: browser.chromeVisibility,
                 omnibarVisible: browser.isOmnibarVisible,
                 backHistoryURLStrings: history.backHistoryURLStrings,
                 forwardHistoryURLStrings: history.forwardHistoryURLStrings,
                 transparentBackground: browser.sessionSnapshotTransparentBackground,
                 diffViewerToken: diffViewer?.token,
                 diffViewerRequestPath: diffViewer?.requestPath
+            )
+            filePreviewSnapshot = nil
+        case .filePreview:
+            guard let filePreview = panel as? FilePreviewPanel else {
+                return nil
+            }
+            terminalSnapshot = nil
+            browserSnapshot = nil
+            filePreviewSnapshot = SessionFilePreviewPanelSnapshot(
+                filePath: filePreview.filePath
             )
         default:
             return nil
@@ -314,19 +386,19 @@ extension DockSplitStore {
             id: panelId,
             stableSurfaceId: panel.stableSurfaceId,
             type: panel.panelType,
-            title: tabTitle ?? panel.displayTitle,
-            customTitle: customTitle,
-            customTitleSource: transfer?.customTitleSource ?? (customTitle == nil ? nil : .user),
+            title: titleMetadata.title,
+            customTitle: titleMetadata.customTitle,
+            customTitleSource: titleMetadata.customTitleSource,
             directory: directory,
             directoryIsTrustedRemoteReport: transfer?.directoryIsTrustedRemoteReport,
-            isPinned: false,
-            isManuallyUnread: transfer?.manuallyUnread ?? false,
+            isPinned: tab?.isPinned ?? transfer?.isPinned ?? false,
+            isManuallyUnread: isManuallyUnread,
             listeningPorts: [],
             ttyName: transfer?.ttyName,
             terminal: terminalSnapshot,
             browser: browserSnapshot,
             markdown: nil,
-            filePreview: nil,
+            filePreview: filePreviewSnapshot,
             rightSidebarTool: nil
         )
     }
@@ -354,7 +426,8 @@ extension DockSplitStore {
 
     private func effectiveSessionResumeBinding(
         panelId: UUID,
-        detected: SurfaceResumeBindingSnapshot?
+        detected: SurfaceResumeBindingSnapshot?,
+        detectedIsAmbiguous: Bool
     ) -> SurfaceResumeBindingSnapshot? {
         let stored = surfaceResumeBindingsByPanelId[panelId]
         if let stored,
@@ -368,13 +441,21 @@ extension DockSplitStore {
         } else if let detected {
             effective = detected
         } else if stored?.isProcessDetected == true {
-            effective = nil
+            effective = detectedIsAmbiguous
+                ? stored?.disablingAutomaticResume()
+                : nil
         } else {
             effective = stored
         }
         if let effective {
+            guard surfaceResumeBindingMutationAllowed(effective, panelId: panelId) else {
+                return stored
+            }
             surfaceResumeBindingsByPanelId[panelId] = effective
         } else {
+            guard surfaceResumeBindingRemovalAllowed(panelId: panelId) else {
+                return stored
+            }
             surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
         }
         return effective
@@ -417,7 +498,7 @@ extension DockSplitStore {
             }
             return candidate
         }()
-        let compatible = [
+        let compatibleCandidate = [
             terminal.agentHibernationState?.agent,
             observed,
             coordinated,
@@ -432,8 +513,12 @@ extension DockSplitStore {
                 resumeBinding: agentCompatibilityBinding
             )
         }.first
+        let compatible = restoredAgentLifecycle.reconcileSnapshotWithQueuedRestoreIntent(
+            panelId: panelId,
+            proposedSnapshot: compatibleCandidate
+        )
         if let compatible {
-            restoredAgentLifecycle.snapshotsByPanelId[panelId] = compatible
+            restoredAgentLifecycle.setSnapshot(compatible, panelId: panelId)
         }
         return compatible
     }
@@ -451,6 +536,12 @@ extension DockSplitStore {
         let managedBinding = managedResumeBinding
             ?? resumeBinding.flatMap { $0.isAgentHookBinding ? $0 : nil }
         guard restorableAgent != nil || managedBinding != nil else { return nil }
+        if restoredAgentLifecycle.hasQueuedRestoreIntent(
+            panelId: terminal.id,
+            matching: restorableAgent
+        ) {
+            return true
+        }
         let expectedKind = managedBinding != nil
             ? managedBinding?.kind.flatMap {
                 RestorableAgentKind(
@@ -462,18 +553,14 @@ extension DockSplitStore {
         let expectedSessionId = managedBinding != nil
             ? managedBinding?.checkpointId
             : restorableAgent?.sessionId
-        let relevantObservation = observation.flatMap { entry -> RestorableAgentSessionIndex.Entry? in
-            guard let expectedKind,
-                  let expectedSessionId,
-                  entry.snapshot.kind.rawValue == expectedKind.rawValue,
-                  ManagedAgentSessionIdentity.sessionIDsMatch(
-                      kind: expectedKind.rawValue,
-                      lhs: entry.snapshot.sessionId,
-                      rhs: expectedSessionId
-                  ) else {
-                return nil
-            }
-            return entry
+        let relevantObservation: RestorableAgentSessionIndex.Entry?
+        if let expectedKind, let expectedSessionId {
+            relevantObservation = observation?.matchingAgentSession(
+                kind: expectedKind.rawValue,
+                sessionId: expectedSessionId
+            )
+        } else {
+            relevantObservation = nil
         }
         let confirmedRuntimeIdentities: Set<AgentPIDProcessIdentity> = {
             guard let expectedKind, expectedKind != .claude,

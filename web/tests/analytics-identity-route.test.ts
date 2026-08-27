@@ -49,4 +49,23 @@ describe("analytics identity route", () => {
     await expect(response.json()).resolves.toEqual({ user: null });
     expect(getUser).not.toHaveBeenCalled();
   });
+
+  test("returns a bounded unavailable response when Stack Auth is down", async () => {
+    const GET = makeAnalyticsIdentityHandler({
+      isConfigured: () => true,
+      getUser: async () => {
+        throw new Error("Stack Auth unavailable");
+      },
+    });
+
+    const response = await GET(
+      new Request("https://cmux.test/api/analytics/identity"),
+    );
+
+    expect(response.status).toBe(503);
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+    await expect(response.json()).resolves.toEqual({
+      error: "analytics_identity_unavailable",
+    });
+  });
 });

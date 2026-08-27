@@ -44,6 +44,7 @@ pub(super) fn handles(operation: ResourceOperation) -> bool {
             | ResourceOperation::TerminalStateRead
             | ResourceOperation::TerminalHistoryRead
             | ResourceOperation::TerminalHistoryClear
+            | ResourceOperation::TerminalOutputRead
             | ResourceOperation::TerminalWait
             | ResourceOperation::TerminalWaitExit
             | ResourceOperation::TerminalCopy
@@ -73,6 +74,7 @@ pub(super) fn dispatch(
         ResourceOperation::TerminalScreenRead => terminal_screen_read(mux, &request),
         ResourceOperation::TerminalStateRead => terminal_state_read(mux, &request),
         ResourceOperation::TerminalHistoryRead => terminal_history_read(mux, &request),
+        ResourceOperation::TerminalOutputRead => terminal_output_read(mux, &request),
         ResourceOperation::TerminalWait => terminal_wait(mux, &request),
         ResourceOperation::TerminalWaitExit => terminal_wait_exit(mux, &request),
         ResourceOperation::TerminalCopy => terminal_copy(mux, &request),
@@ -189,6 +191,22 @@ fn terminal_history_read(
         "next":next.map(|value| value.to_string()),
         "rows":rows,
     }))
+}
+
+/// Bounded plain-text window over one terminal's journaled output stream.
+/// Unlike the other content reads it does not require a live surface: like
+/// `terminal.wait_exit` it resolves through the durable exit receipt, so it
+/// answers for exited terminals under both exit policies (kept views and
+/// detached ones).
+fn terminal_output_read(
+    mux: &Arc<Mux>,
+    request: &ParsedResourceRequest,
+) -> Result<Value, ResourceError> {
+    let terminal_id = resolve_terminal_wait_exit_id(mux, &request.selectors)?;
+    let after = optional_decimal(&request.fields, "after")?;
+    // The catalog injects the default and enforces the 1..=4 MiB bounds.
+    let max_bytes = required_u64(&request.fields, "max_bytes")?;
+    mux.terminal_output_read(&terminal_id, after, max_bytes).map_err(resource_operation_error)
 }
 
 fn terminal_wait(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Value, ResourceError> {
@@ -312,6 +330,7 @@ fn terminal_process_get(
         "pid":pid,
         "argv":argv,
         "children":children,
+        "foreground_cwd":crate::platform::foreground_cwd(pid),
     });
     if let Some(executable) = executable {
         value["executable"] = json!(executable);
@@ -607,6 +626,7 @@ fn targeted_browser_effect_projection(
         browser.source = match source {
             BrowserSource::External => RegistryBrowserSource::External,
             BrowserSource::Launched => RegistryBrowserSource::Launched,
+            BrowserSource::Provider => RegistryBrowserSource::External,
         };
     }
     browser.status = match &status {
@@ -1622,6 +1642,7 @@ mod tests {
             ResourceOperation::TerminalStateRead,
             ResourceOperation::TerminalHistoryRead,
             ResourceOperation::TerminalHistoryClear,
+            ResourceOperation::TerminalOutputRead,
             ResourceOperation::TerminalWait,
             ResourceOperation::TerminalWaitExit,
             ResourceOperation::TerminalCopy,
@@ -2048,7 +2069,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn terminal_wait_exit_resolves_detached_id_after_exit_upsert_then_delete() {
+    fn terminal_wait_exit_resolves_detached_id_after_exit_upsert() {
         let (mux, _surface, selectors) = terminal_fixture(Some(vec!["fake-shell".into()]));
         let public_id = TerminalPublicId::parse(selectors.terminal.as_deref().unwrap()).unwrap();
         let before = public_session_snapshot(&mux).unwrap()["cursor"]["revision"]
@@ -2078,7 +2099,16 @@ mod tests {
         assert_eq!(exited["exited_at"], "3456789");
 
         let snapshot = public_session_snapshot(&mux).unwrap();
-        assert_eq!(snapshot["terminals"], json!([]));
+        let terminals = snapshot["terminals"].as_array().unwrap();
+        assert_eq!(terminals.len(), 1);
+        let terminal = &terminals[0];
+        assert_eq!(terminal["id"], public_id.as_str());
+        assert_eq!(terminal["lifecycle"], "exited");
+        assert_eq!(terminal["running"], false);
+        assert_eq!(terminal["tab_id"], Value::Null);
+        assert_eq!(terminal["tab_ids"], json!([]));
+        assert_eq!(terminal["exit"]["outcome"], exited["outcome"]);
+        assert_eq!(terminal["exit"]["exited_at"], exited["exited_at"]);
         let events = mux.resource_events_after(before).unwrap();
         assert_eq!(events.batches.len(), 1);
         let exit_changes = events.batches[0].changes.as_array().unwrap();
@@ -2093,7 +2123,7 @@ mod tests {
         assert_eq!(exit_upsert["value"]["lifecycle"], "exited");
         assert_eq!(exit_upsert["value"]["exit"]["outcome"], exited["outcome"]);
         assert_eq!(exit_upsert["sequence"], 0);
-        assert!(exit_changes.iter().any(|change| {
+        assert!(!exit_changes.iter().any(|change| {
             change["resource"] == "terminal"
                 && change["id"] == public_id.as_str()
                 && change["kind"] == "delete"
@@ -2108,7 +2138,7 @@ mod tests {
         .unwrap_err();
         assert_eq!(error.code, "selector.not_found");
 
-        let mut unknown = selectors.clone();
+        let mut unknown = selectors;
         unknown.terminal = Some("term_ffffffffffffffffffffffffffffffff".into());
         let error = dispatch(
             &mux,
@@ -2324,6 +2354,8 @@ mod tests {
         assert!(process["pid"].is_u64());
         assert!(process["children"].is_array());
         assert!(process.get("cwd").is_none_or(Value::is_string));
+        let foreground = process.get("foreground_cwd").expect("foreground_cwd is present");
+        assert!(foreground.is_null() || foreground.is_string());
     }
 
     #[test]
@@ -2405,7 +2437,7 @@ mod tests {
     }
 
     #[test]
-    fn terminal_viewport_scroll_uses_one_bounded_receipt_without_session_journal_churn() {
+    fn terminal_viewport_scroll_uses_one_bounded_receipt_and_one_journal_outcome() {
         let (mux, surface, selectors) = terminal_fixture(None);
         surface
             .try_with_terminal(|terminal| {
@@ -2420,6 +2452,7 @@ mod tests {
         let revision = mux.with_state(|state| state.resource_revision);
         let terminal_revision = mux.terminal_registry_snapshot().unwrap().revision;
         let event_epoch = mux.resource_event_epoch();
+        let journal_head = mux.session_journal_after(0, 1).unwrap().head_sequence;
         let mutation_count = mux.resource_mutation_count_for_test().unwrap();
         let request = || {
             parsed_request(
@@ -2451,9 +2484,13 @@ mod tests {
         );
         assert_eq!(mux.with_state(|state| state.resource_revision), revision);
         assert_eq!(mux.terminal_registry_snapshot().unwrap().revision, terminal_revision);
-        assert_eq!(mux.resource_event_epoch(), event_epoch);
+        assert_eq!(mux.resource_event_epoch(), event_epoch + 1);
         assert!(mux.resource_events_after(revision).unwrap().batches.is_empty());
         assert_eq!(mux.resource_mutation_count_for_test().unwrap(), mutation_count);
+        let journal = mux.session_journal_after(journal_head, 2).unwrap();
+        assert_eq!(journal.records.len(), 1);
+        assert_eq!(journal.records[0].kind, "terminal.viewport.scroll.effect.succeeded");
+        let effect_sequence = journal.records[0].sequence;
 
         let replay = dispatch(&mux, request()).unwrap();
         assert_eq!(replay["value"], first["value"]);
@@ -2466,7 +2503,8 @@ mod tests {
             "receipt replay must not apply the viewport delta twice"
         );
         assert_eq!(mux.with_state(|state| state.resource_revision), revision);
-        assert_eq!(mux.resource_event_epoch(), event_epoch);
+        assert_eq!(mux.resource_event_epoch(), event_epoch + 1);
+        assert!(mux.session_journal_after(effect_sequence, 1).unwrap().records.is_empty());
         assert_eq!(mux.resource_mutation_count_for_test().unwrap(), mutation_count);
 
         let closed = dispatch(

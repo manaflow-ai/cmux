@@ -103,23 +103,28 @@ import Testing
 
         continuation.finish()
         let recorded = await collect(events)
-        #expect(recorded.count == 4)
-        guard recorded.count == 4 else {
+        #expect(recorded.count == 5)
+        guard recorded.count == 5 else {
             await session.tearDown(error: .connectionClosed)
             return
         }
         guard case let .attempt(firstAttemptID, _) = recorded[0],
-              case let .failed(abandonedID, abandonedTransport, abandonedFailure, _) = recorded[1],
-              case let .attempt(secondAttemptID, _) = recorded[2],
-              case let .connected(connectedID, _, _) = recorded[3] else {
-            Issue.record("Expected attempt, failed(cancelled), attempt, connected")
+              case let .cancelled(cancelledID, cancelledTransport, cancellationReason, _) = recorded[1],
+              case let .failed(abandonedID, abandonedTransport, abandonedFailure, _) = recorded[2],
+              case let .attempt(secondAttemptID, _) = recorded[3],
+              case let .connected(connectedID, _, _, sessionID) = recorded[4] else {
+            Issue.record("Expected attempt, cancelled(reason), failed(cancelled), attempt, connected")
             await session.tearDown(error: .connectionClosed)
             return
         }
         #expect(abandonedID == firstAttemptID)
+        #expect(cancelledID == firstAttemptID)
+        #expect(cancelledTransport == .debugLoopback)
+        #expect(cancellationReason == .requestCancelled)
         #expect(abandonedTransport == .debugLoopback)
         #expect(abandonedFailure == .cancelled)
         #expect(connectedID == secondAttemptID)
+        #expect(sessionID == nil)
         await session.tearDown(error: .connectionClosed)
     }
 
@@ -149,6 +154,36 @@ import Testing
         )
     }
 
+    @Test func connectedDialCarriesAdmittedSessionLink() async throws {
+        let transport = LinkedDiagnosticSessionTransport(sessionID: 91)
+        let (events, continuation) = AsyncStream<MobileRPCTransportConnectEvent>.makeStream()
+        let session = MobileCoreRPCSession(
+            makeTransport: { transport },
+            diagnosticTransport: .iroh,
+            transportConnectObserver: { event in _ = continuation.yield(event) }
+        )
+        let request = try MobileCoreRPCClient.requestData(
+            method: "mobile.host.status",
+            id: "linked-session"
+        )
+        _ = try await session.send(
+            payload: request,
+            requestID: "linked-session",
+            deadlineUptimeNanoseconds: DispatchTime.now().uptimeNanoseconds
+                + 5 * 1_000_000_000
+        )
+        await session.tearDown(error: .connectionClosed)
+        continuation.finish()
+        let recorded = await collect(events)
+        #expect(recorded.count == 2)
+        guard case .attempt = recorded[0],
+              case let .connected(_, _, _, sessionID) = recorded[1] else {
+            Issue.record("Expected attempt followed by connected")
+            return
+        }
+        #expect(sessionID == 91)
+    }
+
     private func collect(
         _ stream: AsyncStream<MobileRPCTransportConnectEvent>
     ) async -> [MobileRPCTransportConnectEvent] {
@@ -158,6 +193,27 @@ import Testing
         }
         return events
     }
+}
+
+private actor LinkedDiagnosticSessionTransport:
+    CmxByteTransportDiagnosticSessionIdentifying
+{
+    private let base: ControllableResponseTransport
+    private let sessionID: Int
+
+    init(sessionID: Int) {
+        self.base = ControllableResponseTransport(
+            closeEndsReceive: true,
+            automaticallyRespondingRequestIDs: ["linked-session"]
+        )
+        self.sessionID = sessionID
+    }
+
+    func connect() async throws { try await base.connect() }
+    func receive() async throws -> Data? { try await base.receive() }
+    func send(_ data: Data) async throws { try await base.send(data) }
+    func close() async { await base.close() }
+    func transportDiagnosticSessionID() async -> Int? { sessionID }
 }
 
 private actor MobileRPCConnectCancellationSignal {

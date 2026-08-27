@@ -24,7 +24,7 @@ struct SimulatorAppearanceToolsContent: View {
 
     var body: some View {
         SimulatorToolSection(simulatorStrings.appearance) {
-            Picker(simulatorStrings.appearance, selection: $appearance) {
+            SimulatorLocalizedPicker(simulatorStrings.appearance, selection: $appearance) {
                 Text(simulatorStrings.light).tag(SimulatorInterfaceSetting.Appearance.light)
                 Text(simulatorStrings.dark).tag(SimulatorInterfaceSetting.Appearance.dark)
             }
@@ -34,7 +34,7 @@ struct SimulatorAppearanceToolsContent: View {
                     await $0.setInterface(.appearance(value))
                 }
             }
-            Picker(simulatorStrings.contentSize, selection: $contentSize) {
+            SimulatorLocalizedPicker(simulatorStrings.contentSize, selection: $contentSize) {
                 ForEach(SimulatorInterfaceSetting.ContentSize.allCases, id: \.rawValue) { size in
                     Text(simulatorStrings.contentSize(size)).tag(size)
                 }
@@ -45,14 +45,14 @@ struct SimulatorAppearanceToolsContent: View {
                     await $0.setInterface(.contentSize(value))
                 }
             }
-            Toggle(simulatorStrings.increaseContrast, isOn: $increaseContrast)
+            SimulatorLocalizedToggle(simulatorStrings.increaseContrast, isOn: $increaseContrast)
                 .onChange(of: increaseContrast) { _, value in
                     guard coordinator.interfaceStatus?.increaseContrast != value else { return }
                     coordinator.scheduleControlAction("interface-contrast") {
                         await $0.setInterface(.increaseContrast(value))
                     }
                 }
-            Picker(simulatorStrings.liquidGlass, selection: $liquidGlass) {
+            SimulatorLocalizedPicker(simulatorStrings.liquidGlass, selection: $liquidGlass) {
                 Text(simulatorStrings.clear).tag(SimulatorInterfaceSetting.LiquidGlass.clear)
                 Text(simulatorStrings.tinted).tag(SimulatorInterfaceSetting.LiquidGlass.tinted)
             }
@@ -62,7 +62,7 @@ struct SimulatorAppearanceToolsContent: View {
                     await $0.setInterface(.liquidGlass(value))
                 }
             }
-            Picker(simulatorStrings.colorFilter, selection: $colorFilter) {
+            SimulatorLocalizedPicker(simulatorStrings.colorFilter, selection: $colorFilter) {
                 ForEach(SimulatorInterfaceSetting.ColorFilter.allCases, id: \.rawValue) { filter in
                     Text(simulatorStrings.colorFilter(filter)).tag(filter)
                 }
@@ -96,12 +96,12 @@ struct SimulatorAppearanceToolsContent: View {
             Divider()
             TextField(String(localized: simulatorStrings.statusTime), text: $time)
             TextField(String(localized: simulatorStrings.carrier), text: $carrier)
-            Picker(simulatorStrings.dataNetwork, selection: $dataNetwork) {
+            SimulatorLocalizedPicker(simulatorStrings.dataNetwork, selection: $dataNetwork) {
                 ForEach(SimulatorStatusBarOverride.DataNetwork.allCases, id: \.rawValue) { value in
                     Text(simulatorStrings.dataNetwork(value)).tag(value)
                 }
             }
-            Picker(simulatorStrings.wifiMode, selection: $wifiMode) {
+            SimulatorLocalizedPicker(simulatorStrings.wifiMode, selection: $wifiMode) {
                 ForEach(SimulatorStatusBarOverride.ConnectionMode.allCases, id: \.rawValue) { value in
                     Text(simulatorStrings.connection(value)).tag(value)
                 }
@@ -109,7 +109,7 @@ struct SimulatorAppearanceToolsContent: View {
             LabeledContent(String(localized: simulatorStrings.wifiBars)) {
                 Stepper(value: $wifiBars, in: 0...3) { Text(verbatim: "\(wifiBars)") }
             }
-            Picker(simulatorStrings.cellularMode, selection: $cellularMode) {
+            SimulatorLocalizedPicker(simulatorStrings.cellularMode, selection: $cellularMode) {
                 ForEach(SimulatorStatusBarOverride.CellularMode.allCases, id: \.rawValue) { value in
                     Text(simulatorStrings.cellular(value)).tag(value)
                 }
@@ -117,7 +117,7 @@ struct SimulatorAppearanceToolsContent: View {
             LabeledContent(String(localized: simulatorStrings.cellularBars)) {
                 Stepper(value: $cellularBars, in: 0...4) { Text(verbatim: "\(cellularBars)") }
             }
-            Picker(simulatorStrings.batteryState, selection: $batteryState) {
+            SimulatorLocalizedPicker(simulatorStrings.batteryState, selection: $batteryState) {
                 ForEach(SimulatorStatusBarOverride.BatteryState.allCases, id: \.rawValue) { value in
                     Text(simulatorStrings.battery(value)).tag(value)
                 }
@@ -126,7 +126,7 @@ struct SimulatorAppearanceToolsContent: View {
                 Stepper(value: $battery, in: 0...100) { Text(verbatim: "\(battery)%") }
             }
             HStack {
-                Button(simulatorStrings.applyStatusBar) {
+                SimulatorLocalizedButton(simulatorStrings.applyStatusBar) {
                     coordinator.scheduleControlAction("status-bar") {
                         await $0.overrideStatusBar(SimulatorStatusBarOverride(
                             time: time,
@@ -141,7 +141,7 @@ struct SimulatorAppearanceToolsContent: View {
                         ))
                     }
                 }
-                Button(simulatorStrings.clearStatusBar) {
+                SimulatorLocalizedButton(simulatorStrings.clearStatusBar) {
                     coordinator.scheduleControlAction("status-bar") { await $0.clearStatusBar() }
                 }
             }
@@ -161,7 +161,7 @@ struct SimulatorAppearanceToolsContent: View {
         current: Bool? = nil,
         setting: @escaping @Sendable (Bool) -> SimulatorInterfaceSetting
     ) -> some View {
-        Toggle(title, isOn: value)
+        SimulatorLocalizedToggle(title, isOn: value)
             .onChange(of: value.wrappedValue) { _, enabled in
                 guard current != enabled else { return }
                 coordinator.scheduleControlAction("interface-\(String(describing: title))") {

@@ -13,6 +13,8 @@ fileprivate struct QueuedTerminalNotification: Sendable {
     let subtitle: String
     let body: String
     let replyShape: TerminalNotificationReplyShape
+    let agent: TerminalNotificationPolicyAgentContext?
+    let correlationKey: String?
 }
 
 fileprivate enum TerminalSocketMutation {
@@ -20,6 +22,7 @@ fileprivate enum TerminalSocketMutation {
     case clearAllNotifications(through: UInt64)
     case clearNotificationsForTab(UUID, through: UInt64)
     case clearNotificationsForSurface(UUID, UUID, through: UInt64)
+    case clearNotificationsForCorrelation(UUID, UUID, String, through: UInt64)
     case perform(@MainActor () -> Void)
 }
 
@@ -33,16 +36,20 @@ fileprivate struct TerminalSocketMutationEntry {
 
 /// Identity for last-write-wins `.perform` mutations: a fresh enqueue removes
 /// the pending same-key entry, bounding `pending` at one entry per key even
-/// while the main actor is blocked and cannot drain.
-struct TerminalMutationReplaceKey: Hashable, Sendable {
-    enum Kind: Hashable, Sendable {
-        case shellActivity, gitBranch, directory
+/// while the main actor is blocked and cannot drain. Shell activity is keyed
+/// by logical surface; caller-supplied process generations are admission data,
+/// never an extra queue dimension.
+enum TerminalMutationReplaceKey: Hashable, Sendable {
+    enum ScopedKind: Hashable, Sendable {
+        case gitBranch, directory
         case portsKick(PortScanKickReason)
     }
 
-    let tabId: UUID
-    let surfaceId: UUID
-    let kind: Kind
+    /// Shell reports follow a live surface across workspace and Dock moves, so
+    /// their queue identity is the globally stable surface id alone.
+    case shellActivity(surfaceId: UUID)
+    /// Metadata whose mutation closure still resolves the claimed workspace.
+    case scoped(tabId: UUID, surfaceId: UUID, kind: ScopedKind)
 }
 
 fileprivate struct TerminalNotificationCoalescingKey: Hashable {
@@ -70,6 +77,8 @@ final class TerminalMutationBus: @unchecked Sendable {
         subtitle: String,
         body: String,
         replyShape: TerminalNotificationReplyShape = .none,
+        agent: TerminalNotificationPolicyAgentContext? = nil,
+        correlationKey: String? = nil,
         coalesces: Bool = true
     ) {
         enqueueNotification(QueuedTerminalNotification(
@@ -77,7 +86,9 @@ final class TerminalMutationBus: @unchecked Sendable {
             title: title,
             subtitle: subtitle,
             body: body,
-            replyShape: replyShape
+            replyShape: replyShape,
+            agent: agent,
+            correlationKey: correlationKey
         ), coalesces: coalesces)
     }
 
@@ -97,6 +108,23 @@ final class TerminalMutationBus: @unchecked Sendable {
         // Canonical surface identity: a stale-keyed entry would retarget here at drain.
         enqueueClear({ .clearNotificationsForSurface(tabId, surfaceId, through: $0) }) { notification in
             notification.key.surfaceId == surfaceId
+        }
+    }
+
+    /// Clears one surface notification by its opaque producer correlation
+    /// key. The key is part of the pending entry, so this removes only the
+    /// request being reconciled even when a newer notification is queued on
+    /// the same surface.
+    nonisolated func enqueueClearNotifications(
+        forTabId tabId: UUID,
+        surfaceId: UUID,
+        correlationKey: String
+    ) {
+        enqueueClear({
+            .clearNotificationsForCorrelation(tabId, surfaceId, correlationKey, through: $0)
+        }) { notification in
+            notification.key.surfaceId == surfaceId
+                && notification.correlationKey == correlationKey
         }
     }
 
@@ -124,6 +152,18 @@ final class TerminalMutationBus: @unchecked Sendable {
         discardPendingNotifications { notification, generation in
             notification.key.tabId == tabId
                 && notification.key.surfaceId == surfaceId
+                && generation <= boundary
+        }
+    }
+
+    nonisolated func discardPendingNotifications(
+        forSurfaceId surfaceId: UUID,
+        correlationKey: String,
+        through boundary: UInt64
+    ) {
+        discardPendingNotifications { notification, generation in
+            notification.key.surfaceId == surfaceId
+                && notification.correlationKey == correlationKey
                 && generation <= boundary
         }
     }
@@ -293,12 +333,21 @@ final class TerminalMutationBus: @unchecked Sendable {
     /// mutation with the same `replaceKey` before appending, so the survivor
     /// applies at its new enqueue position (the notification coalescing
     /// semantics above, for `.perform` mutations).
+    ///
+    /// `shouldEnqueue` executes synchronously while the bus ordering lock is
+    /// held. It must remain bounded and must not call back into this bus.
+    @discardableResult
     nonisolated func enqueueReplacingMainActorMutation(
         replaceKey: TerminalMutationReplaceKey,
+        admitting shouldEnqueue: () -> Bool = { true },
         _ mutation: @escaping @MainActor () -> Void
-    ) {
+    ) -> Bool {
         let shouldScheduleDrain: Bool
         lock.lock()
+        guard shouldEnqueue() else {
+            lock.unlock()
+            return false
+        }
         pending.removeAll { $0.performReplaceKey == replaceKey }
         nextSequence &+= 1
         pending.append(TerminalSocketMutationEntry(
@@ -314,8 +363,10 @@ final class TerminalMutationBus: @unchecked Sendable {
         }
         lock.unlock()
 
-        guard shouldScheduleDrain else { return }
-        scheduleDrain()
+        if shouldScheduleDrain {
+            scheduleDrain()
+        }
+        return true
     }
 
     private func discardPendingNotifications(
@@ -444,6 +495,8 @@ final class TerminalMutationBus: @unchecked Sendable {
                     subtitle: notification.subtitle,
                     body: notification.body,
                     replyShape: notification.replyShape,
+                    agent: notification.agent,
+                    correlationKey: notification.correlationKey,
                     notificationGeneration: entry.notificationGeneration ?? 0
                 )
             case .clearAllNotifications(let boundary):
@@ -459,6 +512,13 @@ final class TerminalMutationBus: @unchecked Sendable {
                     forTabId: tabId,
                     surfaceId: surfaceId,
                     discardQueuedNotifications: false,
+                    throughNotificationGeneration: boundary
+                )
+            case .clearNotificationsForCorrelation(let tabId, let surfaceId, let correlationKey, let boundary):
+                TerminalNotificationStore.shared.clearNotifications(
+                    forTabId: tabId,
+                    surfaceId: surfaceId,
+                    correlationKey: correlationKey,
                     throughNotificationGeneration: boundary
                 )
             case .perform(let mutation):

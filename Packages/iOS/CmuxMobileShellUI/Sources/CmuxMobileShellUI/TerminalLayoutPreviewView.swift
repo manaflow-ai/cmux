@@ -97,7 +97,6 @@ struct TerminalLayoutPreviewView: View {
                             .mobileGlassNavigationTitle()
                     }
                     ToolbarItemGroup(placement: .topBarTrailing) {
-                        Image(systemName: "bubble.left.and.bubble.right")
                         Image(systemName: "terminal")
                     }
                     if ProcessInfo.processInfo.environment["CMUX_UITEST_ALT_SCREEN_NOTICE_PREVIEW"] == "1",

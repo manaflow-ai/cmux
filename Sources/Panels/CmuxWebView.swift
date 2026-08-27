@@ -13,6 +13,21 @@ final class CmuxWebView: WKWebView {
     var browserViewportModel: BrowserViewportModel?
     var onBrowserViewportHierarchyChanged: (() -> Void)?
 
+    /// One-shot app-owned internal navigations (file/data/blob/etc.) that
+    /// must pass the browser URL policy's trusted-load seam. Page callbacks
+    /// never add to this set.
+    private var trustedInternalNavigationURLs: Set<String> = []
+
+    @MainActor
+    func markTrustedInternalNavigation(_ url: URL) {
+        trustedInternalNavigationURLs.insert(url.absoluteString)
+    }
+
+    @MainActor
+    func consumeTrustedInternalNavigation(_ url: URL) -> Bool {
+        trustedInternalNavigationURLs.remove(url.absoluteString) != nil
+    }
+
     // WebKit registers web-content edit commands on the view's `undoManager`;
     // owning one per web view keeps every page's undo stack scoped to this
     // view's lifetime instead of the window's shared undo manager.
@@ -270,6 +285,8 @@ final class CmuxWebView: WKWebView {
     private static let pasteAsPlainTextKeyCode: UInt16 = 9 // V key (hardware position, layout-independent)
     var onContextMenuDownloadStateChanged: ((Bool) -> Void)?
     var onSessionDownloadEvent: (([String: Any]) -> Void)?
+    /// Called after a page or section screenshot is written to the pasteboard.
+    var onScreenshotCopied: (() -> Void)?
     private lazy var sessionDownloadSaver = BrowserSessionDownloadSaver(
         parentWindow: { [weak self] in self?.window },
         notifyDownloadState: { [weak self] in self?.notifyContextMenuDownloadState($0) },
@@ -1324,34 +1341,8 @@ final class CmuxWebView: WKWebView {
             || action == #selector(contextMenuDownloadLinkedFile(_:))
     }
 
-    private func resolveGoogleRedirectURL(_ url: URL) -> URL? {
-        guard let host = url.host?.lowercased(), host.contains("google.") else { return nil }
-        guard let comps = URLComponents(url: url, resolvingAgainstBaseURL: false),
-              let queryItems = comps.queryItems else { return nil }
-        let map = Dictionary(uniqueKeysWithValues: queryItems.map { ($0.name.lowercased(), $0.value ?? "") })
-        let candidates = ["imgurl", "mediaurl", "url", "q"]
-        for key in candidates {
-            guard let raw = map[key], !raw.isEmpty,
-                  let decoded = raw.removingPercentEncoding ?? raw as String?,
-                  let candidate = URL(string: decoded),
-                  isDownloadableScheme(candidate) else {
-                continue
-            }
-            return candidate
-        }
-        // Some links are wrapped as /url?...
-        if comps.path.lowercased() == "/url" {
-            for key in ["url", "q"] {
-                if let raw = map[key], let candidate = URL(string: raw), isDownloadableScheme(candidate) {
-                    return candidate
-                }
-            }
-        }
-        return nil
-    }
-
     private func normalizedLinkedDownloadURL(_ url: URL) -> URL {
-        resolveGoogleRedirectURL(url) ?? url
+        BrowserDownloadURLNormalizer().normalize(url)
     }
 
     private func isLikelyFaviconURL(_ url: URL) -> Bool {
@@ -2042,15 +2033,8 @@ final class CmuxWebView: WKWebView {
         _ payload: BrowserImageCopyPasteboardPayload,
         expectedPasteboardChangeCount: Int,
         traceID: String
-    ) -> (wrote: Bool, shouldFallback: Bool) {
+    ) async -> (wrote: Bool, shouldFallback: Bool) {
         let pasteboard = NSPasteboard.general
-        if pasteboard.changeCount != expectedPasteboardChangeCount {
-            debugContextDownload(
-                "browser.ctxcopy.write trace=\(traceID) stage=skipPasteboardRace expected=\(expectedPasteboardChangeCount) actual=\(pasteboard.changeCount)"
-            )
-            return (false, false)
-        }
-
         let items = BrowserImageCopyPasteboardBuilder.makePasteboardItems(from: payload)
         guard !items.isEmpty else {
             debugContextDownload(
@@ -2059,8 +2043,19 @@ final class CmuxWebView: WKWebView {
             return (false, true)
         }
 
-        _ = pasteboard.clearContents()
-        let wrote = pasteboard.writeObjects(items)
+        let result = await GhosttyApp.terminalPasteboard
+            .replaceContentsAndWait(
+                of: pasteboard,
+                with: items,
+                expectedChangeCount: expectedPasteboardChangeCount
+            )
+        if result.status == .conditionNotMet {
+            debugContextDownload(
+                "browser.ctxcopy.write trace=\(traceID) stage=skipPasteboardRace expected=\(expectedPasteboardChangeCount) actual=\(pasteboard.changeCount)"
+            )
+            return (false, false)
+        }
+        let wrote = result.didWrite
         debugContextDownload(
             "browser.ctxcopy.write trace=\(traceID) stage=finish wrote=\(wrote ? 1 : 0) itemCount=\(items.count) types=\(items.map { $0.types.map(\.rawValue).joined(separator: ",") }.joined(separator: "|"))"
         )
@@ -2085,9 +2080,37 @@ final class CmuxWebView: WKWebView {
         NSPasteboard.PasteboardType("com.cmux.sidebar-tab-reorder"),
     ]
 
-    static func shouldRejectInternalPaneDrag(_ pasteboardTypes: [NSPasteboard.PasteboardType]?) -> Bool {
-        DragOverlayRoutingPolicy.hasBonsplitTabTransfer(pasteboardTypes)
-            || DragOverlayRoutingPolicy.hasSidebarTabReorder(pasteboardTypes)
+    /// A custom drag UTI is only a hint: AppKit keeps it after a session ends.
+    /// Resolve both internal capabilities through their live main-actor owners
+    /// before preventing WebKit from receiving an ordinary external drag.
+    private static func hasLiveInternalPaneDrag(in pasteboard: NSPasteboard) -> Bool {
+        MainActor.assumeIsolated {
+            let types = pasteboard.types
+            let hasLiveTabTransfer = types?.contains(
+                DragOverlayRoutingPolicy.bonsplitTabTransferType
+            ) == true && AppDelegate.shared?.liveTabDragCapabilityResolver.resolve(
+                from: pasteboard
+            ) != nil
+            let hasLiveSidebarDrag: Bool = {
+                guard types?.contains(DragOverlayRoutingPolicy.sidebarTabReorderType) == true else {
+                    return false
+                }
+                return SidebarTabDragPayload.hasLiveSession(
+                    in: pasteboard,
+                    currentSessionId: AppDelegate.shared?.sidebarWorkspaceDragRegistry.currentSessionId
+                )
+            }()
+            return hasLiveTabTransfer || hasLiveSidebarDrag
+        }
+    }
+
+    static func shouldRejectInternalPaneDrag(
+        _ pasteboardTypes: [NSPasteboard.PasteboardType]?,
+        hasLiveTabTransfer: Bool = false,
+        hasLiveSidebarDrag: Bool = false
+    ) -> Bool {
+        (DragOverlayRoutingPolicy.hasBonsplitTabTransfer(pasteboardTypes) && hasLiveTabTransfer)
+            || (DragOverlayRoutingPolicy.hasSidebarTabReorder(pasteboardTypes) && hasLiveSidebarDrag)
     }
 
     override func registerForDraggedTypes(_ newTypes: [NSPasteboard.PasteboardType]) {
@@ -2098,27 +2121,30 @@ final class CmuxWebView: WKWebView {
     }
 
     override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        guard !Self.shouldRejectInternalPaneDrag(sender.draggingPasteboard.types) else { return [] }
+        guard !Self.hasLiveInternalPaneDrag(in: sender.draggingPasteboard) else { return [] }
         return super.draggingEntered(sender)
     }
 
     override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        guard !Self.shouldRejectInternalPaneDrag(sender.draggingPasteboard.types) else { return [] }
+        guard !Self.hasLiveInternalPaneDrag(in: sender.draggingPasteboard) else { return [] }
         return super.draggingUpdated(sender)
     }
 
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
-        guard !Self.shouldRejectInternalPaneDrag(sender.draggingPasteboard.types) else { return false }
+        guard !Self.hasLiveInternalPaneDrag(in: sender.draggingPasteboard) else { return false }
         return super.performDragOperation(sender)
     }
 
     override func prepareForDragOperation(_ sender: any NSDraggingInfo) -> Bool {
-        guard !Self.shouldRejectInternalPaneDrag(sender.draggingPasteboard.types) else { return false }
+        guard !Self.hasLiveInternalPaneDrag(in: sender.draggingPasteboard) else { return false }
         return super.prepareForDragOperation(sender)
     }
 
     override func concludeDragOperation(_ sender: (any NSDraggingInfo)?) {
-        guard !Self.shouldRejectInternalPaneDrag(sender?.draggingPasteboard.types) else { return }
+        if let pasteboard = sender?.draggingPasteboard,
+           Self.hasLiveInternalPaneDrag(in: pasteboard) {
+            return
+        }
         super.concludeDragOperation(sender)
     }
 
@@ -2299,25 +2325,30 @@ final class CmuxWebView: WKWebView {
                     return
                 }
 
-                let writeResult = self.writeContextMenuImageCopyPayload(
-                    payload,
-                    expectedPasteboardChangeCount: pasteboardChangeCount,
-                    traceID: traceID
-                )
-                if writeResult.wrote {
-                    return
-                }
-                if !writeResult.shouldFallback {
-                    return
-                }
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    let writeResult = await self
+                        .writeContextMenuImageCopyPayload(
+                            payload,
+                            expectedPasteboardChangeCount:
+                                pasteboardChangeCount,
+                            traceID: traceID
+                        )
+                    if writeResult.wrote {
+                        return
+                    }
+                    if !writeResult.shouldFallback {
+                        return
+                    }
 
-                self.runContextMenuFallback(
-                    action: fallback.action,
-                    target: fallback.target,
-                    sender: sender,
-                    traceID: traceID,
-                    reason: "copy_image_write_failed"
-                )
+                    self.runContextMenuFallback(
+                        action: fallback.action,
+                        target: fallback.target,
+                        sender: sender,
+                        traceID: traceID,
+                        reason: "copy_image_write_failed"
+                    )
+                }
             }
         }
     }
@@ -2505,15 +2536,18 @@ final class CmuxWebView: WKWebView {
                     "browser.ctxdl.resolve trace=\(traceID) kind=linked fallbackImageURL=\(imageURL?.absoluteString ?? "nil")"
                 )
                 var dataImageURL: URL?
-                if let imageURL, self.isDownloadableScheme(imageURL) {
-                    self.startContextMenuDownload(
-                        imageURL,
-                        sender: sender,
-                        fallbackAction: fallback.action,
-                        fallbackTarget: fallback.target,
-                        traceID: traceID
-                    )
-                    return
+                if let imageURL {
+                    let normalizedImageURL = self.normalizedLinkedDownloadURL(imageURL)
+                    if self.isDownloadableScheme(normalizedImageURL) {
+                        self.startContextMenuDownload(
+                            normalizedImageURL,
+                            sender: sender,
+                            fallbackAction: fallback.action,
+                            fallbackTarget: fallback.target,
+                            traceID: traceID
+                        )
+                        return
+                    }
                 }
                 if let imageURL, self.isDataURLScheme(imageURL) {
                     dataImageURL = imageURL

@@ -163,6 +163,8 @@ import Testing
 
     @Test func localRestoreUsesOneShortCLICommandRegardlessOfBindingSize() throws {
         let sessionId = "a22293b7-bcef-4707-8439-2f538c8517a4"
+
+
         let binding = SurfaceResumeBindingSnapshot(
             kind: "codex",
             command: "codex resume \(sessionId) " + String(repeating: "--config model_provider=subrouter ", count: 80),
@@ -176,6 +178,32 @@ import Testing
         #expect(
             startupInput
                 == " \(AgentRestoreLaunch.cliStartupExecutableToken) restore codex \(sessionId)\n"
+        )
+    }
+
+    /// Regression for the first nushell dogfood round: the compatibility
+    /// inline startup input stays raw POSIX (local callers apply the nushell
+    /// `^/bin/sh -c "…"` envelope only at their typed boundary,
+    /// `restoreStartupInput`), and the local restore verb stays bare words,
+    /// which parse identically in POSIX shells and nushell.
+    @Test func nushellTypingEnvelopeAppliesOnlyAtTheTypedBoundary() throws {
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "claude",
+            command: "'claude' '--resume' 'session-nu-envelope'",
+            checkpointId: "session-nu-envelope",
+            source: "agent-hook",
+            autoResume: true
+        )
+
+        let raw = try #require(binding.inlineStartupInput)
+        #expect(!raw.contains("^/bin/sh"), "inline input must stay raw POSIX: \(raw)")
+
+        let restore = try #require(binding.restoreStartupInput())
+        #expect(restore.hasPrefix(" \(AgentRestoreLaunch.cliStartupExecutableToken) restore"), "\(restore)")
+        #expect(!restore.contains("^/bin/sh"), "the bare-word restore verb needs no dialect envelope: \(restore)")
+        #expect(
+            !restore.contains("&&") && !restore.contains("||") && !restore.contains("'"),
+            "restore input must stay nushell-parseable bare words: \(restore)"
         )
     }
 

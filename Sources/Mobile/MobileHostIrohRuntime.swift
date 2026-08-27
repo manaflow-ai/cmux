@@ -76,7 +76,11 @@ final class MobileHostIrohRuntime {
     }
     static let shared = MobileHostIrohRuntime()
 
-    static let capabilities = ["mobile-rpc-v1", "multistream-v1"]
+    static let capabilities = [
+        "mobile-rpc-v1",
+        "multistream-v1",
+        MobileHostService.irohPrivatePathsCapability,
+    ]
     #if DEBUG
     static let debugRelayOnlyDefaultsKey = "cmux.iroh.debug.relay-only"
     #endif
@@ -231,11 +235,7 @@ final class MobileHostIrohRuntime {
     )
 
     private nonisolated static var diagnosticBuildStamp: String {
-        let info = Bundle.main.infoDictionary ?? [:]
-        let name = info["CFBundleName"] as? String ?? "cmux"
-        let version = info["CFBundleShortVersionString"] as? String ?? "?"
-        let build = info["CFBundleVersion"] as? String ?? "?"
-        return "\(name) \(version) (\(build))"
+        DiagnosticBuildStamp.make(infoDictionary: Bundle.main.infoDictionary)
     }
 
     @discardableResult

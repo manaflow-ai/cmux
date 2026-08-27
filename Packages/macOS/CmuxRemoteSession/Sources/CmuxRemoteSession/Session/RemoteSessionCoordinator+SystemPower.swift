@@ -44,6 +44,7 @@ extension RemoteSessionCoordinator {
         cancelReconnectRetryLocked()
         reconnectRetryCount = 0
         consecutiveUnreachableProbeCount = 0
+        resetBootstrapFailureTrackingLocked()
         reconnectSuspended = false
         reachabilityProbeGeneration &+= 1
         debugLog(
@@ -63,7 +64,10 @@ extension RemoteSessionCoordinator {
         } else {
             stopReverseRelayLocked()
         }
-        failPendingPTYBridgeStartsLocked("remote daemon is not ready")
+        // Wait-for-ready bridge requests belong to the persistent remote PTY,
+        // not to this particular local transport lease. Leave them parked so
+        // a sleep/wake or transient reconnect does not manufacture a failed
+        // attach that the pane immediately has to retry.
         releaseProxyLeaseLocked()
         proxyEndpoint = nil
         daemonReady = false

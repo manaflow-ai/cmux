@@ -31,6 +31,15 @@
 //!     "width": 22,
 //!     "compact_width": 10,
 //!     "max_width": 0,
+//!     "views": [
+//!       {"id": "machines", "levels": ["machines"], "width": 18},
+//!       {
+//!         "id": "workspace-agents",
+//!         "levels": ["workspaces", "agents"],
+//!         "actions": ["new-workspace"],
+//!         "width": 28
+//!       }
+//!     ],
 //!     "plugin": {
 //!       "command": ["/path/to/plugin-binary"],
 //!       "cwd": "/optional"
@@ -39,7 +48,8 @@
 //!   "machine_sidebar": {
 //!     "enabled": false,
 //!     "width": 22,
-//!     "max_width": 0
+//!     "max_width": 0,
+//!     "create_sources": []
 //!   },
 //!   "machine_provider": {
 //!     "cloud": {
@@ -119,6 +129,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::io::{Read, Write};
+use std::ops::Deref;
 #[cfg(unix)]
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
@@ -138,6 +149,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::style::Color;
 use serde::{Deserialize, Deserializer};
 use serde_json::{Value, json};
+use unicode_width::UnicodeWidthStr;
 use wait_timeout::ChildExt;
 
 use crate::localization::catalog;
@@ -168,10 +180,18 @@ struct RawConfig {
     machine_provider: RawMachineProvider,
     #[serde(default)]
     machines: Vec<RawMachine>,
+    /// User commands: named argv programs, each optionally bound to key
+    /// chords, opened as a new PTY tab in the active pane.
+    #[serde(default)]
+    commands: Vec<RawUserCommand>,
     #[serde(default)]
     browser: RawBrowser,
     #[serde(default)]
     scrollbar: RawScrollbar,
+    #[serde(default)]
+    pane: RawPane,
+    #[serde(default)]
+    status_bar: RawStatusBar,
     #[serde(default)]
     viewport: RawViewport,
     #[serde(default)]
@@ -189,6 +209,56 @@ struct RawConfig {
 struct RawServer {
     ws: Option<String>,
     ws_token: Option<String>,
+    detached_owner: Option<bool>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawPane {
+    /// Blank cells between the pane border and the terminal content.
+    padding: Option<u16>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawStatusBar {
+    visible: Option<bool>,
+    show_screens: Option<bool>,
+    show_session: Option<bool>,
+    left: Option<Vec<RawStatusSegment>>,
+    right: Option<Vec<RawStatusSegment>>,
+    left_separator: Option<String>,
+    right_separator: Option<String>,
+    screens_style: Option<ChipStyle>,
+    screens_plus: Option<RawPlusButton>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawStatusSegment {
+    /// Literal text with `{variable}` interpolation.
+    text: Option<String>,
+    /// Argv run on an interval; the last stdout line replaces the segment.
+    run: Option<Vec<String>>,
+    /// Refresh interval in seconds for `run` segments.
+    interval: Option<u64>,
+    fg: Option<ColorValue>,
+    bg: Option<ColorValue>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawUserCommand {
+    id: Option<String>,
+    name: Option<String>,
+    /// Chord string, array of chord strings, or absent for an unbound
+    /// command. Alt- and Super-modified chords are modeless; other chords
+    /// run after the prefix.
+    keys: Option<Value>,
+    /// Argv executed directly, without a shell.
+    run: Option<Vec<String>>,
+    /// Working directory; defaults to the target pane's current directory.
+    cwd: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -196,6 +266,11 @@ struct RawServer {
 struct RawMachineProvider {
     #[serde(default)]
     cloud: RawCloudProvider,
+    /// Config parity with `--machine-provider-command`: the argv of a
+    /// provider process to spawn, no shell. The CLI flag wins when both are
+    /// given.
+    #[serde(default)]
+    command: Option<Vec<String>>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -228,6 +303,12 @@ struct RawTheme {
     notification_info: Option<ColorValue>,
     notification_warning: Option<ColorValue>,
     notification_error: Option<ColorValue>,
+    border_style: Option<BorderStyle>,
+    status_bg: Option<ColorValue>,
+    status_fg: Option<ColorValue>,
+    sidebar_fg: Option<ColorValue>,
+    sidebar_selected_fg: Option<ColorValue>,
+    dim_inactive: Option<bool>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
@@ -428,16 +509,104 @@ struct RawTabs {
     solid_background: Option<bool>,
     show_titles: Option<bool>,
     agents: Option<Vec<String>>,
+    style: Option<ChipStyle>,
+    plus: Option<RawPlusButton>,
 }
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawSidebar {
     view: Option<String>,
+    profile: Option<String>,
     width: Option<u16>,
     compact_width: Option<u16>,
     max_width: Option<u16>,
+    profiles: Option<Vec<RawSidebarProfile>>,
+    views: Option<Vec<RawSidebarView>>,
+    columns: Option<Vec<RawSidebarColumn>>,
     plugin: Option<RawSidebarPlugin>,
+    /// Rows per rail entry: 2 (default) keeps the subtitle line, 1 is a
+    /// dense name-only list.
+    row_height: Option<u16>,
+    /// Blank rows between rail entries: 1 (default) or 0 for no padding.
+    row_gap: Option<u16>,
+    /// Accent glyph on active rail rows; `"none"` removes it.
+    rail_glyph: Option<String>,
+    /// Workspace row label template with `{index}` and `{name}`.
+    workspace_label: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawSidebarProfile {
+    id: String,
+    name: Option<String>,
+    views: Vec<RawSidebarView>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawSidebarView {
+    id: String,
+    levels: Vec<String>,
+    actions: Option<Vec<RawSidebarAction>>,
+    actions_position: Option<ActionsPosition>,
+    width: Option<u16>,
+    max_width: Option<u16>,
+    collapse_priority: Option<u16>,
+}
+
+/// One pinned action: an action name, or an object that also renames its
+/// button. `"command:<id>"` references a user command from `commands`.
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum RawSidebarAction {
+    Name(String),
+    Detailed { action: String, label: Option<String> },
+}
+
+impl RawSidebarAction {
+    fn action(&self) -> &str {
+        match self {
+            RawSidebarAction::Name(name) => name,
+            RawSidebarAction::Detailed { action, .. } => action,
+        }
+    }
+
+    fn label(&self) -> Option<&str> {
+        match self {
+            RawSidebarAction::Name(_) => None,
+            RawSidebarAction::Detailed { label, .. } => label.as_deref(),
+        }
+    }
+}
+
+/// Raw form of a configurable `+` button.
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawPlusButton {
+    label: Option<String>,
+    /// Left-click action override; action name or `command:<id>`.
+    action: Option<String>,
+    /// Right-click menu entries; same grammar as sidebar view actions.
+    menu: Option<Vec<RawSidebarAction>>,
+}
+
+/// Where a view's pinned action buttons render.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ActionsPosition {
+    Top,
+    #[default]
+    Bottom,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawSidebarColumn {
+    kind: String,
+    width: Option<u16>,
+    max_width: Option<u16>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -453,6 +622,15 @@ struct RawMachineSidebar {
     enabled: Option<bool>,
     width: Option<u16>,
     max_width: Option<u16>,
+    create_sources: Option<Vec<RawMachineCreationSource>>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawMachineCreationSource {
+    id: String,
+    name: String,
+    subtitle: Option<String>,
 }
 
 #[derive(Debug)]
@@ -636,6 +814,101 @@ impl ColorValue {
     }
 }
 
+/// Pane border line style. `None` keeps the border cells blank so panes
+/// separate by empty space; geometry is unchanged in every style.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum BorderStyle {
+    #[default]
+    Single,
+    Rounded,
+    Thick,
+    Double,
+    None,
+}
+
+/// Chip cap style for tab labels and the active screen chip: `pill` wraps
+/// solid chips in rounded caps, `slant` in angled caps, `block` (default)
+/// keeps the flat rectangle. Cap glyphs come from the Nerd Font powerline
+/// range, the same glyphs tmux and zellij themes use.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ChipStyle {
+    #[default]
+    Block,
+    Pill,
+    Slant,
+}
+
+impl ChipStyle {
+    /// Left and right cap glyphs, or `None` for the flat block style.
+    pub fn caps(self) -> Option<(&'static str, &'static str)> {
+        match self {
+            ChipStyle::Block => None,
+            ChipStyle::Pill => Some(("\u{e0b6}", "\u{e0b4}")),
+            ChipStyle::Slant => Some(("\u{e0be}", "\u{e0b8}")),
+        }
+    }
+}
+
+/// The six glyphs a pane box is drawn with.
+#[derive(Debug, Clone, Copy)]
+pub struct BorderGlyphs {
+    pub horizontal: &'static str,
+    pub vertical: &'static str,
+    pub top_left: &'static str,
+    pub top_right: &'static str,
+    pub bottom_left: &'static str,
+    pub bottom_right: &'static str,
+}
+
+impl BorderStyle {
+    pub fn glyphs(self) -> BorderGlyphs {
+        match self {
+            BorderStyle::Single => BorderGlyphs {
+                horizontal: "─",
+                vertical: "│",
+                top_left: "┌",
+                top_right: "┐",
+                bottom_left: "└",
+                bottom_right: "┘",
+            },
+            BorderStyle::Rounded => BorderGlyphs {
+                horizontal: "─",
+                vertical: "│",
+                top_left: "╭",
+                top_right: "╮",
+                bottom_left: "╰",
+                bottom_right: "╯",
+            },
+            BorderStyle::Thick => BorderGlyphs {
+                horizontal: "━",
+                vertical: "┃",
+                top_left: "┏",
+                top_right: "┓",
+                bottom_left: "┗",
+                bottom_right: "┛",
+            },
+            BorderStyle::Double => BorderGlyphs {
+                horizontal: "═",
+                vertical: "║",
+                top_left: "╔",
+                top_right: "╗",
+                bottom_left: "╚",
+                bottom_right: "╝",
+            },
+            BorderStyle::None => BorderGlyphs {
+                horizontal: " ",
+                vertical: " ",
+                top_left: " ",
+                top_right: " ",
+                bottom_left: " ",
+                bottom_right: " ",
+            },
+        }
+    }
+}
+
 /// Resolved presentation colors used by the renderers.
 #[derive(Debug, Clone, Copy)]
 pub struct Theme {
@@ -653,6 +926,15 @@ pub struct Theme {
     pub notification_info: Color,
     pub notification_warning: Color,
     pub notification_error: Color,
+    pub border_style: BorderStyle,
+    /// Status bar background/foreground; `None` follows the chrome theme.
+    pub status_bg: Option<Color>,
+    pub status_fg: Option<Color>,
+    /// Sidebar row foregrounds; `None` follows terminal/chrome defaults.
+    pub sidebar_fg: Option<Color>,
+    pub sidebar_selected_fg: Option<Color>,
+    /// Render unfocused terminal panes with the DIM attribute.
+    pub dim_inactive: bool,
 }
 
 impl Default for Theme {
@@ -671,6 +953,12 @@ impl Default for Theme {
             notification_info: Color::Indexed(110),
             notification_warning: Color::Indexed(179),
             notification_error: Color::Indexed(167),
+            border_style: BorderStyle::Single,
+            status_bg: None,
+            status_fg: None,
+            sidebar_fg: None,
+            sidebar_selected_fg: None,
+            dim_inactive: false,
         }
     }
 }
@@ -688,6 +976,10 @@ pub struct Tabs {
     /// Program names worth surfacing in the tab label even when
     /// `show_titles` is off (matched as words in the reported title).
     pub agents: Vec<String>,
+    /// Cap style for solid tab chips.
+    pub style: ChipStyle,
+    /// The tab bar's `+` button: label, click override, right-click menu.
+    pub plus: PlusButton,
 }
 
 impl Default for Tabs {
@@ -697,6 +989,8 @@ impl Default for Tabs {
             solid_background: true,
             show_titles: false,
             agents: ["claude", "codex", "opencode", "pi"].map(String::from).to_vec(),
+            style: ChipStyle::Block,
+            plus: PlusButton::default(),
         }
     }
 }
@@ -709,33 +1003,237 @@ pub struct Sidebar {
     pub width: u16,
     pub compact_width: u16,
     pub max_width: u16,
+    /// Ordered native columns. The legacy width fields remain the defaults for
+    /// machine/workspace columns when this list is omitted from the config.
+    pub columns: Vec<SidebarColumn>,
+    pub columns_explicit: bool,
+    /// Ordered native projections. A one-level projection uses the existing
+    /// list behavior; multiple levels render as one native tree column.
+    pub views: Vec<SidebarViewSpec>,
+    pub views_explicit: bool,
+    /// Named native layouts. `views` is always the currently selected
+    /// profile's resolved rail list so older consumers remain compatible.
+    pub profiles: Vec<SidebarProfileSpec>,
+    pub active_profile: String,
     pub plugin: Option<SidebarPluginOptions>,
+    /// Rows per rail entry: 2 keeps the subtitle line, 1 is name-only.
+    pub row_height: u16,
+    /// Blank rows between rail entries.
+    pub row_gap: u16,
+    /// Accent glyph on active rail rows; empty removes it.
+    pub rail_glyph: String,
+    /// Workspace row label template with `{index}` and `{name}`.
+    pub workspace_label: String,
 }
 
 impl Default for Sidebar {
     fn default() -> Self {
+        let views = vec![
+            SidebarViewSpec::legacy(SidebarColumnKind::Machines, 22, 0),
+            SidebarViewSpec::legacy(SidebarColumnKind::Workspaces, 22, 0),
+        ];
         Sidebar {
             view: SidebarView::Workspaces,
             width: 22,
             compact_width: 10,
             max_width: 0,
+            columns: vec![
+                SidebarColumn { kind: SidebarColumnKind::Machines, width: 22, max_width: 0 },
+                SidebarColumn { kind: SidebarColumnKind::Workspaces, width: 22, max_width: 0 },
+            ],
+            columns_explicit: false,
+            views: views.clone(),
+            views_explicit: false,
+            profiles: vec![SidebarProfileSpec {
+                id: "default".to_string(),
+                name: "Default".to_string(),
+                views,
+            }],
+            active_profile: "default".to_string(),
             plugin: None,
+            row_height: 2,
+            row_gap: 1,
+            rail_glyph: "\u{258e}".to_string(),
+            workspace_label: "{name}".to_string(),
         }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SidebarProfileSpec {
+    pub id: String,
+    pub name: String,
+    pub views: Vec<SidebarViewSpec>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SidebarColumnKind {
+    Machines,
+    Workspaces,
+    Tabs,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SidebarColumn {
+    pub kind: SidebarColumnKind,
+    pub width: u16,
+    pub max_width: u16,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SidebarResourceKind {
+    Machines,
+    Workspaces,
+    Panes,
+    Tabs,
+    Agents,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SidebarViewSpec {
+    pub id: String,
+    pub levels: Vec<SidebarResourceKind>,
+    /// Canonical native commands pinned to this view, with optional
+    /// user-facing button labels.
+    pub actions: Vec<SidebarActionSpec>,
+    /// Whether the pinned actions render above or below the resource rows.
+    pub actions_position: ActionsPosition,
+    pub width: u16,
+    pub max_width: u16,
+    /// Lower values collapse first when pane space becomes constrained.
+    pub collapse_priority: u16,
+}
+
+/// One pinned sidebar action and its optional label override.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SidebarActionSpec {
+    pub action: Action,
+    pub label: Option<String>,
+}
+
+impl SidebarActionSpec {
+    pub fn plain(action: Action) -> Self {
+        Self { action, label: None }
+    }
+}
+
+/// A configurable `+` button: its rendered label, an optional left-click
+/// action override, and an optional right-click menu of actions.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlusButton {
+    pub label: String,
+    pub action: Option<Action>,
+    pub menu: Vec<SidebarActionSpec>,
+}
+
+impl Default for PlusButton {
+    fn default() -> Self {
+        Self { label: " + ".to_string(), action: None, menu: Vec::new() }
+    }
+}
+
+fn resolve_plus_button(raw: RawPlusButton, command_ids: &[String], owner: &str) -> PlusButton {
+    let mut plus = PlusButton::default();
+    if let Some(label) = raw.label {
+        // Keep at least one visible cell so the button stays clickable.
+        if !label.trim().is_empty() {
+            plus.label = label;
+        }
+    }
+    if let Some(action) = raw.action.as_deref() {
+        match parse_sidebar_action(action.trim(), command_ids) {
+            Ok(action) => plus.action = Some(action),
+            Err(warning) => {
+                crate::client_log::stderr_log!("config", "{warning} in {owner} plus button");
+            }
+        }
+    }
+    if let Some(menu) = raw.menu {
+        let mut seen = HashSet::new();
+        for raw_action in &menu {
+            match parse_sidebar_action(raw_action.action().trim(), command_ids) {
+                Ok(action) if seen.insert(action) => plus.menu.push(SidebarActionSpec {
+                    action,
+                    label: raw_action
+                        .label()
+                        .map(str::trim)
+                        .filter(|label| !label.is_empty())
+                        .map(str::to_string),
+                }),
+                Ok(_) => crate::client_log::stderr_log!(
+                    "config",
+                    "cmux-tui: ignoring duplicate {owner} plus menu action {:?}",
+                    raw_action.action().trim()
+                ),
+                Err(warning) => {
+                    crate::client_log::stderr_log!("config", "{warning} in {owner} plus menu");
+                }
+            }
+        }
+    }
+    plus
+}
+
+impl SidebarViewSpec {
+    pub fn legacy(kind: SidebarColumnKind, width: u16, max_width: u16) -> Self {
+        let (id, level, collapse_priority) = match kind {
+            SidebarColumnKind::Machines => ("machines", SidebarResourceKind::Machines, 10),
+            SidebarColumnKind::Workspaces => ("workspaces", SidebarResourceKind::Workspaces, 30),
+            SidebarColumnKind::Tabs => ("tabs", SidebarResourceKind::Tabs, 20),
+        };
+        let levels = vec![level];
+        let actions = default_sidebar_actions(&levels);
+        Self {
+            id: id.to_string(),
+            levels,
+            actions,
+            actions_position: ActionsPosition::Bottom,
+            width,
+            max_width,
+            collapse_priority,
+        }
+    }
+
+    pub fn legacy_kind(&self) -> Option<SidebarColumnKind> {
+        match self.levels.as_slice() {
+            [SidebarResourceKind::Machines] => Some(SidebarColumnKind::Machines),
+            [SidebarResourceKind::Workspaces] => Some(SidebarColumnKind::Workspaces),
+            [SidebarResourceKind::Tabs] if self.actions.is_empty() => Some(SidebarColumnKind::Tabs),
+            _ => None,
+        }
+    }
+
+    pub fn includes(&self, kind: SidebarResourceKind) -> bool {
+        self.levels.contains(&kind)
     }
 }
 
 /// Optional client-local rail listing connection targets. It is disabled for
 /// ordinary local cmux sessions and enabled by a machine provider or config.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MachineSidebar {
     pub enabled: bool,
     pub width: u16,
     pub max_width: u16,
+    /// Session-local prototype sources. They exercise the native provider
+    /// picker without starting containers or consuming cloud resources.
+    pub create_sources: Vec<MachineCreationSourceConfig>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MachineCreationSourceConfig {
+    pub id: String,
+    pub name: String,
+    pub subtitle: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct MachineProviderConfig {
     pub cloud: CloudProviderConfig,
+    /// Argv of a machine-provider process to spawn, exactly like
+    /// `--machine-provider-command program arg -- `. CLI provider modes
+    /// override it.
+    pub command: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -784,7 +1282,7 @@ pub enum MachineTargetConfig {
 
 impl Default for MachineSidebar {
     fn default() -> Self {
-        Self { enabled: false, width: 22, max_width: 0 }
+        Self { enabled: false, width: 22, max_width: 0, create_sources: Vec::new() }
     }
 }
 
@@ -812,6 +1310,221 @@ fn parse_sidebar_view(value: &str) -> Result<SidebarView, String> {
             "cmux-tui: ignoring unknown sidebar.view {value:?}; expected \"files\" or \"workspaces\""
         )),
     }
+}
+
+fn parse_sidebar_column_kind(value: &str) -> Result<SidebarColumnKind, String> {
+    match value {
+        "machines" => Ok(SidebarColumnKind::Machines),
+        "workspaces" => Ok(SidebarColumnKind::Workspaces),
+        "tabs" => Ok(SidebarColumnKind::Tabs),
+        _ => Err(format!(
+            "cmux-tui: ignoring unknown sidebar column {value:?}; expected \"machines\", \"workspaces\", or \"tabs\""
+        )),
+    }
+}
+
+fn parse_sidebar_resource_kind(value: &str) -> Result<SidebarResourceKind, String> {
+    match value {
+        "machines" => Ok(SidebarResourceKind::Machines),
+        "workspaces" => Ok(SidebarResourceKind::Workspaces),
+        "panes" => Ok(SidebarResourceKind::Panes),
+        "tabs" => Ok(SidebarResourceKind::Tabs),
+        "agents" => Ok(SidebarResourceKind::Agents),
+        _ => Err(format!(
+            "cmux-tui: ignoring unknown sidebar resource {value:?}; expected \"machines\", \"workspaces\", \"panes\", \"tabs\", or \"agents\""
+        )),
+    }
+}
+
+fn validate_sidebar_levels(levels: &[SidebarResourceKind]) -> Result<(), &'static str> {
+    if levels.is_empty() {
+        return Err("levels cannot be empty");
+    }
+    if levels.len() > 3 {
+        return Err("at most three resource levels are supported");
+    }
+    let mut seen = HashSet::new();
+    if levels.iter().any(|level| !seen.insert(*level)) {
+        return Err("resource levels cannot repeat");
+    }
+    if levels.contains(&SidebarResourceKind::Machines) {
+        return (levels == [SidebarResourceKind::Machines])
+            .then_some(())
+            .ok_or("machines must be a one-level view");
+    }
+    if let Some(index) = levels.iter().position(|level| *level == SidebarResourceKind::Workspaces)
+        && index != 0
+    {
+        return Err("workspaces must be the first level");
+    }
+    if let Some(index) = levels.iter().position(|level| *level == SidebarResourceKind::Panes)
+        && index > 1
+    {
+        return Err("panes must be first or directly below workspaces");
+    }
+    for leaf in [SidebarResourceKind::Tabs, SidebarResourceKind::Agents] {
+        if let Some(index) = levels.iter().position(|level| *level == leaf)
+            && index + 1 != levels.len()
+        {
+            return Err("tabs and agents must be the final level");
+        }
+    }
+    Ok(())
+}
+
+fn default_sidebar_collapse_priority(levels: &[SidebarResourceKind]) -> u16 {
+    match levels {
+        [SidebarResourceKind::Machines] => 10,
+        [SidebarResourceKind::Workspaces] => 30,
+        _ => 20,
+    }
+}
+
+fn default_sidebar_actions(levels: &[SidebarResourceKind]) -> Vec<SidebarActionSpec> {
+    if levels.first() == Some(&SidebarResourceKind::Workspaces) {
+        vec![SidebarActionSpec::plain(Action::NewWorkspace)]
+    } else {
+        Vec::new()
+    }
+}
+
+/// Parse one pinned action name: an action catalog key, or `command:<id>`
+/// referencing a user command from the top-level `commands` section.
+fn parse_sidebar_action(value: &str, command_ids: &[String]) -> Result<Action, String> {
+    if let Some(command_id) = value.strip_prefix("command:") {
+        return command_ids
+            .iter()
+            .position(|id| id == command_id)
+            .and_then(Action::user_command)
+            .ok_or_else(|| {
+                format!("cmux-tui: ignoring sidebar action for unknown command {command_id:?}")
+            });
+    }
+    action_definitions()
+        .iter()
+        .find(|definition| definition.config_key == value)
+        .map(|definition| definition.action)
+        .ok_or_else(|| format!("cmux-tui: ignoring unknown sidebar action {value:?}"))
+}
+
+fn resolve_sidebar_view_specs(
+    views: &[RawSidebarView],
+    machine_width: u16,
+    machine_max_width: u16,
+    workspace_width: u16,
+    workspace_max_width: u16,
+    owner: &str,
+    command_ids: &[String],
+) -> Vec<SidebarViewSpec> {
+    let mut ids = HashSet::new();
+    let mut legacy_kinds = HashSet::new();
+    let mut resolved = Vec::new();
+    for view in views {
+        let id = view.id.trim();
+        if id.is_empty() || ids.contains(id) {
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: ignoring {owner} view with an empty or duplicate id"
+            );
+            continue;
+        }
+        let mut levels = Vec::with_capacity(view.levels.len());
+        let mut valid = true;
+        for level in &view.levels {
+            match parse_sidebar_resource_kind(level.trim()) {
+                Ok(level) => levels.push(level),
+                Err(warning) => {
+                    crate::client_log::stderr_log!("config", "{warning}");
+                    valid = false;
+                    break;
+                }
+            }
+        }
+        if !valid {
+            continue;
+        }
+        if let Err(reason) = validate_sidebar_levels(&levels) {
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: ignoring {owner} view {id:?}: {reason}"
+            );
+            continue;
+        }
+        let legacy_kind = SidebarViewSpec {
+            id: id.to_string(),
+            levels: levels.clone(),
+            actions: Vec::new(),
+            actions_position: ActionsPosition::Bottom,
+            width: 0,
+            max_width: 0,
+            collapse_priority: 0,
+        }
+        .legacy_kind();
+        if legacy_kind.is_some_and(|kind| !legacy_kinds.insert(kind)) {
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: ignoring {owner} view {id:?}: a one-level view for that resource already exists"
+            );
+            continue;
+        }
+        ids.insert(id.to_string());
+        let (default_width, default_max_width) = match legacy_kind {
+            Some(SidebarColumnKind::Machines) => (machine_width, machine_max_width),
+            Some(SidebarColumnKind::Workspaces) => (workspace_width, workspace_max_width),
+            Some(SidebarColumnKind::Tabs) | None => (22, 0),
+        };
+        let actions = if levels == [SidebarResourceKind::Machines]
+            && view.actions.as_ref().is_some_and(|actions| !actions.is_empty())
+        {
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: ignoring sidebar actions in {owner} machine view {id:?}; machine actions come from provider capabilities"
+            );
+            Vec::new()
+        } else if let Some(raw_actions) = view.actions.as_ref() {
+            let mut seen = HashSet::new();
+            raw_actions
+                .iter()
+                .filter_map(|raw_action| {
+                    match parse_sidebar_action(raw_action.action().trim(), command_ids) {
+                        Ok(action) if seen.insert(action) => Some(SidebarActionSpec {
+                            action,
+                            label: raw_action
+                                .label()
+                                .map(str::trim)
+                                .filter(|label| !label.is_empty())
+                                .map(str::to_string),
+                        }),
+                        Ok(_) => {
+                            crate::client_log::stderr_log!("config", 
+                                "cmux-tui: ignoring duplicate sidebar action {:?} in {owner} view {id:?}",
+                                raw_action.action().trim()
+                            );
+                            None
+                        }
+                        Err(warning) => {
+                            crate::client_log::stderr_log!("config", "{warning} in {owner} view {id:?}");
+                            None
+                        }
+                    }
+                })
+                .collect()
+        } else {
+            default_sidebar_actions(&levels)
+        };
+        resolved.push(SidebarViewSpec {
+            id: id.to_string(),
+            collapse_priority: view
+                .collapse_priority
+                .unwrap_or_else(|| default_sidebar_collapse_priority(&levels)),
+            levels,
+            actions,
+            actions_position: view.actions_position.unwrap_or_default(),
+            width: view.width.unwrap_or(default_width).clamp(10, 60),
+            max_width: view.max_width.unwrap_or(default_max_width),
+        });
+    }
+    resolved
 }
 
 #[derive(Debug, Clone)]
@@ -858,6 +1571,28 @@ impl ActionIndex {
     }
 }
 
+/// The maximum number of configurable user commands. Chords bound past this
+/// limit are rejected at config load with a visible warning.
+pub const MAX_USER_COMMANDS: usize = 32;
+
+/// The maximum number of chords one command may bind.
+pub const MAX_USER_COMMAND_CHORDS: usize = 8;
+
+/// A validated zero-based index into the configured `commands` list. Its
+/// private field prevents unregistered command actions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct UserCommandIndex(u8);
+
+impl UserCommandIndex {
+    pub const fn new(value: usize) -> Option<Self> {
+        if value < MAX_USER_COMMANDS { Some(Self(value as u8)) } else { None }
+    }
+
+    pub const fn get(self) -> usize {
+        self.0 as usize
+    }
+}
+
 /// Every prefix-key action, so bindings are configurable end to end.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Action {
@@ -888,6 +1623,7 @@ pub enum Action {
     ToggleSidebarCompact,
     ToggleSidebarView,
     FocusSidebar,
+    ProviderMenu,
     NewPaneRight,
     UndoLayout,
     FocusLeft,
@@ -909,6 +1645,9 @@ pub enum Action {
     BrowserEditUrl,
     ShowShortcuts,
     Detach,
+    /// A user-configured command from the top-level `commands` section,
+    /// opened as a new PTY tab through the mux `run` command.
+    UserCommand(UserCommandIndex),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -941,6 +1680,7 @@ pub(crate) enum ActionExecution {
     ToggleSidebarCompact,
     ToggleSidebarView,
     FocusSidebar,
+    ProviderMenu,
     NewPaneRight,
     UndoLayout,
     FocusLeft,
@@ -962,6 +1702,7 @@ pub(crate) enum ActionExecution {
     BrowserEditUrl,
     ShowShortcuts,
     Detach,
+    UserCommand(UserCommandIndex),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1164,6 +1905,7 @@ define_named_action_definitions! {
     TOGGLE_SIDEBAR_COMPACT_DEFINITION => (Action::ToggleSidebarCompact, "toggle-sidebar-compact", "Compact or expand sidebar", "サイドバーの幅を切り替え");
     TOGGLE_SIDEBAR_VIEW_DEFINITION => (Action::ToggleSidebarView, "toggle-sidebar-view", "Switch sidebar view", "サイドバー表示を切り替え");
     FOCUS_SIDEBAR_DEFINITION => (Action::FocusSidebar, "focus-sidebar", "Focus sidebar", "サイドバーにフォーカス");
+    PROVIDER_MENU_DEFINITION => (Action::ProviderMenu, "provider-menu", "Machine provider menu", "マシンプロバイダーメニュー");
     NEW_PANE_RIGHT_DEFINITION => (Action::NewPaneRight, "new-pane-right", "New column to the right", "右に新しい列");
     UNDO_LAYOUT_DEFINITION => (Action::UndoLayout, "undo-layout", "Undo layout", "レイアウトを元に戻す");
     FOCUS_LEFT_DEFINITION => (Action::FocusLeft, "focus-left", "Focus left", "左へフォーカス");
@@ -1316,7 +2058,7 @@ static SELECT_SCREEN_DEFINITIONS: [ActionDefinition; 10] = [
 /// The canonical action catalog. Presentation surfaces derive their labels
 /// and ordering from these named definitions instead of positional offsets.
 pub fn action_definitions() -> &'static [&'static ActionDefinition] {
-    static DEFINITIONS: [&ActionDefinition; 66] = [
+    static DEFINITIONS: [&ActionDefinition; 67] = [
         &SEND_PREFIX_DEFINITION,
         &NEW_TAB_DEFINITION,
         &NEW_BROWSER_TAB_DEFINITION,
@@ -1362,6 +2104,7 @@ pub fn action_definitions() -> &'static [&'static ActionDefinition] {
         &TOGGLE_SIDEBAR_COMPACT_DEFINITION,
         &TOGGLE_SIDEBAR_VIEW_DEFINITION,
         &FOCUS_SIDEBAR_DEFINITION,
+        &PROVIDER_MENU_DEFINITION,
         &NEW_PANE_RIGHT_DEFINITION,
         &UNDO_LAYOUT_DEFINITION,
         &FOCUS_LEFT_DEFINITION,
@@ -1386,6 +2129,17 @@ pub fn action_definitions() -> &'static [&'static ActionDefinition] {
     ];
     &DEFINITIONS
 }
+
+/// Fallback definition for `Action::UserCommand`. It is intentionally not in
+/// `action_definitions()`: user commands are named by the user's config, and
+/// presentation surfaces look the display name up there. The `action` field
+/// pins index 0 only because a definition must carry one concrete action.
+static USER_COMMAND_FALLBACK_DEFINITION: ActionDefinition = action_definition!(
+    Action::UserCommand(UserCommandIndex(0)),
+    "user-command",
+    "User command",
+    "ユーザーコマンド"
+);
 
 impl Action {
     /// Compiled source of truth for programmability classification and
@@ -1562,6 +2316,12 @@ impl Action {
                 "frontend action adapter",
                 ActionExecution::FocusSidebar,
             ),
+            Action::ProviderMenu => ActionMetadata::new(
+                "provider-menu",
+                ActionClassification::PresentationOnly,
+                "frontend machine provider menu",
+                ActionExecution::ProviderMenu,
+            ),
             Action::NewPaneRight => ActionMetadata::new(
                 "new-pane-right",
                 ActionClassification::Direct,
@@ -1688,6 +2448,12 @@ impl Action {
                 "close frontend transport",
                 ActionExecution::Detach,
             ),
+            Action::UserCommand(index) => ActionMetadata::new(
+                "user-command-{index}",
+                ActionClassification::Composite,
+                "frontend command config + run",
+                ActionExecution::UserCommand(*index),
+            ),
         }
     }
 }
@@ -1722,6 +2488,7 @@ impl Action {
             Action::ToggleSidebarCompact => &TOGGLE_SIDEBAR_COMPACT_DEFINITION,
             Action::ToggleSidebarView => &TOGGLE_SIDEBAR_VIEW_DEFINITION,
             Action::FocusSidebar => &FOCUS_SIDEBAR_DEFINITION,
+            Action::ProviderMenu => &PROVIDER_MENU_DEFINITION,
             Action::NewPaneRight => &NEW_PANE_RIGHT_DEFINITION,
             Action::UndoLayout => &UNDO_LAYOUT_DEFINITION,
             Action::FocusLeft => &FOCUS_LEFT_DEFINITION,
@@ -1743,6 +2510,11 @@ impl Action {
             Action::BrowserEditUrl => &BROWSER_EDIT_URL_DEFINITION,
             Action::ShowShortcuts => &SHOW_SHORTCUTS_DEFINITION,
             Action::Detach => &DETACH_DEFINITION,
+            // One shared fallback: presentation surfaces resolve the
+            // configured display name through the command list instead of
+            // this static definition, which is deliberately outside the
+            // action catalog.
+            Action::UserCommand(_) => &USER_COMMAND_FALLBACK_DEFINITION,
         }
     }
 
@@ -1750,6 +2522,20 @@ impl Action {
         match ActionIndex::new(number) {
             Some(index) => Some(Self::SelectScreen(index)),
             None => None,
+        }
+    }
+
+    pub const fn user_command(number: usize) -> Option<Self> {
+        match UserCommandIndex::new(number) {
+            Some(index) => Some(Self::UserCommand(index)),
+            None => None,
+        }
+    }
+
+    pub fn user_command_index(&self) -> Option<usize> {
+        match self {
+            Action::UserCommand(index) => Some(index.get()),
+            _ => None,
         }
     }
 
@@ -1867,6 +2653,7 @@ pub struct Keys {
     /// macOS Option mode instead of guessing from each event.
     pub macos_option_as_alt: bool,
     bindings: Vec<(Chord, Action)>,
+    pub(crate) provider_menu_overridden: bool,
 }
 
 impl Default for Keys {
@@ -1954,6 +2741,7 @@ impl Default for Keys {
                 bind(KeyCode::Char('?'), Action::ShowShortcuts),
                 bind(KeyCode::Char('d'), Action::Detach),
             ],
+            provider_menu_overridden: false,
         }
     }
 }
@@ -2037,6 +2825,22 @@ impl Keys {
             .collect()
     }
 
+    /// Bind one user-command chord, stealing the chord from any action or
+    /// earlier command that held it. The prefix chord stays reserved.
+    /// Returns whether the chord was bound.
+    fn bind_user_command_chord(&mut self, id: &str, action: Action, chord: Chord) -> bool {
+        if chord == self.prefix {
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: ignoring command binding {id:?} because it conflicts with the prefix"
+            );
+            return false;
+        }
+        self.bindings.retain(|(existing, _)| existing != &chord);
+        self.bindings.push((chord, action));
+        true
+    }
+
     /// Apply config overrides: `"prefix"` rebinds the prefix; any action
     /// name rebinds that action (replacing ALL default chords for it).
     fn apply(&mut self, raw: &HashMap<String, Value>) {
@@ -2045,7 +2849,11 @@ impl Keys {
                 self.macos_option_as_alt = value;
             } else {
                 let value = format!("{value:?}");
-                eprintln!("{}", catalog().config.invalid_macos_option_as_alt(&value));
+                crate::client_log::stderr_log!(
+                    "config",
+                    "{}",
+                    catalog().config.invalid_macos_option_as_alt(&value)
+                );
             }
         }
         if raw.get("alt_shortcuts").and_then(Value::as_bool) == Some(false) {
@@ -2069,9 +2877,15 @@ impl Keys {
                     *send_prefix = chord;
                 }
             } else if value.as_str().is_some() {
-                eprintln!("cmux-tui: ignoring unparseable key binding prefix = {value:?}");
+                crate::client_log::stderr_log!(
+                    "config",
+                    "cmux-tui: ignoring unparseable key binding prefix = {value:?}"
+                );
             } else {
-                eprintln!("cmux-tui: ignoring non-string prefix binding {value:?}");
+                crate::client_log::stderr_log!(
+                    "config",
+                    "cmux-tui: ignoring non-string prefix binding {value:?}"
+                );
             }
         }
         for (name, value) in raw {
@@ -2097,27 +2911,44 @@ impl Keys {
             }) {
                 Some(definition) => {
                     self.bindings.retain(|(_, action)| *action != definition.action);
+                    let mut provider_menu_override_valid = definition.action
+                        == Action::ProviderMenu
+                        && matches!(value, Value::Array(values) if values.is_empty());
                     for raw_chord in key_values(value) {
                         if raw_chord.eq_ignore_ascii_case("none") {
+                            if definition.action == Action::ProviderMenu {
+                                provider_menu_override_valid = true;
+                            }
                             continue;
                         }
                         let Some(chord) = parse_chord(raw_chord) else {
-                            eprintln!(
+                            crate::client_log::stderr_log!(
+                                "config",
                                 "cmux-tui: ignoring unparseable key binding {name} = {raw_chord:?}"
                             );
                             continue;
                         };
                         if chord == self.prefix && definition.action != Action::SendPrefix {
-                            eprintln!(
+                            crate::client_log::stderr_log!(
+                                "config",
                                 "cmux-tui: ignoring key binding {name} = {raw_chord:?} because it conflicts with the prefix"
                             );
                             continue;
                         }
+                        if definition.action == Action::ProviderMenu {
+                            provider_menu_override_valid = true;
+                        }
                         self.bindings.retain(|(existing, _)| existing != &chord);
                         self.bindings.push((chord, definition.action));
                     }
+                    if definition.action == Action::ProviderMenu {
+                        self.provider_menu_overridden = provider_menu_override_valid;
+                    }
                 }
-                None => eprintln!("cmux-tui: ignoring unknown key action {name:?}"),
+                None => crate::client_log::stderr_log!(
+                    "config",
+                    "cmux-tui: ignoring unknown key action {name:?}"
+                ),
             }
         }
         let prefix = self.prefix;
@@ -2197,15 +3028,203 @@ pub struct Config {
     pub machines: Vec<MachineConfig>,
     pub browser: Browser,
     pub scrollbar: Scrollbar,
+    pub pane: PaneOptions,
+    pub status_bar: StatusBarOptions,
     pub viewport: Viewport,
     pub server: Server,
     pub keys: Keys,
+    pub commands: Vec<UserCommandConfig>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+/// Configuration resolved once for the process startup path.
+///
+/// The snapshot is consumed by the selected startup mode. Interactive reloads
+/// intentionally call [`load`] again after startup and replace the app state.
+#[derive(Debug)]
+pub(crate) struct StartupConfigSnapshot(Config);
+
+impl StartupConfigSnapshot {
+    pub(crate) fn load() -> Self {
+        Self::from_loader(load)
+    }
+
+    fn from_loader(loader: impl FnOnce() -> Config) -> Self {
+        Self(loader())
+    }
+
+    pub(crate) fn into_config(self) -> Config {
+        self.0
+    }
+}
+
+impl Deref for StartupConfigSnapshot {
+    type Target = Config;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+/// The maximum configurable pane padding, in cells per side.
+pub const MAX_PANE_PADDING: u16 = 4;
+
+/// Pane presentation options.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct PaneOptions {
+    /// Blank cells between the pane border and the terminal content,
+    /// applied on every side, clamped to `MAX_PANE_PADDING`.
+    pub padding: u16,
+}
+
+/// Bottom screens-bar options. A hidden bar gives its row back to the
+/// panes; transient status messages still overlay the last row.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StatusBarOptions {
+    pub visible: bool,
+    /// Renders the clickable screens strip.
+    pub show_screens: bool,
+    /// Renders the right-aligned session label when no message is shown.
+    pub show_session: bool,
+    /// Segments before the screens strip.
+    pub left: Vec<StatusSegment>,
+    /// Segments right-aligned before the session label.
+    pub right: Vec<StatusSegment>,
+    /// Powerline-style separator drawn between left segments and after the
+    /// last one; its foreground takes the previous segment's background and
+    /// its background the next segment's, tmux `status-left` style.
+    pub left_separator: Option<String>,
+    /// Mirror of `left_separator` for the right-aligned segments.
+    pub right_separator: Option<String>,
+    /// Cap style for the active screen chip in the screens strip.
+    pub screens_style: ChipStyle,
+    /// The screens strip's `+` button.
+    pub screens_plus: PlusButton,
+}
+
+impl Default for StatusBarOptions {
+    fn default() -> Self {
+        Self {
+            visible: true,
+            show_screens: true,
+            show_session: true,
+            left: Vec::new(),
+            right: Vec::new(),
+            left_separator: None,
+            right_separator: None,
+            screens_style: ChipStyle::Block,
+            screens_plus: PlusButton::default(),
+        }
+    }
+}
+
+impl StatusBarOptions {
+    /// Command segments in draw order: left side first, then right.
+    pub fn command_segments(&self) -> Vec<(usize, Vec<String>, Duration)> {
+        self.left
+            .iter()
+            .chain(self.right.iter())
+            .enumerate()
+            .filter_map(|(index, segment)| match &segment.content {
+                StatusSegmentContent::Command { argv, interval } => {
+                    Some((index, argv.clone(), *interval))
+                }
+                StatusSegmentContent::Text(_) => None,
+            })
+            .collect()
+    }
+}
+
+/// The maximum number of configured segments per status bar side.
+pub const MAX_STATUS_SEGMENTS: usize = 8;
+
+/// The maximum length of one literal status segment, in characters.
+pub const MAX_STATUS_SEGMENT_TEXT: usize = 256;
+
+/// One status bar segment: literal text with `{variable}` interpolation, or
+/// a command whose last stdout line becomes the segment text.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StatusSegment {
+    pub content: StatusSegmentContent,
+    pub fg: Option<Color>,
+    pub bg: Option<Color>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StatusSegmentContent {
+    Text(String),
+    Command { argv: Vec<String>, interval: Duration },
+}
+
+fn resolve_status_segments(raw: Vec<RawStatusSegment>, side: &str) -> Vec<StatusSegment> {
+    let mut segments = Vec::new();
+    for segment in raw {
+        if segments.len() >= MAX_STATUS_SEGMENTS {
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: ignoring status_bar.{side} segments beyond the {MAX_STATUS_SEGMENTS}-segment limit"
+            );
+            break;
+        }
+        let content = match (segment.text, segment.run) {
+            (Some(_), Some(_)) | (None, None) => {
+                crate::client_log::stderr_log!(
+                    "config",
+                    "cmux-tui: ignoring status_bar.{side} segment: exactly one of text or run is required"
+                );
+                continue;
+            }
+            (Some(text), None) => {
+                // Bound per-draw expansion work on the render path.
+                StatusSegmentContent::Text(text.chars().take(MAX_STATUS_SEGMENT_TEXT).collect())
+            }
+            (None, Some(run)) => {
+                if run.first().is_none_or(|program| program.is_empty()) {
+                    crate::client_log::stderr_log!(
+                        "config",
+                        "cmux-tui: ignoring status_bar.{side} segment without a run program"
+                    );
+                    continue;
+                }
+                let interval = segment.interval.unwrap_or(5).clamp(1, 3600);
+                StatusSegmentContent::Command { argv: run, interval: Duration::from_secs(interval) }
+            }
+        };
+        segments.push(StatusSegment {
+            content,
+            fg: segment.fg.as_ref().and_then(ColorValue::to_color),
+            bg: segment.bg.as_ref().and_then(ColorValue::to_color),
+        });
+    }
+    segments
+}
+
+/// One resolved user command from the top-level `commands` section.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UserCommandConfig {
+    /// Stable config identity, unique across the list.
+    pub id: String,
+    /// Display name for shortcut help; defaults to the id.
+    pub name: String,
+    /// Argv executed directly, without a shell.
+    pub run: Vec<String>,
+    /// Working directory; `None` follows the target pane's current directory.
+    pub cwd: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Server {
     pub ws: Option<String>,
     pub ws_token: Option<String>,
+    /// Plain interactive launches connect through a detached headless
+    /// session owner so the session survives every client detaching.
+    /// `false` restores hosting the session inside the first TUI process.
+    pub detached_owner: bool,
+}
+
+impl Default for Server {
+    fn default() -> Self {
+        Self { ws: None, ws_token: None, detached_owner: true }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -2319,6 +3338,9 @@ pub fn load() -> Config {
     if let Some(agents) = raw.tabs.agents {
         config.tabs.agents = agents.into_iter().map(|a| a.to_lowercase()).collect();
     }
+    if let Some(style) = raw.tabs.style {
+        config.tabs.style = style;
+    }
     if let Some(w) = raw.sidebar.width {
         config.sidebar.width = w.clamp(10, 60);
     }
@@ -2329,11 +3351,36 @@ pub fn load() -> Config {
     if let Some(view) = raw.sidebar.view {
         match parse_sidebar_view(&view) {
             Ok(view) => config.sidebar.view = view,
-            Err(warning) => eprintln!("{warning}"),
+            Err(warning) => crate::client_log::stderr_log!("config", "{warning}"),
         }
     }
     if let Some(w) = raw.sidebar.max_width {
         config.sidebar.max_width = w;
+    }
+    if let Some(height) = raw.sidebar.row_height {
+        config.sidebar.row_height = height.clamp(1, 2);
+    }
+    if let Some(gap) = raw.sidebar.row_gap {
+        config.sidebar.row_gap = gap.min(2);
+    }
+    if let Some(glyph) = raw.sidebar.rail_glyph {
+        if glyph.eq_ignore_ascii_case("none") {
+            config.sidebar.rail_glyph = String::new();
+        } else if glyph.chars().count() == 1 && glyph.width() == 1 {
+            // The renderer reserves exactly one cell for the glyph.
+            config.sidebar.rail_glyph = glyph;
+        } else {
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: ignoring sidebar.rail_glyph {glyph:?}: one single-width character or \"none\""
+            );
+        }
+    }
+    if let Some(template) = raw.sidebar.workspace_label {
+        let template = template.trim().to_string();
+        if !template.is_empty() {
+            config.sidebar.workspace_label = template;
+        }
     }
     if let Some(plugin) = raw.sidebar.plugin {
         let command = plugin
@@ -2343,7 +3390,10 @@ pub fn load() -> Config {
             .filter(|arg| !arg.is_empty())
             .collect::<Vec<_>>();
         if command.is_empty() {
-            eprintln!("cmux-tui: ignoring sidebar.plugin with empty command");
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: ignoring sidebar.plugin with empty command"
+            );
         } else {
             config.sidebar.plugin = Some(SidebarPluginOptions {
                 command,
@@ -2360,6 +3410,235 @@ pub fn load() -> Config {
     if let Some(max_width) = raw.machine_sidebar.max_width {
         config.machine_sidebar.max_width = max_width;
     }
+    if let Some(sources) = raw.machine_sidebar.create_sources {
+        let mut source_ids = HashSet::new();
+        for source in sources {
+            let id = source.id.trim().to_string();
+            let name = source.name.trim().to_string();
+            if id.is_empty() || name.is_empty() || !source_ids.insert(id.clone()) {
+                crate::client_log::stderr_log!(
+                    "config",
+                    "cmux-tui: ignoring machine creation source with an empty or duplicate id/name"
+                );
+                continue;
+            }
+            let subtitle =
+                source.subtitle.map(|subtitle| subtitle.trim().to_string()).unwrap_or_default();
+            config.machine_sidebar.create_sources.push(MachineCreationSourceConfig {
+                id,
+                name,
+                subtitle,
+            });
+        }
+    }
+    if let Some(columns) = raw.sidebar.columns.as_ref() {
+        let mut seen = HashSet::new();
+        let mut resolved = Vec::new();
+        for column in columns {
+            let kind = match parse_sidebar_column_kind(column.kind.trim()) {
+                Ok(kind) => kind,
+                Err(warning) => {
+                    crate::client_log::stderr_log!("config", "{warning}");
+                    continue;
+                }
+            };
+            if !seen.insert(kind) {
+                crate::client_log::stderr_log!(
+                    "config",
+                    "cmux-tui: ignoring duplicate sidebar column {:?}",
+                    column.kind
+                );
+                continue;
+            }
+            let (default_width, default_max_width) = match kind {
+                SidebarColumnKind::Machines => {
+                    (config.machine_sidebar.width, config.machine_sidebar.max_width)
+                }
+                SidebarColumnKind::Workspaces => (config.sidebar.width, config.sidebar.max_width),
+                SidebarColumnKind::Tabs => (22, 0),
+            };
+            resolved.push(SidebarColumn {
+                kind,
+                width: column.width.unwrap_or(default_width).clamp(10, 60),
+                max_width: column.max_width.unwrap_or(default_max_width),
+            });
+        }
+        if resolved.is_empty() {
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: sidebar.columns had no usable entries; keeping defaults"
+            );
+        } else {
+            config.sidebar.columns = resolved;
+            config.sidebar.columns_explicit = true;
+        }
+    } else {
+        config.sidebar.columns = vec![
+            SidebarColumn {
+                kind: SidebarColumnKind::Machines,
+                width: config.machine_sidebar.width,
+                max_width: config.machine_sidebar.max_width,
+            },
+            SidebarColumn {
+                kind: SidebarColumnKind::Workspaces,
+                width: config.sidebar.width,
+                max_width: config.sidebar.max_width,
+            },
+        ];
+    }
+    config.sidebar.views = config
+        .sidebar
+        .columns
+        .iter()
+        .map(|column| SidebarViewSpec::legacy(column.kind, column.width, column.max_width))
+        .collect();
+    config.sidebar.views_explicit = config.sidebar.columns_explicit;
+    // User commands resolve before sidebar views so pinned buttons can
+    // reference them as `command:<id>`; their chords bind after `keys`.
+    let (user_commands, user_command_keys) = resolve_user_command_specs(raw.commands);
+    let command_ids: Vec<String> = user_commands.iter().map(|command| command.id.clone()).collect();
+    if let Some(plus) = raw.tabs.plus {
+        config.tabs.plus = resolve_plus_button(plus, &command_ids, "tabs");
+    }
+    if let Some(plus) = raw.status_bar.screens_plus {
+        config.status_bar.screens_plus = resolve_plus_button(plus, &command_ids, "status_bar");
+    }
+    if let Some(views) = raw.sidebar.views.as_ref() {
+        if raw.sidebar.columns.is_some() {
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: sidebar.views overrides sidebar.columns"
+            );
+        }
+        let resolved = resolve_sidebar_view_specs(
+            views,
+            config.machine_sidebar.width,
+            config.machine_sidebar.max_width,
+            config.sidebar.width,
+            config.sidebar.max_width,
+            "sidebar",
+            &command_ids,
+        );
+        if resolved.is_empty() {
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: sidebar.views had no usable entries; keeping defaults"
+            );
+        } else {
+            config.sidebar.columns = resolved
+                .iter()
+                .filter_map(|view| {
+                    view.legacy_kind().map(|kind| SidebarColumn {
+                        kind,
+                        width: view.width,
+                        max_width: view.max_width,
+                    })
+                })
+                .collect();
+            config.sidebar.views = resolved;
+            config.sidebar.columns_explicit = false;
+            config.sidebar.views_explicit = true;
+        }
+    }
+    config.sidebar.profiles[0].views.clone_from(&config.sidebar.views);
+    if let Some(raw_profiles) = raw.sidebar.profiles.as_ref() {
+        if raw.sidebar.views.is_some() || raw.sidebar.columns.is_some() {
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: sidebar.profiles overrides sidebar.views and sidebar.columns"
+            );
+        }
+        let mut ids = HashSet::new();
+        let mut profiles = Vec::new();
+        for raw_profile in raw_profiles {
+            let id = raw_profile.id.trim();
+            if id.is_empty() || !ids.insert(id.to_string()) {
+                crate::client_log::stderr_log!(
+                    "config",
+                    "cmux-tui: ignoring sidebar profile with an empty or duplicate id"
+                );
+                continue;
+            }
+            let owner = format!("sidebar profile {id:?}");
+            let views = resolve_sidebar_view_specs(
+                &raw_profile.views,
+                config.machine_sidebar.width,
+                config.machine_sidebar.max_width,
+                config.sidebar.width,
+                config.sidebar.max_width,
+                &owner,
+                &command_ids,
+            );
+            if views.is_empty() {
+                crate::client_log::stderr_log!(
+                    "config",
+                    "cmux-tui: ignoring sidebar profile {id:?} with no usable views"
+                );
+                continue;
+            }
+            let name = raw_profile
+                .name
+                .as_deref()
+                .map(str::trim)
+                .filter(|name| !name.is_empty())
+                .unwrap_or(id)
+                .to_string();
+            profiles.push(SidebarProfileSpec { id: id.to_string(), name, views });
+        }
+        if profiles.is_empty() {
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: sidebar.profiles had no usable entries; keeping defaults"
+            );
+        } else {
+            let requested =
+                raw.sidebar.profile.as_deref().map(str::trim).filter(|id| !id.is_empty());
+            let selected = requested
+                .and_then(|id| profiles.iter().position(|profile| profile.id == id))
+                .unwrap_or_else(|| {
+                    if let Some(requested) = requested {
+                        crate::client_log::stderr_log!("config", 
+                            "cmux-tui: sidebar.profile {requested:?} was not found; using the first profile"
+                        );
+                    }
+                    0
+                });
+            config.sidebar.active_profile = profiles[selected].id.clone();
+            config.sidebar.views = profiles[selected].views.clone();
+            config.sidebar.columns = config
+                .sidebar
+                .views
+                .iter()
+                .filter_map(|view| {
+                    view.legacy_kind().map(|kind| SidebarColumn {
+                        kind,
+                        width: view.width,
+                        max_width: view.max_width,
+                    })
+                })
+                .collect();
+            config.sidebar.columns_explicit = false;
+            config.sidebar.views_explicit = true;
+            config.sidebar.profiles = profiles;
+        }
+    } else if raw.sidebar.profile.is_some() {
+        crate::client_log::stderr_log!(
+            "config",
+            "cmux-tui: ignoring sidebar.profile without sidebar.profiles"
+        );
+    }
+    match raw.machine_provider.command {
+        Some(command) if command.first().is_some_and(|program| !program.trim().is_empty()) => {
+            config.machine_provider.command = Some(command);
+        }
+        Some(_) => {
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: ignoring machine_provider.command without a program"
+            );
+        }
+        None => {}
+    }
     let cloud = raw.machine_provider.cloud;
     if let Some(enabled) = cloud.enabled {
         config.machine_provider.cloud.enabled = enabled;
@@ -2367,7 +3646,10 @@ pub fn load() -> Config {
     if let Some(host) = cloud.host {
         let host = host.trim();
         if host.is_empty() {
-            eprintln!("cmux-tui: ignoring empty machine_provider.cloud.host");
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: ignoring empty machine_provider.cloud.host"
+            );
         } else {
             config.machine_provider.cloud.host = host.to_string();
         }
@@ -2376,7 +3658,10 @@ pub fn load() -> Config {
         cloud.user.map(|user| user.trim().to_string()).filter(|user| !user.is_empty());
     config.machine_provider.cloud.port = match cloud.port {
         Some(0) => {
-            eprintln!("cmux-tui: ignoring zero machine_provider.cloud.port");
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: ignoring zero machine_provider.cloud.port"
+            );
             None
         }
         port => port,
@@ -2391,7 +3676,10 @@ pub fn load() -> Config {
         let id = machine.id.trim().to_string();
         let name = machine.name.trim().to_string();
         if id.is_empty() || name.is_empty() || !machine_ids.insert(id.clone()) {
-            eprintln!("cmux-tui: ignoring machine with an empty or duplicate id/name");
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: ignoring machine with an empty or duplicate id/name"
+            );
             continue;
         }
         let target = match machine.target {
@@ -2414,11 +3702,14 @@ pub fn load() -> Config {
                         .unwrap_or_else(|| "main".to_string()),
                     binary: binary
                         .filter(|value| !value.trim().is_empty())
-                        .unwrap_or_else(|| "cmux-tui".to_string()),
+                        .unwrap_or_else(|| "~/.local/bin/cmux-tui".to_string()),
                 }
             }
             _ => {
-                eprintln!("cmux-tui: ignoring machine {id:?} with an empty transport target");
+                crate::client_log::stderr_log!(
+                    "config",
+                    "cmux-tui: ignoring machine {id:?} with an empty transport target"
+                );
                 continue;
             }
         };
@@ -2446,7 +3737,8 @@ pub fn load() -> Config {
         {
             config.browser.max_capture_megapixels = megapixels;
         } else {
-            eprintln!(
+            crate::client_log::stderr_log!(
+                "config",
                 "cmux-tui: ignoring browser.max_capture_megapixels={megapixels:?}; expected 0 < value <= {TRANSPORT_SAFE_CAPTURE_MEGAPIXELS}"
             );
         }
@@ -2455,7 +3747,8 @@ pub fn load() -> Config {
         if scale.is_finite() && scale > 0.0 && scale <= 1.0 {
             config.browser.capture_scale = Some(scale);
         } else {
-            eprintln!(
+            crate::client_log::stderr_log!(
+                "config",
                 "cmux-tui: ignoring browser.capture_scale={scale:?}; expected 0 < scale <= 1"
             );
         }
@@ -2463,19 +3756,165 @@ pub fn load() -> Config {
     if let Some(position) = raw.scrollbar.position {
         config.scrollbar.position = position;
     }
+    if let Some(style) = raw.theme.border_style {
+        config.theme.border_style = style;
+    }
+    if let Some(c) = raw.theme.status_bg.as_ref().and_then(ColorValue::to_color) {
+        config.theme.status_bg = Some(c);
+    }
+    if let Some(c) = raw.theme.status_fg.as_ref().and_then(ColorValue::to_color) {
+        config.theme.status_fg = Some(c);
+    }
+    if let Some(c) = raw.theme.sidebar_fg.as_ref().and_then(ColorValue::to_color) {
+        config.theme.sidebar_fg = Some(c);
+    }
+    if let Some(c) = raw.theme.sidebar_selected_fg.as_ref().and_then(ColorValue::to_color) {
+        config.theme.sidebar_selected_fg = Some(c);
+    }
+    if let Some(dim) = raw.theme.dim_inactive {
+        config.theme.dim_inactive = dim;
+    }
+    if let Some(padding) = raw.pane.padding {
+        config.pane.padding = padding.min(MAX_PANE_PADDING);
+    }
+    if let Some(visible) = raw.status_bar.visible {
+        config.status_bar.visible = visible;
+    }
+    if let Some(show_screens) = raw.status_bar.show_screens {
+        config.status_bar.show_screens = show_screens;
+    }
+    if let Some(show_session) = raw.status_bar.show_session {
+        config.status_bar.show_session = show_session;
+    }
+    if let Some(left) = raw.status_bar.left {
+        config.status_bar.left = resolve_status_segments(left, "left");
+    }
+    if let Some(right) = raw.status_bar.right {
+        config.status_bar.right = resolve_status_segments(right, "right");
+    }
+    config.status_bar.left_separator =
+        raw.status_bar.left_separator.filter(|separator| !separator.is_empty());
+    config.status_bar.right_separator =
+        raw.status_bar.right_separator.filter(|separator| !separator.is_empty());
+    if let Some(style) = raw.status_bar.screens_style {
+        config.status_bar.screens_style = style;
+    }
     if let Some(animation) = raw.viewport.animation {
         config.viewport.animation = animation;
     }
     config.server.ws = raw.server.ws.filter(|value| !value.trim().is_empty());
     config.server.ws_token = raw.server.ws_token.filter(|value| !value.trim().is_empty());
+    if let Some(detached_owner) = raw.server.detached_owner {
+        config.server.detached_owner = detached_owner;
+    }
     config.keys.apply(&raw.keys);
+    bind_user_command_chords(&mut config.keys, &user_commands, &user_command_keys);
+    config.commands = user_commands;
     config
+}
+
+/// Validate the raw `commands` section into resolved specs plus each
+/// command's raw chord values. Chords bind later, after the `keys` section
+/// applied its overrides, so command chords keep last-write-wins order.
+fn resolve_user_command_specs(
+    raw: Vec<RawUserCommand>,
+) -> (Vec<UserCommandConfig>, Vec<Option<Value>>) {
+    let mut commands = Vec::new();
+    let mut key_values = Vec::new();
+    let mut ids = HashSet::new();
+    for command in raw {
+        let id = command.id.as_deref().unwrap_or("").trim().to_string();
+        if id.is_empty() {
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: ignoring command with a missing or empty id"
+            );
+            continue;
+        }
+        if ids.contains(&id) {
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: ignoring command with duplicate id {id:?}"
+            );
+            continue;
+        }
+        // Empty positional arguments stay: argv executes directly, and an
+        // empty argument is valid there. Only the program itself must exist.
+        let run = command.run.unwrap_or_default();
+        if run.first().is_none_or(|program| program.is_empty()) {
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: ignoring command {id:?} without a run program"
+            );
+            continue;
+        }
+        if Action::user_command(commands.len()).is_none() {
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: ignoring command {id:?} beyond the {MAX_USER_COMMANDS}-command limit"
+            );
+            continue;
+        }
+        // The id is reserved only after validation, so an ignored invalid
+        // entry never blocks a later valid entry with the same id.
+        ids.insert(id.clone());
+        let name = command
+            .name
+            .map(|name| name.trim().to_string())
+            .filter(|name| !name.is_empty())
+            .unwrap_or_else(|| id.clone());
+        let cwd = command.cwd.map(|cwd| cwd.trim().to_string()).filter(|cwd| !cwd.is_empty());
+        commands.push(UserCommandConfig { id, name, run, cwd });
+        key_values.push(command.keys);
+    }
+    (commands, key_values)
+}
+
+/// Bind every command's chords after `keys` overrides applied.
+fn bind_user_command_chords(
+    keys: &mut Keys,
+    commands: &[UserCommandConfig],
+    chord_values: &[Option<Value>],
+) {
+    for (index, (command, value)) in commands.iter().zip(chord_values).enumerate() {
+        let Some(action) = Action::user_command(index) else { break };
+        let Some(value) = value.as_ref() else { continue };
+        let id = &command.id;
+        let mut bound = 0usize;
+        for raw_chord in key_values(value) {
+            if raw_chord.eq_ignore_ascii_case("none") {
+                continue;
+            }
+            if bound >= MAX_USER_COMMAND_CHORDS {
+                crate::client_log::stderr_log!(
+                    "config",
+                    "cmux-tui: ignoring command {id:?} chords beyond the {MAX_USER_COMMAND_CHORDS}-chord limit"
+                );
+                break;
+            }
+            let Some(chord) = parse_chord(raw_chord) else {
+                crate::client_log::stderr_log!(
+                    "config",
+                    "cmux-tui: ignoring unparseable command binding {id} = {raw_chord:?}"
+                );
+                continue;
+            };
+            // Only a successful bind consumes the limit; rejected chords
+            // leave room for the valid ones after them.
+            if keys.bind_user_command_chord(id, action, chord) {
+                bound += 1;
+            }
+        }
+    }
 }
 
 fn normalize_ssh_machine_port(id: &str, port: Option<u16>) -> Option<u16> {
     match port {
         Some(0) => {
-            eprintln!("cmux-tui: ignoring zero SSH machine port for {id:?}");
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: ignoring zero SSH machine port for {id:?}"
+            );
             None
         }
         port => port,
@@ -2526,15 +3965,93 @@ fn agent_in_title(tabs: &Tabs, title: &str) -> Option<String> {
 fn load_raw_config() -> RawConfig {
     let Some(path) = platform::config_path() else { return RawConfig::default() };
     let Ok(text) = std::fs::read_to_string(&path) else { return RawConfig::default() };
-    match serde_json::from_str(&text) {
-        Ok(config) => config,
+    let value: Value = match serde_json::from_str(&text) {
+        Ok(value) => value,
         Err(e) => {
-            // A broken config should not take the TUI down; complain on
-            // stderr (visible pre-alternate-screen and in logs).
-            eprintln!("cmux-tui: ignoring invalid config {}: {e}", path.display());
-            RawConfig::default()
+            crate::client_log::stderr_log!(
+                "config",
+                "{} ({})",
+                config_diagnostic(&e),
+                path.display(),
+            );
+            return RawConfig::default();
         }
+    };
+    let Some(object) = value.as_object() else {
+        crate::client_log::stderr_log!(
+            "config",
+            "cmux-tui: ignoring invalid config {}: root must be an object",
+            path.display()
+        );
+        return RawConfig::default();
+    };
+    const KNOWN: &[&str] = &[
+        "theme",
+        "tabs",
+        "sidebar",
+        "machine_sidebar",
+        "machine_provider",
+        "machines",
+        "commands",
+        "browser",
+        "scrollbar",
+        "pane",
+        "status_bar",
+        "viewport",
+        "server",
+        "keys",
+    ];
+    if let Some(unknown) = object.keys().find(|key| !KNOWN.contains(&key.as_str())) {
+        crate::client_log::stderr_log!(
+            "config",
+            "cmux-tui: ignoring invalid config {}: unknown top-level field `{unknown}`",
+            path.display()
+        );
+        return RawConfig::default();
     }
+    let mut raw = RawConfig::default();
+    macro_rules! section {
+        ($field:ident, $name:literal) => {
+            if let Some(value) = object.get($name) {
+                match serde_json::from_value(value.clone()) {
+                    Ok(parsed) => raw.$field = parsed,
+                    Err(error) => crate::client_log::stderr_log!(
+                        "config",
+                        "cmux-tui: ignoring invalid `{}` section in {}: {}",
+                        $name,
+                        path.display(),
+                        error
+                    ),
+                }
+            }
+        };
+    }
+    section!(theme, "theme");
+    section!(tabs, "tabs");
+    section!(sidebar, "sidebar");
+    section!(machine_sidebar, "machine_sidebar");
+    section!(machine_provider, "machine_provider");
+    section!(machines, "machines");
+    section!(commands, "commands");
+    section!(browser, "browser");
+    section!(scrollbar, "scrollbar");
+    section!(pane, "pane");
+    section!(status_bar, "status_bar");
+    section!(viewport, "viewport");
+    section!(server, "server");
+    section!(keys, "keys");
+    raw
+}
+
+fn config_diagnostic(error: &serde_json::Error) -> String {
+    let text = error.to_string();
+    if text.contains("unknown field") {
+        return catalog().config.unknown_field("(see config file)");
+    }
+    if text.contains("invalid type") && text.contains("map") {
+        return catalog().config.invalid_root().to_string();
+    }
+    catalog().config.invalid_section("(see config file)")
 }
 
 pub fn config_path() -> anyhow::Result<PathBuf> {
@@ -2645,7 +4162,7 @@ fn ghostty_defaults() -> DefaultColors {
 }
 
 enum GhosttyHelperDefaults {
-    Resolved(DefaultColors),
+    Resolved(Box<DefaultColors>),
     Unavailable,
     TimedOut,
 }
@@ -2656,7 +4173,7 @@ fn ghostty_defaults_from_sources(
     helper_defaults: GhosttyHelperDefaults,
 ) -> DefaultColors {
     let parsed = match helper_defaults {
-        GhosttyHelperDefaults::Resolved(defaults) => defaults,
+        GhosttyHelperDefaults::Resolved(defaults) => *defaults,
         GhosttyHelperDefaults::Unavailable => {
             parse_ghostty_defaults_from_paths(config_paths, theme_dirs).unwrap_or_default()
         }
@@ -2725,7 +4242,7 @@ pub(crate) fn run_ghostty_config_helper() -> i32 {
         platform::ghostty_theme_dirs(),
     ) {
         GhosttyConfigParseOutcome::Parsed(defaults) => {
-            print!("{}", serialize_ghostty_defaults(defaults));
+            print!("{}", serialize_ghostty_defaults(*defaults));
             0
         }
         GhosttyConfigParseOutcome::Missing => 1,
@@ -2787,7 +4304,9 @@ fn ghostty_defaults_from_helper_command(
         return GhosttyHelperDefaults::Unavailable;
     }
     match output_reader.wait() {
-        Some(output) => GhosttyHelperDefaults::Resolved(parse_resolved_ghostty_defaults(&output)),
+        Some(output) => {
+            GhosttyHelperDefaults::Resolved(Box::new(parse_resolved_ghostty_defaults(&output)))
+        }
         None => GhosttyHelperDefaults::Unavailable,
     }
 }
@@ -2832,7 +4351,11 @@ impl GhosttyHelperOutputReader {
     }
 }
 
-fn terminate_ghostty_helper_child(mut child: Child) {
+fn terminate_ghostty_helper_child(child: Child) {
+    let _ = terminate_ghostty_helper_child_with_reaped_signal(child);
+}
+
+fn terminate_ghostty_helper_child_with_reaped_signal(mut child: Child) -> mpsc::Receiver<()> {
     #[cfg(unix)]
     let descendant_groups = ghostty_helper_descendant_process_groups(child.id() as libc::pid_t);
     #[cfg(unix)]
@@ -2846,7 +4369,7 @@ fn terminate_ghostty_helper_child(mut child: Child) {
         libc::killpg(child.id() as libc::pid_t, libc::SIGKILL);
     }
     let _ = child.kill();
-    reap_ghostty_child_after_short_wait(child, "cmux-tui-ghostty-helper-reaper");
+    reap_ghostty_child_after_short_wait(child, "cmux-tui-ghostty-helper-reaper")
 }
 
 #[cfg(unix)]
@@ -2895,22 +4418,34 @@ fn ghostty_helper_process_table_snapshot() -> Option<String> {
 }
 
 #[cfg(unix)]
-fn terminate_ghostty_process_scan_child(mut child: Child) {
+fn terminate_ghostty_process_scan_child(child: Child) {
+    let _ = terminate_ghostty_process_scan_child_with_reaped_signal(child);
+}
+
+#[cfg(unix)]
+fn terminate_ghostty_process_scan_child_with_reaped_signal(mut child: Child) -> mpsc::Receiver<()> {
     unsafe {
         // SAFETY: this only targets the bounded process-scan child group.
         libc::killpg(child.id() as libc::pid_t, libc::SIGKILL);
     }
     let _ = child.kill();
-    reap_ghostty_child_after_short_wait(child, "cmux-tui-ghostty-process-scan-reaper");
+    reap_ghostty_child_after_short_wait(child, "cmux-tui-ghostty-process-scan-reaper")
 }
 
-fn reap_ghostty_child_after_short_wait(mut child: Child, reaper_name: &'static str) {
+fn reap_ghostty_child_after_short_wait(
+    mut child: Child,
+    reaper_name: &'static str,
+) -> mpsc::Receiver<()> {
+    let (reaped_sender, reaped_receiver) = mpsc::sync_channel(1);
     if matches!(child.wait_timeout(Duration::from_millis(10)), Ok(Some(_))) {
-        return;
+        let _ = reaped_sender.send(());
+        return reaped_receiver;
     }
     let _ = std::thread::Builder::new().name(reaper_name.to_string()).spawn(move || {
         let _ = child.wait();
+        let _ = reaped_sender.send(());
     });
+    reaped_receiver
 }
 
 #[cfg(unix)]
@@ -2961,13 +4496,13 @@ fn parse_ghostty_defaults_from_paths(
     theme_dirs: Vec<PathBuf>,
 ) -> Option<DefaultColors> {
     match parse_ghostty_defaults_from_paths_result(config_paths, theme_dirs) {
-        GhosttyConfigParseOutcome::Parsed(defaults) => Some(defaults),
+        GhosttyConfigParseOutcome::Parsed(defaults) => Some(*defaults),
         GhosttyConfigParseOutcome::Missing | GhosttyConfigParseOutcome::TimedOut => None,
     }
 }
 
 enum GhosttyConfigParseOutcome {
-    Parsed(DefaultColors),
+    Parsed(Box<DefaultColors>),
     Missing,
     TimedOut,
 }
@@ -3007,7 +4542,7 @@ fn parse_ghostty_defaults_with_theme_dirs(text: &str, theme_dirs: &[PathBuf]) ->
 #[cfg(test)]
 fn parse_ghostty_defaults_from_path(path: &Path, theme_dirs: &[PathBuf]) -> Option<DefaultColors> {
     match parse_ghostty_defaults_from_path_result(path, theme_dirs) {
-        GhosttyConfigParseOutcome::Parsed(defaults) => Some(defaults),
+        GhosttyConfigParseOutcome::Parsed(defaults) => Some(*defaults),
         GhosttyConfigParseOutcome::Missing | GhosttyConfigParseOutcome::TimedOut => None,
     }
 }
@@ -3029,15 +4564,15 @@ fn parse_ghostty_defaults_from_path_result_until(
     let mut theme_candidates = Vec::new();
     let overrides = match parse_ghostty_config_file_until(path, &mut theme_candidates, deadline_at)
     {
-        GhosttyConfigParseOutcome::Parsed(overrides) => overrides,
+        GhosttyConfigParseOutcome::Parsed(overrides) => *overrides,
         outcome => return outcome,
     };
-    GhosttyConfigParseOutcome::Parsed(resolve_parsed_ghostty_defaults(
+    GhosttyConfigParseOutcome::Parsed(Box::new(resolve_parsed_ghostty_defaults(
         theme_candidates,
         theme_dirs,
         overrides,
         deadline_at,
-    ))
+    )))
 }
 
 const GHOSTTY_CONFIG_MAX_FILES: usize = 64;
@@ -3049,6 +4584,8 @@ const GHOSTTY_PROCESS_SCAN_OUTPUT_MAX_BYTES: u64 = 1024 * 1024;
 const GHOSTTY_CONFIG_PARSE_DEADLINE: Duration = Duration::from_millis(250);
 #[cfg(unix)]
 const GHOSTTY_PROCESS_SCAN_DEADLINE: Duration = Duration::from_millis(150);
+#[cfg(not(target_os = "macos"))]
+const GHOSTTY_HELPER_REAP_DEADLINE: Duration = Duration::from_millis(150);
 // The child owns a 250 ms parse deadline. The parent starts timing before
 // spawn/exec and still needs room for setup, stdout drain, and normal exit.
 const GHOSTTY_CONFIG_HELPER_PARENT_DEADLINE: Duration = Duration::from_millis(500);
@@ -3123,7 +4660,7 @@ fn parse_ghostty_config_file_until(
     }
 
     if loaded_root {
-        GhosttyConfigParseOutcome::Parsed(overrides)
+        GhosttyConfigParseOutcome::Parsed(Box::new(overrides))
     } else {
         GhosttyConfigParseOutcome::Missing
     }
@@ -3302,6 +4839,17 @@ fn desktop_theme_command_output(
     args: &[&str],
     deadline_at: Option<Instant>,
 ) -> Option<String> {
+    desktop_theme_command_output_with_lifecycle_signals(program, args, deadline_at, None, None)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn desktop_theme_command_output_with_lifecycle_signals(
+    program: &str,
+    args: &[&str],
+    deadline_at: Option<Instant>,
+    started_sender: Option<&mpsc::SyncSender<u32>>,
+    reaped_sender: Option<&mpsc::SyncSender<()>>,
+) -> Option<String> {
     let timeout =
         ghostty_config_deadline_remaining(deadline_at)?.min(GHOSTTY_DESKTOP_APPEARANCE_DEADLINE);
     if timeout.is_zero() {
@@ -3309,14 +4857,13 @@ fn desktop_theme_command_output(
     }
     let command_deadline = Instant::now() + timeout;
     let mut command = Command::new(program);
-    command
-        .args(args)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null());
+    command.args(args).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null());
     #[cfg(unix)]
     command.process_group(0);
     let mut child = command.spawn().ok()?;
+    if let Some(started_sender) = started_sender {
+        let _ = started_sender.send(child.id());
+    }
     #[cfg(unix)]
     let child_group = child.id() as libc::pid_t;
     let Some(stdout) = child.stdout.take() else {
@@ -3342,7 +4889,14 @@ fn desktop_theme_command_output(
         Err(mpsc::RecvTimeoutError::Timeout) => {
             #[cfg(unix)]
             kill_ghostty_process_group(child_group);
-            let _ = output_reader.recv_timeout(Duration::from_millis(10));
+            let reap_timeout =
+                ghostty_config_deadline_remaining(deadline_at)?.min(GHOSTTY_HELPER_REAP_DEADLINE);
+            if !reap_timeout.is_zero()
+                && output_reader.recv_timeout(reap_timeout).is_ok()
+                && let Some(reaped_sender) = reaped_sender
+            {
+                let _ = reaped_sender.send(());
+            }
             None
         }
         Err(mpsc::RecvTimeoutError::Disconnected) => None,
@@ -3843,12 +5397,62 @@ fn overlay_ghostty_defaults(defaults: &mut DefaultColors, overrides: DefaultColo
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::Cell;
+
+    #[test]
+    fn config_diagnostics_do_not_echo_parser_details() {
+        let error = serde_json::from_str::<RawConfig>(r#"{"typo":true}"#).unwrap_err();
+        let diagnostic = config_diagnostic(&error);
+        assert!(diagnostic.contains("unknown config field"));
+        assert!(!diagnostic.contains("typo"));
+    }
     use std::ffi::OsString;
     use std::sync::Mutex;
+    use std::sync::atomic::{AtomicU64, Ordering};
 
     /// Config env vars are process-global state; tests that set them must not
     /// run concurrently with each other.
     static CONFIG_ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn startup_snapshot_invokes_loader_once() {
+        let loads = Cell::new(0);
+        let snapshot = StartupConfigSnapshot::from_loader(|| {
+            loads.set(loads.get() + 1);
+            Config::default()
+        });
+
+        assert!(snapshot.server.detached_owner);
+        assert!(snapshot.server.detached_owner);
+        let _config = snapshot.into_config();
+        assert_eq!(loads.get(), 1);
+    }
+    static NEXT_TEST_DIRECTORY: AtomicU64 = AtomicU64::new(0);
+
+    struct TestDirectory {
+        path: PathBuf,
+    }
+
+    impl TestDirectory {
+        fn new(label: &str) -> Self {
+            loop {
+                let sequence = NEXT_TEST_DIRECTORY.fetch_add(1, Ordering::Relaxed);
+                let path = std::env::temp_dir()
+                    .join(format!("cmux-tui-config-{label}-{}-{sequence}", std::process::id()));
+                match std::fs::create_dir(&path) {
+                    Ok(()) => return Self { path },
+                    Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                    Err(error) => panic!("create config test directory failed: {error}"),
+                }
+            }
+        }
+    }
+
+    impl Drop for TestDirectory {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.path);
+        }
+    }
 
     fn restore_env_var(key: &str, value: Option<OsString>) {
         match value {
@@ -3998,6 +5602,43 @@ mod tests {
         let output = String::from_utf8(output.stdout).unwrap();
         assert!(output.contains(&format!("resource-path = {}", resources.display())));
         let defaults = parse_resolved_ghostty_defaults(&output);
+        assert_eq!(defaults.bg, Some(Rgb { r: 0x27, g: 0x28, b: 0x22 }));
+        assert_eq!(defaults.fg, Some(Rgb { r: 0xfd, g: 0xff, b: 0xf1 }));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn ghostty_resolver_drains_output_while_the_child_is_running() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = std::env::temp_dir().join(format!(
+            "cmux-tui-ghostty-large-output-{}-{}",
+            std::process::id(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let binary = root.join("ghostty-config-helper");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(
+            &binary,
+            "#!/bin/sh\n\
+             i=0\n\
+             while [ \"$i\" -lt 2048 ]; do\n\
+               printf 'palette = 1=#010203\\n'\n\
+               i=$((i + 1))\n\
+             done\n\
+             printf 'background = #272822\\nforeground = #fdfff1\\n'\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o700)).unwrap();
+
+        let mut command = Command::new(&binary);
+        command.stdout(Stdio::piped()).stderr(Stdio::null());
+        let defaults = match ghostty_defaults_from_helper_command(command, Duration::from_secs(2)) {
+            GhosttyHelperDefaults::Resolved(defaults) => defaults,
+            GhosttyHelperDefaults::Unavailable => panic!("helper output was not parsed"),
+            GhosttyHelperDefaults::TimedOut => panic!("helper output timed out"),
+        };
         assert_eq!(defaults.bg, Some(Rgb { r: 0x27, g: 0x28, b: 0x22 }));
         assert_eq!(defaults.fg, Some(Rgb { r: 0xfd, g: 0xff, b: 0xf1 }));
         let _ = std::fs::remove_dir_all(root);
@@ -4998,17 +6639,150 @@ mod tests {
     }
 
     #[cfg(unix)]
+    fn wait_for_helper_ready_pid(
+        stdout: std::process::ChildStdout,
+        marker: &'static str,
+    ) -> libc::pid_t {
+        let (ready_sender, ready_receiver) = mpsc::sync_channel(1);
+        std::thread::Builder::new()
+            .name("cmux-tui-ghostty-test-ready-reader".to_string())
+            .spawn(move || {
+                use std::io::{BufRead, BufReader};
+
+                for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+                    let Some(pid) = line.strip_prefix(marker) else {
+                        continue;
+                    };
+                    if let Ok(pid) = pid.trim().parse::<libc::pid_t>() {
+                        let _ = ready_sender.send(pid);
+                        return;
+                    }
+                }
+            })
+            .unwrap();
+        ready_receiver
+            .recv_timeout(Duration::from_secs(2))
+            .expect("helper did not publish its ready pid")
+    }
+
+    #[cfg(unix)]
+    fn wait_for_helper_reaped(reaped_receiver: mpsc::Receiver<()>) {
+        reaped_receiver
+            .recv_timeout(Duration::from_secs(2))
+            .expect("helper reaper did not publish completion");
+    }
+
+    #[cfg(any(target_os = "linux", target_vendor = "apple"))]
+    struct TestProcessExit {
+        descriptor: std::os::fd::OwnedFd,
+    }
+
+    #[cfg(any(target_os = "linux", target_vendor = "apple"))]
+    impl TestProcessExit {
+        fn observe(pid: libc::pid_t) -> Option<Self> {
+            use std::os::fd::FromRawFd;
+
+            #[cfg(target_os = "linux")]
+            // SAFETY: pidfd_open observes the supplied live test child and
+            // returns a new descriptor without modifying process state.
+            let descriptor = unsafe { libc::syscall(libc::SYS_pidfd_open, pid, 0) };
+            #[cfg(target_vendor = "apple")]
+            // SAFETY: kqueue returns a new descriptor without external state.
+            let descriptor = unsafe { libc::kqueue() };
+            #[cfg(target_os = "linux")]
+            if descriptor < 0 {
+                let error = std::io::Error::last_os_error();
+                if matches!(error.raw_os_error(), Some(libc::ENOSYS) | Some(libc::EPERM)) {
+                    return None;
+                }
+                panic!("observe helper child {pid}: {error}");
+            }
+            #[cfg(target_vendor = "apple")]
+            assert!(
+                descriptor >= 0,
+                "observe helper child {pid}: {}",
+                std::io::Error::last_os_error()
+            );
+            // SAFETY: pidfd_open and kqueue return a new owned descriptor.
+            let descriptor =
+                unsafe { std::os::fd::OwnedFd::from_raw_fd(descriptor as libc::c_int) };
+
+            #[cfg(target_vendor = "apple")]
+            {
+                use std::os::fd::AsRawFd;
+
+                let change = libc::kevent {
+                    ident: pid as libc::uintptr_t,
+                    filter: libc::EVFILT_PROC,
+                    flags: libc::EV_ADD | libc::EV_ENABLE | libc::EV_ONESHOT,
+                    fflags: libc::NOTE_EXIT,
+                    data: 0,
+                    udata: std::ptr::null_mut(),
+                };
+                let registered = unsafe {
+                    libc::kevent(
+                        descriptor.as_raw_fd(),
+                        &raw const change,
+                        1,
+                        std::ptr::null_mut(),
+                        0,
+                        std::ptr::null(),
+                    )
+                };
+                assert!(
+                    registered >= 0,
+                    "register helper child {pid} exit: {}",
+                    std::io::Error::last_os_error()
+                );
+            }
+
+            Some(Self { descriptor })
+        }
+
+        fn wait(self, timeout: Duration) {
+            use std::os::fd::AsRawFd;
+
+            #[cfg(target_os = "linux")]
+            let ready = {
+                let mut descriptor = libc::pollfd {
+                    fd: self.descriptor.as_raw_fd(),
+                    events: libc::POLLIN,
+                    revents: 0,
+                };
+                let timeout_ms = i32::try_from(timeout.as_millis()).unwrap_or(i32::MAX);
+                unsafe { libc::poll(&raw mut descriptor, 1, timeout_ms) }
+            };
+            #[cfg(target_vendor = "apple")]
+            let ready = {
+                // SAFETY: kevent fully initializes the event before it is read.
+                let mut event = unsafe { std::mem::zeroed::<libc::kevent>() };
+                let timeout = libc::timespec {
+                    tv_sec: timeout.as_secs().try_into().unwrap_or(libc::time_t::MAX),
+                    tv_nsec: timeout.subsec_nanos().into(),
+                };
+                unsafe {
+                    libc::kevent(
+                        self.descriptor.as_raw_fd(),
+                        std::ptr::null(),
+                        0,
+                        &raw mut event,
+                        1,
+                        &raw const timeout,
+                    )
+                }
+            };
+            assert!(ready > 0, "helper child did not exit before the final deadline");
+        }
+    }
+
+    #[cfg(unix)]
     #[test]
     fn ghostty_config_helper_cleanup_reaps_killed_child() {
         let child = Command::new("/bin/sleep").arg("5").spawn().unwrap();
         let pid = child.id() as libc::pid_t;
 
-        terminate_ghostty_helper_child(child);
-
-        let deadline = Instant::now() + Duration::from_secs(2);
-        while unix_process_exists(pid) && Instant::now() < deadline {
-            std::thread::sleep(Duration::from_millis(10));
-        }
+        let reaped_receiver = terminate_ghostty_helper_child_with_reaped_signal(child);
+        wait_for_helper_reaped(reaped_receiver);
 
         assert!(!unix_process_exists(pid), "helper child {pid} was not reaped");
     }
@@ -5021,12 +6795,8 @@ mod tests {
         let child = command.spawn().unwrap();
         let pid = child.id() as libc::pid_t;
 
-        terminate_ghostty_process_scan_child(child);
-
-        let deadline = Instant::now() + Duration::from_secs(2);
-        while unix_process_exists(pid) && Instant::now() < deadline {
-            std::thread::sleep(Duration::from_millis(10));
-        }
+        let reaped_receiver = terminate_ghostty_process_scan_child_with_reaped_signal(child);
+        wait_for_helper_reaped(reaped_receiver);
 
         assert!(!unix_process_exists(pid), "process scan child {pid} was not reaped");
     }
@@ -5055,27 +6825,22 @@ mod tests {
     #[cfg(all(unix, not(target_os = "macos")))]
     #[test]
     fn ghostty_desktop_probe_cleanup_kills_stdout_inheriting_child() {
-        let dir = std::env::temp_dir().join(format!(
-            "cmux-tui-ghostty-desktop-probe-{}-{}",
-            std::process::id(),
-            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
-        ));
-        std::fs::create_dir_all(&dir).unwrap();
-        let script_path = dir.join("probe.sh");
-        let child_pid_path = dir.join("child.pid");
-        let script = format!(
-            "sleep 5 &\necho $! > {}\nprintf \"'prefer-dark'\\n\"\nexit 0\n",
-            shell_quote_path(&child_pid_path)
-        );
-        std::fs::write(&script_path, script).unwrap();
-        let script_arg = script_path.to_string_lossy().to_string();
+        let (started_sender, started_receiver) = mpsc::sync_channel(1);
+        let (reaped_sender, reaped_receiver) = mpsc::sync_channel(1);
 
         let started_at = Instant::now();
-        let output = desktop_theme_command_output(
+        let output = desktop_theme_command_output_with_lifecycle_signals(
             "/bin/sh",
-            &[script_arg.as_str()],
+            &["-c", "sleep 5 & printf \"'prefer-dark'\\n\"; exit 0"],
             Some(Instant::now() + Duration::from_secs(1)),
+            Some(&started_sender),
+            Some(&reaped_sender),
         );
+        let child_group = started_receiver
+            .recv_timeout(Duration::from_secs(2))
+            .expect("desktop probe did not publish its process group")
+            as libc::pid_t;
+        wait_for_helper_reaped(reaped_receiver);
 
         assert_eq!(output, None);
         assert!(
@@ -5083,95 +6848,54 @@ mod tests {
             "desktop probe output drain was not bounded"
         );
 
-        let child_pid = {
-            let deadline = Instant::now() + Duration::from_secs(2);
-            loop {
-                if let Ok(text) = std::fs::read_to_string(&child_pid_path)
-                    && let Ok(pid) = text.trim().parse::<libc::pid_t>()
-                {
-                    break pid;
-                }
-                assert!(Instant::now() < deadline, "desktop probe child pid was not written");
-                std::thread::sleep(Duration::from_millis(10));
-            }
-        };
-        let deadline = Instant::now() + Duration::from_secs(2);
-        while unix_process_is_live(child_pid) && Instant::now() < deadline {
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        let _ = std::fs::remove_dir_all(dir);
-
         assert!(
-            !unix_process_is_live(child_pid),
-            "stdout-inheriting desktop probe child {child_pid} was not killed"
+            !unix_process_group_is_live(child_group),
+            "stdout-inheriting desktop probe group {child_group} was not killed"
         );
     }
 
-    #[cfg(unix)]
+    #[cfg(any(target_os = "linux", target_vendor = "apple"))]
     #[test]
     fn ghostty_config_helper_cleanup_reaps_process_group_children() {
-        let dir = std::env::temp_dir().join(format!(
-            "cmux-tui-ghostty-helper-process-group-{}-{}",
-            std::process::id(),
-            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
-        ));
-        std::fs::create_dir_all(&dir).unwrap();
-        let child_pid_path = dir.join("child.pid");
-        let script = format!("sleep 5 & echo $! > '{}'; wait", child_pid_path.display());
+        const READY_MARKER: &str = "CMUX_HELPER_READY:";
+        let script = format!("sleep 5 & echo {READY_MARKER}$!; wait");
         let mut command = Command::new("/bin/sh");
-        command.arg("-c").arg(script).process_group(0);
-        let child = command.spawn().unwrap();
+        command.arg("-c").arg(script).stdout(Stdio::piped()).process_group(0);
+        let mut child = command.spawn().unwrap();
         let parent_pid = child.id() as libc::pid_t;
-        let child_pid = {
-            let deadline = Instant::now() + Duration::from_secs(2);
-            loop {
-                if let Ok(text) = std::fs::read_to_string(&child_pid_path)
-                    && let Ok(pid) = text.trim().parse::<libc::pid_t>()
-                {
-                    break pid;
-                }
-                assert!(Instant::now() < deadline, "child pid was not written");
-                std::thread::sleep(Duration::from_millis(10));
-            }
-        };
+        let child_pid = wait_for_helper_ready_pid(child.stdout.take().unwrap(), READY_MARKER);
+        let child_exit = TestProcessExit::observe(child_pid);
 
-        terminate_ghostty_helper_child(child);
-
-        let deadline = Instant::now() + Duration::from_secs(2);
-        while (unix_process_exists(parent_pid) || unix_process_is_live(child_pid))
-            && Instant::now() < deadline
-        {
-            std::thread::sleep(Duration::from_millis(10));
+        let reaped_receiver = terminate_ghostty_helper_child_with_reaped_signal(child);
+        wait_for_helper_reaped(reaped_receiver);
+        if let Some(child_exit) = child_exit {
+            child_exit.wait(Duration::from_secs(2));
+            assert!(!unix_process_is_live(child_pid), "helper child {child_pid} was not killed");
+        } else {
+            crate::client_log::stderr_log!(
+                "config",
+                "skipped helper child {child_pid} exit postcondition: pidfd_open is unsupported"
+            );
         }
-        let _ = std::fs::remove_dir_all(dir);
 
         assert!(!unix_process_exists(parent_pid), "helper parent {parent_pid} was not reaped");
-        assert!(!unix_process_exists(child_pid), "helper child {child_pid} was not killed");
     }
 
-    #[cfg(unix)]
+    #[cfg(any(target_os = "linux", target_vendor = "apple"))]
     #[test]
     fn ghostty_config_helper_cleanup_kills_descendant_process_groups() {
         const CHILD_MARKER: &str = "CMUX_TEST_GHOSTTY_HELPER_DESCENDANT_GROUP";
-        const CHILD_PID_PATH: &str = "CMUX_TEST_GHOSTTY_HELPER_DESCENDANT_PID";
+        const READY_MARKER: &str = "CMUX_DESCENDANT_READY:";
         if std::env::var_os(CHILD_MARKER).is_some() {
-            let pid_path =
-                PathBuf::from(std::env::var_os(CHILD_PID_PATH).expect("child pid path set"));
             let mut command = Command::new("/bin/sleep");
             command.arg("5").process_group(0);
             let mut child = command.spawn().unwrap();
-            std::fs::write(pid_path, child.id().to_string()).unwrap();
+            println!("{READY_MARKER}{}", child.id());
+            std::io::stdout().flush().unwrap();
             let _ = child.wait();
             return;
         }
 
-        let dir = std::env::temp_dir().join(format!(
-            "cmux-tui-ghostty-helper-descendant-group-{}-{}",
-            std::process::id(),
-            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos()
-        ));
-        std::fs::create_dir_all(&dir).unwrap();
-        let child_pid_path = dir.join("child.pid");
         let mut command = Command::new(std::env::current_exe().unwrap());
         command
             .args([
@@ -5180,40 +6904,31 @@ mod tests {
                 "--nocapture",
             ])
             .env(CHILD_MARKER, "1")
-            .env(CHILD_PID_PATH, &child_pid_path)
-            .stdout(Stdio::null())
+            .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .process_group(0);
-        let child = command.spawn().unwrap();
+        let mut child = command.spawn().unwrap();
         let parent_pid = child.id() as libc::pid_t;
-        let child_pid = {
-            let deadline = Instant::now() + Duration::from_secs(2);
-            loop {
-                if let Ok(text) = std::fs::read_to_string(&child_pid_path)
-                    && let Ok(pid) = text.trim().parse::<libc::pid_t>()
-                {
-                    break pid;
-                }
-                assert!(Instant::now() < deadline, "descendant pid was not written");
-                std::thread::sleep(Duration::from_millis(10));
-            }
-        };
+        let child_pid = wait_for_helper_ready_pid(child.stdout.take().unwrap(), READY_MARKER);
+        let child_exit = TestProcessExit::observe(child_pid);
 
-        terminate_ghostty_helper_child(child);
-
-        let deadline = Instant::now() + Duration::from_secs(2);
-        while (unix_process_exists(parent_pid) || unix_process_exists(child_pid))
-            && Instant::now() < deadline
-        {
-            std::thread::sleep(Duration::from_millis(10));
+        let reaped_receiver = terminate_ghostty_helper_child_with_reaped_signal(child);
+        wait_for_helper_reaped(reaped_receiver);
+        if let Some(child_exit) = child_exit {
+            child_exit.wait(Duration::from_secs(2));
+            assert!(
+                !unix_process_is_live(child_pid),
+                "descendant process-group child {child_pid} was not killed"
+            );
+        } else {
+            crate::client_log::stderr_log!(
+                "config",
+                "skipped descendant process-group child {child_pid} exit postcondition: \
+                 pidfd_open is unsupported"
+            );
         }
-        let _ = std::fs::remove_dir_all(dir);
 
         assert!(!unix_process_exists(parent_pid), "helper parent {parent_pid} was not reaped");
-        assert!(
-            !unix_process_is_live(child_pid),
-            "descendant process-group child {child_pid} was not killed"
-        );
     }
 
     #[cfg(unix)]
@@ -5242,8 +6957,18 @@ mod tests {
     }
 
     #[cfg(all(unix, not(target_os = "macos")))]
-    fn shell_quote_path(path: &Path) -> String {
-        format!("'{}'", path.to_string_lossy().replace('\'', "'\\''"))
+    fn unix_process_group_is_live(group: libc::pid_t) -> bool {
+        let Ok(output) = Command::new("/bin/ps").args(["-axo", "pgid=,stat="]).output() else {
+            return unsafe { libc::killpg(group, 0) } == 0;
+        };
+        if !output.status.success() {
+            return unsafe { libc::killpg(group, 0) } == 0;
+        }
+        String::from_utf8_lossy(&output.stdout).lines().any(|line| {
+            let mut parts = line.split_whitespace();
+            parts.next().and_then(|value| value.parse::<libc::pid_t>().ok()) == Some(group)
+                && parts.next().is_some_and(|status| !status.starts_with('Z'))
+        })
     }
 
     #[test]
@@ -5314,7 +7039,7 @@ mod tests {
         let defaults = ghostty_defaults_from_sources(
             vec![config],
             Vec::new(),
-            GhosttyHelperDefaults::Resolved(helper),
+            GhosttyHelperDefaults::Resolved(Box::new(helper)),
         );
 
         let _ = std::fs::remove_dir_all(dir);
@@ -5668,6 +7393,28 @@ mod tests {
     }
 
     #[test]
+    fn machine_provider_command_parses_and_requires_a_program() {
+        let raw: RawConfig = serde_json::from_str(
+            r#"{"machine_provider":{"command":["/opt/provider/run.sh","--profile","prod"]}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            raw.machine_provider.command.as_deref(),
+            Some(
+                ["/opt/provider/run.sh".to_string(), "--profile".into(), "prod".into()].as_slice()
+            )
+        );
+
+        // An empty argv or blank program is ignored at apply time.
+        let raw: RawConfig =
+            serde_json::from_str(r#"{"machine_provider":{"command":[]}}"#).unwrap();
+        assert!(raw.machine_provider.command.as_deref().is_some_and(|c| c.is_empty()));
+        let raw: RawConfig =
+            serde_json::from_str(r#"{"machine_provider":{"command":["  "]}}"#).unwrap();
+        assert!(raw.machine_provider.command.as_deref().is_some_and(|c| c[0].trim().is_empty()));
+    }
+
+    #[test]
     fn zero_static_ssh_port_falls_back_to_the_ssh_default() {
         assert_eq!(normalize_ssh_machine_port("mini", Some(0)), None);
         assert_eq!(normalize_ssh_machine_port("mini", Some(22)), Some(22));
@@ -5754,7 +7501,8 @@ mod tests {
                     "selection_background": "#101010",
                     "sidebar_rail": 42,
                     "sidebar_active_bg": "#202020",
-                    "tab_bg": 44
+                    "tab_bg": 44,
+                    "border_style": "rounded"
                 },
                 "tabs": {"min_width": 9, "solid_background": false},
                 "sidebar": {
@@ -5762,6 +7510,11 @@ mod tests {
                     "width": 30,
                     "compact_width": 12,
                     "max_width": 38,
+                    "columns": [
+                        {"kind": "machines", "width": 18},
+                        {"kind": "workspaces", "width": 24},
+                        {"kind": "tabs", "width": 26, "max_width": 40}
+                    ],
                     "plugin": {
                         "command": ["/tmp/sidebar-plugin", "--mode", "test"],
                         "cwd": "/tmp"
@@ -5770,7 +7523,11 @@ mod tests {
                 "machine_sidebar": {
                     "enabled": true,
                     "width": 26,
-                    "max_width": 34
+                    "max_width": 34,
+                    "create_sources": [
+                        {"id": "docker", "name": "Docker", "subtitle": "container prototype"},
+                        {"id": "e2b", "name": "E2B"}
+                    ]
                 },
                 "machine_provider": {
                     "cloud": {
@@ -5793,6 +7550,8 @@ mod tests {
                     }
                 ],
                 "scrollbar": {"position": "border"},
+                "pane": {"padding": 9},
+                "status_bar": {"visible": false},
                 "viewport": {"animation": false},
                 "keys": {
                     "alt_shortcuts": false,
@@ -5825,9 +7584,43 @@ mod tests {
         assert_eq!(config.sidebar.compact_width, 12);
         assert_eq!(config.sidebar.max_width, 38);
         assert_eq!(config.sidebar.view, SidebarView::Workspaces);
+        assert!(config.sidebar.columns_explicit);
+        assert_eq!(
+            config.sidebar.columns,
+            vec![
+                SidebarColumn { kind: SidebarColumnKind::Machines, width: 18, max_width: 34 },
+                SidebarColumn { kind: SidebarColumnKind::Workspaces, width: 24, max_width: 38 },
+                SidebarColumn { kind: SidebarColumnKind::Tabs, width: 26, max_width: 40 },
+            ]
+        );
+        assert!(config.sidebar.views_explicit);
+        assert_eq!(
+            config.sidebar.views,
+            vec![
+                SidebarViewSpec::legacy(SidebarColumnKind::Machines, 18, 34),
+                SidebarViewSpec::legacy(SidebarColumnKind::Workspaces, 24, 38),
+                SidebarViewSpec::legacy(SidebarColumnKind::Tabs, 26, 40),
+            ]
+        );
         assert_eq!(
             config.machine_sidebar,
-            MachineSidebar { enabled: true, width: 26, max_width: 34 }
+            MachineSidebar {
+                enabled: true,
+                width: 26,
+                max_width: 34,
+                create_sources: vec![
+                    MachineCreationSourceConfig {
+                        id: "docker".into(),
+                        name: "Docker".into(),
+                        subtitle: "container prototype".into(),
+                    },
+                    MachineCreationSourceConfig {
+                        id: "e2b".into(),
+                        name: "E2B".into(),
+                        subtitle: String::new(),
+                    },
+                ],
+            }
         );
         assert_eq!(
             config.machine_provider.cloud,
@@ -5844,13 +7637,19 @@ mod tests {
         assert_eq!(config.machines[0].name, "Mac mini");
         assert!(matches!(
             &config.machines[0].target,
-            MachineTargetConfig::Ssh { host, user: Some(user), session, .. }
-                if host == "mini.local" && user == "lawrence" && session == "main"
+            MachineTargetConfig::Ssh { host, user: Some(user), session, binary, .. }
+                if host == "mini.local"
+                    && user == "lawrence"
+                    && session == "main"
+                    && binary == "~/.local/bin/cmux-tui"
         ));
         let plugin = config.sidebar.plugin.as_ref().expect("sidebar plugin config");
         assert_eq!(plugin.command, vec!["/tmp/sidebar-plugin", "--mode", "test"]);
         assert_eq!(plugin.cwd.as_deref(), Some("/tmp"));
         assert_eq!(config.scrollbar.position, ScrollbarPosition::Border);
+        assert_eq!(config.theme.border_style, BorderStyle::Rounded);
+        assert_eq!(config.pane.padding, MAX_PANE_PADDING, "padding clamps to the maximum");
+        assert!(!config.status_bar.visible);
         assert!(!config.viewport.animation);
         assert_eq!(
             config.keys.action_for(&KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE)),
@@ -5882,6 +7681,169 @@ mod tests {
     }
 
     #[test]
+    fn sidebar_views_parse_flat_columns_and_nested_resource_trees() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let old_mux_config = std::env::var_os("CMUX_MUX_CONFIG");
+        let dir =
+            std::env::temp_dir().join(format!("cmux-sidebar-views-config-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("cmux-tui.json");
+        std::fs::write(
+            &path,
+            r#"{
+                "sidebar": {
+                    "views": [
+                        {
+                            "id": "hosts",
+                            "levels": ["machines"],
+                            "width": 18,
+                            "collapse_priority": 7
+                        },
+                        {
+                            "id": "workspace-agents",
+                            "levels": ["workspaces", "agents"],
+                            "actions": ["new-workspace", "new-tab"],
+                            "width": 28
+                        },
+                        {
+                            "id": "workspace-pane-tabs",
+                            "levels": ["workspaces", "panes", "tabs"],
+                            "actions": [],
+                            "width": 32,
+                            "max_width": 44
+                        }
+                    ]
+                }
+            }"#,
+        )
+        .unwrap();
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::set_var("CMUX_MUX_CONFIG", &path) };
+
+        let config = load();
+
+        restore_env_var("CMUX_MUX_CONFIG", old_mux_config);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(config.sidebar.views_explicit);
+        assert!(!config.sidebar.columns_explicit);
+        assert_eq!(config.sidebar.views.len(), 3);
+        assert_eq!(config.sidebar.views[0].id, "hosts");
+        assert_eq!(config.sidebar.views[0].levels, vec![SidebarResourceKind::Machines]);
+        assert_eq!(config.sidebar.views[0].width, 18);
+        assert_eq!(config.sidebar.views[0].collapse_priority, 7);
+        assert_eq!(
+            config.sidebar.views[1].levels,
+            vec![SidebarResourceKind::Workspaces, SidebarResourceKind::Agents]
+        );
+        assert_eq!(config.sidebar.views[1].collapse_priority, 20);
+        assert_eq!(
+            config.sidebar.views[1].actions,
+            vec![
+                SidebarActionSpec::plain(Action::NewWorkspace),
+                SidebarActionSpec::plain(Action::NewTab)
+            ]
+        );
+        assert_eq!(
+            config.sidebar.views[2].levels,
+            vec![
+                SidebarResourceKind::Workspaces,
+                SidebarResourceKind::Panes,
+                SidebarResourceKind::Tabs,
+            ]
+        );
+        assert_eq!(config.sidebar.views[2].max_width, 44);
+        assert!(config.sidebar.views[2].actions.is_empty());
+        assert_eq!(
+            config.sidebar.columns,
+            vec![SidebarColumn { kind: SidebarColumnKind::Machines, width: 18, max_width: 0 }]
+        );
+    }
+
+    #[test]
+    fn sidebar_profiles_select_one_named_native_layout() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let old_mux_config = std::env::var_os("CMUX_MUX_CONFIG");
+        let dir = std::env::temp_dir()
+            .join(format!("cmux-sidebar-profiles-config-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("cmux-tui.json");
+        std::fs::write(
+            &path,
+            r#"{
+                "sidebar": {
+                    "profile": "focused",
+                    "profiles": [
+                        {
+                            "id": "full",
+                            "name": "Full",
+                            "views": [
+                                {"id": "machines", "levels": ["machines"]},
+                                {"id": "workspaces", "levels": ["workspaces"]},
+                                {"id": "tabs", "levels": ["tabs"]}
+                            ]
+                        },
+                        {
+                            "id": "focused",
+                            "name": "Focused",
+                            "views": [
+                                {"id": "machines", "levels": ["machines"]},
+                                {
+                                    "id": "workspace-tree",
+                                    "levels": ["workspaces", "agents"]
+                                }
+                            ]
+                        }
+                    ]
+                }
+            }"#,
+        )
+        .unwrap();
+        // SAFETY: env mutation in tests is serialized by CONFIG_ENV_LOCK.
+        unsafe { std::env::set_var("CMUX_MUX_CONFIG", &path) };
+
+        let config = load();
+
+        restore_env_var("CMUX_MUX_CONFIG", old_mux_config);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(
+            config.sidebar.views.iter().map(|view| view.id.as_str()).collect::<Vec<_>>(),
+            vec!["machines", "workspace-tree"]
+        );
+        assert!(config.sidebar.views.iter().all(|view| !view.includes(SidebarResourceKind::Tabs)));
+    }
+
+    #[test]
+    fn sidebar_resources_are_hidden_when_their_view_is_omitted() {
+        let sidebar = Sidebar::default();
+        assert!(sidebar.views.iter().all(|view| !view.includes(SidebarResourceKind::Agents)));
+        assert_eq!(sidebar.views[1].actions, vec![SidebarActionSpec::plain(Action::NewWorkspace)]);
+    }
+
+    #[test]
+    fn sidebar_view_paths_reject_ambiguous_hierarchies() {
+        assert!(validate_sidebar_levels(&[]).is_err());
+        assert!(
+            validate_sidebar_levels(&[
+                SidebarResourceKind::Machines,
+                SidebarResourceKind::Workspaces,
+            ])
+            .is_err()
+        );
+        assert!(
+            validate_sidebar_levels(&[SidebarResourceKind::Tabs, SidebarResourceKind::Workspaces,])
+                .is_err()
+        );
+        assert!(
+            validate_sidebar_levels(&[
+                SidebarResourceKind::Workspaces,
+                SidebarResourceKind::Tabs,
+                SidebarResourceKind::Panes,
+            ])
+            .is_err()
+        );
+    }
+
+    #[test]
     fn browser_mode_defaults_headful_parses_headless_and_rejects_invalid_values() {
         let raw: RawConfig = serde_json::from_str(r##"{}"##).unwrap();
         assert!(raw.browser.mode.is_none());
@@ -5895,6 +7857,37 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(err.contains("unknown variant `stealth`"), "{err}");
+    }
+
+    #[test]
+    fn invalid_section_does_not_discard_valid_sections() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let dir = TestDirectory::new("section-recovery");
+        let path = dir.path.join("cmux-tui.json");
+        std::fs::write(&path, r##"{"theme":{"sidebar_rail":42},"browser":{"mode":"stealth"}}"##)
+            .unwrap();
+        let old = std::env::var_os("CMUX_TUI_CONFIG");
+        unsafe { std::env::set_var("CMUX_TUI_CONFIG", &path) };
+        let config = load();
+        restore_env_var("CMUX_TUI_CONFIG", old);
+        assert_eq!(config.theme.sidebar_rail, Color::Indexed(42));
+        assert_eq!(config.browser.mode, BrowserMode::Headful);
+    }
+
+    #[test]
+    fn unknown_top_level_field_keeps_strict_rejection() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let dir =
+            std::env::temp_dir().join(format!("cmux-tui-top-level-strict-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("cmux-tui.json");
+        std::fs::write(&path, r##"{"theme":{"sidebar_rail":42},"future":true}"##).unwrap();
+        let old = std::env::var_os("CMUX_TUI_CONFIG");
+        unsafe { std::env::set_var("CMUX_TUI_CONFIG", &path) };
+        let config = load();
+        restore_env_var("CMUX_TUI_CONFIG", old);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(config.theme.sidebar_rail, Theme::default().sidebar_rail);
     }
 
     #[test]
@@ -6198,6 +8191,7 @@ mod tests {
             ("swap-pane-next", Action::SwapPaneNext),
             ("scroll-up", Action::ScrollUp),
             ("toggle-sidebar-compact", Action::ToggleSidebarCompact),
+            ("provider-menu", Action::ProviderMenu),
             ("toggle-sidebar-view", Action::ToggleSidebarView),
             ("new-pane-right", Action::NewPaneRight),
             ("undo-layout", Action::UndoLayout),
@@ -6216,6 +8210,23 @@ mod tests {
                 Some(action),
                 "{name} did not parse"
             );
+        }
+    }
+
+    #[test]
+    fn provider_menu_override_requires_a_valid_chord_or_none() {
+        let cases = [
+            (Value::String("not a chord".to_string()), false),
+            (Value::String("ctrl+b".to_string()), false),
+            (Value::String("none".to_string()), true),
+            (Value::Array(vec![]), true),
+            (Value::String("x".to_string()), true),
+            (Value::Bool(true), false),
+        ];
+        for (value, expected) in cases {
+            let mut keys = Keys::default();
+            keys.apply(&HashMap::from([("provider-menu".to_string(), value)]));
+            assert_eq!(keys.provider_menu_overridden, expected);
         }
     }
 
@@ -6306,6 +8317,329 @@ mod tests {
             "the prefix chord must not remain advertised as a modeless action"
         );
         assert_eq!(collision.shortcut_label(Action::SendPrefix).as_deref(), Some("Alt-n Alt-n"));
+    }
+
+    #[test]
+    fn border_style_parses_every_name_and_defaults_to_single() {
+        assert_eq!(Theme::default().border_style, BorderStyle::Single);
+        for (name, style) in [
+            ("single", BorderStyle::Single),
+            ("rounded", BorderStyle::Rounded),
+            ("thick", BorderStyle::Thick),
+            ("double", BorderStyle::Double),
+            ("none", BorderStyle::None),
+        ] {
+            let raw: RawConfig =
+                serde_json::from_str(&format!(r#"{{"theme":{{"border_style":"{name}"}}}}"#))
+                    .unwrap();
+            assert_eq!(raw.theme.border_style, Some(style), "{name} did not parse");
+        }
+        let hidden = BorderStyle::None.glyphs();
+        for glyph in [
+            hidden.horizontal,
+            hidden.vertical,
+            hidden.top_left,
+            hidden.top_right,
+            hidden.bottom_left,
+            hidden.bottom_right,
+        ] {
+            assert_eq!(glyph, " ");
+        }
+    }
+
+    #[test]
+    fn status_bar_segments_parse_validate_and_cap() {
+        let raw: RawConfig = serde_json::from_value(json!({
+            "status_bar": {
+                "show_screens": false,
+                "show_session": false,
+                "left": [
+                    {"text": " {session} ", "fg": "#87d787", "bg": 236},
+                    {"text": "x", "run": ["true"]},
+                    {"run": []},
+                    {}
+                ],
+                "right": [
+                    {"run": ["date", "+%H:%M"], "interval": 0},
+                    {"text": "{workspace}"}
+                ]
+            }
+        }))
+        .unwrap();
+        let left = resolve_status_segments(raw.status_bar.left.unwrap(), "left");
+        assert_eq!(left.len(), 1, "text+run, empty run, and empty segments are rejected");
+        assert_eq!(left[0].content, StatusSegmentContent::Text(" {session} ".to_string()));
+        assert!(left[0].fg.is_some() && left[0].bg.is_some());
+        let right = resolve_status_segments(raw.status_bar.right.unwrap(), "right");
+        assert_eq!(right.len(), 2);
+        assert_eq!(
+            right[0].content,
+            StatusSegmentContent::Command {
+                argv: vec!["date".to_string(), "+%H:%M".to_string()],
+                interval: Duration::from_secs(1),
+            },
+            "interval clamps to at least one second"
+        );
+
+        let options = StatusBarOptions { left, right, ..StatusBarOptions::default() };
+        let commands = options.command_segments();
+        assert_eq!(commands.len(), 1);
+        assert_eq!(commands[0].0, 1, "command index counts left segments first");
+
+        let overflow: Vec<RawStatusSegment> = (0..MAX_STATUS_SEGMENTS + 3)
+            .map(|index| RawStatusSegment {
+                text: Some(format!("{index}")),
+                ..RawStatusSegment::default()
+            })
+            .collect();
+        assert_eq!(resolve_status_segments(overflow, "left").len(), MAX_STATUS_SEGMENTS);
+    }
+
+    #[test]
+    fn chip_styles_and_separators_parse() {
+        let raw: RawConfig = serde_json::from_value(json!({
+            "tabs": {"style": "pill"},
+            "status_bar": {
+                "left_separator": "\u{e0b0}",
+                "right_separator": "\u{e0b2}",
+                "screens_style": "slant"
+            }
+        }))
+        .unwrap();
+        assert_eq!(raw.tabs.style, Some(ChipStyle::Pill));
+        assert_eq!(raw.status_bar.screens_style, Some(ChipStyle::Slant));
+        assert_eq!(raw.status_bar.left_separator.as_deref(), Some("\u{e0b0}"));
+        assert!(ChipStyle::Block.caps().is_none());
+        let (left, right) = ChipStyle::Pill.caps().unwrap();
+        assert!(!left.is_empty() && !right.is_empty());
+    }
+
+    #[test]
+    fn sidebar_buttons_accept_labels_positions_and_command_references() {
+        let views = vec![RawSidebarView {
+            id: "ws".to_string(),
+            levels: vec!["workspaces".to_string()],
+            actions: Some(vec![
+                RawSidebarAction::Detailed {
+                    action: "new-workspace".to_string(),
+                    label: Some("new".to_string()),
+                },
+                RawSidebarAction::Name("command:lazygit".to_string()),
+                RawSidebarAction::Name("command:unknown".to_string()),
+                RawSidebarAction::Name("new-tab".to_string()),
+            ]),
+            actions_position: Some(ActionsPosition::Top),
+            width: None,
+            max_width: None,
+            collapse_priority: None,
+        }];
+        let command_ids = vec!["lazygit".to_string()];
+        let resolved = resolve_sidebar_view_specs(&views, 22, 0, 22, 0, "sidebar", &command_ids);
+        assert_eq!(resolved.len(), 1);
+        assert_eq!(resolved[0].actions_position, ActionsPosition::Top);
+        assert_eq!(
+            resolved[0].actions,
+            vec![
+                SidebarActionSpec { action: Action::NewWorkspace, label: Some("new".to_string()) },
+                SidebarActionSpec::plain(Action::user_command(0).unwrap()),
+                SidebarActionSpec::plain(Action::NewTab),
+            ],
+            "unknown command references drop, known ones bind by id"
+        );
+    }
+
+    #[test]
+    fn sidebar_row_metrics_glyph_and_label_template_parse() {
+        let raw: RawConfig = serde_json::from_value(json!({
+            "sidebar": {
+                "row_height": 1,
+                "row_gap": 0,
+                "rail_glyph": "none",
+                "workspace_label": "{index} · {name}"
+            }
+        }))
+        .unwrap();
+        assert_eq!(raw.sidebar.row_height, Some(1));
+        assert_eq!(raw.sidebar.row_gap, Some(0));
+        assert_eq!(raw.sidebar.rail_glyph.as_deref(), Some("none"));
+        assert_eq!(raw.sidebar.workspace_label.as_deref(), Some("{index} · {name}"));
+    }
+
+    #[test]
+    fn plus_buttons_parse_labels_actions_and_menus() {
+        let raw: RawConfig = serde_json::from_value(json!({
+            "tabs": {"plus": {
+                "label": " new ",
+                "action": "command:top",
+                "menu": [
+                    "new-tab",
+                    {"action": "new-browser-tab", "label": "browser"},
+                    "command:top",
+                    "command:unknown"
+                ]
+            }},
+            "status_bar": {"screens_plus": {"label": " ⊕ "}}
+        }))
+        .unwrap();
+        let command_ids = vec!["top".to_string()];
+        let plus = resolve_plus_button(raw.tabs.plus.unwrap(), &command_ids, "tabs");
+        assert_eq!(plus.label, " new ");
+        assert_eq!(plus.action, Action::user_command(0));
+        assert_eq!(
+            plus.menu,
+            vec![
+                SidebarActionSpec::plain(Action::NewTab),
+                SidebarActionSpec {
+                    action: Action::NewBrowserTab,
+                    label: Some("browser".to_string()),
+                },
+                SidebarActionSpec::plain(Action::user_command(0).unwrap()),
+            ],
+            "unknown command references drop from plus menus"
+        );
+        let screens =
+            resolve_plus_button(raw.status_bar.screens_plus.unwrap(), &command_ids, "status_bar");
+        assert_eq!(screens.label, " ⊕ ");
+        assert_eq!(screens.action, None);
+        assert!(screens.menu.is_empty());
+        // A blank label keeps the clickable default.
+        let blank = resolve_plus_button(
+            RawPlusButton { label: Some("   ".to_string()), action: None, menu: None },
+            &command_ids,
+            "tabs",
+        );
+        assert_eq!(blank.label, " + ");
+    }
+
+    #[test]
+    fn raw_config_accepts_commands_section() {
+        let raw: RawConfig = serde_json::from_value(json!({
+            "commands": [
+                {"id": "lazygit", "name": "LazyGit", "keys": "g", "run": ["lazygit"]},
+                {"id": "scratch", "keys": ["alt+s"], "run": ["nvim", "/tmp/scratch.md"], "cwd": "/tmp"}
+            ]
+        }))
+        .unwrap();
+        assert_eq!(raw.commands.len(), 2);
+    }
+
+    #[test]
+    fn user_commands_bind_chords_and_resolve() {
+        let mut keys = Keys::default();
+        let raw = vec![
+            RawUserCommand {
+                id: Some("lazygit".to_string()),
+                name: Some("LazyGit".to_string()),
+                keys: Some(Value::String("g".to_string())),
+                run: Some(vec!["lazygit".to_string()]),
+                cwd: None,
+            },
+            RawUserCommand {
+                id: Some("scratch".to_string()),
+                name: None,
+                // The prefix chord is reserved, so only alt+s binds.
+                keys: Some(json!(["alt+s", "ctrl+b"])),
+                run: Some(vec!["nvim".to_string(), "/tmp/scratch.md".to_string()]),
+                cwd: Some("/tmp".to_string()),
+            },
+            RawUserCommand {
+                id: Some("lazygit".to_string()),
+                name: None,
+                keys: Some(Value::String("y".to_string())),
+                run: Some(vec!["true".to_string()]),
+                cwd: None,
+            },
+            RawUserCommand {
+                id: Some("empty-run".to_string()),
+                name: None,
+                keys: Some(Value::String("e".to_string())),
+                run: Some(Vec::new()),
+                cwd: None,
+            },
+            RawUserCommand {
+                id: None,
+                name: None,
+                keys: Some(Value::String("i".to_string())),
+                run: Some(vec!["true".to_string()]),
+                cwd: None,
+            },
+        ];
+        let (commands, key_values) = resolve_user_command_specs(raw);
+        bind_user_command_chords(&mut keys, &commands, &key_values);
+        assert_eq!(commands.len(), 2);
+        assert_eq!(commands[0].id, "lazygit");
+        // An ignored invalid entry does not reserve its id: a later valid
+        // entry with the same id is accepted.
+        let mut keys_retry = Keys::default();
+        let retry = vec![
+            RawUserCommand {
+                id: Some("retry".to_string()),
+                name: None,
+                keys: None,
+                run: Some(Vec::new()),
+                cwd: None,
+            },
+            RawUserCommand {
+                id: Some("retry".to_string()),
+                name: None,
+                keys: None,
+                run: Some(vec!["true".to_string()]),
+                cwd: Some("   ".to_string()),
+            },
+        ];
+        let (retried, retried_keys) = resolve_user_command_specs(retry);
+        bind_user_command_chords(&mut keys_retry, &retried, &retried_keys);
+        assert_eq!(retried.len(), 1);
+        assert_eq!(retried[0].id, "retry");
+        assert_eq!(retried[0].cwd, None, "blank cwd is treated as absent");
+        assert_eq!(commands[0].name, "LazyGit");
+        assert_eq!(commands[0].run, ["lazygit"]);
+        assert_eq!(commands[1].name, "scratch");
+        assert_eq!(commands[1].cwd.as_deref(), Some("/tmp"));
+
+        let lazygit = Action::user_command(0).unwrap();
+        let scratch = Action::user_command(1).unwrap();
+        // An explicit command chord steals the default chord it collides with.
+        assert_eq!(
+            keys.action_for(&KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE)),
+            Some(lazygit)
+        );
+        assert_eq!(keys.shortcut_labels(Action::NewPaneRight), Vec::<String>::new());
+        // Alt chords are modeless, exactly like built-in Alt bindings.
+        assert_eq!(
+            keys.modeless_action_for(&KeyEvent::new(KeyCode::Char('s'), KeyModifiers::ALT)),
+            Some(scratch)
+        );
+        // The prefix chord stays reserved for send-prefix.
+        assert_eq!(
+            keys.action_for(&KeyEvent::new(KeyCode::Char('b'), KeyModifiers::CONTROL)),
+            Some(Action::SendPrefix)
+        );
+        // Rejected chords do not bind: `y`, `e`, and `i` keep their defaults.
+        assert_ne!(
+            keys.action_for(&KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE)),
+            Some(Action::user_command(2).unwrap())
+        );
+        assert_eq!(keys.shortcut_labels(lazygit), ["Ctrl-b g"]);
+        assert_eq!(keys.shortcut_labels(scratch), ["Alt-s"]);
+    }
+
+    #[test]
+    fn user_commands_stop_at_the_command_limit() {
+        let mut keys = Keys::default();
+        let raw = (0..MAX_USER_COMMANDS + 2)
+            .map(|index| RawUserCommand {
+                id: Some(format!("command-{index}")),
+                name: None,
+                keys: None,
+                run: Some(vec!["true".to_string()]),
+                cwd: None,
+            })
+            .collect();
+        let (commands, key_values) = resolve_user_command_specs(raw);
+        bind_user_command_chords(&mut keys, &commands, &key_values);
+        assert_eq!(commands.len(), MAX_USER_COMMANDS);
+        assert!(Action::user_command(MAX_USER_COMMANDS).is_none());
     }
 
     #[test]

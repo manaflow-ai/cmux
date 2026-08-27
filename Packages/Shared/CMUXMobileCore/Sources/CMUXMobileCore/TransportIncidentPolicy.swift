@@ -151,6 +151,7 @@ public struct TransportIncidentPolicy: Sendable {
     /// Event codes that are failure candidates (subject to suppression rules).
     public static let failureCodes: Set<DiagnosticEventCode> = [
         .pairFail, .pairUnreachable, .error, .transportDialFailed,
+        .transportDialLegFailed,
         .recoveryFailed, .endpointFailed, .relayPolicyRefreshFailed,
         .sessionClosed, .routeUnavailable, .discoveryFailed, .admissionFailed,
         .hostAuthenticationFailed, .rpcFailed,

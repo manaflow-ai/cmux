@@ -26,6 +26,27 @@ import Testing
         #expect(readiness == .blocked(.awaitingDeviceToken))
     }
 
+    @Test func connectMacRepairRequiresTheManualPairingCapability() {
+        #expect(
+            MobilePushSettingsContent.shouldPresentRepair(
+                .connectMac,
+                canConnectMac: false
+            ) == false
+        )
+        #expect(
+            MobilePushSettingsContent.shouldPresentRepair(
+                .connectMac,
+                canConnectMac: true
+            )
+        )
+        #expect(
+            MobilePushSettingsContent.shouldPresentRepair(
+                .enableOnPhone,
+                canConnectMac: false
+            )
+        )
+    }
+
     @Test func cachedTokenAwaitingBackendAcknowledgementOffersRetry() {
         let readiness = MobilePushReadiness.resolve(
             authorization: .authorized,

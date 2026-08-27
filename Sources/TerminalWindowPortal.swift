@@ -158,11 +158,23 @@ final class WindowTerminalHostView: NSView {
 
             clearActiveDividerCursor(restoreArrow: true)
             if routingContext.allowsTerminalPortalDragRouting,
-               routingContext.eventKind != .pointerUp || hasActivePaneDropDrag || AppDelegate.shared?.sidebarWorkspaceDragRegistry.currentWorkspaceId != nil {
-                let dragPasteboardTypes = NSPasteboard(name: .drag).types
+               routingContext.eventKind != .pointerUp || hasActivePaneDropDrag {
+                let dragPasteboard = NSPasteboard(name: .drag)
+                let dragPasteboardTypes = dragPasteboard.types ?? []
                 let shouldPassThrough = DragOverlayRoutingPolicy.shouldPassThroughTerminalPortalHitTesting(
                     pasteboardTypes: dragPasteboardTypes,
-                    eventType: eventType, hasActiveDropDrag: hasActivePaneDropDrag || AppDelegate.shared?.sidebarWorkspaceDragRegistry.currentWorkspaceId != nil
+                    eventType: eventType,
+                    hasActiveDropDrag: hasActivePaneDropDrag,
+                    hasLiveTabTransfer: DragOverlayRoutingPolicy.hasLiveTabTransfer(
+                        in: dragPasteboard,
+                        pasteboardTypes: dragPasteboardTypes,
+                        resolver: AppDelegate.shared?.liveTabDragCapabilityResolver
+                    ),
+                    hasLiveFileDropPayload: DragOverlayRoutingPolicy.hasLiveFileDropPayload(
+                        from: dragPasteboard,
+                        pasteboardTypes: dragPasteboardTypes,
+                        resolver: AppDelegate.shared?.liveTabDragCapabilityResolver
+                    )
                 )
                 if shouldPassThrough {
                     let hitView = super.hitTest(point)
@@ -1501,10 +1513,40 @@ final class WindowTerminalPortal: NSObject {
         hostedView: GhosttySurfaceScrollView,
         to anchorView: NSView,
         visibleInUI: Bool,
-        zPriority: Int = 0,
-        deferLayoutSynchronization: Bool = false
+        zPriority: Int = 0
     ) {
-        guard ensureInstalled(syncLayout: !deferLayoutSynchronization) else { return }
+        bind(
+            hostedView: hostedView,
+            to: anchorView,
+            visibleInUI: visibleInUI,
+            zPriority: zPriority,
+            syncLayout: true
+        )
+    }
+
+    fileprivate func bindUsingCommittedGeometry(
+        hostedView: GhosttySurfaceScrollView,
+        to anchorView: NSView,
+        visibleInUI: Bool,
+        zPriority: Int = 0
+    ) {
+        bind(
+            hostedView: hostedView,
+            to: anchorView,
+            visibleInUI: visibleInUI,
+            zPriority: zPriority,
+            syncLayout: false
+        )
+    }
+
+    private func bind(
+        hostedView: GhosttySurfaceScrollView,
+        to anchorView: NSView,
+        visibleInUI: Bool,
+        zPriority: Int,
+        syncLayout: Bool
+    ) {
+        guard ensureInstalled(syncLayout: syncLayout) else { return }
 
         let hostedId = ObjectIdentifier(hostedView)
         let anchorId = ObjectIdentifier(anchorView)
@@ -1625,17 +1667,8 @@ final class WindowTerminalPortal: NSObject {
 
         ensureDividerOverlayOnTop()
 
-        if deferLayoutSynchronization {
-            // Bind calls from SwiftUI NSViewRepresentable update/layout callbacks
-            // must not force ancestor layout synchronously. Still reconcile the
-            // portal entry from already-current host geometry so resize/visibility
-            // does not lag until a later external observer turn.
-            synchronizeHostedView(withId: hostedId, syncLayout: false)
-            scheduleDeferredFullSynchronizeAll()
-        } else {
-            synchronizeHostedView(withId: hostedId)
-            scheduleDeferredFullSynchronizeAll()
-        }
+        synchronizeHostedView(withId: hostedId, syncLayout: syncLayout)
+        scheduleDeferredFullSynchronizeAll()
         pruneDeadEntries()
     }
 
@@ -2502,8 +2535,7 @@ enum TerminalWindowPortalRegistry {
         visibleInUI: Bool,
         zPriority: Int = 0,
         expectedSurfaceId: UUID? = nil,
-        expectedGeneration: UInt64? = nil,
-        deferLayoutSynchronization: Bool = false
+        expectedGeneration: UInt64? = nil
     ) {
         guard let window = anchorView.window else { return }
 
@@ -2537,19 +2569,22 @@ enum TerminalWindowPortalRegistry {
             return
         }
 
-        let nextPortal = portal(for: window, syncLayout: !deferLayoutSynchronization)
+        // Representable coordinators stage registry binds after their framework
+        // callbacks return. Each pane consumes the committed anchor geometry;
+        // WindowTerminalPortal coalesces their deferred full convergence into
+        // one window-owned pass instead of forcing window layout per pane.
+        let nextPortal = portal(for: window, syncLayout: false)
 
         if let oldWindowId = hostedToWindowId[hostedId],
            oldWindowId != windowId {
             portalsByWindowId[oldWindowId]?.detachHostedView(withId: hostedId)
         }
 
-        nextPortal.bind(
+        nextPortal.bindUsingCommittedGeometry(
             hostedView: hostedView,
             to: anchorView,
             visibleInUI: visibleInUI,
-            zPriority: zPriority,
-            deferLayoutSynchronization: deferLayoutSynchronization
+            zPriority: zPriority
         )
         hostedToWindowId[hostedId] = windowId
         pruneHostedMappings(for: windowId, validHostedIds: nextPortal.hostedIds())
@@ -2719,6 +2754,14 @@ enum TerminalWindowPortalRegistry {
         let hostedId = ObjectIdentifier(hostedView)
         guard let windowId = hostedToWindowId[hostedId], let portal = portalsByWindowId[windowId] else { return visibleInUI }
         return portal.updateEntryVisibility(forHostedId: hostedId, visibleInUI: visibleInUI)
+    }
+
+    /// Whether the registry entry still names this anchor, including while the
+    /// anchor is temporarily detached and therefore has no live window binding.
+    static func hasEntry(for hostedView: GhosttySurfaceScrollView, boundTo anchorView: NSView) -> Bool {
+        let hostedId = ObjectIdentifier(hostedView)
+        guard let windowId = hostedToWindowId[hostedId], let portal = portalsByWindowId[windowId] else { return false }
+        return portal.isHostedViewBoundToAnchor(withId: hostedId, anchorView: anchorView)
     }
 
     static func isHostedView(_ hostedView: GhosttySurfaceScrollView, boundTo anchorView: NSView) -> Bool {

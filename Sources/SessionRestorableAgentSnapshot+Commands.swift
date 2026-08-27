@@ -16,9 +16,9 @@ extension SessionRestorableAgentSnapshot {
         let container = try decoder.container(keyedBy: SnapshotCodingKeys.self)
         let persistedKind = try container.decode(String.self, forKey: .kind)
         let registration = try container.decodeIfPresent(
-            CmuxVaultAgentRegistration.self,
+            SessionPersistedVaultAgentRegistration.self,
             forKey: .registration
-        )?.migratedPersistedBuiltInRegistration
+        )?.registration
         guard let kind = RestorableAgentKind(
             persistedRawValue: persistedKind,
             registration: registration

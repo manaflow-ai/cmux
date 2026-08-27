@@ -99,6 +99,7 @@ int main() {
 
     cmux::SplitPaneOptions pane_split(cmux::PaneDirection::right);
     pane_split.correlation_key = "consumer-split";
+    pane_split.viewport_width = 0.5;
     auto split_params = pane_split.to_params();
 
     cmux::CreateTerminalTabOptions terminal_create;

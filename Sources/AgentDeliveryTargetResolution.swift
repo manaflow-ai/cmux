@@ -258,7 +258,7 @@ extension AppDelegate {
         }
         var envTarget: AgentDeliveryTargetCandidate?
         if let envSurfaceId = processScope?.surfaceID,
-           let owner = notificationSurfaceOwner(
+           let owner = liveSurfaceOwner(
                surfaceID: envSurfaceId,
                preferredTabID: processScope?.workspaceID
            ) {
@@ -442,7 +442,7 @@ extension TerminalController {
             )
         }
         if let claimedSurfaceId,
-           let owner = appDelegate.notificationSurfaceOwner(
+           let owner = appDelegate.liveSurfaceOwner(
                surfaceID: claimedSurfaceId,
                preferredTabID: claimedWorkspaceId
            ) {

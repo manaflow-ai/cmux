@@ -40,6 +40,19 @@ import Testing
         #expect(category.guidance != nil)
     }
 
+    @Test func unavailableTailscaleAuthorizationNamesSetupInsteadOfReachability() throws {
+        let category = MobilePairingFailureCategory.classify(
+            error: CmxNetworkByteTransportError.tailscaleAuthorizationUnavailable,
+            route: try route()
+        )
+
+        #expect(category == .tailscaleUnavailable)
+        #expect(!category.isAuthorizationFailure)
+        #expect(category.analyticsReason == "tailscale_unavailable")
+        #expect(category.message.localizedCaseInsensitiveContains("Tailscale"))
+        #expect(category.guidance?.contains("Pair iPhone") == true)
+    }
+
     @Test func connectionRefusedMeansListenerNotRunning() throws {
         let category = MobilePairingFailureCategory.classify(
             error: CmxNetworkByteTransportError.connectionFailed("refused", .connectionRefused),
@@ -181,7 +194,7 @@ import Testing
         #expect(category == .buildIncompatible)
         #expect(category.analyticsReason == "build_incompatible")
         #expect(category.message.contains("cannot connect"))
-        #expect(category.guidance?.contains("same DEV tag") == true)
+        #expect(category.guidance?.contains("any DEV Mac build") == true)
         #expect(!category.isAuthorizationFailure)
     }
 
@@ -196,7 +209,7 @@ import Testing
         #expect(category.message != MobilePairingFailureCategory.authFailed.message)
         #expect(!category.message.contains("Make sure both devices are signed in"))
         #expect(category.guidance?.contains("BETA") == true)
-        #expect(category.guidance?.contains("same DEV tag") == true)
+        #expect(category.guidance?.contains("any DEV Mac build") == true)
         // Signing out cannot move the account to another Stack project, so this
         // must not drive the re-auth (Sign Out) prompt.
         #expect(!category.isAuthorizationFailure)
@@ -268,6 +281,7 @@ import Testing
         let route = try route()
         let categories: [MobilePairingFailureCategory] = [
             .offline,
+            .tailscaleUnavailable,
             .hostUnreachable(host: "h", port: 1),
             .listenerNotRunning(host: "h", port: 1),
             .localNetworkBlocked,

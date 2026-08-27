@@ -4,8 +4,6 @@ import { subrouterErrorResponse } from "../../../../../../services/subrouter/rou
 import type { SubrouterCredentialLeaseOutcome } from "../../../../../../services/subrouter/types";
 import { jsonResponse } from "../../../../../../services/vms/routeHelpers";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 type RouteContext = {
   readonly params: Promise<{ readonly leaseId: string }>;

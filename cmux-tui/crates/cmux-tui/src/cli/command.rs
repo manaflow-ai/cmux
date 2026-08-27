@@ -17,6 +17,8 @@ pub(super) enum ParsedCommand {
 }
 
 pub(super) enum CommandPlan {
+    Server(super::lifecycle::ServerPlan),
+    AgentHooks(crate::agent_hook_install::Plan),
     Protocol(RequestPlan),
     SessionResetState(SessionResetStatePlan),
     Plugin(PluginPlan),
@@ -152,6 +154,7 @@ pub(super) fn parse(args: &[String]) -> Result<CommandPlan, UsageError> {
         .ok_or_else(|| UsageError::new("missing resource scope"))?;
     let mut selectors = Selectors::default();
     let plan = match scope {
+        "server" => parse_server(&tokens.words[1..], &mut tokens.flags)?,
         "machine" => parse_machine(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
         "session" => parse_session(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
         "client" => parse_client(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
@@ -172,10 +175,37 @@ pub(super) fn parse(args: &[String]) -> Result<CommandPlan, UsageError> {
         "projection" => parse_projection(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
         "provider" => parse_provider(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
         "raw" => parse_raw(&tokens.words[1..], &mut tokens.flags)?,
-        value => return Err(UsageError::new(format!("unknown resource scope {value:?}"))),
+        value => return Err(super::unknown_scope(value)),
     };
     tokens.flags.reject_remaining()?;
     Ok(plan)
+}
+
+fn parse_server(words: &[String], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
+    let action = match strs(words).as_slice() {
+        ["status"] => super::lifecycle::ServerAction::Status,
+        ["ensure"] => super::lifecycle::ServerAction::Ensure,
+        ["stop"] => super::lifecycle::ServerAction::Stop { force: flags.boolean("force") },
+        ["reload-config"] => super::lifecycle::ServerAction::ReloadConfig,
+        ["start"] => {
+            return Err(UsageError::new(
+                crate::localization::catalog().local_server.start_options_after_action,
+            ));
+        }
+        [action] => {
+            let messages = &crate::localization::catalog().local_server;
+            return Err(UsageError::new(messages.unknown_server_action(
+                action,
+                super::suggestion(action, &["start", "ensure", "status", "stop", "reload-config"]),
+            )));
+        }
+        _ => {
+            return Err(UsageError::new(
+                crate::localization::catalog().local_server.invalid_action_syntax,
+            ));
+        }
+    };
+    Ok(CommandPlan::Server(super::lifecycle::ServerPlan { action, session: None }))
 }
 
 fn tokenize(args: &[String]) -> Result<Tokens, UsageError> {
@@ -224,34 +254,42 @@ fn tokenize(args: &[String]) -> Result<Tokens, UsageError> {
     Ok(Tokens { words, flags, argv })
 }
 
+/// Metadata for flags which consume no following token.
+///
+/// Keeping this as data makes the tokenizer's grammar auditable and leaves a
+/// single place to extend when a command adds a boolean option. This is the
+/// same distinction Clap models with `ArgAction::SetTrue`, while retaining
+/// cmux's custom forwarding and error text.
+const BOOLEAN_FLAGS: &[&str] = &[
+    "empty",
+    "left",
+    "right",
+    "up",
+    "down",
+    "force",
+    "confirm-close",
+    "complete",
+    "clear-name",
+    "clear-kind",
+    "clear-foreground",
+    "clear-background",
+    "clear-cursor",
+    "clear-selection-background",
+    "clear-selection-foreground",
+    "clear-cursor-style",
+    "clear-cursor-blink",
+    "clear-palette",
+    "read-only",
+    "relaunch",
+    "styled",
+    "builtin",
+    "mutation",
+    "stream",
+    "ignore-case",
+];
+
 fn is_boolean_flag(name: &str) -> bool {
-    matches!(
-        name,
-        "empty"
-            | "left"
-            | "right"
-            | "up"
-            | "down"
-            | "force"
-            | "confirm-close"
-            | "complete"
-            | "clear-name"
-            | "clear-kind"
-            | "clear-foreground"
-            | "clear-background"
-            | "clear-cursor"
-            | "clear-selection-background"
-            | "clear-selection-foreground"
-            | "clear-cursor-style"
-            | "clear-cursor-blink"
-            | "clear-palette"
-            | "read-only"
-            | "relaunch"
-            | "styled"
-            | "builtin"
-            | "mutation"
-            | "stream"
-    )
+    BOOLEAN_FLAGS.contains(&name)
 }
 
 fn parse_machine(
@@ -314,6 +352,98 @@ fn parse_session(
             add_optional_cursor(&mut params, flags)?;
             request(ResourceOperation::SessionEvents, selectors, flags, params)
         }
+        [selector, "journal", "subscribe"] => {
+            selectors.insert("session", "session", selector)?;
+            let mut params = Map::new();
+            add_stream_id(&mut params, flags)?;
+            add_journal_subscription(&mut params, flags, None, true)?;
+            request(ResourceOperation::SessionJournalSubscribe, selectors, flags, params)
+        }
+        [selector, "journal", "read"] => {
+            selectors.insert("session", "session", selector)?;
+            let mut params = Map::new();
+            add_stream_id(&mut params, flags)?;
+            add_journal_subscription(&mut params, flags, Some("beginning"), false)?;
+            request(ResourceOperation::SessionJournalSubscribe, selectors, flags, params)
+        }
+        [selector, "journal", "producer", "list"] => {
+            selectors.insert("session", "session", selector)?;
+            request(ResourceOperation::SessionJournalProducerList, selectors, flags, Map::new())
+        }
+        [selector, "journal", "producer", "put"] => {
+            selectors.insert("session", "session", selector)?;
+            let manifest = parse_json_flag(flags, "manifest-json")?;
+            request(
+                ResourceOperation::SessionJournalProducerPut,
+                selectors,
+                flags,
+                map_with("manifest", manifest),
+            )
+        }
+        [selector, "journal", "append"] => {
+            selectors.insert("session", "session", selector)?;
+            let mut event = parse_json_flag(flags, "event-json")?;
+            let hook_id = std::env::var("CMUX_JOURNAL_HOOK_ID").ok();
+            let causation_id = std::env::var("CMUX_JOURNAL_CAUSATION_ID").ok();
+            let correlation_id = std::env::var("CMUX_JOURNAL_CORRELATION_ID").ok();
+            apply_journal_hook_context(
+                &mut event,
+                hook_id.as_deref(),
+                causation_id.as_deref(),
+                correlation_id.as_deref(),
+            )?;
+            request(
+                ResourceOperation::SessionJournalAppend,
+                selectors,
+                flags,
+                map_with("event", event),
+            )
+        }
+        [selector, "journal", "hook", "list"] => {
+            selectors.insert("session", "session", selector)?;
+            request(ResourceOperation::SessionJournalHookList, selectors, flags, Map::new())
+        }
+        [selector, "journal", "hook", "put"] => {
+            selectors.insert("session", "session", selector)?;
+            let manifest = parse_json_flag(flags, "manifest-json")?;
+            request(
+                ResourceOperation::SessionJournalHookPut,
+                selectors,
+                flags,
+                map_with("manifest", manifest),
+            )
+        }
+        [selector, "journal", "checkpoint", "create"] => {
+            selectors.insert("session", "session", selector)?;
+            request(ResourceOperation::SessionJournalCheckpointCreate, selectors, flags, Map::new())
+        }
+        [selector, "journal", "checkpoint", "list"] => {
+            selectors.insert("session", "session", selector)?;
+            request(ResourceOperation::SessionJournalCheckpointList, selectors, flags, Map::new())
+        }
+        [selector, "journal", "restore", "preview"] => {
+            selectors.insert("session", "session", selector)?;
+            let mut params = Map::new();
+            if let Some(checkpoint) = flags.take("checkpoint") {
+                params.insert("checkpoint".into(), Value::String(checkpoint));
+            }
+            request(ResourceOperation::SessionJournalRestorePreview, selectors, flags, params)
+        }
+        [selector, "journal", "segment", "list"] => {
+            selectors.insert("session", "session", selector)?;
+            request(ResourceOperation::SessionJournalSegmentList, selectors, flags, Map::new())
+        }
+        [selector, "journal", "segment", "seal"] => {
+            selectors.insert("session", "session", selector)?;
+            let mut params = Map::new();
+            insert_decimal(
+                &mut params,
+                "through_sequence",
+                "--through",
+                flags.required("through")?,
+            )?;
+            request(ResourceOperation::SessionJournalSegmentSeal, selectors, flags, params)
+        }
         [selector, "ping"] => {
             selectors.insert("session", "session", selector)?;
             request(ResourceOperation::SessionPing, selectors, flags, Map::new())
@@ -332,6 +462,23 @@ fn parse_session(
             force: flags.boolean("force"),
             confirm_reset: flags.take("confirm-reset"),
         })),
+        [selector, "stop"] => {
+            let session = match Selector::parse(selector).map_err(|_| {
+                UsageError::new(crate::localization::catalog().local_server.session_name_required)
+            })? {
+                Selector::Name(name) if !name.is_empty() => Some(name),
+                Selector::Current => None,
+                Selector::Name(_) | Selector::Id(_) => {
+                    return Err(UsageError::new(
+                        crate::localization::catalog().local_server.session_name_required,
+                    ));
+                }
+            };
+            Ok(CommandPlan::Server(super::lifecycle::ServerPlan {
+                action: super::lifecycle::ServerAction::Stop { force: flags.boolean("force") },
+                session,
+            }))
+        }
         [selector, "config", "reload"] => {
             selectors.insert("session", "session", selector)?;
             request(ResourceOperation::SessionReloadConfig, selectors, flags, Map::new())
@@ -567,11 +714,7 @@ fn parse_screen_strings(
                 params.insert("confirm_close".into(), Value::Bool(true));
             }
             if let Some(token) = flags.take("confirmation-token") {
-                if token.is_empty() || token.len() > 128 {
-                    return Err(UsageError::new(
-                        "--confirmation-token must contain 1 to 128 UTF-8 bytes",
-                    ));
-                }
+                validate_bounded_text("--confirmation-token", &token)?;
                 params.insert("confirmation_token".into(), Value::String(token));
             }
             request(ResourceOperation::ScreenLayoutUndo, selectors, flags, params)
@@ -615,13 +758,21 @@ fn parse_pane_strings(
         [selector, "split"] => {
             selectors.insert("pane", "pane", selector)?;
             let mut params = Map::new();
-            let direction = take_direction_switch(flags)?;
-            params.insert(
-                "direction".into(),
-                Value::String(direction.unwrap_or_else(|| "right".into())),
-            );
+            let direction = take_direction_switch(flags)?.unwrap_or_else(|| "right".into());
+            params.insert("direction".into(), Value::String(direction.clone()));
             if let Some(ratio) = flags.take("ratio") {
                 insert_ratio(&mut params, "ratio", "--ratio", ratio)?;
+            }
+            if let Some(viewport_width) = flags.take("viewport-width") {
+                if direction != "right" {
+                    return Err(UsageError::new("--viewport-width requires --right"));
+                }
+                insert_viewport_width(
+                    &mut params,
+                    "viewport_width",
+                    "--viewport-width",
+                    viewport_width,
+                )?;
             }
             insert_optional_string(&mut params, flags, "cwd", "cwd");
             add_size(&mut params, flags)?;
@@ -923,6 +1074,25 @@ fn parse_terminal(
             selectors.insert("terminal", "term", selector)?;
             request(ResourceOperation::TerminalHistoryClear, selectors, flags, Map::new())
         }
+        [selector, "output", "read"] => {
+            selectors.insert("terminal", "term", selector)?;
+            let mut params = Map::new();
+            if let Some(after) = flags.take("after") {
+                validate_decimal("--after", &after)?;
+                params.insert("after".into(), Value::String(after));
+            }
+            if let Some(max_bytes) = flags.take("max-bytes") {
+                insert_bounded_u32(
+                    &mut params,
+                    "max_bytes",
+                    "--max-bytes",
+                    max_bytes,
+                    1,
+                    4_194_304,
+                )?;
+            }
+            request(ResourceOperation::TerminalOutputRead, selectors, flags, params)
+        }
         [selector, "screen", "wait"] => {
             selectors.insert("terminal", "term", selector)?;
             let mut params = Map::new();
@@ -1169,6 +1339,18 @@ fn parse_notification(words: &[String], flags: &mut Flags) -> Result<CommandPlan
 fn parse_agent(words: &[String], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
     let selectors = Selectors::default();
     match strs(words).as_slice() {
+        ["hook", action @ ("install" | "uninstall" | "status"), providers @ ..] => {
+            let action = match *action {
+                "install" => crate::agent_hook_install::Action::Install,
+                "uninstall" => crate::agent_hook_install::Action::Uninstall,
+                "status" => crate::agent_hook_install::Action::Status,
+                _ => unreachable!(),
+            };
+            Ok(CommandPlan::AgentHooks(crate::agent_hook_install::Plan {
+                action,
+                providers: providers.iter().map(|provider| (*provider).to_string()).collect(),
+            }))
+        }
         ["list"] => {
             let mut params = Map::new();
             if let Some(terminal) = flags.take("terminal") {
@@ -1179,17 +1361,79 @@ fn parse_agent(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usage
                 validate_one_of(
                     "--state",
                     &state,
-                    &["idle", "running", "waiting", "done", "error"],
+                    &["working", "blocked", "idle", "done", "unknown"],
                 )?;
                 params.insert("state".into(), Value::String(state));
             }
             request(ResourceOperation::AgentList, &selectors, flags, params)
         }
+        ["hook", "emit"] => {
+            const MAX_NATIVE_PAYLOAD_BYTES: u64 = 1024 * 1024;
+            let source = flags.required("source")?;
+            let native_event = flags.required("event")?;
+            let native = match flags.take("payload-json") {
+                Some(payload) => serde_json::from_str(&payload).map_err(|error| {
+                    UsageError::new(format!("invalid --payload-json JSON: {error}"))
+                })?,
+                None => {
+                    let mut bytes = Vec::new();
+                    io::stdin()
+                        .take(MAX_NATIVE_PAYLOAD_BYTES + 1)
+                        .read_to_end(&mut bytes)
+                        .map_err(|error| {
+                            UsageError::new(format!("cannot read agent hook stdin: {error}"))
+                        })?;
+                    if bytes.len() as u64 > MAX_NATIVE_PAYLOAD_BYTES {
+                        return Err(UsageError::new(
+                            "agent hook payload cannot exceed 1048576 bytes",
+                        ));
+                    }
+                    if bytes.is_empty() {
+                        json!({})
+                    } else if let Ok(value) = serde_json::from_slice(&bytes) {
+                        value
+                    } else if let Ok(text) = String::from_utf8(bytes.clone()) {
+                        json!({"encoding":"utf8","data":text})
+                    } else {
+                        json!({"encoding":"base64","data":BASE64.encode(bytes)})
+                    }
+                }
+            };
+            let terminal =
+                flags.take("terminal").or_else(|| std::env::var("CMUX_TUI_TERMINAL_ID").ok());
+            let ingress = cmux_tui_core::agent_hook_journal_ingress(
+                &source,
+                &native_event,
+                terminal.as_deref(),
+                native,
+            )
+            .map_err(|error| UsageError::new(error.to_string()))?;
+            if serde_json::to_vec(&ingress.payload)
+                .map_err(|error| UsageError::new(format!("encode agent hook: {error}")))?
+                .len()
+                > MAX_NATIVE_PAYLOAD_BYTES as usize
+            {
+                return Err(UsageError::new(
+                    "encoded agent hook payload cannot exceed 1048576 bytes",
+                ));
+            }
+            request(
+                ResourceOperation::SessionJournalAppend,
+                &selectors,
+                flags,
+                map_with(
+                    "event",
+                    serde_json::to_value(ingress).map_err(|error| {
+                        UsageError::new(format!("encode agent hook request: {error}"))
+                    })?,
+                ),
+            )
+        }
         ["report"] => {
             let terminal = flags.required("terminal")?;
             validate_prefixed_id("terminal", "term", &terminal)?;
             let state = flags.required("state")?;
-            validate_one_of("--state", &state, &["idle", "running", "waiting", "done", "error"])?;
+            validate_one_of("--state", &state, &["working", "blocked", "idle", "done", "unknown"])?;
             let source = flags.required("source")?;
             validate_one_of("--source", &source, &["hook", "socket"])?;
             let mut params = json!({
@@ -1359,18 +1603,33 @@ fn parse_projection(
                 "frontend_projection",
                 "projection",
             )?;
-            let mut params = Map::new();
-            params.insert("projection".into(), parse_json_flag(flags, "projection")?);
+            let params = projection_put_fields(flags)?;
             request(ResourceOperation::FrontendProjectionPut, selectors, flags, params)
         }
         [selector, "put"] => {
             selectors.insert("frontend_projection", "projection", selector)?;
-            let mut params = Map::new();
-            params.insert("projection".into(), parse_json_flag(flags, "projection")?);
+            let params = projection_put_fields(flags)?;
             request(ResourceOperation::FrontendProjectionPut, selectors, flags, params)
         }
         _ => usage("projection action"),
     }
+}
+
+fn projection_put_fields(flags: &mut Flags) -> Result<Map<String, Value>, UsageError> {
+    let mut params = Map::new();
+    params.insert("projection".into(), parse_json_flag(flags, "projection")?);
+    for (flag, field) in
+        [("frontend-id", "frontend_id"), ("window-id", "window_id"), ("generation", "generation")]
+    {
+        let value = flags.required(flag)?;
+        validate_bounded_text(&format!("--{flag}"), &value)?;
+        params.insert(field.into(), Value::String(value));
+    }
+    if let Some(revision) = flags.take("expected-projection-revision") {
+        validate_decimal("--expected-projection-revision", &revision)?;
+        params.insert("expected_projection_revision".into(), Value::String(revision));
+    }
+    Ok(params)
 }
 
 fn parse_provider(
@@ -1497,6 +1756,14 @@ fn validate_correlation_key(value: &str) -> Result<(), UsageError> {
     }
 }
 
+fn validate_bounded_text(flag: &str, value: &str) -> Result<(), UsageError> {
+    if value.is_empty() || value.len() > 128 {
+        Err(UsageError::new(format!("{flag} must contain 1 to 128 UTF-8 bytes")))
+    } else {
+        Ok(())
+    }
+}
+
 fn finalize_request(
     operation: WireOperation,
     params: Value,
@@ -1547,7 +1814,16 @@ fn requires_session_route(operation: ResourceOperation) -> bool {
 }
 
 fn supports_expected_revision(operation: ResourceOperation) -> bool {
-    operation.class() == OperationClass::Mutation && operation != ResourceOperation::WorkspaceCreate
+    operation.class() == OperationClass::Mutation
+        && !matches!(
+            operation,
+            ResourceOperation::FrontendProjectionPut
+                | ResourceOperation::SessionJournalAppend
+                | ResourceOperation::SessionJournalCheckpointCreate
+                | ResourceOperation::SessionJournalHookPut
+                | ResourceOperation::SessionJournalProducerPut
+                | ResourceOperation::SessionJournalSegmentSeal
+        )
 }
 
 fn validate_one_of(flag: &str, value: &str, allowed: &[&str]) -> Result<(), UsageError> {
@@ -1850,6 +2126,19 @@ fn run_params(
     if let Some(name) = flags.take("name") {
         params.insert("name".into(), Value::String(name));
     }
+    if let Some(policy) = flags.take("on-exit") {
+        match policy.as_str() {
+            "close" | "keep" => {
+                params.insert("on_exit".into(), Value::String(policy));
+            }
+            "shell" => {
+                return Err(UsageError::new("--on-exit shell is not supported yet"));
+            }
+            _ => {
+                return Err(UsageError::new("--on-exit must be close or keep"));
+            }
+        }
+    }
     Ok(params)
 }
 
@@ -1916,10 +2205,198 @@ fn add_optional_cursor(
     }
 }
 
+fn add_journal_subscription(
+    params: &mut Map<String, Value>,
+    flags: &mut Flags,
+    default_start: Option<&str>,
+    follow: bool,
+) -> Result<(), UsageError> {
+    let explicit_start = flags.take("from");
+    if let Some(start) = explicit_start.as_deref() {
+        validate_one_of("--from", start, &["tail", "beginning"])?;
+    }
+    let session_id = flags.take("cursor-session");
+    let sequence = flags.take("sequence");
+    match (session_id, sequence) {
+        (None, None) => {
+            if let Some(start) = explicit_start.or_else(|| default_start.map(str::to_owned)) {
+                params.insert("start".into(), Value::String(start));
+            }
+        }
+        (Some(session_id), Some(sequence)) if explicit_start.is_none() => {
+            validate_prefixed_id("session", "session", &session_id)?;
+            validate_decimal("--sequence", &sequence)?;
+            params.insert("cursor".into(), json!({"generation":session_id,"revision":sequence}));
+        }
+        (Some(_), Some(_)) => {
+            return Err(UsageError::new("--from cannot be combined with a journal cursor"));
+        }
+        _ => {
+            return Err(UsageError::new(
+                "--cursor-session and --sequence must be supplied together",
+            ));
+        }
+    }
+    if !follow {
+        params.insert("follow".into(), Value::Bool(false));
+    }
+
+    let mut filter = Map::new();
+    if let Some(kinds) = flags.take("kinds") {
+        let kinds = comma_separated("--kinds", &kinds)?;
+        for kind in &kinds {
+            validate_cli_journal_kind(kind)?;
+        }
+        filter.insert("kinds".into(), Value::Array(kinds.into_iter().map(Value::String).collect()));
+    }
+    if let Some(classes) = flags.take("classes") {
+        let classes = comma_separated("--classes", &classes)?;
+        for class in &classes {
+            validate_one_of("--classes", class, &["state", "observation", "effect", "checkpoint"])?;
+        }
+        filter.insert(
+            "classes".into(),
+            Value::Array(classes.into_iter().map(Value::String).collect()),
+        );
+    }
+    if let Some(subjects) = flags.take("subjects") {
+        let subjects = comma_separated("--subjects", &subjects)?
+            .into_iter()
+            .map(|subject| {
+                let (kind, id) = subject
+                    .split_once(':')
+                    .ok_or_else(|| UsageError::new("--subjects entries must use <kind>:<id>"))?;
+                if kind.is_empty()
+                    || id.is_empty()
+                    || !kind.bytes().all(|byte| {
+                        byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_'
+                    })
+                {
+                    return Err(UsageError::new(
+                        "--subjects entries must use a lowercase <kind>:<id>",
+                    ));
+                }
+                Ok(json!({"kind":kind,"id":id}))
+            })
+            .collect::<Result<Vec<_>, UsageError>>()?;
+        filter.insert("subjects".into(), Value::Array(subjects));
+    }
+    if let Some(sensitivity) = flags.take("max-sensitivity") {
+        validate_one_of("--max-sensitivity", &sensitivity, &["public", "metadata", "sensitive"])?;
+        filter.insert("max_sensitivity".into(), Value::String(sensitivity));
+    }
+    let regex = flags.take("regex");
+    let regex_field = flags.take("regex-field");
+    let ignore_case = flags.boolean("ignore-case");
+    match (regex, regex_field, ignore_case) {
+        (Some(pattern), field, ignore_case) => {
+            if pattern.is_empty() || pattern.len() > 1024 {
+                return Err(UsageError::new("--regex must contain 1 to 1024 UTF-8 bytes"));
+            }
+            let field = field.unwrap_or_else(|| "record".into());
+            validate_one_of(
+                "--regex-field",
+                &field,
+                &["kind", "subjects", "payload", "record", "terminal_output"],
+            )?;
+            filter.insert(
+                "regex".into(),
+                json!({
+                    "pattern":pattern,
+                    "field":field,
+                    "case_sensitive":!ignore_case,
+                }),
+            );
+        }
+        (None, Some(_), _) => {
+            return Err(UsageError::new("--regex-field requires --regex"));
+        }
+        (None, None, true) => {
+            return Err(UsageError::new("--ignore-case requires --regex"));
+        }
+        (None, None, false) => {}
+    }
+    if !filter.is_empty() {
+        params.insert("filter".into(), Value::Object(filter));
+    }
+    Ok(())
+}
+
+fn comma_separated(flag: &str, value: &str) -> Result<Vec<String>, UsageError> {
+    let values = value.split(',').map(str::to_string).collect::<Vec<_>>();
+    if values.is_empty()
+        || values.len() > 64
+        || values.iter().any(|value| value.is_empty() || value.len() > 256)
+    {
+        return Err(UsageError::new(format!(
+            "{flag} must contain 1 to 64 non-empty comma-separated values",
+        )));
+    }
+    Ok(values)
+}
+
+fn validate_cli_journal_kind(kind: &str) -> Result<(), UsageError> {
+    let base = kind.strip_suffix(".*").unwrap_or(kind);
+    if base.is_empty()
+        || kind.contains('*') != kind.ends_with(".*")
+        || base.split('.').any(|part| {
+            part.is_empty()
+                || !part
+                    .bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
+        })
+    {
+        Err(UsageError::new("--kinds entries must be dotted names with an optional terminal .*"))
+    } else {
+        Ok(())
+    }
+}
+
 fn parse_json_flag(flags: &mut Flags, name: &str) -> Result<Value, UsageError> {
     let value = flags.required(name)?;
     serde_json::from_str(&value)
         .map_err(|error| UsageError::new(format!("invalid --{name} JSON: {error}")))
+}
+
+fn apply_journal_hook_context(
+    event: &mut Value,
+    hook_id: Option<&str>,
+    causation_id: Option<&str>,
+    correlation_id: Option<&str>,
+) -> Result<(), UsageError> {
+    let hook_id = hook_id.filter(|value| !value.is_empty());
+    let causation_id = causation_id.filter(|value| !value.is_empty());
+    let correlation_id = correlation_id.filter(|value| !value.is_empty());
+    if hook_id.is_none() && causation_id.is_none() && correlation_id.is_none() {
+        return Ok(());
+    }
+    let object = event
+        .as_object_mut()
+        .ok_or_else(|| UsageError::new("--event-json must contain a JSON object"))?;
+    if let Some(causation_id) = causation_id
+        && object.get("causation_id").is_none_or(Value::is_null)
+    {
+        object.insert("causation_id".into(), Value::String(causation_id.into()));
+    }
+    if let Some(correlation_id) = correlation_id
+        && object.get("correlation_id").is_none_or(Value::is_null)
+    {
+        object.insert("correlation_id".into(), Value::String(correlation_id.into()));
+    }
+    if let Some(hook_id) = hook_id {
+        let subjects = object.entry("subjects").or_insert_with(|| Value::Array(Vec::new()));
+        let subjects = subjects
+            .as_array_mut()
+            .ok_or_else(|| UsageError::new("--event-json subjects must contain a JSON array"))?;
+        let already_present = subjects.iter().any(|subject| {
+            subject.get("kind").and_then(Value::as_str) == Some("hook")
+                && subject.get("id").and_then(Value::as_str) == Some(hook_id)
+        });
+        if !already_present {
+            subjects.push(json!({"kind":"hook","id":hook_id}));
+        }
+    }
+    Ok(())
 }
 
 fn insert_u16(
@@ -2047,6 +2524,22 @@ fn insert_ratio(
     Ok(())
 }
 
+fn insert_viewport_width(
+    params: &mut Map<String, Value>,
+    field: &str,
+    flag: &str,
+    value: String,
+) -> Result<(), UsageError> {
+    let number = value
+        .parse::<f64>()
+        .ok()
+        .filter(|number| number.is_finite() && (0.1..=1.0).contains(number))
+        .and_then(Number::from_f64)
+        .ok_or_else(|| UsageError::new(format!("{flag} must be from 0.1 through 1")))?;
+    params.insert(field.into(), Value::Number(number));
+    Ok(())
+}
+
 fn map_with(name: &str, value: Value) -> Map<String, Value> {
     let mut map = Map::new();
     map.insert(name.into(), value);
@@ -2158,6 +2651,21 @@ pub(super) fn run_plugin(global: GlobalArgs, plan: PluginPlan) -> i32 {
             });
             super::wire::print_local_error(&value, global.output, error.exit_code())
         }
+    }
+}
+
+pub(super) fn run_agent_hooks(global: GlobalArgs, plan: crate::agent_hook_install::Plan) -> i32 {
+    let result = crate::agent_hook_install::run(&plan);
+    if result.failed {
+        let error = json!({
+            "code": "local.agent_hooks",
+            "message": "one or more coding-agent hook operations failed",
+            "details": result.value,
+            "retryable": false,
+        });
+        super::wire::print_local_error(&error, global.output, 1)
+    } else {
+        super::wire::print_local_success(&result.value, global.output)
     }
 }
 
@@ -2421,11 +2929,48 @@ mod tests {
         values.iter().map(|value| (*value).to_string()).collect()
     }
 
+    #[test]
+    fn boolean_flag_metadata_matches_tokenizer_contract() {
+        for name in BOOLEAN_FLAGS {
+            assert!(is_boolean_flag(name));
+            let args = vec!["workspace".into(), "create".into(), format!("--{name}")];
+            let tokens = tokenize(&args).expect("metadata flag must tokenize");
+            assert!(tokens.flags.values.contains_key(*name));
+            assert_eq!(tokens.flags.values[*name], None);
+        }
+    }
+
+    #[test]
+    fn non_boolean_flags_still_consume_the_next_token() {
+        let tokens = tokenize(&strings(&["workspace", "create", "--name", "value"]))
+            .expect("value flag must tokenize");
+        assert_eq!(tokens.flags.values.get("name"), Some(&Some("value".to_string())));
+    }
+
+    #[test]
+    fn bounded_text_validation_has_shared_limits() {
+        assert!(validate_bounded_text("--name", "ok").is_ok());
+        assert!(validate_bounded_text("--name", "").is_err());
+        assert!(validate_bounded_text("--name", &"x".repeat(129)).is_err());
+        assert!(validate_bounded_text("--name", &"x".repeat(128)).is_ok());
+    }
+
     fn protocol(values: &[&str]) -> RequestPlan {
         match parse(&strings(values)).unwrap() {
             CommandPlan::Protocol(plan) => plan,
             _ => panic!("expected protocol plan"),
         }
+    }
+
+    #[test]
+    fn coding_agent_hook_management_stays_local() {
+        let CommandPlan::AgentHooks(plan) =
+            parse(&strings(&["agent", "hook", "install", "codex", "claude-code"])).unwrap()
+        else {
+            panic!("expected local agent hook plan");
+        };
+        assert_eq!(plan.action, crate::agent_hook_install::Action::Install);
+        assert_eq!(plan.providers, ["codex", "claude-code"]);
     }
 
     fn operation(plan: &RequestPlan) -> String {
@@ -2663,6 +3208,277 @@ mod tests {
     }
 
     #[test]
+    fn journal_subscribe_builds_replay_cursor_and_filter_contracts() {
+        const SESSION: &str = "session_00000000000000000000000000000002";
+        const WORKSPACE: &str = "ws_00000000000000000000000000000004";
+
+        let replay = protocol(&[
+            "session",
+            SESSION,
+            "journal",
+            "subscribe",
+            "--from",
+            "beginning",
+            "--kinds",
+            "pane.*,tab.focus",
+            "--classes",
+            "state,effect",
+            "--subjects",
+            &format!("workspace:{WORKSPACE}"),
+            "--max-sensitivity",
+            "metadata",
+            "--regex",
+            "journal|resumed",
+            "--regex-field",
+            "payload",
+            "--ignore-case",
+        ]);
+        assert_eq!(operation(&replay), "session.journal.subscribe");
+        assert!(replay.stream);
+        assert_eq!(replay.params["start"], "beginning");
+        assert_eq!(replay.params["filter"]["kinds"], json!(["pane.*", "tab.focus"]));
+        assert_eq!(replay.params["filter"]["classes"], json!(["state", "effect"]));
+        assert_eq!(
+            replay.params["filter"]["subjects"],
+            json!([{"kind":"workspace","id":WORKSPACE}])
+        );
+        assert_eq!(replay.params["filter"]["max_sensitivity"], "metadata");
+        assert_eq!(
+            replay.params["filter"]["regex"],
+            json!({
+                "pattern":"journal|resumed",
+                "field":"payload",
+                "case_sensitive":false,
+            })
+        );
+
+        let resumed = protocol(&[
+            "session",
+            SESSION,
+            "journal",
+            "subscribe",
+            "--cursor-session",
+            SESSION,
+            "--sequence",
+            "42",
+        ]);
+        assert_eq!(resumed.params["cursor"], json!({"generation":SESSION,"revision":"42"}));
+        assert!(resumed.params.get("start").is_none());
+
+        let read = protocol(&["session", SESSION, "journal", "read", "--kinds", "agent.*"]);
+        assert_eq!(operation(&read), "session.journal.subscribe");
+        assert_eq!(read.params["start"], "beginning");
+        assert_eq!(read.params["follow"], false);
+        assert_eq!(read.params["filter"]["kinds"], json!(["agent.*"]));
+
+        let read_from_cursor = protocol(&[
+            "session",
+            SESSION,
+            "journal",
+            "read",
+            "--cursor-session",
+            SESSION,
+            "--sequence",
+            "42",
+        ]);
+        assert!(read_from_cursor.params.get("start").is_none());
+        assert_eq!(read_from_cursor.params["follow"], false);
+
+        for invalid in [
+            vec!["--from", "beginning", "--cursor-session", SESSION, "--sequence", "1"],
+            vec!["--cursor-session", SESSION],
+            vec!["--kinds", "pane*"],
+            vec!["--classes", "unknown"],
+            vec!["--subjects", "workspace"],
+            vec!["--max-sensitivity", "secret"],
+            vec!["--regex-field", "payload"],
+            vec!["--ignore-case"],
+            vec!["--regex", "value", "--regex-field", "unknown"],
+        ] {
+            let mut args = vec!["session", SESSION, "journal", "subscribe"];
+            args.extend(invalid);
+            assert!(parse(&strings(&args)).is_err(), "accepted {args:?}");
+        }
+
+        let manifest = r#"{"producer_id":"demo","namespace":"plugin.demo"}"#;
+        let producer = protocol(&[
+            "session",
+            SESSION,
+            "journal",
+            "producer",
+            "put",
+            "--manifest-json",
+            manifest,
+            "--idempotency-key",
+            "producer-put-1",
+        ]);
+        assert_eq!(operation(&producer), "session.journal.producer.put");
+        assert_eq!(producer.params["manifest"]["producer_id"], "demo");
+        assert_eq!(producer.idempotency_key.as_deref(), Some("producer-put-1"));
+
+        let append = protocol(&[
+            "session",
+            SESSION,
+            "journal",
+            "append",
+            "--event-json",
+            r#"{"producer_id":"demo","payload":{"ready":true}}"#,
+            "--idempotency-key",
+            "append-1",
+        ]);
+        assert_eq!(operation(&append), "session.journal.append");
+        assert_eq!(append.params["event"]["payload"]["ready"], true);
+
+        let hooks = protocol(&["session", SESSION, "journal", "hook", "list"]);
+        assert_eq!(operation(&hooks), "session.journal.hook.list");
+
+        let hook = protocol(&[
+            "session",
+            SESSION,
+            "journal",
+            "hook",
+            "put",
+            "--manifest-json",
+            r#"{"hook_id":"demo_hook","manifest_version":1}"#,
+            "--idempotency-key",
+            "hook-put-1",
+        ]);
+        assert_eq!(operation(&hook), "session.journal.hook.put");
+        assert_eq!(hook.params["manifest"]["hook_id"], "demo_hook");
+        assert_eq!(hook.idempotency_key.as_deref(), Some("hook-put-1"));
+
+        let checkpoint = protocol(&[
+            "session",
+            SESSION,
+            "journal",
+            "checkpoint",
+            "create",
+            "--idempotency-key",
+            "checkpoint-1",
+        ]);
+        assert_eq!(operation(&checkpoint), "session.journal.checkpoint.create");
+        let checkpoints = protocol(&["session", SESSION, "journal", "checkpoint", "list"]);
+        assert_eq!(operation(&checkpoints), "session.journal.checkpoint.list");
+
+        let restore = protocol(&[
+            "session",
+            SESSION,
+            "journal",
+            "restore",
+            "preview",
+            "--checkpoint",
+            "latest",
+        ]);
+        assert_eq!(operation(&restore), "session.journal.restore.preview");
+        assert_eq!(restore.params["checkpoint"], "latest");
+
+        let segments = protocol(&["session", SESSION, "journal", "segment", "list"]);
+        assert_eq!(operation(&segments), "session.journal.segment.list");
+        let seal = protocol(&[
+            "session",
+            SESSION,
+            "journal",
+            "segment",
+            "seal",
+            "--through",
+            "42",
+            "--idempotency-key",
+            "segment-1",
+        ]);
+        assert_eq!(operation(&seal), "session.journal.segment.seal");
+        assert_eq!(seal.params["through_sequence"], "42");
+    }
+
+    #[test]
+    fn agent_hook_emit_normalizes_and_preserves_the_native_payload() {
+        const TERMINAL: &str = "term_00000000000000000000000000000008";
+        let payload = r#"{"session_id":"native-session","message":"done","opaque":{"v":42}}"#;
+        let first = protocol(&[
+            "agent",
+            "hook",
+            "emit",
+            "--source",
+            "codex",
+            "--event",
+            "Stop",
+            "--terminal",
+            TERMINAL,
+            "--payload-json",
+            payload,
+        ]);
+        let second = protocol(&[
+            "agent",
+            "hook",
+            "emit",
+            "--source",
+            "codex",
+            "--event",
+            "Stop",
+            "--terminal",
+            TERMINAL,
+            "--payload-json",
+            payload,
+        ]);
+        assert_eq!(operation(&first), "session.journal.append");
+        assert_eq!(first.params["event"]["kind"], "agent.turn.completed");
+        assert_eq!(first.params["event"]["payload"]["native"]["opaque"]["v"], 42);
+        assert_eq!(
+            first.params["event"]["payload"]["normalized"]["agent_session_id"],
+            "native-session"
+        );
+        assert_eq!(first.params["event"]["subjects"][0]["id"], TERMINAL);
+        assert_eq!(first.params["event"]["sensitivity"], "sensitive");
+        for optional in ["occurred_at_ms", "causation_id", "correlation_id"] {
+            assert!(
+                first.params["event"].get(optional).is_none(),
+                "absent optional field {optional} must not serialize as null"
+            );
+        }
+        assert_eq!(first.idempotency_key, None);
+        assert_eq!(second.idempotency_key, None);
+
+        assert!(
+            parse(&strings(&[
+                "agent",
+                "hook",
+                "emit",
+                "--source",
+                "Invalid Source",
+                "--event",
+                "Stop",
+                "--payload-json",
+                "{}",
+            ]))
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn journal_append_inherits_scoped_hook_causation() {
+        let mut event = json!({
+            "producer_id":"demo",
+            "subjects":[{"kind":"workspace","id":"ws_test"}],
+            "payload":{},
+        });
+        apply_journal_hook_context(
+            &mut event,
+            Some("demo_hook"),
+            Some("event_hook_started"),
+            Some("demo_hook:1:event_source"),
+        )
+        .unwrap();
+        assert_eq!(event["causation_id"], "event_hook_started");
+        assert_eq!(event["correlation_id"], "demo_hook:1:event_source");
+        assert_eq!(
+            event["subjects"],
+            json!([
+                {"kind":"workspace","id":"ws_test"},
+                {"kind":"hook","id":"demo_hook"},
+            ])
+        );
+    }
+
+    #[test]
     fn run_never_infers_a_shell() {
         let direct = protocol(&["pane", "current", "run", "--", "printf", "%s", "a b"]);
         assert_eq!(direct.params["argv"], json!(["printf", "%s", "a b"]));
@@ -2676,6 +3492,63 @@ mod tests {
         assert_eq!(empty_argument.params["argv"], json!(["printf", ""]));
         assert!(parse(&strings(&["pane", "current", "run", "--", "", "argument"])).is_err());
         assert!(parse(&strings(&["pane", "current", "run", "echo ok"])).is_err());
+    }
+
+    #[test]
+    fn run_on_exit_policy_is_validated_and_forwarded_verbatim() {
+        for scope in [["workspace", "current"], ["pane", "current"]] {
+            let kept = protocol(&[scope[0], scope[1], "run", "--on-exit", "keep", "--", "true"]);
+            assert_eq!(kept.params["on_exit"], "keep");
+
+            let closed = protocol(&[scope[0], scope[1], "run", "--on-exit", "close", "--", "true"]);
+            assert_eq!(closed.params["on_exit"], "close");
+
+            let default = protocol(&[scope[0], scope[1], "run", "--", "true"]);
+            assert!(default.params.get("on_exit").is_none());
+
+            let shell_policy =
+                parse(&strings(&[scope[0], scope[1], "run", "--on-exit", "shell", "--", "true"]));
+            assert!(
+                shell_policy.is_err_and(|error| error.to_string().contains("not supported yet")),
+                "--on-exit shell must be a typed not-yet-supported usage error"
+            );
+            assert!(
+                parse(&strings(&[scope[0], scope[1], "run", "--on-exit", "sh", "--", "true"]))
+                    .is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn terminal_output_read_parses_cursor_and_bounded_window() {
+        const TERMINAL: &str = "term_00000000000000000000000000000008";
+        let plain = protocol(&["terminal", TERMINAL, "output", "read"]);
+        assert!(plain.params.get("after").is_none());
+        assert!(plain.params.get("max_bytes").is_none());
+
+        let resumed = protocol(&[
+            "terminal",
+            TERMINAL,
+            "output",
+            "read",
+            "--after",
+            "4096",
+            "--max-bytes",
+            "65536",
+        ]);
+        assert_eq!(resumed.params["after"], "4096");
+        assert_eq!(resumed.params["max_bytes"], 65536);
+
+        assert!(
+            parse(&strings(&["terminal", TERMINAL, "output", "read", "--after", "-1"])).is_err()
+        );
+        assert!(
+            parse(&strings(&["terminal", TERMINAL, "output", "read", "--max-bytes", "0"])).is_err()
+        );
+        assert!(
+            parse(&strings(&["terminal", TERMINAL, "output", "read", "--max-bytes", "4194305"]))
+                .is_err()
+        );
     }
 
     #[test]
@@ -2878,6 +3751,42 @@ mod tests {
     }
 
     #[test]
+    fn agent_commands_use_canonical_public_states() {
+        const TERMINAL: &str = "term_55555555555555555555555555555555";
+        for state in ["working", "blocked", "idle", "done", "unknown"] {
+            let list = protocol(&["agent", "list", "--terminal", TERMINAL, "--state", state]);
+            assert_eq!(list.params["state"], state);
+            let report = protocol(&[
+                "agent",
+                "report",
+                "--terminal",
+                TERMINAL,
+                "--state",
+                state,
+                "--source",
+                "socket",
+            ]);
+            assert_eq!(report.params["state"], state);
+        }
+        for noncanonical in ["running", "waiting", "error"] {
+            assert!(
+                parse(&strings(&[
+                    "agent",
+                    "report",
+                    "--terminal",
+                    TERMINAL,
+                    "--state",
+                    noncanonical,
+                    "--source",
+                    "socket",
+                ]))
+                .is_err(),
+                "accepted noncanonical agent state {noncanonical:?}"
+            );
+        }
+    }
+
+    #[test]
     fn old_hyphenated_action_is_not_a_nested_selector() {
         assert!(
             parse(&strings(&[
@@ -2982,6 +3891,79 @@ mod tests {
                 vec!["session", SESSION, "events", "--generation", "g1", "--revision", "3"],
                 "session.events",
             ),
+            (
+                vec![
+                    "session",
+                    SESSION,
+                    "journal",
+                    "read",
+                    "--from",
+                    "beginning",
+                    "--kinds",
+                    "pane.*,tab.focus",
+                ],
+                "session.journal.subscribe",
+            ),
+            (
+                vec!["session", SESSION, "journal", "producer", "list"],
+                "session.journal.producer.list",
+            ),
+            (
+                vec![
+                    "session",
+                    SESSION,
+                    "journal",
+                    "producer",
+                    "put",
+                    "--manifest-json",
+                    r#"{"producer_id":"demo","namespace":"plugin.demo"}"#,
+                ],
+                "session.journal.producer.put",
+            ),
+            (
+                vec![
+                    "session",
+                    SESSION,
+                    "journal",
+                    "append",
+                    "--event-json",
+                    r#"{"producer_id":"demo","payload":{"ready":true}}"#,
+                ],
+                "session.journal.append",
+            ),
+            (vec!["session", SESSION, "journal", "hook", "list"], "session.journal.hook.list"),
+            (
+                vec![
+                    "session",
+                    SESSION,
+                    "journal",
+                    "hook",
+                    "put",
+                    "--manifest-json",
+                    r#"{"hook_id":"demo_hook","manifest_version":1}"#,
+                ],
+                "session.journal.hook.put",
+            ),
+            (
+                vec!["session", SESSION, "journal", "checkpoint", "create"],
+                "session.journal.checkpoint.create",
+            ),
+            (
+                vec!["session", SESSION, "journal", "checkpoint", "list"],
+                "session.journal.checkpoint.list",
+            ),
+            (
+                vec!["session", SESSION, "journal", "restore", "preview", "--checkpoint", "latest"],
+                "session.journal.restore.preview",
+            ),
+            (
+                vec!["session", SESSION, "journal", "segment", "list"],
+                "session.journal.segment.list",
+            ),
+            (
+                vec!["session", SESSION, "journal", "segment", "seal", "--through", "42"],
+                "session.journal.segment.seal",
+            ),
             (vec!["session", SESSION, "ping"], "session.ping"),
             (vec!["session", SESSION, "shutdown", "--force"], "session.shutdown"),
             (vec!["session", SESSION, "config", "reload"], "session.reload_config"),
@@ -3061,7 +4043,21 @@ mod tests {
             (vec!["pairing", "request", PAIRING, "respond", "accept"], "pairing_request.resolve"),
             (vec!["projection", PROJECTION, "show"], "frontend_projection.get"),
             (
-                vec!["projection", PROJECTION, "put", "--projection", "{\"sidebar\":\"compact\"}"],
+                vec![
+                    "projection",
+                    PROJECTION,
+                    "put",
+                    "--projection",
+                    "{\"sidebar\":\"compact\"}",
+                    "--frontend-id",
+                    "cmux-cli",
+                    "--window-id",
+                    "window-1",
+                    "--generation",
+                    "launch-1",
+                    "--expected-projection-revision",
+                    "7",
+                ],
                 "frontend_projection.put",
             ),
             (vec!["workspace", "list"], "workspace.list"),
@@ -3095,6 +4091,8 @@ mod tests {
                     "100",
                     "--rows",
                     "40",
+                    "--on-exit",
+                    "keep",
                     "--correlation-key",
                     "create-42",
                     "--",
@@ -3153,6 +4151,8 @@ mod tests {
                     "split",
                     "--right",
                     "--ratio",
+                    "0.5",
+                    "--viewport-width",
                     "0.5",
                     "--cwd",
                     "/tmp",
@@ -3216,6 +4216,8 @@ mod tests {
                     "90",
                     "--rows",
                     "30",
+                    "--on-exit",
+                    "keep",
                     "--correlation-key",
                     "create-42",
                     "--",
@@ -3313,6 +4315,19 @@ mod tests {
                 "terminal.history.read",
             ),
             (vec!["terminal", TERMINAL, "history", "clear"], "terminal.history.clear"),
+            (
+                vec![
+                    "terminal",
+                    TERMINAL,
+                    "output",
+                    "read",
+                    "--after",
+                    "4096",
+                    "--max-bytes",
+                    "65536",
+                ],
+                "terminal.output_read",
+            ),
             (
                 vec![
                     "terminal",
@@ -3468,7 +4483,7 @@ mod tests {
                 ],
                 "notification.create",
             ),
-            (vec!["agent", "list", "--terminal", TERMINAL, "--state", "running"], "agent.list"),
+            (vec!["agent", "list", "--terminal", TERMINAL, "--state", "working"], "agent.list"),
             (
                 vec![
                     "agent",
@@ -3476,7 +4491,7 @@ mod tests {
                     "--terminal",
                     TERMINAL,
                     "--state",
-                    "running",
+                    "working",
                     "--source",
                     "socket",
                     "--source-session",
@@ -3498,9 +4513,9 @@ mod tests {
             (vec!["sidebar", "view", "reload", "--view", VIEW], "sidebar_view.reload"),
         ];
 
-        assert_eq!(cases.len(), 106);
+        assert_eq!(cases.len(), 118);
         let catalog = operation_catalog();
-        assert_eq!(catalog["operations"].as_object().unwrap().len(), 113);
+        assert_eq!(catalog["operations"].as_object().unwrap().len(), 125);
         let mut seen = std::collections::BTreeSet::new();
         let mut covered_fields = BTreeMap::<&str, std::collections::BTreeSet<String>>::new();
         for (args, expected) in &cases {
@@ -3530,6 +4545,19 @@ mod tests {
         for (args, expected) in [
             (vec!["workspace", WORKSPACE, "run", "shell", "printf ok"], "workspace.run"),
             (vec!["pane", PANE, "run", "shell", "printf ok"], "pane.run"),
+            (
+                vec![
+                    "session",
+                    SESSION,
+                    "journal",
+                    "subscribe",
+                    "--cursor-session",
+                    SESSION,
+                    "--sequence",
+                    "42",
+                ],
+                "session.journal.subscribe",
+            ),
             (vec!["terminal", TERMINAL, "write", "--bytes-base64", "AA=="], "terminal.input.write"),
             (
                 vec![

@@ -13,20 +13,25 @@ final class SidebarWorkspaceTableMutationScheduler {
     private var pendingApply: SidebarWorkspaceTableApplyInput?
     private var shouldFlushViewportChange = false
     private var shouldFlushTableReload = false
+    private var shouldFlushContentRefresh = false
     private var pendingPostUpdateActions: [@MainActor () -> Void] = []
     private var isFlushScheduled = false
+    private var isFlushing = false
     private let applyFlush: @MainActor (SidebarWorkspaceTableApplyInput) -> Void
     private let viewportChangeFlush: @MainActor () -> Void
     private let reloadFlush: @MainActor () -> Void
+    private let contentRefreshFlush: @MainActor () -> Void
 
     init(
         applyFlush: @escaping @MainActor (SidebarWorkspaceTableApplyInput) -> Void,
         viewportChangeFlush: @escaping @MainActor () -> Void,
-        reloadFlush: @escaping @MainActor () -> Void
+        reloadFlush: @escaping @MainActor () -> Void,
+        contentRefreshFlush: @escaping @MainActor () -> Void = {}
     ) {
         self.applyFlush = applyFlush
         self.viewportChangeFlush = viewportChangeFlush
         self.reloadFlush = reloadFlush
+        self.contentRefreshFlush = contentRefreshFlush
     }
 
     func stageApply(_ input: SidebarWorkspaceTableApplyInput) {
@@ -42,10 +47,19 @@ final class SidebarWorkspaceTableMutationScheduler {
     func cancelPendingApplyAndViewport() {
         pendingApply = nil
         shouldFlushViewportChange = false
+        shouldFlushContentRefresh = false
     }
 
     func stageTableReload() {
         shouldFlushTableReload = true
+        scheduleFlushIfNeeded()
+    }
+
+    /// Coalesces unread-driven row content behind the authoritative table apply.
+    /// AppKit cells must not be reconfigured while a staged row graph is being
+    /// reloaded or reordered.
+    func stageContentRefresh() {
+        shouldFlushContentRefresh = true
         scheduleFlushIfNeeded()
     }
 
@@ -56,7 +70,7 @@ final class SidebarWorkspaceTableMutationScheduler {
     }
 
     private func scheduleFlushIfNeeded() {
-        guard !isFlushScheduled else { return }
+        guard !isFlushScheduled, !isFlushing else { return }
         isFlushScheduled = true
         // Deliberately retain the scheduler through this turn. Post-update
         // actions can commit user edits while their controller is tearing down.
@@ -73,18 +87,30 @@ final class SidebarWorkspaceTableMutationScheduler {
         let apply = pendingApply
         let flushViewportChange = shouldFlushViewportChange
         let flushTableReload = shouldFlushTableReload
+        let flushContentRefresh = shouldFlushContentRefresh
         let postUpdateActions = pendingPostUpdateActions
         pendingApply = nil
         shouldFlushViewportChange = false
         shouldFlushTableReload = false
+        shouldFlushContentRefresh = false
         pendingPostUpdateActions.removeAll(keepingCapacity: true)
         isFlushScheduled = false
+        isFlushing = true
+        defer {
+            isFlushing = false
+            if pendingMutationsExist {
+                scheduleFlushIfNeeded()
+            }
+        }
 
-        if flushTableReload {
+        if flushTableReload, apply == nil {
             reloadFlush()
         }
         if let apply {
             applyFlush(apply)
+        }
+        if flushContentRefresh {
+            contentRefreshFlush()
         }
         if flushViewportChange {
             viewportChangeFlush()
@@ -92,5 +118,13 @@ final class SidebarWorkspaceTableMutationScheduler {
         for action in postUpdateActions {
             action()
         }
+    }
+
+    private var pendingMutationsExist: Bool {
+        pendingApply != nil
+            || shouldFlushViewportChange
+            || shouldFlushTableReload
+            || shouldFlushContentRefresh
+            || !pendingPostUpdateActions.isEmpty
     }
 }

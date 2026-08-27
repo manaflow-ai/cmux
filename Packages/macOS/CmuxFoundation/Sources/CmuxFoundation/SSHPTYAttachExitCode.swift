@@ -2,8 +2,9 @@ import Foundation
 
 /// Describes the process exit status and retry policy for an SSH PTY attach.
 ///
-/// Status 252 has a bounded consecutive-failure budget, while statuses 251,
-/// 254, and 255 use the general reconnect budget.
+/// Status 252 has a bounded consecutive-failure budget, statuses 247–250 carry
+/// managed transport/authentication phases, and statuses 251, 254, and 255 use
+/// the general reconnect budget.
 public enum SSHPTYAttachExitCode: Int32 {
     private static let healthyBridgeUptime: Double = 30
 
@@ -13,13 +14,39 @@ public enum SSHPTYAttachExitCode: Int32 {
     /// Temporary daemon-side admission pressure that should retry without reauthentication.
     case retryableWithoutReauthentication = 251
 
+    /// The SSH endpoint cannot currently be reached.
+    ///
+    /// This status is emitted only to a managed reconnect wrapper so the
+    /// wrapper can present a concise reason without exposing OpenSSH stderr.
+    case hostUnreachable = 247
+
+    /// The SSH control connection is stale or wedged and needs reauthentication.
+    ///
+    /// This status is emitted only to a managed reconnect wrapper so the
+    /// wrapper can distinguish a control-master failure from a host outage.
+    case controlMasterUnavailable = 248
+
+    /// The remote cmux daemon is still starting or its tunnel is not ready.
+    ///
+    /// This status is emitted only to a managed reconnect wrapper so it can
+    /// keep the user-facing state separate from host reachability.
+    case daemonNotReady = 249
+
+    /// The remote endpoint requires foreground authentication before retrying.
+    case authenticationRequired = 250
+
     /// A rapidly closed bridge that produced no live remote PTY output.
     case bridgeClosedWithoutProgress = 252
 
     /// A persistent PTY session that no longer exists and must be respawned.
     case sessionNotFound = 253
 
-    /// A closed bridge whose persistent PTY session is still running.
+    /// A closed established bridge that must preserve its persistent PTY session for reattach.
+    ///
+    /// This covers both a session confirmed running and a post-close liveness
+    /// query made inconclusive by the tunnel replacement race. In either case,
+    /// retiring the session would destroy recoverable state; the next
+    /// `--require-existing` attach is the authoritative probe.
     case bridgeClosedSessionRunning = 254
 
     /// A transient transport or daemon failure that may succeed after reconnecting.
@@ -30,9 +57,83 @@ public enum SSHPTYAttachExitCode: Int32 {
     /// Failures with these statuses keep app-side surface tracking intact
     /// because the wrapper immediately reattaches on the same surface.
     public var isWrapperRetryable: Bool {
-        self == .retryableWithoutReauthentication ||
+        self == .hostUnreachable ||
+            self == .controlMasterUnavailable ||
+            self == .daemonNotReady ||
+            self == .authenticationRequired ||
+            self == .retryableWithoutReauthentication ||
             self == .bridgeClosedSessionRunning ||
             self == .retryableTransient
+    }
+
+    /// Whether a managed retry must run the foreground authentication phase.
+    ///
+    /// A confirmed host/daemon transport outage deliberately waits for the
+    /// app-side reachability owner instead of launching another noisy SSH
+    /// prompt. Explicit control-master, authentication, and unknown transient
+    /// failures retain the historical authentication behavior.
+    public var requiresForegroundAuthentication: Bool {
+        self == .controlMasterUnavailable ||
+            self == .authenticationRequired ||
+            self == .retryableTransient
+    }
+
+    /// Refines a retryable error for the managed wrapper's status line.
+    ///
+    /// The bridge protocol intentionally keeps its transport error payload
+    /// human-readable for older clients. A managed wrapper can still classify
+    /// the stable diagnostic phrases into a small set of user-facing phases;
+    /// direct invocations retain their original status and diagnostic output.
+    ///
+    /// - Parameter rawDescription: The bridge or transport diagnostic.
+    /// - Returns: A typed managed-retry status, or this status when no stable
+    ///   phase can be inferred.
+    public func managedRetryStatus(for rawDescription: String) -> Self {
+        guard isWrapperRetryable else { return self }
+        let description = rawDescription
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+
+        if description.range(
+            of: #"[^[:space:]]+@[^[:space:]]+: permission denied"#,
+            options: .regularExpression
+        ) != nil ||
+            description.contains("authentication failed") ||
+            description.contains("host key verification failed") ||
+            description.contains("too many authentication failures") {
+            return .authenticationRequired
+        }
+        if description.contains("remote daemon is not ready") ||
+            description.contains("remote daemon tunnel is not ready") ||
+            description.contains("remote connection is not active") ||
+            description == "remote pty operation failed" ||
+            description.hasSuffix(": remote pty operation failed") ||
+            description.contains("remote daemon did not respond in time") ||
+            description.contains("did not respond in time") ||
+            description.contains("timed out waiting for remote pty") {
+            return .daemonNotReady
+        }
+        if description.contains("mux_client_request_session") ||
+            description.contains("control master") ||
+            description.contains("control socket") ||
+            description.contains("broken pipe") {
+            return .controlMasterUnavailable
+        }
+        if description.contains("ssh: connect to host") ||
+            description.contains("connect to host") ||
+            description.contains("operation timed out") ||
+            description.contains("connection timed out") ||
+            description.contains("network is unreachable") ||
+            description.contains("network is down") ||
+            description.contains("no route to host") ||
+            description.contains("host is down") ||
+            description.contains("connection refused") ||
+            description.contains("could not resolve hostname") ||
+            description.contains("temporary failure in name resolution") ||
+            description.contains("name or service not known") {
+            return .hostUnreachable
+        }
+        return self
     }
 
     /// Determines whether a bridge closed before demonstrating useful progress.
@@ -61,70 +162,37 @@ public enum SSHPTYAttachExitCode: Int32 {
         currentRetry >= 0 && limit > 0 && currentRetry + 1 < limit
     }
 
-    /// Builds the POSIX shell loop shared by persistent SSH PTY attach entry points.
+    /// Builds the shared persistent-attach retry loop.
+    ///
+    /// This compatibility entry point delegates to
+    /// ``SSHPTYAttachRetryScriptBuilder`` so older package clients keep their
+    /// source compatibility without retaining a second retry implementation.
     ///
     /// - Parameters:
-    ///   - command: The shell command that performs one attach attempt.
-    ///   - reauthenticates: Whether transient failures should request foreground authentication.
-    /// - Returns: Shell source lines implementing reconnect and no-progress budgets.
+    ///   - command: Shell command that performs one attach attempt.
+    ///   - reauthenticates: Whether foreground authentication is available.
+    /// - Returns: Shell lines implementing the shared retry state machine.
+    @available(
+        *,
+        deprecated,
+        message: "Use SSHPTYAttachRetryScriptBuilder.lines(command:reauthenticates:initialAuthentication:) with initialAuthentication: false"
+    )
     public static func retryLoopLines(command: String, reauthenticates: Bool) -> [String] {
-        let reauthenticate = reauthenticates ? "cmux_ssh_attach_reauth_required=1" : ":"
-        let noProgressPolicy = noProgressShellPolicy()
-        let reattachingFormat = String(
-            localized: "cli.sshPtyAttach.bridgeClosedReattaching",
-            defaultValue: "[cmux] remote PTY bridge closed; reattaching (attempt %s/%s)."
-        ).remoteCommandShellQuoted
-        let retryWithoutReauthenticationStatus = retryableWithoutReauthentication.rawValue
-        let sessionRunningStatus = bridgeClosedSessionRunning.rawValue
-        let transientStatus = retryableTransient.rawValue
-
-        return [
-            "cmux_ssh_attach_reconnect_limit=\"${CMUX_SSH_RECONNECT_LIMIT:-}\"",
-            "case \"$cmux_ssh_attach_reconnect_limit\" in '') cmux_ssh_attach_reconnect_limit='∞'; cmux_ssh_attach_reconnect_unbounded=1 ;; *[!0-9]*) cmux_ssh_attach_reconnect_limit=20; cmux_ssh_attach_reconnect_unbounded=0 ;; *) cmux_ssh_attach_reconnect_unbounded=0 ;; esac",
-            "cmux_ssh_attach_reconnect_delay=\"${CMUX_SSH_RECONNECT_DELAY_SECONDS:-2}\"",
-            "case \"$cmux_ssh_attach_reconnect_delay\" in ''|*[!0-9]*|0*) cmux_ssh_attach_reconnect_delay=2 ;; esac",
-            "cmux_ssh_attach_reconnect_max_delay=\"${CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS:-30}\"",
-            "case \"$cmux_ssh_attach_reconnect_max_delay\" in ''|*[!0-9]*|0*) cmux_ssh_attach_reconnect_max_delay=30 ;; esac",
-            "if [ \"$cmux_ssh_attach_reconnect_delay\" -gt \"$cmux_ssh_attach_reconnect_max_delay\" ]; then cmux_ssh_attach_reconnect_delay=\"$cmux_ssh_attach_reconnect_max_delay\"; fi",
-            "cmux_ssh_attach_reconnect_initial_delay=\"$cmux_ssh_attach_reconnect_delay\"",
-        ] + noProgressPolicy.configurationLines + [
-            "cmux_ssh_attach_no_progress_retry=0",
-            "cmux_ssh_attach_retry=0",
-            "cmux_ssh_attach_reauth_required=0",
-            "while :; do",
-            "  if [ \"$cmux_ssh_attach_reauth_required\" -eq 1 ]; then",
-            "    cmux_ssh_attach_foreground_auth",
-            "    cmux_ssh_attach_status=$?",
-            "    if [ \"$cmux_ssh_attach_status\" -eq 0 ]; then cmux_ssh_attach_reauth_required=0; elif [ \"$cmux_ssh_attach_status\" -ne \(transientStatus) ]; then exit \"$cmux_ssh_attach_status\"; fi",
-            "  fi",
-            "  if [ \"$cmux_ssh_attach_reauth_required\" -eq 0 ]; then",
-            "  if [ \"$cmux_ssh_attach_reconnect_unbounded\" -eq 1 ] || [ \"$cmux_ssh_attach_retry\" -lt \"$cmux_ssh_attach_reconnect_limit\" ]; then cmux_ssh_attach_can_retry=1; else cmux_ssh_attach_can_retry=0; fi",
-            "  CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY=\"$cmux_ssh_attach_can_retry\" CMUX_SSH_PTY_ATTACH_NO_PROGRESS_RETRY=\"$cmux_ssh_attach_no_progress_retry\" CMUX_SSH_PTY_ATTACH_NO_PROGRESS_LIMIT=\"$cmux_ssh_attach_no_progress_limit\" \(command)",
-            "  cmux_ssh_attach_status=$?",
-            "  case \"$cmux_ssh_attach_status\" in",
-            "    \(noProgressPolicy.status)) cmux_ssh_attach_no_progress_retry=$((cmux_ssh_attach_no_progress_retry + 1)); cmux_ssh_attach_reconnect_delay=\"$cmux_ssh_attach_reconnect_initial_delay\"; \(noProgressPolicy.limitReachedCommand) ;;",
-            "    \(retryWithoutReauthenticationStatus)) cmux_ssh_attach_no_progress_retry=0 ;;",
-            "    \(sessionRunningStatus)) cmux_ssh_attach_no_progress_retry=0; cmux_ssh_attach_reconnect_delay=\"$cmux_ssh_attach_reconnect_initial_delay\" ;;",
-            "    \(transientStatus)) cmux_ssh_attach_no_progress_retry=0; \(reauthenticate) ;;",
-            "    *) exit \"$cmux_ssh_attach_status\" ;;",
-            "  esac",
-            "  fi",
-            "  if [ \"$cmux_ssh_attach_reconnect_unbounded\" -eq 0 ] && [ \"$cmux_ssh_attach_retry\" -ge \"$cmux_ssh_attach_reconnect_limit\" ]; then exit \"$cmux_ssh_attach_status\"; fi",
-            "  cmux_ssh_attach_retry=$((cmux_ssh_attach_retry + 1))",
-            "  if [ -t 2 ]; then printf '\\n\\033[33m%s\\033[0m\\n' \"$(printf \(reattachingFormat) \"$cmux_ssh_attach_retry\" \"$cmux_ssh_attach_reconnect_limit\")\" >&2 || true; fi",
-            "  if [ \"$cmux_ssh_attach_reconnect_delay\" -gt 0 ]; then sleep \"$cmux_ssh_attach_reconnect_delay\"; fi",
-            "  if [ \"$cmux_ssh_attach_reconnect_delay\" -lt \"$cmux_ssh_attach_reconnect_max_delay\" ]; then cmux_ssh_attach_reconnect_delay=$((cmux_ssh_attach_reconnect_delay * 2)); if [ \"$cmux_ssh_attach_reconnect_delay\" -gt \"$cmux_ssh_attach_reconnect_max_delay\" ]; then cmux_ssh_attach_reconnect_delay=\"$cmux_ssh_attach_reconnect_max_delay\"; fi; fi",
-            "done",
-        ]
+        SSHPTYAttachRetryScriptBuilder().lines(
+            command: command,
+            reauthenticates: reauthenticates,
+            initialAuthentication: false
+        )
     }
 
     /// Builds a bounded no-progress sub-loop for a wrapper that already owns
     /// general reconnect and foreground-authentication policy.
     ///
-    /// Status 252 is consumed until its health budget is exhausted. All other
-    /// statuses, including 251, 254, and 255, return unchanged to the enclosing
-    /// wrapper so its existing reconnect and reauthentication behavior remains
-    /// the single owner of those transitions.
+    /// Status 252 is consumed until its health budget is exhausted, with terminal
+    /// reporting modes reset before each reattach. All other statuses, including
+    /// 251, 254, and 255, return unchanged to the enclosing wrapper so its existing
+    /// reconnect and reauthentication behavior remains the single owner of those
+    /// transitions.
     ///
     /// The attach environment is exported on its own lines rather than as an
     /// assignment prefix, because a prefix is only legal before a simple command
@@ -134,6 +202,7 @@ public enum SSHPTYAttachExitCode: Int32 {
     /// - Returns: Shell source lines implementing the no-progress budget.
     public static func noProgressRetryLoopLines(command: String) -> [String] {
         let policy = noProgressShellPolicy()
+        let terminalModeReset = SSHTerminalModeResetSequence().shellPrintfFormat.remoteCommandShellQuoted
 
         return policy.configurationLines + [
             "cmux_ssh_attach_no_progress_retry=0",
@@ -143,6 +212,7 @@ public enum SSHPTYAttachExitCode: Int32 {
             "  export CMUX_SSH_PTY_ATTACH_NO_PROGRESS_RETRY CMUX_SSH_PTY_ATTACH_NO_PROGRESS_LIMIT",
             "  \(command)",
             "  cmux_ssh_attach_status=$?",
+            "  if [ \"$cmux_ssh_attach_status\" -eq \(policy.status) ] && [ -t 2 ]; then printf \(terminalModeReset) >&2 || true; fi",
             "  if [ \"$cmux_ssh_attach_status\" -ne \(policy.status) ]; then exit \"$cmux_ssh_attach_status\"; fi",
             "  cmux_ssh_attach_no_progress_retry=$((cmux_ssh_attach_no_progress_retry + 1))",
             "  \(policy.limitReachedCommand)",

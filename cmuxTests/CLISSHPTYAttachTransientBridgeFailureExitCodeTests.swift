@@ -1,4 +1,5 @@
 import Darwin
+import CmuxFoundation
 import Foundation
 import XCTest
 
@@ -29,6 +30,26 @@ extension CLINotifyProcessIntegrationRegressionTests {
             ],
             expectedStatus: 255
         )
+    }
+
+    func testManagedSSHPTYAttachRetryLogsDiagnosticWithoutPrintingIt() throws {
+        let debugLogURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-managed-ssh-pty-retry-\(UUID().uuidString).log")
+        defer { try? FileManager.default.removeItem(at: debugLogURL) }
+
+        try assertSSHPTYAttachBridgeRPCFailureExitCode(
+            socketName: "sshptyquiet",
+            error: [
+                "code": "remote_pty_error",
+                "message": "remote daemon is not ready",
+            ],
+            expectedStatus: SSHPTYAttachExitCode.daemonNotReady.rawValue,
+            managedReconnect: true,
+            debugLogURL: debugLogURL
+        )
+
+        let debugLog = try String(contentsOf: debugLogURL, encoding: .utf8)
+        XCTAssertTrue(debugLog.contains("remote daemon is not ready"), debugLog)
     }
 
     func testSSHPTYAttachBridgeRPCTransientFailureWithoutPendingWrapperRetryCleansUp() throws {
@@ -65,7 +86,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
         socketName: String,
         error: [String: Any],
         expectedStatus: Int32,
-        wrapperRetryPending: Bool = true
+        wrapperRetryPending: Bool = true,
+        managedReconnect: Bool = false,
+        debugLogURL: URL? = nil
     ) throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath(socketName)
@@ -120,6 +143,14 @@ extension CLINotifyProcessIntegrationRegressionTests {
         } else {
             environment.removeValue(forKey: "CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY")
         }
+        if managedReconnect {
+            environment["CMUX_SSH_PTY_ATTACH_MANAGED_RECONNECT"] = "1"
+        } else {
+            environment.removeValue(forKey: "CMUX_SSH_PTY_ATTACH_MANAGED_RECONNECT")
+        }
+        if let debugLogURL {
+            environment["CMUX_DEBUG_LOG"] = debugLogURL.path
+        }
 
         let result = runProcess(
             executablePath: cliPath,
@@ -138,6 +169,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
         wait(for: [socketHandled], timeout: 5)
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, expectedStatus, result.stderr)
+        if managedReconnect {
+            XCTAssertEqual(result.stderr, "")
+        }
 
         let methods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
         XCTAssertTrue(methods.contains("workspace.remote.pty_bridge"), "\(methods)")
@@ -205,7 +239,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "2"
         environment["CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS"] = "2"
 
-        let command = SSHPTYAttachStartupCommandBuilder.command(
+        let generatedCommand = SSHPTYAttachStartupCommandBuilder.command(
             sessionID: "ssh-test-session",
             foregroundAuth: SSHPTYAttachStartupCommandBuilder.ForegroundAuth(
                 destination: "user@example.test",
@@ -214,6 +248,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 sshOptions: [],
                 token: "foreground-auth-token"
             )
+        )
+        XCTAssertTrue(generatedCommand.contains("/usr/bin/ssh"), generatedCommand)
+        let command = generatedCommand.replacingOccurrences(
+            of: "/usr/bin/ssh",
+            with: fakeSSH.path
         )
         let result = runProcess(
             executablePath: "/bin/sh",
@@ -275,7 +314,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
         let generatedScript = try persistentSSHInitialStartupScriptForReconnectTest()
         let bundledCLI = try bundledCLIPath()
-        let rewrittenScript = generatedScript.replacingOccurrences(of: bundledCLI, with: fakeAttach.path)
+        XCTAssertTrue(generatedScript.contains("/usr/bin/ssh"), generatedScript)
+        let rewrittenScript = generatedScript
+            .replacingOccurrences(of: bundledCLI, with: fakeAttach.path)
+            .replacingOccurrences(of: "/usr/bin/ssh", with: fakeAuth.path)
         XCTAssertNotEqual(rewrittenScript, generatedScript, "Expected generated wrapper to reference the bundled CLI")
         try writeSSHPTYReconnectTestShell(at: fakeStartup, contents: rewrittenScript)
         for executable in [fakeStartup, fakeAuth, fakeAttach, fakeSleep] {

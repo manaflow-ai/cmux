@@ -3,13 +3,18 @@ use std::io::{Read, Write};
 use std::mem::size_of;
 use std::net::{TcpStream, ToSocketAddrs};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::mpsc::{Receiver, Sender, SyncSender, TryRecvError, TrySendError, channel};
+use std::sync::mpsc::{
+    Receiver, Sender, SyncSender, TryRecvError, TrySendError, channel,
+    sync_channel as bounded_channel,
+};
 use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::time::{Duration, Instant};
 
 use base64::Engine;
 use serde_json::{Value, json};
 use tungstenite::client::IntoClientRequest;
+use tungstenite::http::HeaderValue;
+use tungstenite::http::header::AUTHORIZATION;
 use tungstenite::{Error as WsError, Message, WebSocket, client};
 
 /// Maximum number of pending events in each bounded CDP event queue.
@@ -27,6 +32,12 @@ const MAIN_FRAME_SNAPSHOT_ATTEMPTS: usize = 8;
 /// arithmetic. It is a queue-enforcement budget, not an exact allocator usage
 /// measurement.
 pub const CDP_EVENT_QUEUE_MAX_BYTES: usize = 32 * 1024 * 1024;
+/// Maximum number of commands waiting for the CDP reader thread.
+///
+/// A bounded command queue keeps a stalled browser from retaining an
+/// unbounded number of JSON messages. Callers fail fast when the queue is
+/// full, so a blocked reader cannot block the TUI thread indefinitely.
+const CDP_OUTBOUND_QUEUE_CAPACITY: usize = 256;
 const MAX_ENCODED_FRAME_BYTES: usize = 16 * 1024 * 1024;
 const MAX_DECODED_FRAME_BYTES: usize = 12 * 1024 * 1024;
 const TIMESTAMPLESS_CAPTURE_INTERVAL: Duration = Duration::from_secs(1);
@@ -270,7 +281,7 @@ pub struct CdpClient {
 }
 
 struct Inner {
-    outbound: Sender<Outbound>,
+    outbound: SyncSender<Outbound>,
     pending: Mutex<HashMap<u64, PendingCall>>,
     events: Arc<EventQueue>,
     frame_epochs: Mutex<HashMap<String, FrameSession>>,
@@ -532,6 +543,14 @@ enum Outbound {
 
 impl CdpClient {
     pub fn connect(web_socket_url: &str, events: SyncSender<CdpEvent>) -> anyhow::Result<Self> {
+        Self::connect_with_bearer(web_socket_url, None, events)
+    }
+
+    pub fn connect_with_bearer(
+        web_socket_url: &str,
+        bearer_token: Option<&str>,
+        events: SyncSender<CdpEvent>,
+    ) -> anyhow::Result<Self> {
         let endpoint = WsEndpoint::parse(web_socket_url)?;
         let mut addrs = (endpoint.host.as_str(), endpoint.port).to_socket_addrs()?;
         let addr = addrs.next().ok_or_else(|| {
@@ -541,7 +560,12 @@ impl CdpClient {
         stream.set_nodelay(true)?;
         stream.set_read_timeout(Some(Duration::from_secs(5)))?;
         stream.set_write_timeout(Some(Duration::from_secs(5)))?;
-        let request = web_socket_url.into_client_request()?;
+        let mut request = web_socket_url.into_client_request()?;
+        if let Some(token) = bearer_token {
+            let value = HeaderValue::from_str(&format!("Bearer {token}"))
+                .map_err(|error| anyhow::anyhow!("invalid CDP bearer token: {error}"))?;
+            request.headers_mut().insert(AUTHORIZATION, value);
+        }
         let (ws, _) = client(request, stream)?;
         // The reader thread owns the socket and drains queued outbound
         // writes before each read poll. A message enqueued just after a
@@ -549,7 +573,7 @@ impl CdpClient {
         // on the socket itself.
         ws.get_ref().set_read_timeout(Some(Duration::from_millis(20)))?;
         ws.get_ref().set_write_timeout(Some(Duration::from_secs(5)))?;
-        let (outbound_tx, outbound_rx) = channel();
+        let (outbound_tx, outbound_rx) = bounded_channel(CDP_OUTBOUND_QUEUE_CAPACITY);
         let event_queue = Arc::new(EventQueue::new());
         let client = CdpClient {
             inner: Arc::new(Inner {
@@ -745,6 +769,19 @@ impl CdpClient {
         self.send_value(&msg)
     }
 
+    /// Release one flattened target session without closing the page it
+    /// belongs to. Provider-owned browser tabs outlive cmux-tui renderers, so
+    /// their teardown must detach instead of sending `Target.closeTarget`.
+    pub fn detach_from_target_detached(&self, session_id: &str) -> anyhow::Result<()> {
+        let id = self.inner.next_id.fetch_add(1, Ordering::Relaxed);
+        let msg = json!({
+            "id": id,
+            "method": "Target.detachFromTarget",
+            "params": { "sessionId": session_id },
+        });
+        self.send_value(&msg)
+    }
+
     /// Wait until every command queued before this call has been written to
     /// the socket. Responses remain asynchronous.
     pub fn flush_outbound(&self, timeout: Duration) -> anyhow::Result<()> {
@@ -752,10 +789,7 @@ impl CdpClient {
             anyhow::bail!("CDP connection is closed");
         }
         let (tx, rx) = channel();
-        self.inner
-            .outbound
-            .send(Outbound::Flush(tx))
-            .map_err(|_| anyhow::anyhow!("CDP connection is closed"))?;
+        self.inner.outbound.try_send(Outbound::Flush(tx)).map_err(outbound_send_error)?;
         rx.recv_timeout(timeout).map_err(|_| anyhow::anyhow!("timed out flushing CDP commands"))
     }
 
@@ -1349,11 +1383,15 @@ impl CdpClient {
         if cdp_debug() {
             eprintln!("cdp-> {text}");
         }
-        self.inner
-            .outbound
-            .send(Outbound::Message(text))
-            .map_err(|_| anyhow::anyhow!("CDP connection is closed"))?;
+        self.inner.outbound.try_send(Outbound::Message(text)).map_err(outbound_send_error)?;
         Ok(())
+    }
+}
+
+fn outbound_send_error(error: TrySendError<Outbound>) -> anyhow::Error {
+    match error {
+        TrySendError::Full(_) => anyhow::anyhow!("CDP outbound queue is full"),
+        TrySendError::Disconnected(_) => anyhow::anyhow!("CDP connection is closed"),
     }
 }
 
@@ -1739,7 +1777,13 @@ fn ack_screencast_frame(inner: &Arc<Inner>, target_session: &str, frame_session:
         "params": { "sessionId": frame_session },
     });
     let Ok(text) = serde_json::to_string(&msg) else { return };
-    let _ = inner.outbound.send(Outbound::Message(text));
+    if let Err(error) = inner.outbound.try_send(Outbound::Message(text)) {
+        let reason = match error {
+            TrySendError::Full(_) => "CDP outbound queue overflow",
+            TrySendError::Disconnected(_) => "CDP connection is closed",
+        };
+        close_inner(inner, reason);
+    }
 }
 
 fn screencast_frame(params: &Value, session_id: &str, frame_epoch: u64) -> Option<ScreencastFrame> {
@@ -2014,12 +2058,16 @@ mod tests {
     use std::thread;
     use std::time::{Duration, Instant};
 
-    use tungstenite::{Message, accept};
+    use tungstenite::{Message, accept, accept_hdr};
 
     use super::*;
 
     fn test_inner() -> (Arc<Inner>, Receiver<Outbound>) {
-        let (outbound, outbound_rx) = channel();
+        test_inner_with_capacity(256)
+    }
+
+    fn test_inner_with_capacity(capacity: usize) -> (Arc<Inner>, Receiver<Outbound>) {
+        let (outbound, outbound_rx) = std::sync::mpsc::sync_channel(capacity);
         (
             Arc::new(Inner {
                 outbound,
@@ -2034,6 +2082,73 @@ mod tests {
             }),
             outbound_rx,
         )
+    }
+
+    #[test]
+    fn outbound_commands_fail_fast_at_the_queue_bound() {
+        let (inner, _outbound_rx) = test_inner_with_capacity(1);
+        let client = CdpClient { inner };
+
+        client.send_value(&json!({"id": 1})).unwrap();
+        let error = client.send_value(&json!({"id": 2})).unwrap_err();
+        assert!(error.to_string().contains("outbound queue is full"));
+    }
+
+    #[test]
+    fn call_queue_overflow_removes_pending_call() {
+        let (inner, _outbound_rx) = test_inner_with_capacity(0);
+        let client = CdpClient { inner: inner.clone() };
+
+        let error = client.call("Test.method", json!({}), None).unwrap_err();
+
+        assert!(error.to_string().contains("outbound queue is full"));
+        assert!(inner.pending.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn screencast_ack_queue_overflow_closes_the_connection() {
+        let (inner, _outbound_rx) = test_inner_with_capacity(0);
+        ack_screencast_frame(&inner, "session-1", 7);
+        assert!(inner.closed.load(Ordering::Acquire));
+    }
+
+    #[test]
+    #[allow(clippy::result_large_err)]
+    fn bearer_auth_is_sent_on_the_websocket_upgrade() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (header_tx, header_rx) = channel();
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let _ws = accept_hdr(
+                stream,
+                |request: &tungstenite::handshake::server::Request, response| {
+                    header_tx
+                        .send(
+                            request
+                                .headers()
+                                .get(AUTHORIZATION)
+                                .and_then(|value| value.to_str().ok())
+                                .map(str::to_string),
+                        )
+                        .unwrap();
+                    Ok(response)
+                },
+            )
+            .unwrap();
+        });
+        let (event_tx, _event_rx) = sync_channel(1);
+        let _client = CdpClient::connect_with_bearer(
+            &format!("ws://{addr}/devtools/browser/fake"),
+            Some("test-secret"),
+            event_tx,
+        )
+        .unwrap();
+        assert_eq!(
+            header_rx.recv_timeout(Duration::from_secs(1)).unwrap().as_deref(),
+            Some("Bearer test-secret")
+        );
+        server.join().unwrap();
     }
 
     #[test]

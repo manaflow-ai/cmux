@@ -455,16 +455,13 @@ final class BrowserPanelChromeBackgroundColorTests: XCTestCase {
         XCTAssertEqual(themeBackground.alphaComponent, 1.0, accuracy: 0.001)
     }
 
-    func testBrowserChromeColorSchemeAccountsForTranslucentBackground() {
-        let darkTranslucentBackground = NSColor(srgbRed: 0.02, green: 0.03, blue: 0.04, alpha: 0.05)
-
+    func testBrowserChromeColorSchemeUsesExplicitSurfaceAuthority() {
         XCTAssertEqual(
             resolvedBrowserChromeColorScheme(
                 for: .dark,
-                themeBackgroundColor: darkTranslucentBackground,
-                windowBackgroundColor: .white
+                ambientColorScheme: .light
             ),
-            .light
+            .dark
         )
     }
 
@@ -778,7 +775,7 @@ final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
         XCTAssertNotNil(config.urlSchemeHandler(forURLScheme: CmuxDiffViewerURLSchemeHandler.scheme))
     }
 
-    func testDiffViewerSchemeLoadsSameOriginModuleFromAllowlist() throws {
+    func testDiffViewerSchemeLoadsSameOriginModuleFromAllowlist() async throws {
         let token = UUID().uuidString.lowercased()
         let rootURL = trustedDiffViewerTestRoot()
         let assetURL = rootURL
@@ -823,7 +820,7 @@ final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
         let patchURL = rootURL.appendingPathComponent("index.patch", isDirectory: false)
         try "diff --git a/a b/a\n".write(to: patchURL, atomically: true, encoding: .utf8)
 
-        try CmuxDiffViewerURLSchemeHandler.shared.register(
+        try await CmuxDiffViewerURLSchemeHandler.shared.register(
             token: token,
             files: [
                 .init(requestPath: "/index.html", fileURL: indexURL, mimeType: "text/html"),
@@ -861,9 +858,9 @@ final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
         let delegate = BrowserPanelTestNavigationDelegate(expectation: loaded)
         webView.navigationDelegate = delegate
         webView.load(URLRequest(url: allowedURL))
-        wait(for: [loaded], timeout: 10)
+        await fulfillment(of: [loaded], timeout: 10)
         XCTAssertNil(delegate.error)
-        wait(for: [moduleLoaded], timeout: 10)
+        await fulfillment(of: [moduleLoaded], timeout: 10)
         XCTAssertEqual(moduleHandler.body as? String, "module-ok:js-ok:wasm-ok")
         let evaluated = expectation(description: "module evaluated")
         webView.evaluateJavaScript("document.body.dataset.loaded || ''") { value, error in
@@ -871,10 +868,10 @@ final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
             XCTAssertEqual(value as? String, "module-ok:js-ok:wasm-ok")
             evaluated.fulfill()
         }
-        wait(for: [evaluated], timeout: 10)
+        await fulfillment(of: [evaluated], timeout: 10)
     }
 
-    func testDiffViewerSchemeRejectsSymlinkEscapeFromTrustedRoot() throws {
+    func testDiffViewerSchemeRejectsSymlinkEscapeFromTrustedRoot() async throws {
         let token = UUID().uuidString.lowercased()
         let temporaryURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-diff-viewer-security-\(UUID().uuidString)", isDirectory: true)
@@ -891,15 +888,20 @@ final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
         try "<!doctype html>".write(to: outsideURL, atomically: true, encoding: .utf8)
         try FileManager.default.createSymbolicLink(at: linkURL, withDestinationURL: outsideURL)
 
-        XCTAssertThrowsError(try CmuxDiffViewerURLSchemeHandler.shared.register(
-            token: token,
-            files: [
-                .init(requestPath: "/link.html", fileURL: linkURL, mimeType: "text/html"),
-            ]
-        ))
+        do {
+            try await CmuxDiffViewerURLSchemeHandler.shared.register(
+                token: token,
+                files: [
+                    .init(requestPath: "/link.html", fileURL: linkURL, mimeType: "text/html"),
+                ]
+            )
+            XCTFail("Expected a symlink escape to be rejected")
+        } catch let error as CmuxDiffViewerSessionError {
+            XCTAssertEqual(error, .unreadableFile)
+        }
     }
 
-    func testDiffViewerSchemeRejectsMismatchedPatchMimeType() throws {
+    func testDiffViewerSchemeRejectsMismatchedPatchMimeType() async throws {
         let token = UUID().uuidString.lowercased()
         let trustedRootURL = trustedDiffViewerTestRoot()
         let patchURL = trustedRootURL.appendingPathComponent("diff.patch", isDirectory: false)
@@ -908,12 +910,17 @@ final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
 
         try "diff --git a/a b/a\n".write(to: patchURL, atomically: true, encoding: .utf8)
 
-        XCTAssertThrowsError(try CmuxDiffViewerURLSchemeHandler.shared.register(
-            token: token,
-            files: [
-                .init(requestPath: "/diff.patch", fileURL: patchURL, mimeType: "text/html"),
-            ]
-        ))
+        do {
+            try await CmuxDiffViewerURLSchemeHandler.shared.register(
+                token: token,
+                files: [
+                    .init(requestPath: "/diff.patch", fileURL: patchURL, mimeType: "text/html"),
+                ]
+            )
+            XCTFail("Expected a mismatched path and MIME type to be rejected")
+        } catch let error as CmuxDiffViewerSessionError {
+            XCTAssertEqual(error, .invalidEntry)
+        }
     }
 }
 
@@ -1021,11 +1028,11 @@ final class BrowserPanelProfileIsolationTests: XCTestCase {
 
 @MainActor
 final class BrowserPanelAddressBarFocusRequestTests: XCTestCase {
-    func testRequestPersistsUntilAcknowledged() {
+    func testRequestPersistsUntilAcknowledged() throws {
         let panel = BrowserPanel(workspaceId: UUID())
         XCTAssertNil(panel.pendingAddressBarFocusRequestId)
 
-        let requestId = panel.requestAddressBarFocus()
+        let requestId = try XCTUnwrap(panel.requestAddressBarFocus())
         XCTAssertEqual(panel.pendingAddressBarFocusRequestId, requestId)
         XCTAssertEqual(panel.pendingAddressBarFocusSelectionIntent, .preserveFieldEditorSelection)
         XCTAssertTrue(panel.shouldSuppressWebViewFocus())
@@ -1061,11 +1068,11 @@ final class BrowserPanelAddressBarFocusRequestTests: XCTestCase {
         XCTAssertEqual(panel.pendingAddressBarFocusSelectionIntent, .selectAll)
     }
 
-    func testStaleAcknowledgementDoesNotClearNewestRequest() {
+    func testStaleAcknowledgementDoesNotClearNewestRequest() throws {
         let panel = BrowserPanel(workspaceId: UUID())
-        let firstRequest = panel.requestAddressBarFocus()
+        let firstRequest = try XCTUnwrap(panel.requestAddressBarFocus())
         panel.acknowledgeAddressBarFocusRequest(firstRequest)
-        let secondRequest = panel.requestAddressBarFocus()
+        let secondRequest = try XCTUnwrap(panel.requestAddressBarFocus())
 
         XCTAssertNotEqual(firstRequest, secondRequest)
         XCTAssertEqual(panel.pendingAddressBarFocusRequestId, secondRequest)
@@ -1107,6 +1114,23 @@ final class BrowserPanelReactGrabBridgeTests: XCTestCase {
         XCTAssertTrue(panel.isOmnibarVisible)
         XCTAssertEqual(panel.pendingAddressBarFocusRequestId, requestId)
         XCTAssertEqual(panel.preferredFocusIntent, .addressBar)
+    }
+
+    func testChromelessAddressBarRestoreFallsBackToWebViewFocus() {
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            chromeVisibility: .chromeless
+        )
+        panel.prepareFocusIntentForActivation(.browser(.addressBar))
+
+        XCTAssertTrue(panel.shouldSuppressWebViewFocus())
+        XCTAssertTrue(
+            panel.restoreFocusIntent(.browser(.addressBar))
+        )
+        XCTAssertFalse(panel.shouldSuppressWebViewFocus())
+        XCTAssertEqual(panel.preferredFocusIntent, .webView)
+        XCTAssertNil(panel.pendingAddressBarFocusRequestId)
+        XCTAssertEqual(panel.chromeVisibility, .chromeless)
     }
 
     func testCopySuccessPostsPastebackNotificationAndClearsPendingTarget() throws {
@@ -1558,19 +1582,21 @@ final class WindowBrowserHostViewTests: XCTestCase {
         XCTAssertTrue(
             WindowBrowserHostView.shouldPassThroughToDragTargets(
                 pasteboardTypes: [DragOverlayRoutingPolicy.bonsplitTabTransferType],
-                eventType: .cursorUpdate
+                eventType: .cursorUpdate,
+                hasLiveTabTransfer: true
             )
         )
         XCTAssertTrue(
             WindowBrowserHostView.shouldPassThroughToDragTargets(
                 pasteboardTypes: [DragOverlayRoutingPolicy.bonsplitTabTransferType],
-                eventType: .mouseEntered
+                eventType: .mouseEntered,
+                hasLiveTabTransfer: true
             )
         )
     }
 
-    func testDragHoverEventsPassThroughForSidebarReorderWithoutMouseButtonState() {
-        XCTAssertTrue(
+    func testStaleSidebarReorderDoesNotPassThroughBrowserHoverEvents() {
+        XCTAssertFalse(
             WindowBrowserHostView.shouldPassThroughToDragTargets(
                 pasteboardTypes: [DragOverlayRoutingPolicy.sidebarTabReorderType],
                 eventType: .cursorUpdate

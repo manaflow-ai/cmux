@@ -1,7 +1,9 @@
 import type { ReactNode } from "react";
 
-export const SHOW_VAULT = false;
-export const SHOW_HOSTED_NETWORKING = false;
+export type PricingFeatureVisibility = {
+  readonly vault: boolean;
+  readonly hostedNetworking: boolean;
+};
 
 export type CompareRow = {
   label: string;
@@ -32,15 +34,17 @@ export function visibleProFeatures({
   base,
   vault,
   hostedNetworking,
+  visibility,
 }: {
   base: string[];
   vault: string[];
   hostedNetworking: string[];
+  visibility: PricingFeatureVisibility;
 }) {
-  let features = SHOW_VAULT
+  let features = visibility.vault
     ? [...base.slice(0, 2), ...vault, ...base.slice(2)]
     : base;
-  if (SHOW_HOSTED_NETWORKING) {
+  if (visibility.hostedNetworking) {
     features = [
       ...features.slice(0, -1),
       ...hostedNetworking,
@@ -50,16 +54,22 @@ export function visibleProFeatures({
   return features;
 }
 
-export function visibleCompareRows(rows: CompareRow[]) {
+export function visibleCompareRows(
+  rows: CompareRow[],
+  visibility: PricingFeatureVisibility,
+) {
   return rows.filter(
     (row) =>
-      (SHOW_VAULT || !row.vault) &&
-      (SHOW_HOSTED_NETWORKING || !row.hostedNetworking),
+      (visibility.vault || !row.vault) &&
+      (visibility.hostedNetworking || !row.hostedNetworking),
   );
 }
 
-export function visibleFaqItems(items: FaqItem[]) {
-  return items.filter((item) => SHOW_VAULT || !item.vault);
+export function visibleFaqItems(
+  items: FaqItem[],
+  visibility: PricingFeatureVisibility,
+) {
+  return items.filter((item) => visibility.vault || !item.vault);
 }
 
 export function PlanCard({

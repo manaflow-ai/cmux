@@ -7,6 +7,7 @@ import {
   type AuthedUser,
 } from "./auth";
 import {
+  isPaidVmPlan,
   isVmBillingTeamResolutionError,
   resolveVmEntitlements,
   type VmEntitlements,
@@ -14,12 +15,22 @@ import {
 import {
   isVmBillingError,
   isVmAccountDeletionInProgressError,
+  isVmAttachTransportUnsupportedError,
   isVmCreateDisabledError,
+  isVmCreateCreditsInsufficientError,
+  isVmCreateFailedError,
+  isVmCreateInProgressError,
   isVmDatabaseError,
+  isVmFreeAccessExpiredError,
+  isVmLimitExceededError,
+  isVmNotFoundError,
   isVmProviderOperationError,
+  isVmSnapshotNotFoundError,
   vmWorkflowErrorCause,
 } from "./errors";
 import { recordSpanTiming } from "./timings";
+import { authProviderErrorResponse } from "./authErrors";
+import { reportVmErrorResponse, VM_ERROR_CODE_HEADER } from "./observability";
 
 /** Bearer + refresh token pair the mac app stashes in keychain. */
 export type StackBearer = { accessToken: string; refreshToken: string };
@@ -67,7 +78,12 @@ export async function withAuthedVmApiRoute(
         const routeStartedAtMs = performance.now();
         const bearer = parseBearer(request);
         const authStart = performance.now();
-        const user = await verifyRequest(request, { requestedTeamId: requestedVmTeamIdFromRequest(request) });
+        let user: AuthedUser | null;
+        try {
+          user = await verifyRequest(request, { requestedTeamId: requestedVmTeamIdFromRequest(request) });
+        } catch (error) {
+          return finalize(authProviderErrorResponse(error, `${route}.auth`));
+        }
         const authDurationMs = performance.now() - authStart;
         recordSpanTiming(span, "auth", authDurationMs);
         if (!user) return unauthorized();
@@ -124,6 +140,13 @@ export type VmErrorResponseInput = {
   readonly reason?: string;
   readonly extra?: Record<string, unknown>;
   readonly details?: Record<string, unknown>;
+  /**
+   * Operator-facing context (provider, image id, env var) for Sentry only.
+   * NEVER serialized into the response: VM error payloads deliberately hide
+   * implementation details from callers (see expectNoCloudVmImplementationLeaks
+   * in tests/vm-route-auth.test.ts).
+   */
+  readonly diagnostics?: Record<string, unknown>;
   readonly phase?: VmLifecyclePhase;
   readonly retryable?: boolean;
   readonly retryAfterSeconds?: number;
@@ -178,9 +201,38 @@ export function vmErrorResponse(input: VmErrorResponseInput): Response {
   if (retryAfterSeconds !== undefined) {
     headers["retry-after"] = String(retryAfterSeconds);
   }
+  // Every VM error flows through here, so this is the one place operator-fault
+  // errors reach Sentry and the one place the machine-readable code is exposed
+  // for response finalizers. Reporting never changes the response.
+  headers[VM_ERROR_CODE_HEADER] = input.error;
+  try {
+    reportVmErrorResponse(input);
+  } catch {
+    // Reporting must never change the caller's control flow.
+  }
   return new Response(JSON.stringify(payload), {
     status: input.status,
     headers: { "content-type": "application/json", ...headers },
+  });
+}
+
+/**
+ * The paywall response for a free-plan machine whose access window lapsed:
+ * the machine and its data are preserved, reconnecting requires Pro. 402 with
+ * `upgradeRequired`/`upgradeUrl` so clients render an upgrade prompt, mirroring
+ * the free-plan variant of `vmActiveLimitExceededResponse`.
+ */
+export function vmFreeAccessExpiredResponse(input: {
+  readonly vmId: string;
+  readonly windowDays: number;
+}): Response {
+  return vmErrorResponse({
+    error: "vm_access_requires_pro",
+    status: 402,
+    message: `The free plan includes ${input.windowDays} days of access to a machine. ${input.vmId} is past that window — the machine and everything on it are preserved, and upgrading to Pro reconnects it.`,
+    action: `Upgrade to Pro at ${VM_UPGRADE_URL} to reconnect ${input.vmId}, or delete it with \`cmux vm rm ${input.vmId}\`.`,
+    extra: { upgradeRequired: true, upgradeUrl: VM_UPGRADE_URL },
+    details: { vmId: input.vmId, windowDays: input.windowDays },
   });
 }
 
@@ -192,6 +244,15 @@ export function notFoundVm(vmId: string): Response {
     action: "Run `cmux vm ls` to see available Cloud VMs. If the VM stopped while idle, start a new one with `cmux vm new`.",
     details: { vmId },
   });
+}
+
+/** Translate resource-scoped workflow failures shared by VM endpoint routes. */
+export function vmResourceErrorResponse(err: unknown, vmId: string): Response | null {
+  if (isVmFreeAccessExpiredError(err)) {
+    return vmFreeAccessExpiredResponse({ vmId, windowDays: err.windowDays });
+  }
+  if (isVmNotFoundError(err)) return notFoundVm(vmId);
+  return null;
 }
 
 export type VmRouteAccountScope =
@@ -255,6 +316,107 @@ export function vmRequiresProResponse(): Response {
   });
 }
 
+const VM_UPGRADE_URL = "https://cmux.com/pricing";
+
+/**
+ * One response for every provisioning verb that hits the active-VM limit. On a free plan the
+ * limit is the paywall moment: the message sells the upgrade (Pro removes the cap and bills by
+ * usage) and `upgradeRequired`/`upgradeUrl` let clients render a real upgrade prompt instead of
+ * an error. Paid plans keep operational guidance — their cap is a safety rail, not a paywall.
+ */
+export function vmActiveLimitExceededResponse(input: {
+  readonly limit: number;
+  readonly planId: string;
+  readonly retryAction: string;
+  readonly phase?: VmLifecyclePhase;
+}): Response {
+  const paid = isPaidVmPlan(input.planId);
+  const plural = input.limit === 1 ? "" : "s";
+  if (paid) {
+    return vmErrorResponse({
+      error: "vm_active_limit_exceeded",
+      status: 402,
+      message: `This plan allows ${input.limit} active Cloud VM${plural} at a time.`,
+      action: input.retryAction,
+      extra: { limit: input.limit },
+      details: { limit: input.limit },
+      ...(input.phase ? { phase: input.phase } : {}),
+    });
+  }
+  return vmErrorResponse({
+    error: "vm_active_limit_exceeded",
+    status: 402,
+    message: `The free plan includes ${input.limit} Cloud VM${plural}.`,
+    action: `Upgrade to cmux Pro at ${VM_UPGRADE_URL} for more VMs with usage-based billing, ` +
+      "or free a slot with `cmux vm rm <id>`.",
+    extra: { limit: input.limit, upgradeRequired: true, upgradeUrl: VM_UPGRADE_URL },
+    details: { limit: input.limit, upgradeRequired: true },
+    ...(input.phase ? { phase: input.phase } : {}),
+  });
+}
+
+export type VmCreateLikeOperation = "fork" | "restore";
+
+/**
+ * Translate the provisioning failures shared by fork and restore routes.
+ * Operation-specific retry guidance stays at the route boundary, while the response
+ * shape and billing errors remain centralized here.
+ */
+export function vmCreateLikeErrorResponse(
+  err: unknown,
+  input: {
+    readonly operation: VmCreateLikeOperation;
+    readonly planId: string;
+    readonly retryAction: string;
+  },
+): Response | null {
+  if (isVmCreateInProgressError(err)) {
+    return vmErrorResponse({
+      error: "vm_create_in_progress",
+      status: 409,
+      message: "A Cloud VM create is already running for this request.",
+      action: `Wait for the first ${input.operation} to finish, then retry the same command.`,
+      details: { idempotencyKeySet: !!err.idempotencyKey },
+    });
+  }
+  if (isVmCreateFailedError(err)) {
+    return vmErrorResponse({
+      error: "vm_create_failed",
+      status: 500,
+      message: `The Cloud VM ${input.operation} create attempt failed.`,
+      action: `Retry with a fresh ${input.operation}. If it fails again, copy the details and contact support.`,
+      details: { idempotencyKeySet: !!err.idempotencyKey },
+    });
+  }
+  if (isVmLimitExceededError(err)) {
+    return vmActiveLimitExceededResponse({
+      limit: err.limit,
+      planId: input.planId,
+      retryAction: input.retryAction,
+    });
+  }
+  if (input.operation === "restore" && isVmSnapshotNotFoundError(err)) {
+    return vmErrorResponse({
+      error: "vm_snapshot_not_found",
+      status: 404,
+      message: "Cloud VM snapshot was not found for this account.",
+      action: "Create a snapshot from one of this team's Cloud VMs, then retry restore with that snapshot id.",
+      details: { snapshotId: err.snapshotId },
+    });
+  }
+  if (isVmCreateCreditsInsufficientError(err)) {
+    return vmErrorResponse({
+      error: "vm_create_credits_insufficient",
+      status: 402,
+      message: "This team has no Cloud VM create credits left.",
+      action: "Upgrade the team's plan or ask an admin to add Cloud VM create credits, then retry.",
+      extra: { amount: err.amount },
+      details: { amount: err.amount },
+    });
+  }
+  return null;
+}
+
 export function vmWorkflowErrorResponse(err: unknown): Response | null {
   const workflowError = vmWorkflowErrorCause(err) ?? err;
   if (isVmAccountDeletionInProgressError(workflowError)) {
@@ -265,6 +427,24 @@ export function vmWorkflowErrorResponse(err: unknown): Response | null {
       action: "Wait for account deletion to finish before creating Cloud VMs.",
       phase: workflowError.phase ?? "create",
       retryable: true,
+    });
+  }
+
+  if (isVmAttachTransportUnsupportedError(workflowError)) {
+    const supported = workflowError.supported.join(", ");
+    return vmErrorResponse({
+      error: "vm_attach_transport_unsupported",
+      status: 409,
+      message: `Cloud VM ${workflowError.vmId} does not serve the "${workflowError.requested}" attach transport.`,
+      action: `Request the attach endpoint with transport "cmux-remote" (supported: ${supported}), ` +
+        "or update cmux — this machine runs the cmux-tui remote daemon only.",
+      phase: "attach",
+      retryable: false,
+      details: {
+        provider: workflowError.provider,
+        requestedTransport: workflowError.requested,
+        supportedTransports: [...workflowError.supported],
+      },
     });
   }
 

@@ -99,8 +99,8 @@ func newTestWebSocketPTYServer(t *testing.T, leasePath string) (*httptest.Server
 // allocation failure (e.g. a hardened devpts mounted ptmxmode=000 where
 // /dev/ptmx cannot be opened) is reported loudly: the error returned to the
 // client names the failing device and explains the devpts cause, and the daemon
-// records the failure instead of leaving a 0-byte log. This is the regression
-// for https://github.com/manaflow-ai/cmux/issues/5185, where the failure
+// records a safe failure category instead of leaving a 0-byte log. This is the
+// regression for https://github.com/manaflow-ai/cmux/issues/5185, where the failure
 // collapsed into a generic "remote PTY attach failed" with an empty daemon log.
 func TestAttachRPCSurfacesPTYAllocationFailure(t *testing.T) {
 	stderr := &bytes.Buffer{}
@@ -140,8 +140,12 @@ func TestAttachRPCSurfacesPTYAllocationFailure(t *testing.T) {
 	if stderr.Len() == 0 {
 		t.Fatalf("PTY allocation failure must be logged to the daemon log, not swallowed")
 	}
-	if !strings.Contains(stderr.String(), "/dev/ptmx") {
-		t.Fatalf("daemon log should include the allocation failure detail: %q", stderr.String())
+	if !strings.Contains(stderr.String(), "event=pty_start_fault") ||
+		!strings.Contains(stderr.String(), `error_category="permission_denied"`) {
+		t.Fatalf("daemon log should classify the allocation failure: %q", stderr.String())
+	}
+	if strings.Contains(stderr.String(), denied.Error()) {
+		t.Fatalf("daemon log should not persist the raw allocation failure: %q", stderr.String())
 	}
 }
 

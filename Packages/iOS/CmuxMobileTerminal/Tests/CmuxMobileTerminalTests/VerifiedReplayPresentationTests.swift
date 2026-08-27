@@ -1,7 +1,9 @@
 #if canImport(UIKit)
+import CMUXMobileCore
 import CoreGraphics
 import Foundation
 import IOSurface
+import QuartzCore
 import Testing
 @testable import CmuxMobileTerminal
 
@@ -22,6 +24,127 @@ struct VerifiedReplayPresentationTests {
             hasPresentedContents: true
         ))
     }
+
+#if DEBUG
+    @MainActor
+    @Test("pending native scroll invalidates replay anchors before display-link flush")
+    func pendingNativeScrollInvalidatesReplayAnchorBeforeFlush() async throws {
+        let runtime = try GhosttyRuntime.shared()
+        let delegate = ScrollDrainDelegate()
+        let view = GhosttySurfaceView(runtime: runtime, delegate: delegate, fontSize: 10)
+        defer { view.prepareForDismantle() }
+
+        let beforeScrollGeneration = view.userViewportInteractionGeneration
+        view.enqueueScrollMechanicsDelta(
+            42,
+            touchPoint: CGPoint(x: 12, y: 18)
+        )
+
+        #expect(view.userViewportInteractionGeneration == beforeScrollGeneration + 1)
+        let staleAnchor = VerifiedReplayCapturedViewportAnchor(
+            anchor: VerifiedReplayViewportAnchor(
+                topRowDistanceFromBottom: 25,
+                totalRows: 100
+            ),
+            interactionGeneration: beforeScrollGeneration
+        )
+        #expect(await view.restoreVerifiedReplayViewportAnchor(staleAnchor) == false)
+        #expect(await view.drainPendingScrollForVerifiedReplayReveal())
+        #expect(delegate.scrollEvents.count == 1)
+    }
+
+    @MainActor
+    @Test("only explicit user scrolling preserves a replay viewport anchor")
+    func replayViewportAnchorRequiresUserScrollIntent() throws {
+        let runtime = try GhosttyRuntime.shared()
+        let view = GhosttySurfaceView(
+            runtime: runtime,
+            delegate: ScrollDrainDelegate(),
+            fontSize: 10
+        )
+        defer { view.prepareForDismantle() }
+
+        #expect(!view.preservesUserViewportAnchor)
+
+        view.enqueueScrollMechanicsDelta(
+            42,
+            touchPoint: CGPoint(x: 12, y: 18)
+        )
+        #expect(view.preservesUserViewportAnchor)
+
+        view.enqueueScrollToBottom()
+        #expect(!view.preservesUserViewportAnchor)
+    }
+
+    @MainActor
+    @Test("user scrolling cancels a pending prompt scroll snap")
+    func userScrollCancelsPendingPromptScrollSnap() throws {
+        let runtime = try GhosttyRuntime.shared()
+        let view = GhosttySurfaceView(
+            runtime: runtime,
+            delegate: ScrollDrainDelegate(),
+            fontSize: 10
+        )
+        defer { view.prepareForDismantle() }
+
+        view.scrollToBottomRequested = true
+        view.scrollToBottomRetryCount = 3
+        view.scrollToBottomRetryAt = CACurrentMediaTime() + 10
+
+        view.enqueueScrollMechanicsDelta(
+            42,
+            touchPoint: CGPoint(x: 12, y: 18)
+        )
+
+        #expect(!view.scrollToBottomRequested)
+        #expect(view.scrollToBottomRetryCount == 0)
+        #expect(view.scrollToBottomRetryAt == nil)
+    }
+
+    @MainActor
+    @Test("surface replacement releases a pending prompt scroll snap")
+    func surfaceReplacementReleasesPendingPromptScrollSnap() throws {
+        let runtime = try GhosttyRuntime.shared()
+        let view = GhosttySurfaceView(
+            runtime: runtime,
+            delegate: ScrollDrainDelegate(),
+            fontSize: 10
+        )
+        defer { view.prepareForDismantle() }
+
+        view.scrollToBottomInFlight = true
+        view.resetScrollStateForSurfaceReplacement()
+
+        #expect(!view.scrollToBottomInFlight)
+    }
+
+    @MainActor
+    @Test("replay drain owns only the scroll work present at admission")
+    func replayDrainDoesNotChaseContinuouslyProducedScroll() async throws {
+        let runtime = try GhosttyRuntime.shared()
+        let delegate = ScrollDrainDelegate()
+        let view = GhosttySurfaceView(runtime: runtime, delegate: delegate, fontSize: 10)
+        defer { view.prepareForDismantle() }
+
+        var remainingProducerEvents = 128
+        delegate.onScroll = { [weak view] in
+            guard remainingProducerEvents > 0 else { return }
+            remainingProducerEvents -= 1
+            view?.debugEnqueueScrollForTesting(
+                deltaY: 42,
+                touchPoint: CGPoint(x: 12, y: 18)
+            )
+        }
+        view.debugEnqueueScrollForTesting(
+            deltaY: 42,
+            touchPoint: CGPoint(x: 12, y: 18)
+        )
+
+        #expect(await view.drainPendingScrollForVerifiedReplayReveal())
+        #expect(delegate.scrollEvents.count == 1)
+        #expect(remainingProducerEvents == 127)
+    }
+#endif
 
     @Test("the retained last-good frame owns immutable pixel bytes")
     func frozenFrameDoesNotAliasRendererIOSurface() throws {
@@ -221,6 +344,33 @@ struct VerifiedReplayPresentationTests {
         ))
     }
 
+}
+
+@MainActor
+private final class ScrollDrainDelegate: NSObject, GhosttySurfaceViewDelegate {
+    private(set) var scrollEvents: [(lines: Double, col: Int, row: Int)] = []
+    var onScroll: (() -> Void)?
+
+    func ghosttySurfaceView(
+        _ surfaceView: GhosttySurfaceView,
+        didProduceInput data: Data
+    ) {}
+
+    func ghosttySurfaceView(
+        _ surfaceView: GhosttySurfaceView,
+        didResize size: TerminalGridSize,
+        reportID: UInt64
+    ) {}
+
+    func ghosttySurfaceView(
+        _ surfaceView: GhosttySurfaceView,
+        didScrollLines lines: Double,
+        atCol col: Int,
+        row: Int
+    ) {
+        scrollEvents.append((lines: lines, col: col, row: row))
+        onScroll?()
+    }
 }
 
 private extension VerifiedReplayPresentationTests {

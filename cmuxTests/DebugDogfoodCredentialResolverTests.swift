@@ -82,7 +82,7 @@ import Testing
         )
     }
 
-    @Test func envWinsOverFileWithinSameAccount() {
+    @Test func fileWinsOverEnvWithinSameAccount() {
         let resolver = makeResolver(
             environment: [
                 "CMUX_DOGFOOD_STACK_EMAIL": "env@manaflow.ai",
@@ -100,7 +100,29 @@ import Testing
         )
         #expect(
             resolver.resolve()
-                == .init(email: "env@manaflow.ai", password: "env-pw")
+                == .init(email: "file@manaflow.ai", password: "file-pw")
+        )
+    }
+
+    @Test func fileWinsOverDogfoodEnvWhenBothArePresent() {
+        let resolver = makeResolver(
+            environment: [
+                "CMUX_DOGFOOD_STACK_EMAIL": "env@manaflow.ai",
+                "CMUX_DOGFOOD_STACK_PASSWORD": "env-pw",
+            ],
+            files: [
+                (
+                    "/secrets/cmuxterm-dev.env",
+                    """
+                    CMUX_DOGFOOD_STACK_EMAIL=file@manaflow.ai
+                    CMUX_DOGFOOD_STACK_PASSWORD=file-pw
+                    """
+                ),
+            ]
+        )
+        #expect(
+            resolver.resolve()
+                == .init(email: "file@manaflow.ai", password: "file-pw")
         )
     }
 
@@ -209,6 +231,59 @@ import Testing
         ))
     }
 
+    @Test func explicitPersonalProfileNeverFallsBackToAgentKeys() {
+        let resolver = DebugDogfoodCredentialResolver(
+            environment: [
+                "CMUX_AUTH_CREDENTIALS_FILE": "/private/tmp/personal.env",
+                "CMUX_DEV_AUTH_PROFILE": "personal",
+            ],
+            readSecureFile: { _ in
+                """
+                CMUX_UITEST_STACK_EMAIL=agent@example.com
+                CMUX_UITEST_STACK_PASSWORD=agent-password
+                """
+            }
+        )
+
+        #expect(resolver.resolve() == nil)
+    }
+
+    @Test func explicitAgentProfileIgnoresDogfoodKeys() {
+        let resolver = DebugDogfoodCredentialResolver(
+            environment: [
+                "CMUX_AUTH_CREDENTIALS_FILE": "/private/tmp/agent.env",
+                "CMUX_DEV_AUTH_PROFILE": "agent",
+            ],
+            readSecureFile: { _ in
+                """
+                CMUX_DOGFOOD_STACK_EMAIL=person@example.com
+                CMUX_DOGFOOD_STACK_PASSWORD=person-password
+                CMUX_UITEST_STACK_EMAIL=agent@example.com
+                CMUX_UITEST_STACK_PASSWORD=agent-password
+                """
+            }
+        )
+
+        #expect(resolver.resolve() == .init(
+            email: "agent@example.com",
+            password: "agent-password"
+        ))
+    }
+
+    @Test func unknownExplicitProfileFailsClosed() {
+        let resolver = DebugDogfoodCredentialResolver(
+            environment: [
+                "CMUX_DEV_AUTH_PROFILE": "typo",
+                "CMUX_DOGFOOD_STACK_EMAIL": "person@example.com",
+                "CMUX_DOGFOOD_STACK_PASSWORD": "person-password",
+                "CMUX_UITEST_STACK_EMAIL": "agent@example.com",
+                "CMUX_UITEST_STACK_PASSWORD": "agent-password",
+            ]
+        )
+
+        #expect(resolver.resolve() == nil)
+    }
+
     @Test func unreadableExplicitCredentialsFileFailsClosedWithoutFallback() {
         let resolver = DebugDogfoodCredentialResolver(
             environment: [
@@ -302,6 +377,7 @@ import Testing
             [
                 "CMUX_UITEST_STACK_EMAIL": "agent-dev@manaflow.ai",
                 "CMUX_UITEST_STACK_PASSWORD": "agent-pw",
+                "CMUX_DEV_AUTH_PROFILE": "personal",
             ],
             secretFilePaths: ["/secrets/cmuxterm-dev.env"],
             readFile: { _ in
@@ -313,6 +389,8 @@ import Testing
         )
         #expect(merged["CMUX_UITEST_STACK_EMAIL"] == "lawrence@manaflow.ai")
         #expect(merged["CMUX_UITEST_STACK_PASSWORD"] == "dog-pw")
+        #expect(merged["CMUX_DEV_AUTH_CREDENTIALS_RESOLVED"] == "1")
+        #expect(merged["CMUX_DEV_AUTH_REPLACE_SESSION"] == "1")
     }
 
     @Test func leavesAgentEnvCredsWhenNoDogfoodFile() {
@@ -328,6 +406,8 @@ import Testing
         )
         #expect(merged["CMUX_UITEST_STACK_EMAIL"] == "agent-dev@manaflow.ai")
         #expect(merged["CMUX_UITEST_STACK_PASSWORD"] == "agent-pw")
+        #expect(merged["CMUX_DEV_AUTH_CREDENTIALS_RESOLVED"] == nil)
+        #expect(merged["CMUX_DEV_AUTH_REPLACE_SESSION"] == nil)
     }
 
     @Test func injectsNothingWhenNoCredentialsAvailable() {
@@ -338,6 +418,7 @@ import Testing
         )
         #expect(merged["CMUX_UITEST_STACK_EMAIL"] == nil)
         #expect(merged["CMUX_UITEST_STACK_PASSWORD"] == nil)
+        #expect(merged["CMUX_DEV_AUTH_CREDENTIALS_RESOLVED"] == nil)
     }
 }
 #endif

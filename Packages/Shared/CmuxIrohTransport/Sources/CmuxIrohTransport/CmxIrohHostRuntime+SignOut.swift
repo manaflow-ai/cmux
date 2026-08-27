@@ -3,6 +3,7 @@ public import Foundation
 extension CmxIrohHostRuntime {
     func performSignOut(
         pendingRevocation: CmxIrohPendingRevocation?,
+        bindingAuthorization: CmxIrohBindingRequestAuthorization?,
         requiresNetworkDeactivation: Bool,
         revision: UInt64
     ) async -> CmxIrohHostSignOutPreparation {
@@ -17,7 +18,8 @@ extension CmxIrohHostRuntime {
         let (persisted, _) = await (wasPersisted, networkTeardown)
         let preparation = CmxIrohHostSignOutPreparation(
             pendingRevocation: pendingRevocation,
-            wasPersisted: persisted
+            wasPersisted: persisted,
+            bindingAuthorization: bindingAuthorization
         )
 
         guard lifecyclePhase == .signingOut,

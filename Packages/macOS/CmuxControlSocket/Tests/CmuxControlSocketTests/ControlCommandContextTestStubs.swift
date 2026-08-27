@@ -196,7 +196,8 @@ extension ControlWorkspaceGroupContext {
             allChildrenAreAnchors: "",
             workspaceIsOtherGroupAnchor: "",
             invalidReferenceWorkspace: "invalid reference workspace",
-            closeWorkspacesMustBeBoolean: "close workspaces must be boolean"
+            closeWorkspacesMustBeBoolean: "close workspaces must be boolean",
+            emptyPinnedCannotUngroup: "empty pinned group cannot be ungrouped"
         )
     }
 
@@ -478,7 +479,8 @@ extension ControlSurfaceContext {
     func controlSurfaceResumeStrings() -> ControlSurfaceResumeStrings {
         ControlSurfaceResumeStrings(
             agentSessionEndedMustBeBoolean: "",
-            launchCommandMustBeValid: ""
+            launchCommandMustBeValid: "",
+            restoreClaimMustBeValid: ""
         )
     }
 
@@ -506,7 +508,10 @@ extension ControlSurfaceContext {
     func controlSurfaceResumeGet(
         routing: ControlRoutingSelectors,
         explicitTargetID: UUID?,
-        hasResolvedWindowID: Bool
+        hasResolvedWindowID: Bool,
+        claimCheckpointID: String?,
+        claimSource: String?,
+        claimUpdatedAt: Double?
     ) -> ControlSurfaceResumeResolution { .surfaceNotFound }
 
     func controlSurfaceResumeClear(
@@ -515,6 +520,7 @@ extension ControlSurfaceContext {
         hasResolvedWindowID: Bool,
         expectedCheckpointID: String?,
         expectedSource: String?,
+        expectedUpdatedAt: Double?,
         agentSessionEnded: Bool
     ) -> ControlSurfaceResumeResolution { .surfaceNotFound }
 
@@ -544,8 +550,13 @@ extension ControlSurfaceContext {
     func controlSurfaceReportShellState(
         workspaceID: UUID,
         requestedSurfaceID: UUID?,
+        terminalLifecycleID: UUID?,
         stateRawValue: String
     ) -> ControlSurfaceReportShellStateResolution { .pending }
+
+    func controlSurfaceInvalidTerminalLifecycleIDError() -> String {
+        "Terminal session is out of date; restart the shell and try again"
+    }
 
     func controlSurfacePortsKick(
         workspaceID: UUID,

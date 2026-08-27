@@ -168,6 +168,10 @@ export const env = createEnv({
     CMUX_FEEDBACK_RATE_LIMIT_ID: z.string().min(1).optional(),
     CMUX_CLIENT_CONFIG_RATE_LIMIT_ID: z.string().min(1).optional(),
     CMUX_ANALYTICS_RATE_LIMIT_ID: z.string().min(1).optional(),
+    // Native ingress gates run before Stack verification, so provider outages
+    // cannot turn reconnect/readiness fan-out into an auth-request storm.
+    CMUX_PUSH_RATE_LIMIT_ID: z.string().min(1).optional(),
+    CMUX_DEVICE_REGISTRY_RATE_LIMIT_ID: z.string().min(1).optional(),
     // The deployed handoff route fails closed when this limiter is absent.
     CMUX_APP_SESSION_HANDOFF_RATE_LIMIT_ID: z.string().min(1).optional(),
     STACK_SECRET_SERVER_KEY: z.string().min(1),
@@ -320,6 +324,12 @@ export const env = createEnv({
     // Optional dedicated rule. Preferences deliberately fall back to the token
     // rule so existing deployments keep one shared account-scoped limiter.
     CMUX_RELAY_PREFERENCES_RATE_LIMIT_ID: z.string().min(1).optional(),
+    // Shared secret for the relay fleet's per-connection access-control hook
+    // (POST /api/relay/allow). Optional: when unset the route answers 503 and
+    // the fleet fails closed for new endpoint admissions. Same base64 shape as
+    // CMUX_IROH_MINT_HMAC_SECRET_B64.
+    CMUX_RELAY_ALLOW_HMAC_SECRET_B64:
+      z.string().max(512).regex(/^[A-Za-z0-9+/]{43,}={0,2}$/).optional(),
   },
   client: {
     NEXT_PUBLIC_STACK_PROJECT_ID: z.string().min(1),
@@ -331,6 +341,10 @@ export const env = createEnv({
     CMUX_FEEDBACK_RATE_LIMIT_ID: trimEnv(process.env.CMUX_FEEDBACK_RATE_LIMIT_ID),
     CMUX_CLIENT_CONFIG_RATE_LIMIT_ID: trimEnv(process.env.CMUX_CLIENT_CONFIG_RATE_LIMIT_ID),
     CMUX_ANALYTICS_RATE_LIMIT_ID: trimEnv(process.env.CMUX_ANALYTICS_RATE_LIMIT_ID),
+    CMUX_PUSH_RATE_LIMIT_ID: trimEnv(process.env.CMUX_PUSH_RATE_LIMIT_ID),
+    CMUX_DEVICE_REGISTRY_RATE_LIMIT_ID: trimEnv(
+      process.env.CMUX_DEVICE_REGISTRY_RATE_LIMIT_ID,
+    ),
     CMUX_APP_SESSION_HANDOFF_RATE_LIMIT_ID: trimEnv(
       process.env.CMUX_APP_SESSION_HANDOFF_RATE_LIMIT_ID,
     ),
@@ -412,6 +426,9 @@ export const env = createEnv({
     CMUX_RELAY_TOKEN_RATE_LIMIT_ID: trimEnv(process.env.CMUX_RELAY_TOKEN_RATE_LIMIT_ID),
     CMUX_RELAY_PREFERENCES_RATE_LIMIT_ID: trimEnv(
       process.env.CMUX_RELAY_PREFERENCES_RATE_LIMIT_ID,
+    ),
+    CMUX_RELAY_ALLOW_HMAC_SECRET_B64: trimEnv(
+      process.env.CMUX_RELAY_ALLOW_HMAC_SECRET_B64,
     ),
     NEXT_PUBLIC_STACK_PROJECT_ID: stackEnv(
       process.env.NEXT_PUBLIC_STACK_PROJECT_ID,

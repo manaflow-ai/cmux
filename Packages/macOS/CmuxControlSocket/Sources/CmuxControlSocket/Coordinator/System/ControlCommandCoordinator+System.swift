@@ -200,6 +200,7 @@ extension ControlCommandCoordinator {
     private struct SystemTreeWorkspaceRefs: Sendable {
         let workspaceRef: JSONValue
         let panes: [SystemTreePaneRefs]
+        let paneRefsByID: [UUID: JSONValue]
     }
 
     private struct SystemTreePaneRefs: Sendable {
@@ -223,9 +224,15 @@ extension ControlCommandCoordinator {
     }
 
     private func systemTreeWorkspaceRefs(_ node: ControlSystemTreeWorkspaceNode) -> SystemTreeWorkspaceRefs {
-        SystemTreeWorkspaceRefs(
+        let panes = node.panes.map { systemTreePaneRefs($0) }
+        let paneRefsByID = Dictionary(
+            zip(node.panes.map(\.paneID), panes.map(\.paneRef)),
+            uniquingKeysWith: { first, _ in first }
+        )
+        return SystemTreeWorkspaceRefs(
             workspaceRef: ref(.workspace, node.workspaceID),
-            panes: node.panes.map { systemTreePaneRefs($0) }
+            panes: panes,
+            paneRefsByID: paneRefsByID
         )
     }
 
@@ -279,8 +286,47 @@ extension ControlCommandCoordinator {
             "description": orNull(node.description),
             "selected": .bool(node.isSelected),
             "pinned": .bool(node.isPinned),
+            // The split-layout tree (direction + ratio + nesting) the flat
+            // `panes` array can't express; `null` when unavailable. Pane leaves
+            // reference the same ids/refs as `panes`.
+            "layout": node.layout.flatMap {
+                systemTreeLayoutPayload($0, paneRefsByID: refs.paneRefsByID)
+            } ?? .null,
             "panes": .array(zip(node.panes, refs.panes).map { pair in systemTreePanePayload(pair.0, refs: pair.1) }),
         ])
+    }
+
+    /// The `system.tree` workspace layout payload — the split tree in the shape
+    /// the `--layout` flag accepts (`{direction, split, children}` for a split;
+    /// a `{pane: {id, ref}}` leaf otherwise), so what cmux emits mirrors what it
+    /// ingests. Leaf `id`/`ref` join back to the flat `panes` array.
+    private nonisolated func systemTreeLayoutPayload(
+        _ node: ControlSystemTreeLayoutNode,
+        paneRefsByID: [UUID: JSONValue]
+    ) -> JSONValue? {
+        switch node {
+        case .pane(let paneID):
+            guard let paneRef = paneRefsByID[paneID] else { return nil }
+            return .object([
+                "pane": .object([
+                    "id": .string(paneID.uuidString),
+                    "ref": paneRef,
+                ]),
+            ])
+        case .split(let orientation, let ratio, let first, let second):
+            guard
+                let firstPayload = systemTreeLayoutPayload(first, paneRefsByID: paneRefsByID),
+                let secondPayload = systemTreeLayoutPayload(second, paneRefsByID: paneRefsByID)
+            else { return nil }
+            return .object([
+                "direction": .string(orientation.rawValue),
+                "split": .double(ratio),
+                "children": .array([
+                    firstPayload,
+                    secondPayload,
+                ]),
+            ])
+        }
     }
 
     /// The `system.tree` pane node payload.
