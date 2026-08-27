@@ -160,18 +160,36 @@ npm error path ~/.npm/_npx/<hash>/node_modules/cmux-tui-darwin-arm64
 npm error ENOTEMPTY: directory not empty, rename ...
 ```
 
-This is a long-standing npm bug in the `npx` package cache, not a cmux failure. It triggers when the cache holds an older cmux version and npm upgrades it in place, and it hits per-platform binary packages most often. cmux 0.11.0 and older shipped the platform binaries as optional dependencies of the launcher, so upgrading over a cached 0.11.0 can still fail this way once. Derive npm's cache location, clear only its npx entries, and rerun:
+This is a long-standing npm bug in the `npx` package cache, not a cmux failure. It triggers when the cache holds an older cmux version and npm upgrades it in place, and it hits per-platform binary packages most often. cmux 0.11.0 and older shipped the platform binaries as optional dependencies of the launcher, so upgrading over a cached 0.11.0 can still fail this way once. Stop running `npx` processes first. The command below lists the direct `_npx` entries, then removes only the exact cache hash shown in the error:
 
 ```bash
 npm_cache="$(npm config get cache)"
 target="$npm_cache/_npx"
-printf 'About to remove: %s\n' "$target"
 case "$npm_cache" in
   ""|/) echo "Refusing an unsafe npm cache path" >&2; exit 1 ;;
 esac
+if [ ! -d "$target" ]; then
+  echo "No npx cache directory: $target" >&2
+  exit 1
+fi
+printf 'Available npx entries:\n'
+find "$target" -mindepth 1 -maxdepth 1 -type d -print
+read -r -p 'Enter the exact npx cache hash to remove: ' hash
+case "$hash" in
+  ""|.|..|*[!A-Za-z0-9_-]*)
+    echo "Refusing an invalid npx cache hash" >&2
+    exit 1
+    ;;
+esac
+entry="$target/$hash"
+if [ ! -d "$entry" ]; then
+  echo "npx cache entry not found: $hash" >&2
+  exit 1
+fi
+printf 'About to remove only: %s\n' "$entry"
 read -r -p 'Type yes to continue: ' confirm
 [ "$confirm" = yes ] || exit 1
-rm -rf -- "$target"
+rm -rf -- "$entry"
 npx cmux@latest
 ```
 

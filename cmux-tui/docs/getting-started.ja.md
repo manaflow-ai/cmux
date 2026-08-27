@@ -32,18 +32,36 @@ npm のダウンロードキャッシュはランチャーから読み取れま�
 
 ## npx の ENOTEMPTY エラー
 
-`npx cmux@latest` が npm の処理中に失敗した場合は、npm のキャッシュ場所を確認して
-`_npx` だけを削除します。
+`npx cmux@latest` が npm の処理中に失敗した場合は、実行中の `npx` プロセスを先に停止してください。
+以下のコマンドは `_npx` 直下のエントリを表示し、エラーに出たキャッシュハッシュのディレクトリだけを削除します。
 
 ```bash
 npm_cache="$(npm config get cache)"
 target="$npm_cache/_npx"
-printf '削除対象: %s\n' "$target"
 case "$npm_cache" in
   ""|/) echo "安全でない npm キャッシュパスのため中止します" >&2; exit 1 ;;
 esac
+if [ ! -d "$target" ]; then
+  echo "npx キャッシュディレクトリがありません: $target" >&2
+  exit 1
+fi
+printf '利用可能な npx エントリ:\n'
+find "$target" -mindepth 1 -maxdepth 1 -type d -print
+read -r -p '削除する npx キャッシュハッシュを正確に入力してください: ' hash
+case "$hash" in
+  ""|.|..|*[!A-Za-z0-9_-]*)
+    echo "無効な npx キャッシュハッシュのため中止します" >&2
+    exit 1
+    ;;
+esac
+entry="$target/$hash"
+if [ ! -d "$entry" ]; then
+  echo "npx キャッシュエントリがありません: $hash" >&2
+  exit 1
+fi
+printf '削除対象（このエントリだけ）: %s\n' "$entry"
 read -r -p '続行する場合は yes と入力してください: ' confirm
 [ "$confirm" = yes ] || exit 1
-rm -rf -- "$target"
+rm -rf -- "$entry"
 npx cmux@latest
 ```
