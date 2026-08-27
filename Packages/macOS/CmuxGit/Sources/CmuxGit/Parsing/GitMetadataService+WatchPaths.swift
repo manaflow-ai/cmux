@@ -87,12 +87,16 @@ extension GitMetadataService {
         let eventCoalescingInterval = acceptsAllWorkTreeEvents
             ? safetyConfiguration.unfilteredWorkTreeEventThrottle
             : safetyConfiguration.filteredWorkTreeEventThrottle
-        let creationWatchPaths = missingExternalConfigWatchPaths(
+        let creationWatchPlan = missingExternalConfigWatchPaths(
             gitMetadataPaths: gitMetadataPaths,
             repository: repository
         )
+        let creationWatchPaths = creationWatchPlan.paths
+        let recursiveMetadataPaths = gitMetadataPaths.filter {
+            !creationWatchPlan.excludedPaths.contains(nativeStandardizedPath($0))
+        }
         let candidatePaths = (includesWorkTreeRoot ? [repository.workTreeRoot] : [])
-            + gitMetadataPaths
+            + recursiveMetadataPaths
         var watchedPaths: [String] = []
         var seen: Set<String> = []
         for path in candidatePaths {
@@ -298,13 +302,14 @@ extension GitMetadataService {
     private nonisolated static func missingExternalConfigWatchPaths(
         gitMetadataPaths: [String],
         repository: ResolvedGitRepository
-    ) -> [String] {
+    ) -> (paths: [String], excludedPaths: Set<String>) {
         let repositoryRoots = [
             repository.workTreeRoot,
             repository.gitDirectory,
             repository.commonDirectory,
         ]
         var paths: [String] = []
+        var excludedPaths: Set<String> = []
         var seen: Set<String> = []
         var pathBytes = 0
         for path in sortedUniqueNormalizedPaths(gitMetadataPaths) {
@@ -314,11 +319,15 @@ extension GitMetadataService {
                   seen.insert(path).inserted else {
                 continue
             }
+            excludedPaths.insert(path)
+            guard paths.count < 64,
+                  pathBytes <= 16 * 1024 - path.utf8.count else {
+                continue
+            }
             pathBytes += path.utf8.count
-            guard paths.count < 64, pathBytes <= 16 * 1024 else { break }
             paths.append(path)
         }
-        return paths
+        return (paths, excludedPaths)
     }
 
     /// Standardizes once outside event loops and copies Foundation-backed path

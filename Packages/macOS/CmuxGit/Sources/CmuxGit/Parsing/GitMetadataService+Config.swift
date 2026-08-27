@@ -17,16 +17,17 @@ struct GitRemoteURLRewrite: Sendable {
 extension GitMetadataService {
     private struct GitConfigTraversalBudget {
         static let maximumFileCount = 512
+        static let maximumMissingPathCount = 512
         static let maximumByteCount = 4 * 1024 * 1024
         static let maximumIncludeDepth = 32
         static let maximumDiscoveredRemoteURLCount = 4_096
-        static let maximumDiscoveredRemoteURLAssociationCount = 8_192
         static let maximumHasConfigConditionCount = 1_024
         static let maximumHasConfigMatchOperationCount = 65_536
         static let maximumURLRewriteCount = 4_096
         static let maximumURLRewriteMatchOperationCount = 65_536
 
         var fileCount = 0
+        var missingPathCount = 0
         var byteCount = 0
         var outputByteCount = 0
         var exceeded = false
@@ -35,9 +36,6 @@ extension GitMetadataService {
         var configStatuses: [String: GitFileStatus?] = [:]
         var worktreeConfigEnabled = false
         var discoveredRemoteURLs: Set<String> = []
-        var discoveredRemoteURLsByRemoteName: [String: Set<String>] = [:]
-        var discoveredRemoteURLReferenceCount: [String: Int] = [:]
-        var discoveredRemoteURLAssociationCount = 0
         var effectiveRemoteLineIndexByName: [String: Int] = [:]
         var hasConfigConditionCount = 0
         var hasConfigMatchOperationCount = 0
@@ -77,6 +75,12 @@ extension GitMetadataService {
                 result.updateValue(fileStatusReader.status(atPath: path), forKey: path)
             }
             guard FileManager.default.fileExists(atPath: url.path) else {
+                guard missingPathCount < Self.maximumMissingPathCount else {
+                    exceeded = true
+                    recordFallback(url)
+                    return nil
+                }
+                missingPathCount += 1
                 for (path, fileStatus) in statusesBefore {
                     configStatuses.updateValue(fileStatus, forKey: path)
                 }
@@ -159,46 +163,16 @@ extension GitMetadataService {
                 || commonConfigPaths.contains(standardized.resolvingSymlinksInPath().path)
         }
 
-        mutating func recordDiscoveredRemoteURL(
-            remoteName: String,
-            remoteURL: String
-        ) {
-            guard !remoteURL.isEmpty else {
-                clearDiscoveredRemoteURLs(remoteName: remoteName)
+        mutating func recordDiscoveredRemoteURL(_ remoteURL: String) {
+            guard !remoteURL.isEmpty,
+                  !discoveredRemoteURLs.contains(remoteURL) else {
                 return
             }
-            guard discoveredRemoteURLsByRemoteName[remoteName]?.contains(remoteURL) != true else {
-                return
-            }
-            guard discoveredRemoteURLAssociationCount
-                    < Self.maximumDiscoveredRemoteURLAssociationCount,
-                  discoveredRemoteURLs.contains(remoteURL)
-                    || discoveredRemoteURLs.count < Self.maximumDiscoveredRemoteURLCount else {
+            guard discoveredRemoteURLs.count < Self.maximumDiscoveredRemoteURLCount else {
                 exceeded = true
                 return
             }
-            discoveredRemoteURLsByRemoteName[remoteName, default: []].insert(remoteURL)
-            discoveredRemoteURLAssociationCount += 1
-            discoveredRemoteURLReferenceCount[remoteURL, default: 0] += 1
             discoveredRemoteURLs.insert(remoteURL)
-        }
-
-        mutating func clearDiscoveredRemoteURLs(remoteName: String) {
-            guard let remoteURLs = discoveredRemoteURLsByRemoteName.removeValue(
-                forKey: remoteName
-            ) else {
-                return
-            }
-            discoveredRemoteURLAssociationCount -= remoteURLs.count
-            for remoteURL in remoteURLs {
-                let referenceCount = (discoveredRemoteURLReferenceCount[remoteURL] ?? 1) - 1
-                if referenceCount > 0 {
-                    discoveredRemoteURLReferenceCount[remoteURL] = referenceCount
-                } else {
-                    discoveredRemoteURLReferenceCount.removeValue(forKey: remoteURL)
-                    discoveredRemoteURLs.remove(remoteURL)
-                }
-            }
         }
 
         mutating func hasConfigMatches(pattern: String) -> Bool {
@@ -295,14 +269,11 @@ extension GitMetadataService {
                         worktreeConfigEnabled = enabled
                     }
                 }
-                if let currentRemoteName,
+                if currentRemoteName != nil,
                    parts.count == 2,
                    parts[0].lowercased() == "url" {
                     let remoteURL = GitMetadataService.gitConfigUnquotedValue(parts[1])
-                    recordDiscoveredRemoteURL(
-                        remoteName: currentRemoteName,
-                        remoteURL: remoteURL
-                    )
+                    recordDiscoveredRemoteURL(remoteURL)
                     continue
                 }
 
