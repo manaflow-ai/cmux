@@ -61,9 +61,15 @@ const CACHE_LOCK_EMPTY_MAX_AGE_MS = 5 * 60 * 1000;
 const CACHE_LEASE_EMPTY_MAX_AGE_MS = 5 * 60 * 1000;
 const MIN_NODE_MAJOR = 18;
 
+class LauncherError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "LauncherError";
+  }
+}
+
 function fail(message) {
-  console.error(`cmux: ${message}`);
-  process.exit(1);
+  throw new LauncherError(message);
 }
 
 function platformPackage() {
@@ -1007,6 +1013,7 @@ async function main() {
   const pkg = override ? null : platformPackage();
   let lease = null;
   let exitCode = 1;
+  let childSignal = null;
   try {
     cleanupStaging();
     const wanted = override ? null : wantedVersion(pkg);
@@ -1025,14 +1032,30 @@ async function main() {
       fail("failed to launch the native binary");
     }
     if (result.signal) {
-      process.kill(process.pid, result.signal);
-      return;
+      childSignal = result.signal;
+    } else {
+      exitCode = result.status === null ? 1 : result.status;
     }
-    exitCode = result.status === null ? 1 : result.status;
   } finally {
     releaseVersionLease(lease);
   }
-  process.exit(exitCode);
+  if (childSignal) {
+    process.exitCode = 1;
+    try {
+      process.kill(process.pid, childSignal);
+    } catch {
+      // Keep the non-zero fallback when the signal cannot be delivered.
+    }
+    return;
+  }
+  process.exitCode = exitCode;
 }
 
-main().catch(() => fail("launcher failed before starting the native binary"));
+main().catch((error) => {
+  const message =
+    error instanceof LauncherError
+      ? error.message
+      : "launcher failed before starting the native binary";
+  console.error(`cmux: ${message}`);
+  process.exitCode = 1;
+});

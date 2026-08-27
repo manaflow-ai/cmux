@@ -315,11 +315,28 @@ def test_launcher_reports_network_failure_without_leaking_details(tmp_path: Path
     if sys.platform == "win32":
         return
     launcher = write_launcher(tmp_path)
-    result = run_launcher(launcher, tmp_path / "cache", "http://127.0.0.1:1")
+    cache = tmp_path / "cache"
+    result = run_launcher(launcher, cache, "http://127.0.0.1:1")
     assert result.returncode != 0
     assert "could not obtain the native binary" in result.stderr
     assert "127.0.0.1" not in result.stderr
     assert "CMUX_" not in result.stderr
+    assert not (cache / host_platform_key() / "v/1.2.3/.active").exists()
+
+
+def test_launcher_releases_lease_when_native_launch_fails(tmp_path: Path) -> None:
+    if sys.platform == "win32":
+        return
+    launcher = write_launcher(tmp_path)
+    cache = tmp_path / "cache"
+    binary = write_cached_binary(cache, "1.2.3", "#!/bin/sh\nexit 0\n")
+    binary.chmod(0o644)
+
+    result = run_launcher(launcher, cache, "http://127.0.0.1:1", "--version")
+
+    assert result.returncode != 0
+    assert "failed to launch the native binary" in result.stderr
+    assert not (cache / host_platform_key() / "v/1.2.3/.active").exists()
 
 
 def test_launcher_reads_registry_token_from_npmrc(tmp_path: Path) -> None:
@@ -680,6 +697,7 @@ def main() -> None:
         test_launcher_rejects_negative_tar_size_without_hanging(root / "negative-size")
         test_launcher_refetches_a_tampered_cached_binary(root / "tampered-cache")
         test_launcher_reports_network_failure_without_leaking_details(root / "failure")
+        test_launcher_releases_lease_when_native_launch_fails(root / "launch-failure")
         test_launcher_reads_registry_token_from_npmrc(root / "npmrc")
         test_launcher_scopes_registry_token_to_npmrc_path(root / "npmrc-scope")
         test_launcher_does_not_run_a_mismatched_installed_binary(root / "mismatch")
