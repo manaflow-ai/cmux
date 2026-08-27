@@ -5294,8 +5294,8 @@ pub struct Selection {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct VisiblePtyInputState {
-    surface: SurfaceId,
+struct VisibleInputState {
+    pty_surface: Option<SurfaceId>,
     selection: Option<Selection>,
     scroll_offset: u64,
 }
@@ -16460,16 +16460,15 @@ impl App {
         self.selection = selection;
     }
 
-    fn visible_pty_input_state(
-        &self,
-        destination: Option<SurfaceId>,
-    ) -> Option<VisiblePtyInputState> {
-        let surface = destination.or_else(|| self.active_surface())?;
-        (self.tree.surface_kind(surface) == SurfaceKind::Pty).then(|| VisiblePtyInputState {
-            surface,
+    fn visible_input_state(&self, destination: Option<SurfaceId>) -> VisibleInputState {
+        let pty_surface = destination
+            .or_else(|| self.active_surface())
+            .filter(|surface| self.tree.surface_kind(*surface) == SurfaceKind::Pty);
+        VisibleInputState {
+            pty_surface,
             selection: self.selection,
-            scroll_offset: self.surface_scroll_offset(surface),
-        })
+            scroll_offset: pty_surface.map_or(0, |surface| self.surface_scroll_offset(surface)),
+        }
     }
 
     fn painted_status_message_action(&self) -> RenderAction {
@@ -16484,11 +16483,12 @@ impl App {
         }
     }
 
-    fn visible_pty_input_action(&self, before: Option<VisiblePtyInputState>) -> RenderAction {
+    fn visible_input_action(&self, before: VisibleInputState) -> RenderAction {
         let status_action = self.painted_status_message_action();
-        let Some(before) = before else { return status_action };
         let action = if self.selection != before.selection
-            || self.surface_scroll_offset(before.surface) != before.scroll_offset
+            || before
+                .pty_surface
+                .is_some_and(|surface| self.surface_scroll_offset(surface) != before.scroll_offset)
         {
             RenderAction::Draw
         } else {
@@ -17337,9 +17337,9 @@ impl App {
         input: keys::KeyboardInput,
         destination: Option<SurfaceId>,
     ) -> anyhow::Result<RenderAction> {
-        let visible_state = self.visible_pty_input_state(destination);
+        let visible_state = self.visible_input_state(destination);
         let action = self.handle_direct_keyboard_to_inner(input, destination)?;
-        Ok(action.merge(self.visible_pty_input_action(visible_state)))
+        Ok(action.merge(self.visible_input_action(visible_state)))
     }
 
     fn handle_direct_keyboard_to_inner(
@@ -19621,12 +19621,12 @@ impl App {
             self.tree.surface_kind(surface_id),
             self.session.supports_clear_history_key_fallback(surface_id),
         ) {
-            let visible_state = self.visible_pty_input_state(Some(surface_id));
+            let visible_state = self.visible_input_state(Some(surface_id));
             self.replace_selection(None);
             self.forward_key_to_surface(input, surface_id);
             let action =
                 if self.status_message.is_some() { RenderAction::Draw } else { RenderAction::None };
-            return action.merge(self.visible_pty_input_action(visible_state));
+            return action.merge(self.visible_input_action(visible_state));
         }
         let Some(key_input) = input.into_terminal_input() else {
             return RenderAction::None;
@@ -36396,6 +36396,45 @@ mod tests {
         app.render_action(&mut terminal, action).unwrap();
         assert!(app.selection.is_none());
         assert!(app.pty_input.shutdown(Duration::from_secs(1)));
+        mux.close_surface(first.id).unwrap();
+        mux.close_surface(second.id).unwrap();
+    }
+
+    #[test]
+    fn visible_state_browser_input_requests_draw_after_selection_clear_on_pty_surface() {
+        let mux = Mux::new("visible-state-browser-selection-test", SurfaceOptions::default());
+        let first = mux.new_workspace(None, Some((80, 12))).unwrap();
+        let first_pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let second = mux.split(first_pane, SplitDir::Right, Some((40, 12))).unwrap();
+        let second_pane = mux.with_state(|state| state.pane_of(second.id).unwrap());
+        let browser = mux
+            .new_browser_tab("about:blank".to_string(), Some(second_pane), Some((40, 12)))
+            .unwrap();
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.replace_tree(app.session.tree());
+        app.sync_layout((80, 12));
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+        assert_eq!(app.active_surface(), Some(browser.id));
+
+        app.replace_selection(Some(Selection { surface: first.id, anchor: (0, 0), head: (3, 0) }));
+        let mut terminal = Terminal::new(TestBackend::new(80, 12)).unwrap();
+        app.render_action(&mut terminal, RenderAction::Draw).unwrap();
+
+        let action = app.handle_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)).unwrap();
+
+        assert_eq!(
+            action,
+            RenderAction::Draw,
+            "browser input must repaint a selection cleared from a visible PTY pane"
+        );
+        assert!(app.selection.is_none());
+        app.render_action(&mut terminal, action).unwrap();
+        assert!(app.selection.is_none());
+        assert!(app.pty_input.shutdown(Duration::from_secs(1)));
+        mux.close_surface(browser.id).unwrap();
         mux.close_surface(first.id).unwrap();
         mux.close_surface(second.id).unwrap();
     }
