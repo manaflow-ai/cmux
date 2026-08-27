@@ -186,7 +186,7 @@ fn install_command(positionals: &[String], options: &CliOptions) -> Result<Value
         if selected {
             let command = resolved_run_command(&manifest, &target)?;
             let cwd = canonical_path(&target)?;
-            config::write_sidebar_plugin(Some(&SidebarPluginConfig {
+            persist_sidebar_plugin(Some(&SidebarPluginConfig {
                 command,
                 cwd: Some(cwd.display().to_string()),
             }))?;
@@ -230,7 +230,7 @@ fn use_command(positionals: &[String], options: &CliOptions) -> Result<Value, Ma
     let command = resolved_run_command(&plugin.manifest, &plugin.dir)?;
     verify_executable(&command[0])?;
     let cwd = canonical_path(&plugin.dir)?;
-    config::write_sidebar_plugin(Some(&SidebarPluginConfig {
+    persist_sidebar_plugin(Some(&SidebarPluginConfig {
         command,
         cwd: Some(cwd.display().to_string()),
     }))?;
@@ -253,7 +253,7 @@ fn update_command(positionals: &[String], options: &CliOptions) -> Result<Value,
     verify_executable(&command[0])?;
     if plugin.selected {
         let cwd = canonical_path(&plugin.dir)?;
-        config::write_sidebar_plugin(Some(&SidebarPluginConfig {
+        persist_sidebar_plugin(Some(&SidebarPluginConfig {
             command,
             cwd: Some(cwd.display().to_string()),
         }))?;
@@ -271,7 +271,7 @@ fn remove_command(positionals: &[String], options: &CliOptions) -> Result<Value,
     let installed = resolve_installed_plugin(&positionals[1])?;
     let mut plugin = plugin_json(&installed);
     if installed.selected {
-        config::write_sidebar_plugin(None)?;
+        persist_sidebar_plugin(None)?;
     }
     fs::remove_dir_all(&installed.dir)?;
     remove_registry_metadata(&install_root()?, &installed.name)?;
@@ -281,9 +281,19 @@ fn remove_command(positionals: &[String], options: &CliOptions) -> Result<Value,
 }
 
 fn write_builtin_config(_options: &CliOptions) -> Result<Value, ManagerError> {
-    config::write_sidebar_plugin(None)?;
+    persist_sidebar_plugin(None)?;
     let plugins = installed_plugins()?;
     Ok(json!({"plugins": plugins.iter().map(plugin_json).collect::<Vec<_>>()}))
+}
+
+fn persist_sidebar_plugin(plugin: Option<&SidebarPluginConfig>) -> Result<(), ManagerError> {
+    if let Some(error) = config::write_sidebar_plugin(plugin)?.into_unsynced_error() {
+        crate::client_log::stderr_log!(
+            "config",
+            "config write committed, but parent directory durability is unconfirmed: {error}"
+        );
+    }
+    Ok(())
 }
 
 fn reject_plugin_flags(

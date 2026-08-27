@@ -4064,16 +4064,35 @@ pub fn config_path() -> anyhow::Result<PathBuf> {
     platform::config_path().ok_or_else(|| anyhow::anyhow!("could not resolve mux config path"))
 }
 
-pub fn write_sidebar_plugin(plugin: Option<&SidebarPluginConfig>) -> anyhow::Result<PathBuf> {
-    let path = config_path()?;
-    write_sidebar_plugin_at_path(&path, plugin)?;
-    Ok(path)
+/// The result of replacing the config file. A committed replacement is a
+/// successful operation even when the parent directory could not be synced.
+#[must_use = "inspect config durability after a committed write"]
+#[derive(Debug)]
+pub(crate) enum ConfigWriteOutcome {
+    Committed,
+    CommittedButUnsynced { error: anyhow::Error },
 }
 
-pub fn write_sidebar_plugin_at_path(
+impl ConfigWriteOutcome {
+    pub(crate) fn into_unsynced_error(self) -> Option<anyhow::Error> {
+        match self {
+            Self::Committed => None,
+            Self::CommittedButUnsynced { error } => Some(error),
+        }
+    }
+}
+
+pub(crate) fn write_sidebar_plugin(
+    plugin: Option<&SidebarPluginConfig>,
+) -> anyhow::Result<ConfigWriteOutcome> {
+    let path = config_path()?;
+    write_sidebar_plugin_at_path(&path, plugin)
+}
+
+pub(crate) fn write_sidebar_plugin_at_path(
     path: &Path,
     plugin: Option<&SidebarPluginConfig>,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<ConfigWriteOutcome> {
     let mut root = read_config_value(path)?;
     let Some(root_object) = root.as_object_mut() else {
         anyhow::bail!("{} must contain a JSON object", path.display());
@@ -4113,8 +4132,11 @@ fn read_config_value(path: &Path) -> anyhow::Result<Value> {
 }
 
 /// Serializes a config value to a private staging file before atomically
-/// replacing the destination and durably syncing its parent directory.
-fn write_config_value_atomic(path: &Path, value: &Value) -> anyhow::Result<()> {
+/// replacing the destination and durably syncing its parent directory. An
+/// `Err` means that replacement did not commit. A
+/// [`ConfigWriteOutcome::CommittedButUnsynced`] value means the rename did
+/// commit, but the parent directory sync failed.
+fn write_config_value_atomic(path: &Path, value: &Value) -> anyhow::Result<ConfigWriteOutcome> {
     let parent = config_parent_directory(path);
     std::fs::create_dir_all(parent)?;
     let file_name = path.file_name().and_then(|name| name.to_str()).unwrap_or("cmux-tui.json");
@@ -4139,14 +4161,19 @@ fn write_config_value_atomic(path: &Path, value: &Value) -> anyhow::Result<()> {
         file.sync_all()?;
         drop(file);
         std::fs::rename(&tmp_path, path)?;
-        #[cfg(unix)]
-        sync_config_parent_directory(parent)?;
         Ok(())
     })();
-    if result.is_err() {
+    if let Err(error) = result {
         let _ = std::fs::remove_file(&tmp_path);
+        return Err(error);
     }
-    result
+
+    #[cfg(unix)]
+    if let Err(error) = sync_config_parent_directory(parent) {
+        return Ok(ConfigWriteOutcome::CommittedButUnsynced { error });
+    }
+
+    Ok(ConfigWriteOutcome::Committed)
 }
 
 #[cfg(unix)]
@@ -8840,14 +8867,21 @@ mod tests {
         )
         .unwrap();
 
-        write_sidebar_plugin_at_path(
-            &path,
-            Some(&SidebarPluginConfig {
-                command: vec!["/tmp/plugin".to_string(), "--mode".to_string(), "test".to_string()],
-                cwd: Some("/tmp".to_string()),
-            }),
-        )
-        .unwrap();
+        assert!(matches!(
+            write_sidebar_plugin_at_path(
+                &path,
+                Some(&SidebarPluginConfig {
+                    command: vec![
+                        "/tmp/plugin".to_string(),
+                        "--mode".to_string(),
+                        "test".to_string()
+                    ],
+                    cwd: Some("/tmp".to_string()),
+                }),
+            )
+            .unwrap(),
+            ConfigWriteOutcome::Committed
+        ));
         let value: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
         assert_eq!(value["theme"]["sidebar_rail"], json!(42));
         assert_eq!(value["sidebar"]["width"], json!(31));
@@ -8855,7 +8889,10 @@ mod tests {
         assert_eq!(value["sidebar"]["plugin"]["command"][0], json!("/tmp/plugin"));
         assert_eq!(value["sidebar"]["plugin"]["cwd"], json!("/tmp"));
 
-        write_sidebar_plugin_at_path(&path, None).unwrap();
+        assert!(matches!(
+            write_sidebar_plugin_at_path(&path, None).unwrap(),
+            ConfigWriteOutcome::Committed
+        ));
         let value: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
         assert_eq!(value["sidebar"]["width"], json!(31));
         assert!(value["sidebar"].get("plugin").is_none());
@@ -8875,11 +8912,14 @@ mod tests {
         let file = options.open(&path).unwrap();
         drop(file);
 
-        write_sidebar_plugin_at_path(
-            &path,
-            Some(&SidebarPluginConfig { command: vec!["/tmp/plugin".to_string()], cwd: None }),
-        )
-        .unwrap();
+        assert!(matches!(
+            write_sidebar_plugin_at_path(
+                &path,
+                Some(&SidebarPluginConfig { command: vec!["/tmp/plugin".to_string()], cwd: None }),
+            )
+            .unwrap(),
+            ConfigWriteOutcome::Committed
+        ));
 
         let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode, 0o600, "config permissions must not expose server.ws_token");
@@ -8910,7 +8950,10 @@ mod tests {
     fn config_write_succeeds_after_parent_directory_sync() {
         let dir = TestDirectory::new("parent-sync");
         let path = dir.path.join("cmux-tui.json");
-        write_config_value_atomic(&path, &json!({"server": {"ws_token": "secret"}})).unwrap();
+        assert!(matches!(
+            write_config_value_atomic(&path, &json!({"server": {"ws_token": "secret"}})).unwrap(),
+            ConfigWriteOutcome::Committed
+        ));
 
         let value: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
         assert_eq!(value["server"]["ws_token"], json!("secret"));
@@ -8925,7 +8968,10 @@ mod tests {
 
         let result = write_config_value_atomic(&path, &json!({"server": {"ws_token": "secret"}}));
 
-        assert!(result.is_ok(), "a committed rename must not be reported as a write failure");
+        assert!(matches!(
+            result.expect("a committed rename must not be reported as a write failure"),
+            ConfigWriteOutcome::CommittedButUnsynced { .. }
+        ));
         let value: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
         assert_eq!(value["server"]["ws_token"], json!("secret"));
     }
