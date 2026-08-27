@@ -177,10 +177,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// resume, or a short Mac stall. Require independent confirmation before
     /// replacing a session that may still be healthy.
     static let renderGridLivenessFailuresBeforeRecovery = 2
-    /// Maximum time an omitted compatibility screen discriminator may suppress
-    /// hybrid raw bytes before the shell fails open with an explicit unknown
-    /// state. The regular liveness watchdog owns the deadline check.
-    static let terminalUnknownScreenFailOpenTimeout: TimeInterval = 9
+    /// Maximum time an omitted compatibility screen discriminator waits before
+    /// the shell starts one bounded authoritative recovery attempt. The regular
+    /// liveness watchdog owns the deadline check.
+    static let terminalUnknownScreenRecoveryTimeout: TimeInterval = 9
     /// Cadence of the liveness watchdog tick. It only reads a timestamp and
     /// compares against the threshold, so a short interval is cheap; it does not
     /// reschedule per received event (an actively-streaming connection just keeps
@@ -1432,6 +1432,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// structured frame or metadata-bearing fallback resolves the state.
     var terminalActiveScreenUnknownSurfaceIDs: Set<String>
     var terminalActiveScreenUnknownSinceBySurfaceID: [String: Date]
+    var terminalActiveScreenUnknownRecoveryAttemptedSurfaceIDs: Set<String>
     /// Surfaces using the bounded legacy escape after an exhausted verified
     /// replay. Render-grid deltas stay deliverable until a full frame is
     /// actually processed and re-establishes the verified baseline.
@@ -1846,6 +1847,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.terminalActiveScreenBySurfaceID = [:]
         self.terminalActiveScreenUnknownSurfaceIDs = []
         self.terminalActiveScreenUnknownSinceBySurfaceID = [:]
+        self.terminalActiveScreenUnknownRecoveryAttemptedSurfaceIDs = []
         self.terminalCompatibilityFallbackSurfaceIDs = []
         self.terminalCompatibilityFallbackFullFrameStreamTokensBySurfaceID = [:]
         self.terminalOutputStreamOverflowRecoverySurfaceIDs = []
@@ -10709,6 +10711,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalActiveScreenBySurfaceID = [:]
         terminalActiveScreenUnknownSurfaceIDs = []
         terminalActiveScreenUnknownSinceBySurfaceID = [:]
+        terminalActiveScreenUnknownRecoveryAttemptedSurfaceIDs = []
         terminalCompatibilityFallbackSurfaceIDs = []
         terminalCompatibilityFallbackFullFrameStreamTokensBySurfaceID = [:]
         terminalOutputStreamOverflowRecoverySurfaceIDs = []
@@ -13118,6 +13121,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         #endif
         let localSeq = deliveredTerminalByteEndSeqBySurfaceID[surfaceID] ?? 0
         guard remoteSeq > localSeq else { return }
+        expireUnknownTerminalScreenStates(now: runtime?.now() ?? Date())
         if terminalOutputTransport == .hybrid,
            terminalActiveScreenUnknownSurfaceIDs.contains(surfaceID) {
             // Do not turn an unknown-screen compatibility fallback into a
@@ -13356,20 +13360,26 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         surfaceID: String,
         activeScreen: MobileTerminalRenderGridFrame.Screen?
     ) {
+        let wasUnknown = terminalActiveScreenUnknownSurfaceIDs.contains(surfaceID)
         // Compatibility bytes carry no render-grid rows or history base. An
         // unknown screen must therefore invalidate every render-grid baseline
-        // and history-chain assumption even though the last known screen stays
-        // in place for hybrid raw-byte suppression.
+        // and history-chain assumption.
         terminalAlternateRenderGridBaselineSurfaceIDs.remove(surfaceID)
         terminalRenderGridHistoryContinuityBySurfaceID.removeValue(forKey: surfaceID)
         guard let activeScreen else {
             terminalActiveScreenBySurfaceID.removeValue(forKey: surfaceID)
+            if !wasUnknown {
+                terminalActiveScreenUnknownRecoveryAttemptedSurfaceIDs.remove(surfaceID)
+            }
             terminalActiveScreenUnknownSurfaceIDs.insert(surfaceID)
-            terminalActiveScreenUnknownSinceBySurfaceID[surfaceID] = runtime?.now() ?? Date()
+            if terminalActiveScreenUnknownSinceBySurfaceID[surfaceID] == nil {
+                terminalActiveScreenUnknownSinceBySurfaceID[surfaceID] = runtime?.now() ?? Date()
+            }
             return
         }
         terminalActiveScreenUnknownSurfaceIDs.remove(surfaceID)
         terminalActiveScreenUnknownSinceBySurfaceID.removeValue(forKey: surfaceID)
+        terminalActiveScreenUnknownRecoveryAttemptedSurfaceIDs.remove(surfaceID)
         if terminalActiveScreenBySurfaceID[surfaceID] != activeScreen {
             terminalActiveScreenBySurfaceID[surfaceID] = activeScreen
             recordAppEvent(
@@ -13378,30 +13388,43 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 count: activeScreen == .alternate ? 1 : 0
             )
         }
+        if wasUnknown {
+            resumeTerminalLaneIfSuspended(surfaceID: surfaceID)
+        }
     }
 
-    /// Releases the unknown-screen raw-byte gate after a bounded interval.
+    /// Starts one bounded authoritative recovery attempt for an unknown screen.
     ///
     /// A host can be idle (and emit no structured frame) or can keep failing
     /// grid capture, so waiting for a future frame alone would strand hybrid
-    /// output forever. The fail-open leaves the screen explicitly unknown—no
-    /// stale primary/alternate value is synthesized—and lets the next bytes
-    /// preserve liveness after the deadline.
+    /// output forever. Keep the raw-byte gate closed and mark the surface as
+    /// explicitly unavailable while asking for one more authoritative replay;
+    /// the attempted set prevents a persistent host failure from starting an
+    /// unbounded replay loop.
     private func expireUnknownTerminalScreenStates(now: Date) {
         let expiredSurfaceIDs = terminalActiveScreenUnknownSinceBySurfaceID.compactMap {
             surfaceID,
             since -> String? in
             guard terminalActiveScreenUnknownSurfaceIDs.contains(surfaceID),
-                  now.timeIntervalSince(since) >= Self.terminalUnknownScreenFailOpenTimeout else {
+                  !terminalActiveScreenUnknownRecoveryAttemptedSurfaceIDs.contains(surfaceID),
+                  now.timeIntervalSince(since) >= Self.terminalUnknownScreenRecoveryTimeout else {
                 return nil
             }
             return surfaceID
         }
         for surfaceID in expiredSurfaceIDs {
-            terminalActiveScreenUnknownSurfaceIDs.remove(surfaceID)
-            terminalActiveScreenUnknownSinceBySurfaceID.removeValue(forKey: surfaceID)
+            guard hasTerminalOutputSink(surfaceID: surfaceID),
+                  terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil,
+                  !terminalReplaySurfaceIDsInFlight.contains(surfaceID) else {
+                continue
+            }
+            terminalActiveScreenUnknownRecoveryAttemptedSurfaceIDs.insert(surfaceID)
             MobileDebugLog.anchormux(
-                "sync.screen_unknown_fail_open surface=\(surfaceID)"
+                "sync.screen_unknown_recovery surface=\(surfaceID)"
+            )
+            requestAuthoritativeTerminalResync(
+                surfaceID: surfaceID,
+                reason: "unknown_screen_timeout"
             )
         }
     }
@@ -13445,6 +13468,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalOutputStreamOverflowRecoverySurfaceIDs.remove(surfaceID)
         terminalActiveScreenUnknownSurfaceIDs.remove(surfaceID)
         terminalActiveScreenUnknownSinceBySurfaceID.removeValue(forKey: surfaceID)
+        terminalActiveScreenUnknownRecoveryAttemptedSurfaceIDs.remove(surfaceID)
         terminalFullReplacementSeqBySurfaceID.removeValue(forKey: surfaceID)
         terminalFullReplacementGenerationBySurfaceID.removeValue(forKey: surfaceID)
         cancelTerminalInputAckResubscribeRetry(surfaceID: surfaceID)

@@ -1307,6 +1307,17 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
     }
 
+    /// Whether ``hostedAltScreenActive`` is backed by an authoritative screen
+    /// discriminator. Unknown compatibility state disables keyboard blank-space
+    /// absorption just like an alternate-screen TUI, so the host never treats
+    /// uncertain rows as safe primary-screen whitespace.
+    public var hostedAltScreenKnown = false {
+        didSet {
+            guard hostedAltScreenKnown != oldValue else { return }
+            bottomDockHostView?.setNeedsLayout()
+        }
+    }
+
     /// Rows of the visible viewport that contain content, measured from the
     /// rendered screen text on the serial output queue (see `processOutput`).
     /// The cursor row alone is NOT a content proxy: apps like Claude Code
@@ -1322,7 +1333,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// the render slides: a mostly-empty screen stays top-pinned under the
     /// navigation bar and the keyboard covers only blank rows.
     var hostedBlankBelowContent: CGFloat? {
-        guard !hostedAltScreenActive, !lastRenderRect.isEmpty else { return nil }
+        guard hostedAltScreenKnown,
+              !hostedAltScreenActive,
+              !lastRenderRect.isEmpty else { return nil }
         let cellHeight = cellPixelSize.height / max(preferredScreenScale, 1)
         let rowsBottom: CGFloat? = hostedContentBottomRowCount.flatMap { rows in
             cellHeight > 0 ? CGFloat(rows) * cellHeight : nil

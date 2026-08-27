@@ -18,8 +18,9 @@ extension MobileShellComposite {
     }
 
     func recordTerminalRenderGridDelivery(_ renderGrid: MobileTerminalRenderGridFrame) {
-        terminalActiveScreenUnknownSurfaceIDs.remove(renderGrid.surfaceID)
+        let wasUnknown = terminalActiveScreenUnknownSurfaceIDs.remove(renderGrid.surfaceID) != nil
         terminalActiveScreenUnknownSinceBySurfaceID.removeValue(forKey: renderGrid.surfaceID)
+        terminalActiveScreenUnknownRecoveryAttemptedSurfaceIDs.remove(renderGrid.surfaceID)
         if renderGrid.full,
            terminalCompatibilityFallbackSurfaceIDs.contains(renderGrid.surfaceID),
            let streamToken = terminalOutputStreamTokensBySurfaceID[renderGrid.surfaceID] {
@@ -42,6 +43,9 @@ extension MobileShellComposite {
             terminalAlternateRenderGridBaselineSurfaceIDs.insert(renderGrid.surfaceID)
         } else if renderGrid.activeScreen == .primary {
             terminalAlternateRenderGridBaselineSurfaceIDs.remove(renderGrid.surfaceID)
+        }
+        if wasUnknown {
+            resumeTerminalLaneIfSuspended(surfaceID: renderGrid.surfaceID)
         }
     }
 
@@ -205,12 +209,17 @@ extension MobileShellComposite {
                 )
             }
             if deliveryDecision.updateTrackedScreen {
-                terminalActiveScreenUnknownSurfaceIDs.remove(renderGrid.surfaceID)
+                let wasUnknown = terminalActiveScreenUnknownSurfaceIDs.remove(renderGrid.surfaceID) != nil
+                terminalActiveScreenUnknownSinceBySurfaceID.removeValue(forKey: renderGrid.surfaceID)
+                terminalActiveScreenUnknownRecoveryAttemptedSurfaceIDs.remove(renderGrid.surfaceID)
                 if terminalActiveScreenBySurfaceID[renderGrid.surfaceID] != renderGrid.activeScreen {
                     terminalActiveScreenBySurfaceID[renderGrid.surfaceID] = renderGrid.activeScreen
                 }
                 if renderGrid.activeScreen == .primary {
                     terminalAlternateRenderGridBaselineSurfaceIDs.remove(renderGrid.surfaceID)
+                }
+                if wasUnknown {
+                    resumeTerminalLaneIfSuspended(surfaceID: renderGrid.surfaceID)
                 }
             }
             if deliveryDecision.deliverViewportPolicy {

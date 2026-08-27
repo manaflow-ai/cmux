@@ -154,7 +154,9 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         // blank-space absorption (top-pin while content is short) is
         // disabled for them; reading the store property here keeps the flag
         // live across mode flips.
-        surfaceView.hostedAltScreenActive = store.isAlternateScreen(surfaceID: surfaceID)
+        let activeScreenState = store.terminalActiveScreenState(surfaceID: surfaceID)
+        surfaceView.hostedAltScreenKnown = activeScreenState != .unknown
+        surfaceView.hostedAltScreenActive = activeScreenState == .alternate
         surfaceView.scrollPresentationAuthority = store.usesVerifiedTerminalReplay
             && !store.usesScreenAnchoredRenderGrid
             ? .verifiedRenderGrid

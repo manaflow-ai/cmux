@@ -21,6 +21,16 @@ public enum MobileTerminalOutputViewportPolicy: Equatable, Sendable {
     case remoteGrid(columns: Int, rows: Int)
 }
 
+/// Describes the last authoritative terminal screen state known to the phone.
+public enum MobileTerminalActiveScreenState: Equatable, Sendable {
+    /// The terminal is on its primary screen.
+    case primary
+    /// The terminal is on its alternate full-screen application buffer.
+    case alternate
+    /// The host has not supplied a trustworthy screen discriminator.
+    case unknown
+}
+
 public struct MobileTerminalOutputChunk: Sendable {
     public let data: Data
     public let streamToken: UUID
