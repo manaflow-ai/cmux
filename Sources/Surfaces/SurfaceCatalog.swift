@@ -54,9 +54,9 @@ final class SurfaceCatalog {
     static let defaultAbandonedMaterializationTimeout: Duration = .seconds(30)
     static let defaultRetiredMaterializationRetention: Duration = .seconds(30)
     static let defaultCompletedMaterializationRetention: Duration = .seconds(30)
-    /// The coordinator never allows more than this many tasks from one provider to remain tracked
-    /// while cancellation is unresolved. This prevents one unhealthy provider from blocking
-    /// unrelated providers or a replacement provider for the same machine.
+    /// The coordinator never allows more than this many tasks from one machine to remain tracked
+    /// while cancellation is unresolved. This prevents one unhealthy machine from blocking
+    /// unrelated machines while also bounding repeated provider replacements.
     static let defaultMaximumTrackedMaterializations = 16
 
     static let didChangeNotification = Notification.Name("cmux.surfaces.didChange")
@@ -74,8 +74,8 @@ final class SurfaceCatalog {
     private var retiredMaterializationTokens: Set<UUID> = []
     private var retiredMaterializationEvictionTasks: [UUID: Task<Void, Never>] = [:]
     private var trackedMaterializationTokens: Set<UUID> = []
-    private var trackedMaterializationProviders: [UUID: ObjectIdentifier] = [:]
-    private var trackedMaterializationCounts: [ObjectIdentifier: Int] = [:]
+    private var trackedMaterializationMachines: [UUID: SurfaceMachineID] = [:]
+    private var trackedMaterializationCounts: [SurfaceMachineID: Int] = [:]
     private let retiredMaterializationRetention: Duration
     private let completedMaterializationRetention: Duration
     private let abandonedMaterializationTimeout: Duration
@@ -254,8 +254,7 @@ final class SurfaceCatalog {
                 return
             }
 
-            let providerIdentity = ObjectIdentifier(provider)
-            guard trackedMaterializationCounts[providerIdentity, default: 0] < maximumTrackedMaterializations else {
+            guard trackedMaterializationCounts[provider.machine, default: 0] < maximumTrackedMaterializations else {
                 continuation.resume(throwing: SurfaceCatalogError.unavailable(id, reason: "materialization capacity exhausted"))
                 return
             }
@@ -483,20 +482,19 @@ final class SurfaceCatalog {
     }
 
     private func trackMaterialization(_ token: UUID, for provider: any SurfaceProvider) {
-        let providerIdentity = ObjectIdentifier(provider)
         trackedMaterializationTokens.insert(token)
-        trackedMaterializationProviders[token] = providerIdentity
-        trackedMaterializationCounts[providerIdentity, default: 0] += 1
+        trackedMaterializationMachines[token] = provider.machine
+        trackedMaterializationCounts[provider.machine, default: 0] += 1
     }
 
     private func releaseTrackedMaterialization(_ token: UUID) {
         guard trackedMaterializationTokens.remove(token) != nil,
-              let provider = trackedMaterializationProviders.removeValue(forKey: token) else { return }
-        let remaining = (trackedMaterializationCounts[provider] ?? 1) - 1
+              let machine = trackedMaterializationMachines.removeValue(forKey: token) else { return }
+        let remaining = (trackedMaterializationCounts[machine] ?? 1) - 1
         if remaining > 0 {
-            trackedMaterializationCounts[provider] = remaining
+            trackedMaterializationCounts[machine] = remaining
         } else {
-            trackedMaterializationCounts[provider] = nil
+            trackedMaterializationCounts[machine] = nil
         }
     }
 

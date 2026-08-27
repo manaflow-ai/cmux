@@ -29,10 +29,10 @@ struct SurfaceCatalogTests {
 
         func sleep(until _: Instant, tolerance _: Duration?) async throws {
             await Task.yield()
-            lock.lock()
-            sleepCount += 1
-            let count = sleepCount
-            lock.unlock()
+            let count = lock.withLock {
+                sleepCount += 1
+                return sleepCount
+            }
             onSleep(count)
         }
     }
@@ -466,7 +466,7 @@ struct SurfaceCatalogTests {
         #expect(result.projection == catalog.projections(of: term.id).first)
     }
 
-    @Test func `Tracked materialization capacity bounds permanently detached work per provider`() async throws {
+    @Test func `Tracked materialization capacity bounds permanently detached work per machine`() async throws {
         let catalog = SurfaceCatalog(maximumTrackedMaterializations: 1)
         let oldProvider = FakeProvider(machine: .cloud("vivid-newt"))
         let gate = MaterializeGate()
