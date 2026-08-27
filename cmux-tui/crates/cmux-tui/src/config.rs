@@ -1537,6 +1537,9 @@ fn parse_sidebar_view_scope(value: &str) -> Result<SidebarViewScope, String> {
 /// flat leaf list the layout tree indexes into.
 struct SidebarViewResolution<'a> {
     ids: HashSet<String>,
+    /// Explicit IDs in the complete raw tree. Generated split IDs must avoid
+    /// these even when the user entry appears later in configuration order.
+    reserved_ids: HashSet<String>,
     legacy_kinds: HashSet<SidebarColumnKind>,
     views: Vec<SidebarViewSpec>,
     split_counter: usize,
@@ -1606,7 +1609,7 @@ fn resolve_sidebar_view_entry(
             _ => loop {
                 state.split_counter += 1;
                 let candidate = format!("split-{}", state.split_counter);
-                if !state.ids.contains(&candidate) {
+                if !state.ids.contains(&candidate) && !state.reserved_ids.contains(&candidate) {
                     break candidate;
                 }
             },
@@ -1675,6 +1678,17 @@ fn resolve_sidebar_view_entry(
     }
 }
 
+fn collect_sidebar_view_ids(views: &[RawSidebarView], ids: &mut HashSet<String>) {
+    for view in views {
+        if let Some(id) = view.id.as_deref().map(str::trim).filter(|id| !id.is_empty()) {
+            ids.insert(id.to_string());
+        }
+        if let Some(panes) = view.panes.as_deref() {
+            collect_sidebar_view_ids(panes, ids);
+        }
+    }
+}
+
 fn resolve_sidebar_view_specs(
     views: &[RawSidebarView],
     machine_width: u16,
@@ -1684,8 +1698,11 @@ fn resolve_sidebar_view_specs(
     owner: &str,
     command_ids: &[String],
 ) -> ResolvedSidebarViews {
+    let mut reserved_ids = HashSet::new();
+    collect_sidebar_view_ids(views, &mut reserved_ids);
     let mut state = SidebarViewResolution {
         ids: HashSet::new(),
+        reserved_ids,
         legacy_kinds: HashSet::new(),
         views: Vec::new(),
         split_counter: 0,
@@ -9040,6 +9057,24 @@ mod tests {
         assert_eq!(views.len(), 1);
         assert_eq!(views[0].split.as_deref(), Some("vertical"));
         assert_eq!(views[0].panes.as_ref().map(Vec::len), Some(2));
+    }
+
+    #[test]
+    fn generated_split_ids_reserve_explicit_ids_from_later_entries() {
+        let mut group = raw_leaf("", &[]);
+        group.levels = None;
+        group.split = Some("vertical".to_string());
+        group.panes = Some(vec![raw_leaf("ws", &["workspaces"]), raw_leaf("ag", &["agents"])]);
+        let later = raw_leaf("split-1", &["tabs"]);
+        let resolved = resolve_sidebar_view_specs(&[group, later], 22, 0, 22, 0, "sidebar", &[]);
+
+        assert_eq!(resolved.views.len(), 3);
+        match &resolved.layout[0] {
+            SidebarLayoutNode::Split(split) => assert_eq!(split.id, "split-2"),
+            node => panic!("expected generated split, got {node:?}"),
+        }
+        assert_eq!(resolved.layout[1], SidebarLayoutNode::Leaf(2));
+        assert_eq!(resolved.views[2].id, "split-1");
     }
 
     #[test]
