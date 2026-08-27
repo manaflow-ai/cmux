@@ -78,6 +78,27 @@ nonisolated struct GitReferenceRunnerSelector: Sendable {
             }
             return runner
         }
+        // Older Git versions may reject `--show-ref-format` even though their
+        // ordinary symbolic-ref/rev-parse plumbing is usable. Validate those
+        // candidates with a backend-neutral command before falling back to the
+        // first path, so stale PATH entries cannot hide a later working Git.
+        for runner in runners {
+            let now = DispatchTime.now()
+            guard deadline > now else { return nil }
+            let remaining = Double(deadline.uptimeNanoseconds - now.uptimeNanoseconds)
+                / 1_000_000_000
+            guard let result = try? runner.run(
+                arguments: ["symbolic-ref", "--quiet", "HEAD"],
+                in: URL(fileURLWithPath: repository.workTreeRoot, isDirectory: true),
+                maximumOutputByteCount: Self.maximumProbeOutputByteCount,
+                wallTimeLimit: remaining
+            ),
+            !result.standardOutputWasTruncated,
+            result.exitCode == 0 || result.exitCode == 1 else {
+                continue
+            }
+            return runner
+        }
         // `--show-ref-format` is newer than the standard plumbing commands.
         // Keep the first bounded runner as a compatibility fallback when the
         // optional capability probe is unsupported; its process runner can
