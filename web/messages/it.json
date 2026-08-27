@@ -1016,7 +1016,10 @@
           "focusTextBoxOnNewTerminals": "Mette a fuoco l'input TextBox beta per impostazione predefinita nei workspace, nelle schede e nelle divisioni del terminale appena creati. Il focus mostra anche TextBox."
         },
         "notifications": {
-          "suppressOnlyFocusedSurface": "Quando è attivo, un banner di notifica viene ritirato automaticamente solo quando la sua superficie è esattamente la superficie con il focus. Un banner mostrato per una superficie senza focus nel workspace attualmente visibile resta visibile finché non porti il focus su quella superficie (o ci fai clic/la chiudi), invece di essere ritirato quando il workspace diventa visibile. Disattivato mantiene il vecchio ritiro basato sulla visibilità del workspace."
+          "suppressOnlyFocusedSurface": "Quando è attivo, un banner di notifica viene ritirato automaticamente solo quando la sua superficie è esattamente la superficie con il focus. Un banner mostrato per una superficie senza focus nel workspace attualmente visibile resta visibile finché non porti il focus su quella superficie (o ci fai clic/la chiudi), invece di essere ritirato quando il workspace diventa visibile. Disattivato mantiene il vecchio ritiro basato sulla visibilità del workspace.",
+          "agentIdleReminder": "Notifica quando un agente è inattivo in attesa del tuo input (circa 60 secondi dopo la fine di un turno). La notifica è soppressa finché resta del lavoro in background del turno precedente, così una build o un watcher in esecuzione non attivano un falso avviso di attesa.",
+          "soundOverrides": "Override sparsi del suono di notifica per agente e tipo di avviso. Le celle mancanti usano notifications.sound.",
+          "soundOverride": "Un override del suono di notifica. default usa notifications.sound, none disabilita la riproduzione e gli altri valori selezionano un suono integrato o personalizzato."
         },
         "browser": {
           "defaultSearchEngine": "Motore di ricerca predefinito per le query nella barra degli indirizzi del browser che non sono URL. Usa custom con customSearchEngineURLTemplate per altri provider.",

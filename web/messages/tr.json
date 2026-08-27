@@ -1016,7 +1016,10 @@
           "focusTextBoxOnNewTerminals": "Yeni oluşturulan çalışma alanları, terminal sekmeleri ve terminal bölmeleri için beta TextBox girişini varsayılan olarak odaklar. Odaklamak TextBox'ı da gösterir."
         },
         "notifications": {
-          "suppressOnlyFocusedSurface": "Etkinleştirildiğinde, bir bildirim banner'ı yalnızca yüzeyi tam olarak odaklanmış yüzey olduğunda otomatik olarak geri çekilir. Şu anda görünür olan workspace içinde odaklanmamış bir yüzey için gönderilen bir banner, workspace görünür olduğunda geri çekilmek yerine, siz o yüzeye odaklanana (ya da tıklayana/kapatana) kadar görünür kalır. Kapalı, eski workspace görünürlüğüne dayalı geri çekme davranışını korur."
+          "suppressOnlyFocusedSurface": "Etkinleştirildiğinde, bir bildirim banner'ı yalnızca yüzeyi tam olarak odaklanmış yüzey olduğunda otomatik olarak geri çekilir. Şu anda görünür olan workspace içinde odaklanmamış bir yüzey için gönderilen bir banner, workspace görünür olduğunda geri çekilmek yerine, siz o yüzeye odaklanana (ya da tıklayana/kapatana) kadar görünür kalır. Kapalı, eski workspace görünürlüğüne dayalı geri çekme davranışını korur.",
+          "agentIdleReminder": "Bir ajan boşta olup girişinizi beklediğinde (tur sona erdikten yaklaşık 60 saniye sonra) bildirim gönderin. Önceki turdan kalan arka plan işi devam ederken bastırılır; böylece çalışan bir derleme veya izleyici yanlış bir bekleme uyarısı oluşturmaz.",
+          "soundOverrides": "Ajan ve uyarı türüne göre seyrek bildirim sesi geçersiz kılmaları. Eksik hücreler notifications.sound kullanır.",
+          "soundOverride": "Bir bildirim sesi geçersiz kılması. default, notifications.sound kullanır; none oynatmayı devre dışı bırakır; diğer değerler yerleşik veya özel bir ses seçer."
         },
         "browser": {
           "defaultSearchEngine": "Tarayıcı adres çubuğundaki URL olmayan sorgular için varsayılan arama motoru. Diğer sağlayıcılar için custom ile customSearchEngineURLTemplate kullanın.",

@@ -4,15 +4,51 @@
     "socket.error.unknownMethod": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "طريقة غير معروفة" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Nepoznata metoda" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Ukendt metode" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Unbekannte Methode" } },
         "en": { "stringUnit": { "state": "translated", "value": "Unknown method" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "不明なメソッド" } }
+        "es": { "stringUnit": { "state": "translated", "value": "Método desconocido" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Méthode inconnue" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Metodo sconosciuto" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "不明なメソッド" } },
+        "km": { "stringUnit": { "state": "translated", "value": "វិធីសាស្ត្រមិនស្គាល់" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "알 수 없는 메서드" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Ukjent metode" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Nieznana metoda" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Método desconhecido" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Неизвестный метод" } },
+        "th": { "stringUnit": { "state": "translated", "value": "ไม่รู้จักเมธอด" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Bilinmeyen yöntem" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Невідомий метод" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "未知方法" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "未知的方法" } }
       }
     },
     "socket.feed.jump.invalidParams": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "يتطلب feed.jump قيمة workstream_id" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "feed.jump zahtijeva workstream_id" } },
+        "da": { "stringUnit": { "state": "translated", "value": "feed.jump kræver workstream_id" } },
+        "de": { "stringUnit": { "state": "translated", "value": "feed.jump erfordert workstream_id" } },
         "en": { "stringUnit": { "state": "translated", "value": "feed.jump requires workstream_id" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "feed.jump には workstream_id が必要です" } }
+        "es": { "stringUnit": { "state": "translated", "value": "feed.jump requiere workstream_id" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "feed.jump nécessite workstream_id" } },
+        "it": { "stringUnit": { "state": "translated", "value": "feed.jump richiede workstream_id" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "feed.jump には workstream_id が必要です" } },
+        "km": { "stringUnit": { "state": "translated", "value": "feed.jump ត្រូវការ workstream_id" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "feed.jump에는 workstream_id가 필요합니다" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "feed.jump krever workstream_id" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "feed.jump wymaga workstream_id" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "feed.jump requer workstream_id" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Для feed.jump требуется workstream_id" } },
+        "th": { "stringUnit": { "state": "translated", "value": "feed.jump ต้องมี workstream_id" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "feed.jump için workstream_id gerekir" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "feed.jump потребує workstream_id" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "feed.jump 需要 workstream_id" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "feed.jump 需要 workstream_id" } }
       }
     },
     "caffeine.error.missingEnabled": {
@@ -3994,18 +4030,26 @@
     "cli.codexMonitor.notification.title": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Codex"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Codex"
-          }
-        }
+        "ar": { "stringUnit": { "state": "translated", "value": "Codex" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Codex" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Codex" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Codex" } },
+        "en": { "stringUnit": { "state": "translated", "value": "Codex" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Codex" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Codex" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Codex" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Codex" } },
+        "km": { "stringUnit": { "state": "translated", "value": "Codex" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "Codex" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Codex" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Codex" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Codex" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Codex" } },
+        "th": { "stringUnit": { "state": "translated", "value": "Codex" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Codex" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Codex" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "Codex" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "Codex" } }
       }
     },
     "agent.codex.input.body.needsInput": {
@@ -81904,6 +81948,7 @@
         "fr": { "stringUnit": { "state": "translated", "value": "Couper les notifications de l’espace de travail" } },
         "it": { "stringUnit": { "state": "translated", "value": "Disattiva le notifiche dell’area di lavoro" } },
         "ja": { "stringUnit": { "state": "translated", "value": "ワークスペースの通知をミュート" } },
+        "km": { "stringUnit": { "state": "translated", "value": "បិទសំឡេងការជូនដំណឹងរបស់ workspace" } },
         "ko": { "stringUnit": { "state": "translated", "value": "작업 공간 알림 끄기" } },
         "nb": { "stringUnit": { "state": "translated", "value": "Slå av varsler for arbeidsområdet" } },
         "pl": { "stringUnit": { "state": "translated", "value": "Wycisz powiadomienia obszaru roboczego" } },
@@ -81928,6 +81973,7 @@
         "fr": { "stringUnit": { "state": "translated", "value": "Couper les notifications des espaces de travail sélectionnés" } },
         "it": { "stringUnit": { "state": "translated", "value": "Disattiva le notifiche per le aree di lavoro selezionate" } },
         "ja": { "stringUnit": { "state": "translated", "value": "ワークスペースの通知をミュート" } },
+        "km": { "stringUnit": { "state": "translated", "value": "បិទសំឡេងការជូនដំណឹងរបស់ workspace ដែលបានជ្រើសរើស" } },
         "ko": { "stringUnit": { "state": "translated", "value": "선택한 작업 공간의 알림 끄기" } },
         "nb": { "stringUnit": { "state": "translated", "value": "Slå av varsler for valgte arbeidsområder" } },
         "pl": { "stringUnit": { "state": "translated", "value": "Wycisz powiadomienia wybranych obszarów roboczych" } },
@@ -81952,6 +81998,7 @@
         "fr": { "stringUnit": { "state": "translated", "value": "Réactiver les notifications de l’espace de travail" } },
         "it": { "stringUnit": { "state": "translated", "value": "Riattiva le notifiche dell’area di lavoro" } },
         "ja": { "stringUnit": { "state": "translated", "value": "ワークスペースの通知のミュートを解除" } },
+        "km": { "stringUnit": { "state": "translated", "value": "បើកសំឡេងការជូនដំណឹងរបស់ workspace" } },
         "ko": { "stringUnit": { "state": "translated", "value": "작업 공간 알림 켜기" } },
         "nb": { "stringUnit": { "state": "translated", "value": "Slå på varsler for arbeidsområdet" } },
         "pl": { "stringUnit": { "state": "translated", "value": "Włącz powiadomienia obszaru roboczego" } },
@@ -81976,6 +82023,7 @@
         "fr": { "stringUnit": { "state": "translated", "value": "Réactiver les notifications des espaces de travail sélectionnés" } },
         "it": { "stringUnit": { "state": "translated", "value": "Riattiva le notifiche per le aree di lavoro selezionate" } },
         "ja": { "stringUnit": { "state": "translated", "value": "ワークスペースの通知のミュートを解除" } },
+        "km": { "stringUnit": { "state": "translated", "value": "បើកសំឡេងការជូនដំណឹងរបស់ workspace ដែលបានជ្រើសរើស" } },
         "ko": { "stringUnit": { "state": "translated", "value": "선택한 작업 공간의 알림 켜기" } },
         "nb": { "stringUnit": { "state": "translated", "value": "Slå på varsler for valgte arbeidsområder" } },
         "pl": { "stringUnit": { "state": "translated", "value": "Włącz powiadomienia wybranych obszarów roboczych" } },
@@ -187263,18 +187311,26 @@
     "settings.notifications.desktop.test.title": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux test notification"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux テスト通知"
-          }
-        }
+        "ar": { "stringUnit": { "state": "translated", "value": "اختبار إشعارات cmux" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "cmux test obavještenja" } },
+        "da": { "stringUnit": { "state": "translated", "value": "cmux-notifikationstest" } },
+        "de": { "stringUnit": { "state": "translated", "value": "cmux-Mitteilungstest" } },
+        "en": { "stringUnit": { "state": "translated", "value": "cmux test notification" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Prueba de notificaciones de cmux" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Test de notification cmux" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Test notifiche cmux" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "cmux テスト通知" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ការសាកល្បងការជូនដំណឹង cmux" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "cmux 알림 테스트" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "cmux-varslingstest" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Test powiadomień cmux" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Teste de notificações do cmux" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Тест уведомлений cmux" } },
+        "th": { "stringUnit": { "state": "translated", "value": "ทดสอบการแจ้งเตือน cmux" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "cmux bildirim testi" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Тест сповіщень cmux" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "cmux 通知测试" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "cmux 通知測試" } }
       }
     },
     "settings.notifications.paneFlash.subtitle": {
@@ -187396,235 +187452,801 @@
     "settings.notifications.soundOverrides.agent": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "وكيل" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Agent" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Agent" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Agent" } },
         "en": { "stringUnit": { "state": "translated", "value": "Agent" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "エージェント" } }
+        "es": { "stringUnit": { "state": "translated", "value": "Agente" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Agent" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Agente" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "エージェント" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ភ្នាក់ងារ" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "에이전트" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Agent" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Agent" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Agente" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Агент" } },
+        "th": { "stringUnit": { "state": "translated", "value": "เอเจนต์" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Ajan" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Агент" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "代理" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "代理程式" } }
       }
     },
     "settings.notifications.soundOverrides.chooseCustom": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "اختيار ملف مخصص…" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Izaberi prilagođenu datoteku…" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Vælg brugerdefineret fil…" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Benutzerdefinierte Datei auswählen…" } },
         "en": { "stringUnit": { "state": "translated", "value": "Choose Custom File…" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "カスタムファイルを選択…" } }
+        "es": { "stringUnit": { "state": "translated", "value": "Elegir archivo personalizado…" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Choisir un fichier personnalisé…" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Scegli file personalizzato…" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "カスタムファイルを選択…" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ជ្រើសឯកសារផ្ទាល់ខ្លួន…" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "사용자 지정 파일 선택…" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Velg egendefinert fil…" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Wybierz niestandardowy plik…" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Escolher arquivo personalizado…" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Выбрать пользовательский файл…" } },
+        "th": { "stringUnit": { "state": "translated", "value": "เลือกไฟล์กำหนดเอง…" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Özel dosya seç…" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Вибрати власний файл…" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "选择自定义文件…" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "選擇自訂檔案…" } }
       }
     },
     "settings.notifications.soundOverrides.chooseCustom.title": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "اختيار صوت الإشعار" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Izaberi zvuk obavijesti" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Vælg notifikationslyd" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Benachrichtigungston auswählen" } },
         "en": { "stringUnit": { "state": "translated", "value": "Choose Notification Sound" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "通知サウンドを選択" } }
+        "es": { "stringUnit": { "state": "translated", "value": "Elegir sonido de notificación" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Choisir le son de notification" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Scegli suono di notifica" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "通知サウンドを選択" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ជ្រើសសំឡេងជូនដំណឹង" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "알림 소리 선택" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Velg varslingslyd" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Wybierz dźwięk powiadomienia" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Escolher som de notificação" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Выбрать звук уведомления" } },
+        "th": { "stringUnit": { "state": "translated", "value": "เลือกเสียงการแจ้งเตือน" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Bildirim sesini seç" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Вибрати звук сповіщення" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "选择通知声音" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "選擇通知聲音" } }
       }
     },
     "settings.notifications.soundOverrides.custom": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "مخصص" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Prilagođeno" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Brugerdefineret" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Benutzerdefiniert" } },
         "en": { "stringUnit": { "state": "translated", "value": "Custom" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "カスタム" } }
+        "es": { "stringUnit": { "state": "translated", "value": "Personalizado" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Personnalisé" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Personalizzato" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "カスタム" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ផ្ទាល់ខ្លួន" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "사용자 지정" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Egendefinert" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Niestandardowe" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Personalizado" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Пользовательский" } },
+        "th": { "stringUnit": { "state": "translated", "value": "กำหนดเอง" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Özel" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Власний" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "自定义" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "自訂" } }
       }
     },
     "settings.notifications.soundOverrides.errorStalled": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "خطأ / متوقف" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Greška / zaustavljeno" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Fejl / gået i stå" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Fehler / Angehalten" } },
         "en": { "stringUnit": { "state": "translated", "value": "Error / Stalled" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "エラー / 停止" } }
+        "es": { "stringUnit": { "state": "translated", "value": "Error / detenido" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Erreur / bloqué" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Errore / bloccato" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "エラー / 停止" } },
+        "km": { "stringUnit": { "state": "translated", "value": "កំហុស / ឈប់ដំណើរការ" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "오류 / 중지됨" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Feil / stoppet" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Błąd / zatrzymano" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Erro / parado" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Ошибка / остановлено" } },
+        "th": { "stringUnit": { "state": "translated", "value": "ข้อผิดพลาด / หยุดทำงาน" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Hata / durdu" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Помилка / зупинено" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "错误 / 已停止" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "錯誤 / 已停止" } }
       }
     },
     "settings.notifications.soundOverrides.global": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "عام" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Globalno" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Global" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Global" } },
         "en": { "stringUnit": { "state": "translated", "value": "Global" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "グローバル" } }
+        "es": { "stringUnit": { "state": "translated", "value": "Global" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Global" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Globale" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "グローバル" } },
+        "km": { "stringUnit": { "state": "translated", "value": "សកល" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "전역" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Global" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Globalne" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Global" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Глобальный" } },
+        "th": { "stringUnit": { "state": "translated", "value": "ทั่วโลก" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Genel" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Глобальна" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "全局" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "全域" } }
       }
     },
     "settings.notifications.soundOverrides.help": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "اختر صوتًا لكل وكيل ونوع تنبيه. تستخدم الخلايا الفارغة صوت الإشعارات العام." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Odaberite zvuk za svakog agenta i vrstu upozorenja. Prazne ćelije koriste globalni zvuk obavijesti." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Vælg en lyd for hver agent og alarmtype. Tomme celler bruger den globale notifikationslyd." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Wähle für jeden Agenten und Alarmtyp einen Ton. Leere Felder verwenden den globalen Benachrichtigungston." } },
         "en": { "stringUnit": { "state": "translated", "value": "Choose a sound for each agent and alert type. Empty cells use the global notification sound." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "エージェントとアラート種別ごとにサウンドを選択できます。空のセルはグローバル通知サウンドを使用します。" } }
+        "es": { "stringUnit": { "state": "translated", "value": "Elige un sonido para cada agente y tipo de alerta. Las celdas vacías usan el sonido de notificación global." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Choisissez un son pour chaque agent et type d’alerte. Les cellules vides utilisent le son de notification global." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Scegli un suono per ogni agente e tipo di avviso. Le celle vuote usano il suono di notifica globale." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "エージェントとアラート種別ごとにサウンドを選択できます。空のセルはグローバル通知サウンドを使用します。" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ជ្រើសសំឡេងសម្រាប់ភ្នាក់ងារ និងប្រភេទការជូនដំណឹងនីមួយៗ។ ក្រឡាទទេប្រើសំឡេងជូនដំណឹងសកល។" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "각 에이전트와 알림 유형에 사용할 소리를 선택합니다. 빈 셀은 전역 알림 소리를 사용합니다." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Velg en lyd for hver agent og varslingstype. Tomme celler bruker den globale varslingslyden." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Wybierz dźwięk dla każdego agenta i typu alertu. Puste komórki używają globalnego dźwięku powiadomień." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Escolha um som para cada agente e tipo de alerta. As células vazias usam o som de notificação global." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Выберите звук для каждого агента и типа оповещения. Пустые ячейки используют глобальный звук уведомлений." } },
+        "th": { "stringUnit": { "state": "translated", "value": "เลือกเสียงสำหรับเอเจนต์และประเภทการแจ้งเตือนแต่ละรายการ เซลล์ว่างจะใช้เสียงแจ้งเตือนแบบทั่วโลก" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Her ajan ve uyarı türü için bir ses seçin. Boş hücreler genel bildirim sesini kullanır." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Виберіть звук для кожного агента й типу сповіщення. Порожні клітинки використовують глобальний звук сповіщень." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "为每个代理和提醒类型选择声音。空白单元格使用全局通知声音。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "為每個代理程式和提醒類型選擇聲音。空白儲存格會使用全域通知聲音。" } }
       }
     },
     "settings.notifications.soundOverrides.invalidFile": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "الملف مفقود أو يتعذر فك ترميزه كصوت." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Datoteka nedostaje ili se ne može dekodirati kao zvuk." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Filen mangler eller kan ikke afkodes som lyd." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Die Datei fehlt oder kann nicht als Audio decodiert werden." } },
         "en": { "stringUnit": { "state": "translated", "value": "That file is missing or cannot be decoded as audio." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "ファイルが存在しないか、音声としてデコードできません。" } }
+        "es": { "stringUnit": { "state": "translated", "value": "Falta el archivo o no se puede decodificar como audio." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Le fichier est absent ou ne peut pas être décodé comme audio." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Il file manca o non può essere decodificato come audio." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ファイルが存在しないか、音声としてデコードできません。" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ឯកសារបាត់ ឬមិនអាចឌិកូដជាសំឡេងបាន។" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "파일이 없거나 오디오로 디코딩할 수 없습니다." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Filen mangler eller kan ikke dekodes som lyd." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Brakuje pliku lub nie można go zdekodować jako dźwięku." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "O arquivo está ausente ou não pode ser decodificado como áudio." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Файл отсутствует или не может быть декодирован как аудио." } },
+        "th": { "stringUnit": { "state": "translated", "value": "ไม่พบไฟล์หรือไม่สามารถถอดรหัสเป็นเสียงได้" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Dosya eksik veya ses olarak çözümlenemiyor." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Файл відсутній або його не можна декодувати як аудіо." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "文件缺失或无法解码为音频。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "檔案遺失或無法解碼為音訊。" } }
       }
     },
     "settings.notifications.soundOverrides.invalidConfiguration": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The saved per-agent sound settings are invalid. Fix notifications.soundOverrides in cmux.json before editing."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "保存されたエージェント別サウンド設定が無効です。編集する前に cmux.json の notifications.soundOverrides を修正してください。"
-          }
-        }
+        "ar": { "stringUnit": { "state": "translated", "value": "إعدادات الصوت المحفوظة لكل وكيل غير صالحة. أصلح notifications.soundOverrides في cmux.json قبل التحرير." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Sačuvane postavke zvuka po agentu nisu važeće. Ispravite notifications.soundOverrides u cmux.json prije uređivanja." } },
+        "da": { "stringUnit": { "state": "translated", "value": "De gemte lydindstillinger pr. agent er ugyldige. Ret notifications.soundOverrides i cmux.json, før du redigerer." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Die gespeicherten agentenspezifischen Toneinstellungen sind ungültig. Korrigiere notifications.soundOverrides in cmux.json vor dem Bearbeiten." } },
+        "en": { "stringUnit": { "state": "translated", "value": "The saved per-agent sound settings are invalid. Fix notifications.soundOverrides in cmux.json before editing." } },
+        "es": { "stringUnit": { "state": "translated", "value": "La configuración de sonido por agente guardada no es válida. Corrige notifications.soundOverrides en cmux.json antes de editarla." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Les réglages de son par agent enregistrés sont invalides. Corrigez notifications.soundOverrides dans cmux.json avant de modifier." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Le impostazioni del suono per agente salvate non sono valide. Correggi notifications.soundOverrides in cmux.json prima di modificarle." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "保存されたエージェント別サウンド設定が無効です。編集する前に cmux.json の notifications.soundOverrides を修正してください。" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ការកំណត់សំឡេងតាមភ្នាក់ងារដែលបានរក្សាទុកមិនត្រឹមត្រូវទេ។ កែ notifications.soundOverrides ក្នុង cmux.json មុនពេលកែសម្រួល។" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "저장된 에이전트별 소리 설정이 잘못되었습니다. 편집하기 전에 cmux.json의 notifications.soundOverrides를 수정하세요." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "De lagrede lydinnstillingene per agent er ugyldige. Rett notifications.soundOverrides i cmux.json før du redigerer." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Zapisane ustawienia dźwięku dla agentów są nieprawidłowe. Popraw notifications.soundOverrides w cmux.json przed edycją." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "As configurações de som por agente salvas são inválidas. Corrija notifications.soundOverrides em cmux.json antes de editar." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Сохранённые настройки звука для агентов недействительны. Исправьте notifications.soundOverrides в cmux.json перед редактированием." } },
+        "th": { "stringUnit": { "state": "translated", "value": "การตั้งค่าเสียงแยกตามเอเจนต์ที่บันทึกไว้ไม่ถูกต้อง แก้ไข notifications.soundOverrides ใน cmux.json ก่อนแก้ไข" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Kaydedilen ajan başına ses ayarları geçersiz. Düzenlemeden önce cmux.json içindeki notifications.soundOverrides değerini düzeltin." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Збережені налаштування звуку для агентів недійсні. Виправте notifications.soundOverrides у cmux.json перед редагуванням." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "已保存的代理声音设置无效。请先修复 cmux.json 中的 notifications.soundOverrides，再进行编辑。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "已儲存的代理程式聲音設定無效。請先修正 cmux.json 中的 notifications.soundOverrides，再進行編輯。" } }
       }
     },
     "settings.notifications.soundOverrides.needsInput": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "يحتاج إلى إدخال" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Potreban unos" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Kræver input" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Eingabe erforderlich" } },
         "en": { "stringUnit": { "state": "translated", "value": "Needs Input" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "入力が必要" } }
+        "es": { "stringUnit": { "state": "translated", "value": "Necesita entrada" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Saisie requise" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Richiede input" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "入力が必要" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ត្រូវការការបញ្ចូល" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "입력 필요" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Trenger inndata" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Wymaga danych wejściowych" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Precisa de entrada" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Требуется ввод" } },
+        "th": { "stringUnit": { "state": "translated", "value": "ต้องการอินพุต" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Girdi gerekiyor" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Потрібне введення" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "需要输入" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "需要輸入" } }
       }
     },
     "settings.notifications.soundOverrides.noAgents": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "لم يتم العثور على وكلاء مسجلين." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Nisu pronađeni registrovani agenti." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Ingen registrerede agenter fundet." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Keine registrierten Agenten gefunden." } },
         "en": { "stringUnit": { "state": "translated", "value": "No registered agents found." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "登録済みのエージェントが見つかりません。" } }
+        "es": { "stringUnit": { "state": "translated", "value": "No se encontraron agentes registrados." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Aucun agent enregistré trouvé." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Nessun agente registrato trovato." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "登録済みのエージェントが見つかりません。" } },
+        "km": { "stringUnit": { "state": "translated", "value": "រកមិនឃើញភ្នាក់ងារដែលបានចុះឈ្មោះទេ។" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "등록된 에이전트를 찾을 수 없습니다." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Fant ingen registrerte agenter." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Nie znaleziono zarejestrowanych agentów." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Nenhum agente registrado encontrado." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Зарегистрированные агенты не найдены." } },
+        "th": { "stringUnit": { "state": "translated", "value": "ไม่พบเอเจนต์ที่ลงทะเบียนไว้" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Kayıtlı ajan bulunamadı." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Зареєстрованих агентів не знайдено." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "未找到已注册的代理。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "找不到已註冊的代理程式。" } }
       }
     },
     "settings.notifications.soundOverrides.subtitle": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "تجاوز الصوت لوكيل ونوع تنبيه محددين." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Zamijenite zvuk za određenog agenta i vrstu upozorenja." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Tilsidesæt lyden for en bestemt agent og alarmtype." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Den Ton für einen bestimmten Agenten und Alarmtyp überschreiben." } },
         "en": { "stringUnit": { "state": "translated", "value": "Override the sound for a specific agent and alert type." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "特定のエージェントとアラート種別のサウンドを上書きします。" } }
+        "es": { "stringUnit": { "state": "translated", "value": "Anula el sonido para un agente y tipo de alerta específicos." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Remplace le son pour un agent et un type d’alerte donnés." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Sostituisci il suono per uno specifico agente e tipo di avviso." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "特定のエージェントとアラート種別のサウンドを上書きします。" } },
+        "km": { "stringUnit": { "state": "translated", "value": "បដិសេធសំឡេងសម្រាប់ភ្នាក់ងារ និងប្រភេទការជូនដំណឹងជាក់លាក់។" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "특정 에이전트와 알림 유형의 소리를 재정의합니다." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Overstyr lyden for en bestemt agent og varslingstype." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Zastąp dźwięk dla określonego agenta i typu alertu." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Substitua o som de um agente e tipo de alerta específicos." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Переопределите звук для конкретного агента и типа оповещения." } },
+        "th": { "stringUnit": { "state": "translated", "value": "แทนที่เสียงสำหรับเอเจนต์และประเภทการแจ้งเตือนที่ระบุ" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Belirli bir ajan ve uyarı türü için sesi geçersiz kılın." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Замініть звук для певного агента й типу сповіщення." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "覆盖特定代理和提醒类型的声音。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "覆寫特定代理程式和提醒類型的聲音。" } }
       }
     },
     "settings.notifications.soundOverrides.title": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "أصوات الإشعارات لكل وكيل" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Obavijesni zvukovi po agentu" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Notifikationslyde pr. agent" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Benachrichtigungstöne pro Agent" } },
         "en": { "stringUnit": { "state": "translated", "value": "Per-Agent Notification Sounds" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "エージェント別通知サウンド" } }
+        "es": { "stringUnit": { "state": "translated", "value": "Sonidos de notificación por agente" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Sons de notification par agent" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Suoni di notifica per agente" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "エージェント別通知サウンド" } },
+        "km": { "stringUnit": { "state": "translated", "value": "សំឡេងជូនដំណឹងតាមភ្នាក់ងារ" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "에이전트별 알림 소리" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Varslingslyder per agent" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Dźwięki powiadomień dla agentów" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Sons de notificação por agente" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Звуки уведомлений для агентов" } },
+        "th": { "stringUnit": { "state": "translated", "value": "เสียงการแจ้งเตือนแยกตามเอเจนต์" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Ajan başına bildirim sesleri" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Звуки сповіщень для агентів" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "按代理设置通知声音" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "依代理程式設定通知聲音" } }
       }
     },
     "settings.notifications.soundOverrides.turnDone": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "اكتمل الدور" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Turn završen" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Tur fuldført" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Turn abgeschlossen" } },
         "en": { "stringUnit": { "state": "translated", "value": "Turn Done" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "ターン完了" } }
+        "es": { "stringUnit": { "state": "translated", "value": "Turno completado" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Tour terminé" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Turno completato" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ターン完了" } },
+        "km": { "stringUnit": { "state": "translated", "value": "វេនបានបញ្ចប់" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "턴 완료" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Tur fullført" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Tura zakończona" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Turno concluído" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Ход завершён" } },
+        "th": { "stringUnit": { "state": "translated", "value": "จบรอบแล้ว" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Tur tamamlandı" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Хід завершено" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "回合完成" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "回合完成" } }
       }
     },
     "settings.notifications.soundOverrides.useGlobal": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "استخدام الصوت العام" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Koristi globalni zvuk" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Brug global lyd" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Globalen Ton verwenden" } },
         "en": { "stringUnit": { "state": "translated", "value": "Use Global Sound" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "グローバルサウンドを使用" } }
+        "es": { "stringUnit": { "state": "translated", "value": "Usar sonido global" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Utiliser le son global" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Usa suono globale" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "グローバルサウンドを使用" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ប្រើសំឡេងសកល" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "전역 소리 사용" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Bruk global lyd" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Użyj globalnego dźwięku" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Usar som global" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Использовать глобальный звук" } },
+        "th": { "stringUnit": { "state": "translated", "value": "ใช้เสียงแบบทั่วโลก" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Genel sesi kullan" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Використовувати глобальний звук" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "使用全局声音" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "使用全域聲音" } }
       }
     },
     "settings.notifications.sound.option.default": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "افتراضي" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Zadano" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Standard" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Standard" } },
         "en": { "stringUnit": { "state": "translated", "value": "Default" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "デフォルト" } }
+        "es": { "stringUnit": { "state": "translated", "value": "Predeterminado" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Par défaut" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Predefinito" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "デフォルト" } },
+        "km": { "stringUnit": { "state": "translated", "value": "លំនាំដើម" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "기본값" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Standard" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Domyślny" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Padrão" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "По умолчанию" } },
+        "th": { "stringUnit": { "state": "translated", "value": "ค่าเริ่มต้น" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Varsayılan" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Стандартний" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "默认" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "預設" } }
       }
     },
     "settings.notifications.sound.option.basso": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "باسو" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Basso" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Basso" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Basso" } },
         "en": { "stringUnit": { "state": "translated", "value": "Basso" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "Basso" } }
+        "es": { "stringUnit": { "state": "translated", "value": "Bajo" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Basse" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Basso" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Basso" } },
+        "km": { "stringUnit": { "state": "translated", "value": "បាសូ" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "저음" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Basso" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Basso" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Basso" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Бассо" } },
+        "th": { "stringUnit": { "state": "translated", "value": "เบสโซ" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Basso" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Бассо" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "低音" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "低音" } }
       }
     },
     "settings.notifications.sound.option.blow": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "نفخة" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Puh" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Blæs" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Pusten" } },
         "en": { "stringUnit": { "state": "translated", "value": "Blow" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "Blow" } }
+        "es": { "stringUnit": { "state": "translated", "value": "Soplo" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Souffle" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Soffio" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Blow" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ផ្លុំ" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "바람" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Blås" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Podmuch" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Sopro" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Дуновение" } },
+        "th": { "stringUnit": { "state": "translated", "value": "เป่า" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Üfleme" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Подих" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "吹气" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "吹氣" } }
       }
     },
     "settings.notifications.sound.option.bottle": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "زجاجة" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Boca" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Flaske" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Flasche" } },
         "en": { "stringUnit": { "state": "translated", "value": "Bottle" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "Bottle" } }
+        "es": { "stringUnit": { "state": "translated", "value": "Botella" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Bouteille" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Bottiglia" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Bottle" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ដប" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "병" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Flaske" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Butelka" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Garrafa" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Бутылка" } },
+        "th": { "stringUnit": { "state": "translated", "value": "ขวด" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Şişe" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Пляшка" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "瓶子" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "瓶子" } }
       }
     },
     "settings.notifications.sound.option.frog": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "ضفدع" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Žaba" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Frø" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Frosch" } },
         "en": { "stringUnit": { "state": "translated", "value": "Frog" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "Frog" } }
+        "es": { "stringUnit": { "state": "translated", "value": "Rana" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Grenouille" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Rana" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Frog" } },
+        "km": { "stringUnit": { "state": "translated", "value": "កង្កែប" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "개구리" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Frosk" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Żaba" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Sapo" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Лягушка" } },
+        "th": { "stringUnit": { "state": "translated", "value": "กบ" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Kurbağa" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Жаба" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "青蛙" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "青蛙" } }
       }
     },
     "settings.notifications.sound.option.funk": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "فونك" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Funk" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Funk" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Funk" } },
         "en": { "stringUnit": { "state": "translated", "value": "Funk" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "Funk" } }
+        "es": { "stringUnit": { "state": "translated", "value": "Funk" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Funk" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Funk" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Funk" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ហ្វាំង" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "펑크" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Funk" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Funk" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Funk" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Фанк" } },
+        "th": { "stringUnit": { "state": "translated", "value": "ฟังก์" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Funk" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Фанк" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "放克" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "放克" } }
       }
     },
     "settings.notifications.sound.option.glass": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "زجاج" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Staklo" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Glas" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Glas" } },
         "en": { "stringUnit": { "state": "translated", "value": "Glass" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "Glass" } }
+        "es": { "stringUnit": { "state": "translated", "value": "Cristal" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Verre" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Vetro" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Glass" } },
+        "km": { "stringUnit": { "state": "translated", "value": "កែវ" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "유리" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Glass" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Szkło" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Vidro" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Стекло" } },
+        "th": { "stringUnit": { "state": "translated", "value": "แก้ว" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Cam" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Скло" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "玻璃" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "玻璃" } }
       }
     },
     "settings.notifications.sound.option.hero": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "بطل" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Junak" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Helt" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Held" } },
         "en": { "stringUnit": { "state": "translated", "value": "Hero" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "Hero" } }
+        "es": { "stringUnit": { "state": "translated", "value": "Héroe" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Héros" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Eroe" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Hero" } },
+        "km": { "stringUnit": { "state": "translated", "value": "វីរបុរស" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "영웅" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Helt" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Bohater" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Herói" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Герой" } },
+        "th": { "stringUnit": { "state": "translated", "value": "ฮีโร่" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Kahraman" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Герой" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "英雄" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "英雄" } }
       }
     },
     "settings.notifications.sound.option.morse": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "مورس" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Morse" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Morse" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Morse" } },
         "en": { "stringUnit": { "state": "translated", "value": "Morse" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "Morse" } }
+        "es": { "stringUnit": { "state": "translated", "value": "Morse" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Morse" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Morse" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Morse" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ម័រស៍" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "모스" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Morse" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Morse" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Morse" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Морзе" } },
+        "th": { "stringUnit": { "state": "translated", "value": "มอร์ส" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Mors" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Морзе" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "莫尔斯" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "摩斯" } }
       }
     },
     "settings.notifications.sound.option.ping": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "طنين" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Ping" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Ping" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Ping" } },
         "en": { "stringUnit": { "state": "translated", "value": "Ping" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "Ping" } }
+        "es": { "stringUnit": { "state": "translated", "value": "Ping" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Ping" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Ping" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Ping" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ពីង" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "핑" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Ping" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Ping" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Ping" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Пинг" } },
+        "th": { "stringUnit": { "state": "translated", "value": "ปิง" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Ping" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Пінг" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "Ping" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "Ping" } }
       }
     },
     "settings.notifications.sound.option.pop": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "فرقعة" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Pop" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Pop" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Pop" } },
         "en": { "stringUnit": { "state": "translated", "value": "Pop" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "Pop" } }
+        "es": { "stringUnit": { "state": "translated", "value": "Pop" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Pop" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Pop" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Pop" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ផុប" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "팝" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Pop" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Pop" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Pop" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Хлопок" } },
+        "th": { "stringUnit": { "state": "translated", "value": "ป๊อป" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Pop" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Поп" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "Pop" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "Pop" } }
       }
     },
     "settings.notifications.sound.option.purr": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "خرخرة" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Predenje" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Spinden" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Schnurren" } },
         "en": { "stringUnit": { "state": "translated", "value": "Purr" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "Purr" } }
+        "es": { "stringUnit": { "state": "translated", "value": "Ronroneo" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Ronronnement" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Fusa" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Purr" } },
+        "km": { "stringUnit": { "state": "translated", "value": "សំឡេងគ្រហឹម" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "그르렁" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Spinning" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Mruczenie" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Ronronar" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Мурлыканье" } },
+        "th": { "stringUnit": { "state": "translated", "value": "เสียงคราง" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Mırlama" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Муркотіння" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "呼噜" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "呼嚕" } }
       }
     },
     "settings.notifications.sound.option.sosumi": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "Sosumi" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Sosumi" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Sosumi" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Sosumi" } },
         "en": { "stringUnit": { "state": "translated", "value": "Sosumi" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "Sosumi" } }
+        "es": { "stringUnit": { "state": "translated", "value": "Sosumi" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Sosumi" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Sosumi" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Sosumi" } },
+        "km": { "stringUnit": { "state": "translated", "value": "Sosumi" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "Sosumi" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Sosumi" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Sosumi" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Sosumi" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Sosumi" } },
+        "th": { "stringUnit": { "state": "translated", "value": "Sosumi" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Sosumi" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Sosumi" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "Sosumi" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "Sosumi" } }
       }
     },
     "settings.notifications.sound.option.submarine": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "غواصة" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Podmornica" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Ubåd" } },
+        "de": { "stringUnit": { "state": "translated", "value": "U-Boot" } },
         "en": { "stringUnit": { "state": "translated", "value": "Submarine" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "Submarine" } }
+        "es": { "stringUnit": { "state": "translated", "value": "Submarino" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Sous-marin" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Sottomarino" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Submarine" } },
+        "km": { "stringUnit": { "state": "translated", "value": "នាវាមុជទឹក" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "잠수함" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Ubåt" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Łódź podwodna" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Submarino" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Подводная лодка" } },
+        "th": { "stringUnit": { "state": "translated", "value": "เรือดำน้ำ" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Denizaltı" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Підводний човен" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "潜水艇" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "潛水艇" } }
       }
     },
     "settings.notifications.sound.option.tink": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "رنين" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Zvon" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Kling" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Kling" } },
         "en": { "stringUnit": { "state": "translated", "value": "Tink" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "Tink" } }
+        "es": { "stringUnit": { "state": "translated", "value": "Tintineo" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Tintement" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Tintinnio" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Tink" } },
+        "km": { "stringUnit": { "state": "translated", "value": "តីង" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "땡" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Kling" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Brzdęk" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Tilintar" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Звон" } },
+        "th": { "stringUnit": { "state": "translated", "value": "ติ๊ง" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Tık" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Дзенькіт" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "叮" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "叮" } }
       }
     },
     "settings.notifications.sound.option.customFile": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "ملف مخصص…" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Prilagođena datoteka…" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Brugerdefineret fil…" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Benutzerdefinierte Datei…" } },
         "en": { "stringUnit": { "state": "translated", "value": "Custom File…" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "カスタムファイル…" } }
+        "es": { "stringUnit": { "state": "translated", "value": "Archivo personalizado…" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Fichier personnalisé…" } },
+        "it": { "stringUnit": { "state": "translated", "value": "File personalizzato…" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "カスタムファイル…" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ឯកសារផ្ទាល់ខ្លួន…" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "사용자 지정 파일…" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Egendefinert fil…" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Plik niestandardowy…" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Arquivo personalizado…" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Пользовательский файл…" } },
+        "th": { "stringUnit": { "state": "translated", "value": "ไฟล์กำหนดเอง…" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Özel dosya…" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Власний файл…" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "自定义文件…" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "自訂檔案…" } }
       }
     },
     "settings.notifications.sound.option.none": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "لا شيء" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Nema" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Ingen" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Keine" } },
         "en": { "stringUnit": { "state": "translated", "value": "None" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "なし" } }
+        "es": { "stringUnit": { "state": "translated", "value": "Ninguno" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Aucun" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Nessuno" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "なし" } },
+        "km": { "stringUnit": { "state": "translated", "value": "គ្មាន" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "없음" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Ingen" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Brak" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Nenhum" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Нет" } },
+        "th": { "stringUnit": { "state": "translated", "value": "ไม่มี" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Yok" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Немає" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "无" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "無" } }
       }
     },
     "settings.notifications.sound.custom.choose.button": {
@@ -187746,18 +188368,26 @@
     "settings.notifications.sound.custom.invalid.message": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The file is missing or cannot be decoded as audio."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ファイルが存在しないか、音声としてデコードできません。"
-          }
-        }
+        "ar": { "stringUnit": { "state": "translated", "value": "الملف مفقود أو يتعذر فك ترميزه كصوت." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Datoteka nedostaje ili se ne može dekodirati kao zvuk." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Filen mangler eller kan ikke afkodes som lyd." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Die Datei fehlt oder kann nicht als Audio decodiert werden." } },
+        "en": { "stringUnit": { "state": "translated", "value": "The file is missing or cannot be decoded as audio." } },
+        "es": { "stringUnit": { "state": "translated", "value": "Falta el archivo o no se puede decodificar como audio." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Le fichier est absent ou ne peut pas être décodé comme audio." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Il file manca o non può essere decodificato come audio." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ファイルが存在しないか、音声としてデコードできません。" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ឯកសារបាត់ ឬមិនអាចឌិកូដជាសំឡេងបាន។" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "파일이 없거나 오디오로 디코딩할 수 없습니다." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Filen mangler eller kan ikke dekodes som lyd." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Brakuje pliku lub nie można go zdekodować jako dźwięku." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "O arquivo está ausente ou não pode ser decodificado como áudio." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Файл отсутствует или не может быть декодирован как аудио." } },
+        "th": { "stringUnit": { "state": "translated", "value": "ไม่พบไฟล์หรือไม่สามารถถอดรหัสเป็นเสียงได้" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Dosya eksik veya ses olarak çözümlenemiyor." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Файл відсутній або його не можна декодувати як аудіо." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "文件缺失或无法解码为音频。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "檔案遺失或無法解碼為音訊。" } }
       }
     },
     "settings.notifications.sound.custom.error.title": {
@@ -187838,18 +188468,26 @@
     "settings.notifications.sound.custom.validating": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Validating notification sound"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "通知音を検証中"
-          }
-        }
+        "ar": { "stringUnit": { "state": "translated", "value": "جارٍ التحقق من صوت الإشعار" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Provjera zvuka obavijesti" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Validerer notifikationslyd" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Benachrichtigungston wird geprüft" } },
+        "en": { "stringUnit": { "state": "translated", "value": "Validating notification sound" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Validando el sonido de notificación" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Validation du son de notification" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Convalida del suono di notifica" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "通知音を検証中" } },
+        "km": { "stringUnit": { "state": "translated", "value": "កំពុងផ្ទៀងផ្ទាត់សំឡេងជូនដំណឹង" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "알림 소리 확인 중" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Validerer varslingslyd" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Sprawdzanie dźwięku powiadomienia" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Validando som de notificação" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Проверка звука уведомления" } },
+        "th": { "stringUnit": { "state": "translated", "value": "กำลังตรวจสอบเสียงการแจ้งเตือน" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Bildirim sesi doğrulanıyor" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Перевірка звуку сповіщення" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "正在验证通知声音" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "正在驗證通知聲音" } }
       }
     },
     "settings.notifications.sound.custom.status.empty": {
@@ -192872,18 +193510,26 @@
     "settings.search.alias.setting.app.notification-sound-overrides": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "notifications.soundOverrides per-agent agent sound turn done needs input permission error stalled custom file"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "notifications.soundOverrides エージェントごとの通知サウンド ターン完了 入力が必要 権限 エラー 停止 カスタムファイル"
-          }
-        }
+        "ar": { "stringUnit": { "state": "translated", "value": "notifications.soundOverrides وكيل صوت تنبيه لكل وكيل إكمال الدور إدخال مطلوب إذن خطأ متوقف ملف مخصص" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "notifications.soundOverrides agent zvuk obavijest po agentu završen turn potreban unos dozvola greška zaustavljeno prilagođena datoteka" } },
+        "da": { "stringUnit": { "state": "translated", "value": "notifications.soundOverrides agent lyd notifikation pr agent tur fuldført kræver input tilladelse fejl gået i stå brugerdefineret fil" } },
+        "de": { "stringUnit": { "state": "translated", "value": "notifications.soundOverrides Agent Ton Benachrichtigung pro Agent Turn abgeschlossen Eingabe erforderlich Berechtigung Fehler angehalten benutzerdefinierte Datei" } },
+        "en": { "stringUnit": { "state": "translated", "value": "notifications.soundOverrides per-agent agent sound turn done needs input permission error stalled custom file" } },
+        "es": { "stringUnit": { "state": "translated", "value": "notifications.soundOverrides agente sonido notificación por agente turno completado necesita entrada permiso error detenido archivo personalizado" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "notifications.soundOverrides agent son notification par agent tour terminé saisie requise autorisation erreur bloqué fichier personnalisé" } },
+        "it": { "stringUnit": { "state": "translated", "value": "notifications.soundOverrides agente suono notifica per agente turno completato richiede input autorizzazione errore bloccato file personalizzato" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "notifications.soundOverrides エージェントごとの通知サウンド ターン完了 入力が必要 権限 エラー 停止 カスタムファイル" } },
+        "km": { "stringUnit": { "state": "translated", "value": "notifications.soundOverrides ភ្នាក់ងារ សំឡេង ជូនដំណឹង តាមភ្នាក់ងារ វេនបញ្ចប់ ត្រូវការបញ្ចូល សិទ្ធិ កំហុស ឈប់ ឯកសារផ្ទាល់ខ្លួន" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "notifications.soundOverrides 에이전트 에이전트별 알림 소리 턴 완료 입력 필요 권한 오류 중지 사용자 지정 파일" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "notifications.soundOverrides agent lyd varsling per agent tur fullført trenger inndata tillatelse feil stoppet egendefinert fil" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "notifications.soundOverrides agent dźwięk powiadomienia dla agenta tura zakończona wymaga danych wejściowych uprawnienie błąd zatrzymano plik niestandardowy" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "notifications.soundOverrides agente som notificação por agente turno concluído precisa de entrada permissão erro parado arquivo personalizado" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "notifications.soundOverrides агент звук уведомления для агента ход завершён требуется ввод разрешение ошибка остановлено пользовательский файл" } },
+        "th": { "stringUnit": { "state": "translated", "value": "notifications.soundOverrides เอเจนต์ เสียงแจ้งเตือน แยกตามเอเจนต์ จบรอบ ต้องการอินพุต สิทธิ์ ข้อผิดพลาด หยุดทำงาน ไฟล์กำหนดเอง" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "notifications.soundOverrides ajan ses bildirim ajan başına tur tamamlandı girdi gerekiyor izin hata durdu özel dosya" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "notifications.soundOverrides агент звук сповіщення для агента хід завершено потрібне введення дозвіл помилка зупинено власний файл" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "notifications.soundOverrides 代理 通知声音 按代理 回合完成 需要输入 权限 错误 已停止 自定义文件" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "notifications.soundOverrides 代理程式 通知聲音 依代理程式 回合完成 需要輸入 權限 錯誤 已停止 自訂檔案" } }
       }
     },
     "settings.search.alias.setting.app.open-port-links": {
@@ -228438,21 +229084,12 @@
         "bs": { "stringUnit": { "state": "translated", "value": "Obavijesti su isključene za ovaj radni prostor" } },
         "da": { "stringUnit": { "state": "translated", "value": "Notifikationer er slået fra for dette arbejdsområde" } },
         "de": { "stringUnit": { "state": "translated", "value": "Benachrichtigungen für diesen Arbeitsbereich sind stummgeschaltet" } },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Notifications muted for this workspace"
-          }
-        },
+        "en": { "stringUnit": { "state": "translated", "value": "Notifications muted for this workspace" } },
         "es": { "stringUnit": { "state": "translated", "value": "Las notificaciones están silenciadas para este espacio de trabajo" } },
         "fr": { "stringUnit": { "state": "translated", "value": "Les notifications sont coupées pour cet espace de travail" } },
         "it": { "stringUnit": { "state": "translated", "value": "Le notifiche sono disattivate per quest’area di lavoro" } },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このワークスペースの通知はミュートされています"
-          }
-        },
+        "ja": { "stringUnit": { "state": "translated", "value": "このワークスペースの通知はミュートされています" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ការជូនដំណឹងសម្រាប់ workspace នេះត្រូវបានបិទសំឡេង" } },
         "ko": { "stringUnit": { "state": "translated", "value": "이 작업 공간의 알림이 꺼져 있음" } },
         "nb": { "stringUnit": { "state": "translated", "value": "Varsler er slått av for dette arbeidsområdet" } },
         "pl": { "stringUnit": { "state": "translated", "value": "Powiadomienia dla tego obszaru roboczego są wyciszone" } },
