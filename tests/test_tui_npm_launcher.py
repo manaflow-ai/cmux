@@ -389,8 +389,12 @@ def test_launcher_releases_lease_when_native_launch_fails(tmp_path: Path) -> Non
         return
     launcher = write_launcher(tmp_path)
     cache = tmp_path / "cache"
-    binary = write_cached_binary(cache, "1.2.3", "#!/bin/sh\nexit 0\n")
-    binary.chmod(0o644)
+    write_cached_binary(
+        cache,
+        "1.2.3",
+        "#!/definitely/missing/interpreter\n",
+        managed=True,
+    )
 
     result = run_launcher(launcher, cache, "http://127.0.0.1:1", "--version")
 
