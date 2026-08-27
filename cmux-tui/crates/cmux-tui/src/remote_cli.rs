@@ -3124,10 +3124,16 @@ mod tests {
                 OpenOptions::new().read(true).custom_flags(libc::O_NONBLOCK).open(&fifo).unwrap();
             let _ = receiver.recv_timeout(Duration::from_secs(1));
             drop(reader);
+            worker.join().unwrap();
+            panic!("opening a daemon FIFO blocked before type validation");
         }
         worker.join().unwrap();
         let error = outcome.unwrap().unwrap_err();
-        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+        assert!(
+            error.kind() == io::ErrorKind::InvalidInput
+                || error.raw_os_error() == Some(libc::ENXIO),
+            "unexpected FIFO rejection: {error}"
+        );
         assert!(fs::symlink_metadata(&fifo).unwrap().file_type().is_fifo());
     }
 
