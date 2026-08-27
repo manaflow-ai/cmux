@@ -1090,6 +1090,32 @@ def test_launcher_reclaims_stale_empty_lease_during_prune(tmp_path: Path) -> Non
     assert not (cache / host_platform_key() / "v/1.0.0").exists()
 
 
+def test_launcher_reclaims_cache_lease_when_owner_pid_is_reused(tmp_path: Path) -> None:
+    if sys.platform == "win32":
+        return
+    launcher = write_launcher(tmp_path)
+    cache = tmp_path / "cache"
+    write_cached_binary(cache, "1.0.0", "#!/bin/sh\nexit 0\n", managed=True)
+    write_cached_binary(cache, "1.1.0", "#!/bin/sh\nexit 0\n", managed=True)
+    lease = cache / host_platform_key() / "v/1.0.0/.active/reused-lease"
+    lease.mkdir(parents=True)
+    stale_created_at = int((time.time() - 11 * 60) * 1000)
+    (lease / "pid").write_text(
+        f"{os.getpid()}\nfixture-owner-token\nproc:old-start\n{stale_created_at}\n"
+    )
+    os.utime(lease, (stale_created_at / 1000, stale_created_at / 1000))
+
+    server, thread, registry = start_registry()
+    try:
+        result = run_launcher(launcher, cache, registry)
+    finally:
+        server.shutdown()
+        thread.join()
+
+    assert result.returncode == 0, result.stderr
+    assert not (cache / host_platform_key() / "v/1.0.0").exists()
+
+
 def test_launcher_keeps_fresh_empty_lease_during_prune(tmp_path: Path) -> None:
     if sys.platform == "win32":
         return
@@ -1361,6 +1387,9 @@ def main() -> None:
         test_launcher_recovers_stale_empty_cache_lock(root / "stale-empty-lock")
         test_launcher_keeps_fresh_empty_cache_lock(root / "fresh-empty-lock")
         test_launcher_reclaims_stale_empty_lease_during_prune(root / "stale-empty-lease")
+        test_launcher_reclaims_cache_lease_when_owner_pid_is_reused(
+            root / "reused-lease"
+        )
         test_launcher_keeps_fresh_empty_lease_during_prune(root / "fresh-empty-lease")
         test_concurrent_launchers_preserve_an_active_lease_during_prune(root / "concurrent")
         test_update_lease_protects_download_from_concurrent_prune(root / "update-concurrent")
