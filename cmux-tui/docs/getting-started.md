@@ -147,7 +147,9 @@ npm install -g ./cmux-0.11.0.tgz ./cmux-tui-darwin-arm64-0.11.0.tgz
 
 Alternatively, populate the launcher cache itself and set
 `CMUX_TUI_LAUNCHER_CACHE` to that directory. npm's download cache is not read
-by the launcher.
+by the launcher. A verified executable in a read-only launcher cache can run
+without network access; the launcher skips leases and pruning in that mode, so
+keep the cached binary executable and let the cache administrator update it.
 
 ## Troubleshooting npx installs
 

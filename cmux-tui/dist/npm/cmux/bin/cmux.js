@@ -317,6 +317,33 @@ function cachedBinary(version) {
   }
 }
 
+// A verified cache entry can be launched from a centrally provisioned
+// read-only cache. Check every directory needed to publish a lease before
+// deciding whether that read-only launch path is available.
+function cacheVersionCanBeModified(version) {
+  const versionRoot = path.dirname(cachedBinDir(version));
+  const leaseRoot = path.join(versionRoot, ".active");
+  const directories = [
+    platformRoot(),
+    path.dirname(versionRoot),
+    versionRoot,
+  ];
+  try {
+    if (fs.existsSync(leaseRoot)) directories.push(leaseRoot);
+  } catch {
+    return false;
+  }
+  for (const directory of directories) {
+    try {
+      if (!fs.statSync(directory).isDirectory()) return false;
+      fs.accessSync(directory, fs.constants.W_OK);
+    } catch {
+      return false;
+    }
+  }
+  return true;
+}
+
 function cacheLockPath() {
   return path.join(platformRoot(), ".update.lock");
 }
@@ -1267,15 +1294,33 @@ async function main() {
     // not require a writable cache or create a lease when it can run directly.
     const installed = wanted ? installedPackage(pkg) : null;
     const installedBin = installed && installed.version === wanted ? installed.binPath : null;
+    // Resolve a verified cache hit before trying to create a lease. A
+    // read-only, pre-populated cache cannot publish `.active` or `.update.lock`;
+    // it is safe to launch that verified binary when pruning is skipped.
+    const cached = wanted && !installedBin ? cachedBinary(wanted) : null;
+    const readOnlyCached = Boolean(
+      cached && !cacheVersionCanBeModified(wanted)
+    );
     // Lease creation serializes with pruning. If another process owns the
     // lock, fail closed rather than launching an unleased binary that a prune
     // can remove while it is running.
-    lease = wanted && !installedBin ? await acquireVersionLeaseForProcess(wanted) : null;
-    if (wanted && !installedBin && !lease) {
+    lease =
+      wanted && !installedBin && !readOnlyCached
+        ? await acquireVersionLeaseForProcess(wanted)
+        : null;
+    if (wanted && !installedBin && !readOnlyCached && !lease) {
       fail("could not reserve the native binary for launch");
     }
     if (lease) process.once("exit", () => releaseVersionLease(lease));
-    const binPath = installedBin || (await resolveBinary(pkg, wanted));
+    let binPath = installedBin;
+    if (!binPath && readOnlyCached) {
+      // Revalidate the read-only path after all setup before spawning. No
+      // cache mutation or prune is attempted on this path.
+      binPath = cachedBinary(wanted);
+      if (!binPath) fail("the cached native binary changed before launch");
+    } else if (!binPath) {
+      binPath = await resolveBinary(pkg, wanted);
+    }
     if (lease) pruneCache(wanted);
     const result = spawnSync(binPath, args, { stdio: "inherit" });
     if (result.error) {
