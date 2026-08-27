@@ -17,6 +17,7 @@ The current main tail includes [#10936](https://github.com/manaflow-ai/cmux/pull
 [#10958](https://github.com/manaflow-ai/cmux/pull/10958),
 [#10962](https://github.com/manaflow-ai/cmux/pull/10962), and
 [#10951](https://github.com/manaflow-ai/cmux/pull/10951), and
+[#10972](https://github.com/manaflow-ai/cmux/pull/10972), and
 [#10959](https://github.com/manaflow-ai/cmux/pull/10959). The latest merge adds
 Escape passthrough after the startup, redraw, frame-area, diagnostics, and
 draw/paint render-path tail. Source heads, authors, merge times, and merge
@@ -43,6 +44,7 @@ Individual rollback commands are in
 | [#10962](https://github.com/manaflow-ai/cmux/pull/10962) | Lawrence Chen | `ff719b6dc4e9f05358d0c77b7f49a9db021f72e7` | 2026-08-27 10:41:51 | `ef5e7434927d89996e2cd29b429823b8a716a08e` |
 | [#10951](https://github.com/manaflow-ai/cmux/pull/10951) | Lawrence Chen | `978655f95b56351c9d554d2bdd1be9ad6ec2c551` | 2026-08-27 12:04:42 | `de3902db48d2924c227b5acb26cbe1d89fe03cc0` |
 | [#10970](https://github.com/manaflow-ai/cmux/pull/10970) | Lawrence Chen | `561ddccdc9da7d6389d90940f73e9ea30205fa26` | 2026-08-27 12:25:26 | `aa8ca45e0b3a140678c4a6ae588e201cb421ac50` |
+| [#10972](https://github.com/manaflow-ai/cmux/pull/10972) | Lawrence Chen | `d41cac100d2488c41cbabff7c236166186b9deb4` | 2026-08-27 12:22:32 | `2f95b8760005047ff470afe4a00fd33783e4cf93` |
 | [#10959](https://github.com/manaflow-ai/cmux/pull/10959) | Lawrence Chen | `8f74239c78a81352d69e8fe5512a688b0a9d7b7e` | 2026-08-27 12:49:58 | `87f31977237cbcbbf8b7f492718685d612fbb9b0` |
 
 The bounded open-PR inventory retained below was captured before the d65 merge.
