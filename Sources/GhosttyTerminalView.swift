@@ -3570,6 +3570,32 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private static let tabTransferPasteboardType = NSPasteboard.PasteboardType("com.splittabbar.tabtransfer")
     private static let sidebarTabReorderPasteboardType = NSPasteboard.PasteboardType("com.cmux.sidebar-tab-reorder")
 
+    /// Resolves internal drag identity through the live registries. AppKit
+    /// drag callbacks arrive on the main thread, while this view predates the
+    /// app-wide MainActor annotation; the assumption keeps stale pasteboard
+    /// UTIs from suppressing ordinary file drops without adding a second owner.
+    private static func hasLiveInternalDrag(in pasteboard: NSPasteboard) -> Bool {
+        MainActor.assumeIsolated {
+            let app = AppDelegate.shared
+            let types = pasteboard.types
+            if types?.contains(tabTransferPasteboardType) == true,
+               app?.liveTabDragCapabilityResolver.resolve(from: pasteboard) != nil {
+                return true
+            }
+            guard types?.contains(sidebarTabReorderPasteboardType) == true else {
+                return false
+            }
+            return SidebarTabDragPayload.hasLiveSession(
+                in: pasteboard,
+                currentSessionId: app?.sidebarWorkspaceDragRegistry.currentSessionId
+            )
+        }
+    }
+
+    private static func filteredDropTypes(_ types: [NSPasteboard.PasteboardType]) -> Set<NSPasteboard.PasteboardType> {
+        Set(types).subtracting([tabTransferPasteboardType, sidebarTabReorderPasteboardType])
+    }
+
     private enum WordPathResolutionSource: String {
         case quicklook
         case snapshot
@@ -3910,6 +3936,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
     private var trackingArea: NSTrackingArea?
     private var windowObserver: NSObjectProtocol?
+    private var windowOcclusionObserver: NSObjectProtocol?
+    private var windowKeyObservers: [NSObjectProtocol] = []
+    /// Windows that have reported an occlusion `.visible` bit at least once, so the
+    /// visibility rule knows when that signal is trustworthy (see
+    /// `TerminalRendererWindowVisibility`). Weak: windows come and go.
+    private static let windowsThatReportedVisible = NSHashTable<NSWindow>.weakObjects()
     private var lastScrollEventTime: CFTimeInterval = 0
     private let scrollSpeedAccumulator = TerminalScrollSpeedAccumulator()
     private var visibleInUI: Bool = true
@@ -4529,6 +4561,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             NotificationCenter.default.removeObserver(windowObserver)
             self.windowObserver = nil
         }
+        if let windowOcclusionObserver {
+            NotificationCenter.default.removeObserver(windowOcclusionObserver)
+            self.windowOcclusionObserver = nil
+        }
+        windowKeyObservers.forEach { NotificationCenter.default.removeObserver($0) }
+        windowKeyObservers.removeAll()
         // Balance the cursor stack if the view is removed while hover is active
         if wordPathHoverActive {
             wordPathHoverActive = false
@@ -4563,6 +4601,39 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         ) { [weak self] notification in
             self?.windowDidChangeScreen(notification)
         }
+
+        // Window-level occlusion (miniaturized, fully covered, inactive Space)
+        // pauses the core renderer and lets the reclamation controller release
+        // this surface's GPU swap chain. View-level occlusion stays untouched:
+        // a nil-window reparenting transition keeps the last window state, so
+        // portal moves cannot flap occlusion mid-drag.
+        windowOcclusionObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didChangeOcclusionStateNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] notification in
+            guard let occludedWindow = notification.object as? NSWindow else { return }
+            // Delivered on the main queue (`queue: .main`), which is the main actor.
+            MainActor.assumeIsolated {
+                self?.applyRendererWindowVisibility(for: occludedWindow)
+            }
+        }
+        // Key/main transitions do not always come with an occlusion change, and a
+        // window on a virtual display may never report `.visible` at all; both
+        // re-evaluate the same rule so an on-screen window is always presented.
+        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didBecomeMainNotification, NSWindow.didResignKeyNotification] {
+            windowKeyObservers.append(NotificationCenter.default.addObserver(
+                forName: name,
+                object: window,
+                queue: .main
+            ) { [weak self] notification in
+                guard let keyWindow = notification.object as? NSWindow else { return }
+                MainActor.assumeIsolated {
+                    self?.applyRendererWindowVisibility(for: keyWindow)
+                }
+            })
+        }
+        applyRendererWindowVisibility(for: window)
 
         if let surface = terminalSurface?.surface,
            let displayID = window.screen?.displayID,
@@ -4603,8 +4674,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     fileprivate func updateOcclusionState() {
-        // Intentionally no-op: we don't drive libghostty occlusion from AppKit occlusion state.
-        // This avoids transient clears during reparenting and keeps rendering logic minimal.
+        // Intentionally no-op at the VIEW level: view visibility flaps during
+        // portal reparenting and would cause transient clears. Occlusion is
+        // driven by portal visibility (`setVisibleInUI`) combined with the
+        // window-level observer registered in `viewDidMoveToWindow`.
     }
 
     override func viewDidChangeBackingProperties() {
@@ -4661,8 +4734,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     private static func hasTabDragPasteboardTypes() -> Bool {
-        let types = NSPasteboard(name: .drag).types ?? []
-        return types.contains(tabTransferPasteboardType) || types.contains(sidebarTabReorderPasteboardType)
+        let pasteboard = NSPasteboard(name: .drag)
+        return hasLiveInternalDrag(in: pasteboard)
     }
 
     private static func isDragResizeEvent(_ eventType: NSEvent.EventType?) -> Bool {
@@ -8225,6 +8298,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if let windowObserver {
             NotificationCenter.default.removeObserver(windowObserver)
         }
+        if let windowOcclusionObserver {
+            NotificationCenter.default.removeObserver(windowOcclusionObserver)
+        }
+        windowKeyObservers.forEach { NotificationCenter.default.removeObserver($0) }
         if let trackingArea {
             removeTrackingArea(trackingArea)
         }
@@ -8255,9 +8332,30 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
     }
 
+    /// Applies `TerminalRendererWindowVisibility` for the hosting window. The
+    /// occlusion `.visible` bit is remembered per window so the rule can tell a
+    /// trustworthy occlusion verdict from a virtual display that never sets it.
+    private func applyRendererWindowVisibility(for window: NSWindow) {
+        let occlusionVisible = window.occlusionState.contains(.visible)
+        if occlusionVisible {
+            Self.windowsThatReportedVisible.add(window)
+        }
+        terminalSurface?.setRendererWindowVisible(
+            TerminalRendererWindowVisibility.isVisible(
+                occlusionVisible: occlusionVisible,
+                windowHasReportedVisible: Self.windowsThatReportedVisible.contains(window),
+                isWindowVisible: window.isVisible,
+                isMiniaturized: window.isMiniaturized,
+                isOnActiveSpace: window.isOnActiveSpace,
+                isKeyWindow: window.isKeyWindow
+            )
+        )
+    }
+
     private func windowDidChangeScreen(_ notification: Notification) {
         guard let window else { return }
         guard let object = notification.object as? NSWindow, window == object else { return }
+        applyRendererWindowVisibility(for: window)
         guard let screen = window.screen else { return }
         guard let surface = terminalSurface?.surface else { return }
 
@@ -8586,10 +8684,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard let types = sender.draggingPasteboard.types else { return [] }
         // Defer to bonsplit when a tab/session drag is in flight: bonsplit's pane
         // drop overlays should win over the terminal's text/file drop handling.
-        if types.contains(Self.tabTransferPasteboardType) || types.contains(Self.sidebarTabReorderPasteboardType) {
+        if Self.hasLiveInternalDrag(in: sender.draggingPasteboard) {
             return []
         }
-        if Set(types).isDisjoint(with: Self.dropTypes) {
+        if Self.filteredDropTypes(types).isDisjoint(with: Self.dropTypes) {
             return []
         }
         return .copy
@@ -8601,10 +8699,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         cmuxDebugLog("terminal.draggingUpdated surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") types=\(types.map(\.rawValue))")
         #endif
         guard let types = sender.draggingPasteboard.types else { return [] }
-        if types.contains(Self.tabTransferPasteboardType) || types.contains(Self.sidebarTabReorderPasteboardType) {
+        if Self.hasLiveInternalDrag(in: sender.draggingPasteboard) {
             return []
         }
-        if Set(types).isDisjoint(with: Self.dropTypes) {
+        if Self.filteredDropTypes(types).isDisjoint(with: Self.dropTypes) {
             return []
         }
         return .copy
@@ -8612,7 +8710,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
         let types = sender.draggingPasteboard.types ?? []
-        if types.contains(Self.tabTransferPasteboardType) || types.contains(Self.sidebarTabReorderPasteboardType) {
+        if Self.hasLiveInternalDrag(in: sender.draggingPasteboard) {
             return false
         }
         #if DEBUG
@@ -10694,7 +10792,10 @@ final class GhosttySurfaceScrollView: NSView {
         surfaceView.terminalSurface?.setRendererPortalVisible(visible)
         if wasVisible != visible, lastRequestedPortalOcclusionVisible != visible {
             lastRequestedPortalOcclusionVisible = visible
-            surfaceView.terminalSurface?.setOcclusion(visible)
+            // A portal reveal inside a hidden window (agent/socket-driven
+            // workspace switches) must not lift occlusion; the window-level
+            // observer replays it when the window returns on screen.
+            surfaceView.terminalSurface?.applyVisibilityOcclusion(visible)
         }
 #if DEBUG
         if wasVisible != visible {

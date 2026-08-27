@@ -8,6 +8,7 @@ import {
 } from "../../../services/vms/auth";
 import {
   defaultProviderId,
+  isProviderId,
   type ProviderId,
 } from "../../../services/vms/drivers";
 import { assertVmCreateEnabled } from "../../../services/vms/config";
@@ -21,13 +22,16 @@ import {
 } from "../../../services/vms/errors";
 import {
   defaultMemoryMbForPlan,
+  isPaidVmPlan,
   isVmBillingTeamResolutionError,
   isVmProGateBlocked,
   maxMemoryMbForPlan,
   resolveVmEntitlements,
+  vmFreeAccessWindowDays,
 } from "../../../services/vms/entitlements";
 import {
   imageUsesBakedFreestyleSignedAdmin,
+  inferVmProviderForImage,
   resolveVmImage,
 } from "../../../services/vms/images/resolver";
 import { reconcileProPlanMetadata } from "../../../services/billing/pro";
@@ -41,6 +45,7 @@ import {
   vmActiveLimitExceededResponse,
   vmRequiresProResponse,
 } from "../../../services/vms/routeHelpers";
+import { captureVmProvisionOutcome } from "../../../services/vms/observability";
 import {
   createVm,
   listUserVms,
@@ -90,15 +95,6 @@ export async function GET(request: Request): Promise<Response> {
       setSpanAttributes(span, { "cmux.vm.count": entries.length });
       // REST adapter: expose `id` at the top level so existing CLI + curl users don't need to
       // learn the new `providerVmId` field name. Swift CLI reads `vm["id"]`.
-      const vms = entries.map((entry) => ({
-        id: entry.providerVmId,
-        provider: entry.provider,
-        status: entry.status,
-        image: entry.image,
-        imageVersion: entry.imageVersion,
-        createdAt: entry.createdAt,
-        displayName: entry.displayName,
-      }));
       // Plan context for machine-fleet UIs: how many active VMs this caller may
       // hold and which plan sets that ceiling. Personal accounts skip the team
       // resolution above, so resolve lazily here.
@@ -109,8 +105,38 @@ export async function GET(request: Request): Promise<Response> {
           listEntitlements = null;
         }
       }
+      // freeAccessWindowDays is 0 for paid plans (no window) so clients can
+      // render countdowns/locks from the payload without hardcoding policy.
+      const freeAccessWindowDays = listEntitlements && !isPaidVmPlan(listEntitlements.planId)
+        ? vmFreeAccessWindowDays()
+        : 0;
+      const vms = entries.map((entry) => ({
+        id: entry.providerVmId,
+        provider: entry.provider,
+        status: entry.status,
+        image: entry.image,
+        imageVersion: entry.imageVersion,
+        createdAt: entry.createdAt,
+        displayName: entry.displayName,
+        // Server-authoritative expiry of the free access window for this machine
+        // (epoch ms); null on paid plans or when the window is disabled. Clients
+        // render countdowns from this instead of re-deriving the policy.
+        freeAccessExpiresAt: freeAccessExpiresAtMs(entry.createdAt, freeAccessWindowDays),
+      }));
       const limits = listEntitlements
-        ? { maxActiveVms: listEntitlements.maxActiveVms, planId: listEntitlements.planId }
+        ? {
+          maxActiveVms: listEntitlements.maxActiveVms,
+          planId: listEntitlements.planId,
+          freeAccessWindowDays,
+          // The earliest expiry across the caller's machines: what a fleet header
+          // counts down to. Null when nothing is on a window.
+          freeAccessExpiresAt: vms.reduce<number | null>(
+            (earliest, vm) => vm.freeAccessExpiresAt === null
+              ? earliest
+              : earliest === null ? vm.freeAccessExpiresAt : Math.min(earliest, vm.freeAccessExpiresAt),
+            null,
+          ),
+        }
         : undefined;
       return jsonResponse({ vms, limits });
     },
@@ -126,7 +152,10 @@ export async function POST(request: Request): Promise<Response> {
     async ({ user: initialUser, span, authDurationMs, routeStartedAtMs, setResponseFinalizer }) => {
       const timing = new VmTimingRecorder(span, "create", { startedAt: routeStartedAtMs });
       timing.record("auth", authDurationMs);
-      setResponseFinalizer((response) => timing.finish({ status: response.status }));
+      setResponseFinalizer((response) => {
+        timing.finish({ status: response.status });
+        captureVmProvisionOutcome({ userId: initialUser.id, operation: "create", response });
+      });
       let user: AuthedUser = initialUser;
       {
         // Runtime-validate the payload before we call a paid provider. An invalid `provider`
@@ -185,7 +214,7 @@ export async function POST(request: Request): Promise<Response> {
               details: { field: "provider" },
             });
           }
-          if (candidate.provider !== "e2b" && candidate.provider !== "freestyle" && candidate.provider !== "daytona" && candidate.provider !== "blaxel") {
+          if (!isProviderId(candidate.provider)) {
             return vmErrorResponse({
               error: "vm_invalid_provider",
               status: 400,
@@ -240,7 +269,10 @@ export async function POST(request: Request): Promise<Response> {
           provider: candidate.provider as ProviderId | undefined,
           billingTeamId: typeof bodyBillingTeamId === "string" ? bodyBillingTeamId.trim() : undefined,
         };
-        const provider = body.provider ?? defaultProviderId();
+        // An explicit manifest image names its own provider: the CLI sends
+        // provider-specific image ids without a provider field, and the
+        // deployment default must not reroute them under the wrong provider.
+        const provider = body.provider ?? inferVmProviderForImage(body.image) ?? defaultProviderId();
         let imageSelection;
         try {
           assertVmCreateEnabled(provider);
@@ -263,6 +295,12 @@ export async function POST(request: Request): Promise<Response> {
               action: "Retry without `image` to use the default Cloud VM image, or ask an admin to configure a supported image.",
               reason: "Cloud VM image configuration is unavailable.",
               details: { imageRequested: err.image !== undefined },
+              diagnostics: {
+                provider,
+                image: err.image,
+                envVar: err.envVar,
+                configReason: err.reason,
+              },
             });
           }
           throw err;
@@ -518,4 +556,12 @@ function billingTeamErrorResponse(err: {
     action: "Select a team in cmux, or pass the team id with `X-Cmux-Team-Id`. If you do not see a team, run `cmux auth login` again.",
     reason: "No eligible team was selected for this Cloud VM.",
   });
+}
+
+/** `createdAt + windowDays` in epoch ms; null when no window applies or createdAt is unusable. */
+function freeAccessExpiresAtMs(createdAt: unknown, windowDays: number): number | null {
+  if (windowDays <= 0) return null;
+  const createdMs = createdAt instanceof Date ? createdAt.getTime() : createdAt;
+  if (typeof createdMs !== "number" || !Number.isFinite(createdMs)) return null;
+  return createdMs + windowDays * 24 * 60 * 60 * 1000;
 }

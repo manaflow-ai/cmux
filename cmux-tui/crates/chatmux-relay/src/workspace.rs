@@ -16,10 +16,13 @@
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
 use serde_json::Value;
 use sha2::{Digest as _, Sha256};
+use tokio::io::AsyncReadExt as _;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
+use tokio_util::sync::CancellationToken;
 
 use crate::actions::{
     RootLists, ensure_scoped_file_roots_available, process_env_snapshot, scrubbed_env,
@@ -57,6 +60,16 @@ const MAX_TIMEOUT_MS: i64 = 300_000;
 /// Bound per-connection workspace task fan-out. This matches the control
 /// plane's pending-request cap and makes refusal explicit under load.
 pub const MAX_IN_FLIGHT_WORKSPACE_REQUESTS: usize = 256;
+
+// Include one byte for the line delimiter. The assembled patch still uses
+// DIFF_MAX_BYTES as its payload ceiling, so this only bounds one input line.
+const GIT_DIFF_LINE_MAX_BYTES: usize = DIFF_MAX_BYTES + 1;
+const GIT_STDERR_MAX_BYTES: usize = 64 * 1024;
+const GIT_STDERR_DRAIN_TIMEOUT: Duration = Duration::from_millis(250);
+const GIT_CHILD_WAIT_TIMEOUT: Duration = Duration::from_secs(5);
+const GIT_STOP_TIMEOUT: Duration = Duration::from_secs(1);
+const CONNECTION_REQUEST_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(2);
+const CONNECTION_REQUEST_ABORT_TIMEOUT: Duration = Duration::from_secs(1);
 
 fn validate_allowed_roots_value(frame: &Value) -> Result<(), &'static str> {
     let Some(value) = frame.get("allowedRoots") else { return Ok(()) };
@@ -1427,6 +1440,13 @@ fn git_command(root: &Path, args: &[&str]) -> tokio::process::Command {
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .kill_on_drop(true);
+    #[cfg(unix)]
+    {
+        // Git may launch helpers which inherit its pipes. A private process
+        // group lets cancellation terminate the whole tree without an unsafe
+        // pre_exec hook.
+        command.process_group(0);
+    }
     command
 }
 
@@ -1441,6 +1461,326 @@ fn git_refusal(context: &str, stderr: &[u8]) -> Refusal {
     }
 }
 
+const GIT_DIFF_PREFIX_BYTES: usize = 10;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum BoundedGitDiffLine {
+    Complete(String),
+    TooLong { prefix: [u8; GIT_DIFF_PREFIX_BYTES], length: u8 },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum GitDiffLineKind {
+    File,
+    Addition,
+    Deletion,
+    Other,
+}
+
+fn classify_git_diff_line(bytes: &[u8]) -> GitDiffLineKind {
+    if bytes.starts_with(b"diff --git ") {
+        GitDiffLineKind::File
+    } else if bytes.first() == Some(&b'+') && !bytes.starts_with(b"+++") {
+        GitDiffLineKind::Addition
+    } else if bytes.first() == Some(&b'-') && !bytes.starts_with(b"---") {
+        GitDiffLineKind::Deletion
+    } else {
+        GitDiffLineKind::Other
+    }
+}
+
+fn retain_git_diff_prefix(
+    prefix: &mut [u8; GIT_DIFF_PREFIX_BYTES],
+    length: &mut usize,
+    bytes: &[u8],
+) {
+    let available = GIT_DIFF_PREFIX_BYTES.saturating_sub(*length);
+    let take = available.min(bytes.len());
+    prefix[*length..*length + take].copy_from_slice(&bytes[..take]);
+    *length += take;
+}
+
+/// Read one diff line without allowing a missing newline to grow the buffer
+/// without bound. `fill_buf` is cancellation-safe; consume every byte of an
+/// over-limit line without retaining it, so the caller can keep calculating
+/// the full diff stat while dropping the patch safely.
+async fn read_bounded_git_diff_line<R>(
+    reader: &mut R,
+    line: &mut Vec<u8>,
+    maximum: usize,
+) -> std::io::Result<Option<BoundedGitDiffLine>>
+where
+    R: tokio::io::AsyncBufRead + Unpin,
+{
+    use tokio::io::AsyncBufReadExt as _;
+
+    line.clear();
+    let mut too_long = false;
+    let mut prefix = [0_u8; GIT_DIFF_PREFIX_BYTES];
+    let mut prefix_length = 0_usize;
+    loop {
+        let buffer = reader.fill_buf().await?;
+        if buffer.is_empty() {
+            if too_long {
+                return Ok(Some(BoundedGitDiffLine::TooLong {
+                    prefix,
+                    length: prefix_length as u8,
+                }));
+            }
+            return if line.is_empty() {
+                Ok(None)
+            } else {
+                decode_git_diff_line(line).map(|line| Some(BoundedGitDiffLine::Complete(line)))
+            };
+        }
+        let newline = buffer.iter().position(|byte| *byte == b'\n');
+        let take = newline.map_or(buffer.len(), |index| index + 1);
+        if too_long {
+            retain_git_diff_prefix(&mut prefix, &mut prefix_length, &buffer[..take]);
+            reader.consume(take);
+        } else if line.len().saturating_add(take) > maximum {
+            // Consume this chunk, including a possible newline, and then
+            // report a marker instead of returning an error. This keeps the
+            // stream aligned for later lines and bounds retained memory.
+            retain_git_diff_prefix(&mut prefix, &mut prefix_length, &buffer[..take]);
+            reader.consume(take);
+            line.clear();
+            too_long = true;
+        } else {
+            retain_git_diff_prefix(&mut prefix, &mut prefix_length, &buffer[..take]);
+            line.extend_from_slice(&buffer[..take]);
+            reader.consume(take);
+        }
+        if newline.is_some() {
+            return if too_long {
+                Ok(Some(BoundedGitDiffLine::TooLong { prefix, length: prefix_length as u8 }))
+            } else {
+                decode_git_diff_line(line).map(|line| Some(BoundedGitDiffLine::Complete(line)))
+            };
+        }
+    }
+}
+
+fn decode_git_diff_line(line: &mut Vec<u8>) -> std::io::Result<String> {
+    if line.last() == Some(&b'\n') {
+        line.pop();
+        if line.last() == Some(&b'\r') {
+            line.pop();
+        }
+    }
+    std::str::from_utf8(line)
+        .map(str::to_owned)
+        .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))
+}
+
+/// Own stderr draining for one Git process. Retain only a bounded prefix, but
+/// continue reading after the cap so Git cannot block on a full stderr pipe.
+struct GitStderrDrain {
+    task: tokio::task::JoinHandle<std::io::Result<()>>,
+    retained: Arc<std::sync::Mutex<Vec<u8>>>,
+}
+
+struct GitStderrResult {
+    bytes: Vec<u8>,
+    complete: bool,
+}
+
+impl Drop for GitStderrDrain {
+    fn drop(&mut self) {
+        self.task.abort();
+    }
+}
+
+impl GitStderrDrain {
+    fn start<R>(mut stderr: R) -> GitStderrDrain
+    where
+        R: tokio::io::AsyncRead + Unpin + Send + 'static,
+    {
+        let retained = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let task_retained = Arc::clone(&retained);
+        let task = tokio::spawn(async move {
+            let mut buffer = [0_u8; 8 * 1024];
+            loop {
+                let read = stderr.read(&mut buffer).await?;
+                if read == 0 {
+                    break;
+                }
+                if let Ok(mut retained) = task_retained.lock()
+                    && retained.len() < GIT_STDERR_MAX_BYTES
+                {
+                    let keep = (GIT_STDERR_MAX_BYTES - retained.len()).min(read);
+                    retained.extend_from_slice(&buffer[..keep]);
+                }
+            }
+            Ok(())
+        });
+        GitStderrDrain { task, retained }
+    }
+
+    async fn finish(mut self) -> Result<GitStderrResult, Refusal> {
+        match tokio::time::timeout(GIT_STDERR_DRAIN_TIMEOUT, &mut self.task).await {
+            Ok(result) => result
+                .map_err(|error| Refusal::failed(format!("git stderr drain failed: {error}")))?
+                .map_err(|error| Refusal::failed(format!("git stderr read failed: {error}")))?,
+            Err(_) => {
+                self.task.abort();
+                let _ = (&mut self.task).await;
+                return Ok(GitStderrResult {
+                    bytes: self
+                        .retained
+                        .lock()
+                        .map(|retained| retained.clone())
+                        .unwrap_or_default(),
+                    complete: false,
+                });
+            }
+        }
+        Ok(GitStderrResult {
+            bytes: self.retained.lock().map(|retained| retained.clone()).unwrap_or_default(),
+            complete: true,
+        })
+    }
+}
+
+/// Keep the process-group identity armed until the direct child has been
+/// awaited. Drop can signal the group, but it cannot await, so owned async
+/// paths must call `stop_git`/`wait_git_until` before disarming this guard.
+struct GitProcessGuard(Option<u32>);
+
+impl GitProcessGuard {
+    fn new(child: &tokio::process::Child) -> GitProcessGuard {
+        GitProcessGuard(child.id())
+    }
+
+    fn kill_group(&self) {
+        #[cfg(unix)]
+        if let Some(pid) = self.0 {
+            // SAFETY: `pid` is the process-group leader we just spawned.
+            unsafe {
+                let _ = libc::kill(-(pid as libc::pid_t), libc::SIGKILL);
+            }
+        }
+    }
+
+    fn disarm(&mut self) {
+        self.0 = None;
+    }
+}
+
+impl Drop for GitProcessGuard {
+    fn drop(&mut self) {
+        if self.0.is_some() {
+            self.kill_group();
+        }
+        // Tokio's kill_on_drop handles the direct child. Async owners call
+        // `wait_git_until` before this guard is disarmed to provide deterministic
+        // reaping; Drop is only an emergency descendant-kill fallback.
+    }
+}
+
+fn disarm_if_reaped(child: &tokio::process::Child, guard: &mut GitProcessGuard) {
+    if child.id().is_none() {
+        guard.disarm();
+    }
+}
+
+/// Terminate the process group and await the direct child within a bound.
+async fn stop_git(child: &mut tokio::process::Child) {
+    #[cfg(unix)]
+    if let Some(pid) = child.id() {
+        // SAFETY: the child was spawned with `process_group(0)`.
+        unsafe {
+            let _ = libc::kill(-(pid as libc::pid_t), libc::SIGKILL);
+        }
+    }
+    let _ = child.start_kill();
+    let _ = tokio::time::timeout(GIT_STOP_TIMEOUT, child.wait()).await;
+}
+
+fn remaining_git_time(deadline: std::time::Instant) -> Option<Duration> {
+    // Normal stdout reads use the complete request budget. Keep short caps in
+    // `bounded_git_time` for post-cancellation cleanup and child reaping only.
+    deadline.checked_duration_since(std::time::Instant::now())
+}
+
+fn bounded_git_time(deadline: std::time::Instant, cap: Duration) -> Option<Duration> {
+    Some(remaining_git_time(deadline)?.min(cap))
+}
+
+async fn wait_git_until(
+    child: &mut tokio::process::Child,
+    deadline: std::time::Instant,
+) -> Result<std::process::ExitStatus, Refusal> {
+    let Some(timeout) = bounded_git_time(deadline, GIT_CHILD_WAIT_TIMEOUT) else {
+        stop_git(child).await;
+        return Err(Refusal::failed("git operation deadline exceeded"));
+    };
+    match tokio::time::timeout(timeout, child.wait()).await {
+        Ok(Ok(status)) => Ok(status),
+        Ok(Err(error)) => Err(Refusal::failed(format!("could not wait for git: {error}"))),
+        Err(_) => {
+            stop_git(child).await;
+            Err(Refusal::failed("git operation deadline exceeded"))
+        }
+    }
+}
+
+async fn finish_git_stderr(
+    stderr_task: Option<GitStderrDrain>,
+    child: &mut tokio::process::Child,
+    guard: &mut GitProcessGuard,
+    deadline: std::time::Instant,
+    operation: &str,
+) -> Result<Vec<u8>, Refusal> {
+    let Some(task) = stderr_task else { return Ok(Vec::new()) };
+    let Some(timeout) = bounded_git_time(deadline, GIT_STDERR_DRAIN_TIMEOUT) else {
+        guard.kill_group();
+        stop_git(child).await;
+        disarm_if_reaped(child, guard);
+        return Err(Refusal::failed(format!("{operation} operation deadline exceeded")));
+    };
+    let result = match tokio::time::timeout(timeout, task.finish()).await {
+        Ok(Ok(result)) => result,
+        Ok(Err(error)) => {
+            guard.kill_group();
+            stop_git(child).await;
+            disarm_if_reaped(child, guard);
+            return Err(error);
+        }
+        Err(_) => {
+            guard.kill_group();
+            stop_git(child).await;
+            disarm_if_reaped(child, guard);
+            return Err(Refusal::failed(format!("{operation} operation deadline exceeded")));
+        }
+    };
+    match result {
+        GitStderrResult { bytes, complete: true } => Ok(bytes),
+        GitStderrResult { complete: false, .. } => {
+            guard.kill_group();
+            stop_git(child).await;
+            disarm_if_reaped(child, guard);
+            Err(Refusal::failed(format!("{operation} stderr drain timed out")))
+        }
+    }
+}
+
+/// Kill and reap after a read/stream error. The stderr task is finished while
+/// the process-group identity is still owned by the live child handle.
+async fn abort_git_operation(
+    stderr_task: Option<GitStderrDrain>,
+    child: &mut tokio::process::Child,
+    guard: &mut GitProcessGuard,
+) {
+    guard.kill_group();
+    let _ = child.start_kill();
+    if let Some(task) = stderr_task {
+        let _ = task.finish().await;
+    }
+    stop_git(child).await;
+    disarm_if_reaped(child, guard);
+}
+
 /// Two-column XY code in the porcelain v1 spelling ("M " not "M.") — the
 /// wire schema pins v1's verbatim codes.
 fn porcelain_v1_xy(xy: &str) -> String {
@@ -1448,6 +1788,32 @@ fn porcelain_v1_xy(xy: &str) -> String {
 }
 
 async fn run_git_status(scope: &Scope) -> Result<wire::WorkspaceResultBody, Refusal> {
+    let cancellation = CancellationToken::new();
+    run_git_status_with_cancel_until(
+        scope,
+        &cancellation,
+        std::time::Instant::now() + Duration::from_millis(MAX_TIMEOUT_MS as u64),
+    )
+    .await
+}
+
+async fn run_git_status_with_cancel(
+    scope: &Scope,
+    cancellation: &CancellationToken,
+) -> Result<wire::WorkspaceResultBody, Refusal> {
+    run_git_status_with_cancel_until(
+        scope,
+        cancellation,
+        std::time::Instant::now() + Duration::from_millis(MAX_TIMEOUT_MS as u64),
+    )
+    .await
+}
+
+async fn run_git_status_with_cancel_until(
+    scope: &Scope,
+    cancellation: &CancellationToken,
+    deadline: std::time::Instant,
+) -> Result<wire::WorkspaceResultBody, Refusal> {
     let root = scope.existing_workdir()?;
     let mut child = git_command(
         &root,
@@ -1455,38 +1821,88 @@ async fn run_git_status(scope: &Scope) -> Result<wire::WorkspaceResultBody, Refu
     )
     .spawn()
     .map_err(|error| Refusal::failed(format!("could not run git: {error}")))?;
+    let mut process_guard = GitProcessGuard::new(&child);
     let Some(stdout) = child.stdout.take() else {
+        stop_git(&mut child).await;
+        disarm_if_reaped(&child, &mut process_guard);
         return Err(Refusal::failed("git status produced no stdout pipe"));
     };
-    use tokio::io::AsyncReadExt as _;
-    let stderr_task = child.stderr.take().map(|stderr| {
-        tokio::spawn(async move {
-            let mut bytes = Vec::new();
-            let _ = stderr.take(64 * 1024).read_to_end(&mut bytes).await;
-            bytes
-        })
-    });
+    let mut stderr_task = child.stderr.take().map(GitStderrDrain::start);
     const STATUS_MAX_BYTES: usize = 16 * 1024 * 1024;
     let mut stdout_bytes = Vec::new();
     let read_limit = STATUS_MAX_BYTES.saturating_add(1);
-    stdout
-        .take(read_limit as u64)
-        .read_to_end(&mut stdout_bytes)
-        .await
-        .map_err(|error| Refusal::failed(format!("could not read git status: {error}")))?;
+    let read_result = tokio::select! {
+        biased;
+        _ = cancellation.cancelled() => Err(std::io::Error::new(
+            std::io::ErrorKind::Interrupted,
+            "git status cancelled",
+        )),
+        result = async {
+            let Some(timeout) = remaining_git_time(deadline) else {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    "git status operation deadline exceeded",
+                ));
+            };
+            tokio::time::timeout(
+                timeout,
+                stdout.take(read_limit as u64).read_to_end(&mut stdout_bytes),
+            )
+            .await
+            .map_err(|_| {
+                std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    "git status stdout drain timed out",
+                )
+            })
+            .and_then(|result| result)
+        } => result,
+    };
+    if let Err(error) = read_result {
+        abort_git_operation(stderr_task.take(), &mut child, &mut process_guard).await;
+        return Err(Refusal::failed(format!("could not read git status: {error}")));
+    }
     let stdout_capped = stdout_bytes.len() > STATUS_MAX_BYTES;
     if stdout_capped {
         stdout_bytes.truncate(STATUS_MAX_BYTES);
-        let _ = child.kill().await;
+        process_guard.kill_group();
+        let _ = child.start_kill();
     }
-    let status = child
-        .wait()
-        .await
-        .map_err(|error| Refusal::failed(format!("could not run git: {error}")))?;
-    let stderr = match stderr_task {
-        Some(task) => task.await.unwrap_or_default(),
-        None => Vec::new(),
+    let stderr_result = tokio::select! {
+        biased;
+        _ = cancellation.cancelled() => None,
+        result = finish_git_stderr(
+            stderr_task.take(),
+            &mut child,
+            &mut process_guard,
+            deadline,
+            "git status",
+        ) => Some(result),
     };
+    let stderr = match stderr_result {
+        Some(result) => result?,
+        None => {
+            abort_git_operation(None, &mut child, &mut process_guard).await;
+            return Err(Refusal::failed("git status cancelled"));
+        }
+    };
+    let status_result = tokio::select! {
+        biased;
+        _ = cancellation.cancelled() => None,
+        result = wait_git_until(&mut child, deadline) => Some(result),
+    };
+    let status = match status_result {
+        None => {
+            abort_git_operation(None, &mut child, &mut process_guard).await;
+            return Err(Refusal::failed("git status cancelled"));
+        }
+        Some(Ok(status)) => status,
+        Some(Err(error)) => {
+            disarm_if_reaped(&child, &mut process_guard);
+            return Err(error);
+        }
+    };
+    process_guard.disarm();
     if !status.success() {
         return Err(git_refusal("git status failed", &stderr));
     }
@@ -1579,6 +1995,22 @@ async fn run_git_diff(
     scope: &Scope,
     op: &wire::GitDiffOp,
 ) -> Result<wire::WorkspaceResultBody, Refusal> {
+    let cancellation = CancellationToken::new();
+    run_git_diff_with_cancel_until(
+        scope,
+        op,
+        &cancellation,
+        std::time::Instant::now() + Duration::from_millis(MAX_TIMEOUT_MS as u64),
+    )
+    .await
+}
+
+async fn run_git_diff_with_cancel_until(
+    scope: &Scope,
+    op: &wire::GitDiffOp,
+    cancellation: &CancellationToken,
+    deadline: std::time::Instant,
+) -> Result<wire::WorkspaceResultBody, Refusal> {
     let root = scope.existing_workdir()?;
     let base = op.base.as_deref().unwrap_or("HEAD");
     if base.is_empty() || base.starts_with('-') {
@@ -1601,22 +2033,18 @@ async fn run_git_diff(
     let mut child = git_command(&root, &args)
         .spawn()
         .map_err(|error| Refusal::failed(format!("could not run git: {error}")))?;
+    let mut process_guard = GitProcessGuard::new(&child);
     // Stream stdout: the stat counts the FULL diff, but the patch buffer
     // drops whole files past DIFF_MAX_BYTES so memory and the wire stay
     // bounded even for a pathological working tree.
-    use tokio::io::AsyncBufReadExt as _;
-    use tokio::io::AsyncReadExt as _;
     let Some(stdout) = child.stdout.take() else {
+        stop_git(&mut child).await;
+        disarm_if_reaped(&child, &mut process_guard);
         return Err(Refusal::failed("git diff produced no stdout pipe"));
     };
-    let stderr_task = child.stderr.take().map(|stderr| {
-        tokio::spawn(async move {
-            let mut bytes = Vec::new();
-            let _ = tokio::io::AsyncReadExt::take(stderr, 64 * 1024).read_to_end(&mut bytes).await;
-            bytes
-        })
-    });
-    let mut lines = tokio::io::BufReader::new(stdout).lines();
+    let mut stderr_task = child.stderr.take().map(GitStderrDrain::start);
+    let mut reader = tokio::io::BufReader::new(stdout);
+    let mut line_bytes = Vec::with_capacity(GIT_DIFF_LINE_MAX_BYTES.min(8 * 1024));
     let mut patch = String::new();
     let mut current_file_start = 0_usize;
     let mut capped = false;
@@ -1625,27 +2053,88 @@ async fn run_git_diff(
     let mut additions: i64 = 0;
     let mut deletions: i64 = 0;
     loop {
-        let line = match lines.next_line().await {
-            Ok(Some(line)) => line,
-            Ok(None) => break,
-            Err(error) => {
-                let _ = child.kill().await;
-                let _ = child.wait().await;
-                return Err(Refusal::failed(format!("could not read git diff: {error}")));
+        let line = tokio::select! {
+            biased;
+            _ = cancellation.cancelled() => {
+                abort_git_operation(
+                    stderr_task.take(),
+                    &mut child,
+                    &mut process_guard,
+                )
+                .await;
+                return Err(Refusal::failed("git diff cancelled"));
             }
+            result = async {
+                let Some(timeout) = remaining_git_time(deadline) else {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::TimedOut,
+                        "git diff operation deadline exceeded",
+                    ));
+                };
+                tokio::time::timeout(
+                    timeout,
+                    read_bounded_git_diff_line(
+                        &mut reader,
+                        &mut line_bytes,
+                        GIT_DIFF_LINE_MAX_BYTES,
+                    ),
+                )
+                .await
+                .map_err(|_| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::TimedOut,
+                        "git diff stdout drain timed out",
+                    )
+                })
+                .and_then(|result| result)
+            } => match result {
+                Ok(Some(line)) => line,
+                Ok(None) => break,
+                Err(error) => {
+                    abort_git_operation(
+                        stderr_task.take(),
+                        &mut child,
+                        &mut process_guard,
+                    )
+                    .await;
+                    return Err(Refusal::failed(format!("could not read git diff: {error}")));
+                }
+            },
         };
-        if line.starts_with("diff --git ") {
-            files += 1;
-            if !capped {
-                current_file_start = patch.len();
+        if let BoundedGitDiffLine::TooLong { prefix, length } = line {
+            let prefix = &prefix[..usize::from(length)];
+            match classify_git_diff_line(prefix) {
+                GitDiffLineKind::File => files += 1,
+                GitDiffLineKind::Addition => additions += 1,
+                GitDiffLineKind::Deletion => deletions += 1,
+                GitDiffLineKind::Other => {}
             }
-        } else if line.starts_with('+') && !line.starts_with("+++") {
-            additions += 1;
-        } else if line.starts_with('-') && !line.starts_with("---") {
-            deletions += 1;
+            if !capped {
+                // Drop the partial file: a caller must never see half a
+                // file's hunks (parsePatchFiles input). Continue reading so
+                // stats cover the complete Git output.
+                patch.truncate(current_file_start);
+                capped = true;
+                truncated = true;
+            }
+            continue;
+        }
+        let BoundedGitDiffLine::Complete(line) = line else {
+            unreachable!("handled all bounded diff line variants");
+        };
+        match classify_git_diff_line(line.as_bytes()) {
+            GitDiffLineKind::File => {
+                files += 1;
+                if !capped {
+                    current_file_start = patch.len();
+                }
+            }
+            GitDiffLineKind::Addition => additions += 1,
+            GitDiffLineKind::Deletion => deletions += 1,
+            GitDiffLineKind::Other => {}
         }
         if !capped {
-            if patch.len() + line.len() + 1 > DIFF_MAX_BYTES {
+            if patch.len().saturating_add(line.len()).saturating_add(1) > DIFF_MAX_BYTES {
                 // Drop the partial file: a caller must never see half a
                 // file's hunks (parsePatchFiles input).
                 patch.truncate(current_file_start);
@@ -1657,14 +2146,41 @@ async fn run_git_diff(
             }
         }
     }
-    let status = child
-        .wait()
-        .await
-        .map_err(|error| Refusal::failed(format!("git diff did not finish: {error}")))?;
-    let stderr = match stderr_task {
-        Some(task) => task.await.unwrap_or_default(),
-        None => Vec::new(),
+    let stderr_result = tokio::select! {
+        biased;
+        _ = cancellation.cancelled() => None,
+        result = finish_git_stderr(
+            stderr_task.take(),
+            &mut child,
+            &mut process_guard,
+            deadline,
+            "git diff",
+        ) => Some(result),
     };
+    let stderr = match stderr_result {
+        Some(result) => result?,
+        None => {
+            abort_git_operation(None, &mut child, &mut process_guard).await;
+            return Err(Refusal::failed("git diff cancelled"));
+        }
+    };
+    let status_result = tokio::select! {
+        biased;
+        _ = cancellation.cancelled() => None,
+        result = wait_git_until(&mut child, deadline) => Some(result),
+    };
+    let status = match status_result {
+        None => {
+            abort_git_operation(None, &mut child, &mut process_guard).await;
+            return Err(Refusal::failed("git diff cancelled"));
+        }
+        Some(Ok(status)) => status,
+        Some(Err(error)) => {
+            disarm_if_reaped(&child, &mut process_guard);
+            return Err(error);
+        }
+    };
+    process_guard.disarm();
     if !status.success() {
         return Err(git_refusal("git diff failed", &stderr));
     }
@@ -1722,11 +2238,25 @@ pub struct SharedRuntime {
     pub preview: PreviewRegistry,
     /// This machine's own `--allow-root` scoping (config authority).
     pub local_roots: Option<Vec<String>>,
+    /// Process-wide bound for notify watcher teardown owners. The runtime is
+    /// shared across reconnecting sockets, so one connection cannot consume a
+    /// single-registry budget needed by another connection.
+    pub watch_teardown_slots: Arc<Semaphore>,
+    /// Process-wide bound for non-abortable watcher setup walks. Reconnects
+    /// share this lane so abandoned blocking tasks cannot multiply per socket.
+    pub watch_setup_slots: Arc<Semaphore>,
 }
 
 impl SharedRuntime {
     pub fn new(local_roots: Option<Vec<String>>) -> SharedRuntime {
-        SharedRuntime { preview: PreviewRegistry::new(), local_roots }
+        SharedRuntime {
+            preview: PreviewRegistry::new(),
+            local_roots,
+            watch_teardown_slots: Arc::new(Semaphore::new(
+                crate::watch::WATCH_TEARDOWN_CONCURRENCY,
+            )),
+            watch_setup_slots: Arc::new(Semaphore::new(crate::watch::WATCH_SETUP_CONCURRENCY)),
+        }
     }
 }
 
@@ -1757,11 +2287,16 @@ pub struct Connection {
     /// outbound queue and the relay session that created it.
     requests: std::sync::Mutex<tokio::task::JoinSet<()>>,
     admission: Arc<Semaphore>,
+    request_cancel: CancellationToken,
 }
 
 impl Connection {
     pub(crate) fn new(runtime: Arc<SharedRuntime>, outbound: OutboundSink) -> Connection {
-        let watches = WatchRegistry::new(outbound.clone());
+        let watches = WatchRegistry::new_with_resource_slots(
+            outbound.clone(),
+            Arc::clone(&runtime.watch_setup_slots),
+            Arc::clone(&runtime.watch_teardown_slots),
+        );
         Connection {
             runtime,
             outbound,
@@ -1769,11 +2304,43 @@ impl Connection {
             watches,
             requests: std::sync::Mutex::new(tokio::task::JoinSet::new()),
             admission: Arc::new(Semaphore::new(MAX_IN_FLIGHT_WORKSPACE_REQUESTS)),
+            request_cancel: CancellationToken::new(),
         }
     }
 
     pub fn set_local_observe(&self, observe: bool) {
         self.local_observe.store(observe, Ordering::Relaxed);
+    }
+
+    /// Cancel and await requests owned by this socket. Joining is required so
+    /// Git requests can run their bounded kill-and-wait cleanup before the
+    /// connection releases its process and admission resources.
+    pub async fn shutdown(&self) -> bool {
+        self.request_cancel.cancel();
+        let mut requests = {
+            let mut requests = match self.requests.lock() {
+                Ok(requests) => requests,
+                Err(poisoned) => poisoned.into_inner(),
+            };
+            std::mem::take(&mut *requests)
+        };
+        if tokio::time::timeout(CONNECTION_REQUEST_SHUTDOWN_TIMEOUT, async {
+            while requests.join_next().await.is_some() {}
+        })
+        .await
+        .is_ok()
+        {
+            return true;
+        }
+        // A started spawn_blocking task cannot be aborted. Bound the final
+        // join too, then release the JoinSet; started blocking work can finish
+        // in Tokio's blocking pool without holding this connection owner.
+        requests.abort_all();
+        let _ = tokio::time::timeout(CONNECTION_REQUEST_ABORT_TIMEOUT, async {
+            while requests.join_next().await.is_some() {}
+        })
+        .await;
+        false
     }
 
     /// Entry point for the three v6 server frame types. Never blocks; never
@@ -1840,9 +2407,13 @@ impl Connection {
     }
 
     fn spawn_request(&self, request: wire::RelayWorkspaceRequest) {
+        if self.request_cancel.is_cancelled() {
+            return;
+        }
         let runtime = Arc::clone(&self.runtime);
         let outbound = self.outbound.clone();
         let local_observe = Arc::clone(&self.local_observe);
+        let cancellation = self.request_cancel.clone();
         let permit = match self.admission.clone().try_acquire_owned() {
             Ok(permit) => permit,
             Err(_) => {
@@ -1853,19 +2424,29 @@ impl Connection {
         };
         let task = async move {
             let request_id = request.request_id.clone();
-            let outcome = execute(&runtime, &local_observe, request, permit).await;
+            let outcome =
+                execute(&runtime, &local_observe, request, permit, cancellation.clone()).await;
+            if cancellation.is_cancelled() {
+                return;
+            }
             let text = match outcome {
                 Ok(body) => ok_frame(&request_id, body),
                 Err(refusal) => error_frame(&request_id, &refusal),
             };
-            let _ = outbound.critical_text(text).await;
+            let _ = tokio::select! {
+                biased;
+                _ = cancellation.cancelled() => Err(()),
+                result = outbound.critical_text(text) => result,
+            };
         };
         if let Ok(mut requests) = self.requests.lock() {
-            // JoinSet removes completed tasks without rescanning every
-            // in-flight request. This keeps admission proportional to the
-            // number of completions since the previous frame.
-            while requests.try_join_next().is_some() {}
-            requests.spawn(task);
+            if !self.request_cancel.is_cancelled() {
+                // JoinSet removes completed tasks without rescanning every
+                // in-flight request. This keeps admission proportional to the
+                // number of completions since the previous frame.
+                while requests.try_join_next().is_some() {}
+                requests.spawn(task);
+            }
         } else {
             // The task has not been spawned yet, so a poisoned registry does
             // not leak work beyond this connection.
@@ -1873,20 +2454,33 @@ impl Connection {
     }
 
     fn send_critical(&self, text: String) {
+        if self.request_cancel.is_cancelled() {
+            return;
+        }
         let outbound = self.outbound.clone();
+        let cancellation = self.request_cancel.clone();
         if let Ok(mut requests) = self.requests.lock() {
-            requests.spawn(async move {
-                let _ = outbound.critical_text(text).await;
-            });
+            if !self.request_cancel.is_cancelled() {
+                requests.spawn(async move {
+                    let _ = tokio::select! {
+                        biased;
+                        _ = cancellation.cancelled() => Err(()),
+                        result = outbound.critical_text(text) => result,
+                    };
+                });
+            }
         }
     }
 }
 
 impl Drop for Connection {
     fn drop(&mut self) {
-        if let Ok(mut requests) = self.requests.lock() {
-            requests.abort_all();
-        }
+        self.request_cancel.cancel();
+        let mut requests = match self.requests.lock() {
+            Ok(requests) => requests,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        requests.abort_all();
     }
 }
 
@@ -1919,6 +2513,7 @@ async fn execute(
     local_observe: &AtomicBool,
     request: wire::RelayWorkspaceRequest,
     permit: OwnedSemaphorePermit,
+    cancellation: CancellationToken,
 ) -> Result<wire::WorkspaceResultBody, Refusal> {
     ensure_workspace_platform_capabilities(cfg!(unix), &request, runtime)?;
     if is_mutating(&request.op)
@@ -1937,7 +2532,8 @@ async fn execute(
     // the timeout an honest response-time diagnostic and preserves operation
     // ordering and permit ownership.
     let started = std::time::Instant::now();
-    let outcome = run_op(runtime, request, permit).await;
+    let deadline = started + Duration::from_millis(timeout_ms as u64);
+    let outcome = run_op(runtime, request, permit, cancellation, deadline).await;
     if started.elapsed() > std::time::Duration::from_millis(timeout_ms.unsigned_abs()) {
         Err(Refusal::new(
             wire::WorkspaceErrorCode::Timeout,
@@ -1952,6 +2548,8 @@ async fn run_op(
     runtime: &Arc<SharedRuntime>,
     request: wire::RelayWorkspaceRequest,
     permit: OwnedSemaphorePermit,
+    cancellation: CancellationToken,
+    deadline: std::time::Instant,
 ) -> Result<wire::WorkspaceResultBody, Refusal> {
     let scope = Scope::build(request.allowed_roots.as_deref(), runtime.local_roots.as_deref())?;
     match request.op {
@@ -1961,8 +2559,12 @@ async fn run_op(
         wire::WorkspaceOp::FsRename(op) => blocking(move || run_rename(&scope, &op), permit).await,
         wire::WorkspaceOp::FsDelete(op) => blocking(move || run_delete(&scope, &op), permit).await,
         wire::WorkspaceOp::FsSearch(op) => blocking(move || run_search(&scope, &op), permit).await,
-        wire::WorkspaceOp::GitStatus(_) => run_git_status(&scope).await,
-        wire::WorkspaceOp::GitDiff(op) => run_git_diff(&scope, &op).await,
+        wire::WorkspaceOp::GitStatus(_) => {
+            run_git_status_with_cancel_until(&scope, &cancellation, deadline).await
+        }
+        wire::WorkspaceOp::GitDiff(op) => {
+            run_git_diff_with_cancel_until(&scope, &op, &cancellation, deadline).await
+        }
         wire::WorkspaceOp::PreviewOpen(op) => runtime.preview.open(op.target_port).await,
         wire::WorkspaceOp::PreviewConsoleTail(op) => runtime.preview.tail(op.max_events),
     }
@@ -2491,6 +3093,224 @@ mod tests {
         assert!(!env.contains_key("GIT_EXTERNAL_DIFF"));
     }
 
+    #[tokio::test]
+    async fn bounded_git_diff_line_discards_unterminated_over_limit_input() {
+        let mut reader = tokio::io::BufReader::with_capacity(2, std::io::Cursor::new(b"123456789"));
+        let mut line = Vec::new();
+        let result = read_bounded_git_diff_line(&mut reader, &mut line, 8)
+            .await
+            .expect("oversized unterminated diff line should be consumed")
+            .expect("the oversized line marker");
+
+        assert!(matches!(result, BoundedGitDiffLine::TooLong { .. }));
+        assert!(line.is_empty(), "reader retained bytes past its limit");
+        assert!(
+            read_bounded_git_diff_line(&mut reader, &mut line, 8)
+                .await
+                .expect("EOF after discarded line")
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn bounded_git_diff_line_keeps_stream_aligned_after_over_limit_input() {
+        let mut reader =
+            tokio::io::BufReader::with_capacity(2, std::io::Cursor::new(b"123456789\nshort\n"));
+        let mut line = Vec::new();
+        let result = read_bounded_git_diff_line(&mut reader, &mut line, 8)
+            .await
+            .expect("oversized line should be consumed")
+            .expect("the oversized line marker");
+        assert!(matches!(result, BoundedGitDiffLine::TooLong { .. }));
+
+        let result = read_bounded_git_diff_line(&mut reader, &mut line, 8)
+            .await
+            .expect("short line should decode")
+            .expect("short line");
+        assert!(matches!(result, BoundedGitDiffLine::Complete(value) if value == "short"));
+    }
+
+    #[test]
+    fn oversized_diff_line_prefix_preserves_stat_kind() {
+        assert_eq!(classify_git_diff_line(b"+payload"), GitDiffLineKind::Addition);
+        assert_eq!(classify_git_diff_line(b"-payload"), GitDiffLineKind::Deletion);
+        assert_eq!(classify_git_diff_line(b"diff --git a/a b/a"), GitDiffLineKind::File);
+        assert_eq!(classify_git_diff_line(b"+++ b/a"), GitDiffLineKind::Other);
+        assert_eq!(classify_git_diff_line(b"--- a/a"), GitDiffLineKind::Other);
+    }
+
+    #[test]
+    fn git_stdout_read_uses_the_request_deadline() {
+        let remaining = remaining_git_time(std::time::Instant::now() + Duration::from_secs(30))
+            .expect("future request deadline");
+
+        assert!(remaining > GIT_CHILD_WAIT_TIMEOUT);
+    }
+
+    #[tokio::test]
+    async fn git_stderr_drain_retains_a_prefix_and_continues_reading() {
+        use tokio::io::AsyncWriteExt as _;
+
+        let (mut writer, reader) = tokio::io::duplex(1024);
+        let payload = vec![b'x'; GIT_STDERR_MAX_BYTES * 2];
+        let writer_task = tokio::spawn(async move {
+            writer.write_all(&payload).await.expect("stderr payload");
+        });
+        let result = GitStderrDrain::start(reader).finish().await.expect("stderr drain");
+        writer_task.await.expect("stderr writer");
+
+        assert!(result.complete);
+        assert_eq!(result.bytes.len(), GIT_STDERR_MAX_BYTES);
+        assert!(result.bytes.iter().all(|byte| *byte == b'x'));
+    }
+
+    #[tokio::test]
+    async fn git_stderr_drain_has_a_bound_when_a_descendant_keeps_the_pipe_open() {
+        let (_writer, reader) = tokio::io::duplex(64);
+        let result = tokio::time::timeout(
+            GIT_STDERR_DRAIN_TIMEOUT + Duration::from_millis(100),
+            GitStderrDrain::start(reader).finish(),
+        )
+        .await
+        .expect("stderr cleanup must be bounded")
+        .expect("stderr drain result");
+
+        assert!(!result.complete);
+        assert!(result.bytes.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn stop_git_reaps_the_child_and_terminates_its_process_group() {
+        let root = scratch("git-process-group");
+        let mut child = git_command(&root, &["status"]).spawn().expect("git child");
+        let pid = child.id().expect("running child");
+        // `git_command` uses a zero process-group argument, so the child is
+        // its own group leader and descendants share the group.
+        let group = unsafe { libc::getpgid(pid as libc::pid_t) };
+        assert_eq!(group, pid as libc::pid_t);
+
+        stop_git(&mut child).await;
+        assert!(child.id().is_none(), "stop_git must await Child::wait");
+        let _ = root;
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn git_stdout_cleanup_handles_a_descendant_holding_the_pipe_open() {
+        let mut child = tokio::process::Command::new("sh")
+            .arg("-c")
+            .arg("sleep 30 & printf ready; exec 1>&-; wait")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .kill_on_drop(true)
+            .process_group(0)
+            .spawn()
+            .expect("shell child");
+        let mut guard = GitProcessGuard::new(&child);
+        let mut stdout = child.stdout.take().expect("stdout pipe");
+        let mut bytes = Vec::new();
+        let read =
+            tokio::time::timeout(Duration::from_millis(100), stdout.read_to_end(&mut bytes)).await;
+        assert!(read.is_err(), "a descendant-owned stdout pipe must hit the bound");
+
+        abort_git_operation(None, &mut child, &mut guard).await;
+        assert!(child.id().is_none(), "cleanup must reap the direct child");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn git_abort_reaps_child_when_stderr_reader_fails() {
+        use std::task::{Context, Poll};
+        use tokio::io::{AsyncRead, ReadBuf};
+
+        struct FailingReader;
+        impl AsyncRead for FailingReader {
+            fn poll_read(
+                self: std::pin::Pin<&mut Self>,
+                _cx: &mut Context<'_>,
+                _buffer: &mut ReadBuf<'_>,
+            ) -> Poll<std::io::Result<()>> {
+                Poll::Ready(Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "synthetic stderr failure",
+                )))
+            }
+        }
+
+        let mut child = tokio::process::Command::new("sh")
+            .arg("-c")
+            .arg("sleep 30")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .kill_on_drop(true)
+            .process_group(0)
+            .spawn()
+            .expect("shell child");
+        let mut guard = GitProcessGuard::new(&child);
+        let drain = GitStderrDrain::start(FailingReader);
+
+        abort_git_operation(Some(drain), &mut child, &mut guard).await;
+        assert!(child.id().is_none(), "stderr failure must still reap the child");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn wait_git_deadline_reaps_a_child_after_pipes_close() {
+        let mut child = tokio::process::Command::new("sh")
+            .arg("-c")
+            .arg("exec 1>&- 2>&-; sleep 30")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .kill_on_drop(true)
+            .process_group(0)
+            .spawn()
+            .expect("shell child");
+        let result =
+            wait_git_until(&mut child, std::time::Instant::now() + Duration::from_millis(50)).await;
+
+        assert!(result.is_err(), "closed pipes must not imply child completion");
+        assert!(child.id().is_none(), "wait deadline must reap the child");
+    }
+
+    #[tokio::test]
+    async fn cancelled_git_status_runs_bounded_cleanup() {
+        let (root, scope) = seeded_repo("git-status-cancelled");
+        let cancellation = CancellationToken::new();
+        cancellation.cancel();
+
+        let refusal = run_git_status_with_cancel(&scope, &cancellation)
+            .await
+            .expect_err("cancelled git status");
+        assert!(refusal.message.contains("cancelled"));
+        let _ = root;
+    }
+
+    #[tokio::test]
+    async fn expired_git_diff_deadline_runs_bounded_cleanup() {
+        let (root, scope) = seeded_repo("git-diff-expired");
+        let cancellation = CancellationToken::new();
+        let refusal = run_git_diff_with_cancel_until(
+            &scope,
+            &wire::GitDiffOp {
+                op: wire::TagGitDiff::GitDiff,
+                base: None,
+                paths: None,
+                context_lines: None,
+            },
+            &cancellation,
+            std::time::Instant::now() - Duration::from_millis(1),
+        )
+        .await
+        .expect_err("expired git diff deadline");
+
+        assert!(refusal.message.contains("deadline"));
+        let _ = root;
+    }
+
     fn seeded_repo(name: &str) -> (PathBuf, Scope) {
         let root = scratch(name);
         write(&root, "README.md", "# seed\n");
@@ -2625,6 +3445,20 @@ mod tests {
             .expect("no answer within 15s")
             .expect("channel open");
         serde_json::from_str(&frame.text).expect("valid json frame")
+    }
+
+    #[tokio::test]
+    async fn connection_shutdown_cancels_and_joins_owned_request_tasks() {
+        let runtime = Arc::new(SharedRuntime::new(None));
+        let (sink, _critical, _watch) = OutboundSink::channels();
+        let connection = Connection::new(runtime, sink);
+        let cancellation = connection.request_cancel.clone();
+        connection.requests.lock().expect("request registry").spawn(async move {
+            cancellation.cancelled().await;
+        });
+
+        assert!(connection.shutdown().await);
+        assert!(connection.requests.lock().expect("request registry").is_empty());
     }
 
     #[tokio::test]
