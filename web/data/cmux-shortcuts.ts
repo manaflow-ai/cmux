@@ -99,6 +99,12 @@ export const shortcutCategories: ShortcutCategory[] = [
         description: { en: "Go to workspace", ja: "ワークスペースへ移動" },
         note: { en: "workspace switcher", ja: "ワークスペーススイッチャー" },
       },
+      {
+        id: "searchTabs",
+        combos: [["⌥", "⌘", "P"]],
+        description: { en: "Search tabs", ja: "タブを検索" },
+        note: { en: "focus the sidebar tab search", ja: "サイドバーのタブ検索にフォーカス" },
+      },
       { id: "nextSidebarTab", combos: [["⌃", "⌘", "]"]], description: { en: "Next workspace", ja: "次のワークスペース" } },
       { id: "prevSidebarTab", combos: [["⌃", "⌘", "["]], description: { en: "Previous workspace", ja: "前のワークスペース" } },
       {

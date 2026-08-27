@@ -221016,6 +221016,23 @@
         }
       }
     },
+    "shortcut.searchTabs.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search Tabs"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブを検索"
+          }
+        }
+      }
+    },
     "shortcut.selectSurfaceByNumber.label": {
       "extractionState": "manual",
       "localizations": {
@@ -231790,6 +231807,91 @@
           "stringUnit": {
             "state": "translated",
             "value": "固定したステータスはアクティビティが変わると解除されます"
+          }
+        }
+      }
+    },
+    "sidebar.tabSearch.clear": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear tab search"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブ検索をクリア"
+          }
+        }
+      }
+    },
+    "sidebar.tabSearch.noMatches": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No matching tabs"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一致するタブがありません"
+          }
+        }
+      }
+    },
+    "sidebar.tabSearch.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search tabs"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブを検索"
+          }
+        }
+      }
+    },
+    "sidebar.tabSearch.section.tabs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tabs"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブ"
+          }
+        }
+      }
+    },
+    "sidebar.tabSearch.section.workspaces": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspaces"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース"
           }
         }
       }

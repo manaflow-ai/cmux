@@ -1634,6 +1634,7 @@
               "openFolder",
               "reopenPreviousSession",
               "goToWorkspace",
+              "searchTabs",
               "commandPalette",
               "commandPaletteNext",
               "commandPalettePrevious",

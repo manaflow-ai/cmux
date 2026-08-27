@@ -1757,6 +1757,8 @@ struct ContentView: View {
             },
             observedWindowReference: observedWindowReference,
             chromeBackgroundColor: windowAppearanceSnapshot.resolvedChromeBackgroundColor,
+            sidebarTabSearchEntriesProvider: { commandPaletteSwitcherEntries(includeSurfaces: true) },
+            sidebarTabSearchFingerprintProvider: { commandPaletteSwitcherEntriesFingerprint(includeSurfaces: true) },
             selection: $sidebarSelectionState.selection,
             selectedTabIds: $selectedTabIds, lastSidebarSelectionIndex: $lastSidebarSelectionIndex, sidebarRenderWorkerClient: $sidebarRenderWorkerClient
         )
@@ -10897,6 +10899,13 @@ struct VerticalTabsSidebar: View, Equatable {
     let observedWindowReference: WeakWindowReference
     let chromeBackgroundColor: NSColor
     var observedWindow: NSWindow? { observedWindowReference.window }
+    /// Supplies the tab-name search field with the Cmd-P switcher corpus
+    /// (workspaces + surfaces, each with its focus action). Defaulted so
+    /// previews and tests can construct the sidebar without wiring it.
+    var sidebarTabSearchEntriesProvider: () -> [CommandPaletteCommand] = { [] }
+    /// Cheap corpus fingerprint so the tab search rebuilds its session cache
+    /// when workspaces/surfaces change mid-search. Defaulted for previews/tests.
+    var sidebarTabSearchFingerprintProvider: () -> Int = { 0 }
     @EnvironmentObject var tabManager: TabManager
     // Plain reference by design. Native row and titlebar subscribers own the
     // unread invalidation boundary, so this O(workspaces) root stays inert.
@@ -11067,6 +11076,33 @@ struct VerticalTabsSidebar: View, Equatable {
     private static let extensionSidebarDisclosureAnimation = Animation.easeInOut(duration: 0.18)
     private var sidebarTitlebarInteractionHeight: CGFloat {
         MinimalModeChromeMetrics.titlebarHeight
+    }
+    /// Gap from the titlebar strip to the top of the pinned
+    /// ``SidebarTabSearchView`` field. The first workspace row's own top
+    /// padding (`SidebarWorkspaceListMetrics.rowVerticalPadding`) provides the
+    /// matching gap below the field, so top and bottom read as equal.
+    static let sidebarTabSearchFieldTopGap: CGFloat = 8
+    /// Fixed height of the search-field box (kept in sync with the
+    /// `.frame(height:)` in ``SidebarTabSearchView``).
+    static let sidebarTabSearchFieldHeight: CGFloat = 28
+    /// Total band reserved under the titlebar strip for the field, so the
+    /// first workspace row sits flush below it.
+    static let sidebarTabSearchBandHeight: CGFloat = sidebarTabSearchFieldTopGap + sidebarTabSearchFieldHeight
+    /// Breathing room kept between the tab-search dropdown and the sidebar's
+    /// bottom edge.
+    private static let sidebarTabSearchDropdownBottomMargin: CGFloat = 12
+
+    /// Room left below the search field inside the sidebar. Caps the dropdown so
+    /// its lower rows never land past the sidebar edge where scrolling can't
+    /// reveal them. Pure projection of the viewport height (downward-only
+    /// layout input, mirroring `legacyWorkspaceScrollArea`'s GeometryReader
+    /// usage); zero until the viewport is measured.
+    private func sidebarTabSearchAvailableDropdownHeight(viewportHeight: CGFloat) -> CGFloat {
+        guard viewportHeight > 0 else { return 0 }
+        let consumed = sidebarTitlebarInteractionHeight
+            + Self.sidebarTabSearchBandHeight
+            + Self.sidebarTabSearchDropdownBottomMargin
+        return max(0, viewportHeight - consumed)
     }
 
     /// Adapter binding for unmigrated consumers (extension sidebar drop
@@ -11615,7 +11651,13 @@ struct VerticalTabsSidebar: View, Equatable {
         renderContext: WorkspaceListRenderContext,
         unreadSnapshot: SidebarUnreadSnapshot
     ) -> some View {
-        let scrollInsets = SidebarWorkspaceScrollInsets.workspaceList
+        // Reserve a band under the titlebar strip for the pinned tab-search
+        // field. Folding it into `scrollInsets.top` keeps the first-row offset,
+        // reorder drop zone, and content-height math consistent in one place.
+        let scrollInsets = SidebarWorkspaceScrollInsets(
+            top: sidebarTitlebarInteractionHeight + Self.sidebarTabSearchBandHeight,
+            bottom: SidebarWorkspaceScrollInsets.workspaceList.bottom
+        )
         return GeometryReader { viewport in
             // Keep viewport geometry as a downward-only layout input. Writing
             // this value into @State from onGeometryChange feeds an
@@ -11672,6 +11714,21 @@ struct VerticalTabsSidebar: View, Equatable {
                 )
                 .frame(maxWidth: .infinity)
                 .frame(height: scrollInsets.top)
+            }
+            .overlay(alignment: .top) {
+                // Applied after `.mask(...)` so the fade never dims the field.
+                // Padded below the draggable titlebar strip / window controls.
+                SidebarTabSearchView(
+                    entriesProvider: sidebarTabSearchEntriesProvider,
+                    fingerprintProvider: sidebarTabSearchFingerprintProvider,
+                    focusTargetWindow: observedWindow,
+                    availableDropdownHeight: sidebarTabSearchAvailableDropdownHeight(
+                        viewportHeight: viewport.size.height
+                    )
+                )
+                    .padding(.top, sidebarTitlebarInteractionHeight + Self.sidebarTabSearchFieldTopGap)
+                    .padding(.horizontal, SidebarWorkspaceListMetrics.rowOuterHorizontalPadding)
+                    .frame(maxWidth: .infinity, alignment: .top)
             }
             .background(Color.clear)
             .modifier(ClearScrollBackground())

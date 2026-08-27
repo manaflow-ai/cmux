@@ -14214,6 +14214,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
 
+        if matchConfiguredShortcut(event: event, action: .searchTabs) {
+            // Scope the focus request to a single window; the sidebar field
+            // filters by this object so ⌥⌘P never focuses every window's field.
+            if let targetWindow = event.window ?? shortcutRoutingActiveWindow {
+                NotificationCenter.default.post(
+                    name: .cmuxSidebarTabSearchFocusRequested,
+                    object: targetWindow
+                )
+            }
+            return true
+        }
+
         // Active marked text owns every non-Command event, regardless of which
         // NSTextInputClient has focus. Command shortcuts remain available while
         // composing because Command is not part of IME input sequences.
