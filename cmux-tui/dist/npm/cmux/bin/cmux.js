@@ -218,8 +218,15 @@ function cacheLockPath() {
   return path.join(platformRoot(), ".update.lock");
 }
 
-function cacheLockOwnerPath() {
-  return path.join(cacheLockPath(), "owner");
+// Keep update serialization separate from the cache lock. Launches must still
+// publish version leases while an update is downloading, so prune can honor
+// those leases instead of failing every launch for the whole network request.
+function updateOperationLockPath() {
+  return path.join(platformRoot(), ".update-operation.lock");
+}
+
+function cacheLockOwnerPath(lockPath = cacheLockPath()) {
+  return path.join(lockPath, "owner");
 }
 
 function newCacheLockOwner() {
@@ -251,8 +258,8 @@ function readCacheLockOwnerAt(ownerPath) {
   }
 }
 
-function readCacheLockOwner() {
-  return readCacheLockOwnerAt(cacheLockOwnerPath());
+function readCacheLockOwner(lockPath = cacheLockPath()) {
+  return readCacheLockOwnerAt(cacheLockOwnerPath(lockPath));
 }
 
 function processIsAlive(pid) {
@@ -267,10 +274,10 @@ function processIsAlive(pid) {
 // A pending owner file is written before it is atomically renamed to `owner`.
 // If the writer dies before the rename, a live pending owner proves that an
 // apparently empty lock is still being initialized and must not be reclaimed.
-function emptyCacheLockCanBeReclaimed() {
+function emptyCacheLockCanBeReclaimed(lockPath = cacheLockPath()) {
   let entries;
   try {
-    entries = fs.readdirSync(cacheLockPath(), { withFileTypes: true });
+    entries = fs.readdirSync(lockPath, { withFileTypes: true });
   } catch {
     return false;
   }
@@ -278,7 +285,7 @@ function emptyCacheLockCanBeReclaimed() {
     if (entry.name === "owner") {
       let size;
       try {
-        size = fs.statSync(path.join(cacheLockPath(), entry.name)).size;
+        size = fs.statSync(path.join(lockPath, entry.name)).size;
       } catch {
         return false;
       }
@@ -289,32 +296,31 @@ function emptyCacheLockCanBeReclaimed() {
     if (!entry.isFile() || !entry.name.startsWith(".owner-") || !entry.name.endsWith(".tmp")) {
       return false;
     }
-    const pending = readCacheLockOwnerAt(path.join(cacheLockPath(), entry.name));
+    const pending = readCacheLockOwnerAt(path.join(lockPath, entry.name));
     if (pending && processIsAlive(pending.pid)) return false;
   }
   return true;
 }
 
-function emptyCacheLockIsStale() {
+function emptyCacheLockIsStale(lockPath = cacheLockPath()) {
   let stat;
   try {
-    stat = fs.statSync(cacheLockPath());
+    stat = fs.statSync(lockPath);
   } catch {
     return false;
   }
   if (!stat.isDirectory() || !Number.isFinite(stat.mtimeMs)) return false;
   if (Date.now() - stat.mtimeMs < CACHE_LOCK_EMPTY_MAX_AGE_MS) return false;
-  return emptyCacheLockCanBeReclaimed();
+  return emptyCacheLockCanBeReclaimed(lockPath);
 }
 
 // Remove a lock only when its owner file still matches the observed token.
 // Rename the directory first, so the compare and delete cannot race a newer
 // owner that acquires the path after stale-lock cleanup starts.
-function removeCacheLockIfOwned(owner, allowEmpty = false) {
-  const lockPath = cacheLockPath();
+function removeCacheLockIfOwned(owner, allowEmpty = false, lockPath = cacheLockPath()) {
   let observed;
   try {
-    observed = fs.readFileSync(cacheLockOwnerPath(), "utf8");
+    observed = fs.readFileSync(cacheLockOwnerPath(lockPath), "utf8");
   } catch {
     if (!allowEmpty) return false;
   }
@@ -356,8 +362,7 @@ function removeCacheLockIfOwned(owner, allowEmpty = false) {
   }
 }
 
-function tryAcquireCacheLock() {
-  const lockPath = cacheLockPath();
+function tryAcquireCacheLock(lockPath = cacheLockPath()) {
   try {
     fs.mkdirSync(path.dirname(lockPath), { recursive: true });
   } catch {
@@ -378,36 +383,36 @@ function tryAcquireCacheLock() {
         flag: "wx",
         mode: 0o600,
       });
-      fs.renameSync(ownerTempPath, cacheLockOwnerPath());
+      fs.renameSync(ownerTempPath, cacheLockOwnerPath(lockPath));
       return owner;
     } catch {
       // If this attempt created the directory but could not publish its owner,
       // clean up only that lock. Never remove an owner published by a different
       // process.
       if (created) {
-        removeCacheLockIfOwned(owner, true);
+        removeCacheLockIfOwned(owner, true, lockPath);
         return null;
       }
     }
 
-    const current = readCacheLockOwner();
+    const current = readCacheLockOwner(lockPath);
     if (current) {
       if (processIsAlive(current.pid)) return null;
-      if (!removeCacheLockIfOwned(current)) return null;
+      if (!removeCacheLockIfOwned(current, false, lockPath)) return null;
       continue;
     }
     // Unknown or malformed lock state is retained conservatively unless it is
     // an ownerless directory left behind by an interrupted acquisition. The
     // age gate plus atomic quarantine prevents deleting a fresh initializer.
-    if (!emptyCacheLockIsStale()) return null;
-    if (!removeCacheLockIfOwned({ raw: undefined }, true)) return null;
+    if (!emptyCacheLockIsStale(lockPath)) return null;
+    if (!removeCacheLockIfOwned({ raw: undefined }, true, lockPath)) return null;
   }
   return null;
 }
 
-function releaseCacheLock(owner) {
+function releaseCacheLock(owner, lockPath = cacheLockPath()) {
   if (!owner) return;
-  removeCacheLockIfOwned(owner);
+  removeCacheLockIfOwned(owner, false, lockPath);
 }
 
 function acquireVersionLease(version) {
@@ -978,31 +983,50 @@ async function runUpdate(pkg, args) {
   if (unknown.length) {
     fail("invalid update arguments. Usage: cmux update [--check]");
   }
-  const current = wantedVersion(pkg);
-  const latestMeta = await fetchJson(`${registryBase()}/cmux/latest`);
-  const latest = latestMeta && latestMeta.version;
-  if (!validVersion(latest)) fail("could not determine the latest published release");
-  if (compareVersions(latest, current) <= 0) {
-    console.log(`cmux ${current} is up to date (latest is ${latest}).`);
-    return;
-  }
   if (checkOnly) {
+    const current = wantedVersion(pkg);
+    const latestMeta = await fetchJson(`${registryBase()}/cmux/latest`);
+    const latest = latestMeta && latestMeta.version;
+    if (!validVersion(latest)) fail("could not determine the latest published release");
+    if (compareVersions(latest, current) <= 0) {
+      console.log(`cmux ${current} is up to date (latest is ${latest}).`);
+      return;
+    }
     console.log(`cmux ${latest} is available (current: ${current}). Run: cmux update`);
     return;
   }
-  const lease = acquireVersionLease(latest);
-  if (!lease) fail("could not reserve the native binary for update");
+
+  // Keep one update-wide lock from the version check through download, state
+  // publication, and pruning. This prevents two update processes from
+  // completing out of order and pinning state.json to an older version.
+  const updateLockPath = updateOperationLockPath();
+  const updateLock = tryAcquireCacheLock(updateLockPath);
+  if (!updateLock) fail("could not reserve the native binary for update");
+  let lease = null;
   try {
+    // Re-read the state after acquiring the lock. Another updater may have
+    // completed before this process obtained it.
+    const current = wantedVersion(pkg);
+    const latestMeta = await fetchJson(`${registryBase()}/cmux/latest`);
+    const latest = latestMeta && latestMeta.version;
+    if (!validVersion(latest)) fail("could not determine the latest published release");
+    if (compareVersions(latest, current) <= 0) {
+      console.log(`cmux ${current} is up to date (latest is ${latest}).`);
+      return;
+    }
+    lease = acquireVersionLease(latest);
+    if (!lease) fail("could not reserve the native binary for update");
     await downloadVersion(pkg, latest);
     writeState({
       version: latest,
       updatedAt: new Date().toISOString(),
     });
     pruneCache(latest);
+    console.log(`cmux updated: ${current} -> ${latest}. The new version runs on the next start.`);
   } finally {
     releaseVersionLease(lease);
+    releaseCacheLock(updateLock, updateLockPath);
   }
-  console.log(`cmux updated: ${current} -> ${latest}. The new version runs on the next start.`);
 }
 
 async function main() {

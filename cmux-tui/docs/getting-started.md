@@ -160,23 +160,77 @@ npm error path ~/.npm/_npx/<hash>/node_modules/cmux-tui-darwin-arm64
 npm error ENOTEMPTY: directory not empty, rename ...
 ```
 
-This is a long-standing npm bug in the `npx` package cache, not a cmux failure. It triggers when the cache holds an older cmux version and npm upgrades it in place, and it hits per-platform binary packages most often. cmux 0.11.0 and older shipped the platform binaries as optional dependencies of the launcher, so upgrading over a cached 0.11.0 can still fail this way once. Stop running `npx` processes first. The command below lists the direct `_npx` entries, then removes only the exact cache hash shown in the error:
+This is a long-standing npm bug in the `npx` package cache, not a cmux failure. It triggers when the cache holds an older cmux version and npm upgrades it in place, and it hits per-platform binary packages most often. cmux 0.11.0 and older shipped the platform binaries as optional dependencies of the launcher, so upgrading over a cached 0.11.0 can still fail this way once. Stop every `npx` process first. The command below takes a recovery lock, checks that the selected entry is not open, refuses the newest entry, and moves only the exact cache hash shown in the error to a quarantine directory. It never deletes an active cache tree:
 
 ```bash
+set -eu
+
 npm_cache="$(npm config get cache)"
 target="$npm_cache/_npx"
 case "$npm_cache" in
-  ""|/) echo "Refusing an unsafe npm cache path" >&2; exit 1 ;;
+  ""|/|.|./*|../*|*/./*|*/../*|*/.|*/..) echo "Refusing an unsafe npm cache path" >&2; exit 1 ;;
+  /*) ;;
+  *) echo "Refusing a relative npm cache path" >&2; exit 1 ;;
 esac
 if [ ! -d "$target" ]; then
   echo "No npx cache directory: $target" >&2
   exit 1
 fi
+if [ -L "$target" ]; then
+  echo "Refusing a symlinked npx cache directory: $target" >&2
+  exit 1
+fi
+
+lock="$npm_cache/.cmux-npx-recovery.lock"
+if ! (umask 077 && mkdir "$lock" 2>/dev/null); then
+  echo "Another npx recovery is active, or this lock needs manual inspection: $lock" >&2
+  exit 1
+fi
+unlock() {
+  rmdir "$lock" 2>/dev/null || true
+}
+abort() {
+  unlock
+  exit 1
+}
+trap unlock EXIT
+trap abort HUP INT TERM
+
 printf 'Available npx entries:\n'
-find "$target" -mindepth 1 -maxdepth 1 -type d -print
-read -r -p 'Enter the exact npx cache hash to remove: ' hash
+newest_entry=""
+newest_mtime=""
+entry_mtime() {
+  value="$(stat -f %m "$1" 2>/dev/null || true)"
+  case "$value" in
+    ''|*[!0-9]*) ;;
+    *) printf '%s\n' "$value"; return 0 ;;
+  esac
+  value="$(stat -c %Y "$1" 2>/dev/null || true)"
+  case "$value" in
+    ''|*[!0-9]*) return 1 ;;
+    *) printf '%s\n' "$value"; return 0 ;;
+  esac
+}
+for candidate in "$target"/*; do
+  [ -d "$candidate" ] || continue
+  [ ! -L "$candidate" ] || { echo "Refusing a symlinked npx entry: $candidate" >&2; exit 1; }
+  name="${candidate##*/}"
+  case "$name" in
+    ''|*[!A-Za-z0-9_-]*) echo "Refusing an unexpected npx entry: $candidate" >&2; exit 1 ;;
+  esac
+  mtime="$(entry_mtime "$candidate")" || {
+    echo "Cannot inspect npx entry time: $candidate" >&2
+    exit 1
+  }
+  printf '%s\n' "$candidate"
+  if [ -z "$newest_mtime" ] || [ "$mtime" -gt "$newest_mtime" ]; then
+    newest_entry="$candidate"
+    newest_mtime="$mtime"
+  fi
+done
+read -r -p 'Enter the exact npx cache hash to quarantine: ' hash
 case "$hash" in
-  ""|.|..|*[!A-Za-z0-9_-]*)
+  ""|[-.]*|*[!A-Za-z0-9_-]*)
     echo "Refusing an invalid npx cache hash" >&2
     exit 1
     ;;
@@ -186,14 +240,54 @@ if [ ! -d "$entry" ]; then
   echo "npx cache entry not found: $hash" >&2
   exit 1
 fi
-printf 'About to remove only: %s\n' "$entry"
+if [ -L "$entry" ]; then
+  echo "Refusing a symlinked npx cache entry: $entry" >&2
+  exit 1
+fi
+entry_mtime="$(entry_mtime "$entry")" || {
+  echo "Cannot inspect the selected npx entry: $entry" >&2
+  exit 1
+}
+if [ "$entry" = "$newest_entry" ] || [ "$entry_mtime" -ge "$newest_mtime" ]; then
+  echo "Refusing to move the newest npx entry; use the exact stale hash from the error" >&2
+  exit 1
+fi
+if ! command -v lsof >/dev/null 2>&1; then
+  echo "lsof is required to check whether the npx entry is active" >&2
+  exit 1
+fi
+if open_pids="$(lsof -nP -t +D "$entry" 2>&1)"; then
+  [ -z "$open_pids" ] || {
+    echo "Refusing an npx entry opened by process(es): $open_pids" >&2
+    exit 1
+  }
+else
+  lsof_status=$?
+  if [ "$lsof_status" -ne 1 ] || [ -n "$open_pids" ]; then
+    echo "Could not prove that the npx entry is inactive: $entry" >&2
+    exit 1
+  fi
+fi
+printf 'About to quarantine only: %s\n' "$entry"
 read -r -p 'Type yes to continue: ' confirm
 [ "$confirm" = yes ] || exit 1
-rm -rf -- "$entry"
+quarantine="$npm_cache/.cmux-npx-quarantine"
+if [ -L "$quarantine" ] || { [ -e "$quarantine" ] && [ ! -d "$quarantine" ]; }; then
+  echo "Refusing an unsafe quarantine path: $quarantine" >&2
+  exit 1
+fi
+mkdir -p "$quarantine"
+destination="$quarantine/${hash}-$(date +%s)-$$"
+[ ! -e "$destination" ] || {
+  echo "Refusing to overwrite an existing quarantine entry: $destination" >&2
+  exit 1
+}
+mv "$entry" "$destination"
+printf 'Quarantined at: %s\n' "$destination"
 npx cmux@latest
 ```
 
-Newer launchers keep platform binaries out of npm's cache entirely (see the previous section). `npx cmux update` is the routine platform-binary upgrade path; `npx cmux@latest` remains the npm-launcher upgrade path.
+The move is reversible while the quarantine entry remains. Leave it in place until all `npx` processes have stopped and the new launcher works, then remove it with your normal file manager. Newer launchers keep platform binaries out of npm's cache entirely (see the previous section). `npx cmux update` is the routine platform-binary upgrade path; `npx cmux@latest` remains the npm-launcher upgrade path.
 
 ## Sessions and sockets
 
