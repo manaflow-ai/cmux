@@ -8,8 +8,13 @@
 //! networking, so snapshots, clones, and parse failures retain no live
 //! claim. Tests mirror `managed-enrollment.test.mjs`.
 
+use std::fs::OpenOptions;
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::path::Path;
+
+#[cfg(unix)]
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 
 use serde_json::Value;
 use time::OffsetDateTime;
@@ -38,25 +43,68 @@ fn error(message: &str) -> ManagedEnrollmentError {
 }
 
 fn read_and_shred(path: &Path) -> Result<String, ManagedEnrollmentError> {
-    let raw = (|| -> Result<String, ManagedEnrollmentError> {
-        let metadata = std::fs::metadata(path)
-            .map_err(|_| error("Managed enrollment file is unavailable."))?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::MetadataExt as _;
-            if metadata.mode() & 0o077 != 0 {
-                return Err(error("Managed enrollment file permissions must be 0600."));
-            }
-        }
-        let _ = metadata;
-        std::fs::read_to_string(path).map_err(|_| error("Managed enrollment file is unavailable."))
-    })();
-    // Best-effort overwrite then unlink, before parsing or networking.
-    if let Ok(contents) = &raw {
-        let _ = std::fs::write(path, vec![0_u8; contents.len()]);
+    let mut options = OpenOptions::new();
+    options.read(true).write(true);
+    #[cfg(unix)]
+    options.custom_flags(libc::O_NOFOLLOW);
+    let mut file =
+        options.open(path).map_err(|_| error("Managed enrollment file is unavailable."))?;
+    let metadata = file.metadata().map_err(|_| error("Managed enrollment file is unavailable."))?;
+    if !metadata.is_file() {
+        return Err(error("Managed enrollment file is unavailable."));
     }
-    let _ = std::fs::remove_file(path);
-    raw
+    let mut validation_error = None;
+    #[cfg(unix)]
+    {
+        if metadata.uid() != unsafe { libc::geteuid() } {
+            return Err(error("Managed enrollment file must be owned by the current user."));
+        }
+        if metadata.mode() & 0o077 != 0 {
+            validation_error = Some(error("Managed enrollment file permissions must be 0600."));
+        }
+    }
+
+    let mut contents = Vec::new();
+    let read_result = file.read_to_end(&mut contents);
+    // Best-effort overwrite through the already-open descriptor. This avoids
+    // following a replacement symlink and keeps shredding tied to the inode
+    // that was validated above.
+    let _ = file.seek(SeekFrom::Start(0));
+    let mut remaining = metadata.len();
+    let zeros = [0_u8; 4096];
+    while remaining > 0 {
+        let chunk = remaining.min(zeros.len() as u64) as usize;
+        if file.write_all(&zeros[..chunk]).is_err() {
+            break;
+        }
+        remaining -= chunk as u64;
+    }
+    let _ = file.set_len(0);
+    let _ = file.sync_all();
+    drop(file);
+    // The path can be replaced while the file is open. Only unlink it when it
+    // still names the validated inode, so a replacement is never deleted.
+    let same_file = std::fs::metadata(path)
+        .map(|current| {
+            #[cfg(unix)]
+            {
+                current.dev() == metadata.dev() && current.ino() == metadata.ino()
+            }
+            #[cfg(not(unix))]
+            {
+                let _ = current;
+                true
+            }
+        })
+        .unwrap_or(false);
+    if same_file {
+        let _ = std::fs::remove_file(path);
+    }
+    if let Some(validation_error) = validation_error {
+        return Err(validation_error);
+    }
+    read_result.map_err(|_| error("Managed enrollment file is unavailable."))?;
+    String::from_utf8(contents).map_err(|_| error("Managed enrollment file is unavailable."))
 }
 
 fn string_field(value: &Value, name: &str) -> Option<String> {
@@ -311,6 +359,26 @@ mod tests {
                 .0,
             "Managed enrollment file is unavailable."
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn enrollment_symlink_is_rejected_without_shredding_target() {
+        let dir = std::env::temp_dir().join(format!("cmux-managed-symlink-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let target = dir.join("target.json");
+        let link = dir.join("enrollment.json");
+        let expected = serde_json::to_string(&enrollment()).unwrap();
+        std::fs::write(&target, &expected).unwrap();
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+
+        let error = load_managed_enrollment_file(link.to_str().unwrap(), NOW)
+            .expect_err("symlink enrollment must be rejected");
+        assert_eq!(error.0, "Managed enrollment file is unavailable.");
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), expected);
+        assert!(std::fs::symlink_metadata(&link).is_ok(), "rejected symlink must not be unlinked");
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
