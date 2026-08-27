@@ -43,6 +43,8 @@ export interface Env extends RelayEnv {
   HOST_RELAY: DurableObjectNamespace<HostRelay>;
 }
 
+const TICKET_HEADER = "x-cmux-relay-ticket";
+
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
