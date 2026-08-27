@@ -196,8 +196,63 @@ function digestHex(buffer) {
   return crypto.createHash("sha512").update(buffer).digest("hex");
 }
 
+function sameFileIdentity(left, right) {
+  // Windows does not expose stable dev/inode values through every Node
+  // version. Unix launchers have the descriptor identity needed for the
+  // symlink and replacement checks below.
+  return (
+    process.platform === "win32" ||
+    (left.dev === right.dev && left.ino === right.ino)
+  );
+}
+
+function openCachedBinary(bin) {
+  let fd;
+  try {
+    const linkStat = fs.lstatSync(bin);
+    if (!linkStat.isFile()) return null;
+    const noFollow = process.platform === "win32" ? 0 : fs.constants.O_NOFOLLOW;
+    if (process.platform !== "win32" && typeof noFollow !== "number") return null;
+    fd = fs.openSync(bin, fs.constants.O_RDONLY | noFollow);
+    const openedStat = fs.fstatSync(fd);
+    if (!openedStat.isFile() || !sameFileIdentity(linkStat, openedStat)) {
+      fs.closeSync(fd);
+      fd = undefined;
+      return null;
+    }
+    return { fd, stat: openedStat };
+  } catch (error) {
+    if (fd !== undefined) {
+      try {
+        fs.closeSync(fd);
+      } catch {}
+    }
+    throw error;
+  }
+}
+
+function readVerifiedCachedBinary(fd, expected) {
+  const before = fs.fstatSync(fd);
+  if (!before.isFile()) return null;
+  const data = fs.readFileSync(fd);
+  const after = fs.fstatSync(fd);
+  if (!after.isFile() || !sameFileIdentity(before, after) || after.size !== data.length) {
+    return null;
+  }
+  const actual = Buffer.from(digestHex(data), "hex");
+  const expectedBytes = Buffer.from(expected, "hex");
+  if (!crypto.timingSafeEqual(actual, expectedBytes)) return null;
+  return after;
+}
+
+function cachedBinaryPathIsUnchanged(bin, expectedStat) {
+  const finalStat = fs.lstatSync(bin);
+  return finalStat.isFile() && sameFileIdentity(finalStat, expectedStat);
+}
+
 function cachedBinary(version) {
   const bin = path.join(cachedBinDir(version), BIN_NAME);
+  let opened = null;
   try {
     const manifest = JSON.parse(fs.readFileSync(cacheManifestPath(version), "utf8"));
     const expected = manifest?.binaries?.[BIN_NAME];
@@ -208,15 +263,33 @@ function cachedBinary(version) {
     ) {
       return null;
     }
-    if (!fs.lstatSync(bin).isFile()) return null;
+    opened = openCachedBinary(bin);
+    if (!opened) return null;
+    let verifiedStat = readVerifiedCachedBinary(opened.fd, expected);
+    if (!verifiedStat) return null;
     if (process.platform !== "win32") {
+      if ((verifiedStat.mode & 0o111) === 0) {
+        const versionRoot = path.dirname(cachedBinDir(version));
+        if (!isManagedCacheVersion(versionRoot)) return null;
+        // A trusted cache copy can lose its mode bits during transfer. Repair
+        // them only on the open descriptor of a managed entry, then reopen and
+        // revalidate the digest and path identity before accepting it.
+        fs.fchmodSync(opened.fd, 0o755);
+        fs.closeSync(opened.fd);
+        opened = null;
+        opened = openCachedBinary(bin);
+        if (!opened) return null;
+        verifiedStat = readVerifiedCachedBinary(opened.fd, expected);
+        if (!verifiedStat || (verifiedStat.mode & 0o111) === 0) return null;
+      }
       fs.accessSync(bin, fs.constants.X_OK);
     }
-    const actual = Buffer.from(digestHex(fs.readFileSync(bin)), "hex");
-    const expectedBytes = Buffer.from(expected, "hex");
-    return crypto.timingSafeEqual(actual, expectedBytes) ? bin : null;
+    if (!cachedBinaryPathIsUnchanged(bin, verifiedStat)) return null;
+    return bin;
   } catch {
     return null;
+  } finally {
+    if (opened) fs.closeSync(opened.fd);
   }
 }
 
@@ -975,10 +1048,10 @@ async function downloadVersion(pkg, version) {
 
 function isManagedCacheVersion(versionRoot) {
   try {
-    return (
-      fs.lstatSync(versionRoot).isDirectory() &&
-      fs.lstatSync(path.join(versionRoot, "managed")).isFile()
-    );
+    if (!fs.lstatSync(versionRoot).isDirectory()) return false;
+    const marker = path.join(versionRoot, "managed");
+    if (!fs.lstatSync(marker).isFile()) return false;
+    return fs.readFileSync(marker, "utf8") === "cmux\n";
   } catch {
     return false;
   }
