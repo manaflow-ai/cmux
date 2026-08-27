@@ -128,7 +128,7 @@ pub enum ServiceControl {
     Rejected { code: String, message: String },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum RemoteCapability {
     MuxControlV9,
@@ -151,6 +151,13 @@ pub enum RemoteCapability {
     ProcessTerminalSnapshotV1,
     RequestControlV1,
     ComputerUseV1,
+    /// A capability introduced by a newer peer.
+    ///
+    /// Capabilities are versioned wire strings, so clients must be able to
+    /// retain values they do not understand yet instead of rejecting the
+    /// complete capabilities response.
+    #[serde(untagged)]
+    Unknown(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
