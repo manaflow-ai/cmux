@@ -767,7 +767,7 @@ def test_update_lease_protects_download_from_concurrent_prune(tmp_path: Path) ->
     assert (target.parent.parent / "managed").is_file()
 
 
-def test_launcher_prunes_old_managed_cache_after_download(tmp_path: Path) -> None:
+def test_launcher_keeps_current_and_one_previous_after_download(tmp_path: Path) -> None:
     if sys.platform == "win32":
         return
     launcher = write_launcher(tmp_path)
@@ -792,10 +792,10 @@ def test_launcher_prunes_old_managed_cache_after_download(tmp_path: Path) -> Non
         server.shutdown()
         thread.join()
     assert result.returncode == 0, result.stderr
-    assert not (platform_root / "0.9.0").exists()
-    assert not (platform_root / "1.0.0").exists()
-    assert (platform_root / "1.1.0").exists()
-    assert (platform_root / "1.2.3").exists()
+    retained = {
+        entry.name for entry in platform_root.iterdir() if entry.is_dir()
+    }
+    assert retained == {"1.1.0", "1.2.3"}
 
 
 def main() -> None:
@@ -823,7 +823,7 @@ def main() -> None:
         test_launcher_keeps_fresh_empty_lease_during_prune(root / "fresh-empty-lease")
         test_concurrent_launchers_preserve_an_active_lease_during_prune(root / "concurrent")
         test_update_lease_protects_download_from_concurrent_prune(root / "update-concurrent")
-        test_launcher_prunes_old_managed_cache_after_download(root / "prune")
+        test_launcher_keeps_current_and_one_previous_after_download(root / "prune")
 
 
 if __name__ == "__main__":

@@ -59,6 +59,9 @@ const CACHE_LOCK_EMPTY_MAX_AGE_MS = 5 * 60 * 1000;
 // Leases are published by renaming a fully initialized temporary directory.
 // Keep the same bounded recovery window for legacy or interrupted leases.
 const CACHE_LEASE_EMPTY_MAX_AGE_MS = 5 * 60 * 1000;
+// Keep the requested version and one newest managed predecessor. This bounds
+// disk use while retaining one rollback target after an update.
+const MAX_PREVIOUS_MANAGED_VERSIONS = 1;
 const MIN_NODE_MAJOR = 18;
 
 class LauncherError extends Error {
@@ -896,7 +899,10 @@ function pruneCache(keepVersion) {
       .readdirSync(root)
       .filter((version) => fs.existsSync(path.join(root, version, "managed")))
       .sort(compareVersions);
-    const keep = new Set([keepVersion, ...managed.slice(-2)]);
+    const previous = managed
+      .filter((version) => version !== keepVersion)
+      .slice(-MAX_PREVIOUS_MANAGED_VERSIONS);
+    const keep = new Set([keepVersion, ...previous]);
     for (const version of fs.readdirSync(root)) {
       if (keep.has(version)) continue;
       if (versionHasActiveLease(path.join(root, version))) continue;
