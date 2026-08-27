@@ -4064,7 +4064,12 @@ pub fn config_path() -> anyhow::Result<PathBuf> {
 #[must_use = "inspect config durability after a committed write"]
 #[derive(Debug)]
 pub(crate) enum ConfigWriteOutcome {
+    /// The replacement and all relevant directory entries were synced.
     Committed,
+    /// The replacement committed, but this platform does not support syncing
+    /// directory entries. The staged file itself was synced before rename.
+    CommittedWithoutDirectorySync,
+    /// The replacement committed, but a supported directory sync failed.
     CommittedButUnsynced { error: anyhow::Error },
 }
 
@@ -4073,7 +4078,7 @@ impl ConfigWriteOutcome {
     /// durability confirmation.
     pub(crate) fn into_unsynced_error(self) -> Option<anyhow::Error> {
         match self {
-            Self::Committed => None,
+            Self::Committed | Self::CommittedWithoutDirectorySync => None,
             Self::CommittedButUnsynced { error } => Some(error),
         }
     }
@@ -4133,8 +4138,10 @@ fn read_config_value(path: &Path) -> anyhow::Result<Value> {
 /// Serializes a config value to a private staging file before atomically
 /// replacing the destination and durably syncing its parent directories. An
 /// `Err` means that replacement did not commit. A
-/// [`ConfigWriteOutcome::CommittedButUnsynced`] value means the rename did
-/// commit, but a directory sync failed.
+/// [`ConfigWriteOutcome::CommittedWithoutDirectorySync`] means the rename
+/// committed on a platform without directory-sync support. A
+/// [`ConfigWriteOutcome::CommittedButUnsynced`] value means a supported
+/// directory sync failed.
 fn write_config_value_atomic(path: &Path, value: &Value) -> anyhow::Result<ConfigWriteOutcome> {
     write_config_value_atomic_with_sync(path, value, &sync_config_parent_directory)
 }
@@ -4142,7 +4149,7 @@ fn write_config_value_atomic(path: &Path, value: &Value) -> anyhow::Result<Confi
 fn write_config_value_atomic_with_sync(
     path: &Path,
     value: &Value,
-    sync_parent: &dyn Fn(&Path) -> anyhow::Result<()>,
+    sync_parent: &dyn Fn(&Path) -> anyhow::Result<ConfigParentSyncOutcome>,
 ) -> anyhow::Result<ConfigWriteOutcome> {
     let parent = config_parent_directory(path);
     let created_directories = ensure_config_parent_directory(parent)?;
@@ -4176,13 +4183,20 @@ fn write_config_value_atomic_with_sync(
     }
 
     #[cfg(unix)]
-    if let Err(error) = sync_config_parent_directories(parent, &created_directories, sync_parent) {
-        return Ok(ConfigWriteOutcome::CommittedButUnsynced { error });
+    {
+        Ok(match sync_config_parent_directories(parent, &created_directories, sync_parent) {
+            Ok(ConfigParentSyncOutcome::Synced) => ConfigWriteOutcome::Committed,
+            Ok(ConfigParentSyncOutcome::Unsupported) => {
+                ConfigWriteOutcome::CommittedWithoutDirectorySync
+            }
+            Err(error) => ConfigWriteOutcome::CommittedButUnsynced { error },
+        })
     }
     #[cfg(not(unix))]
-    let _ = created_directories;
-
-    Ok(ConfigWriteOutcome::Committed)
+    {
+        let _ = (created_directories, sync_parent);
+        Ok(ConfigWriteOutcome::CommittedWithoutDirectorySync)
+    }
 }
 
 fn ensure_config_parent_directory(parent: &Path) -> anyhow::Result<Vec<PathBuf>> {
@@ -4206,28 +4220,49 @@ fn ensure_config_parent_directory(parent: &Path) -> anyhow::Result<Vec<PathBuf>>
     Ok(created_directories)
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ConfigParentSyncOutcome {
+    Synced,
+    Unsupported,
+}
+
 #[cfg(unix)]
-fn sync_config_parent_directory(parent: &Path) -> anyhow::Result<()> {
-    std::fs::File::open(parent)?.sync_all()?;
-    Ok(())
+fn sync_config_parent_directory(parent: &Path) -> anyhow::Result<ConfigParentSyncOutcome> {
+    let result = std::fs::File::open(parent).and_then(|directory| directory.sync_all());
+    #[cfg(target_os = "macos")]
+    if let Err(error) = &result {
+        if matches!(error.raw_os_error(), Some(code) if code == libc::EINVAL || code == libc::ENOTSUP)
+        {
+            return Ok(ConfigParentSyncOutcome::Unsupported);
+        }
+    }
+    result.map(|()| ConfigParentSyncOutcome::Synced).map_err(Into::into)
 }
 
 #[cfg(not(unix))]
-fn sync_config_parent_directory(_parent: &Path) -> anyhow::Result<()> {
-    Ok(())
+fn sync_config_parent_directory(_parent: &Path) -> anyhow::Result<ConfigParentSyncOutcome> {
+    Ok(ConfigParentSyncOutcome::Unsupported)
 }
 
 #[cfg(unix)]
 fn sync_config_parent_directories(
     parent: &Path,
     created_directories: &[PathBuf],
-    sync_parent: &dyn Fn(&Path) -> anyhow::Result<()>,
-) -> anyhow::Result<()> {
-    sync_parent(parent)?;
-    for directory in created_directories.iter().rev() {
-        sync_parent(config_parent_directory(directory))?;
+    sync_parent: &dyn Fn(&Path) -> anyhow::Result<ConfigParentSyncOutcome>,
+) -> anyhow::Result<ConfigParentSyncOutcome> {
+    let mut unsupported = false;
+    for directory in std::iter::once(parent)
+        .chain(created_directories.iter().rev().map(|directory| config_parent_directory(directory)))
+    {
+        if matches!(sync_parent(directory)?, ConfigParentSyncOutcome::Unsupported) {
+            unsupported = true;
+        }
     }
-    Ok(())
+    Ok(if unsupported {
+        ConfigParentSyncOutcome::Unsupported
+    } else {
+        ConfigParentSyncOutcome::Synced
+    })
 }
 
 fn config_parent_directory(path: &Path) -> &Path {
@@ -5570,7 +5605,9 @@ mod tests {
     fn assert_committed(outcome: ConfigWriteOutcome) {
         assert!(matches!(
             outcome,
-            ConfigWriteOutcome::Committed | ConfigWriteOutcome::CommittedButUnsynced { .. }
+            ConfigWriteOutcome::Committed
+                | ConfigWriteOutcome::CommittedWithoutDirectorySync
+                | ConfigWriteOutcome::CommittedButUnsynced { .. }
         ));
     }
 
@@ -8999,8 +9036,9 @@ mod tests {
     fn config_write_does_not_report_failure_after_parent_sync_error() {
         let dir = TestDirectory::new("parent-sync-failure");
         let path = dir.path.join("cmux-tui.json");
-        let sync_parent =
-            |_parent: &Path| Err(anyhow::anyhow!("injected parent directory sync failure"));
+        let sync_parent = |_parent: &Path| -> anyhow::Result<ConfigParentSyncOutcome> {
+            Err(anyhow::anyhow!("injected parent directory sync failure"))
+        };
 
         let result = write_config_value_atomic_with_sync(
             &path,
@@ -9021,8 +9059,8 @@ mod tests {
     fn config_write_does_not_warn_for_unsupported_parent_sync() {
         let dir = TestDirectory::new("unsupported-parent-sync");
         let path = dir.path.join("cmux-tui.json");
-        let sync_parent = |_parent: &Path| {
-            Err(anyhow::Error::new(std::io::Error::from_raw_os_error(libc::EINVAL)))
+        let sync_parent = |_parent: &Path| -> anyhow::Result<ConfigParentSyncOutcome> {
+            Ok(ConfigParentSyncOutcome::Unsupported)
         };
 
         let outcome = write_config_value_atomic_with_sync(
@@ -9031,6 +9069,7 @@ mod tests {
             &sync_parent,
         )
         .expect("a committed rename must not be reported as a write failure");
+        assert!(matches!(&outcome, ConfigWriteOutcome::CommittedWithoutDirectorySync));
         assert!(outcome.into_unsynced_error().is_none());
     }
 
@@ -9041,9 +9080,9 @@ mod tests {
         let parent = dir.path.join("new").join("nested");
         let path = parent.join("cmux-tui.json");
         let synced = RefCell::new(Vec::new());
-        let sync_parent = |directory: &Path| {
+        let sync_parent = |directory: &Path| -> anyhow::Result<ConfigParentSyncOutcome> {
             synced.borrow_mut().push(directory.to_path_buf());
-            Ok(())
+            Ok(ConfigParentSyncOutcome::Synced)
         };
 
         assert_committed(
