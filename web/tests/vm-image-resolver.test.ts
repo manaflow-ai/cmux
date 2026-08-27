@@ -50,7 +50,7 @@ describe("VM image resolver: request by kind", () => {
         BLAXEL_SANDBOX_DESKTOP_IMAGE: "blaxel/xfce-vnc:latest",
         BLAXEL_SANDBOX_IMAGE: "blaxel/base-image:latest",
       }, { kind: "base" }),
-    ).toMatchObject({ image: "blaxel/base-image:latest", imageVersion: null, kind: "base" });
+    ).toMatchObject({ image: "blaxel/base-image:latest", imageVersion: "blaxel-base-bootstrap-20260824a", kind: "base" });
   });
 
   test("deployed runtimes fall back to the manifest kind default instead of throwing", () => {
@@ -96,7 +96,7 @@ describe("VM image resolver: request by kind", () => {
       resolveVmImage("blaxel", undefined, deployed, { kind: "gpu" as unknown as VmImageKind }),
     );
     expect(err).toMatchObject({ provider: "blaxel", kind: "gpu", source: "request" });
-    expect(err.allowedImages).toEqual(["sandbox/cmux-devbox:latest", "blaxel/xfce-vnc:latest"]);
+    expect(err.allowedImages).toEqual(["sandbox/cmux-devbox:latest", "blaxel/xfce-vnc:latest", "blaxel/base-image:latest"]);
     expect(reportVmImageConfigError(err, deployed)).toMatchObject({
       message: 'Cloud VM image kind "gpu" is not supported.',
       details: { imageRequested: false, kind: "gpu", source: "request", allowedKinds: ["desktop"] },
@@ -129,20 +129,20 @@ describe("VM image resolver: request by kind", () => {
     expect(report.operator).toMatchObject({
       provider: "blaxel",
       envVar: "BLAXEL_SANDBOX_IMAGE",
-      allowedImages: ["sandbox/cmux-devbox:latest", "blaxel/xfce-vnc:latest"],
+      allowedImages: ["sandbox/cmux-devbox:latest", "blaxel/xfce-vnc:latest", "blaxel/base-image:latest"],
     });
   });
 
   test("client-requested unknown images stay strict and report imageRequested", () => {
     const err = captureImageConfigError(() =>
-      resolveVmImage("blaxel", "blaxel/base-image:latest", deployed),
+      resolveVmImage("blaxel", "blaxel/unlisted:latest", deployed),
     );
-    expect(err).toMatchObject({ image: "blaxel/base-image:latest", source: "request" });
+    expect(err).toMatchObject({ image: "blaxel/unlisted:latest", source: "request" });
     const report = reportVmImageConfigError(err, deployed);
     expect(report.details).toEqual({ imageRequested: true, kind: undefined, source: "request", allowedKinds: ["desktop"] });
     expect(report.message).toBe("The requested Cloud VM image is not available in this environment.");
     expect(report.action).toContain("`kind`: desktop");
-    expect(report.operator).toMatchObject({ image: "blaxel/base-image:latest", allowedImages: ["sandbox/cmux-devbox:latest", "blaxel/xfce-vnc:latest"] });
+    expect(report.operator).toMatchObject({ image: "blaxel/unlisted:latest", allowedImages: ["sandbox/cmux-devbox:latest", "blaxel/xfce-vnc:latest", "blaxel/base-image:latest"] });
   });
 
   test("local dev serves a kind from the local default only when the kinds agree", () => {
@@ -262,11 +262,11 @@ describe("VM image resolver", () => {
       resolveVmImage("blaxel", undefined, {
         VERCEL: "1",
         VERCEL_ENV: "production",
-        BLAXEL_SANDBOX_IMAGE: "blaxel/base-image:latest",
+        BLAXEL_SANDBOX_IMAGE: "blaxel/ops-override:custom",
       }),
     ).toMatchObject({
       provider: "blaxel",
-      image: "blaxel/base-image:latest",
+      image: "blaxel/ops-override:custom",
       imageVersion: null,
       manifestEntry: null,
       kind: "base",
