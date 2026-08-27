@@ -8837,7 +8837,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn sidebar_plugin_write_replaces_config_with_private_permissions() {
-        use std::os::unix::fs::{PermissionsExt, OpenOptionsExt};
+        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 
         let dir = TestDirectory::new("private-permissions");
         let path = dir.path.join("cmux-tui.json");
