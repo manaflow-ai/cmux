@@ -24,6 +24,7 @@ describe("Blaxel baked image template", () => {
     expect(readdirSync(templateDir).sort()).toEqual([
       "Dockerfile",
       "WALLPAPER.md",
+      "agent-config.sh",
       "blaxel.toml",
       "chrome-managed-policy.json",
       "cmux-bashrc",
@@ -39,7 +40,7 @@ describe("Blaxel baked image template", () => {
   });
 
   test("every shell file parses (bash -n)", () => {
-    for (const name of ["entrypoint.sh", "start-vnc.sh", "cmux-bashrc"]) {
+    for (const name of ["entrypoint.sh", "start-vnc.sh", "cmux-bashrc", "agent-config.sh"]) {
       const result = spawnSync("bash", ["-n", path.join(templateDir, name)]);
       expect({ name, status: result.status }).toEqual({ name, status: 0 });
     }
@@ -118,6 +119,46 @@ describe("Blaxel baked image template", () => {
     for (const target of ["/etc/bash.bashrc", "/etc/skel/.bashrc", "/root/.bashrc", "/home/cua/.bashrc"]) {
       expect(dockerfile).toContain(`'[ -f /etc/cmux/bashrc ] && . /etc/cmux/bashrc' >> ${target}`);
     }
+  });
+
+  test("ble.sh highlights stay foreground-only for dark terminal themes", () => {
+    // The stock ble.sh faces paint light backgrounds under ghost text and
+    // transiently-invalid input, flashing the line background per keystroke
+    // on dark themes (Monokai). The bashrc overrides them after sourcing.
+    expect(bashrc).toContain("ble-face auto_complete=fg=");
+    expect(bashrc).toContain("ble-face syntax_error=fg=");
+    expect(bashrc).toContain("ble-face argument_error=fg=");
+    for (const line of bashrc.split("\n").filter((l) => l.trimStart().startsWith("ble-face"))) {
+      expect(line).not.toContain("bg=");
+    }
+  });
+
+  test("agent config generator wires the coderouter model plane per HOME", () => {
+    const agentConfig = read("agent-config.sh");
+    // Sourced for login/exec shells and every interactive HOME.
+    expect(dockerfile).toContain(
+      "'[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' > /etc/profile.d/cmux-agents.sh",
+    );
+    for (const target of ["/etc/bash.bashrc", "/etc/skel/.bashrc", "/root/.bashrc", "/home/cua/.bashrc"]) {
+      expect(dockerfile).toContain(
+        `'[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' >> ${target}`,
+      );
+    }
+    // Boot env is persisted on the durable home volume (Blaxel create-time
+    // envs are not replayed on resurrect) and re-sourced when absent.
+    expect(agentConfig).toContain('model-plane.env');
+    expect(agentConfig).toContain("umask 077");
+    expect(agentConfig).toContain('. "$HOME/.config/cmux/model-plane.env"');
+    // codex rides a custom provider on the /v1 Responses plane with env auth.
+    expect(agentConfig).toContain('model_provider = \\"cmux\\"');
+    expect(agentConfig).toContain('wire_api = \\"responses\\"');
+    expect(agentConfig).toContain('env_key = \\"OPENAI_API_KEY\\"');
+    // Write-if-missing keeps the user in control of their harness config.
+    expect(agentConfig).toContain('[ ! -e "$HOME/.codex/config.toml" ]');
+    // The Dockerfile proves generation under a throwaway HOME and proves the
+    // image ships no generated config for /root.
+    expect(dockerfile).toContain("test ! -e /root/.codex/config.toml");
+    expect(dockerfile).toContain("test ! -e /root/.config/cmux/model-plane.env");
   });
 
   test("declares the Blaxel template with the ports cmux opens", () => {
