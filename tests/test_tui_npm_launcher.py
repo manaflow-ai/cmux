@@ -236,6 +236,15 @@ def isolated_npm_environment(
         for name in os.environ
         if name.lower().startswith("npm_config_//")
         or name.lower() in NPM_NETWORK_ENV_KEYS
+        or name.lower()
+        in {
+            "node_options",
+            "node_path",
+            "http_proxy",
+            "https_proxy",
+            "all_proxy",
+            "no_proxy",
+        }
     }
     isolated = dict(env_extra)
     isolated.update(
@@ -348,6 +357,13 @@ def write_fake_npm(tmp_path: Path) -> Path:
     fake = tmp_path / "fake-npm.cjs"
     fake.write_text(
         """
+const fixtureHostPlatform = process.env.FAKE_NPM_HOST_PLATFORM;
+if (fixtureHostPlatform) {
+  Object.defineProperty(process, 'platform', {
+    configurable: true,
+    value: fixtureHostPlatform,
+  });
+}
 const fs = require('fs');
 const path = require('path');
 const args = process.argv.slice(2);
@@ -877,60 +893,62 @@ def test_launcher_windows_path_covers_exe_snapshot_lock_and_update(
     assert executable.is_file(), executable
     payload = executable.read_bytes()
     tarball = make_tarball(payload, binary_name="cmux-tui.exe")
+    fixture_tarball = tmp_path / "fixture.tgz"
+    fixture_tarball.write_bytes(tarball)
+    fixture_integrity = "sha512-" + base64.b64encode(
+        hashlib.sha512(tarball).digest()
+    ).decode()
+    fake_npm = write_fake_npm(tmp_path)
+    npm_log = tmp_path / "npm.log"
+    env_extra.update(
+        {
+            # Force the launcher's supported npm transport while keeping every
+            # response and tarball byte inside this test's fixture directory.
+            "CMUX_NPM_REGISTRY": "http://127.0.0.1:1",
+            "npm_execpath": str(fake_npm),
+            "npm_config_https_proxy": "fixture-proxy",
+            "FAKE_NPM_LATEST": "1.2.3",
+            "FAKE_NPM_TARBALL": str(fixture_tarball),
+            "FAKE_NPM_INTEGRITY": fixture_integrity,
+            "FAKE_NPM_LOG": str(npm_log),
+            "FAKE_NPM_HOST_PLATFORM": sys.platform,
+        }
+    )
     launcher = write_launcher(tmp_path / "launcher", "1.0.0")
+    update_launcher = write_launcher(tmp_path / "update", "1.0.0")
     cache = tmp_path / "cache"
-    server, thread, registry = start_registry(tarballs={"1.2.3": tarball})
     platform_root = cache / "win32-x64"
-    update_process = None
-    update_stdout = ""
-    update_stderr = ""
-    try:
-        # Hold the tarball response so the test can observe the update-wide
-        # lock and target lease before any bytes are published.
-        RegistryHandler.block_tarball = True
-        RegistryHandler.block_tarball_versions = {"1.2.3"}
-        update_env = os.environ.copy()
-        for name in env_remove:
-            update_env.pop(name, None)
-        update_env.update(
-            {
-                "CMUX_TUI_LAUNCHER_CACHE": str(cache),
-                "CMUX_NPM_REGISTRY": registry,
-                "NO_COLOR": "1",
-                **env_extra,
-            }
-        )
-        update_process = subprocess.Popen(
-            ["node", str(write_launcher(tmp_path / "update", "1.0.0")), "update"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            env=update_env,
-        )
-        assert RegistryHandler.tarball_started.wait(timeout=5), (
-            "Windows update did not start its tarball request"
-        )
-        update_lock = platform_root / ".update-operation.lock"
-        assert (update_lock / "owner").is_file(), (
-            "Windows update did not hold the operation lock"
-        )
-        active_root = platform_root / "v/1.2.3/.active"
-        assert any(entry.is_dir() for entry in active_root.iterdir()), (
-            "Windows update did not publish its target lease"
-        )
-        RegistryHandler.tarball_release.set()
-        update_stdout, update_stderr = update_process.communicate(timeout=10)
-    finally:
-        RegistryHandler.tarball_release.set()
-        if update_process is not None and update_process.poll() is None:
-            update_process.kill()
-            update_process.communicate(timeout=5)
-        server.shutdown()
-        thread.join()
 
-    assert update_process is not None
-    assert update_process.returncode == 0, update_stderr or update_stdout
-    assert RegistryHandler.latest_requests == ["/cmux/latest"]
+    # A competing update must retain its lock and fail closed. This exercises
+    # the Windows lock identity path without relying on timing or a network.
+    update_lock = platform_root / ".update-operation.lock"
+    update_lock.mkdir(parents=True)
+    owner = f"{os.getpid()}\nfixture-owner-token\n-\n{int(time.time() * 1000)}\n"
+    owner_path = update_lock / "owner"
+    owner_path.write_text(owner)
+    blocked = run_launcher(
+        update_launcher,
+        cache,
+        None,
+        "update",
+        env_extra=env_extra,
+        env_remove=env_remove,
+    )
+    assert blocked.returncode != 0
+    assert "could not reserve the native binary for update" in blocked.stderr
+    assert owner_path.read_text() == owner
+    owner_path.unlink()
+    update_lock.rmdir()
+
+    update = run_launcher(
+        update_launcher,
+        cache,
+        None,
+        "update",
+        env_extra=env_extra,
+        env_remove=env_remove,
+    )
+    assert update.returncode == 0, update.stderr
     binary = platform_root / "v/1.2.3/bin/cmux-tui.exe"
     assert binary.is_file()
     assert binary.read_bytes() == payload
@@ -940,61 +958,66 @@ def test_launcher_windows_path_covers_exe_snapshot_lock_and_update(
     assert not (platform_root / ".update-operation.lock").exists()
     assert not (platform_root / ".update.lock").exists()
     assert not (platform_root / "v/1.2.3/.active").exists()
-    assert RegistryHandler.metadata_requests == 1
-    assert RegistryHandler.tarball_requests == 1
 
-    # The update check above intentionally blocks the registry thread. Start a
-    # fresh local fixture for the launch checks after that process is cleaned up.
-    server, thread, registry = start_registry(tarballs={"1.2.3": tarball})
-    try:
-        first = run_launcher(
-            launcher,
-            cache,
-            registry,
-            *child_args,
-            env_extra=env_extra,
-            env_remove=env_remove,
-        )
-        assert first.returncode == 0, (
-            f"{first.stderr}\nregistry requests: {RegistryHandler.request_paths!r}"
-        )
-        assert "windows-cache-snapshot" in first.stdout
-        assert RegistryHandler.metadata_requests == 1
-        assert RegistryHandler.tarball_requests == 1
+    first = run_launcher(
+        launcher,
+        cache,
+        None,
+        *child_args,
+        env_extra=env_extra,
+        env_remove=env_remove,
+    )
+    assert first.returncode == 0, first.stderr
+    assert "windows-cache-snapshot" in first.stdout
 
-        # A writable cache hit is authenticated by a fresh registry response.
-        # A matching local manifest cannot bless a replaced executable or
-        # tarball.
-        version_dir = binary.parent.parent
-        manifest_path = version_dir / "manifest.json"
-        manifest = json.loads(manifest_path.read_text())
-        tampered = b"tampered Windows executable"
-        manifest["tarballIntegrity"] = "sha512-" + base64.b64encode(
-            hashlib.sha512(b"tampered tarball").digest()
-        ).decode()
-        manifest["binaries"]["cmux-tui.exe"] = hashlib.sha512(tampered).hexdigest()
-        manifest_path.write_text(json.dumps(manifest) + "\n")
-        binary.write_bytes(tampered)
+    # A writable cache hit is authenticated by a fresh fixture response. A
+    # matching local manifest cannot bless a replaced executable or tarball.
+    version_dir = binary.parent.parent
+    manifest_path = version_dir / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    tampered = b"tampered Windows executable"
+    manifest["tarballIntegrity"] = "sha512-" + base64.b64encode(
+        hashlib.sha512(b"tampered tarball").digest()
+    ).decode()
+    manifest["binaries"]["cmux-tui.exe"] = hashlib.sha512(tampered).hexdigest()
+    manifest_path.write_text(json.dumps(manifest) + "\n")
+    binary.write_bytes(tampered)
 
-        second = run_launcher(
-            launcher,
-            cache,
-            registry,
-            *child_args,
-            env_extra=env_extra,
-            env_remove=env_remove,
-        )
-        assert second.returncode == 0, second.stderr
-        assert "windows-cache-snapshot" in second.stdout
-        assert binary.read_bytes() == payload
-        assert RegistryHandler.metadata_requests == 2
-        assert RegistryHandler.tarball_requests == 2
-        assert not (platform_root / ".update-operation.lock").exists()
-        assert not (platform_root / ".update.lock").exists()
-        assert not (platform_root / "v/1.2.3/.active").exists()
-    finally:
-        server.shutdown()
-        thread.join()
+    second = run_launcher(
+        launcher,
+        cache,
+        None,
+        *child_args,
+        env_extra=env_extra,
+        env_remove=env_remove,
+    )
+    assert second.returncode == 0, second.stderr
+    assert "windows-cache-snapshot" in second.stdout
+    assert binary.read_bytes() == payload
+    assert not (platform_root / ".update-operation.lock").exists()
+    assert not (platform_root / ".update.lock").exists()
+    assert not (platform_root / "v/1.2.3/.active").exists()
+
+    records = [json.loads(line) for line in npm_log.read_text().splitlines()]
+    assert [record["args"][0] for record in records] == [
+        "view",
+        "view",
+        "pack",
+        "view",
+        "pack",
+        "view",
+        "pack",
+    ]
+    assert records[0]["args"][2] == "version"
+    assert records[1]["args"][2] == "dist"
+    expected_spec = "cmux-tui-win32-x64@1.2.3"
+    assert all(expected_spec in record["args"] for record in records)
+    assert all(
+        record["args"][record["args"].index("--registry") + 1]
+        == "http://127.0.0.1:1"
+        for record in records
+    )
+    assert all(record["proxy"] == "fixture-proxy" for record in records)
 
 
 def test_launcher_reports_network_failure_without_leaking_details(tmp_path: Path) -> None:
