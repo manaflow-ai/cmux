@@ -570,7 +570,11 @@ async fn serve_connection(stream: TcpStream, manager: Arc<PtyManager>, parent: C
         manager.handle_frame(&close, &context).await;
     }
     flow.abort();
-    let _ = writer.await;
+    // A peer that stopped reading can wedge the final flush forever; the
+    // attachment is already released above, so cap the flush and reap.
+    if tokio::time::timeout(Duration::from_secs(30), &mut writer).await.is_err() {
+        writer.abort();
+    }
     let _ = flow.await;
 }
 
