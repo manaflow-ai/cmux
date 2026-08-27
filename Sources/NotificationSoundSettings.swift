@@ -202,7 +202,10 @@ nonisolated enum NotificationSoundSettings {
         context: NotificationSoundOverrideContext? = nil
     ) async -> Bool {
         guard !Task.isCancelled else { return false }
-        let snapshot = resolutionSnapshot(context: context, defaults: defaults)
+        let snapshot = await cachedResolutionSnapshot(
+            context: context,
+            defaults: defaults
+        )
         let suppressedAtAdmission = await activeFocusSuppression(
             assertionsFileURL: assertionsFileURL
         )

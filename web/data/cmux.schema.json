@@ -953,6 +953,7 @@
         "soundOverrides": {
           "type": "object",
           "default": {},
+          "maxProperties": 256,
           "descriptionKey": "schemaDescriptions.notifications.soundOverrides",
           "description": "Sparse per-agent and per-alert-type notification sound overrides. Missing cells use notifications.sound.",
           "propertyNames": {
@@ -965,6 +966,7 @@
           "patternProperties": {
             "^[A-Za-z0-9._-]+$": {
               "type": "object",
+              "maxProperties": 3,
               "additionalProperties": false,
               "properties": {
                 "turnDone": { "$ref": "#/$defs/notificationSoundOverride" },

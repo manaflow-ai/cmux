@@ -3,6 +3,41 @@ import Foundation
 import UserNotifications
 
 extension NotificationSoundSettings {
+    /// Upper bound for the declarative matrix accepted by the playback path.
+    /// Keeping the raw value bounded prevents malformed configuration from
+    /// turning a notification into an unbounded main-actor decode.
+    private static let maximumOverrideJSONBytes = 256 * 1024
+
+    /// Caches the last validated matrix off the main actor. The raw JSON is
+    /// the invalidation token, so a settings write automatically selects a new
+    /// snapshot without a second observation channel.
+    private actor OverrideSnapshotCache {
+        private var cachedRawValue: String?
+        private var cachedOverrides: NotificationSoundOverrides?
+
+        func overrides(for rawValue: String?) -> NotificationSoundOverrides? {
+            guard let rawValue, !rawValue.isEmpty else {
+                cachedRawValue = rawValue
+                cachedOverrides = .empty
+                return .empty
+            }
+            guard rawValue.utf8.count <= NotificationSoundSettings.maximumOverrideJSONBytes else {
+                cachedRawValue = rawValue
+                cachedOverrides = nil
+                return nil
+            }
+            if rawValue == cachedRawValue {
+                return cachedOverrides
+            }
+            let decoded = NotificationSoundOverrides(jsonString: rawValue)
+            cachedRawValue = rawValue
+            cachedOverrides = decoded
+            return decoded
+        }
+    }
+
+    private static let overrideSnapshotCache = OverrideSnapshotCache()
+
     /// Captures global and optional matrix settings before asynchronous preparation.
     static func resolutionSnapshot(
         context: NotificationSoundOverrideContext?,
@@ -12,8 +47,47 @@ extension NotificationSoundSettings {
             value: defaults.string(forKey: key) ?? defaultValue,
             customFilePath: defaults.string(forKey: customFilePathKey)
         )
+        let overrides = configuredOverrides(
+            rawValue: defaults.string(
+                forKey: NotificationsCatalogSection().soundOverrides.userDefaultsKey
+            )
+        )
+        return makeResolutionSnapshot(
+            context: context,
+            globalSelection: globalSelection,
+            overrides: overrides
+        )
+    }
+
+    /// Captures settings synchronously, then decodes the matrix on the cache
+    /// actor. Callers that are already on the main actor use this path so JSON
+    /// parsing never occupies the UI executor.
+    private static func cachedResolutionSnapshot(
+        context: NotificationSoundOverrideContext?,
+        defaults: UserDefaults
+    ) async -> NotificationSoundResolutionSnapshot {
+        let globalSelection = ResolvedNotificationSoundPlaybackSelection(
+            value: defaults.string(forKey: key) ?? defaultValue,
+            customFilePath: defaults.string(forKey: customFilePathKey)
+        )
+        let rawOverrides = defaults.string(
+            forKey: NotificationsCatalogSection().soundOverrides.userDefaultsKey
+        )
+        let overrides = await overrideSnapshotCache.overrides(for: rawOverrides)
+        return makeResolutionSnapshot(
+            context: context,
+            globalSelection: globalSelection,
+            overrides: overrides
+        )
+    }
+
+    private static func makeResolutionSnapshot(
+        context: NotificationSoundOverrideContext?,
+        globalSelection: ResolvedNotificationSoundPlaybackSelection,
+        overrides: NotificationSoundOverrides?
+    ) -> NotificationSoundResolutionSnapshot {
         guard let context,
-              let overrides = configuredOverrides(defaults: defaults),
+              let overrides,
               let soundOverride = overrides.override(
                   forAgentID: context.agentID,
                   alertType: context.alertType
@@ -40,7 +114,10 @@ extension NotificationSoundSettings {
         stagingDirectory: URL? = nil,
         pendingReferenceID: String? = nil
     ) async -> UNNotificationSound? {
-        let snapshot = resolutionSnapshot(context: context, defaults: defaults)
+        let snapshot = await cachedResolutionSnapshot(
+            context: context,
+            defaults: defaults
+        )
         let prepared = await prepareNotificationSound(
             snapshot: snapshot,
             stagingDirectory: stagingDirectory,
@@ -58,13 +135,13 @@ extension NotificationSoundSettings {
         }
     }
 
-    private static func configuredOverrides(
-        defaults: UserDefaults
-    ) -> NotificationSoundOverrides? {
-        let key = NotificationsCatalogSection().soundOverrides.userDefaultsKey
-        guard let raw = defaults.string(forKey: key), !raw.isEmpty else {
+    private static func configuredOverrides(rawValue: String?) -> NotificationSoundOverrides? {
+        guard let rawValue, !rawValue.isEmpty else {
             return .empty
         }
-        return NotificationSoundOverrides(jsonString: raw)
+        guard rawValue.utf8.count <= maximumOverrideJSONBytes else {
+            return nil
+        }
+        return NotificationSoundOverrides(jsonString: rawValue)
     }
 }
