@@ -14,6 +14,7 @@ import subprocess
 import tempfile
 import threading
 import time
+import tomllib
 from pathlib import Path
 
 from claude_teams_test_utils import resolve_cmux_cli
@@ -975,11 +976,25 @@ def codex_injected_hook_commands(arguments: list[str]) -> dict[str, str]:
     return commands
 
 
+def codex_disabled_hook_state(arguments: list[str]) -> dict[str, dict[str, bool]]:
+    if len(arguments) != 2 or arguments[0] != "-c":
+        raise AssertionError(
+            f"expected one session-scoped hook-state override: {arguments!r}"
+        )
+    assignment = arguments[1]
+    prefix = "hooks.state="
+    if not assignment.startswith(prefix):
+        raise AssertionError(f"unexpected hook-state override: {assignment!r}")
+    parsed = tomllib.loads(f"state={assignment.removeprefix(prefix)}")
+    state = parsed.get("state")
+    if not isinstance(state, dict):
+        raise AssertionError(f"hook-state override was not a TOML table: {parsed!r}")
+    return state
+
+
 def assert_persistent_codex_hook_groups(
     hooks: dict,
     expected_third_party_groups: dict[str, list[dict]],
-    *,
-    tool_hooks_disabled: bool,
 ) -> None:
     active_events = [
         "SessionStart",
@@ -991,8 +1006,7 @@ def assert_persistent_codex_hook_groups(
         "SubagentStart",
         "SubagentStop",
     ]
-    if not tool_hooks_disabled:
-        active_events.extend(["PreToolUse", "PostToolUse"])
+    active_events.extend(["PreToolUse", "PostToolUse"])
 
     commands_by_event = codex_hook_commands_by_event(hooks)
     for event_name in active_events:
@@ -1003,10 +1017,9 @@ def assert_persistent_codex_hook_groups(
                 f"groups={groups!r} commands={commands_by_event!r}"
             )
 
-    expected_tool_group_count = 0 if tool_hooks_disabled else 1
     for event_name in ["PreToolUse", "PostToolUse"]:
         groups = cmux_codex_hook_groups(hooks, event_name)
-        if len(groups) != expected_tool_group_count:
+        if len(groups) != 1:
             raise AssertionError(
                 f"wrong cmux {event_name} group count: {groups!r}"
             )
@@ -1140,7 +1153,6 @@ def test_codex_tool_hook_opt_out_reconciles_persistent_hooks(
     assert_persistent_codex_hook_groups(
         installed_hooks,
         expected_third_party_groups,
-        tool_hooks_disabled=False,
     )
     installed_trust = expected_cmux_codex_hook_trust(installed_hooks, hooks_path)
     stale_tool_trust_keys = {
@@ -1151,32 +1163,26 @@ def test_codex_tool_hook_opt_out_reconciles_persistent_hooks(
     if not stale_tool_trust_keys:
         raise AssertionError(f"installed tool-hook trust was missing: {installed_trust!r}")
 
-    disabled = run_codex_cli(
-        cli_path,
-        codex_home,
-        ["hooks", "codex", "inject-args"],
-        tool_hooks_disabled_value="1",
+    disabled_arguments = codex_injected_hook_arguments(
+        cli_path, codex_home, tool_hooks_disabled_value="1"
     )
-    if disabled.returncode != 0 or disabled.stdout != b"":
+    disabled_state = codex_disabled_hook_state(disabled_arguments)
+    expected_disabled_keys = stale_tool_trust_keys
+    if set(disabled_state) != expected_disabled_keys:
         raise AssertionError(
-            "persistent disabled reconciliation must emit an empty byte stream: "
-            f"exit={disabled.returncode} stdout={disabled.stdout!r} "
-            f"stderr={disabled.stderr!r}"
+            "session override targeted the wrong persistent hooks: "
+            f"expected={expected_disabled_keys!r} actual={disabled_state!r}"
         )
+    if any(value != {"enabled": False} for value in disabled_state.values()):
+        raise AssertionError(f"invalid disabled hook state: {disabled_state!r}")
 
     disabled_hooks = json.loads(hooks_path.read_text(encoding="utf-8"))
     assert_persistent_codex_hook_groups(
         disabled_hooks,
         expected_third_party_groups,
-        tool_hooks_disabled=True,
     )
     disabled_config = (codex_home / "config.toml").read_text(encoding="utf-8")
     disabled_trust = codex_hook_trust_state(disabled_config)
-    leaked_tool_trust = stale_tool_trust_keys.intersection(disabled_trust)
-    if leaked_tool_trust:
-        raise AssertionError(
-            f"disabled cmux tool-hook trust was retained: {leaked_tool_trust!r}"
-        )
     expected_disabled_trust = expected_cmux_codex_hook_trust(disabled_hooks, hooks_path)
     for key, trusted_hash in expected_disabled_trust.items():
         if disabled_trust.get(key, {}).get("trusted_hash") != trusted_hash:
@@ -1202,7 +1208,6 @@ def test_codex_tool_hook_opt_out_reconciles_persistent_hooks(
     assert_persistent_codex_hook_groups(
         restored_hooks,
         expected_third_party_groups,
-        tool_hooks_disabled=False,
     )
     restored_config = (codex_home / "config.toml").read_text(encoding="utf-8")
     restored_trust = codex_hook_trust_state(restored_config)
@@ -1215,7 +1220,7 @@ def test_codex_tool_hook_opt_out_reconciles_persistent_hooks(
             )
 
 
-def test_codex_tool_hook_opt_out_reconciles_concurrent_inject_args(
+def test_codex_tool_hook_opt_out_isolates_mixed_concurrent_inject_args(
     cli_path: str, root: Path
 ) -> None:
     codex_home = root / "codex-concurrent-opt-out" / ".codex"
@@ -1236,10 +1241,17 @@ def test_codex_tool_hook_opt_out_reconciles_concurrent_inject_args(
             f"stdout={install.stdout!r} stderr={install.stderr!r}"
         )
 
-    env = isolated_codex_cli_env(
-        codex_home,
-        tool_hooks_disabled_value="1",
-    )
+    expected_tool_keys = {
+        key
+        for key in expected_cmux_codex_hook_trust(
+            json.loads(hooks_path.read_text(encoding="utf-8")), hooks_path
+        )
+        if ":pre_tool_use:" in key or ":post_tool_use:" in key
+    }
+    environments = [
+        isolated_codex_cli_env(codex_home, tool_hooks_disabled_value="1"),
+        isolated_codex_cli_env(codex_home, tool_hooks_disabled_value=None),
+    ]
     processes = [
         subprocess.Popen(
             [cli_path, "hooks", "codex", "inject-args"],
@@ -1247,7 +1259,7 @@ def test_codex_tool_hook_opt_out_reconciles_concurrent_inject_args(
             stderr=subprocess.PIPE,
             env=env,
         )
-        for _ in range(2)
+        for env in environments
     ]
     results: list[tuple[int, bytes, bytes]] = []
     try:
@@ -1260,18 +1272,30 @@ def test_codex_tool_hook_opt_out_reconciles_concurrent_inject_args(
             process.communicate()
         raise AssertionError("concurrent inject-args reconciliation timed out")
 
-    for returncode, stdout, stderr in results:
-        if returncode != 0 or stdout != b"":
+    disabled_result, default_result = results
+    for returncode, _, stderr in results:
+        if returncode != 0:
             raise AssertionError(
-                "concurrent persistent reconciliation failed: "
-                f"exit={returncode} stdout={stdout!r} stderr={stderr!r}"
+                "mixed concurrent persistent reconciliation failed: "
+                f"exit={returncode} stderr={stderr!r}"
             )
+    disabled_arguments = [
+        part.decode() for part in disabled_result[1].split(b"\0") if part
+    ]
+    disabled_state = codex_disabled_hook_state(disabled_arguments)
+    if set(disabled_state) != expected_tool_keys:
+        raise AssertionError(
+            f"flagged launch disabled the wrong hooks: {disabled_state!r}"
+        )
+    if default_result[1] != b"":
+        raise AssertionError(
+            f"default persistent launch unexpectedly emitted args: {default_result[1]!r}"
+        )
 
     reconciled_hooks = json.loads(hooks_path.read_text(encoding="utf-8"))
     assert_persistent_codex_hook_groups(
         reconciled_hooks,
         expected_third_party_groups,
-        tool_hooks_disabled=True,
     )
 
 
@@ -4510,7 +4534,7 @@ def main() -> int:
             test_codex_monitor_survives_transient_owner_rpc_timeout(cli_path, root)
             test_codex_tool_hook_opt_out_filters_real_injected_args(cli_path, root)
             test_codex_tool_hook_opt_out_reconciles_persistent_hooks(cli_path, root)
-            test_codex_tool_hook_opt_out_reconciles_concurrent_inject_args(cli_path, root)
+            test_codex_tool_hook_opt_out_isolates_mixed_concurrent_inject_args(cli_path, root)
             test_codex_tool_hook_opt_out_retains_aged_wrapper_scripts(cli_path, root)
             test_install_adds_codex_permission_request_hook(cli_path, root)
             test_install_escapes_codex_hook_trust_state_keys(cli_path, root)
