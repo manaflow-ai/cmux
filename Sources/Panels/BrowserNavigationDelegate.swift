@@ -329,7 +329,6 @@ import WebKit
             let isTrustedInternal = trustedInternalNavigation(for: url, in: webView)
             if isMainFrame, !isTrustedInternal {
                 (webView as? CmuxWebView)?.clearTrustedInternalNavigationGrants()
-                owner?.clearTrustedLocalFileDocumentIfNeeded(for: url)
             }
             let isTrustedDocument = isMainFrame && url.isFileURL
                 && owner?.isTrustedLocalFileDocument(url) == true
@@ -754,7 +753,6 @@ import WebKit
             let isTrustedInternal = trustedInternalNavigation(for: url, in: webView)
             if isMainFrame, !isTrustedInternal {
                 (webView as? CmuxWebView)?.clearTrustedInternalNavigationGrants()
-                owner?.clearTrustedLocalFileDocumentIfNeeded(for: url)
             }
             let isTrustedDocument = isMainFrame && url.isFileURL
                 && owner?.isTrustedLocalFileDocument(url) == true
@@ -881,7 +879,11 @@ import WebKit
               cmuxWebView.consumeTrustedInternalNavigation(url) else {
             return false
         }
-        owner?.beginTrustedLocalFileNavigation(url)
+        if url.isFileURL {
+            owner?.beginTrustedLocalFileNavigation(url)
+        } else {
+            owner?.clearTrustedLocalFileDocumentIfNeeded(for: url)
+        }
         trustedInternalNavigationURL = url
         return true
     }

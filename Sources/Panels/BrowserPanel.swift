@@ -3256,6 +3256,8 @@ final class BrowserPanel: Panel, ObservableObject {
         navigationDelegate.didChooseMainFrameDownloadPolicy = { [weak self] webView, navigation in
             MainActor.assumeIsolated {
                 guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
+                self.failTrustedLocalFileNavigation()
+                (webView as? CmuxWebView)?.clearTrustedInternalNavigationGrants()
                 self.automationNavigationCoordinator.didChooseDownloadPolicy(
                     instanceID: boundWebViewInstanceID,
                     navigationID: navigation.map { ObjectIdentifier($0) }
@@ -3284,6 +3286,8 @@ final class BrowserPanel: Panel, ObservableObject {
                       self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else {
                     return
                 }
+                self.failTrustedLocalFileNavigation()
+                (webView as? CmuxWebView)?.clearTrustedInternalNavigationGrants()
                 guard let restoreAttemptID,
                       restoreAttemptID == self.currentDiscardRestoreAttemptID else {
                     return
@@ -5468,7 +5472,11 @@ final class BrowserPanel: Panel, ObservableObject {
             return nil
         }
         if trustedInternalNavigation {
-            beginTrustedLocalFileNavigation(url)
+            if url.isFileURL {
+                beginTrustedLocalFileNavigation(url)
+            } else {
+                clearTrustedLocalFileDocumentIfNeeded(for: url)
+            }
         }
         if usesRemoteWorkspaceProxy, remoteProxyEndpoint == nil {
             pendingRemoteNavigation?.onNavigationStarted?(nil)
@@ -5548,7 +5556,7 @@ final class BrowserPanel: Panel, ObservableObject {
         let trustedInternalNavigation = BrowserURLAllowlistPolicy
             .trustedInternalSchemes
             .contains(originalURL.scheme?.lowercased() ?? "")
-        if trustedInternalNavigation {
+        if trustedInternalNavigation, originalURL.isFileURL {
             beginTrustedLocalFileNavigation(originalURL)
         } else {
             clearTrustedLocalFileDocumentIfNeeded(for: originalURL)

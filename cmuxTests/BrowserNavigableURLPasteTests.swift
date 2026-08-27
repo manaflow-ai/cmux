@@ -91,6 +91,19 @@ import Testing
         )
     }
 
+    @Test func automationAllowlistKeepsArbitraryDataURLsBlocked() throws {
+        let dataURL = try #require(URL(string: "data:text/html,not-a-cmux-document"))
+        let policy = BrowserURLAllowlistPolicy(managedPatterns: [])
+
+        #expect(
+            TerminalController.browserURLAllowlistBlockedURL(
+                rawInput: dataURL.absoluteString,
+                resolvedURL: dataURL,
+                policy: policy
+            )?.absoluteString == dataURL.absoluteString
+        )
+    }
+
     @Test func browserTabAutomationResolvesHostLikeLocalhostInput() throws {
         let resolved = try #require(
             TerminalController.browserAutomationURL(from: " localhost:3000 ")
