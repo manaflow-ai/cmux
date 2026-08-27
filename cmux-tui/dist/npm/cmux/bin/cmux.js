@@ -48,6 +48,7 @@ const EXE = process.platform === "win32" ? ".exe" : "";
 const BIN_NAME = `cmux-tui${EXE}`;
 const PUBLISHED_VERSION = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 const MAX_TARBALL_BYTES = 256 * 1024 * 1024;
+const MAX_METADATA_BYTES = 1024 * 1024;
 const REGISTRY_TIMEOUT_MS = 30_000;
 
 function fail(message) {
@@ -166,6 +167,43 @@ function cachedBinary(version) {
   return fs.existsSync(bin) ? bin : null;
 }
 
+function cacheLockPath() {
+  return path.join(cacheRoot(), ".update.lock");
+}
+
+function tryAcquireCacheLock() {
+  try {
+    fs.mkdirSync(cacheLockPath(), { recursive: false });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function releaseCacheLock() {
+  try {
+    fs.rmdirSync(cacheLockPath());
+  } catch {}
+}
+
+function acquireVersionLease(version) {
+  const lease = path.join(cacheRoot(), "v", version, ".active");
+  try {
+    fs.mkdirSync(path.dirname(lease), { recursive: true });
+    fs.mkdirSync(lease, { recursive: false });
+    return lease;
+  } catch {
+    return null;
+  }
+}
+
+function releaseVersionLease(lease) {
+  if (!lease) return;
+  try {
+    fs.rmdirSync(lease);
+  } catch {}
+}
+
 // Resolve an installed cmux-tui-<platform> package (global or local install).
 // Returns { binPath, version } or null.
 function installedPackage(pkg) {
@@ -196,7 +234,31 @@ async function fetchJson(url) {
   if (!response.ok) {
     throw new Error("registry request failed");
   }
-  return response.json();
+  return JSON.parse(
+    (await readResponseBody(response, MAX_METADATA_BYTES)).toString("utf8")
+  );
+}
+
+async function readResponseBody(response, limit) {
+  if (!response.body) throw new Error("registry response has no body");
+  const reader = response.body.getReader();
+  const chunks = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > limit) {
+        await reader.cancel();
+        throw new Error("registry response is too large");
+      }
+      chunks.push(Buffer.from(value));
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return Buffer.concat(chunks, total);
 }
 
 // Parse one pax extended header block into { path } overrides.
@@ -285,13 +347,14 @@ async function downloadVersion(pkg, version) {
   if (!response.ok) {
     throw new Error("platform package download failed");
   }
-  const arrayBuffer = await response.arrayBuffer();
-  if (arrayBuffer.byteLength > MAX_TARBALL_BYTES) {
-    throw new Error("platform package is too large");
-  }
-  const tgz = Buffer.from(arrayBuffer);
+  const tgz = await readResponseBody(response, MAX_TARBALL_BYTES);
   verifyIntegrity(tgz, integrity);
-  const tar = zlib.gunzipSync(tgz);
+  let tar;
+  try {
+    tar = zlib.gunzipSync(tgz, { maxOutputLength: MAX_TARBALL_BYTES });
+  } catch {
+    throw new Error("platform package is invalid or too large");
+  }
   const entries = extractBinEntries(tar);
   if (!entries.some((entry) => entry.name === BIN_NAME)) {
     throw new Error("platform package does not contain the native binary");
@@ -322,6 +385,24 @@ async function downloadVersion(pkg, version) {
   return binPath;
 }
 
+function pruneCache(keepVersion) {
+  if (!tryAcquireCacheLock()) return;
+  const root = path.join(cacheRoot(), "v");
+  try {
+    for (const version of fs.readdirSync(root)) {
+      if (version === keepVersion) continue;
+      if (fs.existsSync(path.join(root, version, ".active"))) continue;
+      try {
+        fs.rmSync(path.join(root, version), { recursive: true, force: true });
+      } catch {}
+    }
+  } catch {
+    // Cache cleanup is best effort and must never hide a successful update.
+  } finally {
+    releaseCacheLock();
+  }
+}
+
 function wantedVersion(pkg) {
   const pinned = shimVersion();
   const state = readState();
@@ -343,14 +424,13 @@ function wantedVersion(pkg) {
   return pinned;
 }
 
-async function resolveBinary(pkg) {
+async function resolveBinary(pkg, wanted = wantedVersion(pkg)) {
   const override = process.env.CMUX_TUI_BIN;
   if (override) {
     if (!fs.existsSync(override)) fail(`CMUX_TUI_BIN does not exist: ${override}`);
     return override;
   }
 
-  const wanted = wantedVersion(pkg);
   const installed = installedPackage(pkg);
   if (installed && installed.version === wanted) {
     return installed.binPath;
@@ -394,6 +474,7 @@ async function runUpdate(pkg, args) {
     version: latest,
     updatedAt: new Date().toISOString(),
   });
+  pruneCache(latest);
   console.log(`cmux updated: ${current} -> ${latest}. The new version runs on the next start.`);
 }
 
@@ -413,16 +494,30 @@ async function main() {
     return;
   }
 
-  const binPath = await resolveBinary(pkg);
-  const result = spawnSync(binPath, args, { stdio: "inherit" });
-  if (result.error) {
-    fail("failed to launch the native binary");
+  let lease = null;
+  let exitCode = 1;
+  try {
+    const wanted = wantedVersion(pkg);
+    const lockHeld = tryAcquireCacheLock();
+    if (lockHeld) {
+      lease = acquireVersionLease(wanted);
+      releaseCacheLock();
+      if (lease) process.once("exit", () => releaseVersionLease(lease));
+    }
+    const binPath = await resolveBinary(pkg, wanted);
+    const result = spawnSync(binPath, args, { stdio: "inherit" });
+    if (result.error) {
+      fail("failed to launch the native binary");
+    }
+    if (result.signal) {
+      process.kill(process.pid, result.signal);
+      return;
+    }
+    exitCode = result.status === null ? 1 : result.status;
+  } finally {
+    releaseVersionLease(lease);
   }
-  if (result.signal) {
-    process.kill(process.pid, result.signal);
-    return;
-  }
-  process.exit(result.status === null ? 1 : result.status);
+  process.exit(exitCode);
 }
 
 main().catch(() => fail("launcher failed before starting the native binary"));

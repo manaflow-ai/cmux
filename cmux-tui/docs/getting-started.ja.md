@@ -19,9 +19,16 @@ npx cmux update --check   # 更新の有無だけを確認
 ませんが、後者は cmux 起動前にそのキャッシュへアクセスし、古い状態では
 `ENOTEMPTY: directory not empty, rename` で失敗することがあります。
 
-レジストリに接続できない場合は、ランチャーと同じバージョンのプラットフォーム用
-パッケージをローカルの tarball からインストールするか、npm キャッシュへ事前に保存して
-ください。
+レジストリに接続できない場合は、ランチャーと同じバージョンの tarball をダウンロードし、
+ローカルパスからインストールしてください。ランチャーはインストール済みのプラット
+フォーム用パッケージを使います。
+
+```bash
+npm install -g ./cmux-0.11.0.tgz ./cmux-tui-darwin-arm64-0.11.0.tgz
+```
+
+npm のダウンロードキャッシュはランチャーから読み取れません。別の方法として、ランチャー
+キャッシュへ直接配置し、`CMUX_TUI_LAUNCHER_CACHE` でそのディレクトリを指定できます。
 
 ## npx の ENOTEMPTY エラー
 
@@ -30,7 +37,13 @@ npx cmux update --check   # 更新の有無だけを確認
 
 ```bash
 npm_cache="$(npm config get cache)"
-rm -rf "$npm_cache/_npx"
+target="$npm_cache/_npx"
+printf '削除対象: %s\n' "$target"
+case "$npm_cache" in
+  ""|/|"$HOME"|"$HOME/"*) echo "安全でない npm キャッシュパスのため中止します" >&2; exit 1 ;;
+esac
+read -r -p '続行する場合は yes と入力してください: ' confirm
+[ "$confirm" = yes ] || exit 1
+rm -rf -- "$target"
 npx cmux@latest
 ```
-
