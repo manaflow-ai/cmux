@@ -41028,6 +41028,7 @@ mod tests {
         let first_workspace = tree.workspaces[0].id;
         let second_workspace = tree.workspaces[1].id;
         let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_view = SidebarView::Workspaces;
         app.config.sidebar.columns_explicit = true;
         app.config.sidebar.columns = vec![
             crate::config::SidebarColumn {
