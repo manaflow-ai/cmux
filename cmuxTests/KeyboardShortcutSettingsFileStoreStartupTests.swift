@@ -1458,6 +1458,40 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         }
     }
 
+    func testSettingsFileStoreRejectsOversizedNotificationSoundOverrides() throws {
+        let defaults = UserDefaults.standard
+        let key = NotificationsCatalogSection().soundOverrides.userDefaultsKey
+        try preservingDefaults(keys: [key, settingsFileBackupsDefaultsKey, importedManagedDefaultsKey]) {
+            var prior = NotificationSoundOverrides()
+            prior.set(
+                NotificationSoundOverride(sound: "Ping"),
+                forAgentID: "claude",
+                alertType: .turnDone
+            )
+            defaults.set(prior.jsonString, forKey: key)
+            defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            defaults.removeObject(forKey: importedManagedDefaultsKey)
+
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            let oversizedPath = String(repeating: "a", count: 256 * 1024)
+            try writeSettingsFile(
+                "{\"notifications\":{\"soundOverrides\":{\"claude\":{\"turnDone\":{\"sound\":\"custom_file\",\"customSoundFilePath\":\"\(oversizedPath)\"}}}}}",
+                to: settingsFileURL
+            )
+
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+
+            XCTAssertEqual(defaults.string(forKey: key), prior.jsonString)
+        }
+    }
+
     func testSettingsFileStoreRejectsMalformedNotificationSoundOverrideWithoutOverwritingPriorValue() throws {
         let defaults = UserDefaults.standard
         let key = NotificationsCatalogSection().soundOverrides.userDefaultsKey
