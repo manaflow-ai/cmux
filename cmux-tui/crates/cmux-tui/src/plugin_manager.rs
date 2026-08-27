@@ -768,6 +768,105 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
 
+    struct FailingRenameFilesystem {
+        fail_at: usize,
+        calls: Cell<usize>,
+    }
+
+    impl InstallFilesystem for FailingRenameFilesystem {
+        fn rename(&self, from: &Path, to: &Path) -> std::io::Result<()> {
+            let call = self.calls.get() + 1;
+            self.calls.set(call);
+            if call == self.fail_at {
+                return Err(std::io::Error::other("injected rename failure"));
+            }
+            fs::rename(from, to)
+        }
+
+        fn remove_dir_all(&self, path: &Path) -> std::io::Result<()> {
+            fs::remove_dir_all(path)
+        }
+
+        fn remove_file(&self, path: &Path) -> std::io::Result<()> {
+            fs::remove_file(path)
+        }
+    }
+
+    fn replacement_fixture(label: &str) -> (PathBuf, PathBuf, PathBuf, PathBuf) {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-plugin-replacement-test-{label}-{}-{}",
+            std::process::id(),
+            now_nanos()
+        ));
+        let target = root.join("demo");
+        let registry = root.join(".registry");
+        let metadata_path = registry.join("demo.json");
+        let temp_dir = root.join(".install");
+        let metadata_temp = registry.join(".demo.tmp");
+        fs::create_dir_all(target.join("bin")).unwrap();
+        fs::write(target.join("marker"), "old").unwrap();
+        fs::create_dir_all(&registry).unwrap();
+        fs::write(
+            &metadata_path,
+            r#"{"id":"sidebar_plugin_11111111111111111111111111111111"}
+"#,
+        )
+        .unwrap();
+        fs::create_dir_all(temp_dir.join("bin")).unwrap();
+        fs::write(temp_dir.join("marker"), "new").unwrap();
+        fs::write(
+            &metadata_temp,
+            r#"{"id":"sidebar_plugin_22222222222222222222222222222222"}
+"#,
+        )
+        .unwrap();
+        (root, target, temp_dir, metadata_temp)
+    }
+
+    #[test]
+    fn replacement_failure_after_backup_restores_plugin_and_metadata() {
+        let (root, target, temp_dir, metadata_temp) = replacement_fixture("rollback");
+        let filesystem = FailingRenameFilesystem { fail_at: 2, calls: Cell::new(0) };
+        let error = replace_installed_plugin_with_fs(
+            &filesystem,
+            &root,
+            "demo",
+            &temp_dir,
+            &metadata_temp,
+            true,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("back up"));
+        assert_eq!(fs::read_to_string(target.join("marker")).unwrap(), "old");
+        assert_eq!(
+            read_registry_metadata(&root, "demo").unwrap().id,
+            "sidebar_plugin_11111111111111111111111111111111"
+        );
+        assert!(temp_dir.exists());
+        assert!(metadata_temp.exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn replacement_commits_new_plugin_and_metadata_together() {
+        let (root, target, temp_dir, metadata_temp) = replacement_fixture("success");
+        replace_installed_plugin(&root, "demo", &temp_dir, &metadata_temp, true).unwrap();
+        assert_eq!(fs::read_to_string(target.join("marker")).unwrap(), "new");
+        assert_eq!(
+            read_registry_metadata(&root, "demo").unwrap().id,
+            "sidebar_plugin_22222222222222222222222222222222"
+        );
+        assert!(!temp_dir.exists());
+        assert!(!metadata_temp.exists());
+        let visible_entries = fs::read_dir(&root)
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|entry| !entry.file_name().to_string_lossy().starts_with('.'))
+            .count();
+        assert_eq!(visible_entries, 1);
+        fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn plugin_snapshot_matches_the_closed_catalog_shape() {
         let root = std::env::temp_dir().join(format!(
