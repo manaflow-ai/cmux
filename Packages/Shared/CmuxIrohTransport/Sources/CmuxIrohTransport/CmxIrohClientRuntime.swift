@@ -34,6 +34,15 @@ public actor CmxIrohClientRuntime {
         let offlineExpectation: CmxIrohClientOfflinePolicyExpectation?
         let cachedTargetBindings: [CmxIrohBrokerBinding]
         let cachedLANRendezvous: CmxIrohLANRendezvous?
+        /// True only for the warm-start fast path that resolved this policy
+        /// from the verified offline caches WITHOUT any broker round. It arms
+        /// the immediate post-activation registration refresh, whose
+        /// non-transient rejection tears the runtime down (the same
+        /// fail-closed semantics as the Mac host's cache-first activation,
+        /// cmux#10737). The connectivity-fallback path (broker unreachable)
+        /// deliberately leaves this false: re-requesting a broker that just
+        /// failed adds nothing, and network-change events own that retry.
+        var activatedFromCache = false
     }
 
     private struct ConnectivityReconciliationOperation {
@@ -485,11 +494,28 @@ public actor CmxIrohClientRuntime {
         do {
             await startSupervisorObservation(revision: revision)
             let cachedDiscoveryTask: Task<CmxIrohDiscoveryResponse?, Never>?
+            var brokerPreflightFailure: (any Error)?
             if configuration.cachedBinding != nil {
-                try await preparePolicyResolution(revision: revision)
-                cachedDiscoveryTask = Task { [weak self] in
-                    guard let self else { return nil }
-                    return try? await self.prefetchAuthoritativeDiscovery()
+                // A broker floor (cooldown, backpressure) must not block a
+                // cache-first activation. Remember the failure: a cache miss
+                // below rethrows it, preserving the previous ordering.
+                do {
+                    try await preparePolicyResolution(revision: revision)
+                } catch let error as CmxIrohClientRuntimeError
+                    where error == .superseded {
+                    throw error
+                } catch is CancellationError {
+                    throw CancellationError()
+                } catch {
+                    brokerPreflightFailure = error
+                }
+                if brokerPreflightFailure == nil {
+                    cachedDiscoveryTask = Task { [weak self] in
+                        guard let self else { return nil }
+                        return try? await self.prefetchAuthoritativeDiscovery()
+                    }
+                } else {
+                    cachedDiscoveryTask = nil
                 }
             } else {
                 cachedDiscoveryTask = nil
@@ -502,12 +528,21 @@ public actor CmxIrohClientRuntime {
                   endpointSnapshot.endpointGeneration != nil else {
                 throw CmxIrohClientRuntimeError.invalidLocalBinding
             }
-            let policy = try await resolvePolicy(
-                expectedEndpointID: endpointID,
-                revision: revision,
-                prefetchedDiscovery: await cachedDiscoveryTask?.value,
-                brokerPreparationComplete: cachedDiscoveryTask != nil
-            )
+            let policy: ResolvedPolicy
+            if let cachedStart = await cachedStartPolicy(
+                expectedEndpointID: endpointID
+            ) {
+                policy = cachedStart
+            } else if let brokerPreflightFailure {
+                throw brokerPreflightFailure
+            } else {
+                policy = try await resolvePolicy(
+                    expectedEndpointID: endpointID,
+                    revision: revision,
+                    prefetchedDiscovery: await cachedDiscoveryTask?.value,
+                    brokerPreparationComplete: cachedDiscoveryTask != nil
+                )
+            }
             try requireCurrent(revision)
             try await install(policy: policy, revision: revision)
             if withholdsManagedRelaysUntilRegistered {
@@ -551,13 +586,27 @@ public actor CmxIrohClientRuntime {
             } else if let lanRendezvous = policy.cachedLANRendezvous {
                 await handleCachedBindings(policy.cachedTargetBindings, lanRendezvous)
             }
-            if policy.registration == nil, policy.discovery != nil {
+            if policy.registration == nil,
+               policy.discovery != nil || policy.activatedFromCache {
                 registrationRefreshPending = true
+                // The cache-first activation never read the broker, so the
+                // immediate refresh must fetch authoritative discovery (a
+                // signed registration when publication is due). Its failure
+                // taxonomy is the fail-closed authority: a non-transient
+                // rejection tears this activation down.
+                registrationRefreshPendingRequiresDiscovery =
+                    registrationRefreshPendingRequiresDiscovery
+                        || policy.activatedFromCache
             }
             registrationRefreshEnabled = true
             if registrationRefreshPending {
                 registrationRefreshPending = false
-                scheduleRegistrationRefresh(revision: revision)
+                let requiresDiscovery = registrationRefreshPendingRequiresDiscovery
+                registrationRefreshPendingRequiresDiscovery = false
+                scheduleRegistrationRefresh(
+                    revision: revision,
+                    requiresDiscovery: requiresDiscovery
+                )
             }
         } catch {
             guard lifecyclePhase == .starting,

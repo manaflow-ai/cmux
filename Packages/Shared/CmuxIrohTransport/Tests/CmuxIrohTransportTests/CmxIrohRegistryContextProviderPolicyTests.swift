@@ -309,7 +309,6 @@ extension CmxIrohRegistryContextProviderTests {
 
         for testCase in cases {
             let seeded = try await seededOfflinePolicy(fixture: fixture)
-            let readsBeforeDial = await seeded.store.readCount()
             let broker = TestIrohRegistryBroker(
                 discovery: testCase.discovery,
                 pairGrantResponses: [],
@@ -324,6 +323,12 @@ extension CmxIrohRegistryContextProviderTests {
                 offlinePolicy: seeded.policy,
                 now: { fixture.now }
             )
+            await provider.noteDialFailure(
+                for: try fixture.request(hints: []),
+                dialPlan: try testIrohDialPlan(publicPaths: []),
+                failure: .timedOut
+            )
+            let readsBeforeDial = await seeded.store.readCount()
 
             do {
                 _ = try await provider.context(for: fixture.request(hints: []))
@@ -362,7 +367,6 @@ extension CmxIrohRegistryContextProviderTests {
     func pairGrantUnauthorizedNeverConsultsOfflinePolicy() async throws {
         let fixture = try RegistryFixture()
         let seeded = try await seededOfflinePolicy(fixture: fixture)
-        let readsBeforeDial = await seeded.store.readCount()
         let rejection = CmxIrohTrustBrokerClientError.rejected(
             statusCode: 401,
             code: "unauthorized"
@@ -381,6 +385,14 @@ extension CmxIrohRegistryContextProviderTests {
             offlinePolicy: seeded.policy,
             now: { fixture.now }
         )
+        // Staleness evidence forces the fresh-discovery path (a cache-first
+        // dial would be served before any grant mint could be rejected).
+        await provider.noteDialFailure(
+            for: try fixture.request(hints: []),
+            dialPlan: try testIrohDialPlan(publicPaths: []),
+            failure: .timedOut
+        )
+        let readsBeforeDial = await seeded.store.readCount()
 
         await #expect(throws: rejection) {
             try await provider.context(for: fixture.request(hints: []))
@@ -409,7 +421,6 @@ extension CmxIrohRegistryContextProviderTests {
             for: expectation,
             now: fixture.now
         )
-        let readsBeforeDial = await store.readCount()
         let broker = TestIrohRegistryBroker(
             discovery: discovery,
             pairGrantResponses: [],
@@ -431,6 +442,12 @@ extension CmxIrohRegistryContextProviderTests {
             ),
             now: { fixture.now }
         )
+        await provider.noteDialFailure(
+            for: try fixture.request(hints: []),
+            dialPlan: try testIrohDialPlan(publicPaths: []),
+            failure: .timedOut
+        )
+        let readsBeforeDial = await store.readCount()
 
         await #expect(throws: CmxIrohTrustBrokerClientError.rejected(
             statusCode: 401,
@@ -463,7 +480,6 @@ extension CmxIrohRegistryContextProviderTests {
             TestRegistryBrokerFailure.tls,
             TestRegistryBrokerFailure.decode,
         ] {
-            let readsBeforeDial = await store.readCount()
             let broker = TestIrohRegistryBroker(
                 discovery: discovery,
                 pairGrantResponses: [],
@@ -482,6 +498,12 @@ extension CmxIrohRegistryContextProviderTests {
                 ),
                 now: { fixture.now }
             )
+            await provider.noteDialFailure(
+                for: try fixture.request(hints: []),
+                dialPlan: try testIrohDialPlan(publicPaths: []),
+                failure: .timedOut
+            )
+            let readsBeforeDial = await store.readCount()
 
             do {
                 _ = try await provider.context(for: fixture.request(hints: []))

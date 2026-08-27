@@ -108,7 +108,9 @@ struct CmxIrohClientRuntimeCacheFirstTests {
         await broker.waitUntilRegistrationCount(1)
         var failedClosed = false
         for _ in 0 ..< 50_000 {
-            if await runtime.snapshot().state == .failed {
+            if await runtime.snapshot().state == .failed,
+               await recorder.observedPolicyInvalidationCount() == 1,
+               await seed.store.recordCount() == 0 {
                 failedClosed = true
                 break
             }

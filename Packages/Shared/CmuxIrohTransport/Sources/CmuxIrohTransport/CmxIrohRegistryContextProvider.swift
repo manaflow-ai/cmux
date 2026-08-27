@@ -49,6 +49,9 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
     /// instead of issuing their own request, so a reconnect burst costs one
     /// broker call and the backpressure gate sees no storm.
     private var sharedDiscoveryTask: Task<CmxIrohDiscoveryResponse, any Error>?
+    /// The one in-flight refresh armed behind a cache-first dial, so a burst
+    /// of warm dials converges the route cache once instead of per dial.
+    private var cacheFirstRefreshTask: Task<Void, Never>?
 
     /// Creates a public-route provider from the generation-less seam.
     public init(
@@ -182,6 +185,24 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
             identity: targetIdentity,
             deviceID: request.expectedPeerDeviceID
         )
+        // Cache-first warm dial: when the verified offline record covers this
+        // exact tuple (its pair grant re-verifies against the stored key set),
+        // dial from it immediately and converge the route cache BEHIND the
+        // dial. Staleness evidence above bypasses this entirely, a failed dial
+        // marks the peer stale (cmux#10739/#10865), and the background refresh
+        // marks a vanished target stale so the next dial rebuilds from a fresh
+        // snapshot. A broker's authoritative rejection therefore still fails
+        // the tuple closed as soon as any fresh snapshot is consulted; it is
+        // never masked longer than one bounded cached dial.
+        if !requiresFreshDiscovery,
+           let cacheFirst = try await cacheFirstContext(
+               for: request,
+               targetIdentity: targetIdentity,
+               routeHints: routeHints,
+               at: clock
+           ) {
+            return cacheFirst
+        }
         var usedFreshDiscovery = false
         let discovery: CmxIrohDiscoveryResponse
         if !requiresFreshDiscovery, let verified = takeVerifiedDiscovery(at: clock) {
@@ -412,6 +433,127 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
             )
             authoritativeDiscovery = verifiedDiscovery
         }
+    }
+
+    /// Builds a dial context purely from the verified offline record, or
+    /// returns nil (a cache miss, an unusable cached plan, or no offline
+    /// policy at all) so the caller continues with the authoritative resolve.
+    private func cacheFirstContext(
+        for request: CmxByteTransportRequest,
+        targetIdentity: CmxIrohPeerIdentity,
+        routeHints: [CmxIrohPathHint],
+        at clock: Date
+    ) async throws -> CmxIrohClientContext? {
+        guard offlinePolicy != nil else { return nil }
+        // A still-fresh verified snapshot (startup or refresh response) is
+        // stronger evidence than the stored record alone: confirm the cached
+        // tuple against it without consuming the one-shot window and without
+        // any broker round. It stays armed for the non-cached path on a miss.
+        let confirming = peekVerifiedDiscovery(at: clock)
+        let cached: CmxIrohCachedClientPolicy?
+        do {
+            cached = try await cachedPolicy(
+                for: request,
+                confirmedDiscovery: confirming,
+                at: clock
+            )
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            return nil
+        }
+        guard let cached else { return nil }
+        let resolved: CmxIrohClientContext
+        do {
+            resolved = try await context(
+                targetBinding: cached.targetBinding,
+                routeHints: routeHints,
+                directOnly: request.irohDirectOnlyDialCandidates,
+                pairGrantToken: cached.pairGrant.grant,
+                at: clock
+            )
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            // The cached route material cannot produce a dialable plan (all
+            // hints expired). Resolve authoritatively instead of failing.
+            return nil
+        }
+        guard !Self.dialPlanIsEmpty(resolved.dialPlan) else { return nil }
+        rememberCachedLANAuthority(
+            cached,
+            bindings: confirming?.bindings
+        )
+        if confirming == nil {
+            scheduleCacheFirstRefresh(for: request, targetIdentity: targetIdentity)
+        }
+        return resolved
+    }
+
+    /// Arms one background discovery refresh behind a cache-first dial.
+    private func scheduleCacheFirstRefresh(
+        for request: CmxByteTransportRequest,
+        targetIdentity: CmxIrohPeerIdentity
+    ) {
+        guard cacheFirstRefreshTask == nil else { return }
+        cacheFirstRefreshTask = Task { [weak self] in
+            await self?.runCacheFirstRefresh(
+                for: request,
+                targetIdentity: targetIdentity
+            )
+        }
+    }
+
+    private func runCacheFirstRefresh(
+        for request: CmxByteTransportRequest,
+        targetIdentity: CmxIrohPeerIdentity
+    ) async {
+        defer { cacheFirstRefreshTask = nil }
+        let fresh: CmxIrohDiscoveryResponse
+        do {
+            fresh = try await sharedDiscover(
+                surface: DiagnosticCorrelation().handle(
+                    for: targetIdentity.endpointID
+                )
+            )
+        } catch {
+            // Transient failures leave the staleness machinery in charge: a
+            // failed dial on the cached plan marks the peer stale and the
+            // next dial refetches once the broker recovers.
+            return
+        }
+        // Re-validate and prune the stored record against the fresh snapshot.
+        // A vanished or replaced target marks the peer stale so the NEXT dial
+        // rebuilds from fresh discovery instead of redialing the corpse.
+        let confirmed: CmxIrohCachedClientPolicy?
+        do {
+            confirmed = try await cachedPolicy(
+                for: request,
+                confirmedDiscovery: fresh,
+                at: now()
+            )
+        } catch {
+            confirmed = nil
+        }
+        if confirmed == nil {
+            markDiscoveryStale(
+                identity: targetIdentity,
+                deviceID: request.expectedPeerDeviceID
+            )
+        } else {
+            replaceLANAuthorities(with: fresh)
+        }
+    }
+
+    /// Reads the reusable verified snapshot without consuming its one-shot
+    /// window, for callers that only need it as confirming evidence.
+    private func peekVerifiedDiscovery(at clock: Date) -> CmxIrohDiscoveryResponse? {
+        guard let snapshot = verifiedDiscoverySnapshot else { return nil }
+        let age = clock.timeIntervalSince(snapshot.verifiedAt)
+        guard age >= 0, age <= Self.maximumVerifiedDiscoveryReuseAge else {
+            return nil
+        }
+        return snapshot.response
     }
 
     /// Consumes the startup or refresh response once, preventing an immediate

@@ -2,6 +2,64 @@ public import CMUXMobileCore
 public import Foundation
 
 extension CmxIrohClientRuntime {
+    /// Returns a start policy resolved entirely from the verified device-only
+    /// caches, so a warm launch activates with ZERO blocking broker rounds.
+    ///
+    /// It requires BOTH persisted proofs: the cached broker binding (the
+    /// broker has acknowledged this exact endpoint, so managed relays stayed
+    /// installed at bind, cmux#10857) and the offline route record whose pair
+    /// grants re-verify against the stored key set. `start()` then arms the
+    /// immediate registration refresh, whose non-transient rejection tears
+    /// this activation down — the same fail-closed semantics as the Mac
+    /// host's cache-first activation (cmux#10737). Any mismatch is a silent
+    /// cache miss and activation falls back to the authenticated resolve.
+    func cachedStartPolicy(
+        expectedEndpointID: CmxIrohPeerIdentity
+    ) async -> ResolvedPolicy? {
+        guard let cachedBinding = configuration.cachedBinding,
+              offlinePolicyCache != nil,
+              !managedRelayURLs.isEmpty else { return nil }
+        // Re-verify the LIVE endpoint address so a replaced driver cannot
+        // inherit the prior generation's broker tuple (same guard as the
+        // authenticated resolve).
+        guard let liveAddress = try? await connectivityEngine.endpointAddress(),
+              liveAddress.identity == expectedEndpointID else { return nil }
+        guard let expectation = try? CmxIrohLocalBindingExpectation(
+            deviceID: configuration.deviceID,
+            appInstanceID: configuration.appInstanceID,
+            clientNamespace: configuration.clientNamespace,
+            tag: configuration.tag,
+            platform: .ios,
+            endpointID: expectedEndpointID,
+            identityGeneration: configuration.identity.generation,
+            pairingEnabled: false,
+            capabilities: configuration.capabilities
+        ), let offlineExpectation = try? CmxIrohClientOfflinePolicyExpectation(
+            accountID: configuration.accountID,
+            localBindingExpectation: expectation,
+            managedRelayURLs: managedRelayURLs
+        ) else { return nil }
+        guard let cached = try? await offlineBootstrap(
+            expectation: offlineExpectation,
+            confirmedLocalBinding: nil
+        ),
+        CmxIrohBrokerBindingMetadata(binding: cached.localBinding)
+            == cachedBinding else {
+            return nil
+        }
+        var policy = ResolvedPolicy(
+            registration: nil,
+            discovery: nil,
+            binding: cached.localBinding,
+            expectation: expectation,
+            offlineExpectation: offlineExpectation,
+            cachedTargetBindings: cached.targetBindings,
+            cachedLANRendezvous: cached.lanRendezvous
+        )
+        policy.activatedFromCache = true
+        return policy
+    }
+
     func resolvePolicy(
         expectedEndpointID: CmxIrohPeerIdentity,
         revision: UInt64,
