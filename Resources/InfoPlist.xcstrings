@@ -87,23 +87,6 @@
         }
       }
     },
-    "NSCalendarsUsageDescription": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "A program running within cmux would like to access your calendars."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux 内で実行中のプログラムがカレンダーへのアクセスを求めています。"
-          }
-        }
-      }
-    },
     "NSCalendarsWriteOnlyAccessUsageDescription": {
       "extractionState": "manual",
       "localizations": {
@@ -134,23 +117,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "cmux 内で実行中のプログラムがカメラの使用を求めています。"
-          }
-        }
-      }
-    },
-    "NSContactsUsageDescription": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "A program running within cmux would like to access your contacts."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux 内で実行中のプログラムが連絡先へのアクセスを求めています。"
           }
         }
       }
@@ -236,23 +202,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "cmux 内で実行中のプログラムがローカルネットワーク上のデバイスの検出を求めています。"
-          }
-        }
-      }
-    },
-    "NSLocationUsageDescription": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "A program running within cmux would like to access your location."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux 内で実行中のプログラムが位置情報へのアクセスを求めています。"
           }
         }
       }
@@ -421,23 +370,6 @@
         }
       }
     },
-    "NSPhotoLibraryUsageDescription": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "A program running within cmux would like to access your photo library."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux 内で実行中のプログラムがフォトライブラリへのアクセスを求めています。"
-          }
-        }
-      }
-    },
     "NSRemindersFullAccessUsageDescription": {
       "extractionState": "manual",
       "localizations": {
@@ -451,23 +383,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "cmux 内で実行中のプログラムがリマインダーの読み書きへのアクセスを求めています。"
-          }
-        }
-      }
-    },
-    "NSRemindersUsageDescription": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "A program running within cmux would like to access your reminders."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux 内で実行中のプログラムがリマインダーへのアクセスを求めています。"
           }
         }
       }

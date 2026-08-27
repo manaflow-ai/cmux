@@ -110,28 +110,18 @@
 	<string>A program running within cmux would like to access files on a network volume.</string>
 	<key>NSRemovableVolumesUsageDescription</key>
 	<string>A program running within cmux would like to access files on a removable volume.</string>
-	<key>NSCalendarsUsageDescription</key>
-	<string>A program running within cmux would like to access your calendars.</string>
 	<key>NSCalendarsFullAccessUsageDescription</key>
 	<string>A program running within cmux would like to read and write your calendars.</string>
 	<key>NSCalendarsWriteOnlyAccessUsageDescription</key>
 	<string>A program running within cmux would like to add events to your calendars.</string>
-	<key>NSContactsUsageDescription</key>
-	<string>A program running within cmux would like to access your contacts.</string>
-	<key>NSRemindersUsageDescription</key>
-	<string>A program running within cmux would like to access your reminders.</string>
 	<key>NSRemindersFullAccessUsageDescription</key>
 	<string>A program running within cmux would like to read and write your reminders.</string>
-	<key>NSLocationUsageDescription</key>
-	<string>A program running within cmux would like to access your location.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>A program running within cmux would like to access your location.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>A program running within cmux would like to use speech recognition.</string>
 	<key>NSSystemAdministrationUsageDescription</key>
 	<string>A program running within cmux would like to perform system administration tasks.</string>
-	<key>NSPhotoLibraryUsageDescription</key>
-	<string>A program running within cmux would like to access your photo library.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>A program running within cmux would like to discover devices on your local network.</string>
 	<key>NSMotionUsageDescription</key>
