@@ -66,7 +66,11 @@ import Testing
         collector.viewportPolicies.last == .natural,
         "a compatibility fallback without active_screen must not reuse stale alternate-screen sizing"
     )
-    #expect(store.terminalActiveScreenBySurfaceID["live-terminal"] == .alternate)
+    #expect(store.terminalActiveScreenBySurfaceID["live-terminal"] == nil)
+    #expect(
+        store.terminalActiveScreenUnknownSurfaceIDs.contains("live-terminal"),
+        "an omitted screen discriminator must enter an explicit unknown state"
+    )
     #expect(
         !store.terminalAlternateRenderGridBaselineSurfaceIDs.contains("live-terminal"),
         "an unknown-screen compatibility replacement must not retain an old grid baseline"
@@ -99,6 +103,10 @@ import Testing
         collector.lines.contains { $0.contains("primary-full") }
     }
     #expect(primaryDelivered)
+    #expect(
+        !store.terminalActiveScreenUnknownSurfaceIDs.contains("live-terminal"),
+        "an authoritative render-grid frame must resolve the unknown state"
+    )
     await transport.deliver(try terminalBytesEventFrame(
         surfaceID: "live-terminal",
         seq: 10,

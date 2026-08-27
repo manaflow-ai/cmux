@@ -205,6 +205,57 @@ struct VerifiedTerminalReplayStateMachineTests {
         #expect(!machine.isFrozen)
     }
 
+    @Test("compatibility fallback admits live deltas without starting replay churn")
+    func compatibilityFallbackAdmitsLiveDeltas() throws {
+        let machine = VerifiedTerminalReplayStateMachine()
+        let baseline = try frame(
+            renderRevision: 1,
+            stateSeq: 1,
+            columns: 80,
+            text: "verified baseline"
+        )
+        commit(baseline, to: machine)
+        machine.resetForCompatibilityFallback()
+
+        let delta = try frame(
+            renderRevision: 2,
+            stateSeq: 2,
+            columns: 80,
+            text: "live compatibility delta",
+            full: false
+        )
+        #expect(
+            machine.admitCompatibilityFallbackFrame(delta),
+            "a persistent capture failure needs an explicit legacy escape"
+        )
+        #expect(
+            machine.begin(frame: delta) == .keepFrozenAndRequestReplay,
+            "the normal verifier remains fail-closed when called directly"
+        )
+
+        let freshFull = try frame(
+            renderRevision: 3,
+            stateSeq: 3,
+            columns: 80,
+            text: "fresh verified recovery"
+        )
+        let transaction = try #require(extractTransaction(from: machine.begin(frame: freshFull)))
+        #expect(
+            machine.complete(transactionID: transaction.id, observedFrame: freshFull) == .reveal
+        )
+        let laterDelta = try frame(
+            renderRevision: 4,
+            stateSeq: 4,
+            columns: 80,
+            text: "verified delta after recovery",
+            full: false
+        )
+        #expect(
+            !machine.admitCompatibilityFallbackFrame(laterDelta),
+            "a verified full frame must end compatibility escape mode"
+        )
+    }
+
     @Test("a stale completion cannot reveal over a newer replay")
     func staleCompletionCannotReveal() throws {
         let machine = VerifiedTerminalReplayStateMachine()

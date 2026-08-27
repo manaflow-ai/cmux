@@ -202,7 +202,7 @@ import Testing
         await router.enqueueReplayPayload(
             text: nil,
             sequence: 2,
-            snapshotText: "sequence-reset-(attempt)"
+            snapshotText: "sequence-reset-\(attempt)"
         )
     }
     var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
@@ -229,7 +229,7 @@ import Testing
     let replacementChunk = try #require(await iterator.next())
     #expect(
         String(decoding: replacementChunk.data, as: UTF8.self)
-            .contains("sequence-reset-(MobileShellComposite.maxTerminalReplayFailureRetries)")
+            .contains("sequence-reset-\(MobileShellComposite.maxTerminalReplayFailureRetries)")
     )
     #expect(replacementChunk.endSequence == 2)
     store.terminalOutputDidProcess(
