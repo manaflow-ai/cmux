@@ -33226,9 +33226,12 @@ mod tests {
         let mut app = test_app(Session::Local(mux));
         let mut tree = notify_tree(41, false);
         let pane = &mut tree.workspaces[0].screens[0].panes[0];
+        let mut second = pane.tabs[0].clone();
+        second.surface = 41;
         let mut third = pane.tabs[0].clone();
         third.surface = 43;
         pane.tabs[0].surface = 40;
+        pane.tabs.push(second);
         pane.tabs.push(third);
         pane.active_tab = 1;
         app.replace_tree(tree);
