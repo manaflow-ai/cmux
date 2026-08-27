@@ -8,12 +8,41 @@ import XCTest
 /// The surface catalog: one identity per resource, zero or more projections, one open path.
 @MainActor
 final class SurfaceCatalogTests: XCTestCase {
+    @MainActor
+    private final class MaterializeGate {
+        private(set) var entered = false
+        private var enteredContinuation: CheckedContinuation<Void, Never>?
+        private var releaseContinuation: CheckedContinuation<Void, Never>?
+
+        func waitUntilEntered() async {
+            if entered { return }
+            await withCheckedContinuation { continuation in
+                enteredContinuation = continuation
+            }
+        }
+
+        func block() async {
+            entered = true
+            enteredContinuation?.resume()
+            enteredContinuation = nil
+            await withCheckedContinuation { continuation in
+                releaseContinuation = continuation
+            }
+        }
+
+        func release() {
+            releaseContinuation?.resume()
+            releaseContinuation = nil
+        }
+    }
+
     private final class FakeProvider: SurfaceProvider {
         let machine: SurfaceMachineID
         var info: SurfaceMachineInfo
         var materialized: [(SurfaceResourceID, SurfaceDestination)] = []
         var ended: [SurfaceProjection] = []
         var nextPanel = UUID()
+        var materializeGate: MaterializeGate?
 
         init(machine: SurfaceMachineID) {
             self.machine = machine
@@ -24,6 +53,7 @@ final class SurfaceCatalogTests: XCTestCase {
 
         func materialize(_ resource: SurfaceResource, at destination: SurfaceDestination, focus: Bool) async throws -> SurfaceProjection {
             materialized.append((resource.id, destination))
+            await materializeGate?.block()
             return SurfaceProjection(resource: resource.id, workspaceID: destination.workspaceID, panelID: nextPanel)
         }
 
@@ -72,6 +102,36 @@ final class SurfaceCatalogTests: XCTestCase {
         let third = try await catalog.project(term.id, into: .workspace(id: ws, placement: .split), reuseExisting: false)
         XCTAssertFalse(third.reused)
         XCTAssertEqual(catalog.projections(of: term.id).count, 2)
+    }
+
+    func testConcurrentReuseWaitsForTheInFlightMaterialization() async throws {
+        let catalog = SurfaceCatalog()
+        let provider = FakeProvider(machine: .cloud("vivid-newt"))
+        let gate = MaterializeGate()
+        provider.materializeGate = gate
+        catalog.register(provider)
+        let term = terminal(.cloud("vivid-newt"), "term_1")
+        catalog.replaceResources([term], on: .cloud("vivid-newt"))
+        let destination = SurfaceDestination.workspace(id: UUID(), placement: .split)
+
+        let first = Task { try await catalog.project(term.id, into: destination) }
+        await gate.waitUntilEntered()
+
+        let secondStarted = BoolBox()
+        let second = Task { @MainActor in
+            secondStarted.value = true
+            return try await catalog.project(term.id, into: destination)
+        }
+        while !secondStarted.value { await Task.yield() }
+        XCTAssertEqual(provider.materialized.count, 1, "a concurrent reuse must share the pending provider call")
+
+        gate.release()
+        let firstResult = try await first.value
+        let secondResult = try await second.value
+        XCTAssertFalse(firstResult.reused)
+        XCTAssertTrue(secondResult.reused)
+        XCTAssertEqual(firstResult.projection, secondResult.projection)
+        XCTAssertEqual(catalog.projections(of: term.id).count, 1)
     }
 
     func testEndingAProjectionKeepsTheRemoteResourceAndTellsTheProvider() async throws {
@@ -139,4 +199,9 @@ final class SurfaceCatalogTests: XCTestCase {
         XCTAssertTrue(catalog.snapshot.projections.isEmpty)
         XCTAssertNil(catalog.provider(for: .cloud("m")))
     }
+}
+
+@MainActor
+private final class BoolBox {
+    var value = false
 }
