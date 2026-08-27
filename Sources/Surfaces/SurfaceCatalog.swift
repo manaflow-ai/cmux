@@ -22,6 +22,13 @@ protocol SurfaceProvider: AnyObject {
     /// Create a new, empty workspace on this machine, directly (not as a side effect of
     /// creating a terminal). Providers without remote workspaces refuse.
     func createRemoteWorkspace(name: String?) async throws -> SurfaceRemoteWorkspace
+    /// Kill a resource (the terminal's process, the browser's page) — not a view of it.
+    /// Providers that cannot kill content refuse.
+    func closeResource(_ id: SurfaceResourceID) async throws
+    /// Close a remote workspace view. Its content detaches; it does not die.
+    func closeRemoteWorkspace(id: String) async throws
+    /// Rename a remote workspace.
+    func renameRemoteWorkspace(id: String, name: String) async throws
     /// Close a projection's pane: a materialization that lost a race with an existing
     /// projection, or a URL-backed pane whose machine was unregistered. The default
     /// implementation handles providers that use the shared pane factory; providers may
@@ -33,6 +40,18 @@ protocol SurfaceProvider: AnyObject {
 
 extension SurfaceProvider {
     func createRemoteWorkspace(name: String?) async throws -> SurfaceRemoteWorkspace {
+        throw SurfaceCatalogError.unsupported("workspaces on \(machine)")
+    }
+
+    func closeResource(_ id: SurfaceResourceID) async throws {
+        throw SurfaceCatalogError.unsupported("closing resources on \(machine)")
+    }
+
+    func closeRemoteWorkspace(id: String) async throws {
+        throw SurfaceCatalogError.unsupported("workspaces on \(machine)")
+    }
+
+    func renameRemoteWorkspace(id: String, name: String) async throws {
         throw SurfaceCatalogError.unsupported("workspaces on \(machine)")
     }
 

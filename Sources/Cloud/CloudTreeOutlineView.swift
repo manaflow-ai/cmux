@@ -423,7 +423,11 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                     item(String(localized: "cloudTree.menu.openAllInNewTabs", defaultValue: "Open All in New Tabs")) { [nodeActions] in nodeActions.openGroup(machine, group, .tab, workspace.id) },
                     item(String(localized: "cloudTree.menu.newTerminalHere", defaultValue: "New Terminal Here")) { [nodeActions] in nodeActions.newTerminal(machine, workspace.id) },
                     .separator(),
+                    item(String(localized: "cloudTree.menu.renameWorkspace", defaultValue: "Rename\u{2026}")) { [nodeActions] in nodeActions.renameWorkspace(machine, workspace) },
                     item(String(localized: "cloudTree.menu.copyWorkspaceID", defaultValue: "Copy Workspace ID")) { [nodeActions] in nodeActions.copyToPasteboard(workspace.id) },
+                    .separator(),
+                    item(String(localized: "cloudTree.menu.closeWorkspace", defaultValue: "Close Workspace (Keep Terminals)")) { [nodeActions] in nodeActions.closeWorkspace(machine, workspace) },
+                    item(String(localized: "cloudTree.menu.deleteWorkspace", defaultValue: "Delete Workspace and Terminals\u{2026}")) { [nodeActions] in nodeActions.deleteWorkspace(machine, workspace) },
                 ]
             case .localWorkspace(let row):
                 var items = [
@@ -435,11 +439,13 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 }
                 return items
             case .terminal(let row):
-                return resourceMenuItems(row.resource, isLocal: row.resource.machine.isLocal)
+                return resourceMenuItems(row.resource, isLocal: row.resource.machine.isLocal, canKill: true)
             case .browser(let row):
-                return resourceMenuItems(row.resource, isLocal: row.resource.machine.isLocal)
+                return resourceMenuItems(row.resource, isLocal: row.resource.machine.isLocal, canKill: true)
             case .display(let resource), .port(let resource):
-                return resourceMenuItems(resource, isLocal: false)
+                // A display is one resource per machine and a port row is just a URL;
+                // neither is killable content.
+                return resourceMenuItems(resource, isLocal: false, canKill: false)
             case .browsersGroup, .portsGroup:
                 return [
                     item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() },
@@ -453,7 +459,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         /// The verbs every surface row shares: open (reusing an open pane), open as a
         /// tab, a second pane (cloud resources only — a local terminal has one pane),
         /// and copying the resource id agents use with `cmux vm open`.
-        private func resourceMenuItems(_ resource: SurfaceResource, isLocal: Bool) -> [NSMenuItem] {
+        private func resourceMenuItems(_ resource: SurfaceResource, isLocal: Bool, canKill: Bool) -> [NSMenuItem] {
             var items: [NSMenuItem] = [
                 item(String(localized: "cloudTree.menu.open", defaultValue: "Open")) { [nodeActions] in nodeActions.project(resource.id, .split, true) },
                 item(String(localized: "cloudTree.menu.openInNewTab", defaultValue: "Open in New Tab")) { [nodeActions] in nodeActions.project(resource.id, .tab, true) },
@@ -466,6 +472,15 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 items.append(item(String(localized: "cloudTree.menu.copyPort", defaultValue: "Copy Port")) { [nodeActions] in nodeActions.copyToPasteboard(String(port)) })
             }
             items.append(item(String(localized: "cloudTree.menu.copySurfaceID", defaultValue: "Copy Surface ID")) { [nodeActions] in nodeActions.copyToPasteboard(resource.id.rawValue) })
+            // Only terminals and cmux-tui browsers can die; a display or port row has
+            // nothing to kill. Local terminals die with their pane (D1), not from here.
+            if canKill, !isLocal {
+                items.append(.separator())
+                let killTitle = resource.kind == .browser
+                    ? String(localized: "cloudTree.menu.closeBrowser", defaultValue: "Close Browser\u{2026}")
+                    : String(localized: "cloudTree.menu.killTerminal", defaultValue: "Kill Terminal\u{2026}")
+                items.append(item(killTitle) { [nodeActions] in nodeActions.killResource(resource) })
+            }
             return items
         }
 

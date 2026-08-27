@@ -303,6 +303,44 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         return workspace
     }
 
+    /// Kill a terminal or browser in the machine's cmux-tui session. Local panes
+    /// showing it keep their scrollback (the attach process exits); the resource
+    /// leaves the catalog now and the next snapshot re-sync is authoritative.
+    func closeResource(_ id: SurfaceResourceID) async throws {
+        let connected = try await links.connected(machineID: machineID)
+        guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
+        guard let arguments = CloudTuiCommandLine.closeResourceArguments(socketPath: connected.socketPath, kind: id.kind, resourceID: id.key) else {
+            throw SurfaceCatalogError.unsupported("closing \(id.kind.rawValue) resources")
+        }
+        _ = try await link.run(arguments: arguments)
+        catalog.remove(id)
+        scheduleRefresh()
+    }
+
+    /// Close a cmux-tui workspace. Its terminals detach into the pool; only
+    /// `closeResource` kills content.
+    func closeRemoteWorkspace(id: String) async throws {
+        let connected = try await links.connected(machineID: machineID)
+        guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
+        _ = try await link.run(arguments: CloudTuiCommandLine.closeWorkspaceArguments(socketPath: connected.socketPath, workspaceID: id))
+        info.remoteWorkspaces = info.remoteWorkspaces?.filter { $0.id != id }
+        catalog.updateMachine(info)
+        scheduleRefresh()
+    }
+
+    func renameRemoteWorkspace(id: String, name: String) async throws {
+        let connected = try await links.connected(machineID: machineID)
+        guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
+        _ = try await link.run(arguments: CloudTuiCommandLine.renameWorkspaceArguments(socketPath: connected.socketPath, workspaceID: id, name: name))
+        info.remoteWorkspaces = info.remoteWorkspaces?.map { workspace in
+            var renamed = workspace
+            if workspace.id == id { renamed.name = name }
+            return renamed
+        }
+        catalog.updateMachine(info)
+        scheduleRefresh()
+    }
+
     /// The terminal lives in the machine's session; only the local pane went away.
     func projectionDidEnd(_ projection: SurfaceProjection) {
         materializedPanels.remove(projection.panelID)

@@ -159,6 +159,17 @@ import Testing
         #expect(CloudTuiCommandLine.commandStartingIn(cwd: nil, command: ["bash", "-l"]) == ["bash", "-l"])
         #expect(CloudTuiCommandLine.commandStartingIn(cwd: "/root/work/my app", command: ["codex", "exec", "it's"]) ==
             ["sh", "-lc", "cd '/root/work/my app' && exec codex exec 'it'\\''s'"])
+        // The tree's destructive verbs: only terminals and browsers can die
+        // (`spec/cli.md`); workspace close detaches, rename takes the name positionally.
+        #expect(CloudTuiCommandLine.closeResourceArguments(socketPath: "/k.sock", kind: .terminal, resourceID: "term_1") ==
+            ["--socket", "/k.sock", "--json", "terminal", "term_1", "close"])
+        #expect(CloudTuiCommandLine.closeResourceArguments(socketPath: "/k.sock", kind: .browser, resourceID: "browser_1") ==
+            ["--socket", "/k.sock", "--json", "browser", "browser_1", "close"])
+        #expect(CloudTuiCommandLine.closeResourceArguments(socketPath: "/k.sock", kind: .display, resourceID: "display:1") == nil)
+        #expect(CloudTuiCommandLine.closeWorkspaceArguments(socketPath: "/k.sock", workspaceID: "ws_main") ==
+            ["--socket", "/k.sock", "--json", "workspace", "ws_main", "close"])
+        #expect(CloudTuiCommandLine.renameWorkspaceArguments(socketPath: "/k.sock", workspaceID: "ws_main", name: "backend work") ==
+            ["--socket", "/k.sock", "--json", "workspace", "ws_main", "rename", "backend work"])
     }
 
     @Test func clientPathsMirrorTheCLI() throws {
