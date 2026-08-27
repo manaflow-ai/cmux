@@ -1,24 +1,26 @@
 # cmux-tui aggregate change log
 
-Current snapshot: 2026-08-27T14:07:00Z. The audited source is pinned to
-`origin/main` at [`31a74487e1f824b450eaf0c2b43f0d77fe51563c`](https://github.com/manaflow-ai/cmux/commit/31a74487e1f824b450eaf0c2b43f0d77fe51563c),
-committed 2026-08-27T06:56:42-07:00 with subject
-`cmux-tui: re-land bounded relay lifecycle hardening`. This documentation-only
+Current snapshot: 2026-08-27T15:12:37Z. The audited source is pinned to
+`origin/main` at [`08b43d87d1426c11aa879b37f79db9aeffed187d`](https://github.com/manaflow-ai/cmux/commit/08b43d87d1426c11aa879b37f79db9aeffed187d),
+committed 2026-08-27T07:27:51-07:00 with subject
+`Bound app event enqueue and wake blocked producers`. This documentation-only
 refresh keeps the prior `5c2ee1244e2d796c9e4be5307788b320ac2ee4ff` and
 `99bdc375e98eb9abddd3f54289bc16ef876e8095` snapshots below as historical
 records. The prior receipt is retained; this refresh adds five named audit turns
 without copying transcript values or secrets.
 
-## Current main tail (2026-08-27, main `31a74487e1f824b450eaf0c2b43f0d77fe51563c`)
+## Current main tail (2026-08-27, main `08b43d87d1426c11aa879b37f79db9aeffed187d`)
 
 Each row includes the merged PR, author, merge SHA, change, and exact rollback
 command. The commits are single-parent squash merges, so no `-m` option is
 needed. [#10936](https://github.com/manaflow-ai/cmux/pull/10936) fails unknown
 workspace RPC responses and retires canceled request IDs without hanging.
-The retained session receipt supports at least 258 named substantive turns. Five
-named audit turns are added in this wave, for at least 263 named turns. This is
-a verifiable lower bound, not a total session count, and no 10,000-session claim
-is made.
+The pinned tip is [#10974](https://github.com/manaflow-ai/cmux/pull/10974), which centralizes bounded app-event enqueue and wakes
+blocked producers.
+The retained session receipt supports at least 263 named substantive turns,
+including five named turns from the preceding audit. This refresh adds named
+rows but no unverified session count. The figure is a verifiable lower bound,
+not a total session count, and no 10,000-session claim is made.
 
 | PR | Author | Merge SHA | Change | Rollback |
 | --- | --- | --- | --- | --- |
@@ -40,23 +42,32 @@ is made.
 | [#10951](https://github.com/manaflow-ai/cmux/pull/10951) | Lawrence Chen | [`de3902db48d2924c227b5acb26cbe1d89fe03cc0`](https://github.com/manaflow-ai/cmux/commit/de3902db48d2924c227b5acb26cbe1d89fe03cc0) | Share startup option scanning across TUI entry points. | `git revert de3902db48d2924c227b5acb26cbe1d89fe03cc0` |
 | [#10970](https://github.com/manaflow-ai/cmux/pull/10970) | Lawrence Chen | [`aa8ca45e0b3a140678c4a6ae588e201cb421ac50`](https://github.com/manaflow-ai/cmux/commit/aa8ca45e0b3a140678c4a6ae588e201cb421ac50) | Share the draw and paint render path. | `git revert aa8ca45e0b3a140678c4a6ae588e201cb421ac50` |
 | [#10972](https://github.com/manaflow-ai/cmux/pull/10972) | Lawrence Chen | [`2f95b8760005047ff470afe4a00fd33783e4cf93`](https://github.com/manaflow-ai/cmux/commit/2f95b8760005047ff470afe4a00fd33783e4cf93) | Defer and flush Sentry sends before serverless freeze. | `git revert 2f95b8760005047ff470afe4a00fd33783e4cf93` |
-| [#10959](https://github.com/manaflow-ai/cmux/pull/10959) | Lawrence Chen | [`87f31977237cbcbbf8b7f492718685d612fbb9b0`](https://github.com/manaflow-ai/cmux/commit/87f31977237cbcbbf8b7f492718685d612fbb9b0) | Integrate Escape passthrough from #9810. | `git revert 87f31977237cbcbbf8b7f492718685d612fbb9b0` |
+| [#10959](https://github.com/manaflow-ai/cmux/pull/10959) | Lawrence Chen | [`87f31977237cbcbbf8b7f492718685d612fbb9b0`](https://github.com/manaflow-ai/cmux/commit/87f31977237cbcbbf8b7f492718685d612fbb9b0) | Integrate Escape passthrough from [#9810](https://github.com/manaflow-ai/cmux/pull/9810). | `git revert 87f31977237cbcbbf8b7f492718685d612fbb9b0` |
 | [#10973](https://github.com/manaflow-ai/cmux/pull/10973) | Lawrence Chen | [`d5ad6eb41426d0ab1b612f3b3fa7321365a6cb66`](https://github.com/manaflow-ai/cmux/commit/d5ad6eb41426d0ab1b612f3b3fa7321365a6cb66) | Bound provider response channels and handle send errors. | `git revert d5ad6eb41426d0ab1b612f3b3fa7321365a6cb66` |
 | [#10929](https://github.com/manaflow-ai/cmux/pull/10929) | Lawrence Chen | [`31a74487e1f824b450eaf0c2b43f0d77fe51563c`](https://github.com/manaflow-ai/cmux/commit/31a74487e1f824b450eaf0c2b43f0d77fe51563c) | Re-land bounded relay lifecycle hardening. | `git revert 31a74487e1f824b450eaf0c2b43f0d77fe51563c` |
+| [#10974](https://github.com/manaflow-ai/cmux/pull/10974) | Lawrence Chen | [`08b43d87d1426c11aa879b37f79db9aeffed187d`](https://github.com/manaflow-ai/cmux/commit/08b43d87d1426c11aa879b37f79db9aeffed187d) | Centralize bounded event enqueue and wake blocked producers. | `git revert 08b43d87d1426c11aa879b37f79db9aeffed187d` |
 
 ## Current audit additions
 
 | Area | Evidence or request | Disposition |
 | --- | --- | --- |
-| Completion subscription | Explicit completion-subscription design artifact, 2026-08-27 audit. | Open; typed completion, cancellation, timeout, and duplicate-delivery proof required. |
+| Completion subscription | Completion-subscription design note recorded in the 2026-08-27 audit. | Open; typed completion, cancellation, timeout, and duplicate-delivery proof required. |
 | Cross-platform startup benchmark | Session archaeology, 2026-08-09; event-based cold, warm, restore, incompatible, and headless cases on macOS, Linux, and Windows. | Open; owner unassigned. |
-| PTY/layout decoupling | Request to share terminal resources across workspace or layout views, reconciled with #9903. | Open; owner unassigned and resource-attachment contract required. |
-| #9903 dependency order | Audit against #8378, #9785, #9647, #9682, #9846, #9933, and #9806. | Open; owner unassigned and bottom-up integration order required. |
-| Alternate-screen wheel policy | Current fallback and Ghostty forwarding behavior recorded in the board audit. | Open; modifier override and compatibility tests required. |
+| PTY/layout decoupling | Request to share terminal resources across workspace or layout views, reconciled with [#9903](https://github.com/manaflow-ai/cmux/pull/9903). | Open; owner unassigned and resource-attachment contract required. |
+| [#9903](https://github.com/manaflow-ai/cmux/pull/9903) dependency order | Audit against [#8378](https://github.com/manaflow-ai/cmux/pull/8378), [#9785](https://github.com/manaflow-ai/cmux/pull/9785), [#9647](https://github.com/manaflow-ai/cmux/pull/9647), [#9682](https://github.com/manaflow-ai/cmux/pull/9682), [#9846](https://github.com/manaflow-ai/cmux/pull/9846), [#9933](https://github.com/manaflow-ai/cmux/pull/9933), and [#9806](https://github.com/manaflow-ai/cmux/pull/9806). | Open; owner unassigned and bottom-up integration order required. |
+| Alternate-screen wheel policy | Claude report at `~/.claude/history.jsonl:90798` says wheel input reaches Claude Code as arrow keys; current path is `cmux-tui/crates/cmux-tui/src/app.rs:23053-23099`, with crossterm scroll classification and Ghostty wheel forwarding documented in the current audit. | Open; modifier override and compatibility tests required. |
+| Resize blank-space behavior | Current audit says blank-space preservation during terminal resize remains unmet; closed [#10201](https://github.com/manaflow-ai/cmux/pull/10201) is not completion evidence. | Open; define the invariant and add behavior proof. |
+| Wave65 bounded enqueue audit | Merged [#10974](https://github.com/manaflow-ai/cmux/pull/10974), source `255c3293`, merge `08b43d87`; hosted run [`33080531391`](https://github.com/manaflow-ai/cmux/actions/runs/33080531391) passed. | Merged code is recorded; repeat enqueue, cancellation, and producer wake-up proof on the pinned head. |
 
-Open-PR metadata is re-queried in `PR-INTENT-BOARD.md`: #10966 `c28449fc`,
-#10975 `aa1ba67a`, #10976 `792ef24d`, #10891 `29a11548`, and #10974 `22f2e6e6`.
+Open-PR metadata is re-queried in `PR-INTENT-BOARD.md`: [#10966](https://github.com/manaflow-ai/cmux/pull/10966) `0b2d3fc6`,
+[#10975](https://github.com/manaflow-ai/cmux/pull/10975) `9720c41a`, [#10976](https://github.com/manaflow-ai/cmux/pull/10976) `95906311`,
+[#10891](https://github.com/manaflow-ai/cmux/pull/10891) `49d6310e`, and [#10612](https://github.com/manaflow-ai/cmux/pull/10612) `dd8cea6d`.
 Heads and hosted checks are provisional and do not imply merge approval.
+
+Closed superseded PRs in this snapshot are [#10736](https://github.com/manaflow-ai/cmux/pull/10736), [#10946](https://github.com/manaflow-ai/cmux/pull/10946), [#10800](https://github.com/manaflow-ai/cmux/pull/10800), [#10812](https://github.com/manaflow-ai/cmux/pull/10812),
+[#10252](https://github.com/manaflow-ai/cmux/pull/10252), [#10882](https://github.com/manaflow-ai/cmux/pull/10882), [#10213](https://github.com/manaflow-ai/cmux/pull/10213), and [#10201](https://github.com/manaflow-ai/cmux/pull/10201). Their closure is metadata only; the
+associated resize, cloud, benchmark, diagnostics, and redraw intents remain
+open where the acceptance rows say so.
 
 The prior `5c2ee1244e2d796c9e4be5307788b320ac2ee4ff` snapshot was captured at
 2026-08-27T09:54:48Z after [#10950](https://github.com/manaflow-ai/cmux/pull/10950).

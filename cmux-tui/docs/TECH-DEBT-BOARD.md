@@ -1,9 +1,9 @@
 # cmux-tui technical-debt board
 
-Current snapshot: 2026-08-27T14:07:00Z. The exact source baseline is
-`origin/main` at [`31a74487e1f824b450eaf0c2b43f0d77fe51563c`](https://github.com/manaflow-ai/cmux/commit/31a74487e1f824b450eaf0c2b43f0d77fe51563c),
-committed 2026-08-27T06:56:42-07:00 with subject
-`cmux-tui: re-land bounded relay lifecycle hardening`. This is a documentation-
+Current snapshot: 2026-08-27T15:12:37Z. The exact source baseline is
+`origin/main` at [`08b43d87d1426c11aa879b37f79db9aeffed187d`](https://github.com/manaflow-ai/cmux/commit/08b43d87d1426c11aa879b37f79db9aeffed187d),
+committed 2026-08-27T07:27:51-07:00 with subject
+`Bound app event enqueue and wake blocked producers`. This is a documentation-
 only update, with no local Rust, Zig, or runtime build/test. The prior
 `5c2ee1244e2d796c9e4be5307788b320ac2ee4ff` and `99bdc375e98eb9abddd3f54289bc16ef876e8095`
 snapshots are retained below as historical layers.
@@ -19,8 +19,9 @@ The current tail includes [#10936](https://github.com/manaflow-ai/cmux/pull/1093
 [#10962](https://github.com/manaflow-ai/cmux/pull/10962),
 [#10970](https://github.com/manaflow-ai/cmux/pull/10970), and
 [#10972](https://github.com/manaflow-ai/cmux/pull/10972), and
-[#10959](https://github.com/manaflow-ai/cmux/pull/10959), and
-[#10929](https://github.com/manaflow-ai/cmux/pull/10929). All listed authors are
+[#10959](https://github.com/manaflow-ai/cmux/pull/10959),
+[#10929](https://github.com/manaflow-ai/cmux/pull/10929), and
+[#10974](https://github.com/manaflow-ai/cmux/pull/10974). All listed authors are
 Lawrence Chen. Each row gives the exact merge SHA
 and a rollback command. The [#10936](https://github.com/manaflow-ai/cmux/pull/10936)
 change fails unknown workspace RPC responses instead of allowing a request
@@ -42,23 +43,27 @@ channel to hang.
 | [#10936](https://github.com/manaflow-ai/cmux/pull/10936) | Fail unknown workspace RPC responses and retire canceled request IDs safely. | `d65d6e6ccacf1d7300316451ce2830f05f889e14` | Cross-client unknown-response, cancellation, and reconnect behavior still need hosted proof. `git revert d65d6e6ccacf1d7300316451ce2830f05f889e14` |
 | [#10970](https://github.com/manaflow-ai/cmux/pull/10970) | Share the draw and paint render path. | `aa8ca45e0b3a140678c4a6ae588e201cb421ac50` | Render-path behavior still needs hosted visual proof. `git revert aa8ca45e0b3a140678c4a6ae588e201cb421ac50` |
 | [#10972](https://github.com/manaflow-ai/cmux/pull/10972) | Defer and flush Sentry sends before serverless freeze. | `2f95b8760005047ff470afe4a00fd33783e4cf93` | Cloud delivery behavior still needs hosted evidence. `git revert 2f95b8760005047ff470afe4a00fd33783e4cf93` |
-| [#10959](https://github.com/manaflow-ai/cmux/pull/10959) | Integrate Escape passthrough from #9810. | `87f31977237cbcbbf8b7f492718685d612fbb9b0` | Cross-frontend Escape handling still needs behavior proof. `git revert 87f31977237cbcbbf8b7f492718685d612fbb9b0` |
+| [#10959](https://github.com/manaflow-ai/cmux/pull/10959) | Integrate Escape passthrough from [#9810](https://github.com/manaflow-ai/cmux/pull/9810). | `87f31977237cbcbbf8b7f492718685d612fbb9b0` | Cross-frontend Escape handling still needs behavior proof. `git revert 87f31977237cbcbbf8b7f492718685d612fbb9b0` |
 | [#10973](https://github.com/manaflow-ai/cmux/pull/10973) | Bound provider response channels and handle send errors. | `d5ad6eb41426d0ab1b612f3b3fa7321365a6cb66` | Re-run hosted response-channel and shutdown proof. `git revert d5ad6eb41426d0ab1b612f3b3fa7321365a6cb66` |
 | [#10929](https://github.com/manaflow-ai/cmux/pull/10929) | Re-land bounded relay lifecycle hardening. | `31a74487e1f824b450eaf0c2b43f0d77fe51563c` | Re-run hosted relay lifecycle proof on the re-landed path. `git revert 31a74487e1f824b450eaf0c2b43f0d77fe51563c` |
+| [#10974](https://github.com/manaflow-ai/cmux/pull/10974) | Centralize bounded event enqueue and wake blocked producers. | `08b43d87d1426c11aa879b37f79db9aeffed187d` | Re-run hosted enqueue, cancellation, and wake-up proof. `git revert 08b43d87d1426c11aa879b37f79db9aeffed187d` |
 
 ## Current audit additions
 
 | Area | Evidence and current state | Required proof or next action |
 | --- | --- | --- |
-| Completion subscription | Explicit completion-subscription design artifact from the current audit. | Use one typed completion signal, subscribe before work starts, and test normal completion, cancellation, timeout, and duplicate delivery. |
+| Completion subscription | Completion-subscription design note recorded in the current audit. | Use one typed completion signal, subscribe before work starts, and test normal completion, cancellation, timeout, and duplicate delivery. |
 | Cross-platform startup benchmark | Session archaeology dated 2026-08-09 requested event-based cold, warm, restore, incompatible, and headless measurements on macOS, Linux, and Windows. Owner: unassigned. | Define one harness and report event timestamps, resource bounds, and failure reasons for all five cases on all three platforms. |
 | PTY and layout ownership | Intent asks to decouple terminal/PTY resources from layout views and permit one terminal in multiple workspaces or views; reconcile with [#9903](https://github.com/manaflow-ai/cmux/pull/9903). Owner: unassigned. | Specify resource identity and attachment semantics, then test multi-view attach, detach, reconnect, and close without duplicate PTY ownership. |
-| #9903 dependency ordering | Integration audit must order [#9903](https://github.com/manaflow-ai/cmux/pull/9903) against [#8378](https://github.com/manaflow-ai/cmux/pull/8378), [#9785](https://github.com/manaflow-ai/cmux/pull/9785), [#9647](https://github.com/manaflow-ai/cmux/pull/9647), [#9682](https://github.com/manaflow-ai/cmux/pull/9682), [#9846](https://github.com/manaflow-ai/cmux/pull/9846), [#9933](https://github.com/manaflow-ai/cmux/pull/9933), and [#9806](https://github.com/manaflow-ai/cmux/pull/9806). Owner: unassigned. | Build a dependency graph, identify conflicting ownership, and land or close changes bottom-up with exact-head checks. |
-| Alternate-screen wheel policy | Wheel forwarding and fallback arrow sequences are intentional; configurable policy remains open. | Add a modifier override and behavior tests without changing the default until TUI compatibility is measured. |
+| [#9903](https://github.com/manaflow-ai/cmux/pull/9903) dependency ordering | Integration audit must order [#9903](https://github.com/manaflow-ai/cmux/pull/9903) against [#8378](https://github.com/manaflow-ai/cmux/pull/8378), [#9785](https://github.com/manaflow-ai/cmux/pull/9785), [#9647](https://github.com/manaflow-ai/cmux/pull/9647), [#9682](https://github.com/manaflow-ai/cmux/pull/9682), [#9846](https://github.com/manaflow-ai/cmux/pull/9846), [#9933](https://github.com/manaflow-ai/cmux/pull/9933), and [#9806](https://github.com/manaflow-ai/cmux/pull/9806). Owner: unassigned. | Build a dependency graph, identify conflicting ownership, and land or close changes bottom-up with exact-head checks. |
+| Alternate-screen wheel policy | `cmux-tui/crates/cmux-tui/src/app.rs:23053-23099` forwards Ghostty wheel events when tracking is enabled and emits three arrow sequences in the alternate-screen fallback; crossterm records scroll kinds in [`MouseEventKind`](https://docs.rs/crossterm/latest/crossterm/event/enum.MouseEventKind.html). | Add a modifier override and behavior tests without changing the default until TUI compatibility is measured. |
+| Resize blank-space behavior | The requested blank-space-preserving terminal resize behavior remains unmet; closed [#10201](https://github.com/manaflow-ai/cmux/pull/10201) is not completion evidence. | Reproduce resize with empty trailing rows, define the layout invariant, and add a behavior test. |
+| Claude resize and alternate-screen scroll | Claude report at `~/.claude/history.jsonl:90798` says wheel input reaches Claude Code as arrow keys. Current path is `cmux-tui/crates/cmux-tui/src/app.rs:23053-23099`; resize remains unproven after closed [#10201](https://github.com/manaflow-ai/cmux/pull/10201). | Open and unmet; define the policy and preserve trailing blank rows with behavior tests. |
+| Wave65 bounded enqueue audit | Merged [#10974](https://github.com/manaflow-ai/cmux/pull/10974), source `255c3293`, merge `08b43d87`; hosted run [`33080531391`](https://github.com/manaflow-ai/cmux/actions/runs/33080531391) passed. | Re-run enqueue, cancellation, and producer wake-up proof on the pinned head. |
 
 ## Current PR disposition audit
 
-Superseded, close: [#10743](https://github.com/manaflow-ai/cmux/pull/10743),
+Still-open superseded rows to close: [#10743](https://github.com/manaflow-ai/cmux/pull/10743),
 [#10744](https://github.com/manaflow-ai/cmux/pull/10744), and
 [#10750](https://github.com/manaflow-ai/cmux/pull/10750). Blocked:
 [#10513](https://github.com/manaflow-ai/cmux/pull/10513). Keep
@@ -66,25 +71,29 @@ Superseded, close: [#10743](https://github.com/manaflow-ai/cmux/pull/10743),
 fix. [#10800](https://github.com/manaflow-ai/cmux/pull/10800) and
 [#10812](https://github.com/manaflow-ai/cmux/pull/10812) are superseded by merged
 [#10887](https://github.com/manaflow-ai/cmux/pull/10887); residual cloud hardening
-remains open.
+remains open. Closed superseded rows in this snapshot are [#10736](https://github.com/manaflow-ai/cmux/pull/10736), [#10946](https://github.com/manaflow-ai/cmux/pull/10946), [#10800](https://github.com/manaflow-ai/cmux/pull/10800),
+[#10812](https://github.com/manaflow-ai/cmux/pull/10812), [#10252](https://github.com/manaflow-ai/cmux/pull/10252), [#10882](https://github.com/manaflow-ai/cmux/pull/10882), [#10213](https://github.com/manaflow-ai/cmux/pull/10213), and [#10201](https://github.com/manaflow-ai/cmux/pull/10201); closure does not prove completion.
 
-Current open heads and dispositions are tracked in the intent board: #10966
-(`c28449fc`, hosted pending with a failed conformance check), #10975
-(`aa1ba67a`, hosted pending), #10976 (`792ef24d`, stale checks require rebase or
-rerun), #10891 (`29a11548`, two accepted P2 fixes with failing hosted checks),
-and #10974 (`22f2e6e6`, unsafe helper replaced and validation in progress).
+Current open heads and dispositions are tracked in the intent board: [#10966](https://github.com/manaflow-ai/cmux/pull/10966)
+(`0b2d3fc6`, CLEAN with all observed checks passing), [#10975](https://github.com/manaflow-ai/cmux/pull/10975)
+(`9720c41a`, UNSTABLE with seven-language conformance pending), [#10976](https://github.com/manaflow-ai/cmux/pull/10976)
+(`95906311`, CLEAN with visible checks passing), [#10891](https://github.com/manaflow-ai/cmux/pull/10891)
+(`49d6310e`, UNSTABLE with four hosted checks failing), and [#10612](https://github.com/manaflow-ai/cmux/pull/10612)
+(`dd8cea6d`, UNSTABLE with seven-language conformance failed). Closed superseded
+rows are listed below.
 
 The session scan receipt and lower-bound ledger below remain retained audit
-evidence. This wave adds five named substantive turns to the retained at-least-
-258 lower bound, for at least 263 named turns. This is a verifiable lower bound,
-not a total session count, and no 10,000-session claim is made.
+evidence. It supports at least 263 named substantive turns, including five named
+turns from the preceding audit. This refresh adds named rows but no unverified
+session count. The figure is a verifiable lower bound, not a total session count,
+and no 10,000-session claim is made.
 
 ## Current delta since `5c2ee1244e2d796c9e4be5307788b320ac2ee4ff`
 
-| Area | Current state at `31a74487e1f824b450eaf0c2b43f0d77fe51563c` | Required proof or next action |
+| Area | Current state at `08b43d87d1426c11aa879b37f79db9aeffed187d` | Required proof or next action |
 | --- | --- | --- |
 | Workspace RPC response routing | Unknown responses fail the workspace RPC channel, and canceled request IDs are retired without exposing the local namespace. | Exercise unknown, late, canceled, and reconnect responses from multiple clients, then verify bounded failure and no request-ID leakage. |
-| Escape input routing | Escape passthrough is integrated from #9810. | Exercise terminal, sidebar, and nested-frontend Escape behavior on the exact main snapshot. |
+| Escape input routing | Escape passthrough is integrated from [#9810](https://github.com/manaflow-ai/cmux/pull/9810). | Exercise terminal, sidebar, and nested-frontend Escape behavior on the exact main snapshot. |
 | Alternate-screen wheel policy | Wheel events use Ghostty wheel reporting with mouse tracking, and emit `ESC[A/B` three times when alternate-screen apps do not enable tracking. | Add a configurable alternate-scroll policy and modifier override, with behavior tests. Changing the default may break TUIs that rely on arrow sequences. |
 
 ## Historical snapshot retained: main `5c2ee1244e2d796c9e4be5307788b320ac2ee4ff`
