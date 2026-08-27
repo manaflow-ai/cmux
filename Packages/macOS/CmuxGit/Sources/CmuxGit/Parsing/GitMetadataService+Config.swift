@@ -4,6 +4,7 @@ import Foundation
 struct GitRemoteConfigSnapshot: Sendable {
     let remoteVOutput: String?
     let configURLs: [URL]
+    let globalConfigURLs: [URL]
     let isComplete: Bool
     let watchFallbackURLs: [URL]
     let configStatuses: [String: GitFileStatus?]
@@ -417,6 +418,7 @@ extension GitMetadataService {
             return GitRemoteConfigSnapshot(
                 remoteVOutput: nil,
                 configURLs: rootConfigURLs,
+                globalConfigURLs: [],
                 isComplete: false,
                 watchFallbackURLs: [],
                 configStatuses: [:]
@@ -457,6 +459,13 @@ extension GitMetadataService {
             filesystemLocalityReader: filesystemLocalityReader
         )
         budget.discoveredRemoteURLs = discoveredRemoteURLs
+        var globalConfigURLs: [URL] = []
+        var globalConfigPathSet: Set<String> = []
+        let globalRootConfigPaths = Set(
+            gitGlobalConfigURLs(environment: environment).map {
+                $0.standardizedFileURL.path
+            }
+        )
         for configURL in rootConfigURLs {
             let isCommonConfigScope = budget.isCommonConfig(configURL)
             appendGitRemoteVLines(
@@ -468,8 +477,13 @@ extension GitMetadataService {
                 budget: &budget,
                 depth: 0,
                 isCommonConfigScope: isCommonConfigScope,
+                isGlobalConfigScope: globalRootConfigPaths.contains(
+                    configURL.standardizedFileURL.path
+                ),
                 homeDirectory: homeDirectory,
-                isHasConfigGated: false
+                isHasConfigGated: false,
+                globalConfigURLs: &globalConfigURLs,
+                globalConfigPathSet: &globalConfigPathSet
             )
         }
         if budget.worktreeConfigEnabled {
@@ -482,8 +496,11 @@ extension GitMetadataService {
                 budget: &budget,
                 depth: 0,
                 isCommonConfigScope: false,
+                isGlobalConfigScope: false,
                 homeDirectory: homeDirectory,
-                isHasConfigGated: false
+                isHasConfigGated: false,
+                globalConfigURLs: &globalConfigURLs,
+                globalConfigPathSet: &globalConfigPathSet
             )
         }
         let effectiveLines = lines.filter { !$0.isEmpty }
@@ -494,6 +511,7 @@ extension GitMetadataService {
         return GitRemoteConfigSnapshot(
             remoteVOutput: remoteVOutput,
             configURLs: configURLs,
+            globalConfigURLs: globalConfigURLs,
             isComplete: discoveryIsComplete
                 && !budget.exceeded
                 && (rawRemoteVOutput == nil || remoteVOutput != nil),
@@ -669,8 +687,11 @@ extension GitMetadataService {
         budget: inout GitConfigTraversalBudget,
         depth: Int,
         isCommonConfigScope: Bool,
+        isGlobalConfigScope: Bool,
         homeDirectory: URL,
-        isHasConfigGated: Bool
+        isHasConfigGated: Bool,
+        globalConfigURLs: inout [URL],
+        globalConfigPathSet: inout Set<String>
     ) {
         guard depth <= GitConfigTraversalBudget.maximumIncludeDepth,
               !budget.exceeded else {
@@ -680,6 +701,10 @@ extension GitMetadataService {
         }
         let configURL = configURL.standardizedFileURL
         guard configURL.path != "/dev/null" else { return }
+        if isGlobalConfigScope,
+           globalConfigPathSet.insert(configURL.path).inserted {
+            globalConfigURLs.append(configURL)
+        }
         guard seenConfigPaths.insert(configURL.path).inserted else {
             return
         }
@@ -803,8 +828,11 @@ extension GitMetadataService {
                 budget: &budget,
                 depth: depth + 1,
                 isCommonConfigScope: isCommonConfigScope,
+                isGlobalConfigScope: isGlobalConfigScope,
                 homeDirectory: homeDirectory,
-                isHasConfigGated: isHasConfigGated || currentSectionIsHasConfig
+                isHasConfigGated: isHasConfigGated || currentSectionIsHasConfig,
+                globalConfigURLs: &globalConfigURLs,
+                globalConfigPathSet: &globalConfigPathSet
             )
         }
     }
@@ -904,12 +932,12 @@ extension GitMetadataService {
                 / rewrites.count else {
             return nil
         }
-        let orderedRewrites = rewrites.sorted {
-            if $0.prefix.count != $1.prefix.count {
-                return $0.prefix.count > $1.prefix.count
+        let orderedRewrites = rewrites.enumerated().sorted {
+            if $0.element.prefix.count != $1.element.prefix.count {
+                return $0.element.prefix.count > $1.element.prefix.count
             }
-            return $0.prefix < $1.prefix
-        }
+            return $0.offset < $1.offset
+        }.map { $0.element }
         var rewrittenOutput = ""
         var rewrittenByteCount = 0
         for line in lines {
