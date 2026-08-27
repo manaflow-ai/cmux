@@ -133,9 +133,12 @@ def run_launcher(
     registry: str | None,
     *args: str,
     env_extra: dict[str, str] | None = None,
+    env_remove: set[str] | None = None,
     timeout_seconds: float | None = None,
 ) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
+    for name in env_remove or set():
+        env.pop(name, None)
     env.update(
         {
             "CMUX_TUI_LAUNCHER_CACHE": str(cache),
@@ -156,6 +159,54 @@ def run_launcher(
         env=env,
         timeout=timeout_seconds,
     )
+
+
+NPM_NETWORK_ENV_KEYS = {
+    "npm_config_proxy",
+    "npm_config_https-proxy",
+    "npm_config_https_proxy",
+    "npm_config_http-proxy",
+    "npm_config_http_proxy",
+    "npm_config_noproxy",
+    "npm_config_cafile",
+    "npm_config_ca",
+    "npm_config_ca[]",
+    "npm_config_cert",
+    "npm_config_key",
+    "npm_config_certfile",
+    "npm_config_keyfile",
+    "npm_config_strict-ssl",
+    "npm_config_strict_ssl",
+}
+
+
+def isolated_npm_environment(
+    tmp_path: Path,
+    env_extra: dict[str, str],
+) -> tuple[dict[str, str], set[str]]:
+    """Keep ambient npm proxy and TLS settings out of loopback fixtures."""
+    empty_npmrc = tmp_path / "empty.npmrc"
+    empty_npmrc.write_text("")
+    isolated_home = tmp_path / "home"
+    isolated_home.mkdir(parents=True, exist_ok=True)
+    env_remove = {
+        name
+        for name in os.environ
+        if name.lower().startswith("npm_config_//")
+        or name.lower() in NPM_NETWORK_ENV_KEYS
+    }
+    isolated = dict(env_extra)
+    isolated.update(
+        {
+            "HOME": str(isolated_home),
+            "USERPROFILE": str(isolated_home),
+            "npm_config_userconfig": str(empty_npmrc),
+            "NPM_CONFIG_USERCONFIG": str(empty_npmrc),
+            "npm_config_globalconfig": str(empty_npmrc),
+            "NPM_CONFIG_GLOBALCONFIG": str(empty_npmrc),
+        }
+    )
+    return isolated, env_remove
 
 
 def process_exited_within(
@@ -778,6 +829,7 @@ def test_launcher_windows_path_covers_exe_snapshot_lock_and_update(
         child_args = ("-c", "printf '%s\\n' windows-cache-snapshot")
         platform_stub = write_platform_stub(tmp_path, "win32", "x64")
         env_extra = {"NODE_OPTIONS": f"--require={platform_stub}"}
+    env_extra, env_remove = isolated_npm_environment(tmp_path, env_extra)
 
     assert executable.is_file(), executable
     payload = executable.read_bytes()
@@ -795,6 +847,8 @@ def test_launcher_windows_path_covers_exe_snapshot_lock_and_update(
         RegistryHandler.block_tarball = True
         RegistryHandler.block_tarball_versions = {"1.2.3"}
         update_env = os.environ.copy()
+        for name in env_remove:
+            update_env.pop(name, None)
         update_env.update(
             {
                 "CMUX_TUI_LAUNCHER_CACHE": str(cache),
@@ -856,6 +910,7 @@ def test_launcher_windows_path_covers_exe_snapshot_lock_and_update(
             registry,
             *child_args,
             env_extra=env_extra,
+            env_remove=env_remove,
         )
         assert first.returncode == 0, first.stderr
         assert "windows-cache-snapshot" in first.stdout
@@ -882,6 +937,7 @@ def test_launcher_windows_path_covers_exe_snapshot_lock_and_update(
             registry,
             *child_args,
             env_extra=env_extra,
+            env_remove=env_remove,
         )
         assert second.returncode == 0, second.stderr
         assert "windows-cache-snapshot" in second.stdout
