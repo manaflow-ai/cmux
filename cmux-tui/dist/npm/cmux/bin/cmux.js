@@ -23,8 +23,7 @@
 //      `npm install -g cmux cmux-tui-<platform>` never needs the network
 //   3. the launcher cache entry for the wanted version
 //   4. download the wanted version into the launcher cache
-//   5. fall back to any installed platform package or newest cached version,
-//      with a warning, when the download fails
+//   5. fail closed when the requested version cannot be obtained
 //
 // Wanted version = max(shim's own package version, version recorded by
 // `cmux update`), compared by semver so a nightly shim is not downgraded by
@@ -42,13 +41,14 @@ const PACKAGE_BY_PLATFORM = {
   "darwin-x64": "cmux-tui-darwin-x64",
   "linux-x64": "cmux-tui-linux-x64",
   "linux-arm64": "cmux-tui-linux-arm64",
-  // win32-x64 pending: ghostty vt headers fail bindgen under mingw clang.
+  "win32-x64": "cmux-tui-win32-x64",
 };
 
 const EXE = process.platform === "win32" ? ".exe" : "";
 const BIN_NAME = `cmux-tui${EXE}`;
 const PUBLISHED_VERSION = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 const MAX_TARBALL_BYTES = 256 * 1024 * 1024;
+const REGISTRY_TIMEOUT_MS = 30_000;
 
 function fail(message) {
   console.error(`cmux: ${message}`);
@@ -166,17 +166,6 @@ function cachedBinary(version) {
   return fs.existsSync(bin) ? bin : null;
 }
 
-function newestCachedVersion() {
-  let versions;
-  try {
-    versions = fs.readdirSync(path.join(cacheRoot(), "v"));
-  } catch {
-    return null;
-  }
-  versions = versions.filter((v) => cachedBinary(v)).sort(compareVersions);
-  return versions.length ? versions[versions.length - 1] : null;
-}
-
 // Resolve an installed cmux-tui-<platform> package (global or local install).
 // Returns { binPath, version } or null.
 function installedPackage(pkg) {
@@ -202,6 +191,7 @@ function registryBase() {
 async function fetchJson(url) {
   const response = await fetch(url, {
     headers: { accept: "application/json" },
+    signal: AbortSignal.timeout(REGISTRY_TIMEOUT_MS),
   });
   if (!response.ok) {
     throw new Error("registry request failed");
@@ -289,7 +279,9 @@ async function downloadVersion(pkg, version) {
     throw new Error("registry metadata is incomplete");
   }
   console.error(`cmux: downloading ${pkg}@${version}...`);
-  const response = await fetch(tarballUrl);
+  const response = await fetch(tarballUrl, {
+    signal: AbortSignal.timeout(REGISTRY_TIMEOUT_MS),
+  });
   if (!response.ok) {
     throw new Error("platform package download failed");
   }
@@ -330,26 +322,6 @@ async function downloadVersion(pkg, version) {
   return binPath;
 }
 
-function pruneCache(keepVersion) {
-  let versions;
-  const root = path.join(cacheRoot(), "v");
-  try {
-    versions = fs.readdirSync(root);
-  } catch {
-    return;
-  }
-  for (const version of versions) {
-    if (version === keepVersion) continue;
-    // Best effort: on Windows a running binary cannot be deleted.
-    try {
-      fs.rmSync(path.join(root, version), { recursive: true, force: true });
-    } catch {}
-  }
-  try {
-    fs.rmSync(path.join(cacheRoot(), "tmp"), { recursive: true, force: true });
-  } catch {}
-}
-
 function wantedVersion(pkg) {
   const pinned = shimVersion();
   const state = readState();
@@ -388,20 +360,7 @@ async function resolveBinary(pkg) {
 
   try {
     return await downloadVersion(pkg, wanted);
-  } catch (error) {
-    if (installed) {
-      console.error(
-        `cmux: platform download failed; using the installed binary instead.`
-      );
-      return installed.binPath;
-    }
-    const newest = newestCachedVersion();
-    if (newest) {
-      console.error(
-        `cmux: platform download failed; using a cached binary instead.`
-      );
-      return cachedBinary(newest);
-    }
+  } catch {
     fail(
       "could not obtain the native binary. Check network access or install " +
         "the matching platform package directly."
@@ -435,7 +394,6 @@ async function runUpdate(pkg, args) {
     version: latest,
     updatedAt: new Date().toISOString(),
   });
-  pruneCache(latest);
   console.log(`cmux updated: ${current} -> ${latest}. The new version runs on the next start.`);
 }
 
