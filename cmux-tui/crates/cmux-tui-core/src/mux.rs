@@ -74,6 +74,13 @@ use crate::{
 
 pub type SurfaceResizeReporter = Arc<dyn Fn(SurfaceId, (u16, u16), Option<u64>) + Send + Sync>;
 
+/// Receives diagnostics that must not be written to a frontend's terminal.
+///
+/// The core can report from reconnect worker threads while a client owns a
+/// raw terminal. The frontend supplies a durable sink, such as its client
+/// log, so the core does not need to know how diagnostics are persisted.
+pub type DiagnosticReporter = Arc<dyn Fn(&str) + Send + Sync + 'static>;
+
 struct SignaledMutex<T> {
     value: Mutex<T>,
     release_epoch: Mutex<u64>,
@@ -2020,6 +2027,10 @@ pub struct Mux {
     /// per-terminal reporting would emit N warnings for one underlying
     /// condition. Cleared when a reconnect checkpoint succeeds again.
     reconnect_checkpoint_skip_reported: AtomicBool,
+    /// Frontend-owned sink for diagnostics emitted by background core work.
+    /// `OnceLock` keeps the callback immutable after startup and avoids a
+    /// mutex on the reconnect hot path.
+    diagnostic_reporter: OnceLock<DiagnosticReporter>,
     #[cfg(test)]
     journal_segment_prepare_hook: Mutex<Option<Box<dyn FnOnce() + Send>>>,
     terminal_exit_waiters: TerminalExitWaiters,
@@ -2381,6 +2392,7 @@ impl Mux {
             journal_event_epoch: Mutex::new(0),
             journal_event_changed: Condvar::new(),
             reconnect_checkpoint_skip_reported: AtomicBool::new(false),
+            diagnostic_reporter: OnceLock::new(),
             #[cfg(test)]
             journal_segment_prepare_hook: Mutex::new(None),
             terminal_exit_waiters: TerminalExitWaiters::default(),
@@ -5250,8 +5262,20 @@ impl Mux {
             "skipped terminal {terminal_id} reconnect checkpoint (replay starts from the previous boundary): {error:#}"
         );
         if !self.reconnect_checkpoint_skip_reported.swap(true, Ordering::AcqRel) {
-            eprintln!("cmux-tui: {message}");
+            if let Some(reporter) = self.diagnostic_reporter.get() {
+                reporter(&message);
+            }
         }
+    }
+
+    /// Installs the frontend-owned sink for diagnostics emitted by the mux.
+    ///
+    /// A mux has one owner for its lifetime, so accepting the first reporter
+    /// avoids replacing a sink while a reconnect worker is reporting. A
+    /// caller that tries to install a second sink receives `false` and must
+    /// keep the original owner unchanged.
+    pub fn set_diagnostic_reporter(&self, reporter: DiagnosticReporter) -> bool {
+        self.diagnostic_reporter.set(reporter).is_ok()
     }
 
     pub(crate) fn note_reconnect_checkpoint_captured(&self) {
@@ -16824,6 +16848,12 @@ mod tests {
     #[test]
     fn reconnect_checkpoint_skip_does_not_emit_status() {
         let mux = test_mux();
+        let diagnostics = Arc::new(Mutex::new(Vec::<String>::new()));
+        let diagnostics_for_reporter = Arc::clone(&diagnostics);
+        assert!(mux.set_diagnostic_reporter(Arc::new(move |message| {
+            diagnostics_for_reporter.lock().unwrap().push(message.to_string());
+        })));
+        assert!(!mux.set_diagnostic_reporter(Arc::new(|_| {})));
         let events = mux.subscribe();
         let skip_statuses = |events: &MuxEventReceiver| {
             events
@@ -16851,6 +16881,45 @@ mod tests {
             skip_statuses(&events),
             0,
             "re-armed diagnostic logging must remain out of the status stream"
+        );
+        assert_eq!(
+            &*diagnostics.lock().unwrap(),
+            &vec![
+                "skipped terminal term_one reconnect checkpoint (replay starts from the previous boundary): session changed during checkpoint capture".to_string(),
+                "skipped terminal term_three reconnect checkpoint (replay starts from the previous boundary): session changed during checkpoint capture".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn diagnostic_reporters_are_scoped_to_each_mux_and_first_writer_wins() {
+        let first = test_mux();
+        let second = test_mux();
+        let first_reports = Arc::new(Mutex::new(Vec::<String>::new()));
+        let second_reports = Arc::new(Mutex::new(Vec::<String>::new()));
+
+        let first_reports_sink = Arc::clone(&first_reports);
+        assert!(first.set_diagnostic_reporter(Arc::new(move |message| {
+            first_reports_sink.lock().unwrap().push(message.to_string());
+        })));
+        assert!(!first.set_diagnostic_reporter(Arc::new(|_| {})));
+
+        let second_reports_sink = Arc::clone(&second_reports);
+        assert!(second.set_diagnostic_reporter(Arc::new(move |message| {
+            second_reports_sink.lock().unwrap().push(message.to_string());
+        })));
+
+        let error = anyhow::anyhow!("checkpoint race");
+        first.report_skipped_reconnect_checkpoint("first", &error);
+        second.report_skipped_reconnect_checkpoint("second", &error);
+
+        assert_eq!(
+            &*first_reports.lock().unwrap(),
+            &["skipped terminal first reconnect checkpoint (replay starts from the previous boundary): checkpoint race".to_string()]
+        );
+        assert_eq!(
+            &*second_reports.lock().unwrap(),
+            &["skipped terminal second reconnect checkpoint (replay starts from the previous boundary): checkpoint race".to_string()]
         );
     }
 

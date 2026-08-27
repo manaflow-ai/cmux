@@ -8660,6 +8660,15 @@ fn uses_provider_managed_workspaces(machine_ui: Option<&MachineUiState>) -> bool
     )
 }
 
+/// Route core diagnostics to the bounded client log. Core work can run on a
+/// reconnect thread while this process owns a raw terminal, so the sink must
+/// not echo to stderr.
+pub(crate) fn install_mux_diagnostic_logger(mux: &Arc<Mux>) {
+    let _ = mux.set_diagnostic_reporter(Arc::new(|message| {
+        crate::client_log::warn("mux", message);
+    }));
+}
+
 fn ensure_managed_workspace_guard(
     session: &Session,
     machine_ui: Option<&MachineUiState>,
@@ -8726,6 +8735,12 @@ fn run_with_machine_updates_inner(
     machine_ui: Option<MachineUiState>,
     machine_controller: Option<Box<dyn MachineController>>,
 ) -> anyhow::Result<RunOutcome> {
+    if let Session::Local(mux) = &session {
+        install_mux_diagnostic_logger(mux);
+    }
+    if let Some(mux) = owner_mux.as_ref() {
+        install_mux_diagnostic_logger(mux);
+    }
     let mut config = crate::config::load();
     let chrome = ChromeTheme::for_defaults(config.chrome, default_colors);
     config.apply_chrome_defaults(chrome);
@@ -14825,7 +14840,7 @@ impl App {
                     // with a diagnostic the user cannot act on.
                     GraphicsStatus::KittyImageBudgetUpdateFailed { retry_exhausted, summary } => {
                         crate::client_log::log(
-                            "ERROR",
+                            "WARN",
                             "kitty-graphics",
                             &messages.kitty_image_budget_update_failed(retry_exhausted, &summary),
                         );
@@ -33795,6 +33810,32 @@ mod tests {
             .lock()
             .unwrap()
             .insert(7, SurfaceResizeOwnership { desired: (90, 31), reservation_id: None });
+
+        app.status_message = Some("直前のコマンドは完了しました".to_string());
+        crate::client_log::start_test_log_capture();
+        for retry_exhausted in [false, true] {
+            let action = app
+                .handle(AppEvent::Mux(MuxEvent::GraphicsStatus(
+                    cmux_tui_core::GraphicsStatus::KittyImageBudgetUpdateFailed {
+                        retry_exhausted,
+                        summary: Arc::<str>::from("surface 7: offline"),
+                    },
+                )))
+                .unwrap();
+            assert_eq!(action, RenderAction::None);
+            assert_eq!(app.status_message.as_deref(), Some("直前のコマンドは完了しました"));
+        }
+        let kitty_records = crate::client_log::take_test_log_capture();
+        assert_eq!(kitty_records.len(), 2);
+        for (record, expected) in kitty_records.iter().zip([
+            "Kitty 画像予算の更新に失敗しました。再試行しています: surface 7: offline",
+            "Kitty 画像予算の更新に失敗し、再試行回数の上限に達したため停止しました: surface 7: offline",
+        ]) {
+            assert_eq!(record.level, "WARN");
+            assert_eq!(record.area, "kitty-graphics");
+            assert_eq!(record.message, expected);
+        }
+
         let cases = [
             (
                 MuxEvent::GraphicsStatus(
@@ -33866,15 +33907,13 @@ mod tests {
 
         let records = crate::client_log::take_test_log_capture();
         assert_eq!(records.len(), 2);
-        for (record, retry_exhausted) in records.iter().zip([false, true]) {
-            assert_eq!(record.level, "ERROR");
+        for (record, expected) in records.iter().zip([
+            "Kitty image budget update failed, retrying: surface 7: host did not acknowledge limits",
+            "Kitty image budget update failed, stopped after exhausting retries: surface 7: host did not acknowledge limits",
+        ]) {
+            assert_eq!(record.level, "WARN");
             assert_eq!(record.area, "kitty-graphics");
-            assert_eq!(
-                record.message,
-                localization::catalog()
-                    .graphics
-                    .kitty_image_budget_update_failed(retry_exhausted, summary)
-            );
+            assert_eq!(record.message, expected);
         }
     }
 

@@ -1936,6 +1936,10 @@ fn run_server(
                 state_root.as_deref(),
             )
         })?;
+    // Background mux workers can report reconnect diagnostics before an
+    // interactive client attaches. Install the non-terminal sink as soon as
+    // the owner mux exists, before serving or adopting clients.
+    app::install_mux_diagnostic_logger(&mux);
     // Headless sessions have no host terminal to query, so seed the mux from
     // Ghostty's config before any protocol client can create a surface.
     mux.seed_default_colors_if_no_durable_override(config.terminal_defaults);
