@@ -5810,6 +5810,40 @@ final class BrowserHostWhitelistTests: XCTestCase {
         defaults.set("b\u{00FC}cher.example", forKey: BrowserLinkOpenSettings.browserHostWhitelistKey)
         XCTAssertTrue(BrowserLinkOpenSettings.hostMatchesWhitelist("xn--bcher-kva.example", defaults: defaults))
     }
+
+    func testChromiumCookieDomainMatchingOnlyAllowsRequestedHostOrChildren() {
+        XCTAssertTrue(
+            BrowserDataImporter.cookieDomainMatches(
+                cookieDomain: ".example.com",
+                host: "app.example.com"
+            )
+        )
+        XCTAssertTrue(
+            BrowserDataImporter.cookieDomainMatches(
+                cookieDomain: "example.com",
+                host: "example.com"
+            )
+        )
+        XCTAssertFalse(
+            BrowserDataImporter.cookieDomainMatches(
+                cookieDomain: "sub.example.com",
+                host: "example.com"
+            )
+        )
+        XCTAssertFalse(
+            BrowserDataImporter.cookieDomainMatches(
+                cookieDomain: "example.com",
+                host: "badexample.com"
+            )
+        )
+    }
+
+    func testChromiumCookiePathMatchingHonorsPathBoundaries() {
+        XCTAssertTrue(BrowserDataImporter.cookiePathMatches(cookiePath: "/account", urlPath: "/account"))
+        XCTAssertTrue(BrowserDataImporter.cookiePathMatches(cookiePath: "/account", urlPath: "/account/settings"))
+        XCTAssertFalse(BrowserDataImporter.cookiePathMatches(cookiePath: "/account", urlPath: "/accounting"))
+        XCTAssertTrue(BrowserDataImporter.cookiePathMatches(cookiePath: "/", urlPath: "/anything"))
+    }
 }
 
 

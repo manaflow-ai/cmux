@@ -281,6 +281,9 @@ struct ChromiumEngineTests {
     @Test("Remote debugging is disabled at zero and rejects invalid ports")
     func remoteDebuggingValidation() {
         #expect(ChromiumRemoteDebuggingPort(rawValue: -1) == nil)
+        #expect(ChromiumRemoteDebuggingPort(rawValue: 1) == nil)
+        #expect(ChromiumRemoteDebuggingPort(rawValue: 1023) == nil)
+        #expect(ChromiumRemoteDebuggingPort(rawValue: 1024)?.rawValue == 1024)
         #expect(ChromiumRemoteDebuggingPort(rawValue: 65_536) == nil)
         #expect(ChromiumRemoteDebuggingPort.parse(" 9222 ")?.rawValue == 9222)
         #expect(ChromiumRemoteDebuggingPort.parse("not-a-port") == nil)
@@ -292,7 +295,7 @@ struct ChromiumEngineTests {
     @Test("Loopback allocator resumes with an ephemeral port", .timeLimit(.minutes(1)))
     func loopbackPortAllocation() async throws {
         let port = try await ChromiumLoopbackPortAllocator().allocate()
-        #expect((1...65_535).contains(port))
+        #expect((1024...65_535).contains(port))
     }
 
     @Test("Profile paths are cmux-owned and pane-specific")
@@ -428,6 +431,28 @@ struct ChromiumEngineTests {
         #expect(history.targetEntryID(offset: -1) == 101)
         #expect(history.targetEntryID(offset: 1) == 309)
         #expect(history.targetEntryID(offset: 2) == nil)
+    }
+
+    @Test("Document title observer accepts only its renderer binding")
+    func documentTitleBinding() {
+        let observation = ChromiumDocumentTitleObservation()
+        let matching = CDPEvent(
+            method: "Runtime.bindingCalled",
+            params: .object([
+                "name": .string("__cmuxChromiumTitleChanged"),
+                "payload": .string("Updated SPA title"),
+            ])
+        )
+        let unrelated = CDPEvent(
+            method: "Runtime.bindingCalled",
+            params: .object([
+                "name": .string("otherBinding"),
+                "payload": .string("ignored"),
+            ])
+        )
+        #expect(observation.title(from: matching) == "Updated SPA title")
+        #expect(observation.title(from: unrelated) == nil)
+        #expect(observation.title(from: CDPEvent(method: "Page.loadEventFired")) == nil)
     }
 
     @Test("Navigation history exposes URL stacks in persistence order")
