@@ -15414,17 +15414,22 @@ impl App {
             AppEvent::MuxTitlesReady => {
                 let changed = self.apply_mux_titles();
                 let changed_any = !changed.is_empty();
+                let mut projection_paint_requested = false;
                 for surface in changed {
-                    self.invalidate_projection_rows_for_surface(
+                    projection_paint_requested |= self.invalidate_projection_rows_for_surface(
                         surface,
                         ProjectionSurfaceChange::Title,
                     );
                 }
-                Ok(if changed_any && self.schedule_projection_paint() {
-                    RenderAction::Paint
-                } else {
-                    RenderAction::None
-                })
+                Ok(
+                    if changed_any
+                        && (projection_paint_requested || self.schedule_projection_paint())
+                    {
+                        RenderAction::Paint
+                    } else {
+                        RenderAction::None
+                    },
+                )
             }
             AppEvent::StatusCommandsUpdated => {
                 self.status_poke_pending.store(false, Ordering::Release);
@@ -42632,6 +42637,42 @@ mod tests {
 
         mux.close_surface(first.id).unwrap();
         mux.close_surface(second.id).unwrap();
+    }
+
+    #[test]
+    fn projection_title_wake_paints_after_invalidating_cached_rows() {
+        let (mux, surface) = test_mux("projection-title-paint-test", None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.config.sidebar.columns.clear();
+        app.config.sidebar.views = vec![SidebarViewSpec {
+            id: "tabs".into(),
+            levels: vec![SidebarResourceKind::Tabs],
+            actions: Vec::new(),
+            actions_position: crate::config::ActionsPosition::Bottom,
+            width: 40,
+            max_width: 0,
+            collapse_priority: 30,
+            scope: crate::config::SidebarViewScope::Workspace,
+        }];
+        app.config.sidebar.views_explicit = true;
+        app.replace_tree(app.session.tree());
+        app.projection_rows(0);
+
+        assert!(app.mux_titles.push(surface.id, "renamed".into()));
+        assert_eq!(app.handle(AppEvent::MuxTitlesReady).unwrap(), RenderAction::Paint);
+        assert_eq!(
+            app.tree
+                .workspaces
+                .iter()
+                .flat_map(|workspace| workspace.screens.iter())
+                .flat_map(|screen| screen.panes.iter())
+                .flat_map(|pane| pane.tabs.iter())
+                .find(|tab| tab.surface == surface.id)
+                .map(|tab| tab.title.as_str()),
+            Some("renamed")
+        );
+
+        mux.close_surface(surface.id).unwrap();
     }
 
     #[test]
