@@ -13745,6 +13745,7 @@ impl App {
                 self.focus_rail(kind);
             } else {
                 self.focus = FocusTarget::Pane;
+                self.cancel_preview_on_sidebar_focus_loss();
             }
         }
         if let (Some(help), Some(rows)) = (self.shortcut_help.as_mut(), shortcut_rows) {
@@ -22958,6 +22959,7 @@ impl App {
                 return;
             }
             self.focus = FocusTarget::Pane;
+            self.cancel_preview_on_sidebar_focus_loss();
         }
     }
 
