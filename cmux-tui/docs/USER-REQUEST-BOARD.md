@@ -2,8 +2,8 @@
 
 Current snapshot: 2026-08-27T12:20:00Z, pinned to `origin/main`
 [`de3902db48d2924c227b5acb26cbe1d89fe03cc0`](https://github.com/manaflow-ai/cmux/commit/de3902db48d2924c227b5acb26cbe1d89fe03cc0),
-committed 2026-08-27T02:58:58-07:00 with subject
-`Fix workspace RPC unknown response hangs (#10936)`. The prior
+committed 2026-08-27T05:04:41-07:00 with subject
+`refactor(tui): share startup option scanning (#10951)`. The prior
 `5c2ee1244e2d796c9e4be5307788b320ac2ee4ff` and earlier
 `99bdc375e98eb9abddd3f54289bc16ef876e8095` snapshots are retained below.
 Metadata-only scan: 587 Codex session files dated after the prior snapshot and

@@ -19,7 +19,6 @@ The current main tail includes [#10936](https://github.com/manaflow-ai/cmux/pull
 [#10951](https://github.com/manaflow-ai/cmux/pull/10951). The latest merge shares
 startup option scanning and completes the redraw, frame-area, and diagnostics
 tail. Source heads, authors, merge times, and merge commits are recorded below.
-Source heads, authors, merge times, and merge commits are recorded below.
 Individual rollback commands are in
 [`TECH-DEBT-CHANGELOG.md`](TECH-DEBT-CHANGELOG.md).
 
