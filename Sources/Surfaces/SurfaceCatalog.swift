@@ -42,13 +42,6 @@ extension SurfaceProvider {
 @MainActor
 @Observable
 final class SurfaceCatalog {
-    /// A bounded token record for an operation that can still report after the catalog moved on.
-    /// The provider is held by the provider task itself and is passed to the late-result callback,
-    /// so this record never keeps a disconnected provider alive.
-    private struct RetiredMaterialization {
-        var evictionTask: Task<Void, Never>?
-    }
-
     static let shared = SurfaceCatalog()
 
     /// A provider call with no remaining caller must not occupy a resource forever when the
@@ -66,10 +59,11 @@ final class SurfaceCatalog {
     /// Materializations are asynchronous, so actor reentrancy can otherwise let two callers
     /// pass the reuse check before either provider has returned a projection.
     private var inFlightProjects: [SurfaceResourceID: SurfaceProjectionMaterialization] = [:]
-    /// Materializations retired with their provider (for example during unregister) may still
-    /// finish because task cancellation is cooperative. Keep only a bounded token record until
-    /// the late result arrives; the provider itself stays owned by its task.
-    private var retiredMaterializations: [UUID: RetiredMaterialization] = [:]
+    /// Tokens for operations that can still report after the catalog moved on. The provider is
+    /// held by the provider task itself and passed to the late-result callback, so these sets do
+    /// not keep disconnected providers alive. Every token has one bounded eviction task.
+    private var retiredMaterializationTokens: Set<UUID> = []
+    private var retiredMaterializationEvictionTasks: [UUID: Task<Void, Never>] = [:]
     private let retiredMaterializationRetention: Duration
     private let abandonedMaterializationTimeout: Duration
     private let materializationClock: any Clock<Duration>
@@ -95,6 +89,12 @@ final class SurfaceCatalog {
     // MARK: Providers
 
     func register(_ provider: any SurfaceProvider) {
+        if let previous = providers[provider.machine], previous !== provider {
+            let inFlightIDs = inFlightProjects.keys.filter { $0.machine == provider.machine }
+            for id in inFlightIDs {
+                cancelInFlightProject(id, error: SurfaceCatalogError.unknownResource(id))
+            }
+        }
         providers[provider.machine] = provider
         machines[provider.machine] = provider.info
         notifyChange()
@@ -215,6 +215,9 @@ final class SurfaceCatalog {
                 return
             }
 
+            if let inFlight = inFlightProjects[id], inFlight.provider !== provider {
+                cancelInFlightProject(id, error: SurfaceCatalogError.unknownResource(id))
+            }
             if var inFlight = inFlightProjects[id] {
                 inFlight.abandoned = false
                 inFlight.abandonmentDeadlineTask?.cancel()
@@ -250,8 +253,8 @@ final class SurfaceCatalog {
         result: Result<SurfaceProjection, any Error>
     ) {
         guard var inFlight = inFlightProjects[id], inFlight.token == token else {
-            if let retirement = retiredMaterializations.removeValue(forKey: token) {
-                retirement.evictionTask?.cancel()
+            if retiredMaterializationTokens.remove(token) != nil {
+                retiredMaterializationEvictionTasks.removeValue(forKey: token)?.cancel()
             }
             if case .success(let projection) = result {
                 provider.discardMaterialization(projection)
@@ -334,7 +337,7 @@ final class SurfaceCatalog {
     /// so `finishInFlightProject` can discard it directly with the provider captured by its task
     /// even after this token has been evicted.
     private func retireMaterialization(_ token: UUID) {
-        retiredMaterializations[token] = RetiredMaterialization(evictionTask: nil)
+        retiredMaterializationTokens.insert(token)
         let timeout = retiredMaterializationRetention
         let clock = materializationClock
         let evictionTask = Task { [weak self, clock] in
@@ -346,14 +349,16 @@ final class SurfaceCatalog {
             guard !Task.isCancelled else { return }
             await self?.evictRetiredMaterialization(token)
         }
-        guard var retirement = retiredMaterializations[token] else { return }
-        retirement.evictionTask = evictionTask
-        retiredMaterializations[token] = retirement
+        guard retiredMaterializationTokens.contains(token) else {
+            evictionTask.cancel()
+            return
+        }
+        retiredMaterializationEvictionTasks[token] = evictionTask
     }
 
     private func evictRetiredMaterialization(_ token: UUID) {
-        guard let retirement = retiredMaterializations.removeValue(forKey: token) else { return }
-        retirement.evictionTask?.cancel()
+        guard retiredMaterializationTokens.remove(token) != nil else { return }
+        retiredMaterializationEvictionTasks.removeValue(forKey: token)?.cancel()
     }
 
     private func cancelInFlightProject(_ id: SurfaceResourceID, error: any Error) {
