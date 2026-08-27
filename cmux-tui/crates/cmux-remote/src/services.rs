@@ -1410,7 +1410,10 @@ where
         }
     };
     let download = async move {
-        let mut assembler = crate::mux_codec::MuxLineAssembler::<Option<StreamBudget>>::default();
+        let mut assembler =
+            crate::mux_codec::MuxLineAssembler::<Option<StreamBudget>>::with_maximum(
+                crate::mux_codec::MAX_MUX_DOWNLOAD_LINE_BYTES,
+            );
         while let Some(mut chunk) = remote.receive().await? {
             if !chunk.payload.is_empty() {
                 if let Some(input) = crate::mux_input::decode_packet(&chunk.payload)? {
