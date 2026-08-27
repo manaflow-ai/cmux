@@ -403,11 +403,18 @@ actor EndpointServerManualClock: CmxIrohRelayClock {
 
     func sleep(until deadline: Date) async throws {
         self.deadline = deadline
-        let waiters = sleepWaiters
-        sleepWaiters.removeAll()
-        for waiter in waiters { waiter.resume() }
         await withTaskCancellationHandler {
-            await withCheckedContinuation { sleeper = $0 }
+            await withCheckedContinuation { continuation in
+                // Register the sleeper and wake waitUntilSleeping() in one
+                // synchronous actor slice. Waking waiters before the sleeper
+                // is registered loses the race against fire(): crossing the
+                // withTaskCancellationHandler suspension releases the actor,
+                // fire() finds sleeper == nil, and the deadline never fires.
+                sleeper = continuation
+                let waiters = sleepWaiters
+                sleepWaiters.removeAll()
+                for waiter in waiters { waiter.resume() }
+            }
         } onCancel: {
             Task { await self.cancelSleep() }
         }

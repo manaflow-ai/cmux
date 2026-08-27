@@ -131,14 +131,29 @@ struct CmxIrohEndpointServerStalledHandshakeTests {
         #expect(close.reason == "admission_abandoned")
 
         // The driver finally bounds the stalled attempt. Its resolution, not
-        // the earlier deadline, releases the slot.
+        // the earlier deadline, releases the slot. The release runs behind
+        // releaseStalledHandshakes(), so an attempt racing ahead of it is
+        // still (correctly) abandoned; retry until the freed slot admits.
         await endpoint.releaseStalledHandshakes()
-        let admittedAfterResolution = TestIrohConnection(
-            remoteIdentity: healthyIdentity,
-            bidirectionalStreams: []
-        )
-        await endpoint.enqueue(admittedAfterResolution)
-        #expect(await recorder.next().identity == healthyIdentity)
+        var admitted = false
+        for _ in 0 ..< 200 {
+            let candidate = TestIrohConnection(
+                remoteIdentity: healthyIdentity,
+                bidirectionalStreams: []
+            )
+            var closes = await candidate.closeEvents().makeAsyncIterator()
+            await endpoint.enqueue(candidate)
+            let resolution = try #require(await closes.next())
+            if resolution.reason == "test_complete" {
+                admitted = true
+                break
+            }
+            #expect(resolution.reason == "admission_abandoned")
+        }
+        #expect(admitted)
+        if admitted {
+            #expect(await recorder.next().identity == healthyIdentity)
+        }
 
         await server.stop()
         await supervisor.deactivate()
