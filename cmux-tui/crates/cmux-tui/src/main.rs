@@ -2572,6 +2572,25 @@ fn frontend_default_colors(
     configured
 }
 
+struct FrontendSessionPreparation {
+    session: Session,
+    colors: cmux_tui_core::DefaultColors,
+}
+
+/// Resolve host-dependent colors for one frontend without publishing them to
+/// the shared session. The probe is supplied at the startup boundary so this
+/// color projection does not own terminal I/O.
+fn prepare_frontend_session(
+    session: Session,
+    configured: cmux_tui_core::DefaultColors,
+    host_probe: impl FnOnce() -> cmux_tui_core::DefaultColors,
+) -> FrontendSessionPreparation {
+    FrontendSessionPreparation {
+        session,
+        colors: frontend_default_colors(configured, host_probe()),
+    }
+}
+
 fn run_tui_once(
     session: Session,
     session_label: String,
@@ -2582,8 +2601,11 @@ fn run_tui_once(
     config: config::StartupConfigSnapshot,
 ) -> anyhow::Result<app::RunOutcome> {
     crossterm::terminal::enable_raw_mode()?;
-    let colors =
-        frontend_default_colors(config.terminal_defaults, host_colors::probe_default_colors());
+    let FrontendSessionPreparation { session, colors } = prepare_frontend_session(
+        session,
+        config.terminal_defaults,
+        host_colors::probe_default_colors,
+    );
     crossterm::terminal::disable_raw_mode()?;
     app::run_with_machine_updates(
         session,
@@ -3122,7 +3144,13 @@ mod tests {
             panic!("light client did not attach");
         };
 
-        let light_projection = frontend_default_colors(dark, light);
+        let host_probe_called = std::cell::Cell::new(false);
+        let FrontendSessionPreparation { session: _light_session, colors: light_projection } =
+            prepare_frontend_session(light_client, dark, || {
+                host_probe_called.set(true);
+                light
+            });
+        assert!(host_probe_called.get(), "frontend startup must invoke the host-color probe");
         assert_eq!(
             mux.default_colors(),
             dark,
