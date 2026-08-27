@@ -473,6 +473,7 @@ mod tests {
         assert!(input.buffer.is_empty());
 
         let mut input = text_input("x");
+        input.cursor = 0;
         assert_eq!(
             input.handle_key(&key(KeyCode::Delete, KeyModifiers::NONE)),
             InputEvent::Changed
