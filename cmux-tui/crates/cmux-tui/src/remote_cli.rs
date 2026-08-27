@@ -959,7 +959,12 @@ fn run_forward(args: &[String]) -> anyhow::Result<()> {
                 biased;
                 shutdown = crate::wait_for_shutdown_signal_async() => {
                     if shutdown.is_err() {
-                        let _ = finished.changed().await;
+                        let signal_wait =
+                            tokio::task::spawn_blocking(crate::wait_for_shutdown_signal);
+                        tokio::select! {
+                            _ = signal_wait => {}
+                            _ = finished.changed() => {}
+                        }
                     }
                 }
                 _ = finished.changed() => {}
