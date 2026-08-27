@@ -239,7 +239,7 @@ final class SurfaceCatalog {
                 resume(inFlight.waiters, throwing: SurfaceCatalogError.unknownResource(id))
                 return
             }
-            if let existing = projections(of: id).first {
+            if let existing = projections.first(where: { $0.resource == id }) {
                 if existing.panelID != projection.panelID {
                     inFlight.provider.discardMaterialization(projection)
                 }
