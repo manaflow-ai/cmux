@@ -45,6 +45,9 @@ extension CmxIrohHostRuntime {
             throw CmxIrohHostRuntimeError.relayFleetMismatch
         }
         let revision = lifecycleRevision
+        let previousRelayURLs = currentEndpointRelayProfile?.allowedRelayURLs
+            ?? configuration.endpointRelayProfile?.allowedRelayURLs
+            ?? []
 
         try await connectivityEngine.replaceRelayProfile(
             profile,
@@ -56,5 +59,21 @@ extension CmxIrohHostRuntime {
         currentEndpointRelayProfile = profile
         await admissionController?.updateManagedRelayURLs(replacementManagedURLs)
         try requireCurrent(revision)
+
+        // A changed relay allowlist changes how this host is dialed, so the
+        // registration must be republished. This is the recovery path for a
+        // host that activated during a relay policy outage (zero relays,
+        // direct-only route) and only regained a managed relay when a later
+        // policy refresh succeeded: without a forced round here nothing owns
+        // that republication, and the host stays unreachable for remote
+        // clients until an unrelated network change fires (cmux#10873).
+        // Unchanged reinstalls (every periodic refresh success re-applies the
+        // effective policy) schedule nothing.
+        if profile.allowedRelayURLs != previousRelayURLs {
+            scheduleRegistrationRefresh(
+                revision: revision,
+                forcePublication: true
+            )
+        }
     }
 }

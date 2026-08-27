@@ -111,10 +111,20 @@ final class MobileHostIrohRuntime {
     var relayPolicyService: CmxIrohRelayPolicyService?
     var relayPolicyEffective: CmxIrohEffectiveRelayPolicy? {
         didSet {
-            Self.publishRelayDiagMirror(from: relayPolicyEffective)
+            Self.publishRelayDiagMirror(
+                from: relayPolicyEffective,
+                diagnostics: relayPolicyDiagnostics
+            )
         }
     }
-    var relayPolicyDiagnostics: CmxIrohRelayDiagnosticsSnapshot?
+    var relayPolicyDiagnostics: CmxIrohRelayDiagnosticsSnapshot? {
+        didSet {
+            Self.publishRelayDiagMirror(
+                from: relayPolicyEffective,
+                diagnostics: relayPolicyDiagnostics
+            )
+        }
+    }
     var relayPolicyEndpointID: CmxIrohPeerIdentity?
     var relayPolicyObservationTask: Task<Void, Never>?
     var relayPolicyRefreshTask: Task<Void, Never>?
