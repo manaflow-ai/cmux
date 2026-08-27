@@ -170,6 +170,13 @@ jobs:
         working-directory: agent-chat
         run: bun test/claude-environment.test.ts
 
+      # The committed control-plane wire types (Swift + TS) must be exactly
+      # what quicktype regenerates from schemas/control-plane/; fails on any
+      # hand edit or schema change without regen. Needs bun (bunx quicktype),
+      # set up above.
+      - name: Validate control-plane generated types
+        run: ./scripts/check-control-plane-types.sh
+
       - name: Set up Python 3.9 for nightly prune compatibility
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
         with:
