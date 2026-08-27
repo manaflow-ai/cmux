@@ -14,11 +14,13 @@ use std::net::{Ipv4Addr, Ipv6Addr};
 use std::path::Path;
 
 #[cfg(unix)]
-use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
+#[cfg(unix)]
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde_json::Value;
-use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
+use time::OffsetDateTime;
 use url::{Host, Url};
 
 use crate::config::{Config, ManagedEvents, ManagedIdentity};
@@ -26,6 +28,9 @@ use crate::config::{Config, ManagedEvents, ManagedIdentity};
 pub const MANAGED_CLIENT: &str = "cmux-relay-managed-v1";
 const ALLOWED_BACKENDS: [&str; 2] = ["https://api.chatmux.dev", "https://api-staging.chatmux.dev"];
 const E2E_BACKEND_ENV: &str = "CHATMUX_RELAY_E2E_BACKEND";
+
+#[cfg(unix)]
+static NEXT_CLEANUP_ID: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct ManagedEnrollmentError(pub String);
@@ -137,24 +142,67 @@ fn file_identity_matches(current: &std::fs::Metadata, expected: &std::fs::Metada
 }
 
 fn unlink_if_same_inode(path: &Path, expected: &std::fs::Metadata) {
-    let same_file = std::fs::metadata(path)
-        .map(|current| {
-            #[cfg(unix)]
-            {
-                file_identity_matches(&current, expected)
+    #[cfg(unix)]
+    {
+        // A metadata check followed by remove_file(path) is not atomic: a
+        // producer can replace path after the check and have its enrollment
+        // deleted. Move the pathname atomically into a private directory
+        // first. The moved entry is then the only object we ever consider
+        // removing, and the identity check cannot select a replacement at
+        // the original pathname.
+        let parent = path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."));
+        let mut quarantine = None;
+        for _ in 0..16 {
+            let id = NEXT_CLEANUP_ID.fetch_add(1, Ordering::Relaxed);
+            let candidate =
+                parent.join(format!(".cmux-enrollment-cleanup-{}-{id}", std::process::id()));
+            let mut builder = std::fs::DirBuilder::new();
+            builder.mode(0o700);
+            match builder.create(&candidate) {
+                Ok(()) => {
+                    quarantine = Some(candidate);
+                    break;
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(_) => return,
             }
-            #[cfg(not(unix))]
-            {
-                // Windows does not expose a stable file identity on the
-                // current toolchain. Failing closed avoids deleting a
-                // concurrently replaced pathname.
-                let _ = (current, expected);
-                false
-            }
-        })
-        .unwrap_or(false);
-    if same_file {
-        let _ = std::fs::remove_file(path);
+        }
+        let Some(quarantine) = quarantine else {
+            return;
+        };
+        let moved = quarantine.join("entry");
+        if std::fs::rename(path, &moved).is_err() {
+            let _ = std::fs::remove_dir(&quarantine);
+            return;
+        }
+
+        let matches = std::fs::symlink_metadata(&moved)
+            .map(|current| current.is_file() && file_identity_matches(&current, expected))
+            .unwrap_or(false);
+        if matches {
+            let _ = std::fs::remove_file(&moved);
+            let _ = std::fs::remove_dir(&quarantine);
+            return;
+        }
+
+        // The pathname was replaced before the rename. Restore the moved
+        // object only when the pathname is still absent; hard_link never
+        // overwrites a concurrently created replacement.
+        if std::fs::hard_link(&moved, path).is_ok() {
+            let _ = std::fs::remove_file(&moved);
+            let _ = std::fs::remove_dir(&quarantine);
+        }
+    }
+
+    #[cfg(not(unix))]
+    {
+        // Windows does not expose a stable file identity on the current
+        // toolchain. Failing closed avoids deleting a concurrently replaced
+        // pathname.
+        let _ = (path, expected);
     }
 }
 
