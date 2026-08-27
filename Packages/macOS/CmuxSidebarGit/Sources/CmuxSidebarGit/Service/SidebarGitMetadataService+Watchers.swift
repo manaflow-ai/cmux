@@ -179,12 +179,32 @@ extension SidebarGitMetadataService {
         }
 
         var acceptedPaths: Set<String> = []
+        var targetWasAlreadyCreated = false
         for path in normalizedPaths {
-            if previousPaths.contains(path) || addWorkspaceGitMetadataCreationWatchTarget(path, for: key) {
+            if previousPaths.contains(path) || addWorkspaceGitMetadataCreationWatchTarget(
+                path,
+                for: key,
+                targetWasAlreadyCreated: &targetWasAlreadyCreated
+            ) {
                 acceptedPaths.insert(path)
             }
         }
         workspaceGitMetadataCreationWatchPathsByProbeKey[key] = acceptedPaths
+        if targetWasAlreadyCreated {
+            recordWorkspaceGitMetadataFilesystemEvent(for: key)
+            scheduleWorkspaceGitMetadataRefreshIfPossible(
+                workspaceId: key.workspaceId,
+                panelId: key.panelId,
+                reason: "configAlreadyCreated"
+            )
+            if let directory = workspaceGitMetadataWatcherSourceDirectoryByKey[key] {
+                updateWorkspaceGitMetadataWatcher(
+                    for: key,
+                    directory: directory,
+                    forceDescriptorRefresh: true
+                )
+            }
+        }
     }
 
     private func stopWorkspaceGitMetadataCreationWatchers(for key: WorkspaceGitProbeKey) {
@@ -196,7 +216,8 @@ extension SidebarGitMetadataService {
 
     private func addWorkspaceGitMetadataCreationWatchTarget(
         _ path: String,
-        for key: WorkspaceGitProbeKey
+        for key: WorkspaceGitProbeKey,
+        targetWasAlreadyCreated: inout Bool
     ) -> Bool {
         let ancestor = nearestExistingDirectory(for: path)
         guard ancestor != "/" else { return false }
@@ -211,9 +232,12 @@ extension SidebarGitMetadataService {
                 }
             }
             workspaceGitMetadataCreationWatcherAncestorByTargetPath[path] = ancestor
-            workspaceGitMetadataCreationWatchTargetExistsByPath[path] =
-                creationWatchFileManager.fileExists(atPath: path)
+            let targetExists = creationWatchFileManager.fileExists(atPath: path)
+            workspaceGitMetadataCreationWatcherTargetExistsByPath[path] = targetExists
+            targetWasAlreadyCreated = targetWasAlreadyCreated || targetExists
             workspaceGitMetadataCreationWatchTargetsByAncestor[ancestor, default: []].insert(path)
+        } else if workspaceGitMetadataCreationWatcherTargetExistsByPath[path] == true {
+            targetWasAlreadyCreated = true
         }
         workspaceGitMetadataCreationWatcherProbeKeysByTargetPath[path, default: []].insert(key)
         ensureWorkspaceGitMetadataCreationWatcher(for: ancestor)
