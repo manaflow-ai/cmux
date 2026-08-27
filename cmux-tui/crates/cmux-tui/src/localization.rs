@@ -248,6 +248,7 @@ pub(crate) struct ShortcutMessages {
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct BrowserMessages {
     failed_prefix: &'static str,
+    control_failed: &'static str,
     not_responding: &'static str,
     resize_recovery: &'static str,
     new_page_verification_prefix: &'static str,
@@ -264,6 +265,10 @@ pub(crate) struct BrowserMessages {
 }
 
 impl BrowserMessages {
+    pub(crate) fn control_failed(&self, error: &str) -> String {
+        self.control_failed.replace("{error}", error)
+    }
+
     pub(crate) fn loading(&self, url: &str) -> String {
         self.loading.replace("{url}", url)
     }
@@ -1323,6 +1328,7 @@ edits shell files. Authenticate with the configured host before retrying.
     },
     browser: BrowserMessages {
         failed_prefix: "browser failed: ",
+        control_failed: "browser command failed: {error}",
         not_responding: "browser failed: browser is not responding",
         resize_recovery: "browser failed: browser resize recovery failed; reload to retry",
         new_page_verification_prefix: "browser failed: could not verify new page pixels: ",
@@ -1967,6 +1973,7 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
     },
     browser: BrowserMessages {
         failed_prefix: "ブラウザでエラーが発生しました: ",
+        control_failed: "ブラウザ操作に失敗しました: {error}",
         not_responding: "ブラウザが応答していません",
         resize_recovery: "ブラウザのサイズ変更を復旧できませんでした。再読み込みして再試行してください",
         new_page_verification_prefix: "新しいページの表示を確認できませんでした: ",
@@ -2858,6 +2865,22 @@ mod tests {
                 japanese
             );
         }
+    }
+
+    #[test]
+    fn browser_control_failures_are_localized_at_the_ui_boundary() {
+        assert_eq!(
+            catalog_for_locale("en_US.UTF-8")
+                .browser
+                .control_failed("browser panes are not supported over attach yet"),
+            "browser command failed: browser panes are not supported over attach yet"
+        );
+        assert_eq!(
+            catalog_for_locale("ja_JP.UTF-8")
+                .browser
+                .control_failed("browser panes are not supported over attach yet"),
+            "ブラウザ操作に失敗しました: browser panes are not supported over attach yet"
+        );
     }
 
     #[test]

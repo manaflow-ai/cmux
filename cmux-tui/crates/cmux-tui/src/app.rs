@@ -8760,7 +8760,8 @@ fn run_with_machine_updates_inner(
         move |failure| {
             let _ = browser_failure_tx.send(AppEvent::BrowserResizeFailed(failure));
         },
-        move |message| {
+        move |error| {
+            let message = localization::catalog().browser.control_failed(&error);
             let _ = browser_control_tx.send(AppEvent::Mux(MuxEvent::Status(message)));
         },
     )?;
