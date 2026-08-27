@@ -138,9 +138,16 @@ npm install -g cmux@0.11.0 cmux-tui-darwin-arm64@0.11.0   # pick your platform p
 ```
 
 For a machine without registry access, download both matching tarballs first
-and install their local paths, or pre-populate npm's cache with those exact
-versions before running the command. The launcher then uses the installed
-platform package without resolving a different version.
+and install their local paths. The launcher then uses the installed platform
+package without resolving a different version:
+
+```bash
+npm install -g ./cmux-0.11.0.tgz ./cmux-tui-darwin-arm64-0.11.0.tgz
+```
+
+Alternatively, populate the launcher cache itself and set
+`CMUX_TUI_LAUNCHER_CACHE` to that directory. npm's download cache is not read
+by the launcher.
 
 ## Troubleshooting npx installs
 
@@ -157,7 +164,14 @@ This is a long-standing npm bug in the `npx` package cache, not a cmux failure. 
 
 ```bash
 npm_cache="$(npm config get cache)"
-rm -rf "$npm_cache/_npx"
+target="$npm_cache/_npx"
+printf 'About to remove: %s\n' "$target"
+case "$npm_cache" in
+  ""|/|"$HOME"|"$HOME/"*) echo "Refusing an unsafe npm cache path" >&2; exit 1 ;;
+esac
+read -r -p 'Type yes to continue: ' confirm
+[ "$confirm" = yes ] || exit 1
+rm -rf -- "$target"
 npx cmux@latest
 ```
 
