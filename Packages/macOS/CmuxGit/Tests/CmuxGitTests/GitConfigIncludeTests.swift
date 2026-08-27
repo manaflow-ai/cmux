@@ -272,7 +272,8 @@ private nonisolated struct FixedGitReferenceReader: GitReferenceReading {
             includeConditionalPathsForWatch: true
         ).watchPathResult()
 
-        #expect(result.metadataSentinelPaths.count == 255)
+        #expect(result.metadataSentinelPaths.count == 256)
+        #expect(result.metadataSentinelPaths.contains { $0.hasSuffix("missing-255.inc") })
         #expect(!result.metadataSentinelPaths.contains { $0.hasSuffix("missing-399.inc") })
         #expect(result.paths.contains(fixture.gitDirectory.standardizedFileURL.path))
     }
@@ -289,6 +290,8 @@ private nonisolated struct FixedGitReferenceReader: GitReferenceReading {
             .map { "    path = missing-\($0).inc" }
             .joined(separator: "\n")
         try """
+        [extensions]
+            worktreeConfig = true
         [include]
         \(missingIncludes)
             path = ../remotes.inc
@@ -303,7 +306,52 @@ private nonisolated struct FixedGitReferenceReader: GitReferenceReading {
         )
 
         #expect(descriptor.metadataSentinelPaths.contains(deferredInclude.path))
+        #expect(descriptor.metadataSentinelPaths.contains(
+            fixture.gitDirectory.appendingPathComponent("config.worktree").path
+        ))
         #expect(descriptor.containsGitMetadataChange(paths: [deferredInclude.path]))
+    }
+
+    @Test func repeatedReferenceStorageUsesOnlyEffectiveDirective() throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        let firstRoot = fixture.root
+            .appendingPathComponent("refs-first-\(UUID().uuidString)", isDirectory: true)
+        let secondRoot = fixture.root
+            .appendingPathComponent("refs-second-\(UUID().uuidString)", isDirectory: true)
+        defer {
+            try? FileManager.default.removeItem(at: firstRoot)
+            try? FileManager.default.removeItem(at: secondRoot)
+        }
+        for root in [firstRoot, secondRoot] {
+            let branchRef = root.appendingPathComponent("refs/heads/main")
+            try FileManager.default.createDirectory(
+                at: branchRef.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try String(repeating: "a", count: 40).write(
+                to: branchRef,
+                atomically: true,
+                encoding: .utf8
+            )
+        }
+        try fixture.writeConfig("""
+        [extensions]
+            refStorage = files:\(firstRoot.path)
+            refStorage = files:\(secondRoot.path)
+        """)
+
+        let repository = try #require(
+            GitMetadataService.resolveGitRepository(containing: fixture.root.path)
+        )
+        let result = GitConfigBranchTraversal(
+            repository: repository,
+            branchContext: .resolved("main"),
+            includeConditionalPathsForWatch: true
+        ).watchPathResult()
+
+        #expect(!result.paths.contains(firstRoot.appendingPathComponent("refs/heads/main").path))
+        #expect(result.paths.contains(secondRoot.appendingPathComponent("refs/heads/main").path))
     }
 
     @Test func watchesGitDirectoryUntilMissingWorktreeConfigAppears() throws {
