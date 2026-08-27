@@ -31,6 +31,21 @@ const DEBOUNCE_QUIET: Duration = Duration::from_millis(150);
 const DEBOUNCE_MAX_LATENCY: Duration = Duration::from_millis(500);
 const MAX_PENDING_NOTIFY_EVENTS: usize = 1024;
 
+/// All fallible watcher setup happens before a watch is published in the
+/// registry. A failed replacement therefore leaves the existing watch intact.
+struct PreparedWatch {
+    watcher: notify::RecommendedWatcher,
+    event_rx: Receiver<Result<notify::Event, notify::Error>>,
+    overflowed: Arc<AtomicBool>,
+    overflow_notify: Arc<Notify>,
+    latched_error: Arc<Mutex<Option<String>>>,
+}
+
+enum AdmissionFailure {
+    Limit,
+    OutboundUnavailable,
+}
+
 type Sessions = Arc<Mutex<HashMap<String, (u64, Option<tokio::task::JoinHandle<()>>)>>>;
 
 pub struct WatchRegistry {
@@ -97,6 +112,28 @@ impl WatchRegistry {
                 return;
             }
         };
+        // Check capacity before touching the filesystem watcher. A full
+        // registry keeps its existing watches and receives a typed refusal.
+        let capacity_available = self
+            .sessions
+            .lock()
+            .map(|sessions| sessions.contains_key(&watch_id) || sessions.len() < WATCH_MAX_SESSIONS)
+            .unwrap_or(false);
+        if !capacity_available {
+            self.refuse(
+                &watch_id,
+                wire::WorkspaceErrorCode::WatchLimit,
+                &format!("this machine already streams {WATCH_MAX_SESSIONS} watches"),
+            );
+            return;
+        }
+        let prepared = match prepare_watch(&root) {
+            Ok(prepared) => prepared,
+            Err(message) => {
+                self.refuse(&watch_id, wire::WorkspaceErrorCode::Failed, &message);
+                return;
+            }
+        };
         let opened = serde_json::to_string(&wire::RelayFsWatchOpened {
             version: WORKSPACE_FRAME_VERSION,
             r#type: wire::TagFsWatchOpened::FsWatchOpened,
@@ -105,17 +142,29 @@ impl WatchRegistry {
         })
         .unwrap_or_else(|_| String::new());
         let generation = self.next_generation.fetch_add(1, Ordering::Relaxed);
-        let previous = match self.sessions.lock() {
+        // Publish the acknowledgement while the session lock is held. This
+        // makes admission one transaction: a full/closed outbound queue never
+        // retires the current watch without first accepting its replacement.
+        let admission = match self.sessions.lock() {
             Ok(mut sessions)
                 if sessions.contains_key(&watch_id) || sessions.len() < WATCH_MAX_SESSIONS =>
             {
-                Ok(sessions.insert(watch_id.clone(), (generation, None)))
+                if self.outbound.try_critical_text(opened).is_err() {
+                    Err(AdmissionFailure::OutboundUnavailable)
+                } else {
+                    Ok(sessions.insert(watch_id.clone(), (generation, None)))
+                }
             }
-            Ok(_) | Err(_) => Err(()),
+            Ok(_) | Err(_) => Err(AdmissionFailure::Limit),
         };
-        let previous = match previous {
+        let previous = match admission {
             Ok(previous) => previous,
-            Err(()) => {
+            Err(AdmissionFailure::OutboundUnavailable) => {
+                // The queue is already unavailable. Keep the existing
+                // watch, because a refusal cannot be delivered either.
+                return;
+            }
+            Err(AdmissionFailure::Limit) => {
                 self.refuse(
                     &watch_id,
                     wire::WorkspaceErrorCode::WatchLimit,
@@ -124,12 +173,11 @@ impl WatchRegistry {
                 return;
             }
         };
-        let _ = self.outbound.try_critical_text(opened);
         let outbound = self.outbound.clone();
         let sessions = Arc::clone(&self.sessions);
         let task_id = watch_id.clone();
         let mut task = Some(tokio::spawn(async move {
-            run_watch(&task_id, &root, &outbound).await;
+            run_watch(&task_id, &root, &outbound, prepared).await;
             if let Ok(mut sessions) = sessions.lock() {
                 // `tokio::spawn` starts the task immediately, so a watcher
                 // that fails during startup can finish before its handle is
@@ -163,6 +211,40 @@ impl WatchRegistry {
             previous.abort();
         }
     }
+}
+
+fn prepare_watch(root: &Path) -> Result<PreparedWatch, String> {
+    use notify::Watcher as _;
+
+    let (event_tx, event_rx) =
+        channel::<Result<notify::Event, notify::Error>>(MAX_PENDING_NOTIFY_EVENTS);
+    let overflowed = Arc::new(AtomicBool::new(false));
+    let overflow_notify = Arc::new(Notify::new());
+    let latched_error = Arc::new(Mutex::new(None::<String>));
+    let callback_overflowed = Arc::clone(&overflowed);
+    let callback_notify = Arc::clone(&overflow_notify);
+    let callback_error = Arc::clone(&latched_error);
+    let mut watcher = notify::recommended_watcher(
+        move |event: Result<notify::Event, notify::Error>| match event {
+            Ok(event) => try_enqueue_notify_event(
+                &event_tx,
+                &callback_overflowed,
+                &callback_notify,
+                Ok(event),
+            ),
+            Err(error) => {
+                if let Ok(mut latched) = callback_error.lock() {
+                    *latched = Some(error.to_string());
+                }
+                callback_notify.notify_one();
+            }
+        },
+    )
+    .map_err(|error| format!("could not start the watcher: {error}"))?;
+    watcher
+        .watch(root, notify::RecursiveMode::Recursive)
+        .map_err(|error| format!("could not watch {}: {error}", root.display()))?;
+    Ok(PreparedWatch { watcher, event_rx, overflowed, overflow_notify, latched_error })
 }
 
 fn watch_root(
@@ -199,55 +281,9 @@ fn watch_root_with_capabilities(
 // The watch task: notify events -> debounce -> gitignore filter -> frames
 // ---------------------------------------------------------------------------
 
-async fn run_watch(watch_id: &str, root: &Path, outbound: &OutboundSink) {
-    use notify::Watcher as _;
-    let (event_tx, mut event_rx) =
-        channel::<Result<notify::Event, notify::Error>>(MAX_PENDING_NOTIFY_EVENTS);
-    let overflowed = Arc::new(AtomicBool::new(false));
-    let overflow_notify = Arc::new(Notify::new());
-    let latched_error = Arc::new(Mutex::new(None::<String>));
-    let callback_overflowed = Arc::clone(&overflowed);
-    let callback_notify = Arc::clone(&overflow_notify);
-    let callback_error = Arc::clone(&latched_error);
-    let mut watcher =
-        match notify::recommended_watcher(move |event: Result<notify::Event, notify::Error>| {
-            match event {
-                Ok(event) => try_enqueue_notify_event(
-                    &event_tx,
-                    &callback_overflowed,
-                    &callback_notify,
-                    Ok(event),
-                ),
-                Err(error) => {
-                    if let Ok(mut latched) = callback_error.lock() {
-                        *latched = Some(error.to_string());
-                    }
-                    callback_notify.notify_one();
-                }
-            }
-        }) {
-            Ok(watcher) => watcher,
-            Err(error) => {
-                let _ = outbound
-                    .critical_text(watch_error_frame(
-                        watch_id,
-                        wire::WorkspaceErrorCode::Failed,
-                        &format!("could not start the watcher: {error}"),
-                    ))
-                    .await;
-                return;
-            }
-        };
-    if let Err(error) = watcher.watch(root, notify::RecursiveMode::Recursive) {
-        let _ = outbound
-            .critical_text(watch_error_frame(
-                watch_id,
-                wire::WorkspaceErrorCode::Failed,
-                &format!("could not watch {}: {error}", root.display()),
-            ))
-            .await;
-        return;
-    }
+async fn run_watch(watch_id: &str, root: &Path, outbound: &OutboundSink, prepared: PreparedWatch) {
+    let PreparedWatch { mut watcher, mut event_rx, overflowed, overflow_notify, latched_error } =
+        prepared;
     let mut matcher = build_ignore_matcher(root);
     'watch: loop {
         let notified = overflow_notify.notified();
@@ -581,6 +617,41 @@ mod tests {
         };
         assert_eq!(event["watchId"], "w1");
         registry.close("w1");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn invalid_replacement_preserves_the_existing_watch() {
+        let root = scratch("invalid-replacement");
+        let (sink, mut critical, mut watch) = OutboundSink::channels();
+        let registry = WatchRegistry::new(sink);
+
+        registry.open(open_frame("same", &root), None);
+        let opened = next_frame(&mut critical, &mut watch, "first opened").await;
+        assert_eq!(opened["type"], "fs_watch_opened");
+
+        let mut invalid = open_frame("same", &root);
+        invalid.root = Some(root.join("missing").to_string_lossy().into_owned());
+        registry.open(invalid, None);
+        let refusal = next_frame(&mut critical, &mut watch, "replacement refusal").await;
+        assert_eq!(refusal["type"], "fs_watch_error");
+        assert_eq!(refusal["code"], "not_found");
+
+        // Validation happens before registry mutation. A change in the
+        // original root proves that the refused replacement kept it active.
+        tokio::time::sleep(Duration::from_millis(400)).await;
+        std::fs::write(root.join("still-watched.txt"), "kept\n").expect("write");
+        loop {
+            let event = next_frame(&mut critical, &mut watch, "existing watch event").await;
+            if event["type"] == "fs_watch_event"
+                && event["changes"].as_array().is_some_and(|changes| {
+                    changes.iter().any(|change| change["path"] == "still-watched.txt")
+                })
+            {
+                break;
+            }
+        }
+        registry.close("same");
     }
 
     #[cfg(unix)]
