@@ -511,7 +511,6 @@ def test_concurrent_launchers_preserve_an_active_lease_during_prune(tmp_path: Pa
     )
     old_process = subprocess.Popen(
         ["node", str(old_launcher)],
-        check=False,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
