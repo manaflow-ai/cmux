@@ -65,9 +65,9 @@ class RegistryHandler(http.server.BaseHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802, required by BaseHTTPRequestHandler
         type(self).authorization_headers.append(self.headers.get("Authorization"))
         metadata_path = urllib.parse.urlsplit(self.path).path
-        metadata_match = re.fullmatch(
+        metadata_match = re.search(
             r"/cmux-tui-[A-Za-z0-9._-]+/"
-            r"([0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?)",
+            r"([0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?)$",
             metadata_path,
         )
         if self.path in ("/cmux/latest", "/cmux/nightly"):
