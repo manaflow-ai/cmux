@@ -3213,6 +3213,125 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         RunLoop.current.run(until: Date().addingTimeInterval(0.25))
     }
 
+    private func makeMouseEvent(
+        type: NSEvent.EventType,
+        location: NSPoint,
+        window: NSWindow
+    ) -> NSEvent {
+        guard let event = NSEvent.mouseEvent(
+            with: type,
+            location: location,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 0,
+            clickCount: 1,
+            pressure: 1.0
+        ) else {
+            fatalError("Failed to create \(type) mouse event")
+        }
+        return event
+    }
+
+    func testPortalRebindKeepsDockDividerOwnershipAfterTransientVisibilityClear() throws {
+        // A browser pane immediately left of the Dock shares the trailing edge
+        // with the Dock browser. During portal churn, visibility can be cleared
+        // before the existing visible slot is rebound. Rebinding without a new
+        // pane snapshot must not make the browser reclaim the Dock divider.
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        realizeWindowLayout(window)
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let mainAnchor = NSView(frame: NSRect(x: 0, y: 0, width: 220, height: 260))
+        let dockAnchor = NSView(frame: NSRect(x: 220, y: 0, width: 220, height: 260))
+        contentView.addSubview(mainAnchor)
+        contentView.addSubview(dockAnchor)
+
+        let portal = WindowBrowserPortal(window: window)
+        defer { portal.tearDown() }
+        let mainWebView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let dockWebView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let dockContext = BrowserPaneDropContext(
+            workspaceId: UUID(),
+            panelId: UUID(),
+            paneId: PaneID(id: UUID()),
+            isDockHosted: true
+        )
+
+        portal.bind(webView: mainWebView, to: mainAnchor, visibleInUI: true)
+        portal.bind(
+            webView: dockWebView,
+            to: dockAnchor,
+            visibleInUI: true,
+            paneDropContext: dockContext
+        )
+        contentView.layoutSubtreeIfNeeded()
+
+        guard let dockSlot = dockWebView.superview as? WindowBrowserSlotView,
+              let host = dockSlot.superview as? WindowBrowserHostView else {
+            XCTFail("Expected Dock browser slot in the window portal host")
+            return
+        }
+        let dividerPointInHost = NSPoint(x: dockSlot.frame.minX, y: host.bounds.midY)
+        let dividerPointInWindow = host.convert(dividerPointInHost, to: nil)
+        let event = makeMouseEvent(
+            type: .leftMouseDown,
+            location: dividerPointInWindow,
+            window: window
+        )
+        let pasteboard = NSPasteboard(
+            name: NSPasteboard.Name("cmux.test.issue-10892.rebind.\(UUID().uuidString)")
+        )
+        pasteboard.clearContents()
+
+        XCTAssertNil(
+            host.performHitTest(
+                at: dividerPointInHost,
+                currentEvent: event,
+                dragPasteboard: pasteboard
+            ),
+            "The initial Dock browser binding must pass its shared divider through"
+        )
+
+        // These two updates model the portal's transient recovery ordering:
+        // the routing context is unavailable and visibility is stale, but the
+        // visible slot/frame remains mounted until the replacement bind settles.
+        portal.updatePaneDropContext(
+            forWebViewId: ObjectIdentifier(dockWebView),
+            context: nil
+        )
+        portal.updateEntryVisibility(
+            forWebViewId: ObjectIdentifier(dockWebView),
+            visibleInUI: false,
+            zPriority: 0
+        )
+        portal.bind(
+            webView: dockWebView,
+            to: dockAnchor,
+            visibleInUI: true,
+            paneDropContext: nil
+        )
+
+        XCTAssertNil(
+            host.performHitTest(
+                at: dividerPointInHost,
+                currentEvent: event,
+                dragPasteboard: pasteboard
+            ),
+            "Rebinding a visible Dock browser without a fresh context must preserve divider ownership"
+        )
+    }
+
     private func dropZoneOverlay(in slot: WindowBrowserSlotView, excluding webView: WKWebView) -> NSView? {
         let candidates = slot.subviews + (slot.superview?.subviews ?? [])
         return candidates.first(where: {
