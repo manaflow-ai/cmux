@@ -288,7 +288,9 @@ struct CloudTreeLeafRow<Accessories: View>: View {
             }
             accessories()
             if showsOpenMark {
-                Image(systemName: "rectangle.on.rectangle")
+                // "eye": a pane on this Mac is showing it. (Not
+                // rectangle.on.rectangle, which reads as a copy button.)
+                Image(systemName: "eye")
                     .font(.system(size: 9.5, weight: .regular))
                     .foregroundStyle(.tertiary)
                     .frame(width: CloudTreeRowGrid.trailingSlot, alignment: .center)
@@ -365,14 +367,26 @@ struct CloudTreeTerminalRowContent: View {
                     .foregroundStyle(.secondary)
                     .help(agent)
             }
-            if style.showsViewBadges, let views = row.viewBadge {
-                // Pool rows: how many daemon tabs show this terminal. 0 reads as
-                // "detached — alive with no view", the pool's whole point.
-                Text(String(views))
-                    .cmuxFont(size: style.detailSize, design: style.fontDesign, monospacedDigit: true)
-                    .foregroundStyle(views == 0 ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.secondary))
-                    .frame(width: CloudTreeRowGrid.trailingSlot, alignment: .center)
-                    .help(Self.viewsHelp(views))
+            if style.showsViewBadges, let views = row.viewBadge, views != 1 {
+                // Pool rows: how many daemon tabs show this terminal. One view is
+                // the normal state and gets no badge; zero reads as a "detached"
+                // pill (alive with no tab — the pool's whole point); several views
+                // read as a multiplier.
+                Group {
+                    if views == 0 {
+                        Text(String(localized: "cloudTree.terminal.badge.detached", defaultValue: "detached"))
+                            .cmuxFont(size: style.detailSize - 0.5, design: style.fontDesign)
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1)
+                            .background(Capsule().fill(Color.primary.opacity(0.08)))
+                    } else {
+                        Text(String(format: String(localized: "cloudTree.terminal.badge.views", defaultValue: "×%d"), views))
+                            .cmuxFont(size: style.detailSize, design: style.fontDesign, monospacedDigit: true)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .help(Self.viewsHelp(views))
             }
         }
     }

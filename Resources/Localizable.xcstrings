@@ -59970,6 +59970,40 @@
         }
       }
     },
+    "cloudTree.terminal.badge.detached": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "detached"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブなし"
+          }
+        }
+      }
+    },
+    "cloudTree.terminal.badge.views": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "×%d"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "×%d"
+          }
+        }
+      }
+    },
     "cloudTree.terminal.views.one": {
       "extractionState": "manual",
       "localizations": {
