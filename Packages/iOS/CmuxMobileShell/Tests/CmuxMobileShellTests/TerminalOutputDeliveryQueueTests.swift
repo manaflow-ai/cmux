@@ -36,6 +36,20 @@ import Testing
     #expect(queue.pendingCount == 0)
 }
 
+@Test func terminalOutputQueueTracksTheExactInFlightDelivery() {
+    var queue = TerminalOutputDeliveryQueue()
+    let first = TerminalOutputDelivery(bytes: Data("first".utf8), replaceable: false)
+    let second = TerminalOutputDelivery(bytes: Data("second".utf8), replaceable: false)
+
+    #expect(queue.enqueue(first) == .immediate(first))
+    #expect(queue.currentInFlightDelivery == first)
+    #expect(queue.enqueue(second) == .queued)
+    #expect(queue.completeInFlight() == second)
+    #expect(queue.currentInFlightDelivery == second)
+    #expect(queue.completeInFlight() == nil)
+    #expect(queue.currentInFlightDelivery == nil)
+}
+
 @Test func terminalOutputQueueIgnoresCompletionWhenNothingIsInFlight() {
     var queue = TerminalOutputDeliveryQueue()
 

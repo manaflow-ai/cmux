@@ -79,6 +79,10 @@ import Testing
         store.terminalRenderGridHistoryContinuityBySurfaceID["live-terminal"] == nil,
         "compatibility bytes do not preserve the render-grid history chain"
     )
+    #expect(
+        store.terminalMirrorHydrationNeededSurfaceIDs.contains("live-terminal"),
+        "a byte fallback must re-arm scrollback hydration for the next replay"
+    )
     #expect(store.terminalReplayBarrierTokensBySurfaceID["live-terminal"] == nil)
 
     await transport.deliver(try terminalBytesEventFrame(
