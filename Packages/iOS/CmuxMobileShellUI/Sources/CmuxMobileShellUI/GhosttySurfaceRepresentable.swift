@@ -157,6 +157,10 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         let activeScreenState = store.terminalActiveScreenState(surfaceID: surfaceID)
         surfaceView.hostedAltScreenKnown = activeScreenState != .unknown
         surfaceView.hostedAltScreenActive = activeScreenState == .alternate
+        context.coordinator.setTerminalScreenRecoveryRequired(
+            activeScreenState == .unknown,
+            surfaceView: surfaceView
+        )
         surfaceView.scrollPresentationAuthority = store.usesVerifiedTerminalReplay
             && !store.usesScreenAnchoredRenderGrid
             ? .verifiedRenderGrid
@@ -226,6 +230,10 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         /// In-surface recovery affordance kept visible when UIKit cannot present
         /// the alert (for example while another modal is transitioning).
         var outputConsumerRecoveryOverlay: UIView?
+        /// Published by the shell when compatibility output cannot identify the
+        /// active VT screen. Uses the same bounded Retry affordance as a stalled
+        /// output consumer, but keeps the screen state explicitly unavailable.
+        var terminalScreenRecoveryRequired = false
         private static let outputConsumerRestartDelays: [Duration] = [
             .zero,
             .milliseconds(100),
@@ -714,6 +722,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                   surfaceView.window != nil else { return }
             outputConsumerRecoveryAlert = nil
             outputConsumerRecoveryAlertPending = false
+            terminalScreenRecoveryRequired = false
             removeOutputConsumerRecoveryOverlay()
             startMountedTasks(
                 surfaceView: surfaceView,
@@ -981,13 +990,15 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                 )
                 attemptPendingOutputConsumerRecoveryPresentation()
             } else {
-                outputConsumerRecoveryAlertPending = outputConsumerRestartBlocked
+                outputConsumerRecoveryAlertPending =
+                    outputConsumerRestartBlocked || terminalScreenRecoveryRequired
                 stopMountedTasks()
             }
         }
 
         func detach() {
             outputConsumerRecoveryAlertPending = false
+            terminalScreenRecoveryRequired = false
             stopMountedTasks()
             surfaceView = nil
             themeApplicationScheduler.cancel()
@@ -1010,7 +1021,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                 )
                 attemptPendingOutputConsumerRecoveryPresentation()
             } else {
-                outputConsumerRecoveryAlertPending = false
+                outputConsumerRecoveryAlertPending = terminalScreenRecoveryRequired
                 stopMountedTasks()
             }
         }

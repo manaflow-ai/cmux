@@ -143,7 +143,7 @@ extension MobileShellComposite {
                     surfaceID: surfaceID,
                     endSequence: frame.currentSequence
                 ) else {
-                    return .accepted(outputReady: false)
+                    return .suspendUntilAuthoritativeOutput
                 }
             }
             markTerminalBytesDelivered(
@@ -175,7 +175,7 @@ extension MobileShellComposite {
             surfaceID: surfaceID,
             endSequence: frame.currentSequence
         ) else {
-            return .accepted(outputReady: false)
+            return .suspendUntilAuthoritativeOutput
         }
         markTerminalBytesDelivered(
             surfaceID: surfaceID,

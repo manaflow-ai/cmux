@@ -13606,17 +13606,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     func shouldDropRenderGridBehindPendingInput(_ renderGrid: MobileTerminalRenderGridFrame, source: String) -> Bool {
-        if terminalCompatibilityFallbackSurfaceIDs.contains(renderGrid.surfaceID) {
-            // The UI's bounded compatibility mode owns ordering for this
-            // episode; dropping every delta here would re-enter replay churn
-            // before a full frame can reclaim verification.
-            return false
-        }
+        let compatibilityFallbackActive =
+            terminalCompatibilityFallbackSurfaceIDs.contains(renderGrid.surfaceID)
         if source == "replay",
            let pendingSeq = pendingTerminalByteEndSeqBySurfaceID[renderGrid.surfaceID],
            renderGrid.stateSeq >= pendingSeq { return false }
         guard let pendingSeq = pendingTerminalByteEndSeqBySurfaceID[renderGrid.surfaceID],
               renderGrid.stateSeq < pendingSeq else {
+            if compatibilityFallbackActive {
+                // Compatibility mode bypasses baseline repair, but it still
+                // admits only frames at or beyond the latest input ACK.
+                return false
+            }
             guard pendingTerminalInputDroppedRenderGridSurfaceIDs.contains(renderGrid.surfaceID),
                   !renderGrid.full,
                   !renderGrid.isReplaceableViewportPatchForMobileDelivery else {

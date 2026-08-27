@@ -610,8 +610,36 @@ extension GhosttySurfaceRepresentable.Coordinator {
             }
         }
 
+        /// Presents the existing terminal Retry affordance when the shell
+        /// cannot identify the active screen after a compatibility fallback.
+        /// The flag is cleared by the same Retry ownership boundary that
+        /// remounts the output stream, so an unavailable screen never silently
+        /// suppresses output without a user action.
+        func setTerminalScreenRecoveryRequired(
+            _ required: Bool,
+            surfaceView: GhosttySurfaceView
+        ) {
+            guard self.surfaceView === surfaceView else { return }
+            if required {
+                terminalScreenRecoveryRequired = true
+                outputConsumerRecoveryAlertPending = true
+                _ = presentOutputConsumerRecoveryAlertIfPossible(on: surfaceView)
+                return
+            }
+            guard terminalScreenRecoveryRequired else { return }
+            terminalScreenRecoveryRequired = false
+            guard !outputConsumerRestartBlocked else { return }
+            outputConsumerRecoveryAlertPending = false
+            outputConsumerRecoveryPresentationTask?.cancel()
+            outputConsumerRecoveryPresentationTask = nil
+            outputConsumerRecoveryAlert?.dismiss(animated: false)
+            outputConsumerRecoveryAlert = nil
+            removeOutputConsumerRecoveryOverlay()
+        }
+
         private func queueOutputConsumerRecoveryAlert(surfaceView: GhosttySurfaceView) {
             guard outputConsumerRecoveryAlertPending,
+                  (outputConsumerRestartBlocked || terminalScreenRecoveryRequired),
                   outputConsumerRecoveryPresentationTask == nil else { return }
             let clock = outputConsumerRecoveryClock
             outputConsumerRecoveryPresentationTask = Task { @MainActor [weak self, weak surfaceView] in
@@ -651,7 +679,7 @@ extension GhosttySurfaceRepresentable.Coordinator {
                       self.surfaceView === surfaceView,
                       self.terminalPresentationIsActive,
                       surfaceView.window != nil,
-                      self.outputConsumerRestartBlocked else { return }
+                      (self.outputConsumerRestartBlocked || self.terminalScreenRecoveryRequired) else { return }
                 MobileDebugLog.anchormux(
                     "terminal.output.recovery_alert_deferred surface=\(self.surfaceID)"
                 )
@@ -667,7 +695,7 @@ extension GhosttySurfaceRepresentable.Coordinator {
             guard self.surfaceView === surfaceView,
                   terminalPresentationIsActive,
                   surfaceView.window != nil,
-                  outputConsumerRestartBlocked,
+                  (outputConsumerRestartBlocked || terminalScreenRecoveryRequired),
                   outputConsumerRecoveryAlertPending,
                   outputConsumerRecoveryAlert == nil else { return true }
             // Keep a local retry action visible for the whole pending period.

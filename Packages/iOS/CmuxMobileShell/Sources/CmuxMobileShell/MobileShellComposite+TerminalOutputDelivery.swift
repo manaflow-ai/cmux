@@ -662,6 +662,11 @@ extension MobileShellComposite {
                 terminalReplayBarrierFollowUpCountsBySurfaceID.removeValue(forKey: surfaceID)
             }
         }
+        if terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil {
+            // A lane suspended by a queue/stream recovery must not stay in its
+            // unready phase after the authoritative chunk has been processed.
+            resumeTerminalLaneIfSuspended(surfaceID: surfaceID)
+        }
         guard let next,
               let continuation = terminalByteContinuationsBySurfaceID[surfaceID],
               terminalOutputStreamTokensBySurfaceID[surfaceID] == streamToken else {
