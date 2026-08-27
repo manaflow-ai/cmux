@@ -3,7 +3,8 @@ import Foundation
 
 /// Serializes native input events before they cross the Chromium session
 /// actor. Pointer motion is coalesced under pressure, while key and button
-/// transitions retain FIFO order whenever the bounded queue has capacity.
+/// transitions retain FIFO order; when a queue contains only transitions,
+/// new input is rejected rather than evicting an older transition.
 @MainActor
 final class ChromiumInputEventQueue {
     enum Event: Sendable {
@@ -54,7 +55,11 @@ final class ChromiumInputEventQueue {
             if let motionIndex = pending.firstIndex(where: { $0.isCoalescable }) {
                 pending.remove(at: motionIndex)
             } else {
-                pending.removeFirst()
+                // Never evict a key/button transition: dropping one side of a
+                // press/release pair leaves Chromium's input state latched.
+                // The bounded queue applies backpressure by rejecting this
+                // newest event until the worker drains an existing transition.
+                return
             }
         }
         pending.append(event)
