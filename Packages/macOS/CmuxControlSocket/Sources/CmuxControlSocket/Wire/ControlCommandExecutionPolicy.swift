@@ -131,6 +131,12 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // never runs inline on the main thread, and no in-process main-thread
         // caller needs it.
         "surface.read_text",
+        // The surface catalog verbs await main-actor catalog work that can sit on the
+        // network (a cloud provider materializing a pane); like `vm.*` they park the
+        // worker instead of holding the main actor.
+        "surface.catalog",
+        "surface.project",
+        "surface.new_terminal",
         // SSH-session attach resolves ownership and reads the remote PTY
         // registry before any surface mutation; keep the bounded remote query
         // off the main actor.
