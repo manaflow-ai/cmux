@@ -6,6 +6,7 @@ struct SurfaceProjectionMaterialization {
     let token: UUID
     let provider: any SurfaceProvider
     let task: Task<Void, Never>
+    var abandoned = false
     var waiters: [UUID: (reused: Bool, continuation: CheckedContinuation<Result, Error>)]
 
     typealias Result = (projection: SurfaceProjection, reused: Bool)

@@ -53,10 +53,6 @@ final class SurfaceCatalog {
     /// Materializations are asynchronous, so actor reentrancy can otherwise let two callers
     /// pass the reuse check before either provider has returned a projection.
     private var inFlightProjects: [SurfaceResourceID: SurfaceProjectionMaterialization] = [:]
-    /// A canceled provider call can still finish after its last waiter leaves because provider
-    /// cancellation is cooperative. Keep its provider by token so a late pane can be closed
-    /// without blocking a new materialization for the same resource.
-    private var abandonedMaterializations: [UUID: any SurfaceProvider] = [:]
     /// Panels whose projection was recorded from a restored session before the provider
     /// re-synced; resolved into `projections` once the resource shows up.
     private var pendingRestoredProjections: [SurfaceProjectionRecord: UUID] = [:]
@@ -190,6 +186,7 @@ final class SurfaceCatalog {
             }
 
             if var inFlight = inFlightProjects[id] {
+                inFlight.abandoned = false
                 inFlight.waiters[waiterID] = (reused: true, continuation: continuation)
                 inFlightProjects[id] = inFlight
                 return
@@ -218,17 +215,15 @@ final class SurfaceCatalog {
         token: UUID,
         result: Result<SurfaceProjection, any Error>
     ) {
-        guard let inFlight = inFlightProjects[id], inFlight.token == token else {
-            if let provider = abandonedMaterializations.removeValue(forKey: token),
-               case .success(let projection) = result {
-                provider.discardMaterialization(projection)
-            }
-            return
-        }
+        guard var inFlight = inFlightProjects[id], inFlight.token == token else { return }
         inFlightProjects[id] = nil
 
         switch result {
         case .success(let projection):
+            guard !inFlight.abandoned else {
+                inFlight.provider.discardMaterialization(projection)
+                return
+            }
             guard resources[id] != nil else {
                 inFlight.provider.discardMaterialization(projection)
                 resume(inFlight.waiters, throwing: SurfaceCatalogError.unknownResource(id))
@@ -256,20 +251,22 @@ final class SurfaceCatalog {
         guard var inFlight = inFlightProjects[id],
               let waiter = inFlight.waiters.removeValue(forKey: waiterID) else { return }
         if inFlight.waiters.isEmpty {
-            inFlightProjects[id] = nil
-            abandonedMaterializations[inFlight.token] = inFlight.provider
-            inFlight.task.cancel()
-        } else {
-            inFlightProjects[id] = inFlight
+            // Cancellation detaches this caller, but the provider operation stays single-flight
+            // until it settles. Provider cancellation is cooperative, so starting another call
+            // here would allow an unbounded number of remote panes to race the first one.
+            inFlight.abandoned = true
         }
+        inFlightProjects[id] = inFlight
         waiter.continuation.resume(throwing: CancellationError())
     }
 
     private func cancelInFlightProject(_ id: SurfaceResourceID, error: any Error) {
-        guard let inFlight = inFlightProjects.removeValue(forKey: id) else { return }
-        abandonedMaterializations[inFlight.token] = inFlight.provider
-        inFlight.task.cancel()
-        resume(inFlight.waiters, throwing: error)
+        guard var inFlight = inFlightProjects[id] else { return }
+        inFlight.abandoned = true
+        let waiters = inFlight.waiters
+        inFlight.waiters.removeAll()
+        inFlightProjects[id] = inFlight
+        resume(waiters, throwing: error)
     }
 
     private func resume(

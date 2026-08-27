@@ -192,7 +192,7 @@ struct SurfaceCatalogTests {
         #expect(catalog.projections(of: term.id) == [adopted])
     }
 
-    @Test func `Cancelling the last project caller cancels materialization`() async throws {
+    @Test func `Cancelling the last project caller detaches without leaking a late materialization`() async throws {
         let catalog = SurfaceCatalog()
         let provider = FakeProvider(machine: .cloud("vivid-newt"))
         let gate = MaterializeGate()
