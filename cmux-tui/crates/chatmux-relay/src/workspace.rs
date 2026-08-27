@@ -2238,11 +2238,21 @@ pub struct SharedRuntime {
     pub preview: PreviewRegistry,
     /// This machine's own `--allow-root` scoping (config authority).
     pub local_roots: Option<Vec<String>>,
+    /// Process-wide bound for notify watcher teardown owners. The runtime is
+    /// shared across reconnecting sockets, so one connection cannot consume a
+    /// single-registry budget needed by another connection.
+    pub watch_teardown_slots: Arc<Semaphore>,
 }
 
 impl SharedRuntime {
     pub fn new(local_roots: Option<Vec<String>>) -> SharedRuntime {
-        SharedRuntime { preview: PreviewRegistry::new(), local_roots }
+        SharedRuntime {
+            preview: PreviewRegistry::new(),
+            local_roots,
+            watch_teardown_slots: Arc::new(Semaphore::new(
+                crate::watch::WATCH_TEARDOWN_CONCURRENCY,
+            )),
+        }
     }
 }
 
@@ -2278,7 +2288,10 @@ pub struct Connection {
 
 impl Connection {
     pub(crate) fn new(runtime: Arc<SharedRuntime>, outbound: OutboundSink) -> Connection {
-        let watches = WatchRegistry::new(outbound.clone());
+        let watches = WatchRegistry::new_with_teardown_slots(
+            outbound.clone(),
+            Arc::clone(&runtime.watch_teardown_slots),
+        );
         Connection {
             runtime,
             outbound,

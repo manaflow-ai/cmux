@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{SyncSender, sync_channel};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use tokio::sync::Notify;
@@ -41,15 +41,7 @@ const WATCH_SETUP_CONCURRENCY: usize = 2;
 /// A replacement can keep one retired watcher in synchronous teardown while
 /// all sessions and setup slots are occupied. This hard cap bounds detached
 /// owner threads even if a platform backend blocks in its destructor.
-const WATCH_TEARDOWN_CONCURRENCY: usize = WATCH_MAX_SESSIONS + WATCH_SETUP_CONCURRENCY + 1;
-
-static WATCH_TEARDOWN_SLOTS: OnceLock<Arc<Semaphore>> = OnceLock::new();
-
-fn watcher_teardown_slots() -> Arc<Semaphore> {
-    Arc::clone(
-        WATCH_TEARDOWN_SLOTS.get_or_init(|| Arc::new(Semaphore::new(WATCH_TEARDOWN_CONCURRENCY))),
-    )
-}
+pub const WATCH_TEARDOWN_CONCURRENCY: usize = WATCH_MAX_SESSIONS + WATCH_SETUP_CONCURRENCY + 1;
 
 /// All fallible watcher setup happens before a watch is published in the
 /// registry. A failed replacement therefore leaves the existing watch intact.
@@ -72,8 +64,8 @@ struct WatcherOwner {
 }
 
 impl WatcherOwner {
-    fn new(watcher: notify::RecommendedWatcher) -> Result<Self, String> {
-        Self::new_with_slots(watcher, watcher_teardown_slots())
+    fn new(watcher: notify::RecommendedWatcher, slots: Arc<Semaphore>) -> Result<Self, String> {
+        Self::new_with_slots(watcher, slots)
     }
 
     fn new_with_slots(
@@ -173,6 +165,7 @@ pub struct WatchRegistry {
     sessions: Sessions,
     next_generation: Arc<AtomicU64>,
     setup_slots: Arc<Semaphore>,
+    teardown_slots: Arc<Semaphore>,
     cancellation: CancellationToken,
 }
 
@@ -226,11 +219,22 @@ async fn report_watch_failure(
 
 impl WatchRegistry {
     pub(crate) fn new(outbound: OutboundSink) -> WatchRegistry {
+        Self::new_with_teardown_slots(
+            outbound,
+            Arc::new(Semaphore::new(WATCH_TEARDOWN_CONCURRENCY)),
+        )
+    }
+
+    pub(crate) fn new_with_teardown_slots(
+        outbound: OutboundSink,
+        teardown_slots: Arc<Semaphore>,
+    ) -> WatchRegistry {
         WatchRegistry {
             outbound,
             sessions: Arc::new(Mutex::new(HashMap::new())),
             next_generation: Arc::new(AtomicU64::new(0)),
             setup_slots: Arc::new(Semaphore::new(WATCH_SETUP_CONCURRENCY)),
+            teardown_slots,
             cancellation: CancellationToken::new(),
         }
     }
@@ -264,6 +268,7 @@ impl WatchRegistry {
         let sessions = Arc::clone(&self.sessions);
         let outbound = self.outbound.clone();
         let setup_slots = Arc::clone(&self.setup_slots);
+        let teardown_slots = Arc::clone(&self.teardown_slots);
         let local_roots_for_task = local_roots.map(<[String]>::to_vec);
         let reservation = match self.sessions.lock() {
             Ok(mut state) => {
@@ -296,6 +301,7 @@ impl WatchRegistry {
                         Arc::clone(&sessions),
                         outbound,
                         setup_slots,
+                        teardown_slots,
                     ));
                     slot.opening.as_mut().expect("opening was just reserved").abort =
                         Some(task.abort_handle());
@@ -335,6 +341,7 @@ async fn setup_watch(
     local_roots: Option<Vec<String>>,
     cancellation: CancellationToken,
     setup_slots: Arc<Semaphore>,
+    teardown_slots: Arc<Semaphore>,
 ) -> Result<(PathBuf, PreparedWatch), SetupFailure> {
     let permit = tokio::select! {
         biased;
@@ -354,7 +361,7 @@ async fn setup_watch(
         if blocking_cancellation.is_cancelled() {
             return Err(SetupFailure::Cancelled);
         }
-        let mut prepared = prepare_watch(&root).map_err(SetupFailure::Failed)?;
+        let mut prepared = prepare_watch(&root, teardown_slots).map_err(SetupFailure::Failed)?;
         if blocking_cancellation.is_cancelled() {
             drop(prepared);
             return Err(SetupFailure::Cancelled);
@@ -393,8 +400,11 @@ async fn coordinate_open(
     sessions: Sessions,
     outbound: OutboundSink,
     setup_slots: Arc<Semaphore>,
+    teardown_slots: Arc<Semaphore>,
 ) {
-    let setup = setup_watch(frame, local_roots, cancellation.clone(), setup_slots.clone()).await;
+    let setup =
+        setup_watch(frame, local_roots, cancellation.clone(), setup_slots.clone(), teardown_slots)
+            .await;
     match setup {
         Ok((root, prepared)) => {
             commit_open(
@@ -615,7 +625,7 @@ fn finish_active(watch_id: &str, generation: u64, sessions: Sessions) {
     }
 }
 
-fn prepare_watch(root: &Path) -> Result<PreparedWatch, String> {
+fn prepare_watch(root: &Path, teardown_slots: Arc<Semaphore>) -> Result<PreparedWatch, String> {
     use notify::Watcher as _;
 
     let (event_tx, event_rx) =
@@ -646,7 +656,7 @@ fn prepare_watch(root: &Path) -> Result<PreparedWatch, String> {
     watcher
         .watch(root, notify::RecursiveMode::Recursive)
         .map_err(|error| format!("could not watch {}: {error}", root.display()))?;
-    let watcher = WatcherOwner::new(watcher)?;
+    let watcher = WatcherOwner::new(watcher, teardown_slots)?;
     Ok(PreparedWatch {
         watcher,
         event_rx,
@@ -1028,6 +1038,8 @@ fn collect_changes(
 
 #[cfg(test)]
 mod tests {
+    const CRITICAL_QUEUE_CAPACITY: usize = 256;
+
     use super::*;
     use crate::session::{OutboundFrame, OutboundSink};
     use notify::Watcher as _;
@@ -1316,7 +1328,7 @@ mod tests {
     #[tokio::test]
     async fn failed_open_waits_for_critical_capacity() {
         let (sink, mut critical, _) = OutboundSink::channels();
-        for _ in 0..MAX_OUTBOUND_FRAMES {
+        for _ in 0..CRITICAL_QUEUE_CAPACITY {
             sink.try_critical_text("{}".to_owned()).expect("fill critical queue");
         }
         let sessions = Arc::new(Mutex::new(HashMap::new()));
