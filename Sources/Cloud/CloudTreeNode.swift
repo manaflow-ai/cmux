@@ -1,9 +1,9 @@
 import Foundation
 
 /// One row of the Cloud outline, built from the surface catalog: this Mac or a
-/// cloud machine, a group header, a workspace (cmux-tui on a machine, or the
-/// local workspace that projects a terminal), a terminal, the machine's desktop
-/// screen, a browser, a forwarded port, or a placeholder line.
+/// cloud machine, a pool ("Terminals", "Displays"), a group header, a workspace
+/// (cmux-tui on a machine, or the local workspace that projects a terminal), a
+/// terminal, a VNC display, a browser, a forwarded port, or a placeholder line.
 ///
 /// Reference type so `NSOutlineView` can use the node as its item; identity is
 /// the stable `id` (machine id, workspace id, resource id, …), which lets
@@ -15,15 +15,21 @@ final class CloudTreeNode: NSObject {
         case machine(MachineSnapshot, SurfaceMachineInfo?)
         /// This Mac.
         case localMachine(CloudTreeLocalMachineRow)
+        /// "Terminals" pool under a cloud machine: every terminal the machine owns, one
+        /// row per identity, whatever workspaces (zero or more) show it.
+        case terminalsPool(machine: SurfaceMachineID, count: Int)
+        /// "Displays" pool under a cloud machine: its VNC displays.
+        case displaysPool(machine: SurfaceMachineID, count: Int)
         /// "Workspaces" group under a machine.
         case workspacesGroup(machine: SurfaceMachineID)
-        /// A cmux-tui workspace on a cloud machine.
+        /// A cmux-tui workspace on a cloud machine; its children are pointer rows into
+        /// the machine's pools.
         case workspace(machine: SurfaceMachineID, SurfaceRemoteWorkspace, terminalCount: Int)
         /// A local workspace, grouping the local terminals it projects.
         case localWorkspace(CloudTreeLocalWorkspaceRow)
         case terminal(CloudTreeTerminalRow)
-        /// The machine's VNC screen.
-        case desktop(SurfaceResource)
+        /// One VNC display of a machine.
+        case display(SurfaceResource)
         /// "Browsers" group (this Mac).
         case browsersGroup(machine: SurfaceMachineID)
         case browser(CloudTreeBrowserRow)
@@ -56,11 +62,13 @@ final class CloudTreeNode: NSObject {
         switch kind {
         case .machine: return "machine"
         case .localMachine: return "localMachine"
+        case .terminalsPool: return "terminalsPool"
+        case .displaysPool: return "displaysPool"
         case .workspacesGroup: return "workspacesGroup"
         case .workspace: return "workspace"
         case .localWorkspace: return "localWorkspace"
         case .terminal: return "terminal"
-        case .desktop: return "desktop"
+        case .display: return "display"
         case .browsersGroup: return "browsersGroup"
         case .browser: return "browser"
         case .portsGroup: return "portsGroup"
@@ -87,11 +95,13 @@ final class CloudTreeNode: NSObject {
         case .localMachine: return .local
         case .workspacesGroup(let machine), .browsersGroup(let machine), .portsGroup(let machine):
             return machine
+        case .terminalsPool(let machine, _), .displaysPool(let machine, _):
+            return machine
         case .workspace(let machine, _, _), .placeholder(let machine, _):
             return machine
         case .localWorkspace: return .local
         case .terminal(let row): return row.resource.machine
-        case .desktop(let resource), .port(let resource): return resource.machine
+        case .display(let resource), .port(let resource): return resource.machine
         case .browser(let row): return row.resource.machine
         }
     }
@@ -108,11 +118,13 @@ final class CloudTreeNode: NSObject {
         switch kind {
         case .machine(let machine, _): return machine.displayName
         case .localMachine(let row): return row.name
+        case .terminalsPool: return String(localized: "cloudTree.group.terminals", defaultValue: "Terminals")
+        case .displaysPool: return String(localized: "cloudTree.group.displays", defaultValue: "Displays")
         case .workspacesGroup: return String(localized: "cloudTree.group.workspaces", defaultValue: "Workspaces")
         case .workspace(_, let workspace, _): return workspace.name
         case .localWorkspace(let row): return row.title
         case .terminal(let row): return row.resource.title
-        case .desktop: return String(localized: "cloudTree.node.desktop", defaultValue: "Desktop")
+        case .display(let resource): return resource.title.isEmpty ? String(localized: "cloudTree.node.desktop", defaultValue: "Desktop") : resource.title
         case .browsersGroup: return String(localized: "cloudTree.group.browsers", defaultValue: "Browsers")
         case .browser(let row): return row.resource.title
         case .portsGroup: return String(localized: "cloudTree.group.ports", defaultValue: "Ports")
@@ -134,8 +146,8 @@ final class CloudTreeNode: NSObject {
         switch kind {
         case .terminal(let row): return row.resource
         case .browser(let row): return row.resource
-        case .desktop(let resource), .port(let resource): return resource
-        case .machine, .localMachine, .workspacesGroup, .workspace, .localWorkspace, .browsersGroup, .portsGroup, .placeholder:
+        case .display(let resource), .port(let resource): return resource
+        case .machine, .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .workspace, .localWorkspace, .browsersGroup, .portsGroup, .placeholder:
             return nil
         }
     }
@@ -165,9 +177,12 @@ struct CloudTreeLocalWorkspaceRow: Equatable {
 }
 
 /// A terminal row: the resource plus whether a local pane shows it right now.
+/// `viewBadge` is the number of daemon tabs showing the terminal, rendered on
+/// pool rows only (nil hides the badge: local terminals, workspace pointer rows).
 struct CloudTreeTerminalRow: Equatable {
     let resource: SurfaceResource
     let isOpen: Bool
+    var viewBadge: Int?
 }
 
 /// A browser row (this Mac's browser panes, or a cloud machine's browsers).
@@ -199,13 +214,14 @@ struct CloudTreeLocalWorkspace: Equatable {
 
 /// Pure assembly of outline nodes from the fleet rows and the catalog snapshot.
 /// Order: This Mac (local workspaces → terminals; Browsers) first, then every
-/// cloud machine (Workspaces → workspace → terminals; Desktop; Ports; Browsers);
-/// a machine without a connected link gets a single placeholder child.
+/// cloud machine (Terminals pool; Displays pool; Workspaces → workspace →
+/// pointer rows; Browsers); ports stay out of the tree for now, and a machine
+/// without a connected link gets a placeholder child instead of the pools.
 enum CloudTreeNodeBuilder {
-    /// Whether the tree shows this Mac's own terminals and browsers. Off for now: the
-    /// Cloud tab lists cloud machines only. Local resources stay in the catalog (the
-    /// CLI and socket still see them); this only gates the sidebar rows.
-    nonisolated(unsafe) static var includesLocalMachine = false
+    /// Whether the tree shows this Mac's own terminals and browsers. On by default:
+    /// every machine — this Mac included — shows the same shape. The gate stays so a
+    /// cloud-only tree remains one flip away.
+    nonisolated(unsafe) static var includesLocalMachine = true
 
     static func nodes(
         machines: [MachineSnapshot],
@@ -265,9 +281,17 @@ enum CloudTreeNodeBuilder {
     }
 
     static func nodeID(machine: SurfaceMachineID) -> String { "machine:\(machine.rawValue)" }
+    static func nodeID(terminalsPool machine: SurfaceMachineID) -> String { "machine:\(machine.rawValue)/terminals" }
+    static func nodeID(displaysPool machine: SurfaceMachineID) -> String { "machine:\(machine.rawValue)/displays" }
     static func nodeID(workspacesGroup machine: SurfaceMachineID) -> String { "machine:\(machine.rawValue)/workspaces" }
     static func nodeID(workspace: String, machine: SurfaceMachineID) -> String { "machine:\(machine.rawValue)/ws/\(workspace)" }
     static func nodeID(resource: SurfaceResourceID) -> String { "resource:\(resource.rawValue)" }
+    /// A pointer row: the same resource can sit under several workspaces (and the pool),
+    /// so each row's identity carries the workspace it points from — otherwise expansion,
+    /// selection and drag would collapse onto one row.
+    static func nodeID(resource: SurfaceResourceID, inRemoteWorkspace workspaceID: String) -> String {
+        "machine:\(resource.machine.rawValue)/ws/\(workspaceID)/resource:\(resource.rawValue)"
+    }
     static func nodeID(browsersGroup machine: SurfaceMachineID) -> String { "machine:\(machine.rawValue)/browsers" }
     static func nodeID(portsGroup machine: SurfaceMachineID) -> String { "machine:\(machine.rawValue)/ports" }
     static func nodeID(placeholder machine: SurfaceMachineID) -> String { "machine:\(machine.rawValue)/placeholder" }
@@ -355,45 +379,67 @@ enum CloudTreeNodeBuilder {
         let resources = snapshot.resources(on: machine)
         let terminals = resources.filter { $0.kind == .terminal }
 
+        let displays = resources.filter { $0.kind == .display }
+        // Displays exist even for a sleeping machine (opening one wakes it).
+        let displaysNode: CloudTreeNode? = displays.isEmpty ? nil : CloudTreeNode(
+            id: nodeID(displaysPool: machine),
+            kind: .displaysPool(machine: machine, count: displays.count),
+            children: displays.map { CloudTreeNode(id: nodeID(resource: $0.id), kind: .display($0)) }
+        )
+
         switch info.linkState {
         case .asleep:
             children.append(placeholder(machine, text: String(localized: "cloudTree.placeholder.asleep", defaultValue: "Asleep \u{2014} open to wake"), style: .dimmed))
+            if let displaysNode { children.append(displaysNode) }
         case .connecting:
             children.append(placeholder(machine, text: String(localized: "cloudTree.placeholder.connecting", defaultValue: "Connecting\u{2026}"), style: .connecting))
+            if let displaysNode { children.append(displaysNode) }
         case .error:
             children.append(placeholder(machine, text: info.linkError ?? String(localized: "cloudTree.placeholder.linkError", defaultValue: "Link failed"), style: .error))
+            if let displaysNode { children.append(displaysNode) }
         case .unavailable:
             children.append(placeholder(machine, text: String(localized: "cloudTree.placeholder.unavailable", defaultValue: "Sessions unavailable on this machine"), style: .dimmed))
+            if let displaysNode { children.append(displaysNode) }
         case .connected, .notApplicable:
-            // Workspaces in cmux-tui index order; terminals without a workspace trail.
+            // The pool: one row per terminal identity the machine owns, badge = views.
+            children.append(CloudTreeNode(
+                id: nodeID(terminalsPool: machine),
+                kind: .terminalsPool(machine: machine, count: terminals.count),
+                children: terminals.map { terminalNode($0, snapshot: snapshot, viewBadge: $0.remoteViews?.count) }
+            ))
+            if let displaysNode { children.append(displaysNode) }
+            // Workspaces are pointer lists: a terminal shows under every workspace that
+            // has a view of it; a zero-view terminal shows only in the pool. Empty
+            // workspaces come from the machine info, so they still get a row.
             var byWorkspace: [String: (SurfaceRemoteWorkspace, [SurfaceResource])] = [:]
-            var orphans: [SurfaceResource] = []
+            for workspace in info.remoteWorkspaces ?? [] {
+                byWorkspace[workspace.id] = (workspace, [])
+            }
             for terminal in terminals {
-                if let workspace = terminal.remoteWorkspace {
+                for workspace in terminal.remoteWorkspaces {
                     byWorkspace[workspace.id, default: (workspace, [])].1.append(terminal)
-                } else {
-                    orphans.append(terminal)
                 }
             }
             let workspaces = byWorkspace.values.sorted { lhs, rhs in
                 lhs.0.index != rhs.0.index ? lhs.0.index < rhs.0.index : lhs.0.id < rhs.0.id
             }
-            if workspaces.isEmpty, orphans.isEmpty {
+            if workspaces.isEmpty {
                 children.append(placeholder(machine, text: String(localized: "cloudTree.placeholder.noWorkspaces", defaultValue: "No workspaces yet"), style: .dimmed))
             } else {
                 let browsersByWorkspace = Dictionary(grouping: resources.filter { $0.kind == .browser && $0.remoteWorkspace != nil }, by: { $0.remoteWorkspace!.id })
-                var workspaceNodes = workspaces.map { workspace, projected in
+                let workspaceNodes = workspaces.map { workspace, pointed in
                     CloudTreeNode(
                         id: nodeID(workspace: workspace.id, machine: machine),
-                        kind: .workspace(machine: machine, workspace, terminalCount: projected.count),
-                        children: projected.map { terminalNode($0, snapshot: snapshot) },
+                        kind: .workspace(machine: machine, workspace, terminalCount: pointed.count),
+                        children: pointed.map {
+                            terminalNode($0, snapshot: snapshot, id: nodeID(resource: $0.id, inRemoteWorkspace: workspace.id))
+                        },
                         dragGroup: SurfaceResourceGroup(
                             title: workspace.name,
-                            resources: (projected + (browsersByWorkspace[workspace.id] ?? [])).map(\.id)
+                            resources: (pointed + (browsersByWorkspace[workspace.id] ?? [])).map(\.id)
                         )
                     )
                 }
-                workspaceNodes.append(contentsOf: orphans.map { terminalNode($0, snapshot: snapshot) })
                 children.append(CloudTreeNode(
                     id: nodeID(workspacesGroup: machine),
                     kind: .workspacesGroup(machine: machine),
@@ -401,18 +447,9 @@ enum CloudTreeNodeBuilder {
                 ))
             }
         }
-
-        if let screen = resources.first(where: { $0.kind == .screen }) {
-            children.append(CloudTreeNode(id: nodeID(resource: screen.id), kind: .desktop(screen)))
-        }
-        let ports = resources.filter { $0.kind == .browser && $0.port != nil }.sorted { ($0.port ?? 0) < ($1.port ?? 0) }
-        if !ports.isEmpty {
-            children.append(CloudTreeNode(
-                id: nodeID(portsGroup: machine),
-                kind: .portsGroup(machine: machine),
-                children: ports.map { CloudTreeNode(id: nodeID(resource: $0.id), kind: .port($0)) }
-            ))
-        }
+        // Ports are out of the tree for now (still in the catalog: the CLI and
+        // `cmux vm open <id>:port/<n>` keep working); the rows return with the
+        // pool rework if they earn their place back.
         let browsers = resources.filter { $0.kind == .browser && $0.port == nil }
         if !browsers.isEmpty {
             children.append(CloudTreeNode(
@@ -426,10 +463,15 @@ enum CloudTreeNodeBuilder {
         return children
     }
 
-    private static func terminalNode(_ resource: SurfaceResource, snapshot: SurfaceCatalogSnapshot) -> CloudTreeNode {
+    private static func terminalNode(
+        _ resource: SurfaceResource,
+        snapshot: SurfaceCatalogSnapshot,
+        id: String? = nil,
+        viewBadge: Int? = nil
+    ) -> CloudTreeNode {
         CloudTreeNode(
-            id: nodeID(resource: resource.id),
-            kind: .terminal(CloudTreeTerminalRow(resource: resource, isOpen: snapshot.isOpen(resource.id)))
+            id: id ?? nodeID(resource: resource.id),
+            kind: .terminal(CloudTreeTerminalRow(resource: resource, isOpen: snapshot.isOpen(resource.id), viewBadge: viewBadge))
         )
     }
 

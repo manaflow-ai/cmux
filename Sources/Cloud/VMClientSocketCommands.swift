@@ -274,6 +274,8 @@ extension TerminalController {
             return socketWorkerVMTerminalOpenResponse(id: id, params: params)
         case "vm.terminal_new":
             return socketWorkerVMTerminalNewResponse(id: id, params: params)
+        case "vm.workspace_new":
+            return socketWorkerVMWorkspaceNewResponse(id: id, params: params)
         case "vm.desktop_open":
             return socketWorkerVMDesktopOpenResponse(id: id, params: params)
         case "vm.port_open":

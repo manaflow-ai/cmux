@@ -1608,6 +1608,31 @@ class TerminalController {
 #if DEBUG
         case "debug.sidebar.simulate_drag":
             return v2Result(id: request.id, v2DebugSidebarSimulateDrag(params: request.params))
+        case "debug.cloudtree.gallery":
+            // `{style?: id, show?: bool}`: optionally select a Cloud tree style
+            // preset, then (by default) present the side-by-side gallery window.
+            let requestedStyle = (request.params["style"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let requestedStyle, !requestedStyle.isEmpty, CloudTreeStyle.preset(id: requestedStyle) == nil {
+                return v2Error(
+                    id: request.id,
+                    code: "invalid_params",
+                    message: "unknown style '\(requestedStyle)'; expected one of \(CloudTreeStyle.presets.map(\.id).joined(separator: ", "))"
+                )
+            }
+            let show = Self.surfaceBool(request.params["show"]) ?? true
+            let selected: String = v2MainSync {
+                if let requestedStyle, let style = CloudTreeStyle.preset(id: requestedStyle) {
+                    CloudTreeStyleStore.current = style
+                }
+                if show {
+                    CloudTreeStyleGalleryWindowController.shared.show()
+                }
+                return CloudTreeStyleStore.current.id
+            }
+            return v2Ok(id: request.id, result: [
+                "styles": CloudTreeStyle.presets.map(\.id),
+                "selected": selected,
+            ])
         case "debug.window.screenshot":
             let label = (request.params["label"] as? String) ?? ""
             let response = captureScreenshot(label)
@@ -1673,7 +1698,8 @@ class TerminalController {
             // instead of the internal-error backstop below.
             if request.method == "debug.sidebar.simulate_drag"
                 || request.method == "debug.window.screenshot"
-                || request.method == "debug.mobile.transport.disconnect" {
+                || request.method == "debug.mobile.transport.disconnect"
+                || request.method == "debug.cloudtree.gallery" {
                 return v2Error(id: request.id, code: "method_not_found", message: "Unknown method")
             }
 #endif
@@ -2837,6 +2863,7 @@ class TerminalController {
             "vm.tree",
             "vm.terminal_open",
             "vm.terminal_new",
+            "vm.workspace_new",
             "vm.desktop_open",
             "vm.port_open",
             "vm.link_socket",
