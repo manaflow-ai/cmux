@@ -76,7 +76,6 @@ impl WatcherOwner {
         Self::new_with_slots(watcher, watcher_teardown_slots())
     }
 
-    #[cfg(test)]
     fn new_with_slots(
         watcher: notify::RecommendedWatcher,
         slots: Arc<Semaphore>,
