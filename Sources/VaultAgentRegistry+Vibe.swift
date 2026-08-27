@@ -1,11 +1,12 @@
 import CMUXAgentLaunch
 
 extension CmuxVaultAgentRegistration {
-    /// True only for cmux's exact built-in registration, not user registrations reusing its id.
+    /// True only for cmux's exact built-in Vibe registration, not user registrations reusing its id.
     var isBuiltInVibe: Bool {
         self == Self.builtInVibe
     }
 
+    /// The built-in Vault registration for Mistral Vibe, using `--resume` for session restore.
     static var builtInVibe: CmuxVaultAgentRegistration {
         CmuxVaultAgentRegistration(
             id: "vibe",

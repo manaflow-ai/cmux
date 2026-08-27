@@ -5,6 +5,9 @@ extension CMUXCLI {
     private static let vibeLifecycleHookTimeoutSeconds: Double = 60
     private static let vibeFeedHookTimeoutSeconds: Double = 120
 
+    /// Builds the lifecycle and feed hook events for a Vibe agent definition.
+    /// - Parameter def: The Vibe agent hook definition.
+    /// - Returns: Vibe hook events ready for TOML serialization.
     func vibeHookEvents(def: AgentHookDef) -> [VibeHookConfig.Event] {
         var events = def.events.map { event in
             VibeHookConfig.Event(
@@ -25,6 +28,9 @@ extension CMUXCLI {
         return events
     }
 
+    /// Installs cmux-owned hooks into the Vibe config file at `~/.vibe/hooks.toml`.
+    /// - Parameter def: The Vibe agent hook definition.
+    /// - Throws: A `CLIError` if the config directory is a file or cannot be created.
     func installVibeHooks(_ def: AgentHookDef) throws {
         let fm = FileManager.default
         let configDir = def.resolvedConfigDir()
@@ -105,6 +111,9 @@ extension CMUXCLI {
         ))
     }
 
+    /// Removes cmux-owned hooks from the Vibe config file at `~/.vibe/hooks.toml`.
+    /// - Parameter def: The Vibe agent hook definition.
+    /// - Throws: A `CLIError` if the config file cannot be read or written.
     func uninstallVibeHooks(_ def: AgentHookDef) throws {
         let fm = FileManager.default
         let configDir = def.resolvedConfigDir()
