@@ -89,7 +89,9 @@ impl Default for ProjectionRailState {
             collapsed: HashSet::new(),
         }
     }
+}
 
+impl ProjectionRailState {
     pub(crate) fn reconcile_selection(&mut self, rows: &[ProjectionRow]) {
         if rows.is_empty() {
             self.selected = 0;
