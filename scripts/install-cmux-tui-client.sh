@@ -75,7 +75,10 @@ if [[ ! -f "$UNIVERSAL" ]]; then
   mv -f "$UNIVERSAL.tmp" "$UNIVERSAL"
 fi
 install -m 755 "$UNIVERSAL" "$DEST"
-lipo "$DEST" -verify_arch arm64 x86_64
+# One arch per invocation: some lipo builds (Xcode 27 beta 4) consume only one
+# arch after -verify_arch and read the second as an extra input file, failing
+# with "requires exactly one input file".
+for arch in arm64 x86_64; do lipo "$DEST" -verify_arch "$arch"; done
 PROBE="$("$DEST" remote-probe --json 2>/dev/null || true)"
 [[ "$PROBE" == *'"app":"cmux-tui"'* ]] || { echo "error: installed binary does not probe as cmux-tui: $PROBE" >&2; exit 1; }
 echo "Installed universal cmux-tui client (commit ${COMMIT:0:10}) at $DEST"
