@@ -69,7 +69,7 @@ struct cmuxApp: App {
         )
         if irxEnabled {
             let coordinator = auth.coordinator
-            Task { await irx.configure(auth: coordinator) }
+            Task { await irx.configure(auth: coordinator, legacy: iroh) }
         } else {
             iroh.configure(
                 auth: auth.coordinator,
@@ -80,13 +80,14 @@ struct cmuxApp: App {
         // `debugLoopback` (127.0.0.1) backs the UI-test mock Mac. Enable it on
         // the simulator and on DEBUG device builds so on-device XCUITests can
         // attach to an in-runner mock host; release device builds keep only
-        // real transports. In irx mode NO fallback kinds register, so even a
-        // simulator exercises the real iroh path instead of loopback.
+        // real transports. Force-relay mode (soak rigs) registers NO fallback
+        // kinds so even a simulator exercises the real relay path.
+        let forceRelay = MobileIrxRuntimeComposition.forceRelayOnly
         #if targetEnvironment(simulator) || DEBUG
         let supportedKinds: [CmxAttachTransportKind] =
-            irxEnabled ? [] : [.debugLoopback, .tailscale]
+            forceRelay ? [] : [.debugLoopback, .tailscale]
         #else
-        let supportedKinds: [CmxAttachTransportKind] = irxEnabled ? [] : [.tailscale]
+        let supportedKinds: [CmxAttachTransportKind] = forceRelay ? [] : [.tailscale]
         #endif
         let networkFactory = CmxNetworkByteTransportFactory(supportedKinds: supportedKinds)
         let fallbackRegistrations = supportedKinds.map { kind in

@@ -17,32 +17,26 @@ final class MobileHostIrxRuntime {
     static let enabledDefaultsKey = "cmux.irx.enabled"
     static let forceRelayDefaultsKey = "cmux.irx.force-relay"
 
-    /// The activation gate, readable before any runtime exists. Release
-    /// builds compile the code but can never enable it.
+    /// irx is the PRIMARY transport: on by default in every configuration.
+    /// An explicit `false` in defaults (the remote revert switch writes it)
+    /// falls back to the legacy runtime; the env var re-arms and persists.
     nonisolated static var isEnabled: Bool {
-        #if DEBUG
         if ProcessInfo.processInfo.environment["CMUX_IRX_ENABLED"] == "1" {
-            // Sticky: launch-env opt-in persists so later env-less launches
-            // (queue drains, manual taps, sim-leg relaunches) stay in irx mode.
             UserDefaults.standard.set(true, forKey: enabledDefaultsKey)
             return true
         }
-        return UserDefaults.standard.bool(forKey: enabledDefaultsKey)
-        #else
-        return false
-        #endif
+        if UserDefaults.standard.object(forKey: enabledDefaultsKey) != nil {
+            return UserDefaults.standard.bool(forKey: enabledDefaultsKey)
+        }
+        return true
     }
 
     nonisolated static var forceRelayOnly: Bool {
-        #if DEBUG
         if ProcessInfo.processInfo.environment["CMUX_IRX_FORCE_RELAY"] == "1" {
             UserDefaults.standard.set(true, forKey: forceRelayDefaultsKey)
             return true
         }
         return UserDefaults.standard.bool(forKey: forceRelayDefaultsKey)
-        #else
-        return false
-        #endif
     }
 
     /// One journal for every irx component on the Mac. The soak analyzer
@@ -118,25 +112,20 @@ final class MobileHostIrxRuntime {
             for: .applicationSupportDirectory, in: .userDomainMask
         )[0].appendingPathComponent("cmux-irx", isDirectory: true)
         do {
-            // irx mints its own durable device UUID so its broker binding
-            // occupies its own slot: it can never reincarnate the legacy
-            // runtime's binding out from under another build of this Mac.
-            let deviceIDURL = stateDir.appendingPathComponent("device-id")
-            let deviceID: String
-            if let existing = try? String(contentsOf: deviceIDURL, encoding: .utf8),
-                !existing.isEmpty
-            {
-                deviceID = existing.trimmingCharacters(in: .whitespacesAndNewlines)
-            } else {
-                deviceID = UUID().uuidString.lowercased()
-                try? FileManager.default.createDirectory(
-                    at: stateDir, withIntermediateDirectories: true)
-                try? deviceID.write(to: deviceIDURL, atomically: true, encoding: .utf8)
-            }
-            let identity = try IrxIdentityProvisioner.loadOrCreate(
-                store: IrxFileIdentityStore(
-                    fileURL: stateDir.appendingPathComponent("identity.json")),
-                deviceID: cmxCanonicalDeviceID(deviceID)
+            // IDENTITY ADOPTION: reuse the legacy stack's identity, device
+            // ID, and app-instance scope, so the EndpointID, binding slot,
+            // and every existing pair grant carry over (refresh-in-place;
+            // stored routes on phones keep working with zero re-pairing).
+            let legacy = MobileHostIrohRuntime.shared
+            let appInstanceID = try await legacy.appInstances.appInstanceID(
+                accountID: accountID, tag: tag)
+            let material = try await legacy.identities.identity(
+                accountID: accountID, appInstanceID: appInstanceID)
+            let deviceID = cmxCanonicalDeviceID(MobileHostIdentity.deviceID())
+            let identity = IrxIdentity(
+                privateKeyData: material.secretKey.bytes,
+                deviceID: deviceID,
+                appInstanceID: appInstanceID
             )
             let broker = try IrxBrokerService(
                 configuration: .init(
@@ -145,7 +134,8 @@ final class MobileHostIrxRuntime {
                     tag: tag,
                     platform: .mac,
                     displayName: Host.current().localizedName,
-                    cacheDirectory: stateDir
+                    cacheDirectory: stateDir,
+                    identityGeneration: material.generation
                 ),
                 identity: identity,
                 accessTokenPair: { [weak auth] in
@@ -160,6 +150,7 @@ final class MobileHostIrxRuntime {
             // Credentials first (the relay-token bootstrap phase works before
             // the binding exists), so registration can advertise the relay
             // hint peers dial first.
+            let legacyListener = MobileHostIrxLegacyDialectServer.listenerEnabled
             let supervisor = IrxEndpointSupervisor(
                 configuration: .init(
                     identity: identity,
@@ -168,7 +159,11 @@ final class MobileHostIrxRuntime {
                     // The phone opens control/keepalive/terminal/artifact
                     // lanes; 1 is enough to admit, raised post-admission.
                     initialRemoteBiStreams: 1,
-                    initialRemoteUniStreams: 0
+                    initialRemoteUniStreams: 0,
+                    // Dual ALPN: old phones speak the legacy dialect against
+                    // the SAME endpoint/identity while irx is primary.
+                    additionalALPNs: legacyListener
+                        ? [MobileHostIrxLegacyDialectServer.legacyALPN] : []
                 ),
                 journal: Self.journal
             )
@@ -297,10 +292,12 @@ final class MobileHostIrxRuntime {
             acceptor: acceptor,
             trustProvider: { IrxDiskCacheTrustReader.read() }
         )
+        let trustSnapshot = { IrxDiskCacheTrustReader.read() }
+        let brokerClient = brokerService.hostBrokerClient
         acceptLoop = Task { [weak self] in
             journal.record("host-runtime", "accept-loop-started")
             while !Task.isCancelled {
-                guard let irx = await endpointSupervisor.acceptNextIrxConnection() else {
+                guard let inbound = await endpointSupervisor.acceptNextInbound() else {
                     // Endpoint closed or unbound: rebind with the freshest
                     // cached credentials and continue accepting.
                     do {
@@ -311,9 +308,36 @@ final class MobileHostIrxRuntime {
                     }
                     continue
                 }
-                Task { [weak self] in
-                    await self?.superviseConnection(
-                        irx, judge: judge, registry: registry, token: token)
+                switch inbound {
+                case .irx(let irx):
+                    Task { [weak self] in
+                        await self?.superviseConnection(
+                            irx, judge: judge, registry: registry, token: token)
+                    }
+                case .foreign(let alpn, let connection):
+                    guard alpn == MobileHostIrxLegacyDialectServer.legacyALPN,
+                        MobileHostIrxLegacyDialectServer.listenerEnabled,
+                        let trust = trustSnapshot(),
+                        let adopted = try? CmxIrohLibEndpointFactory
+                            .adoptAcceptedConnection(connection)
+                    else {
+                        try? connection.close(
+                            errorCode: 1, reason: Data("unsupported_alpn".utf8))
+                        continue
+                    }
+                    Task { [weak self] in
+                        guard let self else { return }
+                        await MobileHostIrxLegacyDialectServer.serve(
+                            adopted: adopted,
+                            acceptor: acceptor,
+                            trust: trust,
+                            brokerClient: brokerClient,
+                            isCurrent: { [weak self] in
+                                await MainActor.run { self?.generationToken == token }
+                            },
+                            journal: journal
+                        )
+                    }
                 }
             }
         }
@@ -378,8 +402,7 @@ final class MobileHostIrxRuntime {
             artifactTransfers: artifactRegistry,
             independentEventWriter: eventWriter,
             isCurrent: { [weak self] in
-                let runtime = self
-                return await MainActor.run { runtime?.generationToken == token }
+                await MainActor.run { self?.generationToken == token }
             }
         )
         journal.record(

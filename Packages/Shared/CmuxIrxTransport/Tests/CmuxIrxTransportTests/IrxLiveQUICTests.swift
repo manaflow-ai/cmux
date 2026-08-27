@@ -206,12 +206,8 @@ struct IrxLiveQUICTests {
         }
 
         let first = try await engine.ensureSession(trigger: "test")
-        // Keepalive proves liveness within one interval (5s) + deadline: wait for the first
-        // pong instead of sleeping a fixed span, so the assertion tracks the real event.
-        let pongDeadline = ContinuousClock.now + .seconds(8)
-        while journal.counterSnapshot()["pong"] ?? 0 < 1, ContinuousClock.now < pongDeadline {
-            try await Task.sleep(for: .milliseconds(100))
-        }
+        // Keepalive proves liveness within one interval (5s) + deadline.
+        try await Task.sleep(for: .seconds(6))
         #expect(await !first.connection.isClosed)
         #expect(journal.counterSnapshot()["pong"] ?? 0 >= 1)
 

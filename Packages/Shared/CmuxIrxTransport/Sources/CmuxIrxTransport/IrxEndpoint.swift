@@ -26,19 +26,25 @@ public struct IrxEndpointConfiguration: Sendable {
     /// Same for unidirectional streams (client raises to accept the server's
     /// events lane only after admission).
     public var initialRemoteUniStreams: UInt64
+    /// Extra ALPNs served on the SAME endpoint/identity (the legacy dialect
+    /// for old phones). Accepted connections route by the protocol the
+    /// dialer spoke; irx never shares session state with them.
+    public var additionalALPNs: [Data]
 
     public init(
         identity: IrxIdentity,
         pathMode: IrxPathMode,
         preferredBindAddress: String? = nil,
         initialRemoteBiStreams: UInt64,
-        initialRemoteUniStreams: UInt64
+        initialRemoteUniStreams: UInt64,
+        additionalALPNs: [Data] = []
     ) {
         self.identity = identity
         self.pathMode = pathMode
         self.preferredBindAddress = preferredBindAddress
         self.initialRemoteBiStreams = initialRemoteBiStreams
         self.initialRemoteUniStreams = initialRemoteUniStreams
+        self.additionalALPNs = additionalALPNs
     }
 }
 
@@ -95,15 +101,31 @@ public actor IrxEndpointSupervisor {
         return driver.addr().relayUrl()
     }
 
-    /// Accepts the next inbound connection as an irx connection, or nil when
-    /// the endpoint is closed/unbound (callers rebind via `readyEndpoint`).
-    public func acceptNextIrxConnection() async -> IrxConnection? {
+    /// One accepted inbound connection, routed by the ALPN the dialer spoke.
+    public enum AcceptedInbound: Sendable {
+        case irx(IrxConnection)
+        /// A non-irx protocol this endpoint also serves (legacy dialect).
+        case foreign(alpn: Data, connection: Connection)
+    }
+
+    /// Accepts the next inbound connection, or nil when the endpoint is
+    /// closed/unbound (callers rebind via `readyEndpoint`).
+    public func acceptNextInbound() async -> AcceptedInbound? {
         guard let driver, !driver.isClosed() else { return nil }
         guard let incoming = await driver.acceptNext() else { return nil }
         do {
             let accepting = try await incoming.accept()
+            let alpn = try await accepting.alpn()
             let connection = try await accepting.connect()
-            return IrxConnection(connection: connection, role: .acceptor, journal: journal)
+            if alpn == IrxProtocol.alpnData {
+                return .irx(
+                    IrxConnection(connection: connection, role: .acceptor, journal: journal))
+            }
+            journal.record(
+                "endpoint", "foreign-alpn-accepted",
+                ["alpn": String(data: alpn, encoding: .utf8) ?? "?"]
+            )
+            return .foreign(alpn: alpn, connection: connection)
         } catch {
             journal.record(
                 "endpoint", "accept-failed",
@@ -190,7 +212,7 @@ public actor IrxEndpointSupervisor {
         }
         var options = EndpointOptions(preset: presetMinimal())
         options.secretKey = configuration.identity.privateKeyData
-        options.alpns = [IrxProtocol.alpnData]
+        options.alpns = [IrxProtocol.alpnData] + configuration.additionalALPNs
         options.relayMode = RelayMode.custom(map: relayMap)
         options.portMappingEnabled = false
         // NAT traversal stays unauthorized until admission (automatic mode) or
@@ -222,8 +244,22 @@ public actor IrxEndpointSupervisor {
             ]
         )
         // Readiness = the relay link is up. Dials before this point are the
-        // old stack's launch race; callers await readiness instead.
-        await bound.online()
+        // old stack's launch race; callers await readiness instead. Bounded:
+        // a relay that never admits us (e.g. a silently refused wrong-key
+        // token) must fail the bind loudly, not hang activation forever.
+        let cameOnline = try await withIrxDeadline(.seconds(20)) {
+            await bound.online()
+            return true
+        }
+        guard cameOnline == true else {
+            journal.record(
+                "endpoint", "online-timeout",
+                ["generation": String(generation)]
+            )
+            try? await bound.close()
+            driver = nil
+            throw IrxEndpointError.bindFailed("relay link never came up (20s)")
+        }
         onlineReached = true
         let readyMs =
             (DispatchTime.now().uptimeNanoseconds - startedAt.uptimeNanoseconds) / 1_000_000
