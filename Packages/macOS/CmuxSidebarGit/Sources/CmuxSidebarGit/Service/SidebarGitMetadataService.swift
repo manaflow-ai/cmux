@@ -141,6 +141,17 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
         for task in workspaceGitSnapshotTasksByDirectory.values {
             task.cancel()
         }
+        for task in workspaceGitMetadataCreationWatcherTasksByAncestor.values {
+            task.cancel()
+        }
+        // FileWatcher is an actor, so teardown is requested asynchronously
+        // after cancellation; this drops its dispatch sources even if the
+        // event stream has no further filesystem event to wake it.
+        for watcher in workspaceGitMetadataCreationWatchersByAncestor.values {
+            Task {
+                await watcher.stop()
+            }
+        }
     }
 
     /// Wires the host and captures the initial watch-setting value (matching
