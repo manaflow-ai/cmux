@@ -5908,7 +5908,10 @@ struct CMUXCLI {
                     windowRaw: targetWindow,
                     targetWorkspaceId: targetWorkspaceOpt,
                     forceSSH: false,
-                    shouldPinWorkspaceToTop: usesPersistentDefaultCloud,
+                    // A new machine is its own computer, never the Base slot: pinning it
+                    // as Base made "Open Base" and the sidebar cloud button target the
+                    // most recently created machine instead of Base.
+                    shouldPinWorkspaceToTop: false,
                     client: client,
                     jsonOutput: jsonOutput,
                     idFormat: idFormat
@@ -6218,6 +6221,12 @@ struct CMUXCLI {
 
             case "tree":
                 try runVMTreeCommand(rest: rest, client: client, jsonOutput: jsonOutput)
+
+            case "workspace":
+                try runVMWorkspaceCommand(rest: rest, client: client, jsonOutput: jsonOutput)
+
+            case "terminal":
+                try runVMTerminalCommand(rest: rest, client: client, jsonOutput: jsonOutput)
 
             case "route":
                 try runVMRouteCommand(rest: rest, client: client, jsonOutput: jsonOutput)
@@ -18090,6 +18099,16 @@ struct CMUXCLI {
 
             Subcommands:
               ls                        List your cloud VMs.
+              workspace new <machine> [--name <name>]
+                                        Create a workspace on the machine (its ⌘N) and
+                                        open it as a new local workspace.
+              workspace open <machine> <ws-id>
+                                        Open a machine workspace here: a new local
+                                        workspace with one pane per terminal.
+              workspace close <machine> <ws-id>
+                                        Close a machine workspace and its terminals.
+              terminal close <machine> <term-id>
+                                        End a terminal on the machine.
               tree [<machine>|local] [--refresh]
                                         Finder-style view of every surface: This Mac
                                         (terminals by workspace, browsers), then each

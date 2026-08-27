@@ -302,6 +302,14 @@ extension TerminalController {
             return socketWorkerVMPortOpenResponse(id: id, params: params)
         case "vm.link_socket":
             return socketWorkerVMLinkSocketResponse(id: id, params: params)
+        case "vm.workspace_new":
+            return socketWorkerVMWorkspaceNewResponse(id: id, params: params)
+        case "vm.workspace_open":
+            return socketWorkerVMWorkspaceOpenResponse(id: id, params: params)
+        case "vm.workspace_close":
+            return socketWorkerVMWorkspaceCloseResponse(id: id, params: params)
+        case "vm.terminal_close":
+            return socketWorkerVMTerminalCloseResponse(id: id, params: params)
         default:
             return v2Error(id: id, code: "method_not_found", message: "Unknown method")
         }

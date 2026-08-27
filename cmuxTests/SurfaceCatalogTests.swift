@@ -127,6 +127,64 @@ final class SurfaceCatalogTests: XCTestCase {
         XCTAssertEqual(snapshot.resources(on: .cloud("alpha")).map { $0.id.key }, ["term_a", "term_b"])
     }
 
+    func testOpeningAGroupAsANewWorkspaceLaysEveryResourceOutAsItsOwnPane() async throws {
+        let catalog = SurfaceCatalog()
+        let machine = SurfaceMachineID.cloud("vm-1")
+        let provider = FakeProvider(machine: machine)
+        catalog.register(provider)
+        let ids = ["a", "b", "c", "d"].map { SurfaceResourceID(machine: machine, kind: .terminal, key: $0) }
+        catalog.replaceResources(ids.map { terminal(machine, $0.key) }, on: machine)
+
+        let newWorkspace = UUID()
+        let starter = UUID()
+        var created: [String] = []
+        var closedStarters: [(UUID, UUID)] = []
+        var lookups = 0
+        let host = SurfaceCatalog.NewWorkspaceHost(
+            create: { title in created.append(title); return (newWorkspace, starter) },
+            paneLookup: { _, _ in lookups += 1; return "pane-\(lookups)" },
+            closeStarter: { panel, workspace in closedStarters.append((panel, workspace)) }
+        )
+
+        let opened = try await catalog.projectGroupAsNewLocalWorkspace(ids, title: "vm-1: main", focus: true, host: host)
+
+        XCTAssertEqual(created, ["vm-1: main"])
+        XCTAssertEqual(opened.workspaceID, newWorkspace)
+        XCTAssertEqual(opened.projections.count, 4)
+        // The first resource takes the starter pane's place; the rest split the previous
+        // pane, alternating right and down, so four terminals form a grid.
+        let destinations = provider.materialized.map(\.1)
+        XCTAssertEqual(destinations[0], .workspace(id: newWorkspace, placement: .split))
+        XCTAssertEqual(destinations[1], .split(workspaceID: newWorkspace, paneID: "pane-1", direction: .right))
+        XCTAssertEqual(destinations[2], .split(workspaceID: newWorkspace, paneID: "pane-2", direction: .down))
+        XCTAssertEqual(destinations[3], .split(workspaceID: newWorkspace, paneID: "pane-3", direction: .right))
+        XCTAssertEqual(closedStarters.count, 1)
+        XCTAssertEqual(closedStarters.first?.0, starter)
+        XCTAssertEqual(closedStarters.first?.1, newWorkspace)
+        XCTAssertEqual(catalog.snapshot.projections.count, 4)
+    }
+
+    func testOpeningAnUnknownGroupAsANewWorkspaceClosesTheEmptyWorkspaceAgain() async {
+        let catalog = SurfaceCatalog()
+        let machine = SurfaceMachineID.cloud("vm-1")
+        catalog.register(FakeProvider(machine: machine))
+        let starter = UUID(), newWorkspace = UUID()
+        var closedStarters = 0
+        let host = SurfaceCatalog.NewWorkspaceHost(
+            create: { _ in (newWorkspace, starter) },
+            paneLookup: { _, _ in nil },
+            closeStarter: { _, _ in closedStarters += 1 }
+        )
+        do {
+            _ = try await catalog.projectGroupAsNewLocalWorkspace(
+                [SurfaceResourceID(machine: machine, kind: .terminal, key: "missing")], title: "x", focus: true, host: host
+            )
+            XCTFail("expected the unknown resource to fail")
+        } catch {
+            XCTAssertEqual(closedStarters, 1, "nothing landed, so the empty workspace's starter pane is closed")
+        }
+    }
+
     func testUnregisteringAMachineDropsItsResourcesAndProjections() async throws {
         let catalog = SurfaceCatalog()
         let provider = FakeProvider(machine: .cloud("m"))

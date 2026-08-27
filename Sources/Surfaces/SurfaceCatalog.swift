@@ -19,6 +19,26 @@ protocol SurfaceProvider: AnyObject {
     /// Called when a pane projecting one of this provider's resources goes away. Remote
     /// providers do nothing (the resource lives on); the local provider drops the resource.
     func projectionDidEnd(_ projection: SurfaceProjection)
+    /// End a terminal on this machine (the process and its remote tab). Providers that
+    /// cannot (the local machine) throw `SurfaceCatalogError.unsupported`.
+    func closeTerminal(_ id: SurfaceResourceID) async throws
+    /// Create a new workspace on this machine with its first terminal, the way ⌘N does
+    /// locally. Returns the workspace and that terminal's resource.
+    func createRemoteWorkspace(name: String?) async throws -> (workspace: SurfaceRemoteWorkspace, terminal: SurfaceResource)
+    /// Close a workspace on this machine and every terminal in it.
+    func closeRemoteWorkspace(id: String) async throws
+}
+
+extension SurfaceProvider {
+    func closeTerminal(_ id: SurfaceResourceID) async throws {
+        throw SurfaceCatalogError.unsupported("closing terminals on \(machine)")
+    }
+    func createRemoteWorkspace(name: String?) async throws -> (workspace: SurfaceRemoteWorkspace, terminal: SurfaceResource) {
+        throw SurfaceCatalogError.unsupported("creating workspaces on \(machine)")
+    }
+    func closeRemoteWorkspace(id: String) async throws {
+        throw SurfaceCatalogError.unsupported("closing workspaces on \(machine)")
+    }
 }
 
 /// The single owner of surface identities and projections on this Mac.

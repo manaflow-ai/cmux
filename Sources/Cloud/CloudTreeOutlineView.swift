@@ -181,7 +181,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             guard let node = item as? CloudTreeNode else { return nil }
             let cell = (outlineView.makeView(withIdentifier: CloudTreeCellView.identifier, owner: nil) as? CloudTreeCellView)
                 ?? CloudTreeCellView(frame: .zero)
-            cell.configure(node: node, machineActions: machineActions)
+            cell.configure(node: node, machineActions: machineActions, nodeActions: nodeActions)
             return cell
         }
 
@@ -248,7 +248,8 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             case .localMachine, .workspacesGroup, .portsGroup, .browsersGroup:
                 toggle(node)
             case .workspace(let machine, let workspace, _):
-                nodeActions.openGroup(machine, node.dragGroup ?? SurfaceResourceGroup(title: workspace.name, resources: []), .split, workspace.id)
+                // A remote workspace opens as its own local workspace, panes and all.
+                nodeActions.openGroupAsWorkspace(machine, node.dragGroup ?? SurfaceResourceGroup(title: workspace.name, resources: []), workspace.id)
             case .localWorkspace(let row):
                 nodeActions.selectLocalWorkspace(row.workspaceID)
             case .terminal(let row):
@@ -359,16 +360,19 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 ]
             case .workspacesGroup(let machine):
                 return [
+                    item(String(localized: "cloudTree.menu.newWorkspace", defaultValue: "New Workspace")) { [nodeActions] in nodeActions.newWorkspace(machine) },
                     item(String(localized: "cloudTree.menu.newTerminal", defaultValue: "New Terminal")) { [nodeActions] in nodeActions.newTerminal(machine, nil) },
                     item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() },
                 ]
             case .workspace(let machine, let workspace, _):
                 let group = node.dragGroup ?? SurfaceResourceGroup(title: workspace.name, resources: [])
                 return [
+                    item(String(localized: "cloudTree.menu.openAsNewWorkspace", defaultValue: "Open as New Workspace")) { [nodeActions] in nodeActions.openGroupAsWorkspace(machine, group, workspace.id) },
                     item(String(localized: "cloudTree.menu.openAllHere", defaultValue: "Open All Here")) { [nodeActions] in nodeActions.openGroup(machine, group, .split, workspace.id) },
                     item(String(localized: "cloudTree.menu.openAllInNewTabs", defaultValue: "Open All in New Tabs")) { [nodeActions] in nodeActions.openGroup(machine, group, .tab, workspace.id) },
                     item(String(localized: "cloudTree.menu.newTerminalHere", defaultValue: "New Terminal Here")) { [nodeActions] in nodeActions.newTerminal(machine, workspace.id) },
                     .separator(),
+                    item(String(localized: "cloudTree.menu.closeWorkspace", defaultValue: "Close Workspace")) { [nodeActions] in nodeActions.closeWorkspace(machine, workspace.id) },
                     item(String(localized: "cloudTree.menu.copyWorkspaceID", defaultValue: "Copy Workspace ID")) { [nodeActions] in nodeActions.copyToPasteboard(workspace.id) },
                 ]
             case .localWorkspace(let row):
@@ -381,7 +385,12 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 }
                 return items
             case .terminal(let row):
-                return resourceMenuItems(row.resource, isLocal: row.resource.machine.isLocal)
+                var items = resourceMenuItems(row.resource, isLocal: row.resource.machine.isLocal)
+                if !row.resource.machine.isLocal {
+                    items.append(.separator())
+                    items.append(item(String(localized: "cloudTree.menu.closeTerminal", defaultValue: "Close Terminal")) { [nodeActions] in nodeActions.closeTerminal(row.resource.id) })
+                }
+                return items
             case .browser(let row):
                 return resourceMenuItems(row.resource, isLocal: row.resource.machine.isLocal)
             case .desktop(let resource), .port(let resource):

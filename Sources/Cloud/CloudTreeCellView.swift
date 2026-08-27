@@ -40,7 +40,7 @@ final class CloudTreeCellView: NSTableCellView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    func configure(node: CloudTreeNode, machineActions: MachineRowActions) {
+    func configure(node: CloudTreeNode, machineActions: MachineRowActions, nodeActions: CloudTreeNodeActions? = nil) {
         displayHost.rootView = AnyView(
             CloudTreeRowContentView(kind: node.kind)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -54,6 +54,14 @@ final class CloudTreeCellView: NSTableCellView {
         } else if case .localMachine(let row) = node.kind {
             buttonsHost?.isHidden = true
             toolTip = row.name
+        } else if let nodeActions, let rowButtons = CloudTreeRowButtons(kind: node.kind, actions: nodeActions) {
+            // ＋ on the Workspaces group, × on a workspace or terminal: the same verbs the
+            // context menu offers, one hover away.
+            let buttons = buttonsHost ?? makeButtonsHost()
+            buttons.rootView = AnyView(rowButtons)
+            buttons.isHidden = false
+            buttons.alphaValue = hovered ? 1 : 0
+            toolTip = nil
         } else {
             buttonsHost?.isHidden = true
             toolTip = nil

@@ -161,6 +161,9 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// Panels this provider created (or replaced) in this process. A projection whose
     /// panel is not here came back from a restored session as a placeholder shell.
     private var materializedPanels: Set<UUID> = []
+    /// Terminal → tab from the last snapshot, so an exited terminal (whose own selector
+    /// no longer resolves in cmux-tui) can still be closed through its tab.
+    private var tabByTerminal: [String: String] = [:]
 
     init(summary: VMSummary, links: CloudMachineLinkManager, catalog: SurfaceCatalog) {
         machineID = summary.id
@@ -214,6 +217,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             let data = try await link.run(arguments: CloudTuiCommandLine.snapshotArguments(socketPath: connected.socketPath))
             if let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
                 resources += CmuxTuiSnapshotParser.terminals(fromSnapshot: object, machine: machine)
+                tabByTerminal = CmuxTuiSnapshotParser.tabByTerminal(fromSnapshot: object)
             }
             for port in await ports(client: client, force: force) {
                 resources.append(CmuxTuiSnapshotParser.portBrowser(machine: machine, port: port))
@@ -229,6 +233,73 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         info = Self.info(from: summary, linkState: linkState, linkError: linkError, stats: await stats)
         catalog.replaceResources(resources, on: machine, info: info)
         reprojectRestoredPanes()
+    }
+
+    /// `terminal <id> close`; a terminal whose process already exited is gone from
+    /// cmux-tui's selectors, so its tab is closed instead. Either way the resource
+    /// leaves the catalog now and the next snapshot confirms.
+    func closeTerminal(_ id: SurfaceResourceID) async throws {
+        let connected = try await links.connected(machineID: machineID)
+        guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
+        do {
+            _ = try await link.run(arguments: CloudTuiCommandLine.closeTerminalArguments(socketPath: connected.socketPath, terminalID: id.key))
+        } catch {
+            guard let tabID = tabByTerminal[id.key], Self.isSelectorNotFound(error) else { throw error }
+            _ = try await link.run(arguments: CloudTuiCommandLine.closeTabArguments(socketPath: connected.socketPath, tabID: tabID))
+        }
+        catalog.remove(id)
+        scheduleRefresh()
+    }
+
+    /// `workspace create --name <name>`: the machine's ⌘N. The workspace comes with its
+    /// first terminal, which is returned so the caller can show it right away.
+    func createRemoteWorkspace(name: String?) async throws -> (workspace: SurfaceRemoteWorkspace, terminal: SurfaceResource) {
+        let connected = try await links.connected(machineID: machineID)
+        guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
+        let existingCount = Set(catalog.snapshot.resources(on: machine).compactMap { $0.remoteWorkspace?.id }).count
+        let workspaceName = (name?.trimmingCharacters(in: .whitespacesAndNewlines)).flatMap { $0.isEmpty ? nil : $0 } ?? String(existingCount)
+        let data = try await link.run(arguments: CloudTuiCommandLine.createWorkspaceArguments(socketPath: connected.socketPath, name: workspaceName))
+        guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let created = CmuxTuiSnapshotParser.createdWorkspaceTerminal(fromResult: object) else {
+            throw ProviderError.noWorkspaceOnMachine(machineID)
+        }
+        let workspace = SurfaceRemoteWorkspace(id: created.workspaceID, name: workspaceName, index: existingCount, focused: true)
+        guard let terminalID = created.terminalID else {
+            // A workspace without a starter terminal: give it one through the normal path.
+            let terminal = try await createTerminal(command: nil, cwd: nil, name: nil, remoteWorkspaceID: workspace.id)
+            return (workspace, terminal)
+        }
+        let terminal = SurfaceResource(
+            id: SurfaceResourceID(machine: machine, kind: .terminal, key: terminalID),
+            title: "",
+            detail: nil,
+            lifecycle: .launching,
+            agent: nil,
+            remoteWorkspace: workspace,
+            port: nil,
+            url: nil
+        )
+        catalog.upsert(terminal)
+        scheduleRefresh()
+        return (workspace, terminal)
+    }
+
+    /// `workspace <id> close`: every terminal in it goes with it.
+    func closeRemoteWorkspace(id: String) async throws {
+        let connected = try await links.connected(machineID: machineID)
+        guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
+        _ = try await link.run(arguments: CloudTuiCommandLine.closeWorkspaceArguments(socketPath: connected.socketPath, workspaceID: id))
+        for resource in catalog.snapshot.resources(on: machine) where resource.remoteWorkspace?.id == id {
+            catalog.remove(resource.id)
+        }
+        scheduleRefresh()
+    }
+
+    /// cmux-tui's `selector.not_found` error body, surfaced by `link.run` as the
+    /// command's output text.
+    private static func isSelectorNotFound(_ error: Error) -> Bool {
+        let text = CloudMachineLink.errorText(error)
+        return text.contains("selector.not_found") || text.contains("no terminal matches")
     }
 
     func materialize(_ resource: SurfaceResource, at destination: SurfaceDestination, focus: Bool) async throws -> SurfaceProjection {

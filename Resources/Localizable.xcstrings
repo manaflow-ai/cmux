@@ -59409,6 +59409,40 @@
         }
       }
     },
+    "cloudTree.menu.closeTerminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close Terminal"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルを閉じる"
+          }
+        }
+      }
+    },
+    "cloudTree.menu.closeWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close Workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースを閉じる"
+          }
+        }
+      }
+    },
     "cloudTree.menu.copyPort": {
       "extractionState": "manual",
       "localizations": {
@@ -59494,6 +59528,23 @@
         }
       }
     },
+    "cloudTree.menu.newWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいワークスペース"
+          }
+        }
+      }
+    },
     "cloudTree.menu.open": {
       "extractionState": "manual",
       "localizations": {
@@ -59541,6 +59592,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "すべて新しいタブで開く"
+          }
+        }
+      }
+    },
+    "cloudTree.menu.openAsNewWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open as New Workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいワークスペースとして開く"
           }
         }
       }
@@ -59664,6 +59732,23 @@
         }
       }
     },
+    "cloudTree.operation.close": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Closing on %@…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ で閉じています…"
+          }
+        }
+      }
+    },
     "cloudTree.operation.newTerminal": {
       "extractionState": "manual",
       "localizations": {
@@ -59677,6 +59762,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ でターミナルを起動しています…"
+          }
+        }
+      }
+    },
+    "cloudTree.operation.newWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Creating a workspace on %@…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ にワークスペースを作成中…"
           }
         }
       }
@@ -59796,6 +59898,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "このマシンではセッションを利用できません"
+          }
+        }
+      }
+    },
+    "cloudTree.row.closeTerminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close Terminal"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルを閉じる"
+          }
+        }
+      }
+    },
+    "cloudTree.row.closeWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close Workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースを閉じる"
+          }
+        }
+      }
+    },
+    "cloudTree.row.newWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいワークスペース"
           }
         }
       }

@@ -51,6 +51,19 @@ enum SurfacePaneFactory {
         _ = TerminalController.shared.controlSurfaceClose(routing: routing(workspaceID: workspaceID), surfaceID: panelID, hasSurfaceIDParam: true)
     }
 
+    /// A fresh local workspace (⌘N) titled `title`, returned with the id of the starter
+    /// pane it opened with so a caller projecting a group can take that pane's place.
+    static func createLocalWorkspace(title: String) throws -> (workspaceID: UUID, starterPanelID: UUID?) {
+        guard let workspace = AppDelegate.shared?.addWorkspaceInPreferredMainWindow(
+            title: title,
+            shouldBringToFront: false,
+            debugSource: "surface.catalog.newWorkspace"
+        ) else {
+            throw FactoryError.workspaceNotFound(UUID())
+        }
+        return (workspace.id, workspace.focusedPanelId)
+    }
+
     /// The pane (Bonsplit id) that hosts a panel, for re-projecting in place.
     static func paneID(ofPanel panelID: UUID, in workspaceID: UUID) -> String? {
         guard let workspace = workspace(id: workspaceID) else { return nil }

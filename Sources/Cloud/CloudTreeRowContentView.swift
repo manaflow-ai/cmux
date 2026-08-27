@@ -503,3 +503,58 @@ struct CloudTreeMachineRowButtons: View {
         }
     }
 }
+
+/// Hover buttons for the rows below a machine: ＋ (new workspace on the machine) on the
+/// Workspaces group, × on a workspace or a cloud terminal. `nil` for rows without one.
+struct CloudTreeRowButtons: View {
+    let kind: CloudTreeNode.Kind
+    let actions: CloudTreeNodeActions
+
+    init?(kind: CloudTreeNode.Kind, actions: CloudTreeNodeActions) {
+        switch kind {
+        case .workspacesGroup(let machine) where !machine.isLocal:
+            break
+        case .workspace(let machine, _, _) where !machine.isLocal:
+            break
+        case .terminal(let row) where !row.resource.machine.isLocal:
+            break
+        default:
+            return nil
+        }
+        self.kind = kind
+        self.actions = actions
+    }
+
+    var body: some View {
+        HStack(spacing: 4) {
+            switch kind {
+            case .workspacesGroup(let machine):
+                MachinesChromeIconButton(
+                    symbolName: "plus",
+                    accessibilityLabel: String(localized: "cloudTree.row.newWorkspace", defaultValue: "New Workspace"),
+                    isBusy: false
+                ) {
+                    actions.newWorkspace(machine)
+                }
+            case .workspace(let machine, let workspace, _):
+                MachinesChromeIconButton(
+                    symbolName: "xmark",
+                    accessibilityLabel: String(localized: "cloudTree.row.closeWorkspace", defaultValue: "Close Workspace"),
+                    isBusy: false
+                ) {
+                    actions.closeWorkspace(machine, workspace.id)
+                }
+            case .terminal(let row):
+                MachinesChromeIconButton(
+                    symbolName: "xmark",
+                    accessibilityLabel: String(localized: "cloudTree.row.closeTerminal", defaultValue: "Close Terminal"),
+                    isBusy: false
+                ) {
+                    actions.closeTerminal(row.resource.id)
+                }
+            default:
+                EmptyView()
+            }
+        }
+    }
+}

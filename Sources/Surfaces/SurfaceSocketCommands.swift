@@ -229,6 +229,105 @@ extension TerminalController {
         }
     }
 
+    /// `vm.workspace_new {id, name?}` → creates a cmux-tui workspace on the machine (its ⌘N)
+    /// and opens it as a new local workspace: `{remote_workspace_id, terminal_id, workspace_id, surface_id}`.
+    nonisolated func socketWorkerVMWorkspaceNewResponse(id: Any?, params: [String: Any]) -> String {
+        guard let vmId = Self.surfaceString(params["id"]), !vmId.isEmpty else {
+            return v2Error(id: id, code: "invalid_params", message: "vm.workspace_new requires `id`. Run `cmux vm ls` to find one.")
+        }
+        let name = Self.surfaceString(params["name"])
+        return v2VmCall(id: id, timeoutSeconds: 240) {
+            let machine = SurfaceMachineID.cloud(vmId)
+            let catalog = await SurfaceCatalog.shared
+            guard let provider = try await Self.surfaceProvider(for: machine, catalog: catalog) else {
+                throw SurfaceCatalogError.noProvider(machine)
+            }
+            let created = try await provider.createRemoteWorkspace(name: name)
+            let group = SurfaceResourceGroup(title: created.workspace.name, resources: [created.terminal.id])
+            let opened = try await catalog.projectGroupAsNewLocalWorkspace(
+                group.resources,
+                title: CloudTreeNodeActions.localWorkspaceTitle(machine: machine, group: group),
+                focus: Self.surfaceBool(params["focus"]) ?? true,
+                host: .app
+            )
+            return [
+                "machine": machine.rawValue,
+                "remote_workspace_id": created.workspace.id,
+                "remote_workspace_name": created.workspace.name,
+                "terminal_id": created.terminal.id.key,
+                "workspace_id": opened.workspaceID.uuidString,
+                "surface_id": opened.projections.first?.panelID.uuidString ?? NSNull(),
+            ]
+        }
+    }
+
+    /// `vm.workspace_open {id, workspace_id}` → the remote workspace's terminals and browsers
+    /// as a new local workspace, every one its own pane (what clicking the row does).
+    nonisolated func socketWorkerVMWorkspaceOpenResponse(id: Any?, params: [String: Any]) -> String {
+        guard let vmId = Self.surfaceString(params["id"]), !vmId.isEmpty else {
+            return v2Error(id: id, code: "invalid_params", message: "vm.workspace_open requires `id`.")
+        }
+        guard let remoteWorkspaceID = Self.surfaceString(params["workspace_id"]), !remoteWorkspaceID.isEmpty else {
+            return v2Error(id: id, code: "invalid_params", message: "vm.workspace_open requires `workspace_id` (a cmux-tui workspace id from `cmux vm tree`).")
+        }
+        return v2VmCall(id: id, timeoutSeconds: 240) {
+            let machine = SurfaceMachineID.cloud(vmId)
+            let catalog = await SurfaceCatalog.shared
+            let resources = await catalog.snapshot.resources(on: machine).filter { $0.remoteWorkspace?.id == remoteWorkspaceID }
+            guard let workspace = resources.first?.remoteWorkspace else {
+                throw SurfaceCatalogError.destinationNotFound("workspace \(remoteWorkspaceID) on \(vmId)")
+            }
+            let group = SurfaceResourceGroup(title: workspace.name, resources: resources.map(\.id))
+            let opened = try await catalog.projectGroupAsNewLocalWorkspace(
+                group.resources,
+                title: CloudTreeNodeActions.localWorkspaceTitle(machine: machine, group: group),
+                focus: Self.surfaceBool(params["focus"]) ?? true,
+                host: .app
+            )
+            return [
+                "machine": machine.rawValue,
+                "remote_workspace_id": remoteWorkspaceID,
+                "workspace_id": opened.workspaceID.uuidString,
+                "surface_ids": opened.projections.map { $0.panelID.uuidString },
+                "opened": opened.projections.count,
+            ]
+        }
+    }
+
+    /// `vm.workspace_close {id, workspace_id}` → closes the cmux-tui workspace and its terminals.
+    nonisolated func socketWorkerVMWorkspaceCloseResponse(id: Any?, params: [String: Any]) -> String {
+        guard let vmId = Self.surfaceString(params["id"]), !vmId.isEmpty,
+              let remoteWorkspaceID = Self.surfaceString(params["workspace_id"]), !remoteWorkspaceID.isEmpty else {
+            return v2Error(id: id, code: "invalid_params", message: "vm.workspace_close requires `id` and `workspace_id`.")
+        }
+        return v2VmCall(id: id, timeoutSeconds: 120) {
+            let machine = SurfaceMachineID.cloud(vmId)
+            let catalog = await SurfaceCatalog.shared
+            guard let provider = try await Self.surfaceProvider(for: machine, catalog: catalog) else {
+                throw SurfaceCatalogError.noProvider(machine)
+            }
+            try await provider.closeRemoteWorkspace(id: remoteWorkspaceID)
+            return ["machine": machine.rawValue, "remote_workspace_id": remoteWorkspaceID, "closed": true]
+        }
+    }
+
+    /// `vm.terminal_close {id, terminal_id}` → ends that terminal on the machine.
+    nonisolated func socketWorkerVMTerminalCloseResponse(id: Any?, params: [String: Any]) -> String {
+        guard let vmId = Self.surfaceString(params["id"]), !vmId.isEmpty,
+              let terminalID = Self.surfaceString(params["terminal_id"]), !terminalID.isEmpty else {
+            return v2Error(id: id, code: "invalid_params", message: "vm.terminal_close requires `id` and `terminal_id`.")
+        }
+        return v2VmCall(id: id, timeoutSeconds: 120) {
+            let machine = SurfaceMachineID.cloud(vmId)
+            let catalog = await SurfaceCatalog.shared
+            guard let provider = try await Self.surfaceProvider(for: machine, catalog: catalog) else {
+                throw SurfaceCatalogError.noProvider(machine)
+            }
+            try await provider.closeTerminal(SurfaceResourceID(machine: machine, kind: .terminal, key: terminalID))
+            return ["machine": machine.rawValue, "terminal_id": terminalID, "closed": true]
+        }
+    }
+
     // MARK: - Shared pieces
 
     /// The catalog's provider for `machine`; a cloud machine the catalog has not seen yet

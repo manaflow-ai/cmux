@@ -10,6 +10,10 @@ cmux vm ls                             # NAME / LABEL / STATE / PROVIDER / IMAGE
 cmux vm ls --json                      # {vms: [{id, status, image, createdAt, freeAccessExpiresAt}], limits: {maxActiveVms, planId, freeAccessWindowDays, freeAccessExpiresAt}}
 cmux vm tree                           # the surface catalog: This Mac (terminals by workspace, browsers), then every machine → workspaces/ → terminals, desktop, ports/
 cmux vm tree <id> --refresh            # one machine (`local` for This Mac), re-synced first
+cmux vm workspace new <id> [--name n]  # a new cmux-tui workspace on the machine (⌘N there), opened as a new local workspace
+cmux vm workspace open <id> <ws-id>    # open a machine workspace here: one pane per terminal (same as clicking its sidebar row)
+cmux vm workspace close <id> <ws-id>   # close that workspace and its terminals on the machine
+cmux vm terminal close <id> <term-id>  # end one terminal on the machine (the sidebar's ×)
 cmux vm tree --json                    # {machines: [{id, local, name, status, link_state, …}], resources: [{id, machine, kind, key, title, detail, lifecycle, agent, remote_workspace, port, url, open, open_surface_ids}], projections: […]}
 cmux surface ls [--json]               # same catalog; `surface open <resource>` / `surface new-terminal --machine <m>` are the generic verbs
 cmux vm status <id>                    # provider, status, image

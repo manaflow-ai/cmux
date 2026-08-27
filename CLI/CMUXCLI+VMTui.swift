@@ -754,6 +754,72 @@ extension CMUXCLI {
         """
     }
 
+    static let vmWorkspaceUsage = """
+        Usage:
+          cmux vm workspace new <machine> [--name <name>]      Create a workspace on the machine (its ⌘N) and open it here.
+          cmux vm workspace open <machine> <workspace-id>     Open a machine workspace as a new local workspace, one pane per terminal.
+          cmux vm workspace close <machine> <workspace-id>    Close a machine workspace and every terminal in it.
+
+        Workspace ids come from `cmux vm tree`. Add --json for the raw result.
+        """
+
+    static let vmTerminalUsage = """
+        Usage:
+          cmux vm terminal close <machine> <terminal-id>      End a terminal on the machine (the process and its tab).
+
+        Terminal ids come from `cmux vm tree`. Add --json for the raw result.
+        """
+
+    /// `cmux vm workspace new|open|close`: the sidebar's workspace verbs over the same socket
+    /// methods (`vm.workspace_new|open|close`), so a row and an agent cannot disagree.
+    func runVMWorkspaceCommand(rest: [String], client: SocketClient, jsonOutput: Bool) throws {
+        if rest.contains("--help") || rest.contains("-h") || rest.isEmpty {
+            print(Self.vmWorkspaceUsage)
+            return
+        }
+        let verb = rest[0]
+        let (nameOpt, tail) = parseOption(Array(rest.dropFirst()), name: "--name")
+        let positional = tail.filter { !$0.hasPrefix("-") }
+        guard let machine = positional.first, !machine.isEmpty else { throw CLIError(message: Self.vmWorkspaceUsage) }
+        switch verb {
+        case "new":
+            var params: [String: Any] = ["id": machine]
+            if let nameOpt, !nameOpt.isEmpty { params["name"] = nameOpt }
+            let response = try client.sendV2(method: "vm.workspace_new", params: params, responseTimeout: 240)
+            if jsonOutput { print(jsonString(response)); return }
+            let remote = (response["remote_workspace_id"] as? String) ?? "?"
+            let local = (response["workspace_id"] as? String) ?? "?"
+            print("OK workspace=\(local) remote_workspace=\(remote) machine=\(machine)")
+        case "open":
+            guard positional.count >= 2 else { throw CLIError(message: Self.vmWorkspaceUsage) }
+            let response = try client.sendV2(method: "vm.workspace_open", params: ["id": machine, "workspace_id": positional[1]], responseTimeout: 240)
+            if jsonOutput { print(jsonString(response)); return }
+            let local = (response["workspace_id"] as? String) ?? "?"
+            let opened = (response["opened"] as? Int) ?? 0
+            print("OK workspace=\(local) opened=\(opened) machine=\(machine)")
+        case "close":
+            guard positional.count >= 2 else { throw CLIError(message: Self.vmWorkspaceUsage) }
+            let response = try client.sendV2(method: "vm.workspace_close", params: ["id": machine, "workspace_id": positional[1]], responseTimeout: 120)
+            if jsonOutput { print(jsonString(response)); return }
+            print("OK closed workspace \(positional[1]) on \(machine)")
+        default:
+            throw CLIError(message: "vm workspace: unknown verb '\(verb)'\n\n\(Self.vmWorkspaceUsage)")
+        }
+    }
+
+    /// `cmux vm terminal close`: the sidebar's × over `vm.terminal_close`.
+    func runVMTerminalCommand(rest: [String], client: SocketClient, jsonOutput: Bool) throws {
+        if rest.contains("--help") || rest.contains("-h") || rest.isEmpty {
+            print(Self.vmTerminalUsage)
+            return
+        }
+        let positional = rest.filter { !$0.hasPrefix("-") }
+        guard positional.count >= 3, positional[0] == "close" else { throw CLIError(message: Self.vmTerminalUsage) }
+        let response = try client.sendV2(method: "vm.terminal_close", params: ["id": positional[1], "terminal_id": positional[2]], responseTimeout: 120)
+        if jsonOutput { print(jsonString(response)); return }
+        print("OK closed terminal \(positional[2]) on \(positional[1])")
+    }
+
     func runVMTreeCommand(rest: [String], client: SocketClient, jsonOutput: Bool) throws {
         if rest.contains("--help") || rest.contains("-h") {
             print(Self.vmTreeUsage)

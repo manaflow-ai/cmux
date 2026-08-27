@@ -64,6 +64,42 @@ import Testing
         #expect(orphan.lifecycle == .running)
     }
 
+    @Test func exitedTerminalWithoutATabIsNotASurface() {
+        // cmux-tui keeps the record of a terminal whose process exited after its tab went
+        // away; its selector no longer resolves, so nothing could open or close it.
+        var snapshot = Self.sessionSnapshot
+        var terminals = snapshot["terminals"] as! [[String: Any]]
+        terminals.append(["id": "term_gone", "tab_id": NSNull(), "tab_ids": [], "title": "", "lifecycle": "exited", "running": false,
+                          "exit": ["outcome": ["kind": "exit", "code": 130]]])
+        snapshot["terminals"] = terminals
+        let keys = CmuxTuiSnapshotParser.terminals(fromSnapshot: snapshot, machine: Self.machine).map { $0.id.key }
+        #expect(!keys.contains("term_gone"))
+        // An exited terminal that still has a tab stays: that one can be closed.
+        #expect(keys.contains("term_shell"))
+        let tabs = CmuxTuiSnapshotParser.tabByTerminal(fromSnapshot: snapshot)
+        #expect(tabs["term_shell"] == "tab_2")
+        #expect(tabs["term_build"] == "tab_1")
+        #expect(tabs["term_gone"] == nil)
+    }
+
+    @Test func createdWorkspaceResultCarriesItsFirstTerminal() throws {
+        let result: [String: Any] = ["value": ["kind": "terminal", "workspace_id": "ws_new", "terminal_id": "term_first", "tab_id": "tab_x"]]
+        let created = try #require(CmuxTuiSnapshotParser.createdWorkspaceTerminal(fromResult: result))
+        #expect(created.workspaceID == "ws_new")
+        #expect(created.terminalID == "term_first")
+        #expect(CmuxTuiSnapshotParser.createdWorkspaceTerminal(fromResult: ["value": ["workspace_id": ""]]) == nil)
+        #expect(CmuxTuiSnapshotParser.createdWorkspaceTerminal(fromResult: ["workspace_id": "ws_bare"])?.terminalID == nil)
+    }
+
+    @Test func closeArgvFollowsTheCLIGrammar() {
+        #expect(CloudTuiCommandLine.closeTerminalArguments(socketPath: "/tmp/s.sock", terminalID: "term_1")
+            == ["--socket", "/tmp/s.sock", "--json", "terminal", "term_1", "close"])
+        #expect(CloudTuiCommandLine.closeTabArguments(socketPath: "/tmp/s.sock", tabID: "tab_1")
+            == ["--socket", "/tmp/s.sock", "--json", "tab", "tab_1", "close"])
+        #expect(CloudTuiCommandLine.closeWorkspaceArguments(socketPath: "/tmp/s.sock", workspaceID: "ws_1")
+            == ["--socket", "/tmp/s.sock", "--json", "workspace", "ws_1", "close"])
+    }
+
     @Test func emptyAndMalformedSnapshotsProduceNothing() {
         #expect(CmuxTuiSnapshotParser.terminals(fromSnapshot: [:], machine: Self.machine).isEmpty)
         #expect(CmuxTuiSnapshotParser.terminals(fromSnapshot: ["workspaces": [["name": "no id"]]], machine: Self.machine).isEmpty)

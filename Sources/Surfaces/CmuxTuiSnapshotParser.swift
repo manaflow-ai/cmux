@@ -57,6 +57,11 @@ struct CmuxTuiSnapshotParser: Sendable {
         for raw in terminalsRaw {
             guard var terminal = terminal(fromSnapshotEntry: raw, machine: machine, agents: agentByTerminal) else { continue }
             let tabIDs = ((raw["tab_ids"] as? [String]) ?? []) + [(raw["tab_id"] as? String) ?? ""]
+            // cmux-tui keeps a record of a terminal whose process exited after its tab is
+            // gone; nothing can open or close it any more (its selector no longer resolves),
+            // so it is not a surface. An exited terminal that still has a tab stays listed —
+            // that one can be closed.
+            if terminal.lifecycle == .exited, tabIDs.allSatisfy(\.isEmpty) { continue }
             terminal.remoteWorkspace = tabIDs
                 .compactMap { paneOfTab[$0] }
                 .compactMap { screenOfPane[$0] }
@@ -69,6 +74,26 @@ struct CmuxTuiSnapshotParser: Sendable {
             let li = lhs.remoteWorkspace?.index ?? 0, ri = rhs.remoteWorkspace?.index ?? 0
             return li != ri ? li < ri : false
         }
+    }
+
+    /// The tab each terminal currently sits in (`terminals[].tab_ids`/`tab_id`), so an
+    /// exited terminal can be closed through its tab when its own selector is gone.
+    static func tabByTerminal(fromSnapshot snapshot: [String: Any]) -> [String: String] {
+        var result: [String: String] = [:]
+        for raw in (snapshot["terminals"] as? [[String: Any]]) ?? [] {
+            guard let id = raw["id"] as? String, !id.isEmpty else { continue }
+            let tabIDs = ((raw["tab_ids"] as? [String]) ?? []) + [(raw["tab_id"] as? String) ?? ""]
+            if let tab = tabIDs.first(where: { !$0.isEmpty }) { result[id] = tab }
+        }
+        return result
+    }
+
+    /// The workspace and first terminal a `workspace create` mutation made
+    /// (`{value: {workspace_id, terminal_id, …}}`).
+    static func createdWorkspaceTerminal(fromResult result: [String: Any]) -> (workspaceID: String, terminalID: String?)? {
+        let path = (result["value"] as? [String: Any]) ?? result
+        guard let workspaceID = ((path["workspace_id"] as? String) ?? (path["id"] as? String)), !workspaceID.isEmpty else { return nil }
+        return (workspaceID, (path["terminal_id"] as? String).flatMap { $0.isEmpty ? nil : $0 })
     }
 
     static func terminal(
