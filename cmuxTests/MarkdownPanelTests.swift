@@ -1,4 +1,5 @@
 import AppKit
+import CmuxAgentChat
 import Combine
 import WebKit
 import XCTest

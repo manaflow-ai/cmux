@@ -266,6 +266,38 @@ final class cmuxUITests: XCTestCase {
 
         primaryButton.tap()
 
+        // The push page shows the inline-reply preview and pairs Enable with
+        // Not Now; the footer legitimately grows for the second button, so the
+        // chrome reference frames are re-recorded on this page.
+        let pushScene = element("MobileOnboardingPushScene")
+        assertPageVisible(pushScene)
+        let pushTitle = app.staticTexts["Know the moment an agent needs you"]
+        XCTAssertTrue(pushTitle.exists)
+        let pushBody = app.staticTexts.matching(NSPredicate(
+            format: "label == %@",
+            "Get a push when an agent is waiting, and reply right from the Lock Screen."
+        )).firstMatch
+        XCTAssertTrue(pushBody.exists)
+        let pushPreview = element("MobileOnboardingScreenshot-push")
+        XCTAssertTrue(pushPreview.waitForExistence(timeout: 4))
+        XCTAssertTrue(primaryButton.label.contains("Enable Notifications"))
+        let notNowButton = app.buttons["MobileOnboardingSecondaryButton"]
+        XCTAssertTrue(notNowButton.waitForExistence(timeout: 4))
+        XCTAssertTrue(notNowButton.label.contains("Not Now"))
+        XCTAssertTrue(app.buttons["MobileOnboardingBackButton"].exists)
+        XCTAssertTrue(app.buttons["MobileOnboardingSkipButton"].exists)
+        recordChromeReferenceFrames()
+        assertPageContentFitsWithoutScrolling(
+            title: pushTitle,
+            visual: pushPreview,
+            additionalContent: [pushBody]
+        )
+        capture("onboarding-02c-push")
+
+        // Declining must not present the OS permission alert and advances the
+        // tour to the connection page.
+        notNowButton.tap()
+
         let connectScene = element("MobileOnboardingConnectScene")
         assertPageVisible(connectScene)
         XCTAssertTrue(app.staticTexts["Your Mac connects automatically"].exists)
@@ -354,7 +386,7 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(scannerGuidance.waitForExistence(timeout: 4))
         XCTAssertEqual(
             scannerGuidance.label,
-            "On cmux 0.64.17, choose Connect iPhone/iPad and scan the Pair iPhone code. On newer versions, open Tailscale Pairing. Install Tailscale on both devices and use the same Tailscale network first."
+            "Install Tailscale on both devices and use the same Tailscale network. On cmux 0.64.17, choose Connect iPhone/iPad and scan the Pair iPhone code. On newer versions, open Tailscale Pairing and scan its code here."
         )
         XCTAssertTrue(scannerCancel.waitForExistence(timeout: 4))
         capture("onboarding-05-scanner-fallback")
@@ -394,6 +426,27 @@ final class cmuxUITests: XCTestCase {
         capture("onboarding-08-notifications-compact-height")
 
         primaryButton.tap()
+        assertPageVisible(pushScene)
+        let secondaryAnyType = element("MobileOnboardingSecondaryButton")
+        XCTAssertTrue(
+            notNowButton.waitForExistence(timeout: 4),
+            """
+            Secondary button missing in compact height. \
+            anyTyped exists=\(secondaryAnyType.exists) \
+            type=\(secondaryAnyType.exists ? String(secondaryAnyType.elementType.rawValue) : "-") \
+            buttons=\(app.buttons.allElementsBoundByIndex.map { "\($0.identifier):\($0.label)" }) \
+            footer=\(element("MobileOnboardingFooter").debugDescription)
+            """
+        )
+        recordChromeReferenceFrames()
+        assertPageContentFitsWithoutScrolling(
+            title: pushTitle,
+            visual: pushPreview,
+            additionalContent: [pushBody]
+        )
+        capture("onboarding-08a-push-compact-height")
+
+        notNowButton.tap()
         assertPageVisible(connectScene)
         XCTAssertFalse(app.buttons["MobileOnboardingSecondaryButton"].exists)
         let compactRetryButton = app.buttons["MobileOnboardingPrimaryButton"]
@@ -556,6 +609,12 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(element("MobileOnboardingNotificationsScene").waitForExistence(timeout: 4))
         XCTAssertTrue(primaryButton.waitForExistence(timeout: 4))
         primaryButton.tap()
+
+        // Decline the push opt-in; the tour continues without any OS alert.
+        XCTAssertTrue(element("MobileOnboardingPushScene").waitForExistence(timeout: 4))
+        let notNowButton = app.buttons["MobileOnboardingSecondaryButton"]
+        XCTAssertTrue(notNowButton.waitForExistence(timeout: 4))
+        notNowButton.tap()
 
         XCTAssertTrue(element("MobileOnboardingConnectScene").waitForExistence(timeout: 4))
         XCTAssertFalse(element("MobileOnboardingSignInBridge").exists)
@@ -1822,7 +1881,7 @@ final class cmuxUITests: XCTestCase {
         let selectedProbeID =
             "MobileWorkspaceListPreviewSelection-workspace-mixed-alpha-inactive"
         let computerOrderTileID = "MobileWorkspaceSortTile-computerPriority"
-        let computerOrderTileLabel = "Computer Order"
+        let computerOrderTileLabel = "Custom Order"
         let recentTileID = "MobileWorkspaceSortTile-recentActivity"
         let recentTileLabel = "Recent Activity"
         let automaticTileID = "MobileWorkspaceSortTile-automatic"
@@ -1912,7 +1971,7 @@ final class cmuxUITests: XCTestCase {
         ]
         guard let computerFrames = orderedFrames(
             computerOrder,
-            state: "Computer Order"
+            state: "Custom Order"
         ) else { return }
         XCTAssertFalse(element(alphaAnchorID).exists)
         XCTAssertFalse(element(betaAnchorID).exists)
@@ -5693,6 +5752,17 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Projects.app"].exists)
         XCTAssertTrue(app.buttons["mobile-link"].exists)
 
+        // Recently used directories surface as quick chips under the search
+        // bar, and tapping one browses into that folder.
+        let recentChip = app.buttons["MobileTaskDirectoryRecent0"]
+        XCTAssertTrue(recentChip.exists)
+        let chipName = recentChip.label
+        XCTAssertTrue(["recent-alpha", "recent-beta"].contains(chipName))
+        tap(recentChip, in: app)
+        XCTAssertTrue(app.navigationBars[chipName].waitForExistence(timeout: 4))
+        tap(app.navigationBars.buttons["ui"], in: app)
+        XCTAssertTrue(hidden.waitForExistence(timeout: 4))
+
         tap(app.buttons["mobile-root"], in: app)
         XCTAssertTrue(app.buttons["Sources"].waitForExistence(timeout: 4))
 
@@ -6617,6 +6687,28 @@ final class cmuxUITests: XCTestCase {
 
         tap(app.buttons["MobileTerminalDropdown"], in: app)
         assertTerminalMenuItemExists("workspace-3-terminal-2", in: app)
+    }
+
+    @MainActor
+    func testWorkspaceTitleMenuShowsRenameAlongsideCustomize() async throws {
+        let server = try MobileSyncMockHostServer(advertisesWorkspaceMetadata: true)
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let app = try launchConnectedApp(port: port)
+        try openSelectedWorkspaceIfNeeded(app)
+        XCTAssertTrue(app.buttons["MobileWorkspaceTitleMenu"].waitForExistence(timeout: 4))
+
+        tapCompactToolbarTitleMenu(app.buttons["MobileWorkspaceTitleMenu"], in: app)
+        XCTAssertTrue(
+            app.buttons["MobileWorkspaceTitleCustomizeMenuItem"].waitForExistence(timeout: 4),
+            "A metadata-capable host must offer Customize Workspace in the title menu."
+        )
+        XCTAssertTrue(
+            app.buttons["MobileWorkspaceTitleRenameMenuItem"].exists,
+            "The title menu must offer Rename Workspace alongside Customize, matching the row context menu."
+        )
+        dismissOpenMenu(in: app)
     }
 
     @MainActor
@@ -8555,17 +8647,25 @@ final class cmuxUITests: XCTestCase {
             )
             return
         }
+        // Blank rows below the content absorb the keyboard before the render
+        // slides (`keyboardSlack`), so the render's bottom edge legitimately
+        // sits `slack` above the dock top: a mostly-empty screen stays
+        // top-pinned and the keyboard covers only blank rows. The seam
+        // contract is therefore gap == slack (and slack == 0 whenever content
+        // reaches the composer bar, restoring the strict glue).
+        let slack = dock["keyboardSlack"].flatMap(Double.init) ?? 0
         let twoPhysicalPixels = 2 / screenScale
-        XCTAssertLessThanOrEqual(
+        XCTAssertEqual(
             currentGap,
-            twoPhysicalPixels,
-            "The rendered terminal edge detached from the dock for \(context). dock=\(dock)",
+            slack,
+            accuracy: twoPhysicalPixels,
+            "The rendered terminal edge detached from the dock beyond the blank-space slack for \(context). dock=\(dock)",
             file: file,
             line: line
         )
         XCTAssertLessThanOrEqual(
             maximumGap,
-            twoPhysicalPixels,
+            slack + twoPhysicalPixels,
             "The rendered terminal edge detached from the dock during \(context). dock=\(dock)",
             file: file,
             line: line
@@ -9251,6 +9351,102 @@ final class cmuxUITests: XCTestCase {
         )
     }
 
+    /// iOS 27's keyboard seat trusts only `keyboardWillChangeFrame`
+    /// payloads: the layout guide lies at the screen bottom there (#9958)
+    /// and frames outside the will transaction misreport (#10518), so the
+    /// dock seats from the will constant, rebases interrupted legs from
+    /// live presentation frames (#10006), and never reseats from did frames
+    /// or steady-state re-derivations. The DEBUG force runs that exact path
+    /// on any simulator OS. Regression: the guide-locked rewrite routed
+    /// iOS 27 to a seat that consumed the full notification stream, so a
+    /// misreported frame hopped a perfectly settled composer bar after
+    /// every keyboard toggle.
+    @MainActor
+    func testIOS27WillOnlySeatKeepsDockSettledAcrossKeyboardToggles() async throws {
+        let server = try MobileSyncMockHostServer()
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let app = try launchConnectedApp(port: port, environment: [
+            "CMUX_UITEST_FORCE_IOS27_KEYBOARD_SEAT": "1",
+        ])
+        let surface = app.otherElements["MobileTerminalSurface"]
+        XCTAssertTrue(surface.waitForExistence(timeout: 8))
+
+        let composerField = app.descendants(matching: .any)[Composer.field]
+        XCTAssertTrue(composerField.waitForExistence(timeout: 4))
+        composerField.tap()
+
+        guard let keyboard = waitForSoftwareKeyboardKeyPlane(
+            in: app,
+            minimumOverlap: 120,
+            timeout: 4
+        ) else { return }
+        // Red until the force exists: an app that ignores the env falls back
+        // to its default seat and never reports the will-only contract.
+        let dock = waitForDock(in: app, describe: "will-only iOS 27 keyboard seat is active") {
+            $0["keyboardDockSource"] == "notification" && $0["keyboardSeatWillOnly"] == "1"
+        }
+        assertTerminalDockPinnedToSoftwareKeyboard(
+            dock,
+            surface: surface,
+            keyboard: keyboard,
+            context: "iOS 27 will-only seat"
+        )
+        assertTerminalPresentationPinnedToDock(
+            dock,
+            context: "iOS 27 will-only seat"
+        )
+
+        // A settled dock must stay put: no did-frame reseat or steady-state
+        // re-derivation may move the composer bar once the keyboard stops.
+        // Poll over a bounded window and require EVERY sample at the settled
+        // edge, so a transient hop between two single samples cannot pass.
+        guard let settledTop = dock["keyboardDockTargetTop"].flatMap(Double.init) else {
+            XCTFail("Missing dock edge metric on the will-only seat. dock=\(dock)")
+            return
+        }
+        for sample in 1...5 {
+            try await Task.sleep(for: .milliseconds(300))
+            let laterDock = surfaceDock(in: app)
+            guard let laterTop = laterDock["keyboardDockTargetTop"].flatMap(Double.init) else {
+                XCTFail("Missing dock edge metric on stability sample \(sample). dock=\(laterDock)")
+                return
+            }
+            XCTAssertEqual(
+                laterTop,
+                settledTop,
+                accuracy: 1,
+                "A settled will-only dock moved without a will notification (sample \(sample)). dock=\(laterDock)"
+            )
+        }
+
+        // Rapid reversals ride the interrupted-leg rebase: the dock and the
+        // terminal presentation stay one unit through every cycle.
+        let hideKeyboardButton = app.buttons["terminal.inputAccessory.hideKeyboard"]
+        XCTAssertTrue(hideKeyboardButton.waitForExistence(timeout: 4))
+        for cycle in 1...6 {
+            hideKeyboardButton.tap()
+            surface.tap()
+            guard let cycleKeyboard = waitForSoftwareKeyboardKeyPlane(
+                in: app,
+                minimumOverlap: 120,
+                timeout: 4
+            ) else { return }
+            let cycleDock = surfaceDock(in: app)
+            assertTerminalDockPinnedToSoftwareKeyboard(
+                cycleDock,
+                surface: surface,
+                keyboard: cycleKeyboard,
+                context: "will-only reversal \(cycle)"
+            )
+            assertTerminalPresentationPinnedToDock(
+                cycleDock,
+                context: "will-only reversal \(cycle)"
+            )
+        }
+    }
+
     /// The legacy (notification+transform) keyboard dock path is the shipping
     /// default on every OS. Launch with no overrides and prove the default
     /// path selects legacy and the visible dock follows the real
@@ -9274,8 +9470,14 @@ final class cmuxUITests: XCTestCase {
             minimumOverlap: 120,
             timeout: 4
         ) else { return }
-        let dock = waitForDock(in: app, describe: "legacy dock tracks keyboard") {
-            $0["keyboardDockSource"] == "legacyNotification"
+        // The default seat is the system guide on iOS <= 26 and the
+        // notification constant on iOS 27 (where the guide can lie at the
+        // screen bottom); the runner shares the simulator's OS version.
+        let expectedDefaultSeat = ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 27
+            ? "notification"
+            : "layoutGuide"
+        let dock = waitForDock(in: app, describe: "default dock tracks keyboard") {
+            $0["keyboardDockSource"] == expectedDefaultSeat
                 && ($0["keyboardHeight"].flatMap(Double.init) ?? 0) > 120
         }
         assertTerminalDockPinnedToSoftwareKeyboard(
@@ -9287,6 +9489,85 @@ final class cmuxUITests: XCTestCase {
         assertTerminalPresentationPinnedToDock(
             dock,
             context: "legacy keyboard dock"
+        )
+    }
+
+    /// A keyboard toggle must not reshape the terminal surface or its grid:
+    /// the hosting bounds, the grid viewport, and the render size are
+    /// keyboard-invariant by contract (the render slides on the dock; nothing
+    /// resizes). Regression: SwiftUI's keyboard safe area shaved the
+    /// home-indicator band off the surface on every toggle, which resized the
+    /// shared PTY grid, re-measured the blank band mid-leg, and retargeted the
+    /// render after the keyboard had already settled (a visible one-band
+    /// shift on every toggle).
+    @MainActor
+    func testKeyboardToggleKeepsTerminalSurfaceGeometryInvariant() async throws {
+        let server = try MobileSyncMockHostServer()
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let app = try launchConnectedApp(port: port)
+        let surface = app.otherElements["MobileTerminalSurface"]
+        XCTAssertTrue(surface.waitForExistence(timeout: 8))
+
+        let baseline = waitForDock(in: app, describe: "settled keyboard-down geometry") {
+            (Int($0["boundsHeight"] ?? "") ?? 0) > 0
+                && (Int($0["viewportHeight"] ?? "") ?? 0) > 0
+                && (Int($0["renderHeight"] ?? "") ?? 0) > 0
+        }
+        guard let baselineBounds = Int(baseline["boundsHeight"] ?? ""),
+              let baselineViewport = Int(baseline["viewportHeight"] ?? ""),
+              let baselineRender = Int(baseline["renderHeight"] ?? "") else {
+            XCTFail("Missing baseline surface geometry. dock=\(baseline)")
+            return
+        }
+
+        let composerField = app.descendants(matching: .any)[Composer.field]
+        XCTAssertTrue(composerField.waitForExistence(timeout: 4))
+        composerField.tap()
+
+        guard waitForSoftwareKeyboardKeyPlane(
+            in: app,
+            minimumOverlap: 120,
+            timeout: 4
+        ) != nil else { return }
+        let up = waitForDock(in: app, describe: "keyboard-up geometry") {
+            ($0["keyboardHeight"].flatMap(Double.init) ?? 0) > 120
+        }
+        XCTAssertEqual(
+            Int(up["boundsHeight"] ?? ""),
+            baselineBounds,
+            "The keyboard must not reshape the terminal surface. up=\(up) baseline=\(baseline)"
+        )
+        XCTAssertEqual(
+            Int(up["viewportHeight"] ?? ""),
+            baselineViewport,
+            "The keyboard must not resize the grid viewport. up=\(up) baseline=\(baseline)"
+        )
+        XCTAssertEqual(
+            Int(up["renderHeight"] ?? ""),
+            baselineRender,
+            "The keyboard must not resize the render. up=\(up) baseline=\(baseline)"
+        )
+
+        dismissKeyboard(in: app)
+        let down = waitForDock(in: app, describe: "keyboard-down geometry restored") {
+            ($0["keyboardHeight"].flatMap(Double.init) ?? 1) < 1
+        }
+        XCTAssertEqual(
+            Int(down["boundsHeight"] ?? ""),
+            baselineBounds,
+            "Dismissal must return the identical surface bounds. down=\(down) baseline=\(baseline)"
+        )
+        XCTAssertEqual(
+            Int(down["viewportHeight"] ?? ""),
+            baselineViewport,
+            "Dismissal must return the identical grid viewport. down=\(down) baseline=\(baseline)"
+        )
+        XCTAssertEqual(
+            Int(down["renderHeight"] ?? ""),
+            baselineRender,
+            "Dismissal must return the identical render size. down=\(down) baseline=\(baseline)"
         )
     }
 
@@ -9409,6 +9690,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
     private let holdsTerminalPasteResponse: Bool
     private let rejectsTerminalPaste: Bool
     private let advertisesTaskAttachments: Bool
+    private let advertisesWorkspaceMetadata: Bool
     private let advertisesCaffeineControl: Bool
     private let taskModelsByProvider: [String: [(id: String, displayName: String)]]
     private let holdsTaskModelResponse: Bool
@@ -9494,6 +9776,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         holdsTerminalPasteResponse: Bool = false,
         rejectsTerminalPaste: Bool = false,
         advertisesTaskAttachments: Bool = false,
+        advertisesWorkspaceMetadata: Bool = false,
         advertisesCaffeineControl: Bool = false,
         taskModelsByProvider: [String: [(id: String, displayName: String)]] = [:],
         holdsTaskModelResponse: Bool = false,
@@ -9506,6 +9789,7 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         self.holdsTerminalPasteResponse = holdsTerminalPasteResponse
         self.rejectsTerminalPaste = rejectsTerminalPaste
         self.advertisesTaskAttachments = advertisesTaskAttachments
+        self.advertisesWorkspaceMetadata = advertisesWorkspaceMetadata
         self.advertisesCaffeineControl = advertisesCaffeineControl
         self.taskModelsByProvider = taskModelsByProvider
         self.holdsTaskModelResponse = holdsTaskModelResponse
@@ -10058,6 +10342,9 @@ private final class MobileSyncMockHostServer: @unchecked Sendable {
         ]
         if advertisesTaskAttachments {
             capabilities.append("task.attachments.v1")
+        }
+        if advertisesWorkspaceMetadata {
+            capabilities.append("workspace.metadata.v1")
         }
         if advertisesCaffeineControl {
             capabilities.append("caffeine.control.v1")

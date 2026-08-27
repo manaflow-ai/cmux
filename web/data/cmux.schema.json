@@ -1671,6 +1671,7 @@
               "switchRightSidebarToSessions",
               "switchRightSidebarToFeed",
               "switchRightSidebarToDock",
+              "switchRightSidebarToMachines",
               "triggerFlash",
               "nextSurface",
               "prevSurface",

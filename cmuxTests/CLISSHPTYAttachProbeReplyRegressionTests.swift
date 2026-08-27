@@ -10,6 +10,124 @@ import Testing
 #endif
 
 extension CLINotifyProcessIntegrationRegressionTests {
+    func testManagedSSHPTYReattachSuppressesRepeatedScrollbackReplay() throws {
+        let cliPath = try bundledCLIPath()
+        let bridge = try bindLoopbackTCP()
+        let workspaceID = "22222222-2222-2222-2222-222222222222"
+        let surfaceID = "33333333-3333-3333-3333-333333333333"
+        let sessionID = "ssh-\(workspaceID)-\(surfaceID)"
+        let lifecycleID = "44444444-4444-4444-4444-444444444444"
+        let replay = Data("old-prompt$ ".utf8)
+        let detachedOutput = Data("detached-output\n".utf8)
+        let liveOutput = Data("fresh-output\n".utf8)
+        defer { Darwin.close(bridge.fd) }
+
+        func runAttach(
+            socketName: String,
+            replay: Data,
+            suppressingReplay: Bool
+        ) throws -> CLINotifyProcessIntegrationRegressionTests.ProcessRunResult {
+            let socketPath = makeSocketPath(socketName)
+            let listenerFD = try bindUnixSocket(at: socketPath)
+            let state = MockSocketServerState()
+            defer {
+                Darwin.close(listenerFD)
+                unlink(socketPath)
+            }
+
+            let socketHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+                guard let payload = self.jsonObject(line),
+                      let id = payload["id"] as? String,
+                      let method = payload["method"] as? String else {
+                    return self.malformedRequestResponse(raw: line)
+                }
+                switch method {
+                case "workspace.remote.pty_bridge":
+                    return self.v2Response(id: id, ok: true, result: [
+                        "host": "127.0.0.1",
+                        "port": bridge.port,
+                        "token": "bridge-token",
+                        "session_id": sessionID,
+                        "attachment_id": surfaceID,
+                    ])
+                case "workspace.remote.pty_resize":
+                    return self.v2Response(id: id, ok: true, result: ["resized": true])
+                case "workspace.remote.pty_sessions":
+                    return self.v2Response(id: id, ok: true, result: [
+                        "sessions": [["session_id": sessionID]],
+                        "errors": [],
+                    ])
+                case "workspace.remote.pty_detach":
+                    return self.v2Response(id: id, ok: true, result: ["detached": true])
+                default:
+                    return self.v2Response(
+                        id: id,
+                        ok: false,
+                        error: ["code": "unexpected_method", "message": "Unexpected method \(method)"]
+                    )
+                }
+            }
+            let bridgeHandled = startBridgeReadyThenCloseServer(
+                listenerFD: bridge.fd,
+                replay: replay,
+                liveOutput: liveOutput
+            )
+
+            var environment = ProcessInfo.processInfo.environment
+            environment["CMUX_SOCKET_PATH"] = socketPath
+            environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+            environment["CMUX_SSH_PTY_ATTACH_WRAPPER_CAN_RETRY"] = "1"
+            environment["CMUX_SSH_PTY_ATTACH_MANAGED_RECONNECT"] = "1"
+            environment.removeValue(forKey: "CMUX_SSH_PTY_ATTACH_SUPPRESS_REPLAY")
+            if suppressingReplay {
+                environment["CMUX_SSH_PTY_ATTACH_SUPPRESS_REPLAY"] = "1"
+            }
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: [
+                    "ssh-pty-attach",
+                    "--wait",
+                    "--require-existing",
+                    "--workspace", workspaceID,
+                    "--session-id", sessionID,
+                    "--lifecycle-id", lifecycleID,
+                    "--attachment-id", surfaceID,
+                ],
+                environment: environment,
+                timeout: 5
+            )
+
+            wait(for: [socketHandled, bridgeHandled], timeout: 5)
+            return result
+        }
+
+        let first = try runAttach(
+            socketName: "sshptyreplay1",
+            replay: replay,
+            suppressingReplay: false
+        )
+        #expect(!first.timedOut)
+        #expect(first.status == SSHPTYAttachExitCode.bridgeClosedSessionRunning.rawValue)
+        #expect(
+            first.stdout ==
+                String(decoding: replay, as: UTF8.self) + String(decoding: liveOutput, as: UTF8.self)
+        )
+
+        let second = try runAttach(
+            socketName: "sshptyreplay2",
+            replay: replay + detachedOutput,
+            suppressingReplay: true
+        )
+        #expect(!second.timedOut)
+        #expect(second.status == SSHPTYAttachExitCode.bridgeClosedSessionRunning.rawValue)
+        #expect(
+            second.stdout ==
+                String(decoding: detachedOutput, as: UTF8.self) +
+                String(decoding: liveOutput, as: UTF8.self)
+        )
+        #expect(!second.stdout.contains(String(decoding: replay, as: UTF8.self)))
+    }
+
     func testSSHPTYAttachDoesNotReplayTerminalQueriesIntoTheLocalTerminal() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("sshptyreplay")

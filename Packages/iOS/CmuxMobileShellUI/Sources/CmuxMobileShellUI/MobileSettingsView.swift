@@ -329,6 +329,19 @@ struct MobileSettingsView: View {
                         )
                     }
                     .accessibilityIdentifier("MobileSettingsShellIconLab")
+
+                    NavigationLink {
+                        UnreadIndicatorLabView()
+                    } label: {
+                        Label(
+                            L10n.string(
+                                "mobile.settings.unreadIndicatorLab",
+                                defaultValue: "Unread Indicator Lab"
+                            ),
+                            systemImage: "circle.badge"
+                        )
+                    }
+                    .accessibilityIdentifier("MobileSettingsUnreadIndicatorLab")
                 }
                 #endif
 
@@ -506,6 +519,9 @@ struct MobileSettingsView: View {
                     ),
                     connectionMethod: connectionMethodStore?.method ?? .automatic,
                     onSelectConnectionMethod: { connectionMethodStore?.method = $0 },
+                    onEnablePush: {
+                        await pushCoordinator.enable(trigger: "onboarding_replay")
+                    },
                     onReachedConnection: {},
                     onSkip: { showingOnboarding = false },
                     onRetryConnection: retryAutomaticConnection,

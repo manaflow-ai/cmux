@@ -1,6 +1,19 @@
 # Configuration
 
-`cmux-tui` reads `~/.config/cmux/cmux-tui.json`, or `$XDG_CONFIG_HOME/cmux/cmux-tui.json` when `XDG_CONFIG_HOME` is set. Existing `mux.json` files are still used when `cmux-tui.json` is absent, and `cmux-tui.json` wins when both exist. Set `CMUX_TUI_CONFIG` to use another file; legacy `CMUX_MUX_CONFIG` is still accepted as a fallback. Every documented key is optional. Unknown keys in the typed sections make the raw config invalid, so the TUI logs an error and falls back to defaults.
+`cmux-tui` reads `~/.config/cmux/cmux-tui.json`, or `$XDG_CONFIG_HOME/cmux/cmux-tui.json` when `XDG_CONFIG_HOME` is set. Existing `mux.json` files are still used when `cmux-tui.json` is absent, and `cmux-tui.json` wins when both exist. Set `CMUX_TUI_CONFIG` to use another file; legacy `CMUX_MUX_CONFIG` is still accepted as a fallback. Every documented key is optional. Unknown top-level keys are rejected, logged, and cause the whole file to use defaults. Known sections are validated independently, so an invalid section is logged and replaced with that section's defaults while valid sections remain active. Section objects reject unknown keys. Action names are strict: an unknown action does not run and is ignored.
+
+## Executable fields and transport rules
+
+These fields are argv arrays. They are executed directly, without shell parsing or interpolation; include the shell explicitly when a shell is needed.
+
+| Field | Shape | Notes |
+| --- | --- | --- |
+| `commands[].run` | non-empty string array | User command program and arguments; empty arguments are preserved |
+| `status_bar.left[].run`, `status_bar.right[].run` | non-empty string array | Periodic status command; the last non-empty stdout line is displayed |
+| `sidebar.plugin.command` | non-empty string array | Sidebar plugin program and arguments, hosted in a PTY |
+| `machine_provider.command` | non-empty string array | Dynamic provider program and arguments; no shell |
+
+Transport choices are mutually exclusive. A machine uses either `transport: "unix"` with `socket`, or `transport: "ssh"` with `host` and its SSH options. A dynamic provider uses one of `machine_provider.command` or `machine_provider.cloud.enabled`; do not combine provider transports with each other, static `machines`, `attach`, server listener or socket flags, `--headless`, or `--term`. Invalid combinations disable that provider configuration rather than merging transports.
 
 Colors accept `#rrggbb`, `#rgb`, an xterm-256 number, or a numeric string.
 
@@ -11,6 +24,7 @@ Selection colors are resolved in this order: explicit cmux-tui config, Ghostty c
 | Key | Type | Default | Effect |
 | --- | --- | --- | --- |
 | `theme.selection_background` | color | `#3a3a3a`, seeded from Ghostty when present | Selection background in PTY panes |
+| `theme.chrome` | `"auto"`, `"light"`, or `"dark"` | `"auto"` | Selects the chrome palette; `auto` follows the terminal/system appearance |
 | `theme.selection_foreground` | color or null | `null`, seeded from Ghostty when present | Selection foreground; `null` keeps each cell's foreground |
 | `theme.sidebar_rail` | color | `110` | Rail color for the active workspace rows |
 | `theme.sidebar_active_bg` | color | `236` | Background for the active workspace rows |
@@ -288,6 +302,7 @@ Terminal panes, the workspace sidebar, and the shortcut modal share the same `â–
 | --- | --- | --- | --- |
 | `server.ws` | socket address string | unset | Enables the WebSocket control listener, for example `127.0.0.1:7681` |
 | `server.ws_token` | string | unset | Adds a static-token bypass for interactive TUI pairing |
+| `server.detached_owner` | boolean | `true` | Plain `cmux` starts or reuses a detached headless session owner and attaches as a client, so the session survives every client detaching. `false` hosts the session inside the first TUI process |
 
 WebSocket clients pair through a six-digit browser/TUI comparison by default. WebSocket binds must be loopback unless cmux-tui is started with `--ws-insecure-bind`. The listener has no TLS; use an authenticated TLS reverse proxy for remote access. See the [transport contract](../spec/transports.md#websocket).
 
@@ -431,13 +446,7 @@ Chord strings can be single characters or a key name with optional `ctrl`, `cont
     }
   ],
   "browser": {
-    "chrome_binary": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-    "mode": "headful",
-    "cdp_url": "http://127.0.0.1:9222",
-    "discover": false,
-    "discover_ports": [9222, 9223],
-    "user_data_dir": "/Users/me/Library/Application Support/cmux-tui/chrome-profile",
-    "ephemeral": false,
+    "cdp_url": null,
     "max_capture_megapixels": 2.0,
     "capture_scale": null
   },

@@ -11837,48 +11837,6 @@ extension BrowserPanel {
 #endif
     }
 }
-
-/// Bridges `BrowserOmnibarPageFocusRepository` to a panel's live `WKWebView`.
-///
-/// Holds the panel weakly so the panel (which owns the repository, which owns
-/// this adapter) does not form a retain cycle. Always reads `panel.webView` at
-/// call time because the panel reassigns its web view across navigations and
-/// profile switches.
-@MainActor
-private final class BrowserOmnibarPageFocusAdapter: BrowserOmnibarScriptEvaluating {
-    private weak var panel: BrowserPanel?
-
-    init(panel: BrowserPanel) {
-        self.panel = panel
-    }
-
-    func evaluateOmnibarPageFocusScript(
-        _ script: String,
-        completion: @escaping @MainActor (Any?, (any Error)?) -> Void
-    ) {
-        guard let panel else {
-            completion(nil, nil)
-            return
-        }
-        if panel.isChromiumBacked {
-            Task { @MainActor in
-                do {
-                    let value = try await panel.evaluateChromiumJavaScript(script)
-                    completion(value.anyValue, nil)
-                } catch {
-                    completion(nil, error)
-                }
-            }
-            return
-        }
-        panel.webView.evaluateJavaScript(script) { result, error in
-            MainActor.assumeIsolated {
-                completion(result, error)
-            }
-        }
-    }
-}
-
 extension BrowserPanel {
     static func responderChainContains(_ start: NSResponder?, target: NSResponder) -> Bool {
         var r = start

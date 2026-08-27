@@ -261,6 +261,9 @@ jobs:
       - name: Validate Zig install without sudo
         run: ./tests/test_install_zig_ci_no_sudo.sh
 
+      - name: Validate Zig download resume and mirror isolation
+        run: ./tests/test_install_zig_ci_download_resume.sh
+
       - name: Initialize Ghostty for Zig version guard
         run: git submodule update --init --depth 1 ghostty
 
@@ -354,7 +357,9 @@ jobs:
         run: python3 scripts/lint-feature-flags.py
 
       - name: Validate test determinism gate
-        run: python3 scripts/check-test-determinism.py --strict
+        run: |
+          python3 scripts/check-test-determinism.py --self-test
+          python3 scripts/check-test-determinism.py --strict
 
   ghosttykit-release-check:
     name: GhosttyKit release check
@@ -1066,6 +1071,25 @@ jobs:
             -only-testing:cmuxTests/NotificationScrollRestoreRecoveryTests \
             test
 
+      - name: Run settings file-store no-op persistence regression
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
+        run: |
+          # The broad app-host suite tolerates expected failures and can stop
+          # after an app-host crash. Keep the settings persistence regression
+          # non-tolerant so a no-op UserDefaults write cannot pass the shard.
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          scripts/ci/run-in-console-session.sh \
+            scripts/ci/run-app-host-xcodebuild.sh \
+            -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+            -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" \
+            CMUX_SKIP_ZIG_BUILD=1 \
+            -only-testing:cmuxTests/KeyboardShortcutSettingsFileStoreNoOpPersistenceTests \
+            test
+
       - name: Run sidebar workspace-switch layout regression
         if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
         run: |
@@ -1109,49 +1133,104 @@ jobs:
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
-          SHARD_ARGS="$RUNNER_TEMP/cmux-unit-shard-${{ matrix.shard }}.args"
-          python3 scripts/ci/cmux_unit_test_shard.py \
-            --shard-index "${{ matrix.shard }}" \
-            --shard-total 4 \
-            --output "$SHARD_ARGS"
-          ONLY_TESTING_ARGS=()
-          while IFS= read -r arg; do
-            [ -n "$arg" ] && ONLY_TESTING_ARGS+=("$arg")
-          done < "$SHARD_ARGS"
-          run_unit_tests() {
-            # These app-host tests create real SwiftUI/WebKit/Ghostty windows and
-            # intermittently crash inside XCTest's post-test memory checker or
-            # leave native display/WebKit work alive on GitHub macOS runners.
-            # When that happens, Swift's crash/backtrace handling or the stale
-            # app-host process keeps xcodebuild alive until the job-level timeout,
-            # hiding the actual unit test summary.
-            # The app-host wrapper also serializes GUI XCTest ownership per Mac,
-            # while still allowing shards on separate Macs to run in parallel.
-            scripts/ci/run-in-console-session.sh \
-              scripts/ci/run-app-host-xcodebuild.sh \
-              -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
-              -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
-              -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
-              -disableAutomaticPackageResolution \
-              -destination "platform=macOS" \
-              "${ONLY_TESTING_ARGS[@]}" \
-              CMUX_SKIP_ZIG_BUILD=1 \
-              test 2>&1 &
-            local xcodebuild_pid=$!
-            local timeout_seconds="${CMUX_UNIT_TEST_TIMEOUT_SECONDS:-900}"
-            local deadline=$((SECONDS + timeout_seconds))
-            while kill -0 "$xcodebuild_pid" 2>/dev/null; do
-              if [ "$SECONDS" -ge "$deadline" ]; then
-                echo "xcodebuild unit test timeout after ${timeout_seconds}s; terminating"
-                kill -TERM "$xcodebuild_pid" 2>/dev/null || true
+          PHYSICAL_SHARD="${{ matrix.shard }}"
+          PHYSICAL_SHARD_TOTAL=4
+          LOGICAL_BATCHES_PER_WORKER=2
+          LOGICAL_SHARD_TOTAL=$((PHYSICAL_SHARD_TOTAL * LOGICAL_BATCHES_PER_WORKER))
+          LOGICAL_SHARDS=("$PHYSICAL_SHARD" "$((PHYSICAL_SHARD + PHYSICAL_SHARD_TOTAL))")
+
+          # These suites share process-global UI/runtime state for an app host's
+          # lifetime. Keep cross-machine parallelism, but give each worker two
+          # balanced, sequential app-host processes so each stays inside the
+          # existing per-invocation timeout without changing the shared scheme.
+
+          run_unit_test_batch() {
+            local logical_shard="$1"
+            local shard_args="$RUNNER_TEMP/cmux-unit-shard-${logical_shard}-of-${LOGICAL_SHARD_TOTAL}.args"
+            local batch_output="$RUNNER_TEMP/cmux-unit-output-${logical_shard}-of-${LOGICAL_SHARD_TOTAL}.txt"
+            python3 scripts/ci/cmux_unit_test_shard.py \
+              --shard-index "$logical_shard" \
+              --shard-total "$LOGICAL_SHARD_TOTAL" \
+              --output "$shard_args" || {
+                local shard_status=$?
+                echo "Failed to generate app-host unit-test batch ${logical_shard}/${LOGICAL_SHARD_TOTAL}"
+                return "$shard_status"
+              }
+            if [ ! -r "$shard_args" ]; then
+              echo "Missing selector file for app-host unit-test batch ${logical_shard}/${LOGICAL_SHARD_TOTAL}"
+              return 1
+            fi
+            local only_testing_args=()
+            while IFS= read -r arg; do
+              [ -n "$arg" ] && only_testing_args+=("$arg")
+            done < "$shard_args"
+            if [ "${#only_testing_args[@]}" -eq 0 ]; then
+              echo "No selectors generated for app-host unit-test batch ${logical_shard}/${LOGICAL_SHARD_TOTAL}"
+              return 1
+            fi
+
+            echo "Running app-host unit-test batch ${logical_shard}/${LOGICAL_SHARD_TOTAL} serially"
+            local batch_status
+            # Reset this batch's capture before every invocation. The outer
+            # SwiftPM-resolution retry reuses the path, and a failed retry
+            # must not inherit an earlier attempt's expected-failure summary.
+            : > "$batch_output"
+            {
+              # These app-host tests create real SwiftUI/WebKit/Ghostty windows and
+              # intermittently crash inside XCTest's post-test memory checker or
+              # leave native display/WebKit work alive on GitHub macOS runners.
+              # When that happens, Swift's crash/backtrace handling or the stale
+              # app-host process keeps xcodebuild alive until the job-level timeout,
+              # hiding the actual unit test summary.
+              # The app-host wrapper also serializes GUI XCTest ownership per Mac,
+              # while still allowing shards on separate Macs to run in parallel.
+              scripts/ci/run-in-console-session.sh \
+                scripts/ci/run-app-host-xcodebuild.sh \
+                -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+                -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
+                -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+                -disableAutomaticPackageResolution \
+                -destination "platform=macOS" \
+                "${only_testing_args[@]}" \
+                CMUX_SKIP_ZIG_BUILD=1 \
+                test 2>&1 &
+              local xcodebuild_pid=$!
+              local timeout_seconds="${CMUX_UNIT_TEST_TIMEOUT_SECONDS:-900}"
+              local deadline=$((SECONDS + timeout_seconds))
+              while kill -0 "$xcodebuild_pid" 2>/dev/null; do
+                if [ "$SECONDS" -ge "$deadline" ]; then
+                  echo "xcodebuild unit-test batch ${logical_shard}/${LOGICAL_SHARD_TOTAL} timeout after ${timeout_seconds}s; terminating"
+                  kill -TERM "$xcodebuild_pid" 2>/dev/null || true
+                  sleep 5
+                  kill -KILL "$xcodebuild_pid" 2>/dev/null || true
+                  wait "$xcodebuild_pid" 2>/dev/null || true
+                  exit 124
+                fi
                 sleep 5
-                kill -KILL "$xcodebuild_pid" 2>/dev/null || true
-                wait "$xcodebuild_pid" 2>/dev/null || true
-                return 124
+              done
+              wait "$xcodebuild_pid"
+            } | tee "$batch_output"
+            batch_status="${PIPESTATUS[0]}"
+
+            if [ "$batch_status" -ne 0 ]; then
+              local batch_summary
+              batch_summary="$(grep "Executed.*tests.*with.*failures" "$batch_output" | tail -1 || true)"
+              if echo "$batch_summary" | grep -q "(0 unexpected)"; then
+                echo "All failures in app-host batch ${logical_shard}/${LOGICAL_SHARD_TOTAL} are expected, continuing"
+                return 0
               fi
-              sleep 5
+            fi
+            return "$batch_status"
+          }
+
+          run_unit_tests() {
+            local logical_shard
+            for logical_shard in "${LOGICAL_SHARDS[@]}"; do
+              run_unit_test_batch "$logical_shard" || {
+                local batch_status=$?
+                return "$batch_status"
+              }
             done
-            wait "$xcodebuild_pid"
           }
 
           # Stream output via tee so CI logs are visible in real time, while still
@@ -1180,13 +1259,11 @@ jobs:
           fi
 
           if [ "$EXIT_CODE" -ne 0 ]; then
-            SUMMARY=$(echo "$OUTPUT" | grep "Executed.*tests.*with.*failures" | tail -1)
-            if echo "$SUMMARY" | grep -q "(0 unexpected)"; then
-              echo "All failures are expected, treating as pass"
-            else
-              echo "Unexpected test failures detected"
-              exit 1
-            fi
+            # Expected failures are normalized inside run_unit_test_batch. Any
+            # remaining non-zero status is a real batch failure or an incomplete
+            # run with no trustworthy summary and must stay red.
+            echo "App-host unit-test batch failed with status ${EXIT_CODE}"
+            exit "$EXIT_CODE"
           fi
 
       - name: Run bundled Ghostty theme picker helper regression
@@ -1588,6 +1665,7 @@ jobs:
             CmuxControlSocket
             CmuxFoundation
             CmuxGit
+            CmuxMobileTerminalKit
             CmuxMobileWorkspace
             CmuxNotifications
             CmuxSettings
@@ -2247,6 +2325,7 @@ jobs:
           ./scripts/install-prebuilt-ghostty-cli-helper.sh \
             ghostty-cli-helper/ghostty \
             build-universal/Build/Products/Release/cmux.app
+          ./scripts/install-cmux-tui-client.sh build-universal/Build/Products/Release/cmux.app
 
       - name: Validate Release artifact slices
         run: |
@@ -2257,6 +2336,9 @@ jobs:
           DIFF_SIDECAR="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux-diff-sidecar"
           test -x "$APP_BINARY"
           test -x "$CLI_BINARY"
+          TUI_CLIENT="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux-tui"
+          test -x "$TUI_CLIENT"
+          lipo "$TUI_CLIENT" -verify_arch arm64 x86_64
           test -x "$HELPER_BINARY"
           test -x "$DIFF_SIDECAR"
           file "$APP_BINARY" "$CLI_BINARY" "$HELPER_BINARY" "$DIFF_SIDECAR"
