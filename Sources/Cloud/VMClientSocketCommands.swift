@@ -18,6 +18,8 @@ extension TerminalController {
                     payload["limits"] = [
                         "maxActiveVms": limits.maxActiveVms,
                         "planId": limits.planId,
+                        "freeAccessWindowDays": limits.freeAccessWindowDays,
+                        "freeAccessExpiresAt": limits.freeAccessExpiresAt.map { $0 as Any } ?? NSNull(),
                     ]
                 }
                 return payload
@@ -182,6 +184,60 @@ extension TerminalController {
                 let endpoint = try await VMClient.shared.openAttach(id: vmId, requireDaemon: requireDaemon)
                 return Self.socketWorkerAttachInfoPayload(endpoint)
             }
+        case "vm.cmux_remote_info":
+            guard let vmId = Self.socketWorkerString(params["id"]), !vmId.isEmpty else {
+                return v2Error(id: id, code: "invalid_params", message: "vm.cmux_remote_info requires `id`. Run `cmux vm ls` to find one, then `cmux vm tui <id>`.")
+            }
+            let deviceFingerprint = Self.socketWorkerString(params["device_fingerprint"])
+                ?? Self.socketWorkerString(params["deviceFingerprint"])
+            // What the local cmux-tui client can do (`remote-probe --json` capabilities);
+            // VMClient validates the tokens before they reach the control plane.
+            let clientCapabilities = Self.socketWorkerStringArray(
+                params["client_capabilities"] ?? params["clientCapabilities"]
+            )
+            return v2VmCall(id: id) {
+                let endpoint = try await VMClient.shared.openCmuxRemote(
+                    id: vmId,
+                    deviceFingerprint: deviceFingerprint,
+                    clientCapabilities: clientCapabilities
+                )
+                var payload: [String: Any] = [
+                    "transport": "cmux-remote",
+                    "route": endpoint.route,
+                    "token": endpoint.token,
+                    "expires_at_unix": endpoint.expiresAtUnix,
+                    "session": endpoint.session,
+                ]
+                if let build = endpoint.daemonBuild {
+                    var raw: [String: Any] = [:]
+                    if let commit = build.commit { raw["commit"] = commit }
+                    if let remoteProtocol = build.remoteProtocol { raw["remote_protocol"] = remoteProtocol }
+                    if let version = build.version { raw["version"] = version }
+                    payload["daemon_build"] = raw
+                }
+                if let invitation = endpoint.invitation {
+                    payload["invitation"] = [
+                        "uri": invitation.uri,
+                        "invitation_id": invitation.invitationId,
+                        "expires_at_unix": invitation.expiresAtUnix,
+                    ]
+                }
+                return payload
+            }
+        case "vm.cmux_remote_approve":
+            guard let vmId = Self.socketWorkerString(params["id"]), !vmId.isEmpty,
+                  let invitationId = Self.socketWorkerString(params["invitation_id"]) ?? Self.socketWorkerString(params["invitationId"]),
+                  !invitationId.isEmpty else {
+                return v2Error(id: id, code: "invalid_params", message: "vm.cmux_remote_approve requires `id` and `invitation_id`.")
+            }
+            return v2VmCall(id: id) {
+                let approval = try await VMClient.shared.approveCmuxRemoteEnrollment(id: vmId, invitationId: invitationId)
+                var payload: [String: Any] = ["approved": approval.approved, "state": approval.state]
+                if let fingerprint = approval.deviceFingerprint {
+                    payload["device_fingerprint"] = fingerprint
+                }
+                return payload
+            }
         case "vm.sessions":
             guard let vmId = Self.socketWorkerString(params["id"]), !vmId.isEmpty else {
                 return v2Error(id: id, code: "invalid_params", message: "vm.sessions requires `id`. Run `cmux vm ls` to find one.")
@@ -209,6 +265,21 @@ extension TerminalController {
                     "session": result.session.map(Self.socketWorkerCloudSessionPayload) ?? NSNull(),
                 ]
             }
+        // The cloud tree verbs (`cmux vm tree|open|agent`, the sidebar) are thin wrappers
+        // over the surface catalog now; see SurfaceSocketCommands.swift. They stay on the
+        // socket worker like every other vm verb and await the main-actor catalog.
+        case "vm.tree":
+            return socketWorkerVMTreeResponse(id: id, params: params)
+        case "vm.terminal_open":
+            return socketWorkerVMTerminalOpenResponse(id: id, params: params)
+        case "vm.terminal_new":
+            return socketWorkerVMTerminalNewResponse(id: id, params: params)
+        case "vm.desktop_open":
+            return socketWorkerVMDesktopOpenResponse(id: id, params: params)
+        case "vm.port_open":
+            return socketWorkerVMPortOpenResponse(id: id, params: params)
+        case "vm.link_socket":
+            return socketWorkerVMLinkSocketResponse(id: id, params: params)
         default:
             return v2Error(id: id, code: "method_not_found", message: "Unknown method")
         }
@@ -275,6 +346,9 @@ extension TerminalController {
         ]
         if let displayName = vm.displayName, !displayName.isEmpty {
             payload["displayName"] = displayName
+        }
+        if let freeAccessExpiresAt = vm.freeAccessExpiresAt {
+            payload["freeAccessExpiresAt"] = freeAccessExpiresAt
         }
         if let base = vm.base {
             payload["base"] = [

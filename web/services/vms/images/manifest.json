@@ -154,11 +154,11 @@
       "imageId": "blaxel/xfce-vnc:latest",
       "envVar": "BLAXEL_SANDBOX_IMAGE",
       "defaultForLocalDev": true,
-      "cmuxdRemoteCommit": "bootstrap-on-create",
+      "cmuxdRemoteCommit": "none-cmux-tui",
       "builtAt": "2026-08-20T04:30:00.000Z",
       "builderScriptVersion": "bootstrap-on-create",
       "validationStatus": "passed",
-      "notes": "Stock Blaxel xfce + noVNC image (a machine comes with its screen; `cmux vm new --base` picks blaxel/base-image:latest explicitly); the driver injects cmuxd-remote at create time via the sandbox filesystem API (gzip+base64) and starts serve --ws as a keepAlive process, so no baked template is required. Validated WS PTY lease auth, shell round trip, healthz through a private preview URL + minted preview token, and standby/wake process preservation in us-pdx-1."
+      "notes": "Stock Blaxel xfce + TigerVNC/noVNC image (a machine comes with its screen; `cmux vm new --base` picks blaxel/base-image:latest explicitly). No cmuxd-remote: at create time the sandbox installs the pinned cmux-tui build from the artifacts manifest onto its persistent home volume and the supervisor runs `cmux-tui server start --remote-ws 0.0.0.0:1337`, so no baked template is required. Validated cmux-remote attach (route + enrollment), exec, private preview URL + minted preview token, and standby/wake process preservation in us-pdx-1."
     }
   ]
 }

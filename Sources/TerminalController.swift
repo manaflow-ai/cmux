@@ -1657,6 +1657,8 @@ class TerminalController {
                 ])
             }
 #endif
+        case "surface.catalog", "surface.project", "surface.new_terminal":
+            return socketWorkerSurfaceResponse(method: request.method, id: request.id, params: request.params)
         case let method where method.hasPrefix("vm."):
             return socketWorkerCloudVMResponse(method: method, id: request.id, params: request.params)
         case let method where method.hasPrefix("remotes."):
@@ -2577,6 +2579,8 @@ class TerminalController {
             return v2Result(id: id, self.v2WorkspaceCloudVMOpen(params: params))
         case "workspace.cloud_vm_terminal_ready":
             return v2Result(id: id, self.v2WorkspaceCloudVMTerminalReady(params: params))
+        case "workspace.cloud_vm_bind":
+            return v2Result(id: id, self.v2WorkspaceCloudVMBind(params: params))
         case "workspace.set_auto_title":
             return v2Result(id: id, self.v2WorkspaceSetAutoTitle(params: params))
 
@@ -2813,10 +2817,32 @@ class TerminalController {
             "auth.sign_out",
             "vm.list",
             "vm.create",
+            "vm.base_open",
+            "vm.base_reset",
+            "vm.status",
+            "vm.stats",
+            "vm.rename",
+            "vm.snapshot",
+            "vm.fork",
+            "vm.restore",
             "vm.destroy",
             "vm.exec",
+            "vm.open_port",
             "vm.attach_info",
+            "vm.cmux_remote_info",
+            "vm.cmux_remote_approve",
             "vm.ssh_info",
+            "vm.sessions",
+            "vm.session_attach_info",
+            "vm.tree",
+            "vm.terminal_open",
+            "vm.terminal_new",
+            "vm.desktop_open",
+            "vm.port_open",
+            "vm.link_socket",
+            "surface.catalog",
+            "surface.project",
+            "surface.new_terminal",
             "aiAccounts.list",
             "aiAccounts.upload",
             "aiAccounts.remove",
@@ -2831,6 +2857,7 @@ class TerminalController {
             "workspace.create",
             "workspace.cloud_vm_open",
             "workspace.cloud_vm_terminal_ready",
+            "workspace.cloud_vm_bind",
             "workspace.env",
             "workspace.select",
             "workspace.current",
@@ -5522,6 +5549,10 @@ class TerminalController {
                     "window_main": hostedWindow?.isMainWindow ?? false,
                     "window_visible": hostedWindow?.isVisible ?? false,
                     "window_occluded": hostedWindow.map { !$0.occlusionState.contains(.visible) } ?? false,
+                    "renderer_realized": terminalSurface.isRendererRealized,
+                    "renderer_presented": terminalSurface.isRendererPresented,
+                    "renderer_portal_visible": terminalSurface.isRendererPortalVisible,
+                    "renderer_window_visible": terminalSurface.rendererWindowVisible,
                     "window_identifier": v2OrNull(hostedWindow?.identifier?.rawValue),
                     "window_title": v2OrNull(nonEmpty(hostedWindow?.title)),
                     "window_class": v2OrNull(className(hostedWindow)),
@@ -7094,7 +7125,10 @@ class TerminalController {
         return resolveBrowserNavigableURL(trimmed) ?? URL(string: trimmed)
     }
 
-    private func v2BrowserOpenSplit(
+    // Internal (not private): `CloudTreeService.openDesktop/openPort` open the same browser
+    // split the socket verb does, so the sidebar, `cmux vm desktop`, and `cmux vm open` share
+    // one path.
+    func v2BrowserOpenSplit(
         params: [String: Any],
         diffViewerRegistration: DiffViewerSessionPreparation
     ) -> V2CallResult {

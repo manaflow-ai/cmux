@@ -3936,6 +3936,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
     private var trackingArea: NSTrackingArea?
     private var windowObserver: NSObjectProtocol?
+    private var windowOcclusionObserver: NSObjectProtocol?
     private var lastScrollEventTime: CFTimeInterval = 0
     private let scrollSpeedAccumulator = TerminalScrollSpeedAccumulator()
     private var visibleInUI: Bool = true
@@ -4555,6 +4556,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             NotificationCenter.default.removeObserver(windowObserver)
             self.windowObserver = nil
         }
+        if let windowOcclusionObserver {
+            NotificationCenter.default.removeObserver(windowOcclusionObserver)
+            self.windowOcclusionObserver = nil
+        }
         // Balance the cursor stack if the view is removed while hover is active
         if wordPathHoverActive {
             wordPathHoverActive = false
@@ -4589,6 +4594,28 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         ) { [weak self] notification in
             self?.windowDidChangeScreen(notification)
         }
+
+        // Window-level occlusion (miniaturized, fully covered, inactive Space)
+        // pauses the core renderer and lets the reclamation controller release
+        // this surface's GPU swap chain. View-level occlusion stays untouched:
+        // a nil-window reparenting transition keeps the last window state, so
+        // portal moves cannot flap occlusion mid-drag.
+        windowOcclusionObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didChangeOcclusionStateNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] notification in
+            guard let occludedWindow = notification.object as? NSWindow else { return }
+            // Delivered on the main queue (`queue: .main`), which is the main actor.
+            MainActor.assumeIsolated {
+                self?.terminalSurface?.setRendererWindowVisible(
+                    occludedWindow.occlusionState.contains(.visible)
+                )
+            }
+        }
+        terminalSurface?.setRendererWindowVisible(
+            window.occlusionState.contains(.visible)
+        )
 
         if let surface = terminalSurface?.surface,
            let displayID = window.screen?.displayID,
@@ -4629,8 +4656,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     fileprivate func updateOcclusionState() {
-        // Intentionally no-op: we don't drive libghostty occlusion from AppKit occlusion state.
-        // This avoids transient clears during reparenting and keeps rendering logic minimal.
+        // Intentionally no-op at the VIEW level: view visibility flaps during
+        // portal reparenting and would cause transient clears. Occlusion is
+        // driven by portal visibility (`setVisibleInUI`) combined with the
+        // window-level observer registered in `viewDidMoveToWindow`.
     }
 
     override func viewDidChangeBackingProperties() {
@@ -8251,6 +8280,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if let windowObserver {
             NotificationCenter.default.removeObserver(windowObserver)
         }
+        if let windowOcclusionObserver {
+            NotificationCenter.default.removeObserver(windowOcclusionObserver)
+        }
         if let trackingArea {
             removeTrackingArea(trackingArea)
         }
@@ -10720,7 +10752,10 @@ final class GhosttySurfaceScrollView: NSView {
         surfaceView.terminalSurface?.setRendererPortalVisible(visible)
         if wasVisible != visible, lastRequestedPortalOcclusionVisible != visible {
             lastRequestedPortalOcclusionVisible = visible
-            surfaceView.terminalSurface?.setOcclusion(visible)
+            // A portal reveal inside a hidden window (agent/socket-driven
+            // workspace switches) must not lift occlusion; the window-level
+            // observer replays it when the window returns on screen.
+            surfaceView.terminalSurface?.applyVisibilityOcclusion(visible)
         }
 #if DEBUG
         if wasVisible != visible {

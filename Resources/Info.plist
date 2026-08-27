@@ -78,6 +78,26 @@
 	<string>A program running within cmux would like to use your microphone.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>A program running within cmux would like to use your camera.</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>A program running within cmux would like to access your calendars.</string>
+	<key>NSRemindersUsageDescription</key>
+	<string>A program running within cmux would like to access your reminders.</string>
+	<key>NSContactsUsageDescription</key>
+	<string>A program running within cmux would like to access your contacts.</string>
+	<key>NSLocationUsageDescription</key>
+	<string>A program running within cmux would like to access your location.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>A program running within cmux would like to access your photo library.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>A program running within cmux would like to access the local network.</string>
+	<key>NSAudioCaptureUsageDescription</key>
+	<string>A program running within cmux would like to access your system's audio.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>A program running within cmux would like to use speech recognition.</string>
+	<key>NSMotionUsageDescription</key>
+	<string>A program running within cmux would like to access motion data.</string>
+	<key>NSSystemAdministrationUsageDescription</key>
+	<string>A program running within cmux requires elevated privileges.</string>
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>A program running within cmux would like to use Bluetooth to discover passkeys and security keys.</string>
 	<key>NSAppleEventsUsageDescription</key>
@@ -217,6 +237,16 @@
 			<string>com.cmux.filepreview.transfer</string>
 			<key>UTTypeDescription</key>
 			<string>cmux File Preview Transfer</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+		</dict>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>com.cmux.surface-resource</string>
+			<key>UTTypeDescription</key>
+			<string>cmux Surface Resource</string>
 			<key>UTTypeConformsTo</key>
 			<array>
 				<string>public.data</string>

@@ -151,6 +151,7 @@ Detailed contributor rules live in `skills/`. Use the task-specific skill before
 - `cmux-architecture`: package boundaries, file/API discipline, testability, Swift concurrency.
 - `cmux-backend`: backend TypeScript, Effect, Cloud VM control plane, provider secrets, Postgres and migrations.
 - `cmux-billing`: Stripe checkout, entitlements, webhooks, pricing dev stack, live provisioning.
+- `cmux-cloud-vm`: driving cmux Cloud machines from the CLI (`cmux vm` exec/push/pull/wait, ports, checkpoints, forks) and the agent etiquette around them.
 - `cmux-debugging`: debug event log, Debug menu, runtime pitfalls, typing-sensitive paths, SwiftUI list boundaries.
 - `cmux-localization`: user-facing strings, localization files, shortcut text, localization audit.
 - `cmux-testing`: regression policy, Swift Testing, test quality, test wiring, local vs CI validation.
