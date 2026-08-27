@@ -16,27 +16,116 @@ enum ClaudeHookLiveDeliveryHarness {
         let storeURL: URL
 
         func cleanup() {
+            // The accept loop must be parked before the descriptor goes away:
+            // a closed fd number can be reused by another parallel suite's
+            // listener within microseconds, and a loop still polling it
+            // would accept that suite's connections.
+            state.stopAcceptLoop(timeout: 1)
             Darwin.close(listenerFD)
             unlink(socketPath)
             try? FileManager.default.removeItem(at: root)
         }
     }
 
+    /// Command log plus the accept-loop bookkeeping that lets a test wait
+    /// until every connection its CLI child opened has been read.
     final class ServerState: @unchecked Sendable {
-        private let lock = NSLock()
+        private let condition = NSCondition()
         private var commands: [String] = []
+        private var serverStarted = false
+        private var stopRequested = false
+        private var acceptLoopStopped = false
+        private var inFlightClients = 0
+        private var drainRequests = 0
+        private var drainedThrough = 0
 
         func append(_ command: String) {
-            lock.lock()
+            condition.lock()
             commands.append(command)
-            lock.unlock()
+            condition.unlock()
         }
 
         func snapshot() -> [String] {
-            lock.lock()
+            condition.lock()
             let value = commands
-            lock.unlock()
+            condition.unlock()
             return value
+        }
+
+        /// Blocks until the accept loop has observed, after this call, an
+        /// empty listen backlog with no client reader in flight. Call it once
+        /// the CLI child has exited: every connection the child opened is then
+        /// either accepted (in flight) or still queued in the backlog, so this
+        /// observation proves the command log is complete. One-way sends
+        /// (`feed.push` telemetry) never wait for a reply, so the log is
+        /// otherwise racing a reader thread that may start late.
+        func waitForQuiescence(timeout: TimeInterval) -> Bool {
+            condition.lock()
+            defer { condition.unlock() }
+            guard serverStarted, !acceptLoopStopped else { return true }
+            drainRequests += 1
+            let request = drainRequests
+            let deadline = Date(timeIntervalSinceNow: timeout)
+            while drainedThrough < request, !acceptLoopStopped {
+                if !condition.wait(until: deadline) { break }
+            }
+            return drainedThrough >= request || (acceptLoopStopped && inFlightClients == 0)
+        }
+
+        fileprivate func markServerStarted() {
+            condition.lock()
+            serverStarted = true
+            condition.unlock()
+        }
+
+        fileprivate var shouldStop: Bool {
+            condition.lock()
+            defer { condition.unlock() }
+            return stopRequested
+        }
+
+        fileprivate func clientAccepted() {
+            condition.lock()
+            inFlightClients += 1
+            condition.unlock()
+        }
+
+        fileprivate func clientClosed() {
+            condition.lock()
+            inFlightClients -= 1
+            condition.broadcast()
+            condition.unlock()
+        }
+
+        /// Accept-loop only: a poll slice ended with nothing queued. Only the
+        /// thread that dequeues connections may make this observation, so no
+        /// connection can sit between `accept` and `clientAccepted` while it
+        /// is made.
+        fileprivate func noteBacklogEmpty() {
+            condition.lock()
+            if inFlightClients == 0 {
+                drainedThrough = drainRequests
+                condition.broadcast()
+            }
+            condition.unlock()
+        }
+
+        fileprivate func markAcceptLoopStopped() {
+            condition.lock()
+            acceptLoopStopped = true
+            condition.broadcast()
+            condition.unlock()
+        }
+
+        fileprivate func stopAcceptLoop(timeout: TimeInterval) {
+            condition.lock()
+            defer { condition.unlock() }
+            guard serverStarted, !acceptLoopStopped else { return }
+            stopRequested = true
+            let deadline = Date(timeIntervalSinceNow: timeout)
+            while !acceptLoopStopped {
+                if !condition.wait(until: deadline) { break }
+            }
         }
     }
 
@@ -245,10 +334,17 @@ enum ClaudeHookLiveDeliveryHarness {
             standardInput: standardInput,
             timeout: 10
         )
+        // The child is gone (or its process group was killed), so every
+        // connection it opened is now accepted or queued; wait for the mock
+        // server to read all of them before the test looks at the log.
+        var stderr = outcome.stderr
+        if !context.state.waitForQuiescence(timeout: 2) {
+            stderr += "\n[test harness] mock server still had a connection in flight 2s after the CLI exited"
+        }
         return ProcessRunResult(
             status: outcome.status,
             stdout: outcome.stdout,
-            stderr: outcome.stderr,
+            stderr: stderr,
             timedOut: outcome.timedOut
         )
     }
@@ -290,6 +386,10 @@ enum ClaudeHookLiveDeliveryHarness {
         return fd
     }
 
+    /// Length of one accept-loop poll slice. Bounds how long
+    /// `waitForQuiescence` and `stopAcceptLoop` wait for the loop to notice.
+    private static let acceptPollSliceMilliseconds: Int32 = 10
+
     /// - Parameter readerStartDelay: Test-only scheduling latency injected
     ///   before each client reader starts, to model a cold reader thread on a
     ///   loaded runner.
@@ -300,10 +400,29 @@ enum ClaudeHookLiveDeliveryHarness {
         handler: @escaping @Sendable (String) -> String
     ) -> DispatchSemaphore {
         let handled = DispatchSemaphore(value: 0)
+        state.markServerStarted()
         // Accept and per-client loops block indefinitely; keep them off the
         // libdispatch pool so parallel suites cannot starve each other.
         CLITestProcessRunner.detachBlockingThread(name: "cmux-test-live-delivery-mock-accept") {
-            while true {
+            defer { state.markAcceptLoopStopped() }
+            while !state.shouldStop {
+                // Poll in short slices instead of blocking in accept: a slice
+                // that ends with nothing queued is the "backlog empty"
+                // observation `waitForQuiescence` needs, and a stop request
+                // from `cleanup` is honored before the listener fd closes.
+                var listener = pollfd(fd: listenerFD, events: Int16(POLLIN), revents: 0)
+                let ready = Darwin.poll(&listener, 1, acceptPollSliceMilliseconds)
+                if ready < 0 {
+                    if errno == EINTR { continue }
+                    return
+                }
+                if ready == 0 {
+                    state.noteBacklogEmpty()
+                    continue
+                }
+                if listener.revents & Int16(POLLNVAL | POLLERR | POLLHUP) != 0 { return }
+                if state.shouldStop { return }
+
                 var clientAddr = sockaddr_un()
                 var clientAddrLen = socklen_t(MemoryLayout<sockaddr_un>.size)
                 let clientFD = withUnsafeMutablePointer(to: &clientAddr) { ptr in
@@ -312,13 +431,15 @@ enum ClaudeHookLiveDeliveryHarness {
                     }
                 }
                 guard clientFD >= 0 else {
-                    if errno == EINTR { continue }
+                    if errno == EINTR || errno == EAGAIN || errno == ECONNABORTED { continue }
                     return
                 }
+                state.clientAccepted()
 
                 CLITestProcessRunner.detachBlockingThread(name: "cmux-test-live-delivery-mock-client") {
                     defer {
                         Darwin.close(clientFD)
+                        state.clientClosed()
                         handled.signal()
                     }
                     if readerStartDelay > 0 {
