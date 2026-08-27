@@ -39,7 +39,6 @@ impl GraphicsMessages {
         self.kitty_image_budget_worker_start_failed.replace("{error}", error)
     }
 
-    #[cfg_attr(test, allow(dead_code))]
     pub(crate) fn kitty_image_budget_update_failed(
         &self,
         retry_exhausted: bool,

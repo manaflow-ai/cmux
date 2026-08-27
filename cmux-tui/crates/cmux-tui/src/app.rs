@@ -14824,14 +14824,11 @@ impl App {
                     // observers, but do not replace user-facing command status
                     // with a diagnostic the user cannot act on.
                     GraphicsStatus::KittyImageBudgetUpdateFailed { retry_exhausted, summary } => {
-                        #[cfg(not(test))]
                         crate::client_log::log(
                             "ERROR",
                             "kitty-graphics",
                             &messages.kitty_image_budget_update_failed(retry_exhausted, &summary),
                         );
-                        #[cfg(test)]
-                        let _ = (messages, retry_exhausted, summary);
                         return Ok(RenderAction::None);
                     }
                     GraphicsStatus::CellPixelUpdateRetriesExhausted {
@@ -33851,16 +33848,33 @@ mod tests {
         let mux = Mux::new("kitty-status-preservation-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
         app.status_message = Some("command completed".to_string());
+        crate::client_log::start_test_log_capture();
 
+        let summary = "surface 7: host did not acknowledge limits";
         for retry_exhausted in [false, true] {
-            app.handle(AppEvent::Mux(MuxEvent::GraphicsStatus(
-                cmux_tui_core::GraphicsStatus::KittyImageBudgetUpdateFailed {
-                    retry_exhausted,
-                    summary: Arc::<str>::from("surface 7: host did not acknowledge limits"),
-                },
-            )))
-            .unwrap();
+            let action = app
+                .handle(AppEvent::Mux(MuxEvent::GraphicsStatus(
+                    cmux_tui_core::GraphicsStatus::KittyImageBudgetUpdateFailed {
+                        retry_exhausted,
+                        summary: Arc::<str>::from(summary),
+                    },
+                )))
+                .unwrap();
+            assert_eq!(action, RenderAction::None);
             assert_eq!(app.status_message.as_deref(), Some("command completed"));
+        }
+
+        let records = crate::client_log::take_test_log_capture();
+        assert_eq!(records.len(), 2);
+        for (record, retry_exhausted) in records.iter().zip([false, true]) {
+            assert_eq!(record.level, "ERROR");
+            assert_eq!(record.area, "kitty-graphics");
+            assert_eq!(
+                record.message,
+                localization::catalog()
+                    .graphics
+                    .kitty_image_budget_update_failed(retry_exhausted, summary)
+            );
         }
     }
 
