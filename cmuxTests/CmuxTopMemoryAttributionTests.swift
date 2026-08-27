@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 import Testing
 
 #if canImport(cmux_DEV)
@@ -10,6 +11,100 @@ import Testing
 struct CmuxTopMemoryAttributionTests {
     private let firstWorkspaceID = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
     private let secondWorkspaceID = UUID(uuidString: "22222222-2222-2222-2222-222222222222")!
+
+    @MainActor
+    @Test func detachedSameTTYProcessIsNotAProvenSurfaceOwner() throws {
+        let workspaceID = UUID(uuidString: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")!
+        let surfaceID = UUID(uuidString: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")!
+        var masterFD: Int32 = -1
+        var slaveFD: Int32 = -1
+        guard openpty(&masterFD, &slaveFD, nil, nil, nil) == 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        defer {
+            if masterFD >= 0 { Darwin.close(masterFD) }
+            if slaveFD >= 0 { Darwin.close(slaveFD) }
+        }
+
+        guard let ttyCString = ttyname(slaveFD) else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .ENXIO)
+        }
+        var ttyStat = stat()
+        guard fstat(slaveFD, &ttyStat) == 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        let ttyName = String(cString: ttyCString)
+        let ttyDevice = Int64(ttyStat.st_rdev)
+        let scopedPID = 100
+        let detachedPID = 200
+        let snapshot = CmuxTopProcessSnapshot(
+            processes: [
+                process(
+                    pid: scopedPID,
+                    parentPID: 1,
+                    name: "zsh",
+                    residentBytes: 8 * 1024 * 1024,
+                    ttyDevice: ttyDevice,
+                    workspaceID: workspaceID,
+                    surfaceID: surfaceID,
+                    attributionReason: "cmux-environment"
+                ),
+                process(
+                    pid: detachedPID,
+                    parentPID: 1,
+                    name: "python3",
+                    residentBytes: 2 * 1024 * 1024 * 1024,
+                    ttyDevice: ttyDevice,
+                    processGroupID: detachedPID,
+                    terminalProcessGroupID: scopedPID
+                )
+            ],
+            sampledAt: Date(timeIntervalSince1970: 0),
+            includesProcessDetails: true
+        )
+        var windows: [[String: Any]] = [[
+            "kind": "window",
+            "id": "window:detached-tty",
+            "key": true,
+            "app_process_pids": [],
+            "workspaces": [[
+                "kind": "workspace",
+                "id": workspaceID.uuidString,
+                "ref": "workspace:detached-tty",
+                "title": "detached tty",
+                "panes": [[
+                    "kind": "pane",
+                    "id": "pane:detached-tty",
+                    "ref": "pane:detached-tty",
+                    "surfaces": [[
+                        "kind": "surface",
+                        "id": surfaceID.uuidString,
+                        "type": "terminal",
+                        "tty": ttyName,
+                        "webviews": []
+                    ] as [String: Any]]
+                ] as [String: Any]],
+                "tags": []
+            ] as [String: Any]]
+        ]]
+
+        _ = TerminalController.shared.v2AnnotateTopWindows(
+            &windows,
+            processSnapshot: snapshot,
+            browserPIDOccurrences: [:],
+            includeProcesses: true
+        )
+
+        let surface = try #require(
+            (((windows.first?["workspaces"] as? [[String: Any]])?.first?["panes"] as? [[String: Any]])?.first?["surfaces"] as? [[String: Any]])?.first
+        )
+        let resources = try #require(surface["resources"] as? [String: Any])
+
+        #expect(intArray(surface["tty_process_pids"]) == [scopedPID, detachedPID])
+        #expect(intArray(surface["tty_unattributed_process_pids"]) == [detachedPID])
+        #expect(intArray(resources["pids"]) == [scopedPID])
+        #expect(!intArray(surface["root_pids"]).contains(detachedPID))
+    }
 
     @Test func commandGroupSpanningWorkspacesHasNoSingleOwner() throws {
         let payload = memoryDiagnosticPayload()
@@ -146,19 +241,25 @@ struct CmuxTopMemoryAttributionTests {
         pid: Int,
         parentPID: Int,
         name: String,
-        residentBytes: Int64
+        residentBytes: Int64,
+        ttyDevice: Int64? = nil,
+        workspaceID: UUID? = nil,
+        surfaceID: UUID? = nil,
+        attributionReason: String? = nil,
+        processGroupID: Int? = nil,
+        terminalProcessGroupID: Int? = nil
     ) -> CmuxTopProcessInfo {
         CmuxTopProcessInfo(
             pid: pid,
             parentPID: parentPID,
             name: name,
-            path: "/Applications/cmux.app/Contents/Resources/bin/cmux",
-            ttyDevice: nil,
-            cmuxWorkspaceID: nil,
-            cmuxSurfaceID: nil,
-            cmuxAttributionReason: nil,
-            processGroupID: nil,
-            terminalProcessGroupID: nil,
+            path: name == "cmux" ? "/Applications/cmux.app/Contents/Resources/bin/cmux" : nil,
+            ttyDevice: ttyDevice,
+            cmuxWorkspaceID: workspaceID,
+            cmuxSurfaceID: surfaceID,
+            cmuxAttributionReason: attributionReason,
+            processGroupID: processGroupID,
+            terminalProcessGroupID: terminalProcessGroupID,
             cpuPercent: 0,
             residentBytes: residentBytes,
             virtualBytes: residentBytes,
