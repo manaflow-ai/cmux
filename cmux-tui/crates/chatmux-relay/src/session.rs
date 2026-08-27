@@ -137,7 +137,7 @@ pub(crate) struct OutboundSink {
     critical: mpsc::Sender<OutboundFrame>,
     watch: mpsc::Sender<OutboundFrame>,
     bytes: Arc<Semaphore>,
-    critical_overflow: Arc<std::sync::atomic::AtomicBool>,
+    critical_overflow: Arc<AtomicBool>,
 }
 
 impl OutboundSink {
@@ -150,7 +150,7 @@ impl OutboundSink {
                 critical,
                 watch,
                 bytes: Arc::new(Semaphore::new(MAX_OUTBOUND_BYTES)),
-                critical_overflow: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                critical_overflow: Arc::new(AtomicBool::new(false)),
             },
             critical_rx,
             watch_rx,
@@ -167,7 +167,10 @@ impl OutboundSink {
     }
 
     pub(crate) async fn critical_text(&self, text: String) -> Result<(), ()> {
-        self.critical_text_with_token(text, None).await
+        // Keep relay-loop callers nonblocking. Waiting for a writer
+        // acknowledgement here can deadlock because the loop also owns the
+        // outbound consumer. Token-aware producers use the explicit ack path.
+        self.critical_text_with_token_ack(text, None, None).await
     }
 
     pub(crate) async fn critical_text_with_token(

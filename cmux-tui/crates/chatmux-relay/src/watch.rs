@@ -289,13 +289,14 @@ async fn setup_watch(
         }
         Ok((root, prepared))
     });
+    let setup_abort = setup.abort_handle();
     tokio::select! {
         biased;
         _ = cancellation.cancelled() => {
             // Aborting the join future does not stop an already-running
             // blocking closure. Its permit and watcher are released when it
             // returns, and the bounded lane prevents unbounded accumulation.
-            setup.abort();
+            setup_abort.abort();
             Err(SetupFailure::Cancelled)
         }
         result = setup => match result {
@@ -601,7 +602,7 @@ async fn run_watch(
     setup_slots: Arc<Semaphore>,
 ) {
     let PreparedWatch {
-        mut watcher,
+        watcher,
         mut event_rx,
         overflowed,
         overflow_notify,
@@ -743,10 +744,11 @@ async fn rebuild_ignore_matcher(
         let _permit = permit;
         if blocking_cancellation.is_cancelled() { None } else { Some(build_ignore_matcher(&root)) }
     });
+    let task_abort = task.abort_handle();
     tokio::select! {
         biased;
         _ = cancellation.cancelled() => {
-            task.abort();
+            task_abort.abort();
             None
         }
         result = task => result.ok().flatten(),
