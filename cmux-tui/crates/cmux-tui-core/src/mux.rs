@@ -2029,8 +2029,11 @@ pub struct Mux {
     reconnect_checkpoint_skip_reported: AtomicBool,
     /// Frontend-owned sink for diagnostics emitted by background core work.
     /// `OnceLock` keeps the callback immutable after startup and avoids a
-    /// mutex on the reconnect hot path.
+    /// mutex on the reconnect hot path. Startup can adopt a hosted surface
+    /// before the frontend installs the sink, so one diagnostic is retained
+    /// in a per-mux slot until the first reporter arrives.
     diagnostic_reporter: OnceLock<DiagnosticReporter>,
+    pending_diagnostic: Mutex<Option<String>>,
     #[cfg(test)]
     journal_segment_prepare_hook: Mutex<Option<Box<dyn FnOnce() + Send>>>,
     terminal_exit_waiters: TerminalExitWaiters,
@@ -2393,6 +2396,7 @@ impl Mux {
             journal_event_changed: Condvar::new(),
             reconnect_checkpoint_skip_reported: AtomicBool::new(false),
             diagnostic_reporter: OnceLock::new(),
+            pending_diagnostic: Mutex::new(None),
             #[cfg(test)]
             journal_segment_prepare_hook: Mutex::new(None),
             terminal_exit_waiters: TerminalExitWaiters::default(),
@@ -5261,10 +5265,24 @@ impl Mux {
         let message = format!(
             "skipped terminal {terminal_id} reconnect checkpoint (replay starts from the previous boundary): {error:#}"
         );
-        if !self.reconnect_checkpoint_skip_reported.swap(true, Ordering::AcqRel) {
-            if let Some(reporter) = self.diagnostic_reporter.get() {
-                reporter(&message);
-            }
+        if self.reconnect_checkpoint_skip_reported.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        if let Some(reporter) = self.diagnostic_reporter.get().cloned() {
+            reporter(&message);
+            return;
+        }
+
+        // Mux construction can start hosted-surface readers before the
+        // frontend has a chance to install its reporter. Recheck under the
+        // pending slot lock so a concurrent setter cannot leave this message
+        // stranded between the initial lookup and the store.
+        let mut pending = self.pending_diagnostic.lock().unwrap();
+        if let Some(reporter) = self.diagnostic_reporter.get().cloned() {
+            drop(pending);
+            reporter(&message);
+        } else {
+            *pending = Some(message);
         }
     }
 
@@ -5275,7 +5293,15 @@ impl Mux {
     /// caller that tries to install a second sink receives `false` and must
     /// keep the original owner unchanged.
     pub fn set_diagnostic_reporter(&self, reporter: DiagnosticReporter) -> bool {
-        self.diagnostic_reporter.set(reporter).is_ok()
+        let pending_reporter = reporter.clone();
+        if self.diagnostic_reporter.set(reporter).is_err() {
+            return false;
+        }
+        let pending = self.pending_diagnostic.lock().unwrap().take();
+        if let Some(message) = pending {
+            pending_reporter(&message);
+        }
+        true
     }
 
     pub(crate) fn note_reconnect_checkpoint_captured(&self) {
