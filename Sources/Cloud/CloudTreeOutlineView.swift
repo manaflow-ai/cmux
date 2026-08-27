@@ -245,8 +245,11 @@ struct CloudTreeOutlineView: NSViewRepresentable {
 
         // MARK: Opening
 
-        @objc func handleDoubleClick(_ sender: Any?) {
-            guard let outlineView else { return }
+        /// One click means open (D9): a click on any row carries the intent to
+        /// open it. The second click of a double-click is ignored so machine and
+        /// group rows don't toggle twice.
+        @objc func handleSingleClick(_ sender: Any?) {
+            guard let outlineView, NSApp.currentEvent.map({ $0.clickCount <= 1 }) ?? true else { return }
             let row = outlineView.clickedRow >= 0 ? outlineView.clickedRow : outlineView.selectedRow
             guard row >= 0, let node = outlineView.item(atRow: row) as? CloudTreeNode else { return }
             open(node)
@@ -259,12 +262,19 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         }
 
         /// One place decides what "open" means per row. Every surface row is
-        /// `SurfaceCatalog.project` (reusing an open pane); a machine row starts a
-        /// plain terminal on that machine.
+        /// `SurfaceCatalog.project` (focusing an open pane first); machine and
+        /// group rows toggle. Creation is never an open side effect: the hover
+        /// "+" and the context menu own it (an expired machine still prompts,
+        /// and the asleep placeholder still wakes, because those rows advertise
+        /// exactly that).
         func open(_ node: CloudTreeNode) {
             switch node.kind {
             case .machine(let machine, _):
-                openMachine(machine)
+                if machine.freeAccess == .expired {
+                    machineActions.promptUpgrade()
+                } else {
+                    toggle(node)
+                }
             case .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .portsGroup, .browsersGroup:
                 toggle(node)
             case .workspace(let machine, let workspace, _):
@@ -569,7 +579,9 @@ final class CloudTreeContainerView: NSView {
         outlineView.dataSource = coordinator
         outlineView.delegate = coordinator
         outlineView.target = coordinator
-        outlineView.doubleAction = #selector(CloudTreeOutlineView.Coordinator.handleDoubleClick(_:))
+        // D9: one click opens. No doubleAction — the handler ignores the second
+        // click of a double-click, so a habitual double-click acts once.
+        outlineView.action = #selector(CloudTreeOutlineView.Coordinator.handleSingleClick(_:))
         outlineView.setDraggingSourceOperationMask(.move, forLocal: true)
         outlineView.onOpenSelection = { [weak coordinator] in coordinator?.openSelection() }
         outlineView.onMoveSelection = { [weak coordinator] delta in coordinator?.moveSelection(by: delta) }
