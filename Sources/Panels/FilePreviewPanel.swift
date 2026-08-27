@@ -674,20 +674,6 @@ final class FilePreviewDragPasteboardWriter: NSObject, @preconcurrency NSPastebo
             transferRegistry?.end(from: pasteboard)
             AppDelegate.shared?.liveTabDragCapabilityResolver.invalidate()
         }
-        if let bonsplitCapability, canEndTransfer {
-            DragPasteboardCapabilityCleaner().remove(
-                type: Self.bonsplitTransferType,
-                capabilityValue: bonsplitCapability,
-                from: pasteboard
-            )
-        }
-        if let filePreviewData, previewDragId != nil {
-            DragPasteboardCapabilityCleaner().remove(
-                type: DragOverlayRoutingPolicy.filePreviewTransferType,
-                capabilityData: filePreviewData,
-                from: pasteboard
-            )
-        }
         if let previewFileURL {
             // The writer mirrors `.fileURL` for Finder-compatible consumers,
             // but it is still this internal drag's representation. Require the
@@ -710,6 +696,20 @@ final class FilePreviewDragPasteboardWriter: NSObject, @preconcurrency NSPastebo
                     markerValue: bonsplitCapability
                 )
             }
+        }
+        if let bonsplitCapability, canEndTransfer {
+            DragPasteboardCapabilityCleaner().remove(
+                type: Self.bonsplitTransferType,
+                capabilityValue: bonsplitCapability,
+                from: pasteboard
+            )
+        }
+        if let filePreviewData, previewDragId != nil {
+            DragPasteboardCapabilityCleaner().remove(
+                type: DragOverlayRoutingPolicy.filePreviewTransferType,
+                capabilityData: filePreviewData,
+                from: pasteboard
+            )
         }
         if let dragId = previewDragId {
             FilePreviewDragRegistry.shared.discard(id: dragId)
