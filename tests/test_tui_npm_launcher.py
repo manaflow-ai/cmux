@@ -123,6 +123,20 @@ def run_launcher(
     )
 
 
+def process_exited_within(
+    process: subprocess.Popen[str], timeout_seconds: float
+) -> bool:
+    """Wait for the process-exit signal without polling a guessed delay."""
+    exited = threading.Event()
+
+    def wait_for_exit() -> None:
+        process.wait()
+        exited.set()
+
+    threading.Thread(target=wait_for_exit, daemon=True).start()
+    return exited.wait(timeout=timeout_seconds)
+
+
 def write_launcher(tmp_path: Path, version: str = "1.2.3") -> Path:
     package = tmp_path / "package"
     (package / "bin").mkdir(parents=True)
@@ -618,8 +632,9 @@ def test_launcher_waits_for_short_cache_lock_contention(tmp_path: Path) -> None:
     stdout = ""
     stderr = ""
     try:
-        time.sleep(0.2)
-        assert process.poll() is None, "launcher failed before the short lock was released"
+        assert not process_exited_within(
+            process, timeout_seconds=0.2
+        ), "launcher failed before the short lock was released"
         (lock / "owner").unlink()
         lock.rmdir()
         stdout, stderr = process.communicate(timeout=5)
