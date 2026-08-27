@@ -50,7 +50,7 @@ public struct CodexSessionResumeVerifier: Sendable {
     ///   - requests: The exact identities and optional hook rollout candidates.
     ///   - codexHome: The effective Codex state directory.
     ///   - fileManager: The filesystem implementation used for inspection.
-    /// - Returns: One durable-state result for every request.
+    /// - Returns: Results for at most the configured maximum batch size.
     public func verifyBatch(
         _ requests: [CodexSessionResumeVerificationRequest],
         codexHome: String,
@@ -76,7 +76,7 @@ public struct CodexSessionResumeVerifier: Sendable {
     ///   - codexHome: The effective Codex state directory.
     ///   - readBudget: Shared aggregate rollout-read budget.
     ///   - fileManager: The filesystem implementation used for inspection.
-    /// - Returns: One durable-state result for every request.
+    /// - Returns: Results for at most the configured maximum batch size.
     public func verifyBatch(
         _ requests: [CodexSessionResumeVerificationRequest],
         codexHome: String,
@@ -89,7 +89,9 @@ public struct CodexSessionResumeVerifier: Sendable {
             .appendingPathComponent("state_5.sqlite", isDirectory: false)
             .path
 
-        let normalizedRequests = requests.map { request in
+        let verificationRequests = requests.prefix(
+            CodexSessionResumeVerificationLimits.maximumBatchRequests
+        ).map { request in
             CodexSessionResumeVerificationRequest(
                 sessionId: normalized(request.sessionId) ?? "",
                 transcriptPath: normalized(request.transcriptPath)
@@ -97,20 +99,8 @@ public struct CodexSessionResumeVerifier: Sendable {
         }
         var results = Array(
             repeating: CodexSessionResumeVerification.missing,
-            count: normalizedRequests.count
+            count: verificationRequests.count
         )
-        let verificationRequests = Array(
-            normalizedRequests.prefix(CodexSessionResumeVerificationLimits.maximumBatchRequests)
-        )
-        if normalizedRequests.count > verificationRequests.count {
-            for index in verificationRequests.count..<normalizedRequests.count
-                where !normalizedRequests[index].sessionId.isEmpty {
-                // A truncated batch is an inconclusive read, not proof that a
-                // historical checkpoint disappeared. Callers can preserve the
-                // current binding while retrying a later complete load.
-                results[index] = .unavailable
-            }
-        }
         // A missing database is the only state in which the legacy rollout
         // tree is authoritative. Resolve hook transcripts first, then perform
         // one bounded walk for every remaining identifier.
@@ -164,7 +154,7 @@ public struct CodexSessionResumeVerifier: Sendable {
             codexHome: home,
             fileManager: fileManager
         ) else {
-            for index in normalizedRequests.indices where !normalizedRequests[index].sessionId.isEmpty {
+            for index in verificationRequests.indices where !verificationRequests[index].sessionId.isEmpty {
                 results[index] = .unavailable
             }
             return results

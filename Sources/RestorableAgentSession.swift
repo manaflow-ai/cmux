@@ -1925,14 +1925,24 @@ struct RestorableAgentSessionIndex: Sendable {
                         PanelKey(workspaceId: workspaceId, panelId: panelId)
                     )
                 }
-                guard hookRecordIsRestorable(
+                let codexOwnerIsAdmitted = hookRecordIsRestorable(
                     effectiveRecord,
                     kind: kind,
                     fileManager: fileManager,
                     claudeTranscriptLookup: claudeTranscriptLookup,
                     codexDurableVerification: codexVerification,
                     codexHasIndexedStore: codexHasIndexedStore
-                ) else {
+                )
+                if kind == .codex, !codexOwnerIsAdmitted {
+                    // A definitive missing or lower-provenance checkpoint is
+                    // still unsafe for binding-only automatic restore. Keep
+                    // this panel deferred so the restore boundary can clear
+                    // only the rejected checkpoint.
+                    incompleteCodexPanelKeys.insert(
+                        PanelKey(workspaceId: workspaceId, panelId: panelId)
+                    )
+                }
+                guard codexOwnerIsAdmitted else {
                     continue
                 }
                 let snapshot = SessionRestorableAgentSnapshot(

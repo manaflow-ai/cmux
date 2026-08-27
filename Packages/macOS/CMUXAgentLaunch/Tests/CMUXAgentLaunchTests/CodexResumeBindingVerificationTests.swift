@@ -87,7 +87,7 @@ struct CodexResumeBindingVerificationTests {
         #expect(evidence.source == .legacyRollout)
     }
 
-    @Test func batchVerificationMarksRequestsBeyondBoundUnavailable() throws {
+    @Test func batchVerificationLimitsReturnedResultsToBound() throws {
         let fixture = try Fixture(createIndex: false)
         defer { fixture.remove() }
 
