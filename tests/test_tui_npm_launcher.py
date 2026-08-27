@@ -31,7 +31,7 @@ def make_tarball() -> bytes:
         info.mode = 0o755
         info.size = len(payload)
         archive.addfile(info, io.BytesIO(payload))
-    return gzip.compress(tar_buffer.getvalue())
+    return gzip.compress(tar_buffer.getvalue(), mtime=0)
 
 
 class RegistryHandler(http.server.BaseHTTPRequestHandler):
@@ -134,7 +134,7 @@ def test_launcher_downloads_once_and_reuses_verified_cache(tmp_path: Path) -> No
         second = run_launcher(launcher, cache, registry, "--version")
     finally:
         server.shutdown()
-        thread.join(timeout=5)
+        thread.join()
     assert first.returncode == 0, first.stderr
     assert second.returncode == 0, second.stderr
     assert first.stdout == second.stdout == "fake cmux-tui 1.2.3\n"
@@ -202,6 +202,23 @@ def test_managed_launcher_honors_development_binary_override(tmp_path: Path) -> 
     assert result.stdout == "development override\n"
 
 
+def test_missing_binary_override_hides_path_and_variable(tmp_path: Path) -> None:
+    if sys.platform == "win32":
+        return
+    launcher = write_launcher(tmp_path, "1.2.3")
+    missing = tmp_path / "missing-native"
+    result = run_launcher(
+        launcher,
+        tmp_path / "cache",
+        "http://127.0.0.1:1",
+        env_extra={"CMUX_TUI_BIN": str(missing)},
+    )
+    assert result.returncode != 0
+    assert "configured native binary override does not exist" in result.stderr
+    assert str(missing) not in result.stderr
+    assert "CMUX_TUI_BIN" not in result.stderr
+
+
 def main() -> None:
     if sys.platform == "win32":
         return
@@ -211,6 +228,7 @@ def main() -> None:
         test_launcher_reports_network_failure_without_leaking_details(root / "failure")
         test_launcher_does_not_run_a_mismatched_installed_binary(root / "mismatch")
         test_managed_launcher_honors_development_binary_override(root / "override")
+        test_missing_binary_override_hides_path_and_variable(root / "missing-override")
 
 
 if __name__ == "__main__":
