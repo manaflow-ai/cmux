@@ -184,7 +184,7 @@ def write_cached_binary(
     package = f"cmux-tui-{platform_key}"
     binary = cache / platform_key / f"v/{version}/bin/cmux-tui"
     data = payload.encode()
-    binary.parent.mkdir(parents=True)
+    binary.parent.mkdir(parents=True, exist_ok=True)
     binary.write_bytes(data)
     binary.chmod(0o755)
     version_dir = binary.parent.parent
