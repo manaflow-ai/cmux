@@ -2394,14 +2394,15 @@ fn upsert_resource_terminal(
     transaction.execute(
         "INSERT INTO terminal_hosts(
            terminal_id, workspace_key, incarnation, lifecycle, launch_spec_json,
-           exit_json, created_revision, updated_revision, deleted_revision
-         ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, ?8)
+           exit_json, on_exit, created_revision, updated_revision, deleted_revision
+         ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8, ?9)
          ON CONFLICT(terminal_id) DO UPDATE SET
            workspace_key=excluded.workspace_key,
            incarnation=excluded.incarnation,
            lifecycle=excluded.lifecycle,
            launch_spec_json=excluded.launch_spec_json,
            exit_json=excluded.exit_json,
+           on_exit=excluded.on_exit,
            updated_revision=excluded.updated_revision,
            deleted_revision=excluded.deleted_revision",
         params![
@@ -2411,6 +2412,7 @@ fn upsert_resource_terminal(
             terminal.lifecycle.as_str(),
             launch_spec,
             exit,
+            terminal.on_exit.as_str(),
             revision,
             (terminal.lifecycle == TerminalLifecycle::Tombstoned).then_some(revision),
         ],

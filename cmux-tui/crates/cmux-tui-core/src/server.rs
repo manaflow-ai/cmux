@@ -4834,6 +4834,62 @@ fn prepare_explicit_socket_directory(path: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Prepare the parent directory before any client creates coordination files.
+/// Derived runtime paths receive the daemon-owned private-directory checks;
+/// explicit paths keep their caller-managed permissions.
+pub fn prepare_socket_parent(path: &Path, is_derived: bool) -> anyhow::Result<()> {
+    if is_derived {
+        if let Some(dir) = path.parent() {
+            prepare_runtime_socket_directory(dir)?;
+        }
+    } else {
+        prepare_explicit_socket_directory(path)?;
+    }
+    Ok(())
+}
+
+/// Exclusive lock serializing every local server start for one socket path:
+/// foreground `server start`, in-process TUI hosting, and detached-owner
+/// spawns. The stale-socket recovery below (probe, unlink, bind) is not
+/// atomic, so two unserialized starts can both classify a socket as stale,
+/// and the second unlink disconnects the first starter's freshly bound
+/// socket while its process keeps running unreachably. The lock file lives
+/// next to the socket and is left in place: unlinking it would reopen the
+/// very race it exists to close. The OS releases the lock when the holder
+/// exits, so a crashed starter never wedges the session.
+pub struct SocketStartLock {
+    _file: std::fs::File,
+}
+
+impl SocketStartLock {
+    pub fn acquire(socket: &Path, deadline: Instant) -> std::io::Result<Self> {
+        let mut name = socket.file_name().unwrap_or_default().to_os_string();
+        name.push(".spawn-lock");
+        let path = socket.with_file_name(name);
+        let file = std::fs::OpenOptions::new().create(true).append(true).open(&path)?;
+        loop {
+            match fs4::FileExt::try_lock(&file) {
+                Ok(()) => return Ok(Self { _file: file }),
+                Err(fs4::TryLockError::WouldBlock) => {}
+                Err(fs4::TryLockError::Error(error)) => return Err(error),
+            }
+            if Instant::now() >= deadline {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    "timed out waiting for a concurrent session-server start",
+                ));
+            }
+            std::thread::sleep(Duration::from_millis(25));
+        }
+    }
+}
+
+/// How long a server start may wait for a concurrent starter of the same
+/// socket. Holders keep the lock only across probe, unlink, and bind, so a
+/// healthy contender clears in milliseconds; the bound exists to surface a
+/// wedged holder as an error instead of a hang.
+const START_LOCK_DEADLINE: Duration = Duration::from_secs(10);
+
 /// Bind the socket and accept protocol clients before lifecycle readiness.
 pub fn serve_paused(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<PendingServer> {
     let (path, is_derived) = match path {
@@ -4843,13 +4899,8 @@ pub fn serve_paused(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<Pend
     // Only harden directories selected by the daemon. An explicit socket path
     // is authoritative, so its parent may be a shared or pre-configured path
     // such as /tmp and must not be chmod'ed or ownership-checked.
-    if is_derived {
-        if let Some(dir) = path.parent() {
-            prepare_runtime_socket_directory(dir)?;
-        }
-    } else {
-        prepare_explicit_socket_directory(&path)?;
-    }
+    prepare_socket_parent(&path, is_derived)?;
+    let start_lock = SocketStartLock::acquire(&path, Instant::now() + START_LOCK_DEADLINE)?;
     // Refuse to clobber a live socket; remove a stale one.
     if path.exists() {
         match transport::connect(&path) {
@@ -4861,6 +4912,7 @@ pub fn serve_paused(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<Pend
         }
     }
     let listener = transport::listen(&path)?;
+    drop(start_lock);
     if let Err(error) = platform::restrict_file(&path) {
         cleanup(&path);
         return Err(error.into());
@@ -13299,6 +13351,33 @@ mod tests {
         drop(pending);
         assert!(directory.is_dir());
         assert!(!socket.exists());
+    }
+
+    /// Stale-socket recovery (probe, unlink, bind) is not atomic, so
+    /// unserialized concurrent starts could both classify the socket as
+    /// stale and the second unlink would strand the first starter on an
+    /// unreachable socket. The start lock makes exactly one starter win
+    /// while the winner stays reachable.
+    #[test]
+    fn serve_paused_serializes_concurrent_starts_over_a_stale_socket() {
+        // Short names keep the socket under the unix path-length cap even in
+        // deep macOS temp directories, unlike this module's sibling tests.
+        let root = TestSocketDir::create("race");
+        let socket = root.path().join("m.sock");
+        std::fs::write(&socket, b"stale").unwrap();
+        let results: Vec<_> = std::thread::scope(|scope| {
+            let handles: Vec<_> = (0..2)
+                .map(|_| {
+                    let socket = socket.clone();
+                    scope.spawn(move || serve_paused(test_mux(), Some(socket)))
+                })
+                .collect();
+            handles.into_iter().map(|handle| handle.join().unwrap()).collect()
+        });
+        let winners = results.iter().filter(|result| result.is_ok()).count();
+        assert_eq!(winners, 1, "exactly one concurrent starter may bind a stale socket");
+        assert!(transport::connect(&socket).is_ok(), "the winner must stay reachable");
+        drop(results);
     }
 
     #[cfg(unix)]

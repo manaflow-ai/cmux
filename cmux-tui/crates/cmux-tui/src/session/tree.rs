@@ -87,22 +87,6 @@ pub struct TabNotificationView {
 }
 
 impl TreeView {
-    /// Remove pane tabs that cannot be backed by an attached surface.
-    ///
-    /// Remote tree snapshots and surface detach events travel on separate
-    /// streams. Applying this filter before publishing a snapshot keeps the
-    /// renderer from observing a tab whose surface has already been removed.
-    pub fn retain_surfaces(&mut self, surfaces: &HashSet<SurfaceId>) {
-        for workspace in &mut self.workspaces {
-            for screen in &mut workspace.screens {
-                for pane in &mut screen.panes {
-                    pane.tabs.retain(|tab| surfaces.contains(&tab.surface));
-                    pane.active_tab = pane.active_tab.min(pane.tabs.len().saturating_sub(1));
-                }
-            }
-        }
-    }
-
     /// Retain the server's authoritative tab topology, removing only tabs
     /// with explicit detach/retire evidence. The local surface mirror is a
     /// lazy cache and can be empty during startup or reconnect.
@@ -665,7 +649,11 @@ mod tests {
     }
 
     #[test]
-    fn retain_surfaces_drops_missing_tabs_and_clamps_active_index() {
+    fn retain_not_retired_keeps_tabs_when_local_catalog_is_empty() {
+        // The fixture must be a COMPLETE tree: parse_tree drops
+        // underspecified workspaces/screens, and this test shipped with a
+        // minimal shape that parsed to an empty tree (the panic was masked
+        // in CI by a clippy failure earlier in the same job).
         let mut tree = parse_tree(&json!({
             "workspaces": [{
                 "id": 1, "active": true,
@@ -673,27 +661,16 @@ mod tests {
                     "id": 2, "active": true, "active_pane": 3,
                     "layout": {"type": "leaf", "pane": 3},
                     "panes": [{"id": 3, "active_tab": 1, "tabs": [
-                        {"surface": 7, "title": "gone"},
-                        {"surface": 8, "title": "kept"}
+                        {"surface": 7, "title": "a"},
+                        {"surface": 8, "title": "b"}
                     ]}]
                 }]
             }]
         }));
-
-        tree.retain_surfaces(&HashSet::from([8]));
-
-        let pane = &tree.workspaces[0].screens[0].panes[0];
-        assert_eq!(pane.tabs.iter().map(|tab| tab.surface).collect::<Vec<_>>(), vec![8]);
-        assert_eq!(pane.active_tab, 0);
-    }
-
-    #[test]
-    fn retain_not_retired_keeps_tabs_when_local_catalog_is_empty() {
-        let mut tree = parse_tree(
-            &json!({"workspaces":[{"id":1,"screens":[{"id":2,"panes":[{"id":3,"tabs":[{"surface":7},{"surface":8}],"active_tab":1}]}]}]}),
-        );
         tree.retain_not_retired(&HashSet::new());
-        assert_eq!(tree.workspaces[0].screens[0].panes[0].tabs.len(), 2);
+        let pane = &tree.workspaces[0].screens[0].panes[0];
+        assert_eq!(pane.tabs.len(), 2);
+        assert_eq!(pane.active_tab, 1);
     }
 
     #[test]

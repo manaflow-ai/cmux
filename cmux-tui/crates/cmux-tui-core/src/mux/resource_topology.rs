@@ -15,7 +15,7 @@ use crate::server::MAX_CREATION_SELECTOR_FALLBACKS;
 use crate::workspace_registry::{
     RegistryPane, RegistryScreen, RegistryViewportColumn, ResourceCreationPreparation,
     ResourceCreationRecovery, ResourcePatchCommit, ResourceWorkspaceClose, TerminalLifecycle,
-    TerminalResourceCloseCommit,
+    TerminalOnExit, TerminalResourceCloseCommit,
 };
 use crate::{ResolvedResourcePath, ResourceSelectors, ResourceTarget, SurfaceKind};
 
@@ -47,6 +47,7 @@ struct TerminalEffectOptions {
     name: Option<String>,
     created_screen_name: Option<String>,
     size: Option<(u16, u16)>,
+    on_exit: Option<TerminalOnExit>,
 }
 
 struct CreatedTerminalEffect {
@@ -2560,6 +2561,15 @@ impl Mux {
             return Ok(false);
         };
         let mut state = self.state.lock().unwrap();
+        // A keep-policy terminal retains its views while the runtime screen
+        // surface is alive; reconciliation must not force-detach it out from
+        // under a live daemon. Without a runtime (a daemon restart dropped
+        // the in-memory VT) the kept terminal degrades to the normal detach.
+        if terminal.on_exit == TerminalOnExit::Keep
+            && state.terminal_catalog.contains_key(&terminal_public_id)
+        {
+            return Ok(false);
+        }
         let Some(projection) = self.terminal_exit_detach_projection_locked(
             &registry,
             &state,
@@ -3508,6 +3518,7 @@ impl Mux {
                         name: optional_owned_string(fields, "terminal_name")?,
                         created_screen_name: None,
                         size: effect_cell_size(fields)?,
+                        on_exit: None,
                     },
                 )
                 .map(|created| created.path)
@@ -3533,6 +3544,7 @@ impl Mux {
                         name: optional_owned_string(fields, "name")?,
                         created_screen_name: None,
                         size: effect_cell_size(fields)?,
+                        on_exit: effect_on_exit(fields)?,
                     },
                 )
                 .map(|created| created.path)
@@ -3563,6 +3575,7 @@ impl Mux {
                             name: None,
                             created_screen_name: name,
                             size: effect_cell_size(fields)?,
+                            on_exit: None,
                         },
                     ),
                 }
@@ -3622,6 +3635,7 @@ impl Mux {
                             name: None,
                             created_screen_name: None,
                             size: effect_cell_size(fields)?,
+                            on_exit: None,
                         },
                     ),
                     None => self.effect_create_workspace_terminal(
@@ -3633,6 +3647,7 @@ impl Mux {
                             name: None,
                             created_screen_name: None,
                             size: effect_cell_size(fields)?,
+                            on_exit: None,
                         },
                     ),
                 }
@@ -3673,6 +3688,7 @@ impl Mux {
                     optional_owned_string(fields, "cwd")?,
                     optional_owned_string(fields, "name")?,
                     effect_cell_size(fields)?,
+                    effect_on_exit(fields)?,
                 )
                 .map(|created| created.path)
             }
@@ -3686,6 +3702,7 @@ impl Mux {
                         optional_owned_string(fields, "cwd")?,
                         optional_owned_string(fields, "name")?,
                         effect_cell_size(fields)?,
+                        None,
                     ),
                     None if slots.workspace.is_some() => self.effect_create_terminal_in_workspace(
                         intent,
@@ -3696,6 +3713,7 @@ impl Mux {
                             name: optional_owned_string(fields, "name")?,
                             created_screen_name: None,
                             size: effect_cell_size(fields)?,
+                            on_exit: None,
                         },
                     ),
                     None => self.effect_create_workspace_terminal(
@@ -3707,6 +3725,7 @@ impl Mux {
                             name: optional_owned_string(fields, "name")?,
                             created_screen_name: None,
                             size: effect_cell_size(fields)?,
+                            on_exit: None,
                         },
                     ),
                 }
@@ -3904,6 +3923,7 @@ impl Mux {
         Ok((key, public_id, mutation))
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn effect_terminal_reservation(
         &self,
         intent: &Value,
@@ -3912,6 +3932,7 @@ impl Mux {
         cwd: Option<&str>,
         name: Option<&str>,
         size: Option<(u16, u16)>,
+        on_exit: Option<TerminalOnExit>,
     ) -> anyhow::Result<TerminalReservationRequest> {
         let stored = intent["terminal_reservation"]
             .as_object()
@@ -3939,9 +3960,11 @@ impl Mux {
                 cwd,
                 name,
                 size,
+                on_exit,
             )?,
             expected_generation: None,
             expected_revision: None,
+            on_exit: on_exit.unwrap_or_default(),
         })
     }
 
@@ -3987,7 +4010,7 @@ impl Mux {
         workspace: WorkspaceId,
         options: TerminalEffectOptions,
     ) -> anyhow::Result<CreatedTerminalEffect> {
-        let TerminalEffectOptions { argv, cwd, name, created_screen_name, size } = options;
+        let TerminalEffectOptions { argv, cwd, name, created_screen_name, size, on_exit } = options;
         let workspace_key = self
             .with_state(|state| state.workspace_by_id(workspace).map(|item| item.key.clone()))
             .with_context(|| format!("workspace {workspace} disappeared"))?;
@@ -3998,6 +4021,7 @@ impl Mux {
             cwd.as_deref(),
             name.as_deref(),
             size,
+            on_exit,
         )?;
         let terminal_hex = reservation.terminal_id.to_hex();
         let result = self.create_terminal_in_workspace_with_mutation(
@@ -4010,6 +4034,7 @@ impl Mux {
             None,
             None,
             &reservation.mutation,
+            on_exit,
         )?;
         let surface =
             result.created_surface.context("created terminal result omitted its local surface")?;
@@ -4024,6 +4049,7 @@ impl Mux {
         Ok(CreatedTerminalEffect { path })
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn effect_add_terminal_tab(
         self: &Arc<Self>,
         intent: &Value,
@@ -4032,6 +4058,7 @@ impl Mux {
         cwd: Option<String>,
         name: Option<String>,
         size: Option<(u16, u16)>,
+        on_exit: Option<TerminalOnExit>,
     ) -> anyhow::Result<CreatedTerminalEffect> {
         let workspace_key = self
             .workspace_key_for_pane(target)
@@ -4044,6 +4071,7 @@ impl Mux {
             cwd.as_deref(),
             name.as_deref(),
             size,
+            on_exit,
         )?;
         let surface =
             self.spawn_surface_in_workspace_reserved(&workspace_key, cwd, size, argv, reservation)?;
@@ -4123,6 +4151,7 @@ impl Mux {
             cwd.as_deref(),
             None,
             size,
+            None,
         )?;
         let surface =
             self.spawn_surface_in_workspace_reserved(&workspace_key, cwd, size, None, reservation)?;
@@ -4223,6 +4252,7 @@ impl Mux {
             cwd.as_deref(),
             None,
             size,
+            None,
         )?;
         let surface =
             self.spawn_surface_in_workspace_reserved(&workspace_key, cwd, size, None, reservation)?;
@@ -4614,6 +4644,16 @@ fn optional_owned_string(
                 .as_str()
                 .map(str::to_string)
                 .with_context(|| format!("field {name:?} must be a string"))
+        })
+        .transpose()
+}
+
+fn effect_on_exit(fields: &Map<String, Value>) -> anyhow::Result<Option<TerminalOnExit>> {
+    fields
+        .get("on_exit")
+        .map(|value| {
+            let value = value.as_str().context("field \"on_exit\" must be a string")?;
+            TerminalOnExit::parse(value)
         })
         .transpose()
 }

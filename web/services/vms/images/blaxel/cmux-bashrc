@@ -1,0 +1,40 @@
+# cmux cloud machine interactive shell setup (/etc/cmux/bashrc).
+# Sourced from /etc/bash.bashrc, /etc/skel/.bashrc, /root/.bashrc, and
+# /home/cua/.bashrc. Parity source: chatmux infra/sandbox-images/devshell.bashrc.
+case $- in *i*) ;; *) return ;; esac
+
+# PTYs from the sandbox API do not reliably inherit these.
+export LANG="${LANG:-C.UTF-8}"
+export USER="${USER:-$(id -un)}"
+export HOME="${HOME:-$(getent passwd "$(id -u)" | cut -d: -f6)}"
+
+# First interactive shell on a fresh HOME (the persistent volume shadows the
+# image's /root): seed history so ble.sh ghost text completes agent launches.
+if [ ! -f "$HOME/.bash_history" ] && [ -f /etc/cmux/seed-history ]; then
+  cp /etc/cmux/seed-history "$HOME/.bash_history" 2>/dev/null || true
+fi
+
+if [ -f /usr/local/share/blesh/ble.sh ] && [ -z "${BLE_VERSION:-}" ]; then
+  source /usr/local/share/blesh/ble.sh --noattach
+  bleopt prompt_eol_mark= exec_errexit_mark= exec_elapsed_mark= exec_exit_mark=
+fi
+
+# half-life palette: purple 135, lime 118, orange 166, hotpink 161. The machine
+# name stays in the prompt (\h): cloud machines are addressed by name.
+__cmux_git() {
+  local b d=""
+  b=$(git symbolic-ref --short HEAD 2>/dev/null) || b=$(git rev-parse --short HEAD 2>/dev/null) || return 0
+  git diff --quiet --ignore-submodules HEAD 2>/dev/null || d="*"
+  printf ' on \001\033[38;5;166m\002%s\001\033[38;5;161m\002%s\001\033[0m\002' "$b" "$d"
+}
+PS1='\[\e[38;5;135m\]\u@\h\[\e[0m\] in \[\e[38;5;118m\]\w\[\e[0m\]$(__cmux_git) λ '
+
+HISTSIZE=50000
+HISTFILESIZE=50000
+shopt -s histappend
+
+alias ls='ls --color=auto'
+alias grep='grep --color=auto'
+alias g=git
+
+[ -n "${BLE_VERSION:-}" ] && ble-attach
