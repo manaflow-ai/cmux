@@ -1203,6 +1203,34 @@ mod tests {
     }
 
     #[test]
+    fn remote_capabilities_round_trip_known_and_unknown_wire_values() {
+        let known: RemoteCapability =
+            serde_json::from_value(serde_json::json!("process-catalog-v1")).unwrap();
+        assert_eq!(known, RemoteCapability::ProcessCatalogV1);
+        assert_eq!(serde_json::to_value(known).unwrap(), "process-catalog-v1");
+
+        let unknown_wire_value = "workspace-files-v99";
+        let unknown: RemoteCapability =
+            serde_json::from_value(serde_json::json!(unknown_wire_value)).unwrap();
+        assert_eq!(unknown, RemoteCapability::Unknown(unknown_wire_value.to_owned()));
+        assert_eq!(serde_json::to_value(unknown).unwrap(), unknown_wire_value);
+
+        let response: WorkspaceResponse = serde_json::from_value(serde_json::json!({
+            "type": "capabilities",
+            "capabilities": ["process-catalog-v1", unknown_wire_value]
+        }))
+        .unwrap();
+        assert!(matches!(
+            response,
+            WorkspaceResponse::Capabilities { capabilities }
+                if capabilities == vec![
+                    RemoteCapability::ProcessCatalogV1,
+                    RemoteCapability::Unknown(unknown_wire_value.to_owned())
+                ]
+        ));
+    }
+
+    #[test]
     fn request_ids_are_uuid_json_strings() {
         const ENCODED: &str = "\"018f47a2-17d6-4c16-a8b1-7b3d5d998271\"";
         let request: RequestId =
