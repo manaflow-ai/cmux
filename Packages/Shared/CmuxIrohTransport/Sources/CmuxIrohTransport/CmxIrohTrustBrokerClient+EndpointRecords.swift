@@ -5,10 +5,13 @@ public import Foundation
 /// backpressure gate); publish requires the retained binding authorization,
 /// so a pre-registration publish fails typed instead of dialing unauthenticated.
 extension CmxIrohTrustBrokerClient: CmxIrohEndpointRecordBroker {
+    /// Fetches every stored endpoint record from the discovery snapshot.
     public func fetchEndpointRecords() async throws -> [Data] {
         try await discover().bindings.compactMap(\.endpointRecord)
     }
 
+    /// Uploads this endpoint's own signed record under the retained
+    /// binding authorization.
     public func publishEndpointRecord(_ record: Data) async throws {
         guard let bindingID = await bindingAuthorizationID() else {
             throw CmxIrohTrustBrokerClientError.missingAuthentication

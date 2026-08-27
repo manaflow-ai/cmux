@@ -79,8 +79,20 @@ public enum CmxIrohEndpointRecordPolicy {
     }
 
     /// The canonical lowercase-hex form of an endpoint id.
+    ///
+    /// Pure-Swift nibble table, not `String(format:)`: this runs on every
+    /// resolve and for every broker-fetched record, and per-byte Foundation
+    /// format calls are a known allocation hazard on concurrent hot paths.
     public static func canonicalEndpointID(_ endpointID: EndpointId) -> String {
-        endpointID.toBytes().map { String(format: "%02x", $0) }.joined()
+        let digits: [UInt8] = Array("0123456789abcdef".utf8)
+        let bytes = endpointID.toBytes()
+        var hex: [UInt8] = []
+        hex.reserveCapacity(bytes.count * 2)
+        for byte in bytes {
+            hex.append(digits[Int(byte >> 4)])
+            hex.append(digits[Int(byte & 0x0F)])
+        }
+        return String(decoding: hex, as: UTF8.self)
     }
 
     /// Exact-origin allowlist match, tolerating one trailing slash the same

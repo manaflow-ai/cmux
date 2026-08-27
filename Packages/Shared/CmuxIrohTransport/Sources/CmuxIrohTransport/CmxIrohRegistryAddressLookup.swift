@@ -44,16 +44,23 @@ public struct CmxIrohAddressLookupDiagnostics: Equatable, Sendable {
 
     /// One completed resolve, keyed by a shortened endpoint id.
     public struct ResolveOutcome: Equatable, Sendable {
+        /// The first ten hex characters of the requested endpoint id.
         public let endpointIDPrefix: String
+        /// Where the answer came from, or why it produced nothing.
         public let source: ResolveSource
+        /// How many signed records were returned to iroh.
         public let recordCount: Int
+        /// When the resolve completed.
         public let at: Date
     }
 
     /// One completed publish callback.
     public struct PublishOutcome: Equatable, Sendable {
+        /// The terminal state of the callback.
         public let result: PublishResult
+        /// The size of the signed record handed to the callback.
         public let recordByteCount: Int
+        /// When the publish completed.
         public let at: Date
     }
 
@@ -238,6 +245,8 @@ public final class CmxIrohRegistryAddressLookup: AddressLookupService {
 
     // MARK: - AddressLookupService
 
+    /// Resolves signed records for `endpointId`: record cache, then
+    /// persisted caches, then at most one bounded broker fetch.
     public func resolve(endpointId: EndpointId) async throws -> [Data] {
         let key = CmxIrohEndpointRecordPolicy.canonicalEndpointID(endpointId)
         let prefix = String(key.prefix(10))
@@ -312,6 +321,7 @@ public final class CmxIrohRegistryAddressLookup: AddressLookupService {
         }
     }
 
+    /// Verifies, caches, and uploads this endpoint's own signed record.
     public func publish(record: Data) async throws {
         let allowed = await allowedRelayURLs()
         guard let verified = CmxIrohEndpointRecordPolicy.acceptableRecord(

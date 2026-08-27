@@ -750,11 +750,15 @@ describe("Iroh trust broker database behavior", () => {
     expect(stored?.updatedAt).toEqual(NOW);
 
     // The CHECK constraint refuses non-base64 payloads even on direct SQL.
-    await expect(requiredSql()`
-      update iroh_endpoint_bindings
-      set endpoint_record = 'not base64!!'
-      where id = ${bindingId}
-    `).rejects.toThrow(/endpoint_record_check/);
+    // (Wrapped in a real Promise: a lazy postgres.js query object hangs
+    // under expect().rejects, which awaits the thenable more than once.)
+    await expect((async () => {
+      await requiredSql()`
+        update iroh_endpoint_bindings
+        set endpoint_record = 'not base64!!'
+        where id = ${bindingId}
+      `;
+    })()).rejects.toThrow(/endpoint_record_check/);
 
     // Revocation wipes the record with the same posture as path hints.
     await Effect.runPromise(repo.revokeBinding({
