@@ -143,9 +143,11 @@ extension DockSplitStore {
 
     /// Builds a Dock browser panel with the workspace's remote-browser settings.
     func makeBrowserPanel(
+        id: UUID = UUID(),
         url: URL?,
         initialRequest: URLRequest? = nil,
         preferredProfileID: UUID? = nil,
+        renderInitialNavigation: Bool = true,
         bypassInsecureHTTPHostOnce: String? = nil,
         chromeVisibility: BrowserChromeVisibility = .visible,
         preloadInitialNavigationInBackground: Bool = false,
@@ -157,10 +159,12 @@ extension DockSplitStore {
         let resolvedBypassRemoteProxy =
             bypassRemoteProxy ?? settings.bypassRemoteProxy
         let panel = BrowserPanel(
+            id: id,
             workspaceId: workspaceId,
             profileID: preferredProfileID,
             initialURL: url,
             initialRequest: initialRequest,
+            renderInitialNavigation: renderInitialNavigation,
             preloadInitialNavigationInBackground:
                 preloadInitialNavigationInBackground,
             bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce,

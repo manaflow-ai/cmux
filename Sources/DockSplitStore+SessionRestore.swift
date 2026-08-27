@@ -9,9 +9,12 @@ extension DockSplitStore {
     func restoreSessionSnapshot(
         _ snapshot: SessionSplitContainerSnapshot,
         excludingStableIdentities: Set<UUID> = [],
+        deferBrowserPanels: Bool = false,
         sourceWorkspaceResolver: (UUID) -> Workspace? = { _ in nil }
     ) -> [UUID: UUID] {
         guard !isRetired else { return [:] }
+        sessionRestoreDepth += 1
+        defer { sessionRestoreDepth = max(sessionRestoreDepth - 1, 0) }
         cancelConfigurationTasks()
         removeAllPanels()
         hasLoadedConfiguration = true
@@ -38,7 +41,8 @@ extension DockSplitStore {
                           sourceWorkspaceId: snapshot.sourceWorkspaceIdsByPanelId?[oldPanelId],
                           sourceSnapshotWorkspaceId:
                             snapshot.sourceWorkspaceIdsByPanelId?[oldPanelId],
-                          sourceWorkspaceResolver: sourceWorkspaceResolver
+                          sourceWorkspaceResolver: sourceWorkspaceResolver,
+                          deferBrowserPanel: deferBrowserPanels
                       ) else {
                     continue
                 }
@@ -117,9 +121,11 @@ extension DockSplitStore {
         excludingStableIdentities: Set<UUID>,
         sourceWorkspaceId: UUID?,
         sourceSnapshotWorkspaceId: UUID?,
-        sourceWorkspaceResolver: (UUID) -> Workspace?
+        sourceWorkspaceResolver: (UUID) -> Workspace?,
+        deferBrowserPanel: Bool = false
     ) -> UUID? {
-        if let sourceWorkspaceId,
+        if (!deferBrowserPanel || snapshot.type != .browser),
+           let sourceWorkspaceId,
            let sourceWorkspace = sourceWorkspaceResolver(sourceWorkspaceId),
            let detached = sourceWorkspace.detachedSurfaceForDockSessionRestore(
                snapshot,
@@ -154,6 +160,32 @@ extension DockSplitStore {
                 excludingStableIdentities: excludingStableIdentities
             )
         case .browser:
+            if deferBrowserPanel,
+               snapshot.browser != nil,
+               isBrowserAvailable() {
+                let restoredPanelId = panels[snapshot.id] == nil ? snapshot.id : UUID()
+                let deferredPanel = DeferredBrowserPanel(
+                    id: restoredPanelId,
+                    workspaceId: workspaceId,
+                    snapshot: snapshot
+                )
+                deferredPanel.reattach(to: workspaceId) { [weak self, weak deferredPanel] in
+                    guard let self, let deferredPanel else { return }
+                    _ = self.materializeDeferredBrowserPanel(deferredPanel)
+                }
+                guard attachSessionRestoredPanel(
+                    deferredPanel,
+                    snapshot: snapshot,
+                    inPane: paneId
+                ) != nil else {
+                    return nil
+                }
+                if let stableSurfaceId = snapshot.stableSurfaceId,
+                   !excludingStableIdentities.contains(stableSurfaceId) {
+                    deferredPanel.adoptStableSurfaceId(stableSurfaceId)
+                }
+                return restoredPanelId
+            }
             return restoreSessionBrowser(
                 from: snapshot,
                 inPane: paneId,
@@ -407,6 +439,58 @@ extension DockSplitStore {
         return browser.id
     }
 
+    /// Materializes a browser that was kept as a lightweight restore placeholder.
+    @discardableResult
+    func materializeDeferredBrowserPanel(_ deferredPanel: DeferredBrowserPanel) -> BrowserPanel? {
+        guard panels[deferredPanel.id] === deferredPanel,
+              let browserSnapshot = deferredPanel.sessionPanelSnapshot.browser,
+              !isRetired else {
+            return panels[deferredPanel.id] as? BrowserPanel
+        }
+
+        let browser = makeBrowserPanel(
+            id: deferredPanel.id,
+            url: nil,
+            preferredProfileID: browserSnapshot.profileID,
+            renderInitialNavigation: false,
+            chromeVisibility: browserSnapshot.chromeVisibility ?? .visible,
+            transparentBackground: browserSnapshot.transparentBackground ?? false
+        )
+        browser.adoptStableSurfaceId(deferredPanel.stableSurfaceIdentity.id)
+        panels[deferredPanel.id] = browser
+        let pageZoom = CGFloat(max(0.25, min(5, browserSnapshot.pageZoom)))
+        if pageZoom.isFinite {
+            _ = browser.setPageZoomFactor(pageZoom)
+        }
+        browser.restoreSessionSnapshot(browserSnapshot)
+        if browserSnapshot.developerToolsVisible {
+            _ = browser.showDeveloperTools()
+            browser.requestDeveloperToolsRefreshAfterNextAttach(reason: "session_restore")
+        } else {
+            _ = browser.hideDeveloperTools()
+        }
+        installSubscription(for: browser)
+        if let tabId = surfaceId(forPanelId: deferredPanel.id) {
+            bonsplitController.updateTab(
+                tabId,
+                icon: .some(browser.displayIcon),
+                kind: .some(Self.surfaceKind(for: browser)),
+                isLoading: browser.isLoading,
+                isAudioMuted: browser.isMuted,
+                isAudioPlaying: browser.isPlayingAudio
+            )
+        }
+        applyVisibility(to: browser)
+        scheduleDockPortalReconcile(reason: "dock.browserMaterialize")
+#if DEBUG
+        cmuxDebugLog(
+            "session.restore.dockBrowser.materialize dock=\(workspaceId.uuidString.prefix(8)) " +
+                "panel=\(deferredPanel.id.uuidString.prefix(8))"
+        )
+#endif
+        return browser
+    }
+
     /// Recreates one persisted file-preview panel in its restored Dock pane.
     private func restoreSessionFilePreview(
         from snapshot: SessionPanelSnapshot,
@@ -441,6 +525,9 @@ extension DockSplitStore {
         }
         panels[panel.id] = panel
         let title = snapshot.customTitle ?? snapshot.title ?? panel.displayTitle
+        let isAudioMuted = (panel as? BrowserPanel)?.isMuted
+            ?? (panel as? DeferredBrowserPanel)?.sessionPanelSnapshot.browser?.isMuted
+            ?? false
         guard let tabId = bonsplitController.createTab(
             title: title,
             hasCustomTitle: snapshot.customTitle != nil,
@@ -449,7 +536,7 @@ extension DockSplitStore {
             isDirty: panel.isDirty,
             showsNotificationBadge: snapshot.isManuallyUnread,
             isLoading: (panel as? BrowserPanel)?.isLoading ?? false,
-            isAudioMuted: (panel as? BrowserPanel)?.isMuted ?? false,
+            isAudioMuted: isAudioMuted,
             isPinned: snapshot.isPinned,
             inPane: paneId
         ) else {

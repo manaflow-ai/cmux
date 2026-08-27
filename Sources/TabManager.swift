@@ -6455,6 +6455,7 @@ extension TabManager {
         remapClosedPanelHistory: Bool = true,
         excludingStableIdentities: Set<UUID> = [],
         excludingWorkspaceIds: Set<UUID> = [],
+        deferBrowserPanels: Bool = false,
         workspaceCreateIdempotencyCache: TerminalController.WorkspaceCreateIdempotencyCache? = nil
     ) -> [[UUID: UUID]] {
         guard !isFinalizedForWindowClose else { return [] }
@@ -6528,7 +6529,8 @@ extension TabManager {
             let restoredPanelIds = workspace.restoreSessionSnapshot(
                 workspaceSnapshot,
                 excludingStableIdentities: excludingStableIdentities,
-                startupRestoreCommitOwner: .tabManagerTopology
+                startupRestoreCommitOwner: .tabManagerTopology,
+                deferBrowserPanels: deferBrowserPanels
             )
             reconcileWorkspaceCustomization(
                 afterRestoring: workspaceSnapshot,
@@ -6578,7 +6580,11 @@ extension TabManager {
         for workspace in newTabs {
             workspace.terminalStartupRestoreCoordinator.commitPendingRestores()
         }
-        restoreWorkspaceDockSessionSnapshots(from: snapshot, excludingStableIdentities: excludingStableIdentities)
+        restoreWorkspaceDockSessionSnapshots(
+            from: snapshot,
+            excludingStableIdentities: excludingStableIdentities,
+            deferBrowserPanels: deferBrowserPanels
+        )
         let restoredGroups: [WorkspaceGroup] = {
             guard let groupSnapshots = snapshot.workspaceGroups else { return [] }
             let workspaceIdsByGroupId: [UUID: [UUID]] = {

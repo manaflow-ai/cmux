@@ -89,6 +89,12 @@ struct PanelContentView: View {
                 // structural slot when a pane selects another browser, so bind its lifetime
                 // to the panel instead of carrying the prior panel's omnibar draft forward.
                 .id(browserPanel.id)
+            } else if let deferredBrowserPanel = panel as? DeferredBrowserPanel {
+                DeferredBrowserPanelView(
+                    panel: deferredBrowserPanel,
+                    isVisibleInUI: isVisibleInUI,
+                    onRequestPanelFocus: onRequestPanelFocus
+                )
             }
         case .markdown:
             if let markdownPanel = panel as? MarkdownPanel {
@@ -242,6 +248,35 @@ struct PanelContentView: View {
             return true
         case .terminal, .browser:
             return false
+        }
+    }
+}
+
+/// Keeps a lazily restored browser tab's pane occupied until its first reveal.
+private struct DeferredBrowserPanelView: View {
+    let panel: DeferredBrowserPanel
+    let isVisibleInUI: Bool
+    let onRequestPanelFocus: () -> Void
+
+    var body: some View {
+        ZStack {
+            Color.clear
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .contentShape(Rectangle())
+        // Materialization is deliberately outside the body projection.  A panel
+        // can be mounted while hidden; only the visibility transition is allowed
+        // to start WebKit work.
+        .task(id: isVisibleInUI) {
+            guard isVisibleInUI else { return }
+            // Let the Bonsplit/AppKit placement transaction unwind before
+            // replacing the panel object and constructing WebKit.
+            await Task.yield()
+            panel.materializeIfNeeded()
+        }
+        .onTapGesture {
+            panel.materializeIfNeeded()
+            onRequestPanelFocus()
         }
     }
 }

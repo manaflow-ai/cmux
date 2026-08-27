@@ -244,6 +244,9 @@ extension DockSplitStore {
                 panel.unfocus()
             }
         }
+        if selectedPanel is DeferredBrowserPanel, sessionRestoreDepth > 0 {
+            return
+        }
         selectedPanel.focus()
     }
 
@@ -330,7 +333,9 @@ extension DockSplitStore {
         applyDockSelection(tabId: tab.id, inPane: destination)
         let movedPanel = panel(for: tab.id)
         (movedPanel as? TerminalPanel)?.recordPortalHostOwnershipChange()
-        movedPanel?.focus()
+        if !(movedPanel is DeferredBrowserPanel && sessionRestoreDepth > 0) {
+            movedPanel?.focus()
+        }
         scheduleDockPortalReconcile(reason: "dock.moveTab")
     }
 

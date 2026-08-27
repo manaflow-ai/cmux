@@ -3,7 +3,8 @@ import Foundation
 extension TabManager {
     func restoreWorkspaceDockSessionSnapshots(
         from snapshot: SessionTabManagerSnapshot,
-        excludingStableIdentities: Set<UUID>
+        excludingStableIdentities: Set<UUID>,
+        deferBrowserPanels: Bool = false
     ) {
         let pairs = restoredSessionWorkspacePairs(from: snapshot)
         var workspacesByOriginalId: [UUID: Workspace] = [:]
@@ -17,6 +18,7 @@ extension TabManager {
             pair.workspace.dockSplit?.restoreSessionSnapshot(
                 dockSnapshot,
                 excludingStableIdentities: excludingStableIdentities,
+                deferBrowserPanels: deferBrowserPanels,
                 sourceWorkspaceResolver: { workspacesByOriginalId[$0] }
             )
         }

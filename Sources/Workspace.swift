@@ -196,8 +196,24 @@ extension Workspace {
     func restoreSessionSnapshot(
         _ snapshot: SessionWorkspaceSnapshot,
         excludingStableIdentities: Set<UUID> = [],
-        startupRestoreCommitOwner: WorkspaceTerminalStartupRestoreCommitOwner = .workspaceTopology
+        startupRestoreCommitOwner: WorkspaceTerminalStartupRestoreCommitOwner = .workspaceTopology,
+        deferBrowserPanels: Bool = false
     ) -> [UUID: UUID] {
+        sessionRestoreLayoutSuppressionDepth += 1
+        defer {
+            sessionRestoreLayoutSuppressionDepth = max(sessionRestoreLayoutSuppressionDepth - 1, 0)
+            if sessionRestoreLayoutSuppressionDepth == 0,
+               sessionRestoreLayoutFollowUpRequested {
+                sessionRestoreLayoutFollowUpRequested = false
+                beginEventDrivenLayoutFollowUp(
+                    reason: "workspace.sessionRestore.complete",
+                    includeGeometry: true
+                )
+            }
+        }
+        let previousDeferBrowserPanels = deferBrowserPanelsDuringSessionRestore
+        deferBrowserPanelsDuringSessionRestore = deferBrowserPanels
+        defer { deferBrowserPanelsDuringSessionRestore = previousDeferBrowserPanels }
         let previousSuppressClosedPanelHistory = suppressClosedPanelHistory
         suppressClosedPanelHistory = true
         defer { suppressClosedPanelHistory = previousSuppressClosedPanelHistory }
@@ -660,26 +676,33 @@ extension Workspace {
             agentSessionSnapshot = nil
             projectSnapshot = nil
         case .browser:
-            guard let browserPanel = panel as? BrowserPanel else { return nil }
-            guard browserPanel.shouldPersistSessionSnapshot() else { return nil }
             terminalSnapshot = nil
-            let historySnapshot = browserPanel.sessionNavigationHistorySnapshot()
-            let diffViewerComponents = browserPanel.diffViewerSessionComponents()
-            browserSnapshot = SessionBrowserPanelSnapshot(
-                urlString: browserPanel.preferredURLStringForSessionSnapshot(),
-                profileID: browserPanel.profileID,
-                shouldRenderWebView: browserPanel.shouldRenderWebViewForSessionSnapshot(),
-                pageZoom: Double(browserPanel.currentPageZoomFactor()),
-                developerToolsVisible: browserPanel.isDeveloperToolsVisible(),
-                isMuted: browserPanel.isMuted,
-                chromeVisibility: browserPanel.chromeVisibility,
-                omnibarVisible: browserPanel.isOmnibarVisible,
-                backHistoryURLStrings: historySnapshot.backHistoryURLStrings,
-                forwardHistoryURLStrings: historySnapshot.forwardHistoryURLStrings,
-                transparentBackground: browserPanel.sessionSnapshotTransparentBackground,
-                diffViewerToken: diffViewerComponents?.token,
-                diffViewerRequestPath: diffViewerComponents?.requestPath
-            )
+            if let browserPanel = panel as? BrowserPanel {
+                guard browserPanel.shouldPersistSessionSnapshot() else { return nil }
+                let historySnapshot = browserPanel.sessionNavigationHistorySnapshot()
+                let diffViewerComponents = browserPanel.diffViewerSessionComponents()
+                browserSnapshot = SessionBrowserPanelSnapshot(
+                    urlString: browserPanel.preferredURLStringForSessionSnapshot(),
+                    profileID: browserPanel.profileID,
+                    shouldRenderWebView: browserPanel.shouldRenderWebViewForSessionSnapshot(),
+                    pageZoom: Double(browserPanel.currentPageZoomFactor()),
+                    developerToolsVisible: browserPanel.isDeveloperToolsVisible(),
+                    isMuted: browserPanel.isMuted,
+                    chromeVisibility: browserPanel.chromeVisibility,
+                    omnibarVisible: browserPanel.isOmnibarVisible,
+                    backHistoryURLStrings: historySnapshot.backHistoryURLStrings,
+                    forwardHistoryURLStrings: historySnapshot.forwardHistoryURLStrings,
+                    transparentBackground: browserPanel.sessionSnapshotTransparentBackground,
+                    diffViewerToken: diffViewerComponents?.token,
+                    diffViewerRequestPath: diffViewerComponents?.requestPath
+                )
+            } else if let deferredPanel = panel as? DeferredBrowserPanel {
+                // A deferred panel already owns the exact persisted browser DTO;
+                // serializing it here keeps autosave lossless before first reveal.
+                browserSnapshot = deferredPanel.sessionPanelSnapshot.browser
+            } else {
+                return nil
+            }
             markdownSnapshot = nil
             filePreviewSnapshot = nil
             rightSidebarToolSnapshot = nil
@@ -1806,6 +1829,47 @@ extension Workspace {
             )
             return terminalPanel.id
         case .browser:
+            if deferBrowserPanelsDuringSessionRestore,
+               snapshot.browser != nil,
+               !isRemoteTmuxMirror,
+               (BrowserAvailabilitySettings.isEnabled() || !BrowserAvailabilitySettings.isManagedByPolicy) {
+                let restoredPanelId = panels[snapshot.id] == nil ? snapshot.id : UUID()
+                let deferredPanel = DeferredBrowserPanel(
+                    id: restoredPanelId,
+                    workspaceId: id,
+                    snapshot: snapshot
+                )
+                deferredPanel.onMaterialize = { [weak self, weak deferredPanel] in
+                    guard let self, let deferredPanel else { return }
+                    _ = self.materializeDeferredBrowserPanel(deferredPanel)
+                }
+                panels[restoredPanelId] = deferredPanel
+                guard let tabId = bonsplitController.createTab(
+                    title: snapshot.customTitle ?? snapshot.title ?? deferredPanel.displayTitle,
+                    hasCustomTitle: snapshot.customTitle != nil,
+                    icon: deferredPanel.displayIcon,
+                    kind: SurfaceKind.browser.rawValue,
+                    isDirty: false,
+                    showsNotificationBadge: snapshot.isManuallyUnread,
+                    isLoading: false,
+                    isAudioMuted: snapshot.browser?.isMuted ?? false,
+                    isPinned: snapshot.isPinned,
+                    inPane: paneId
+                ) else {
+                    panels.removeValue(forKey: restoredPanelId)
+                    return nil
+                }
+                bindSurface(tabId, toPanelId: restoredPanelId)
+                applySessionPanelMetadata(snapshot, toPanelId: restoredPanelId)
+                publishCmuxSurfaceCreated(
+                    restoredPanelId,
+                    paneId: paneId,
+                    kind: SurfaceKind.browser.rawValue,
+                    origin: "session_restore_deferred",
+                    focused: false
+                )
+                return restoredPanelId
+            }
             guard let browserPanel = newBrowserSurface(
                 inPane: paneId,
                 url: nil,
@@ -2727,6 +2791,12 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     }
     private var pendingTerminalInputObserversByPanelId: [UUID: [WorkspacePendingTerminalInputObserver]] = [:]
     private let sessionRestorePolicy: WorkspaceSessionRestorePolicyService<SurfaceResumeBindingSnapshot>
+    /// Keeps WebKit out of launch-time topology assembly; deferred browser panels materialize
+    /// from ``WorkspaceContentView`` when their pane becomes visible.
+    private var deferBrowserPanelsDuringSessionRestore = false
+    /// Coalesces portal/focus follow-up requests emitted while Bonsplit is being rebuilt.
+    private var sessionRestoreLayoutSuppressionDepth = 0
+    private var sessionRestoreLayoutFollowUpRequested = false
 
     typealias SurfaceResumeStartupLaunch = WorkspaceSurfaceResumeStartupLaunch
 
@@ -4613,6 +4683,67 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 
     func browserPanel(for panelId: UUID) -> BrowserPanel? {
         panels[panelId] as? BrowserPanel
+    }
+
+    /// Replaces a restore placeholder with its WebKit-backed browser on first use.
+    ///
+    /// The Bonsplit tab and panel identity stay stable, so selection, closed-item
+    /// history, notifications, and durable links do not observe an intermediate
+    /// surface.  Only the expensive WebKit object is delayed.
+    @discardableResult
+    func materializeDeferredBrowserPanel(_ deferredPanel: DeferredBrowserPanel) -> BrowserPanel? {
+        guard panels[deferredPanel.id] === deferredPanel,
+              let browserSnapshot = deferredPanel.sessionPanelSnapshot.browser,
+              !isRetiredFromOwningTabManager,
+              !isRemoteTmuxMirror else {
+            return panels[deferredPanel.id] as? BrowserPanel
+        }
+
+        let browserPanel = BrowserPanel(
+            id: deferredPanel.id,
+            workspaceId: id,
+            profileID: browserSnapshot.profileID,
+            initialURL: nil,
+            renderInitialNavigation: false,
+            chromeVisibility: browserSnapshot.chromeVisibility ?? .visible,
+            transparentBackground: browserSnapshot.transparentBackground ?? false,
+            proxyEndpoint: remoteProxyEndpoint,
+            isRemoteWorkspace: isRemoteWorkspace,
+            remoteWebsiteDataStoreIdentifier: isRemoteWorkspace ? id : nil
+        )
+        browserPanel.adoptStableSurfaceId(deferredPanel.stableSurfaceIdentity.id)
+        configureBrowserPanel(browserPanel)
+        panels[deferredPanel.id] = browserPanel
+        panelTitles[deferredPanel.id] = browserPanel.displayTitle
+        setPreferredBrowserProfileID(browserPanel.profileID)
+        browserPanel.setRemoteWorkspaceStatus(browserRemoteWorkspaceStatusSnapshot())
+
+        // Restore metadata only after the live panel is installed; this applies the
+        // persisted navigation/history state without touching a placeholder WebView.
+        applySessionPanelMetadata(
+            deferredPanel.sessionPanelSnapshot,
+            toPanelId: deferredPanel.id
+        )
+        installBrowserPanelSubscription(browserPanel)
+
+        if let tabId = surfaceIdFromPanelId(deferredPanel.id) {
+            bonsplitController.updateTab(
+                tabId,
+                icon: .some(browserPanel.displayIcon),
+                kind: .some(SurfaceKind.browser.rawValue),
+                isLoading: browserPanel.isLoading,
+                isAudioMuted: browserPanel.isMuted,
+                isAudioPlaying: browserPanel.isPlayingAudio
+            )
+        }
+
+#if DEBUG
+        cmuxDebugLog(
+            "session.restore.browser.materialize workspace=\(id.uuidString.prefix(8)) " +
+                "panel=\(deferredPanel.id.uuidString.prefix(8))"
+        )
+#endif
+        return browserPanel
     }
 
     func markdownPanel(for panelId: UUID) -> MarkdownPanel? {
@@ -10175,7 +10306,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         } else {
             restoredUnreadPanelIndicators.removeValue(forKey: detached.panelId)
         }
-        let detachedBrowserMuted = (detached.panel as? BrowserPanel)?.isMuted ?? false
+        let detachedBrowserMuted = (detached.panel as? BrowserPanel)?.isMuted
+            ?? (detached.panel as? DeferredBrowserPanel)?.sessionPanelSnapshot.browser?.isMuted
+            ?? false
         let detachedBrowserPlayingAudio = (detached.panel as? BrowserPanel)?.isPlayingAudio ?? false
         let detachedIconImageData = detached.panel is TerminalPanel ? nil : detached.iconImageData
         guard let newTabId = bonsplitController.createTab(
@@ -10252,6 +10385,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             )
             configureBrowserPanel(browserPanel)
             installBrowserPanelSubscription(browserPanel)
+        } else if let deferredBrowserPanel = detached.panel as? DeferredBrowserPanel {
+            deferredBrowserPanel.reattach(to: id) { [weak self, weak deferredBrowserPanel] in
+                guard let self, let deferredBrowserPanel else { return }
+                _ = self.materializeDeferredBrowserPanel(deferredBrowserPanel)
+            }
         } else if let filePreviewPanel = detached.panel as? FilePreviewPanel {
             filePreviewPanel.updateWorkspaceId(id)
         } else if let rightSidebarToolPanel = detached.panel as? RightSidebarToolPanel {
@@ -10497,6 +10635,13 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         )
 #endif
         guard let tabId = surfaceIdFromPanelId(panelId) else { return }
+        // A browser restored lazily has the same Bonsplit tab identity as its
+        // eventual live panel. Materialize it before focus routing asks AppKit
+        // for a WebView/first-responder target.
+        if let deferredPanel = panels[panelId] as? DeferredBrowserPanel,
+           sessionRestoreLayoutSuppressionDepth == 0 {
+            _ = materializeDeferredBrowserPanel(deferredPanel)
+        }
         // In canvas mode, focusing a panel also brings it forward as its
         // pane's selected tab so focus and visibility never diverge.
         if layoutMode == .canvas {
@@ -10891,7 +11036,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             panel.unfocus()
         }
 
-        targetPanel.focus()
+        if !(targetPanel is DeferredBrowserPanel && sessionRestoreLayoutSuppressionDepth > 0) {
+            targetPanel.focus()
+        }
         if let terminalPanel = targetPanel as? TerminalPanel {
             terminalPanel.hostedView.ensureFocus(for: id, surfaceId: targetPanelId)
         }
@@ -10905,6 +11052,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// Reconcile focus/first-responder convergence.
     /// Coalesce to the next main-queue turn so bonsplit selection/pane mutations settle first.
     func scheduleFocusReconcile() {
+        if sessionRestoreLayoutSuppressionDepth > 0 {
+            sessionRestoreLayoutFollowUpRequested = true
+            return
+        }
         guard portalRenderingEnabled else { return }
         guard !remoteTmuxMirrorMutations.suppressesFocusActivation else { return }
 #if DEBUG
@@ -10916,6 +11067,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         focusReconcileScheduled = true
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
+            guard self.sessionRestoreLayoutSuppressionDepth == 0 else {
+                self.focusReconcileScheduled = false
+                self.sessionRestoreLayoutFollowUpRequested = true
+                return
+            }
             guard self.portalRenderingEnabled else {
                 self.focusReconcileScheduled = false
                 return
@@ -10932,6 +11088,13 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         terminalFocusPanelId: UUID? = nil,
         includeGeometry: Bool = false
     ) {
+        if sessionRestoreLayoutSuppressionDepth > 0 {
+            // Bonsplit emits geometry/focus callbacks while its restore tree is
+            // still being assembled. Remember one follow-up instead of flushing
+            // AppKit/SwiftUI from the middle of that mutation burst.
+            sessionRestoreLayoutFollowUpRequested = true
+            return
+        }
         guard portalRenderingEnabled else { return }
         layoutFollowUpReason = reason
         if let browserPanelId {
@@ -11127,6 +11290,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// already-scheduled guard (worst case: a retry scheduled past the 2s
     /// timeout never ran). Mirrors the reset in beginEventDrivenLayoutFollowUp.
     private func wakeLayoutFollowUpForStructuralEvent() {
+        guard sessionRestoreLayoutSuppressionDepth == 0 else {
+            sessionRestoreLayoutFollowUpRequested = true
+            return
+        }
         guard layoutFollowUpTimeoutScheduler.isScheduled else { return }
         layoutFollowUpStalledAttemptCount = 0
         layoutFollowUpAttemptVersion &+= 1
@@ -11145,6 +11312,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
             guard let self else { return }
             guard self.layoutFollowUpAttemptVersion == version else { return }
+            guard self.sessionRestoreLayoutSuppressionDepth == 0 else {
+                self.layoutFollowUpAttemptScheduled = false
+                self.sessionRestoreLayoutFollowUpRequested = true
+                return
+            }
             guard self.portalRenderingEnabled else {
                 self.layoutFollowUpAttemptScheduled = false
                 self.clearLayoutFollowUp()
@@ -12625,6 +12797,14 @@ extension Workspace: BonsplitDelegate {
         reassertAppKitFocus: Bool,
         focusTransactionId: UUID? = nil
     ) {
+        // Bonsplit invokes selection callbacks synchronously while a session
+        // topology is being rebuilt. A deferred browser must remain a cheap
+        // placeholder through that callback burst; its visible view will
+        // materialize it after the restore transaction has unwound.
+        if panel is DeferredBrowserPanel,
+           sessionRestoreLayoutSuppressionDepth > 0 {
+            return
+        }
         if let terminalPanel = panel as? TerminalPanel {
             let shouldFocusTerminalSurface = shouldMoveTerminalSurfaceFocus(for: focusIntent)
             terminalPanel.surface.setFocus(shouldFocusTerminalSurface)

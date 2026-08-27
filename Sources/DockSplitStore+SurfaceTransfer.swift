@@ -397,6 +397,11 @@ extension DockSplitStore {
             terminal.updateWorkspaceId(workspaceId)
         } else if let browser = panel as? BrowserPanel {
             browser.updateWorkspaceId(workspaceId)
+        } else if let deferredBrowser = panel as? DeferredBrowserPanel {
+            deferredBrowser.reattach(to: workspaceId) { [weak self, weak deferredBrowser] in
+                guard let self, let deferredBrowser else { return }
+                _ = self.materializeDeferredBrowserPanel(deferredBrowser)
+            }
         } else if let filePreview = panel as? FilePreviewPanel {
             filePreview.updateWorkspaceId(workspaceId)
         }
@@ -438,7 +443,9 @@ extension DockSplitStore {
             isDirty: panel.isDirty,
             showsNotificationBadge: detached.manuallyUnread,
             isLoading: detached.isLoading,
-            isAudioMuted: (panel as? BrowserPanel)?.isMuted ?? false,
+            isAudioMuted: (panel as? BrowserPanel)?.isMuted
+                ?? (panel as? DeferredBrowserPanel)?.sessionPanelSnapshot.browser?.isMuted
+                ?? false,
             isPinned: detached.isPinned,
             inPane: paneId
         ) else {
@@ -521,7 +528,9 @@ extension DockSplitStore {
             isDirty: panel.isDirty,
             showsNotificationBadge: detached.manuallyUnread,
             isLoading: detached.isLoading,
-            isAudioMuted: (panel as? BrowserPanel)?.isMuted ?? false,
+            isAudioMuted: (panel as? BrowserPanel)?.isMuted
+                ?? (panel as? DeferredBrowserPanel)?.sessionPanelSnapshot.browser?.isMuted
+                ?? false,
             isPinned: detached.isPinned
         )
 

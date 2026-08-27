@@ -397,6 +397,75 @@ extension Panel {
     }
 }
 
+/// Lightweight browser surface used while a session restore is assembling its topology.
+///
+/// A deferred panel keeps the persisted browser metadata and tab identity, but does not
+/// construct a ``WKWebView`` until the pane is actually visible.  This is intentionally a
+/// ``Panel`` rather than a Bonsplit-only placeholder so the restored layout remains fully
+/// navigable (and serializable) while WebKit work is kept out of the launch burst.
+@MainActor
+final class DeferredBrowserPanel: Panel, ObservableObject {
+    let id: UUID
+    private(set) var workspaceId: UUID
+    let stableSurfaceIdentity = PanelStableSurfaceIdentity()
+    let panelType: PanelType = .browser
+
+    /// The complete persisted panel record used to materialize the real browser later.
+    private(set) var sessionPanelSnapshot: SessionPanelSnapshot
+
+    /// Called by the owning workspace when this panel becomes visible or focused.
+    var onMaterialize: (() -> Void)?
+
+    var displayTitle: String {
+        sessionPanelSnapshot.customTitle
+            ?? sessionPanelSnapshot.title
+            ?? sessionPanelSnapshot.browser?.urlString
+            ?? String(localized: "browser.newTab", defaultValue: "New tab")
+    }
+
+    var displayIcon: String? { "globe" }
+
+    init(
+        id: UUID,
+        workspaceId: UUID,
+        snapshot: SessionPanelSnapshot
+    ) {
+        self.id = id
+        self.workspaceId = workspaceId
+        self.sessionPanelSnapshot = snapshot
+    }
+
+    /// Requests materialization; the owner guard makes repeated callbacks harmless.
+    /// Keeping the callback installed until the owner confirms replacement also
+    /// lets a pending view task survive a cross-workspace transfer.
+    func materializeIfNeeded() {
+        onMaterialize?()
+    }
+
+    /// Rebinds a placeholder after a cross-workspace tab transfer.
+    func reattach(
+        to workspaceId: UUID,
+        onMaterialize: @escaping () -> Void
+    ) {
+        self.workspaceId = workspaceId
+        self.onMaterialize = onMaterialize
+    }
+
+    func close() {
+        // Workspace panel teardown removes the placeholder from its panel registry.  Do not
+        // call back into that teardown here: ``discardClosedPanelLifecycleState`` invokes
+        // ``close`` before removing the registry entry, and a callback would recurse.
+        onMaterialize = nil
+    }
+
+    func focus() {
+        materializeIfNeeded()
+    }
+
+    func unfocus() {}
+    func triggerFlash(reason: WorkspaceAttentionFlashReason) {}
+}
+
 @MainActor
 final class CloudVMLoadingPanel: Panel {
     enum Phase {
