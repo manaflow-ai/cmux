@@ -40,6 +40,9 @@ final class SurfaceCatalog {
     private(set) var resources: [SurfaceResourceID: SurfaceResource] = [:]
     private(set) var projections: Set<SurfaceProjection> = []
     private var providers: [SurfaceMachineID: any SurfaceProvider] = [:]
+    /// Materializations are asynchronous, so actor reentrancy can otherwise let two callers
+    /// pass the reuse check before either provider has returned a projection.
+    private var inFlightProjects: [SurfaceResourceID: Task<SurfaceProjection, Error>] = [:]
     /// Panels whose projection was recorded from a restored session before the provider
     /// re-synced; resolved into `projections` once the resource shows up.
     private var pendingRestoredProjections: [SurfaceProjectionRecord: UUID] = [:]
@@ -122,6 +125,30 @@ final class SurfaceCatalog {
             return (existing, true)
         }
         guard let provider = providers[id.machine] else { throw SurfaceCatalogError.noProvider(id.machine) }
+        if reuseExisting, let inFlight = inFlightProjects[id] {
+            let projection = try await inFlight.value
+            if focus { focusProjection?(projection) }
+            return (projection, true)
+        }
+
+        if reuseExisting {
+            let materialization = Task { @MainActor [weak self] in
+                guard let self else { throw SurfaceCatalogError.unknownResource(id) }
+                let projection = try await provider.materialize(resource, at: destination, focus: focus)
+                self.record(projection)
+                return projection
+            }
+            inFlightProjects[id] = materialization
+            do {
+                let projection = try await materialization.value
+                inFlightProjects[id] = nil
+                return (projection, false)
+            } catch {
+                inFlightProjects[id] = nil
+                throw error
+            }
+        }
+
         let projection = try await provider.materialize(resource, at: destination, focus: focus)
         record(projection)
         return (projection, false)

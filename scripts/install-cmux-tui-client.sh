@@ -36,6 +36,21 @@ mkdir -p "$DEST_DIR"
 
 sha256_of() { shasum -a 256 "$1" | awk '{print $1}'; }
 
+verify_universal_binary() {
+  local binary="$1" archs arch has_arm64=0 has_x86_64=0
+  archs="$(lipo -archs "$binary")"
+  for arch in $archs; do
+    case "$arch" in
+      arm64) has_arm64=1 ;;
+      x86_64) has_x86_64=1 ;;
+    esac
+  done
+  if [[ "$has_arm64" -ne 1 || "$has_x86_64" -ne 1 ]]; then
+    echo "error: $binary is not universal (architectures: ${archs:-<none>})" >&2
+    return 1
+  fi
+}
+
 if [[ -n "${CMUX_TUI_CLIENT_LOCAL:-}" ]]; then
   [[ -f "$CMUX_TUI_CLIENT_LOCAL" ]] || { echo "error: CMUX_TUI_CLIENT_LOCAL not found: $CMUX_TUI_CLIENT_LOCAL" >&2; exit 1; }
   install -m 755 "$CMUX_TUI_CLIENT_LOCAL" "$DEST"
@@ -75,7 +90,7 @@ if [[ ! -f "$UNIVERSAL" ]]; then
   mv -f "$UNIVERSAL.tmp" "$UNIVERSAL"
 fi
 install -m 755 "$UNIVERSAL" "$DEST"
-lipo "$DEST" -verify_arch arm64 x86_64
+verify_universal_binary "$DEST"
 PROBE="$("$DEST" remote-probe --json 2>/dev/null || true)"
 [[ "$PROBE" == *'"app":"cmux-tui"'* ]] || { echo "error: installed binary does not probe as cmux-tui: $PROBE" >&2; exit 1; }
 echo "Installed universal cmux-tui client (commit ${COMMIT:0:10}) at $DEST"

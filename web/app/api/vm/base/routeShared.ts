@@ -1,6 +1,6 @@
 import type { AuthedUser } from "../../../../services/vms/auth";
 import { assertVmCreateEnabled } from "../../../../services/vms/config";
-import { defaultProviderId, type ProviderId } from "../../../../services/vms/drivers";
+import { defaultProviderId, isProviderId, type ProviderId } from "../../../../services/vms/drivers";
 import {
   isVmBillingTeamResolutionError,
   isVmProGateBlocked,
@@ -246,7 +246,7 @@ async function parseBaseRequest(
     }
   }
   const provider = typeof candidate.provider === "string" ? candidate.provider.trim() : undefined;
-  if (provider && provider !== "e2b" && provider !== "freestyle" && provider !== "daytona" && provider !== "blaxel") {
+  if (provider && !isProviderId(provider)) {
     return {
       ok: false,
       response: vmErrorResponse({

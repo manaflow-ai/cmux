@@ -29,5 +29,13 @@ fi
 mkdir -p "$(dirname "$DEST_PATH")"
 install -m 755 "$HELPER_PATH" "$DEST_PATH"
 
-lipo "$DEST_PATH" -verify_arch arm64 x86_64
+archs="$(lipo -archs "$DEST_PATH")"
+case " $archs " in
+  *" arm64 "* ) ;;
+  *) echo "error: $DEST_PATH is missing arm64 (architectures: ${archs:-<none>})" >&2; exit 1 ;;
+esac
+case " $archs " in
+  *" x86_64 "* ) ;;
+  *) echo "error: $DEST_PATH is missing x86_64 (architectures: ${archs:-<none>})" >&2; exit 1 ;;
+esac
 echo "Installed universal Ghostty CLI helper at $DEST_PATH"
