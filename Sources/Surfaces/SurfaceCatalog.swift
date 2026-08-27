@@ -19,15 +19,23 @@ protocol SurfaceProvider: AnyObject {
     /// Called when a pane projecting one of this provider's resources goes away. Remote
     /// providers do nothing (the resource lives on); the local provider drops the resource.
     func projectionDidEnd(_ projection: SurfaceProjection)
-    /// Close a pane that was created for a materialization but lost a race with an existing
-    /// projection. The default implementation handles providers that use the shared pane
-    /// factory; providers may also clear provider-specific bookkeeping. Return true when the
-    /// provider preserved the projection, as the local provider does for a moved pane.
+    /// Create a new, empty workspace on this machine, directly (not as a side effect of
+    /// creating a terminal). Providers without remote workspaces refuse.
+    func createRemoteWorkspace(name: String?) async throws -> SurfaceRemoteWorkspace
+    /// Close a projection's pane: a materialization that lost a race with an existing
+    /// projection, or a URL-backed pane whose machine was unregistered. The default
+    /// implementation handles providers that use the shared pane factory; providers may
+    /// also clear provider-specific bookkeeping. Return true when the provider preserved
+    /// the projection, as the local provider does for a moved pane.
     @discardableResult
     func discardMaterialization(_ projection: SurfaceProjection) -> Bool
 }
 
 extension SurfaceProvider {
+    func createRemoteWorkspace(name: String?) async throws -> SurfaceRemoteWorkspace {
+        throw SurfaceCatalogError.unsupported("workspaces on \(machine)")
+    }
+
     @discardableResult
     func discardMaterialization(_ projection: SurfaceProjection) -> Bool {
         SurfacePaneFactory.close(panelID: projection.panelID, in: projection.workspaceID)
@@ -124,6 +132,19 @@ final class SurfaceCatalog {
         let inFlightIDs = inFlightProjects.keys.filter { $0.machine == machine }
         for id in inFlightIDs {
             cancelInFlightProject(id, error: SurfaceCatalogError.unknownResource(id))
+        }
+        // A machine that is gone (deleted, or access ended) takes its URL-backed
+        // panes with it: a display or browser pane holds a tokened gateway URL
+        // that decays into the hosting provider's raw error page once the
+        // workload is dead. Terminal panes stay — their attach process exits and
+        // the scrollback is still the user's to read.
+        let urlBacked = projections.filter {
+            $0.resource.machine == machine
+                && ($0.resource.kind == .display || $0.resource.kind == .browser)
+        }
+        let provider = providers[machine]
+        for projection in urlBacked {
+            provider?.discardMaterialization(projection)
         }
         providers[machine] = nil
         machines[machine] = nil

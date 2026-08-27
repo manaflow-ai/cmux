@@ -435,7 +435,9 @@ extension DockSplitStore {
             terminal.adoptStableSurfaceId(stableSurfaceId)
         }
         if let resumeBinding {
-            surfaceResumeBindingsByPanelId[terminal.id] = resumeBinding
+            if surfaceResumeBindingMutationAllowed(resumeBinding, panelId: terminal.id) {
+                surfaceResumeBindingsByPanelId[terminal.id] = resumeBinding
+            }
         }
         if let managedResumeBinding {
             managedAgentResumeBindingsByPanelId[terminal.id] = managedResumeBinding

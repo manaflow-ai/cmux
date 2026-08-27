@@ -140,6 +140,14 @@ extension TerminalController {
             }
             return v2VmCall(id: id) {
                 try await VMClient.shared.destroy(id: vmId)
+                // Same cleanup as the Machines panel's delete confirm. Every
+                // entrypoint (panel, tree, CLI, socket) funnels through this
+                // handler, so this is the one place the app learns a machine
+                // died before the next 45 s list poll: close its workspaces
+                // and its URL-backed panes now, not up to 45 s later.
+                await MainActor.run {
+                    AppDelegate.shared?.closeWorkspaces(forManagedCloudVMID: vmId)
+                }
                 return ["ok": true]
             }
         case "vm.exec":
@@ -274,6 +282,8 @@ extension TerminalController {
             return socketWorkerVMTerminalOpenResponse(id: id, params: params)
         case "vm.terminal_new":
             return socketWorkerVMTerminalNewResponse(id: id, params: params)
+        case "vm.workspace_new":
+            return socketWorkerVMWorkspaceNewResponse(id: id, params: params)
         case "vm.desktop_open":
             return socketWorkerVMDesktopOpenResponse(id: id, params: params)
         case "vm.port_open":
