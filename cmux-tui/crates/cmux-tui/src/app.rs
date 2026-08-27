@@ -41794,6 +41794,33 @@ mod tests {
     }
 
     #[test]
+    fn child_sidebar_exits_cancel_workspace_preview() {
+        let mux = Mux::new("workspace-preview-child-exit-test", SurfaceOptions::default());
+        mux.new_workspace(Some("Alpha".into()), Some((80, 24))).unwrap();
+        mux.new_workspace(Some("Beta".into()), Some((80, 24))).unwrap();
+        let mut app = test_app(Session::Local(mux));
+        app.workspace_preview = Some(WorkspacePreview {
+            origin: app.tree.workspaces[0].id,
+            target: app.tree.workspaces[1].id,
+            origin_scroll: 0,
+        });
+        app.focus = FocusTarget::TabsRail;
+        app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)).unwrap();
+        assert_eq!(app.focus, FocusTarget::Pane);
+        assert!(app.workspace_preview.is_none());
+
+        app.workspace_preview = Some(WorkspacePreview {
+            origin: app.tree.workspaces[0].id,
+            target: app.tree.workspaces[1].id,
+            origin_scroll: 0,
+        });
+        app.focus = FocusTarget::ProjectionRail(0);
+        app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)).unwrap();
+        assert_eq!(app.focus, FocusTarget::Pane);
+        assert!(app.workspace_preview.is_none());
+    }
+
+    #[test]
     fn workspace_sidebar_previews_selection_until_enter_or_escape() {
         let mux = Mux::new("workspace-sidebar-preview-test", SurfaceOptions::default());
         let first = mux.new_workspace(Some("Alpha".into()), Some((80, 24))).unwrap();
