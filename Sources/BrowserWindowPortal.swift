@@ -3868,6 +3868,52 @@ final class WindowBrowserPortal: NSObject {
     }
 #endif
 
+#if DEBUG
+    /// Test-only: runs the external-geometry synchronize pass that a window
+    /// resize or split-divider notification schedules for the next main-queue
+    /// turn, synchronously and now.
+    ///
+    /// A test that counts layout passes on the SwiftUI-owned reference
+    /// hierarchy cannot yield to the run loop while that hierarchy is dirty:
+    /// AppKit's display cycle (`NSDisplayCycleFlush` →
+    /// `NSWindow.layoutIfNeeded`) lays out every window with pending layout —
+    /// ordered in or not — whenever the run loop spins, which says nothing
+    /// about what the portal did. Observing the pass synchronously keeps the
+    /// measurement about the portal alone.
+    func synchronizeExternalGeometryNowForTesting() {
+        synchronizeAllEntriesFromExternalGeometryChange()
+    }
+
+    /// Test-only: runs every pending presentation refresh now, on the caller's
+    /// stack, and drops the main-actor turns it was scheduled for. Same
+    /// reason as `synchronizeExternalGeometryNowForTesting`: the pass is what
+    /// the test measures, and yielding to the run loop to reach it would let
+    /// the display cycle lay out the dirty reference hierarchy first.
+    func flushPendingHostedWebViewRefreshesForTesting() {
+        for (webViewId, pending) in pendingHostedWebViewRefreshes {
+            guard let entry = entriesByWebViewId[webViewId],
+                  let webView = entry.webView,
+                  let containerView = entry.containerView else { continue }
+            pending.asyncScheduler.cancel()
+            pending.delayedScheduler.cancel()
+            let generation = pending.generation
+            guard runHostedWebViewUpdatePass(
+                webView,
+                in: containerView,
+                reason: "test.flush",
+                phase: "test",
+                mode: .refreshPresentation
+            ) else { continue }
+            completeHostedWebViewRefreshPass(
+                for: webViewId,
+                generation: generation,
+                in: containerView,
+                phase: "test"
+            )
+        }
+    }
+#endif
+
     func debugSnapshot(forWebViewId webViewId: ObjectIdentifier) -> BrowserWindowPortalRegistry.DebugSnapshot? {
         guard let entry = entriesByWebViewId[webViewId] else { return nil }
         let frameInWindow: CGRect = {
