@@ -4,7 +4,8 @@ import SwiftUI
 @MainActor
 public struct SidebarSection: View {
     private let catalog: SettingCatalog
-    private let hostActions: SettingsHostActions
+    let hostActions: SettingsHostActions
+    @State var rightSidebarTabs: [RightSidebarTabSettingsItem]
     private let rightSidebarWidthSettings = RightSidebarWidthSettings()
     @State private var sidebarFont: SettingsFontSize
     @State private var fontSaveFailed = false
@@ -37,6 +38,7 @@ public struct SidebarSection: View {
     public init(defaultsStore: UserDefaultsSettingsStore, catalog: SettingCatalog, hostActions: SettingsHostActions) {
         self.catalog = catalog
         self.hostActions = hostActions
+        _rightSidebarTabs = State(initialValue: hostActions.rightSidebarTabs())
         _sidebarFont = State(initialValue: hostActions.sidebarFontSize())
         _matchTerminal = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebarAppearance.matchTerminalBackground))
         _hideAll = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.hideAllDetails))
@@ -69,8 +71,14 @@ public struct SidebarSection: View {
         Group {
             SettingsSectionHeader(String(localized: "settings.section.sidebarAppearance", defaultValue: "Sidebar"), section: .sidebarAppearance)
             mainCard
+            rightSidebarTabsCard
         }
         .task { startObservingSettings() }
+        .task {
+            for await tabs in hostActions.rightSidebarTabsUpdates() {
+                rightSidebarTabs = tabs
+            }
+        }
     }
 
     private func startObservingSettings() {

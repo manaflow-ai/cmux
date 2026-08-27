@@ -151,12 +151,35 @@ struct RightSidebarPanelView: View {
         FeedCoordinator.shared.store?.pending.count ?? 0
     }
 
-    private var availableModes: [RightSidebarMode] {
+    private var featureAvailableModes: [RightSidebarMode] {
         RightSidebarMode.availableModes(
             feedEnabled: feedEnabled,
             dockEnabled: dockEnabled,
             machinesEnabled: CmuxFeatureFlags.shared.isCloudVMUIEnabled || cloudMachinesBetaEnabled
         )
+    }
+
+    /// Feature-available tabs in the user's order, for the customization
+    /// context menu: hidden tabs stay listed so they can be re-shown.
+    private var customizableModes: [RightSidebarMode] {
+        let featureAvailable = featureAvailableModes
+        return RightSidebarTabPreferences.orderedModes().filter(featureAvailable.contains)
+    }
+
+    private var availableModes: [RightSidebarMode] {
+        // Tab-preference mutations post the shortcuts didChange notification,
+        // which bumps this revision; reading it keeps the bar live when tabs
+        // are hidden, shown, or reordered.
+        _ = keyboardShortcutSettingsObserver.revision
+        let featureAvailable = featureAvailableModes
+        let hidden = RightSidebarTabPreferences.hiddenModes()
+        // An explicitly selected hidden tab (CLI, palette, notification
+        // routing) stays revealed in its own slot while it is active.
+        let active = fileExplorerState.mode
+        let modes = RightSidebarTabPreferences.orderedModes().filter { mode in
+            featureAvailable.contains(mode) && (!hidden.contains(mode) || mode == active)
+        }
+        return modes.isEmpty ? featureAvailable : modes
     }
 
     private var modeBarItems: [RightSidebarModeBarItem] {
@@ -228,6 +251,9 @@ struct RightSidebarPanelView: View {
         .onChange(of: feedEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
         .onChange(of: dockEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
         .onChange(of: cloudMachinesBetaEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
+        .onReceive(NotificationCenter.default.publisher(for: RightSidebarTabPreferences.didChangeNotification)) { _ in
+            refreshModeAvailabilityAndFocusIfNeeded()
+        }
     }
 
     private var modeBar: some View {
@@ -270,6 +296,7 @@ struct RightSidebarPanelView: View {
             }
         }
         .rightSidebarChromeBar(leadingPadding: 4, trailingPadding: 6, height: titlebarHeight)
+        .contextMenu { tabCustomizationMenu }
         .overlay(alignment: .topLeading) {
             focusShortcutHintOverlay
         }
@@ -280,6 +307,27 @@ struct RightSidebarPanelView: View {
             isVisible: true,
             titlebarHeight: titlebarHeight
         )
+    }
+
+    /// Right-click menu on the mode bar: show/hide each tab in place, plus a
+    /// jump to the Settings card that also reorders them.
+    @ViewBuilder
+    private var tabCustomizationMenu: some View {
+        let visibleCount = RightSidebarMode.visibleModes().count
+        ForEach(customizableModes, id: \.self) { mode in
+            let isShown = !RightSidebarTabPreferences.isHidden(mode)
+            Toggle(isOn: Binding(
+                get: { isShown },
+                set: { RightSidebarTabPreferences.setHidden(!$0, mode: mode) }
+            )) {
+                Text(mode.label)
+            }
+            .disabled(isShown && visibleCount == 1)
+        }
+        Divider()
+        Button(String(localized: "rightSidebar.tabs.customize", defaultValue: "Customize Tabs…")) {
+            SettingsWindowPresenter.show(navigationTarget: .sidebarAppearance)
+        }
     }
 
     private func openAsPaneButton(mode: RightSidebarMode) -> some View {

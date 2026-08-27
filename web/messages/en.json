@@ -1956,7 +1956,7 @@
       "shortcutsWhenBooleanKeys": "boolean keys. An unknown or absent key reads as false; the literals true and false are also accepted.",
       "shortcutsWhenTypedKeys": "typed keys for comparisons: the right sidebar's active mode (a string) plus pane and workspace counts (integers).",
       "shortcutsWhenOperators": "boolean operators, typed comparisons, regex match, and list membership. Comparisons bind tighter than && and ||.",
-      "shortcutsWhenExample": "For example, this makes Ctrl+1–9 select workspaces everywhere except when the right sidebar is focused (leaving Ctrl+1–5 free for the sidebar's mode switcher), and scopes surface selection to the Find sidebar when the workspace has multiple panes:"
+      "shortcutsWhenExample": "For example, this makes Ctrl+1–9 select workspaces everywhere except when the right sidebar is focused (leaving the Ctrl+digit tab shortcuts free for the sidebar's mode switcher), and scopes surface selection to the Find sidebar when the workspace has multiple panes:"
     },
     "customCommands": {
       "title": "Custom Commands",

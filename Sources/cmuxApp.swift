@@ -74,6 +74,31 @@ struct cmuxApp: App {
     }
 
     init() {
+        // The right-sidebar digit shortcuts default to the mode's position
+        // among the visible tabs, and the visible tab order is app state the
+        // CmuxSettings package cannot read. Install the override before any
+        // shortcut resolution so the package's Settings UI and the runtime
+        // matcher agree on the same defaults. The provider reads live defaults
+        // on every call, so tab-preference changes need no re-install.
+        ShortcutDefaultOverrides.install { action in
+            let mode: RightSidebarMode
+            switch action {
+            case .switchRightSidebarToFiles: mode = .files
+            case .switchRightSidebarToFind: mode = .find
+            case .switchRightSidebarToSessions: mode = .sessions
+            case .switchRightSidebarToFeed: mode = .feed
+            case .switchRightSidebarToDock: mode = .dock
+            case .switchRightSidebarToMachines: mode = .machines
+            default: return .useBuiltIn
+            }
+            guard let digit = RightSidebarMode.positionalDigit(for: mode) else {
+                return .stroke(nil)
+            }
+            // Fully qualified: the app target declares a legacy ShortcutStroke
+            // of its own, which this initializer must not resolve to.
+            return .stroke(CmuxSettings.ShortcutStroke(key: String(digit), control: true))
+        }
+
         // Gather settings package dependencies once. The runtime itself
         // is assigned after the saved language override below, because
         // it owns localized search-index text for the process lifetime.
