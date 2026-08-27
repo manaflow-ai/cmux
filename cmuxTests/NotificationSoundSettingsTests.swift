@@ -561,6 +561,40 @@ import CmuxSettings
         }
     }
 
+    @Test(.timeLimit(.seconds(15)))
+    func concurrentBlockingProcessWaitsDoNotStarveTimeoutTasks() async {
+        let runner = NotificationSoundProcessRunner(
+            executableURL: URL(fileURLWithPath: "/bin/sh"),
+            timeoutNanoseconds: 250_000_000,
+            argumentBuilder: { _, _ in ["-c", "sleep 3"] }
+        )
+        let startedAt = ContinuousClock.now
+        let tasks = (0..<48).map { index in
+            Task {
+                do {
+                    _ = try await runner.run(
+                        from: URL(fileURLWithPath: "/tmp/cmux-sound-source-\(index)"),
+                        to: URL(fileURLWithPath: "/tmp/cmux-sound-destination-\(index)")
+                    )
+                    return false
+                } catch {
+                    return true
+                }
+            }
+        }
+
+        var allTimedOut = true
+        for task in tasks {
+            allTimedOut = await task.value && allTimedOut
+        }
+
+        // The old detached wait/read helpers occupied every cooperative worker
+        // until the three-second child exited. A dedicated blocking bridge
+        // keeps the timeout tasks runnable and completes this burst promptly.
+        #expect(allTimedOut)
+        #expect(ContinuousClock.now - startedAt < .seconds(2))
+    }
+
     @Test func customSoundConversionDrainsErrorOutputBeforeReturning() async throws {
         let runner = NotificationSoundProcessRunner(
             executableURL: URL(fileURLWithPath: "/bin/sh"),
