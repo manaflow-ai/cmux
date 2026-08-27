@@ -18,6 +18,7 @@ The current tail includes [#10936](https://github.com/manaflow-ai/cmux/pull/1093
 [#10958](https://github.com/manaflow-ai/cmux/pull/10958),
 [#10962](https://github.com/manaflow-ai/cmux/pull/10962),
 [#10970](https://github.com/manaflow-ai/cmux/pull/10970), and
+[#10972](https://github.com/manaflow-ai/cmux/pull/10972), and
 [#10959](https://github.com/manaflow-ai/cmux/pull/10959), with the nine requested
 PRs. All listed authors are Lawrence Chen. Each row gives the exact merge SHA
 and a rollback command. The [#10936](https://github.com/manaflow-ai/cmux/pull/10936)
@@ -39,6 +40,7 @@ channel to hang.
 | [#10950](https://github.com/manaflow-ai/cmux/pull/10950) | Zeroize oversized remote session frames before returning the size-limit error. | `5c2ee1244e2d796c9e4be5307788b320ac2ee4ff` | Cross-language and allocator-level zeroization proof remains required. `git revert 5c2ee1244e2d796c9e4be5307788b320ac2ee4ff` |
 | [#10936](https://github.com/manaflow-ai/cmux/pull/10936) | Fail unknown workspace RPC responses and retire canceled request IDs safely. | `d65d6e6ccacf1d7300316451ce2830f05f889e14` | Cross-client unknown-response, cancellation, and reconnect behavior still need hosted proof. `git revert d65d6e6ccacf1d7300316451ce2830f05f889e14` |
 | [#10970](https://github.com/manaflow-ai/cmux/pull/10970) | Share the draw and paint render path. | `aa8ca45e0b3a140678c4a6ae588e201cb421ac50` | Render-path behavior still needs hosted visual proof. `git revert aa8ca45e0b3a140678c4a6ae588e201cb421ac50` |
+| [#10972](https://github.com/manaflow-ai/cmux/pull/10972) | Defer and flush Sentry sends before serverless freeze. | `2f95b8760005047ff470afe4a00fd33783e4cf93` | Cloud delivery behavior still needs hosted evidence. `git revert 2f95b8760005047ff470afe4a00fd33783e4cf93` |
 | [#10959](https://github.com/manaflow-ai/cmux/pull/10959) | Integrate Escape passthrough from #9810. | `87f31977237cbcbbf8b7f492718685d612fbb9b0` | Cross-frontend Escape handling still needs behavior proof. `git revert 87f31977237cbcbbf8b7f492718685d612fbb9b0` |
 
 The session scan receipt and lower-bound ledger below remain retained audit

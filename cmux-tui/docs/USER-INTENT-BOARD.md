@@ -14,6 +14,7 @@ The current main tail includes [#10936](https://github.com/manaflow-ai/cmux/pull
 [#10950](https://github.com/manaflow-ai/cmux/pull/10950), [#10951](https://github.com/manaflow-ai/cmux/pull/10951), [#10954](https://github.com/manaflow-ai/cmux/pull/10954), [#10958](https://github.com/manaflow-ai/cmux/pull/10958), [#10962](https://github.com/manaflow-ai/cmux/pull/10962), [#10970](https://github.com/manaflow-ai/cmux/pull/10970), and [#10959](https://github.com/manaflow-ai/cmux/pull/10959). Their exact source
 heads, authors, merge times, merge SHAs, and rollback commands are recorded in
 [`TECH-DEBT-CHANGELOG.md`](TECH-DEBT-CHANGELOG.md).
+The current ancestry also contains [#10972](https://github.com/manaflow-ai/cmux/pull/10972).
 
 The retained session receipt supports at least 258 named substantive turns.
 This is a verifiable lower bound, not a total session count, and no
@@ -29,6 +30,7 @@ This is a verifiable lower bound, not a total session count, and no
 | [#10958](https://github.com/manaflow-ai/cmux/pull/10958) | Lawrence Chen | `c6de8f16b6390038225f87474f603b0ea157506e` | 2026-08-27 10:22:03 | `9cf920bb6b7a87bae3af721a0f98c989c45b9c4b` | `git revert 9cf920bb6b7a87bae3af721a0f98c989c45b9c4b` |
 | [#10962](https://github.com/manaflow-ai/cmux/pull/10962) | Lawrence Chen | `ff719b6dc4e9f05358d0c77b7f49a9db021f72e7` | 2026-08-27 10:41:51 | `ef5e7434927d89996e2cd29b429823b8a716a08e` | `git revert ef5e7434927d89996e2cd29b429823b8a716a08e` |
 | [#10970](https://github.com/manaflow-ai/cmux/pull/10970) | Lawrence Chen | `561ddccdc9da7d6389d90940f73e9ea30205fa26` | 2026-08-27 12:25:26 | `aa8ca45e0b3a140678c4a6ae588e201cb421ac50` | `git revert aa8ca45e0b3a140678c4a6ae588e201cb421ac50` |
+| [#10972](https://github.com/manaflow-ai/cmux/pull/10972) | Lawrence Chen | `d41cac100d2488c41cbabff7c236166186b9deb4` | 2026-08-27 12:22:32 | `2f95b8760005047ff470afe4a00fd33783e4cf93` | `git revert 2f95b8760005047ff470afe4a00fd33783e4cf93` |
 | [#10959](https://github.com/manaflow-ai/cmux/pull/10959) | Lawrence Chen | `8f74239c78a81352d69e8fe5512a688b0a9d7b7e` | 2026-08-27 12:49:58 | `87f31977237cbcbbf8b7f492718685d612fbb9b0` | `git revert 87f31977237cbcbbf8b7f492718685d612fbb9b0` |
 
 ## Historical snapshot retained: main `5c2ee1244e2d796c9e4be5307788b320ac2ee4ff`
