@@ -21,6 +21,12 @@ public final class BrowserAutomationNavigationCoordinator {
     private var pendingReplacementNavigationID: ObjectIdentifier?
     private var externalNavigationTask: Task<Void, Never>?
     private var externalNavigationTicket: BrowserAutomationNavigationTicket?
+    // Swift tasks cannot force-terminate an engine callback that ignores
+    // cancellation. Keep one cancelled operation slot owned until that task
+    // exits, and fail closed while it is occupied so repeated retries cannot
+    // accumulate permanently retained engine tasks.
+    private var externalNavigationOperationTask: Task<Void, Never>?
+    private var externalNavigationOperationID: UUID?
 
     /// Creates a coordinator with a bounded continuous-clock navigation deadline.
     public init(navigationTimeout: Duration = .seconds(15)) {
@@ -98,20 +104,23 @@ public final class BrowserAutomationNavigationCoordinator {
     ) {
         guard activeTicket == ticket else { return }
         cancelExternalNavigation()
+        guard externalNavigationOperationID == nil else {
+            finish(ticket, with: .timedOut)
+            return
+        }
+        let operationID = UUID()
         externalNavigationTicket = ticket
+        externalNavigationOperationID = operationID
         externalNavigationTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            do {
-                try await self.runExternalNavigationWithDeadline(operation)
+            switch await self.runExternalNavigationWithDeadline(operation, operationID: operationID) {
+            case .committed:
                 self.finish(ticket, with: .committed)
-            } catch is BrowserAutomationNavigationTimeout {
+            case .timedOut:
                 self.finish(ticket, with: .timedOut)
-            } catch let error as ChromiumBrowserDiagnostic where error == .navigationTimedOut {
-                _ = error
-                self.finish(ticket, with: .timedOut)
-            } catch is CancellationError {
+            case .cancelled:
                 self.finish(ticket, with: .cancelled)
-            } catch {
+            case .failed:
                 self.finish(ticket, with: .failed("Browser operation failed"))
             }
         }
@@ -125,6 +134,10 @@ public final class BrowserAutomationNavigationCoordinator {
         externalNavigationTask?.cancel()
         externalNavigationTask = nil
         externalNavigationTicket = nil
+        externalNavigationOperationTask?.cancel()
+        if externalNavigationOperationTask == nil {
+            externalNavigationOperationID = nil
+        }
     }
 
     /// Associates the load call's returned navigation identity with its transaction.
@@ -398,20 +411,65 @@ public final class BrowserAutomationNavigationCoordinator {
     }
 
     private func runExternalNavigationWithDeadline(
-        _ operation: @escaping @MainActor () async throws -> Void
-    ) async throws {
-        try await withThrowingTaskGroup(of: Void.self) { group in
-            group.addTask {
+        _ operation: @escaping @MainActor () async throws -> Void,
+        operationID: UUID
+    ) async -> ExternalNavigationRaceResult {
+        guard externalNavigationOperationID == operationID, !Task.isCancelled else {
+            return .cancelled
+        }
+        let (events, continuation) = AsyncStream.makeStream(
+            of: ExternalNavigationRaceResult.self,
+            bufferingPolicy: .bufferingOldest(1)
+        )
+        let operationTask = Task { @MainActor [weak self] in
+            defer { self?.externalNavigationOperationDidFinish(operationID) }
+            do {
                 try await operation()
+                continuation.yield(Task.isCancelled ? .cancelled : .committed)
+            } catch is CancellationError {
+                if !Task.isCancelled {
+                    continuation.yield(.cancelled)
+                }
+            } catch let error as ChromiumBrowserDiagnostic where error == .navigationTimedOut {
+                _ = error
+                continuation.yield(Task.isCancelled ? .cancelled : .timedOut)
+            } catch {
+                continuation.yield(Task.isCancelled ? .cancelled : .failed)
             }
-            group.addTask { [navigationTimeout, sleep] in
+        }
+        externalNavigationOperationTask = operationTask
+        let timeoutTask = Task { @MainActor [navigationTimeout, sleep] in
+            do {
                 try await sleep(navigationTimeout)
                 try Task.checkCancellation()
-                throw BrowserAutomationNavigationTimeout()
+                continuation.yield(.timedOut)
+            } catch is CancellationError {
+                if !Task.isCancelled {
+                    continuation.yield(.cancelled)
+                }
+            } catch {
+                continuation.yield(Task.isCancelled ? .cancelled : .failed)
             }
-            defer { group.cancelAll() }
-            _ = try await group.next()
         }
+        defer {
+            operationTask.cancel()
+            timeoutTask.cancel()
+            continuation.finish()
+        }
+        return await withTaskCancellationHandler(operation: {
+            var iterator = events.makeAsyncIterator()
+            return await iterator.next() ?? .cancelled
+        }, onCancel: {
+            operationTask.cancel()
+            timeoutTask.cancel()
+            continuation.finish()
+        })
+    }
+
+    private func externalNavigationOperationDidFinish(_ operationID: UUID) {
+        guard externalNavigationOperationID == operationID else { return }
+        externalNavigationOperationTask = nil
+        externalNavigationOperationID = nil
     }
 
     private func finishMatching(
@@ -434,9 +492,7 @@ public final class BrowserAutomationNavigationCoordinator {
     ) {
         guard activeTicket == ticket else { return }
         if externalNavigationTicket == ticket {
-            externalNavigationTask?.cancel()
-            externalNavigationTask = nil
-            externalNavigationTicket = nil
+            cancelExternalNavigation(ticket)
         }
         activeTicket = nil
         activeNavigationID = nil

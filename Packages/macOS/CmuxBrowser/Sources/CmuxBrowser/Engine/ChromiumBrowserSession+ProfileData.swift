@@ -28,15 +28,21 @@ extension ChromiumBrowserSession {
     /// Removes the resolved profile directory on a utility task.
     ///
     /// The URL is resolved before the task is detached; the detached closure
-    /// captures only this value and uses Foundation's thread-safe file
-    /// manager, so a large Chromium cache cannot block the AppKit actor.
+    /// captures the same injected storage dependency and uses Foundation's
+    /// thread-safe file manager, so a large Chromium cache cannot block the
+    /// AppKit actor or bypass a caller-owned filesystem seam.
     public static func removeOwnedProfileData(
         for profileID: UUID,
         environment: ChromiumBrowserRuntimeEnvironment
     ) async {
-        guard let directory = ownedProfileDataURL(for: profileID, environment: environment) else { return }
+        let storage = ChromiumOwnedStorage(
+            fileManager: environment.fileManager,
+            applicationSupportURLProvider: environment.applicationSupportURLProvider,
+            bundleIdentifierProvider: environment.bundleIdentifierProvider
+        )
+        guard let directory = try? storage.profileDirectoryURL(for: profileID) else { return }
         await Task.detached(priority: .utility) {
-            try? FileManager.default.removeItem(at: directory)
+            try? storage.fileManager.removeItem(at: directory)
         }.value
     }
 }
