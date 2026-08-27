@@ -573,6 +573,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         tabDragTransferRegistryStorage = registry
         return registry
     }
+    /// Caches live pane-transfer resolution for pointer hit-testing paths.
+    lazy var liveTabDragCapabilityResolver = LiveTabDragCapabilityResolver(
+        registryProvider: { [weak self] in self?.tabDragTransferRegistry }
+    )
     private let systemAppearanceObserver = SystemAppearanceObserver()
     private static let reloadConfigurationMenuItemIdentifier = NSUserInterfaceItemIdentifier("com.cmux.reloadConfiguration")
     private static let cachedIsRunningUnderXCTest = MacSentryStartupPolicy.isRunningUnderXCTest(
