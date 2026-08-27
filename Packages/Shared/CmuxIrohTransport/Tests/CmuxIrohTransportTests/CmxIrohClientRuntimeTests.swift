@@ -1435,7 +1435,7 @@ struct CmxIrohClientRuntimeTests {
 
 }
 
-private actor TestRevisionedClientBroker:
+actor TestRevisionedClientBroker:
     CmxIrohClientBrokerServing,
     CmxConnectivityAuthorityServing
 {

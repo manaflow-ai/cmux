@@ -651,6 +651,7 @@ actor ConfigurableRegistryBroker: CmxIrohRegistryServing {
     private var pairGrantResponses: [CmxIrohPairGrantResponse]
     private var discoverError: (any Error)?
     private var completedDiscoverCalls = 0
+    private var completedPairGrantCalls = 0
     private var holdDiscover = false
     private var heldDiscoverContinuations: [CheckedContinuation<Void, Never>] = []
 
@@ -677,10 +678,15 @@ actor ConfigurableRegistryBroker: CmxIrohRegistryServing {
         initiatorBindingID _: String,
         acceptorBindingID _: String
     ) throws -> CmxIrohPairGrantResponse {
+        completedPairGrantCalls += 1
         guard !pairGrantResponses.isEmpty else {
             throw TestRegistryError.noGrantResponse
         }
         return pairGrantResponses.removeFirst()
+    }
+
+    func pairGrantRequestCount() -> Int {
+        completedPairGrantCalls
     }
 
     func setDiscovery(_ discovery: CmxIrohDiscoveryResponse) {
