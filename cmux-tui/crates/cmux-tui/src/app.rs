@@ -40904,6 +40904,44 @@ mod tests {
     }
 
     #[test]
+    fn workspace_sidebar_row_click_commits_hover_preview() {
+        let mux = Mux::new("workspace-sidebar-preview-row-click-test", SurfaceOptions::default());
+        let first = mux.new_workspace(Some("Alpha".into()), Some((80, 24))).unwrap();
+        let second = mux.new_workspace(Some("Beta".into()), Some((80, 24))).unwrap();
+        mux.select_workspace(Some(0), None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_view = SidebarView::Workspaces;
+        app.replace_tree(app.session.tree());
+        app.tree.active_workspace = 0;
+        app.sidebar_workspace_selection = 0;
+        app.workspace_rail_selection = WorkspaceRailSelection::Workspace;
+        app.focus = FocusTarget::WorkspaceRail;
+        app.sync_layout((100, 20));
+
+        let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let row = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| {
+                matches!(hit, super::Hit::Workspace { index: 1, .. }).then_some(*rect)
+            })
+            .expect("second workspace hit");
+
+        app.handle_hover_with_admission(row.x, row.y, KeyModifiers::NONE, None).unwrap();
+        assert!(app.workspace_preview.is_some());
+        app.handle_left_down(row.x, row.y, KeyModifiers::NONE).unwrap();
+
+        assert_eq!(app.tree.active_workspace, 1);
+        assert_eq!(app.workspace_preview, None);
+        assert_eq!(app.focus, FocusTarget::Pane);
+
+        for surface in [first.id, second.id] {
+            mux.close_surface(surface).unwrap();
+        }
+    }
+
+    #[test]
     fn workspace_sidebar_preview_commits_when_pane_is_clicked() {
         let mux = Mux::new("workspace-sidebar-preview-pane-click-test", SurfaceOptions::default());
         let first = mux.new_workspace(Some("Alpha".into()), Some((80, 24))).unwrap();
