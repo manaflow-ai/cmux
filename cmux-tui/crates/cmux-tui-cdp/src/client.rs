@@ -2085,6 +2085,15 @@ mod tests {
     }
 
     #[test]
+    fn outbound_commands_fail_fast_at_the_byte_bound() {
+        let (inner, _outbound_rx) = test_inner_with_capacity(8);
+        let client = CdpClient { inner };
+
+        let error = client.send_value(&json!({"payload": "0123456789"})).unwrap_err();
+        assert!(error.to_string().contains("outbound queue byte budget"));
+    }
+
+    #[test]
     fn outbound_commands_fail_fast_at_the_queue_bound() {
         let (inner, _outbound_rx) = test_inner_with_capacity(1);
         let client = CdpClient { inner };
