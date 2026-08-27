@@ -236,6 +236,98 @@ struct AgentStateScannerTests {
         )
     }
 
+    /// The state the scanner actually runs against. Folding its event into an
+    /// empty reducer proves nothing: the scanner only ever fires at a pane
+    /// whose hook session is already stuck claiming `running`, and that is the
+    /// session its event has to beat.
+    @Test func theStaleEventRetiresTheRunningSessionItWasEmittedFor() {
+        let surfaceId = UUID().uuidString
+        let workspaceId = UUID().uuidString
+        let reducer = AgentLifecycleReducer()
+        var state = AgentLifecycleReducerState()
+
+        // The hook session that started a turn and never emitted a Stop.
+        reducer.apply(
+            AgentJournalEvent(
+                sequence: 1,
+                committedAtMs: 1,
+                draft: AgentJournalEventDraft(
+                    eventId: "turn-started",
+                    kind: .turnStarted,
+                    occurredAtMs: 1,
+                    source: "claude",
+                    agentKey: "claude_code",
+                    sessionId: UUID().uuidString,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId
+                )
+            ),
+            to: &state
+        )
+        #expect(state.combinedPhase(surfaceId: surfaceId, agentKey: "claude_code") == .running)
+
+        reducer.apply(
+            AgentJournalEvent(
+                sequence: 2,
+                committedAtMs: 2,
+                draft: AgentStateScanner.staleRunningEvent(
+                    agentKey: "claude_code",
+                    sessionId: nil,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    occurredAtMs: 2,
+                    eventId: "scanner-idle"
+                )
+            ),
+            to: &state
+        )
+        #expect(state.combinedPhase(surfaceId: surfaceId, agentKey: "claude_code") == .idle)
+    }
+
+    /// The banner variant of the same case: a spend-limited pane whose hook
+    /// session is stuck running must end up red, not blue.
+    @Test func theBannerEventRetiresTheRunningSessionItWasEmittedFor() {
+        let surfaceId = UUID().uuidString
+        let workspaceId = UUID().uuidString
+        let reducer = AgentLifecycleReducer()
+        var state = AgentLifecycleReducerState()
+
+        reducer.apply(
+            AgentJournalEvent(
+                sequence: 1,
+                committedAtMs: 1,
+                draft: AgentJournalEventDraft(
+                    eventId: "turn-started",
+                    kind: .turnStarted,
+                    occurredAtMs: 1,
+                    source: "claude",
+                    agentKey: "claude_code",
+                    sessionId: UUID().uuidString,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId
+                )
+            ),
+            to: &state
+        )
+        reducer.apply(
+            AgentJournalEvent(
+                sequence: 2,
+                committedAtMs: 2,
+                draft: AgentStateScanner.staleRunningEvent(
+                    agentKey: "claude_code",
+                    sessionId: nil,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    occurredAtMs: 2,
+                    eventId: "scanner-error",
+                    phase: .error
+                )
+            ),
+            to: &state
+        )
+        #expect(state.combinedPhase(surfaceId: surfaceId, agentKey: "claude_code") == .error)
+    }
+
     @Test func scanSettingsDefaultOnAndClamp() throws {
         let suiteName = "AgentStateScan.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
