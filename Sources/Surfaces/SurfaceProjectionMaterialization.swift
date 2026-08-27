@@ -14,6 +14,7 @@ struct SurfaceProjectionMaterialization {
     var completedProjection: SurfaceProjection?
     var completionOwnsProjection = false
     var pendingAcknowledgements: Set<UUID> = []
+    var completionCleanupTask: Task<Void, Never>?
 
     typealias Result = (projection: SurfaceProjection, reused: Bool)
 }

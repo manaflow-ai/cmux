@@ -53,6 +53,7 @@ final class SurfaceCatalog {
     /// detaches, so a slow but observed materialization is still allowed to finish normally.
     static let defaultAbandonedMaterializationTimeout: Duration = .seconds(30)
     static let defaultRetiredMaterializationRetention: Duration = .seconds(30)
+    static let defaultCompletedMaterializationRetention: Duration = .seconds(30)
     /// The coordinator never allows more than this many tasks from one provider to remain tracked
     /// while cancellation is unresolved. This prevents one unhealthy provider from blocking
     /// unrelated providers or a replacement provider for the same machine.
@@ -76,6 +77,7 @@ final class SurfaceCatalog {
     private var trackedMaterializationProviders: [UUID: ObjectIdentifier] = [:]
     private var trackedMaterializationCounts: [ObjectIdentifier: Int] = [:]
     private let retiredMaterializationRetention: Duration
+    private let completedMaterializationRetention: Duration
     private let abandonedMaterializationTimeout: Duration
     private let maximumTrackedMaterializations: Int
     private let materializationClock: any Clock<Duration>
@@ -89,14 +91,17 @@ final class SurfaceCatalog {
     init(
         abandonedMaterializationTimeout: Duration = SurfaceCatalog.defaultAbandonedMaterializationTimeout,
         retiredMaterializationRetention: Duration = SurfaceCatalog.defaultRetiredMaterializationRetention,
+        completedMaterializationRetention: Duration = SurfaceCatalog.defaultCompletedMaterializationRetention,
         maximumTrackedMaterializations: Int = SurfaceCatalog.defaultMaximumTrackedMaterializations,
         materializationClock: any Clock<Duration> = ContinuousClock()
     ) {
         precondition(abandonedMaterializationTimeout > .zero)
         precondition(retiredMaterializationRetention > .zero)
+        precondition(completedMaterializationRetention > .zero)
         precondition(maximumTrackedMaterializations > 0)
         self.abandonedMaterializationTimeout = abandonedMaterializationTimeout
         self.retiredMaterializationRetention = retiredMaterializationRetention
+        self.completedMaterializationRetention = completedMaterializationRetention
         self.maximumTrackedMaterializations = maximumTrackedMaterializations
         self.materializationClock = materializationClock
     }
@@ -273,7 +278,8 @@ final class SurfaceCatalog {
                 waiters: [waiterID: (reused: false, continuation: continuation)],
                 completedProjection: nil,
                 completionOwnsProjection: false,
-                pendingAcknowledgements: []
+                pendingAcknowledgements: [],
+                completionCleanupTask: nil
             )
         }
     }
@@ -328,6 +334,7 @@ final class SurfaceCatalog {
             inFlight.completedProjection = returnedProjection
             inFlight.completionOwnsProjection = ownsProjection
             inFlight.pendingAcknowledgements = Set(waiters.keys)
+            inFlight.completionCleanupTask = completedMaterializationCleanupTask(id: id, token: token)
             inFlightProjects[id] = inFlight
             for waiter in waiters.values {
                 waiter.continuation.resume(
@@ -374,6 +381,7 @@ final class SurfaceCatalog {
               inFlight.pendingAcknowledgements.contains(waiterID) else { return }
         // One accepted result gives the pane an owner. The other resumed callers no longer need
         // bookkeeping because their later cancellation must not close a pane this caller owns.
+        inFlight.completionCleanupTask?.cancel()
         inFlightProjects[id] = nil
     }
 
@@ -386,6 +394,7 @@ final class SurfaceCatalog {
               completedProjection.resource == projection.resource,
               completedProjection.panelID == projection.panelID else { return }
         guard !Task.isCancelled else { throw CancellationError() }
+        inFlight.completionCleanupTask?.cancel()
         inFlightProjects[id] = nil
     }
 
@@ -395,6 +404,7 @@ final class SurfaceCatalog {
               inFlight.pendingAcknowledgements.remove(waiterID) != nil else { return }
         if inFlight.pendingAcknowledgements.isEmpty {
             inFlightProjects[id] = nil
+            inFlight.completionCleanupTask?.cancel()
             if inFlight.completionOwnsProjection {
                 cleanupRecordedMaterialization(inFlight)
             }
@@ -410,6 +420,36 @@ final class SurfaceCatalog {
               inFlight.completedProjection != nil,
               inFlight.pendingAcknowledgements.isEmpty else { return }
         inFlightProjects[id] = nil
+        inFlight.completionCleanupTask?.cancel()
+        if inFlight.completionOwnsProjection {
+            cleanupRecordedMaterialization(inFlight)
+        }
+    }
+
+    private func completedMaterializationCleanupTask(id: SurfaceResourceID, token: UUID) -> Task<Void, Never> {
+        let timeout = completedMaterializationRetention
+        let clock = materializationClock
+        return Task { [weak self, clock] in
+            do {
+                try await clock.sleep(for: timeout)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            await self?.expireCompletedMaterialization(id, token: token)
+        }
+    }
+
+    /// A caller can be dropped without cancellation, so completion bookkeeping needs a bounded
+    /// recovery path. An acknowledged result is removed before this deadline; otherwise the
+    /// operation is treated as unclaimed and any pane owned by it is discarded.
+    private func expireCompletedMaterialization(_ id: SurfaceResourceID, token: UUID) {
+        guard let inFlight = inFlightProjects[id],
+              inFlight.token == token,
+              inFlight.completedProjection != nil,
+              !inFlight.pendingAcknowledgements.isEmpty else { return }
+        inFlightProjects[id] = nil
+        inFlight.completionCleanupTask?.cancel()
         if inFlight.completionOwnsProjection {
             cleanupRecordedMaterialization(inFlight)
         }
