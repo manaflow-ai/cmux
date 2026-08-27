@@ -400,21 +400,17 @@ extension GitMetadataService {
             environment: environment
         )
         let hasRuntimeConfigOverrides: Bool = {
-            if let rawCount = environment["GIT_CONFIG_COUNT"] {
-                if !rawCount.isEmpty {
-                    guard let count = Int(rawCount), count == 0 else { return true }
-                }
-                return environment.keys.contains {
-                    $0.hasPrefix("GIT_CONFIG_KEY_")
-                        || $0.hasPrefix("GIT_CONFIG_VALUE_")
-                        || $0 == "GIT_CONFIG_PARAMETERS"
-                }
+            let hasConfigParameters = environment["GIT_CONFIG_PARAMETERS"] != nil
+            guard let rawCount = environment["GIT_CONFIG_COUNT"] else {
+                return hasConfigParameters
             }
-            return environment.keys.contains {
-                $0.hasPrefix("GIT_CONFIG_KEY_")
-                    || $0.hasPrefix("GIT_CONFIG_VALUE_")
-                    || $0 == "GIT_CONFIG_PARAMETERS"
+            guard !rawCount.isEmpty else {
+                return hasConfigParameters
             }
+            guard let count = Int(rawCount), count >= 0 else {
+                return true
+            }
+            return count > 0 || hasConfigParameters
         }()
         if hasRuntimeConfigOverrides {
             return GitRemoteConfigSnapshot(
@@ -557,18 +553,6 @@ extension GitMetadataService {
         if let configured = environment["GIT_CONFIG_SYSTEM"] {
             guard !configured.isEmpty, configured != "/dev/null" else { return [] }
             return [URL(fileURLWithPath: configured)]
-        }
-
-        // Git chooses one installation prefix for the system config. Do not
-        // replace that path with a different candidate merely because it
-        // happens to exist on disk.
-        if let execPath = environment["GIT_EXEC_PATH"],
-           let prefix = gitInstallationPrefix(from: execPath) {
-            return [
-                URL(fileURLWithPath: prefix)
-                    .appendingPathComponent("etc/gitconfig")
-                    .standardizedFileURL
-            ]
         }
 
         if let path = environment["PATH"] {
