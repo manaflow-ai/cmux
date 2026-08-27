@@ -239,24 +239,103 @@ public final class CmxIrohRegistryAddressLookup: AddressLookupService {
     // MARK: - AddressLookupService
 
     public func resolve(endpointId: EndpointId) async throws -> [Data] {
-        // Red commit: contract only. The registry-backed resolve (record
-        // cache, persisted cache, one bounded broker fetch) lands in the
-        // follow-up commit; this stub answers nothing so the contract tests
-        // pin the intended behavior first.
         let key = CmxIrohEndpointRecordPolicy.canonicalEndpointID(endpointId)
-        _ = await allowedRelayURLs()
-        recordResolve(
-            prefix: String(key.prefix(10)),
-            source: .noResults,
-            count: 0
-        )
-        return []
+        let prefix = String(key.prefix(10))
+        let allowed = await allowedRelayURLs()
+
+        if let entry = await recordCache.entry(for: key),
+           let verified = CmxIrohEndpointRecordPolicy.acceptableRecord(
+               blob: entry.blob,
+               endpointID: key,
+               allowedRelayURLs: allowed,
+               now: dateProvider()
+           ) {
+            recordResolve(prefix: prefix, source: .recordCache, count: 1)
+            return [verified.blob]
+        }
+
+        for blob in await persistedRecords(key) {
+            guard let verified = CmxIrohEndpointRecordPolicy.acceptableRecord(
+                blob: blob,
+                endpointID: key,
+                allowedRelayURLs: allowed,
+                now: dateProvider()
+            ) else { continue }
+            await recordCache.store(
+                blob: verified.blob,
+                endpointID: verified.endpointID,
+                signedAt: verified.signedAt,
+                now: dateProvider()
+            )
+            recordResolve(prefix: prefix, source: .persistedCache, count: 1)
+            return [verified.blob]
+        }
+
+        switch await fetchState.fetchOnce(now: dateProvider()) {
+        case let .fetched(blobs):
+            var accepted: [Data] = []
+            for blob in blobs {
+                // Cache every well-formed fetched record (policy re-applies at
+                // read), answer with the ones for the requested endpoint.
+                guard let verified = CmxIrohEndpointRecordPolicy.acceptableRecord(
+                    blob: blob,
+                    endpointID: nil,
+                    allowedRelayURLs: allowed,
+                    now: dateProvider()
+                ) else { continue }
+                await recordCache.store(
+                    blob: verified.blob,
+                    endpointID: verified.endpointID,
+                    signedAt: verified.signedAt,
+                    now: dateProvider()
+                )
+                if verified.endpointID == key {
+                    accepted.append(verified.blob)
+                }
+            }
+            recordResolve(
+                prefix: prefix,
+                source: accepted.isEmpty ? .noResults : .brokerFetch,
+                count: accepted.count
+            )
+            return accepted
+        case .coolingDown:
+            recordResolve(prefix: prefix, source: .fetchCoolingDown, count: 0)
+            return []
+        case let .failed(transient, _):
+            recordResolve(
+                prefix: prefix,
+                source: transient ? .fetchFailedTransient : .fetchFailedTrust,
+                count: 0
+            )
+            throw CallbackError.Error
+        }
     }
 
     public func publish(record: Data) async throws {
-        // Red commit: contract only.
-        recordPublish(result: .rejectedRecord, byteCount: record.count)
-        throw CallbackError.Error
+        let allowed = await allowedRelayURLs()
+        guard let verified = CmxIrohEndpointRecordPolicy.acceptableRecord(
+            blob: record,
+            endpointID: nil,
+            allowedRelayURLs: allowed,
+            now: dateProvider()
+        ) else {
+            recordPublish(result: .rejectedRecord, byteCount: record.count)
+            throw CallbackError.Error
+        }
+        await recordCache.store(
+            blob: verified.blob,
+            endpointID: verified.endpointID,
+            signedAt: verified.signedAt,
+            now: dateProvider()
+        )
+        do {
+            try await fetchState.publish(record: record)
+            recordPublish(result: .published, byteCount: record.count)
+        } catch {
+            recordPublish(result: .uploadFailed, byteCount: record.count)
+            throw CallbackError.Error
+        }
     }
 
     // MARK: - Private
