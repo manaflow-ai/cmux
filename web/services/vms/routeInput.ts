@@ -1,4 +1,4 @@
-import { isProviderId, type ProviderId } from "./drivers";
+import { isProviderId, type ProviderId } from "./drivers/types";
 import { vmErrorResponse } from "./routeHelpers";
 
 export type ParsedOptionalObjectBody =
@@ -9,7 +9,7 @@ export type ParsedRequiredObjectBody =
   | { readonly ok: true; readonly body: Record<string, unknown> | null }
   | { readonly ok: false; readonly response: Response };
 
-type ObjectBodyOptions = {
+export type ObjectBodyOptions = {
   readonly operation: string;
   readonly action: string;
 };
