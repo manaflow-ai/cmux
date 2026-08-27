@@ -8,7 +8,7 @@ import Foundation
 nonisolated struct SystemGitExecutableResolver: Sendable {
     private static let maximumCandidateCount = 8
     /// Keeps PATH discovery bounded while leaving room for both system fallbacks.
-    private static let maximumReferenceCandidateCount = 32
+    private static let maximumReferenceCandidateCount = 64
     private static let preferredGitPaths = [
         "/opt/homebrew/bin/git",
         "/usr/local/bin/git",
@@ -69,7 +69,7 @@ nonisolated struct SystemGitExecutableResolver: Sendable {
         return result
     }
 
-    /// Returns a small candidate set for a non-files reference probe.
+    /// Returns a bounded candidate set for a non-files reference probe.
     ///
     /// User-installed PATH shims are included before the older system tools so
     /// a compatible Git is reachable without making ordinary commands trust
@@ -86,11 +86,8 @@ nonisolated struct SystemGitExecutableResolver: Sendable {
         }
         if let searchPath = environment["PATH"] {
             let entries = searchPath.split(separator: ":")
-            let pathCandidateLimit = maximumUserCandidateCount - result.count
-            let headCount = pathCandidateLimit / 2
-            let selectedEntries = Array(entries.prefix(headCount))
-                + Array(entries.suffix(pathCandidateLimit - headCount))
-            for entry in selectedEntries {
+            let remainingUserSlots = maximumUserCandidateCount - result.count
+            for entry in entries.prefix(remainingUserSlots) {
                 guard entry.first == "/" else { continue }
                 let path = URL(fileURLWithPath: String(entry), isDirectory: true)
                     .appendingPathComponent("git", isDirectory: false)
