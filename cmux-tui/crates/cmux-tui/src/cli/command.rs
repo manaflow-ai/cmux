@@ -184,6 +184,7 @@ pub(super) fn parse(args: &[String]) -> Result<CommandPlan, UsageError> {
 fn parse_server(words: &[String], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
     let action = match strs(words).as_slice() {
         ["status"] => super::lifecycle::ServerAction::Status,
+        ["ensure"] => super::lifecycle::ServerAction::Ensure,
         ["stop"] => super::lifecycle::ServerAction::Stop { force: flags.boolean("force") },
         ["reload-config"] => super::lifecycle::ServerAction::ReloadConfig,
         ["start"] => {
@@ -195,7 +196,7 @@ fn parse_server(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usag
             let messages = &crate::localization::catalog().local_server;
             return Err(UsageError::new(messages.unknown_server_action(
                 action,
-                super::suggestion(action, &["start", "status", "stop", "reload-config"]),
+                super::suggestion(action, &["start", "ensure", "status", "stop", "reload-config"]),
             )));
         }
         _ => {
@@ -1072,6 +1073,25 @@ fn parse_terminal(
         [selector, "history", "clear"] => {
             selectors.insert("terminal", "term", selector)?;
             request(ResourceOperation::TerminalHistoryClear, selectors, flags, Map::new())
+        }
+        [selector, "output", "read"] => {
+            selectors.insert("terminal", "term", selector)?;
+            let mut params = Map::new();
+            if let Some(after) = flags.take("after") {
+                validate_decimal("--after", &after)?;
+                params.insert("after".into(), Value::String(after));
+            }
+            if let Some(max_bytes) = flags.take("max-bytes") {
+                insert_bounded_u32(
+                    &mut params,
+                    "max_bytes",
+                    "--max-bytes",
+                    max_bytes,
+                    1,
+                    4_194_304,
+                )?;
+            }
+            request(ResourceOperation::TerminalOutputRead, selectors, flags, params)
         }
         [selector, "screen", "wait"] => {
             selectors.insert("terminal", "term", selector)?;
@@ -2105,6 +2125,19 @@ fn run_params(
     }
     if let Some(name) = flags.take("name") {
         params.insert("name".into(), Value::String(name));
+    }
+    if let Some(policy) = flags.take("on-exit") {
+        match policy.as_str() {
+            "close" | "keep" => {
+                params.insert("on_exit".into(), Value::String(policy));
+            }
+            "shell" => {
+                return Err(UsageError::new("--on-exit shell is not supported yet"));
+            }
+            _ => {
+                return Err(UsageError::new("--on-exit must be close or keep"));
+            }
+        }
     }
     Ok(params)
 }
@@ -3462,6 +3495,63 @@ mod tests {
     }
 
     #[test]
+    fn run_on_exit_policy_is_validated_and_forwarded_verbatim() {
+        for scope in [["workspace", "current"], ["pane", "current"]] {
+            let kept = protocol(&[scope[0], scope[1], "run", "--on-exit", "keep", "--", "true"]);
+            assert_eq!(kept.params["on_exit"], "keep");
+
+            let closed = protocol(&[scope[0], scope[1], "run", "--on-exit", "close", "--", "true"]);
+            assert_eq!(closed.params["on_exit"], "close");
+
+            let default = protocol(&[scope[0], scope[1], "run", "--", "true"]);
+            assert!(default.params.get("on_exit").is_none());
+
+            let shell_policy =
+                parse(&strings(&[scope[0], scope[1], "run", "--on-exit", "shell", "--", "true"]));
+            assert!(
+                shell_policy.is_err_and(|error| error.to_string().contains("not supported yet")),
+                "--on-exit shell must be a typed not-yet-supported usage error"
+            );
+            assert!(
+                parse(&strings(&[scope[0], scope[1], "run", "--on-exit", "sh", "--", "true"]))
+                    .is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn terminal_output_read_parses_cursor_and_bounded_window() {
+        const TERMINAL: &str = "term_00000000000000000000000000000008";
+        let plain = protocol(&["terminal", TERMINAL, "output", "read"]);
+        assert!(plain.params.get("after").is_none());
+        assert!(plain.params.get("max_bytes").is_none());
+
+        let resumed = protocol(&[
+            "terminal",
+            TERMINAL,
+            "output",
+            "read",
+            "--after",
+            "4096",
+            "--max-bytes",
+            "65536",
+        ]);
+        assert_eq!(resumed.params["after"], "4096");
+        assert_eq!(resumed.params["max_bytes"], 65536);
+
+        assert!(
+            parse(&strings(&["terminal", TERMINAL, "output", "read", "--after", "-1"])).is_err()
+        );
+        assert!(
+            parse(&strings(&["terminal", TERMINAL, "output", "read", "--max-bytes", "0"])).is_err()
+        );
+        assert!(
+            parse(&strings(&["terminal", TERMINAL, "output", "read", "--max-bytes", "4194305"]))
+                .is_err()
+        );
+    }
+
+    #[test]
     fn input_commands_enforce_variant_constraints() {
         const TERMINAL: &str = "term_00000000000000000000000000000008";
         const BROWSER: &str = "browser_00000000000000000000000000000009";
@@ -4001,6 +4091,8 @@ mod tests {
                     "100",
                     "--rows",
                     "40",
+                    "--on-exit",
+                    "keep",
                     "--correlation-key",
                     "create-42",
                     "--",
@@ -4124,6 +4216,8 @@ mod tests {
                     "90",
                     "--rows",
                     "30",
+                    "--on-exit",
+                    "keep",
                     "--correlation-key",
                     "create-42",
                     "--",
@@ -4221,6 +4315,19 @@ mod tests {
                 "terminal.history.read",
             ),
             (vec!["terminal", TERMINAL, "history", "clear"], "terminal.history.clear"),
+            (
+                vec![
+                    "terminal",
+                    TERMINAL,
+                    "output",
+                    "read",
+                    "--after",
+                    "4096",
+                    "--max-bytes",
+                    "65536",
+                ],
+                "terminal.output_read",
+            ),
             (
                 vec![
                     "terminal",
@@ -4406,9 +4513,9 @@ mod tests {
             (vec!["sidebar", "view", "reload", "--view", VIEW], "sidebar_view.reload"),
         ];
 
-        assert_eq!(cases.len(), 117);
+        assert_eq!(cases.len(), 118);
         let catalog = operation_catalog();
-        assert_eq!(catalog["operations"].as_object().unwrap().len(), 124);
+        assert_eq!(catalog["operations"].as_object().unwrap().len(), 125);
         let mut seen = std::collections::BTreeSet::new();
         let mut covered_fields = BTreeMap::<&str, std::collections::BTreeSet<String>>::new();
         for (args, expected) in &cases {

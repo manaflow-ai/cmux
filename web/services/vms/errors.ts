@@ -20,6 +20,12 @@ export class VmSnapshotNotFoundError extends Data.TaggedError("VmSnapshotNotFoun
   readonly snapshotId: string;
 }> {}
 
+/** A free-plan machine whose access window has lapsed; upgrading unlocks it. */
+export class VmFreeAccessExpiredError extends Data.TaggedError("VmFreeAccessExpiredError")<{
+  readonly vmId: string;
+  readonly windowDays: number;
+}> {}
+
 export class VmCreateInProgressError extends Data.TaggedError("VmCreateInProgressError")<{
   readonly idempotencyKey: string;
 }> {}
@@ -64,6 +70,18 @@ export class VmBillingError extends Data.TaggedError("VmBillingError")<{
   readonly cause: unknown;
 }> {}
 
+/**
+ * The caller asked for a session transport the machine's provider does not serve
+ * (e.g. the legacy websocket/SSH attach on a Blaxel machine, which only runs the
+ * cmux-tui remote daemon). Not retryable: the client must switch transports.
+ */
+export class VmAttachTransportUnsupportedError extends Data.TaggedError("VmAttachTransportUnsupportedError")<{
+  readonly provider: ProviderId;
+  readonly vmId: string;
+  readonly requested: string;
+  readonly supported: readonly string[];
+}> {}
+
 export class VmAccountDeletionIdentityRevocationError extends Data.TaggedError(
   "VmAccountDeletionIdentityRevocationError",
 )<{
@@ -75,6 +93,7 @@ export type VmWorkflowError =
   | VmProviderOperationError
   | VmNotFoundError
   | VmSnapshotNotFoundError
+  | VmFreeAccessExpiredError
   | VmCreateInProgressError
   | VmCreateFailedError
   | VmCreateDisabledError
@@ -83,6 +102,7 @@ export type VmWorkflowError =
   | VmLimitExceededError
   | VmCreateCreditsInsufficientError
   | VmBillingError
+  | VmAttachTransportUnsupportedError
   | VmAccountDeletionIdentityRevocationError;
 
 export function isVmNotFoundError(err: unknown): err is VmNotFoundError {
@@ -91,6 +111,10 @@ export function isVmNotFoundError(err: unknown): err is VmNotFoundError {
 
 export function isVmSnapshotNotFoundError(err: unknown): err is VmSnapshotNotFoundError {
   return (err as { _tag?: string } | null)?._tag === "VmSnapshotNotFoundError";
+}
+
+export function isVmFreeAccessExpiredError(err: unknown): err is VmFreeAccessExpiredError {
+  return (err as { _tag?: string } | null)?._tag === "VmFreeAccessExpiredError";
 }
 
 export function isVmCreateInProgressError(err: unknown): err is VmCreateInProgressError {
@@ -127,6 +151,10 @@ export function isVmBillingError(err: unknown): err is VmBillingError {
   return (err as { _tag?: string } | null)?._tag === "VmBillingError";
 }
 
+export function isVmAttachTransportUnsupportedError(err: unknown): err is VmAttachTransportUnsupportedError {
+  return (err as { _tag?: string } | null)?._tag === "VmAttachTransportUnsupportedError";
+}
+
 export function isVmAccountDeletionIdentityRevocationError(
   err: unknown,
 ): err is VmAccountDeletionIdentityRevocationError {
@@ -145,6 +173,7 @@ const vmWorkflowErrorTags = new Set([
   "VmDatabaseError",
   "VmProviderOperationError",
   "VmNotFoundError",
+  "VmFreeAccessExpiredError",
   "VmCreateInProgressError",
   "VmCreateFailedError",
   "VmCreateDisabledError",
@@ -153,6 +182,7 @@ const vmWorkflowErrorTags = new Set([
   "VmLimitExceededError",
   "VmCreateCreditsInsufficientError",
   "VmBillingError",
+  "VmAttachTransportUnsupportedError",
   "VmAccountDeletionIdentityRevocationError",
 ]);
 
