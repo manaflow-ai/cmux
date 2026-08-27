@@ -685,53 +685,56 @@ struct CloudTreeMachineRowContent: View {
     }()
 }
 
-/// The hover verbs of one row — interactive, so they live in their own
+/// The one hover verb of a row — interactive, so it lives in its own
 /// hit-testable host beside the pass-through display content. Machines get
-/// delete only (desktop stays in the context menu and on the display row);
-/// pools and workspace rows get their "+" creation verb. Displays get no "+"
-/// until the daemon can create one (T10).
+/// delete only (desktop lives on the Displays pool and in the context menu);
+/// pools and workspace rows get their "+" creation verb.
 struct CloudTreeRowHoverButtons: View {
     let kind: CloudTreeNode.Kind
     let machineActions: MachineRowActions
     let nodeActions: CloudTreeNodeActions
 
     var body: some View {
-        HStack(spacing: 4) {
-            switch kind {
-            case .machine(let machine, _):
-                MachinesChromeIconButton(
-                    symbolName: "trash",
-                    accessibilityLabel: String(localized: "machines.row.delete", defaultValue: "Delete Machine"),
-                    isBusy: false
-                ) {
-                    machineActions.confirmDelete(machine.id)
-                }
-            case .localMachine:
-                plus(String(localized: "cloudTree.menu.newTerminal", defaultValue: "New Terminal")) {
-                    nodeActions.newTerminal(.local, nil)
-                }
-            case .terminalsPool(let machine, _):
-                plus(String(localized: "cloudTree.menu.newTerminal", defaultValue: "New Terminal")) {
-                    nodeActions.newTerminal(machine, nil)
-                }
-            case .workspacesGroup(let machine):
-                plus(String(localized: "cloudTree.menu.newWorkspace", defaultValue: "New Workspace")) {
-                    nodeActions.newWorkspace(machine)
-                }
-            case .workspace(let machine, let workspace, _):
-                plus(String(localized: "cloudTree.menu.newTerminalHere", defaultValue: "New Terminal Here")) {
-                    nodeActions.newTerminal(machine, workspace.id)
-                }
-            default:
-                EmptyView()
+        switch kind {
+        case .machine(let machine, _):
+            MachinesChromeIconButton(
+                symbolName: "trash",
+                accessibilityLabel: String(localized: "machines.row.delete", defaultValue: "Delete Machine"),
+                isBusy: false
+            ) {
+                machineActions.confirmDelete(machine.id)
             }
+        case .localMachine:
+            plus(String(localized: "cloudTree.menu.newTerminal", defaultValue: "New Terminal")) {
+                nodeActions.newTerminal(.local, nil)
+            }
+        case .terminalsPool(let machine, _):
+            plus(String(localized: "cloudTree.menu.newTerminal", defaultValue: "New Terminal")) {
+                nodeActions.newTerminal(machine, nil)
+            }
+        case .displaysPool(let machine, _):
+            // The daemon cannot create displays yet (T10); until then "+" shows
+            // the machine's one desktop, reusing a pane that already does.
+            plus(String(localized: "machines.menu.openDesktop", defaultValue: "Open Desktop")) {
+                nodeActions.project(SurfaceResourceID(machine: machine, kind: .display, key: SurfaceResourceID.desktopDisplayKey), .split, true)
+            }
+        case .workspacesGroup(let machine):
+            plus(String(localized: "cloudTree.menu.newWorkspace", defaultValue: "New Workspace")) {
+                nodeActions.newWorkspace(machine)
+            }
+        case .workspace(let machine, let workspace, _):
+            plus(String(localized: "cloudTree.menu.newTerminalHere", defaultValue: "New Terminal Here")) {
+                nodeActions.newTerminal(machine, workspace.id)
+            }
+        default:
+            EmptyView()
         }
     }
 
     /// True when this row kind renders any hover button at all.
     static func hasButtons(for kind: CloudTreeNode.Kind) -> Bool {
         switch kind {
-        case .machine, .localMachine, .terminalsPool, .workspacesGroup, .workspace:
+        case .machine, .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .workspace:
             return true
         default:
             return false
@@ -740,6 +743,5 @@ struct CloudTreeRowHoverButtons: View {
 
     private func plus(_ label: String, action: @escaping () -> Void) -> some View {
         MachinesChromeIconButton(symbolName: "plus", accessibilityLabel: label, isBusy: false, action: action)
-            .help(label)
     }
 }
