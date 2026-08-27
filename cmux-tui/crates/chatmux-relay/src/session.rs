@@ -137,7 +137,7 @@ pub(crate) struct OutboundSink {
     critical: mpsc::Sender<OutboundFrame>,
     watch: mpsc::Sender<OutboundFrame>,
     bytes: Arc<Semaphore>,
-    critical_overflow: Arc<std::sync::atomic::AtomicBool>,
+    critical_overflow: Arc<AtomicBool>,
 }
 
 impl OutboundSink {
@@ -150,7 +150,7 @@ impl OutboundSink {
                 critical,
                 watch,
                 bytes: Arc::new(Semaphore::new(MAX_OUTBOUND_BYTES)),
-                critical_overflow: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                critical_overflow: Arc::new(AtomicBool::new(false)),
             },
             critical_rx,
             watch_rx,
