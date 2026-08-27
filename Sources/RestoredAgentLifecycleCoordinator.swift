@@ -13,7 +13,10 @@ final class RestoredAgentLifecycleCoordinator {
         self.dateProvider = dateProvider
     }
 
-    private(set) var snapshotsByPanelId: [UUID: SessionRestorableAgentSnapshot] = [:]
+    /// Current restored snapshots. The setter remains internal for legacy app-target
+    /// test fixtures that seed a panel directly; production mutations should use
+    /// ``setSnapshot(_:panelId:)`` so queued restore identity is preserved.
+    var snapshotsByPanelId: [UUID: SessionRestorableAgentSnapshot] = [:]
     /// Immutable session target retained until the staged startup command completes.
     private var queuedRestoreSnapshotsByPanelId: [UUID: SessionRestorableAgentSnapshot] = [:]
     private(set) var resumeStatesByPanelId: [UUID: Workspace.RestoredAgentResumeState] = [:]
