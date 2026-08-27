@@ -191,7 +191,7 @@ extension TerminalController {
         }
         let destination = Self.surfaceDestination(surfaceResolvedParams(params), workspaceID: workspaceID)
         return v2VmCall(id: id, timeoutSeconds: 180) {
-            let catalog = await MainActor.run { SurfaceCatalog.shared }
+            let catalog = await SurfaceCatalog.shared
             if await catalog.resources[resource] == nil {
                 // Ports are discovered by probing the machine; a port the person names may
                 // not have been seen yet. Re-sync, then register it so the provider can open it.
@@ -243,7 +243,7 @@ extension TerminalController {
         destination: SurfaceDestination?,
         focus: Bool
     ) async throws -> [String: Any] {
-        let catalog = await MainActor.run { SurfaceCatalog.shared }
+        let catalog = await SurfaceCatalog.shared
         guard let provider = await catalog.provider(for: machine) else {
             throw SurfaceCatalogError.noProvider(machine)
         }

@@ -87,6 +87,10 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
     /// sidebar's workspace unread badge). Drives the iMessage-style unread dot.
     /// `false` when connected to a Mac old enough not to emit it.
     public var hasUnread: Bool
+    /// The exact unread count behind ``hasUnread`` (the number the Mac sidebar
+    /// badge shows). `nil` when connected to a Mac old enough not to emit it;
+    /// the indicator then falls back to the plain dot.
+    public var unreadCount: Int?
     /// The terminals contained in the workspace, in display order.
     public var terminals: [MobileTerminalPreview]
     /// Every Mac-rendered surface, in the Mac workspace's spatial order.
@@ -153,6 +157,7 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
         previewAt: Date? = nil,
         lastActivityAt: Date? = nil,
         hasUnread: Bool = false,
+        unreadCount: Int? = nil,
         terminals: [MobileTerminalPreview],
         surfaces: [MobileSurfacePreview] = [],
         simulators: [MobileSimulatorPanelDescriptor] = []
@@ -173,6 +178,7 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
         self.previewAt = previewAt
         self.lastActivityAt = lastActivityAt
         self.hasUnread = hasUnread
+        self.unreadCount = unreadCount
         self.terminals = terminals
         self.surfaces = surfaces
         self.simulators = simulators
