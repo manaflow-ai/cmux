@@ -1524,6 +1524,85 @@ final class WindowBrowserHostViewTests: XCTestCase {
         XCTAssertTrue(host.hitTest(contentPointInHost) === child)
     }
 
+    func testHostViewPassesThroughDockDividerWhenBrowserSlotsShareTheTrailingEdge() throws {
+        // Reproduce the #10892 topology through the real window-level browser
+        // portal: a browser pane is immediately to the left of a Dock browser
+        // pane, and the Dock's pane index is populated after its portal slot is
+        // attached. The app/sidebar divider must remain owned by SwiftUI.
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView,
+              let container = contentView.superview else {
+            XCTFail("Expected window content container")
+            return
+        }
+
+        let hostFrame = container.convert(contentView.bounds, from: contentView)
+        let host = WindowBrowserHostView(frame: hostFrame)
+        host.autoresizingMask = [.width, .height]
+        container.addSubview(host, positioned: .above, relativeTo: contentView)
+
+        let slotWidth: CGFloat = 210
+        let mainSlot = WindowBrowserSlotView(
+            frame: NSRect(x: 0, y: 0, width: slotWidth, height: host.bounds.height)
+        )
+        let dockSlot = WindowBrowserSlotView(
+            frame: NSRect(x: slotWidth, y: 0, width: slotWidth, height: host.bounds.height)
+        )
+        let mainContent = CapturingView(frame: mainSlot.bounds)
+        let dockContent = CapturingView(frame: dockSlot.bounds)
+        mainSlot.addSubview(mainContent)
+        dockSlot.addSubview(dockContent)
+        host.addSubview(mainSlot)
+        host.addSubview(dockSlot)
+
+        // This mirrors the real Dock lifecycle: the slot receives its pane
+        // context while the live Dock ownership index is still catching up.
+        // The context itself identifies the Dock pane; hit-testing must not
+        // permanently cache the initial "not a Dock" answer.
+        let dock = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { nil })
+        let dockPane = try XCTUnwrap(dock.bonsplitController.allPaneIds.first)
+        let indexedPaneIds = dock.ownedPaneIds
+        dock.ownedPaneIds.removeAll()
+        defer {
+            dock.ownedPaneIds = indexedPaneIds
+            dock.retire()
+        }
+        dockSlot.setPaneDropContext(BrowserPaneDropContext(
+            workspaceId: dock.workspaceId,
+            panelId: UUID(),
+            paneId: dockPane
+        ))
+        dock.ownedPaneIds = indexedPaneIds
+
+        contentView.layoutSubtreeIfNeeded()
+        let dividerPointInHost = NSPoint(x: slotWidth, y: host.bounds.midY)
+        let dividerPointInWindow = host.convert(dividerPointInHost, to: nil)
+        let event = makeMouseEvent(
+            type: .leftMouseDown,
+            location: dividerPointInWindow,
+            window: window
+        )
+        let pasteboard = NSPasteboard(
+            name: NSPasteboard.Name("cmux.test.issue-10892.\(UUID().uuidString)")
+        )
+        pasteboard.clearContents()
+
+        XCTAssertNil(
+            host.performHitTest(
+                at: dividerPointInHost,
+                currentEvent: event,
+                dragPasteboard: pasteboard
+            ),
+            "A browser pane immediately left of the Dock must pass the Dock divider through to the SwiftUI resizer"
+        )
+    }
+
     func testWindowBrowserPortalIgnoresHostedInspectorSplitResizeNotifications() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
