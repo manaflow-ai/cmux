@@ -397,8 +397,7 @@ import Testing
         seq: 300,
         text: "delta-after-compatibility-fallback",
         full: false,
-        anchor: .screen,
-        historyRows: 1
+        anchor: .viewport
     ))
     let compatibilityDeltaQueued = try await pollUntil {
         store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil

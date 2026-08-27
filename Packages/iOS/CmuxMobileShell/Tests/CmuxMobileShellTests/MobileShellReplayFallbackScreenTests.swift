@@ -221,3 +221,35 @@ import Testing
         "a primary compatibility fallback must clear the alternate baseline marker"
     )
 }
+
+@MainActor
+@Test func failedFullRenderGridDoesNotPublishInvisibleScreenState() async throws {
+    let store = MobileShellComposite.preview()
+    let surfaceID = "terminal"
+    store.terminalOutputTransport = .hybrid
+    store.terminalActiveScreenUnknownSurfaceIDs.insert(surfaceID)
+    var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+
+    let frame = try renderGridFrame(
+        surfaceID: surfaceID,
+        seq: 20,
+        text: "not-yet-visible",
+        activeScreen: .alternate
+    )
+    store.deliverAuthoritativeTerminalRenderGrid(
+        frame,
+        source: "event"
+    )
+    let chunk = try #require(await iterator.next())
+    #expect(
+        store.terminalActiveScreenState(surfaceID: surfaceID) == .unknown,
+        "screen metadata must remain pending until the consumer acknowledges the frame"
+    )
+
+    store.terminalOutputDidReset(
+        surfaceID: surfaceID,
+        streamToken: chunk.streamToken
+    )
+    #expect(store.terminalActiveScreenState(surfaceID: surfaceID) == .unknown)
+    #expect(!store.terminalAlternateRenderGridBaselineSurfaceIDs.contains(surfaceID))
+}
