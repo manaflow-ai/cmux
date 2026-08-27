@@ -173,9 +173,14 @@ struct CodexLegacyRolloutScanner: Sendable {
         guard let maximumBytes = readBudget.allowance(for: path, fileManager: fileManager) else {
             return .unavailable
         }
-        let fileWasTruncated = (try? fileManager.attributesOfItem(atPath: path))
+        let fileSize = (try? fileManager.attributesOfItem(atPath: path))
             .flatMap { $0[.size] as? NSNumber }
-            .map { $0.int64Value >= Int64(maximumBytes) } == true
+            .map(\.int64Value)
+        let fileWasTruncated = fileSize.map {
+            $0 > Int64(maximumBytes)
+                || (maximumBytes == CodexSessionResumeVerificationLimits.maximumRolloutBytes
+                    && $0 >= Int64(maximumBytes))
+        } == true
         return readRollout(
             atPath: path,
             fileManager: fileManager,

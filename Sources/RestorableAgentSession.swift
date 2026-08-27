@@ -1652,15 +1652,41 @@ struct RestorableAgentSessionIndex: Sendable {
                 eligibleCount += 1
                 if selected.count < maximum {
                     selected.append(record)
+                    var childIndex = selected.count - 1
+                    while childIndex > 0 {
+                        let parentIndex = (childIndex - 1) / 2
+                        guard codexRecordIsPreferred(
+                            selected[parentIndex],
+                            over: selected[childIndex]
+                        ) else {
+                            break
+                        }
+                        selected.swapAt(parentIndex, childIndex)
+                        childIndex = parentIndex
+                    }
                     continue
                 }
-                guard let leastIndex = selected.indices.min(by: { lhs, rhs in
-                    codexRecordIsPreferred(selected[rhs], over: selected[lhs])
-                }) else {
+                guard codexRecordIsPreferred(record, over: selected[0]) else {
                     continue
                 }
-                if codexRecordIsPreferred(record, over: selected[leastIndex]) {
-                    selected[leastIndex] = record
+                selected[0] = record
+                var parentIndex = 0
+                while true {
+                    let leftIndex = parentIndex * 2 + 1
+                    guard leftIndex < selected.count else { break }
+                    let rightIndex = leftIndex + 1
+                    let leastChildIndex = rightIndex < selected.count
+                        && codexRecordIsPreferred(selected[leftIndex], over: selected[rightIndex])
+                        ? rightIndex
+                        : leftIndex
+                    guard codexRecordIsPreferred(
+                        selected[parentIndex],
+                        over: selected[leastChildIndex]
+                    ) else {
+                        break
+                    }
+                    selected.swapAt(parentIndex, leastChildIndex)
+                    parentIndex = leastChildIndex
                 }
             }
             selected.sort(by: codexRecordIsPreferred)
