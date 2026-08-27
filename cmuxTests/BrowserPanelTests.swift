@@ -1712,6 +1712,97 @@ final class WindowBrowserHostViewTests: XCTestCase {
         )
     }
 
+    func testHostViewDefersToLiveSidebarDividerWhenDockSlotFrameIsStale() throws {
+        // During a right-sidebar resize, SwiftUI can move its native divider
+        // before the window-level browser portal receives the matching slot
+        // geometry update. The portal must follow the live resizer underneath
+        // it instead of trusting a stale Dock slot frame for one event turn.
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView,
+              let container = contentView.superview else {
+            XCTFail("Expected window content container")
+            return
+        }
+
+        let hostFrame = container.convert(contentView.bounds, from: contentView)
+        let host = WindowBrowserHostView(frame: hostFrame)
+        host.autoresizingMask = [.width, .height]
+        container.addSubview(host, positioned: .above, relativeTo: contentView)
+
+        let liveDivider = SidebarDividerTrackingView(
+            frame: NSRect(x: 206, y: 0, width: 10, height: contentView.bounds.height)
+        )
+        liveDivider.onBegan = {}
+        liveDivider.onChanged = { _ in }
+        liveDivider.onEnded = {}
+        // This is the actual native SwiftUI/AppKit resizer under the portal.
+        // Its frame is already at x=210, while the portal's Dock slot below
+        // intentionally retains the previous x=300 snapshot.
+        contentView.addSubview(liveDivider)
+
+        let mainSlot = WindowBrowserSlotView(
+            frame: NSRect(x: 0, y: 0, width: 210, height: host.bounds.height)
+        )
+        let staleDockSlot = WindowBrowserSlotView(
+            frame: NSRect(x: 300, y: 0, width: 120, height: host.bounds.height)
+        )
+        let mainContent = CapturingView(frame: mainSlot.bounds)
+        let staleDockContent = CapturingView(frame: staleDockSlot.bounds)
+        mainSlot.addSubview(mainContent)
+        staleDockSlot.addSubview(staleDockContent)
+        host.addSubview(mainSlot)
+        host.addSubview(staleDockSlot)
+
+        let dock = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { nil })
+        let dockPane = try XCTUnwrap(dock.bonsplitController.allPaneIds.first)
+        let dockContext = BrowserPaneDropContext(
+            workspaceId: dock.workspaceId,
+            panelId: UUID(),
+            paneId: dockPane,
+            isDockHosted: true
+        )
+        staleDockSlot.setPaneDropContext(dockContext)
+        defer { dock.retire() }
+
+        contentView.layoutSubtreeIfNeeded()
+        let dividerPointInHost = NSPoint(x: 210, y: host.bounds.midY)
+        let dividerPointInWindow = host.convert(dividerPointInHost, to: nil)
+        let event = makeMouseEvent(
+            type: .leftMouseDown,
+            location: dividerPointInWindow,
+            window: window
+        )
+        let pasteboard = NSPasteboard(
+            name: NSPasteboard.Name("cmux.test.issue-10892.stale-frame.\(UUID().uuidString)")
+        )
+        pasteboard.clearContents()
+
+        XCTAssertNil(
+            host.performHitTest(
+                at: dividerPointInHost,
+                currentEvent: event,
+                dragPasteboard: pasteboard
+            ),
+            "The browser portal must defer to the live Dock divider even when its cached slot frame is stale"
+        )
+
+        let mainContentPoint = NSPoint(x: 100, y: host.bounds.midY)
+        XCTAssertTrue(
+            host.performHitTest(
+                at: mainContentPoint,
+                currentEvent: event,
+                dragPasteboard: pasteboard
+            ) === mainContent,
+            "Following the live divider must not make ordinary browser content pass through"
+        )
+    }
+
     func testWindowPortalAnchorDoesNotStealPointerHitsFromSidebarDivider() {
         let host = WebViewRepresentable.HostContainerView(
             frame: NSRect(x: 0, y: 0, width: 240, height: 180)
