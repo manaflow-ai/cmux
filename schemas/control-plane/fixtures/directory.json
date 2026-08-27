@@ -1,0 +1,30 @@
+{
+  "v": 1,
+  "type": "directory",
+  "rev": 42,
+  "payload": {
+    "routeContractVersion": 3,
+    "bindings": [
+      {
+        "bindingId": "611ffbbb-9f60-4601-ba39-4c241b900497",
+        "endpointId": "0fbffe130b96",
+        "deviceId": "77116c35",
+        "instanceTag": "irx",
+        "clientNamespace": "irx",
+        "homeRelayUrl": "https://usw1.relay.cmux.dev/",
+        "updatedAt": "2026-08-27T02:49:45Z"
+      }
+    ],
+    "relayFleet": [
+      "https://usw1.relay.cmux.dev/",
+      "https://usc1.relay.cmux.dev/"
+    ],
+    "grantVerificationKeys": [
+      {
+        "keyId": "k1",
+        "alg": "EdDSA",
+        "publicKey": "MCow..."
+      }
+    ]
+  }
+}

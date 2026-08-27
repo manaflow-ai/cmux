@@ -1,0 +1,56 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "CtlMintRequest",
+  "type": "object",
+  "required": [
+    "v",
+    "type",
+    "payload"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "v": {
+      "type": "integer",
+      "description": "control-plane protocol version, 1"
+    },
+    "type": {
+      "const": "mint_request"
+    },
+    "payload": {
+      "type": "object",
+      "required": [
+        "endpointId",
+        "proof"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "endpointId": {
+          "type": "string"
+        },
+        "proof": {
+          "type": "object",
+          "description": "Signed identity assertion: same Ed25519 binding-request proof the broker HTTPS API accepts via x-cmux-iroh-* headers",
+          "required": [
+            "bindingId",
+            "timestamp",
+            "signature"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "bindingId": {
+              "type": "string"
+            },
+            "timestamp": {
+              "type": "string",
+              "description": "RFC3339 issue time; server enforces freshness window"
+            },
+            "signature": {
+              "type": "string",
+              "description": "base64 Ed25519 signature by the endpoint key"
+            }
+          }
+        }
+      }
+    }
+  }
+}

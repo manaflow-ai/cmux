@@ -1,0 +1,9 @@
+{
+  "v": 1,
+  "type": "hello",
+  "payload": {
+    "endpointId": "8de4b1c22a10",
+    "haveRev": 41,
+    "wantPasses": true
+  }
+}

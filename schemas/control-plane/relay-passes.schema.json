@@ -1,0 +1,67 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "CtlRelayPasses",
+  "type": "object",
+  "required": [
+    "v",
+    "type",
+    "rev",
+    "payload"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "v": {
+      "type": "integer",
+      "description": "control-plane protocol version, 1"
+    },
+    "type": {
+      "const": "relay_passes"
+    },
+    "payload": {
+      "type": "object",
+      "required": [
+        "endpointId",
+        "passes"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "endpointId": {
+          "type": "string"
+        },
+        "passes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "relayUrl",
+              "token",
+              "expiresAt",
+              "generation"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "relayUrl": {
+                "type": "string"
+              },
+              "token": {
+                "type": "string"
+              },
+              "expiresAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "generation": {
+                "type": "integer"
+              }
+            }
+          }
+        }
+      }
+    },
+    "rev": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "monotonic account route revision this fact reflects"
+    }
+  }
+}

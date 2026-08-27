@@ -1,0 +1,8 @@
+{
+  "v": 1,
+  "type": "hello_ack",
+  "payload": {
+    "sessionId": "b2a7",
+    "resumedFromRev": 41
+  }
+}
