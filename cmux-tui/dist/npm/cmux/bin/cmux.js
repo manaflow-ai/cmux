@@ -191,6 +191,7 @@ function acquireVersionLease(version) {
   try {
     fs.mkdirSync(path.dirname(lease), { recursive: true });
     fs.mkdirSync(lease, { recursive: false });
+    fs.writeFileSync(path.join(lease, "pid"), `${process.pid}\n`);
     return lease;
   } catch {
     return null;
@@ -200,8 +201,19 @@ function acquireVersionLease(version) {
 function releaseVersionLease(lease) {
   if (!lease) return;
   try {
-    fs.rmdirSync(lease);
+    fs.rmSync(lease, { recursive: true, force: true });
   } catch {}
+}
+
+function leaseIsActive(lease) {
+  try {
+    const pid = Number.parseInt(fs.readFileSync(path.join(lease, "pid"), "utf8"), 10);
+    if (!Number.isInteger(pid) || pid <= 0) return true;
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error && error.code !== "ESRCH";
+  }
 }
 
 // Resolve an installed cmux-tui-<platform> package (global or local install).
@@ -391,7 +403,13 @@ function pruneCache(keepVersion) {
   try {
     for (const version of fs.readdirSync(root)) {
       if (version === keepVersion) continue;
-      if (fs.existsSync(path.join(root, version, ".active"))) continue;
+      const lease = path.join(root, version, ".active");
+      if (fs.existsSync(lease)) {
+        if (leaseIsActive(lease)) continue;
+        try {
+          fs.rmSync(lease, { recursive: true, force: true });
+        } catch {}
+      }
       try {
         fs.rmSync(path.join(root, version), { recursive: true, force: true });
       } catch {}

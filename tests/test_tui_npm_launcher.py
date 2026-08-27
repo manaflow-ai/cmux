@@ -136,6 +136,7 @@ def test_launcher_downloads_once_and_reuses_verified_cache(tmp_path: Path) -> No
     cached = cache / "v/1.2.3/bin/cmux-tui"
     assert cached.is_file()
     assert cached.stat().st_mode & stat.S_IXUSR
+    assert not (cache / "v/1.2.3/.active").exists()
 
 
 def test_launcher_reports_network_failure_without_leaking_details(tmp_path: Path) -> None:
