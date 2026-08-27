@@ -879,6 +879,7 @@ function tryAcquireVersionLease(version) {
   for (let attempt = 0; attempt < CACHE_LOCK_ATTEMPTS; attempt++) {
     const lock = tryAcquireCacheLock();
     if (!lock) continue;
+    const leaseOwner = newCacheLockOwner();
     let lease = null;
     let pendingLease = null;
     try {
@@ -893,7 +894,7 @@ function tryAcquireVersionLease(version) {
       // rename so an interruption cannot expose an empty active lease.
       fs.mkdirSync(pendingLease, { recursive: false });
       const pidTemp = path.join(pendingLease, ".pid.tmp");
-      fs.writeFileSync(pidTemp, `${process.pid}\n`, {
+      fs.writeFileSync(pidTemp, leaseOwner.raw, {
         encoding: "utf8",
         flag: "wx",
         mode: 0o600,
@@ -966,14 +967,21 @@ function leaseActivity(lease) {
       ? "missing"
       : "unknown";
   }
+  const owner = parseCacheLockOwner(raw);
+  if (owner) {
+    const ownership = cacheLockOwnerIsCurrent(owner);
+    if (ownership === true) return "live";
+    if (ownership === false) return "dead";
+    // Legacy or unsupported hosts may not expose a start identity. Keep a
+    // fresh lease live, then reclaim it after the existing bounded lease age.
+    return leaseIsStale(lease) ? "dead" : "live";
+  }
+  // Older launchers wrote only a PID. Preserve their safety behavior while
+  // bounding the PID-reuse outage by the lease age.
   const pid = Number.parseInt(raw, 10);
   if (!Number.isInteger(pid) || pid <= 0) return "malformed";
-  try {
-    process.kill(pid, 0);
-    return "live";
-  } catch (error) {
-    return error && error.code === "ESRCH" ? "dead" : "unknown";
-  }
+  if (!processIsAlive(pid)) return "dead";
+  return leaseIsStale(lease) ? "dead" : "live";
 }
 
 function leaseIsStale(lease) {
