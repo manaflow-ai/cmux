@@ -103,12 +103,25 @@ extension FeedCoordinator {
         }
 
         // A session lookup can recover the current owner for workspace-only
-        // events. Prefer it whenever it carries a concrete surface; otherwise
-        // retain the validated workspace claim.
-        if let resolved, resolved.surfaceId != nil {
-            return (ownerID: resolved.ownerId, surfaceID: resolved.surfaceId)
+        // events. Re-resolve that surface through the live registry as well,
+        // because the hook-session file can retain the pre-move workspace.
+        if let resolved,
+           let resolvedSurfaceID = resolved.surfaceId {
+            guard let live = AppDelegate.shared?.liveSurfaceOwner(
+                surfaceID: resolvedSurfaceID,
+                preferredTabID: resolved.ownerId
+            ) else {
+                return nil
+            }
+            return (ownerID: live.tabID, surfaceID: live.surfaceID)
         }
         if let claimedWorkspaceID {
+            guard AppDelegate.shared?.agentNotificationDeliveryTarget(
+                claimedTabId: claimedWorkspaceID,
+                surfaceId: nil
+            ) != nil else {
+                return nil
+            }
             return (ownerID: claimedWorkspaceID, surfaceID: resolved?.surfaceId)
         }
         guard let resolved else { return nil }
