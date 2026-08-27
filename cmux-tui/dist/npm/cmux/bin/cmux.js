@@ -167,9 +167,33 @@ function cachedBinDir(version) {
   return path.join(platformRoot(), "v", version, "bin");
 }
 
+function cacheManifestPath(version) {
+  return path.join(platformRoot(), "v", version, "manifest.json");
+}
+
+function digestHex(buffer) {
+  return crypto.createHash("sha512").update(buffer).digest("hex");
+}
+
 function cachedBinary(version) {
   const bin = path.join(cachedBinDir(version), BIN_NAME);
-  return fs.existsSync(bin) ? bin : null;
+  try {
+    const manifest = JSON.parse(fs.readFileSync(cacheManifestPath(version), "utf8"));
+    const expected = manifest?.binaries?.[BIN_NAME];
+    if (
+      manifest?.version !== version ||
+      typeof expected !== "string" ||
+      !/^[a-f0-9]{128}$/.test(expected)
+    ) {
+      return null;
+    }
+    if (!fs.lstatSync(bin).isFile()) return null;
+    const actual = Buffer.from(digestHex(fs.readFileSync(bin)), "hex");
+    const expectedBytes = Buffer.from(expected, "hex");
+    return crypto.timingSafeEqual(actual, expectedBytes) ? bin : null;
+  } catch {
+    return null;
+  }
 }
 
 function cacheLockPath() {
@@ -372,8 +396,13 @@ function npmrcAuthToken(url) {
       continue;
     }
     for (const line of contents.split(/\r?\n/)) {
-      const match = /^\s*\/\/([^/]+)(\/[^:]+)?\/:_authToken\s*=\s*(.*?)\s*$/.exec(line);
+      const match = /^\s*\/\/([^/]+)(\/[^:]*?)?\/:_authToken\s*=\s*(.*?)\s*$/.exec(line);
       if (!match || match[1].toLowerCase() !== host) continue;
+      const scope = match[2] || "/";
+      if (scope !== "/") {
+        const prefix = scope.endsWith("/") ? scope : `${scope}/`;
+        if (url.pathname !== scope && !url.pathname.startsWith(prefix)) continue;
+      }
       const token = match[3].replace(/\$\{([^}]+)\}/g, (_, name) => process.env[name] || "");
       if (token) return token;
     }
@@ -503,6 +532,28 @@ function verifyIntegrity(buffer, integrity) {
   }
 }
 
+function writeCacheManifest(pkg, version, integrity, entries) {
+  const target = cacheManifestPath(version);
+  const tmp = `${target}.${process.pid}.tmp`;
+  const binaries = {};
+  for (const entry of entries) binaries[entry.name] = digestHex(entry.data);
+  fs.writeFileSync(
+    tmp,
+    JSON.stringify({ package: pkg, version, tarballIntegrity: integrity, binaries }, null, 2) + "\n",
+    { mode: 0o600 }
+  );
+  fs.renameSync(tmp, target);
+}
+
+function removeCachedPayload(version) {
+  const versionDir = path.dirname(cachedBinDir(version));
+  for (const name of ["bin", "manifest.json", "managed"]) {
+    try {
+      fs.rmSync(path.join(versionDir, name), { recursive: true, force: true });
+    } catch {}
+  }
+}
+
 // Download pkg@version from the registry, verify integrity, extract bin/
 // into the launcher cache. Returns the binary path.
 async function downloadVersion(pkg, version) {
@@ -546,27 +597,41 @@ async function downloadVersion(pkg, version) {
   fs.mkdirSync(path.dirname(finalDir), { recursive: true });
   try {
     fs.renameSync(path.join(stagingDir, "bin"), finalDir);
+    writeCacheManifest(pkg, version, integrity, entries);
     fs.writeFileSync(path.join(path.dirname(finalDir), "managed"), "cmux\n");
   } catch (error) {
     // A concurrent launcher won the race; its extraction is byte-identical
     // only when the existing binary matches the entry we verified above.
     const expected = entries.find((entry) => entry.name === BIN_NAME);
-    const existing = cachedBinary(version);
-    if (!existing || !expected) throw error;
+    const existingPath = path.join(cachedBinDir(version), BIN_NAME);
+    let existingIsFile = false;
+    try {
+      existingIsFile = fs.lstatSync(existingPath).isFile();
+    } catch {}
+    if (!existingIsFile || !expected) throw error;
     const existingDigest = crypto
       .createHash("sha512")
-      .update(fs.readFileSync(existing))
+      .update(fs.readFileSync(existingPath))
       .digest();
     const expectedDigest = crypto.createHash("sha512").update(expected.data).digest();
-    if (
-      existingDigest.length !== expectedDigest.length ||
-      !crypto.timingSafeEqual(existingDigest, expectedDigest)
-    ) {
-      throw new Error("cached platform binary failed integrity verification");
+    const matchesExpected =
+      existingDigest.length === expectedDigest.length &&
+      crypto.timingSafeEqual(existingDigest, expectedDigest);
+    if (!matchesExpected) {
+      try {
+        removeCachedPayload(version);
+        fs.renameSync(path.join(stagingDir, "bin"), finalDir);
+        writeCacheManifest(pkg, version, integrity, entries);
+        fs.writeFileSync(path.join(path.dirname(finalDir), "managed"), "cmux\n");
+      } catch {
+        throw new Error("cached platform binary failed integrity verification");
+      }
+    } else {
+      try {
+        writeCacheManifest(pkg, version, integrity, entries);
+        fs.writeFileSync(path.join(path.dirname(finalDir), "managed"), "cmux\n");
+      } catch {}
     }
-    try {
-      fs.writeFileSync(path.join(path.dirname(finalDir), "managed"), "cmux\n");
-    } catch {}
   } finally {
     fs.rmSync(stagingDir, { recursive: true, force: true });
   }
