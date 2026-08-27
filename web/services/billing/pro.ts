@@ -71,6 +71,12 @@ export async function syncProPlanMetadata(
   if (metadata.cmuxAccountDeleting === true) {
     return metadata as ProMetadataJson;
   }
+  // A Founder entitlement is a permanent, operator-owned grant. Keep the
+  // marker intact when Stripe lifecycle events sync the subscription key so a
+  // temporary/secondary Stripe subscription cannot erase Founder access.
+  if (hasFounderEditionEntitlement(metadata)) {
+    return metadata as ProMetadataJson;
+  }
   const current = metadata.cmuxPlan;
 
   if (isPro) {
@@ -137,7 +143,9 @@ export function normalizePersonalPlan(
 export function hasFounderEditionEntitlement(raw: unknown): boolean {
   const metadata = proMetadataRecord(raw);
   // `cmuxVmPlan` is the authoritative override when present; do not let a
-  // lower-priority cmuxPlan value bypass an explicit operator override.
+  // lower-priority cmuxPlan value bypass an explicit operator override. The
+  // cmuxPlan fallback keeps older verified Founder records durable while they
+  // are migrated to the dedicated override key.
   const source = metadata.cmuxVmPlan ?? metadata.cmuxPlan;
   return normalizedPlanValue(source) === FOUNDERS_PLAN_ID;
 }
@@ -160,8 +168,9 @@ export async function reconcileProPlanMetadata(
     raw && typeof raw === "object" && !Array.isArray(raw)
       ? (raw as Record<string, unknown>)
       : {};
-  const override = metadata.cmuxVmPlan;
-  if (typeof override === "string" && override.trim()) return false;
+  if (hasManualVmOverride(metadata) || hasFounderEditionEntitlement(metadata)) {
+    return false;
+  }
 
   const isPro = user.id
     ? await (options.hasActiveStripeSubscription ?? hasActiveStripeProSubscription)(user.id)
@@ -183,7 +192,8 @@ export async function resolveProPlanStatus(
   } = {},
 ): Promise<ProPlanStatus> {
   const metadata = proMetadataRecord(user.clientReadOnlyMetadata);
-  const hasManualVmPlanOverride = hasManualVmOverride(metadata);
+  const hasManualVmPlanOverride =
+    hasManualVmOverride(metadata) || hasFounderEditionEntitlement(metadata);
   const metadataPlanId = planIdFromMetadata(metadata);
   const hasActiveStripeSubscription = user.id
     ? await (options.hasActiveStripeSubscription ?? hasActiveStripeProSubscription)(user.id)
@@ -245,6 +255,7 @@ async function reconcileFreshProMetadata(
   if (
     metadata.cmuxAccountDeleting === true ||
     hasManualVmOverride(metadata) ||
+    hasFounderEditionEntitlement(metadata) ||
     isPro === (metadata.cmuxPlan === PRO_PLAN_ID)
   ) {
     return false;

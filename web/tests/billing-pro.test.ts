@@ -67,6 +67,13 @@ describe("syncProPlanMetadata", () => {
     expect(user.updates).toEqual([]);
   });
 
+  test("preserves a verified Founder marker during Stripe metadata sync", async () => {
+    const user = metadataUser({ cmuxPlan: "founders" });
+    await syncProPlanMetadata(user, true, mutationLease());
+    await syncProPlanMetadata(user, false, mutationLease());
+    expect(user.updates).toEqual([]);
+  });
+
   test("removes cmuxPlan when pro lapsed", async () => {
     const user = metadataUser({ cmuxPlan: PRO_PLAN_ID, theme: "dark" });
     await syncProPlanMetadata(user, false, mutationLease());
@@ -224,6 +231,36 @@ describe("resolveProPlanStatus", () => {
       planId: PRO_PLAN_ID,
       isPro: true,
       billingManagement: "stripe",
+      hasManualVmPlanOverride: true,
+      metadataChanged: false,
+    });
+    expect(user.updates).toEqual([]);
+  });
+
+  test("keeps the fallback Founder marker across Stripe active and lapse reads", async () => {
+    const user = metadataUser({ cmuxPlan: "founders" }, "user-founder-fallback");
+
+    await expect(
+      resolveProPlanStatus(user, {
+        hasActiveStripeSubscription: async () => true,
+        withFreshMetadataUser: withFreshMetadataUser(user),
+      }),
+    ).resolves.toMatchObject({
+      planId: PRO_PLAN_ID,
+      isPro: true,
+      billingManagement: "stripe",
+      hasManualVmPlanOverride: true,
+      metadataChanged: false,
+    });
+    await expect(
+      resolveProPlanStatus(user, {
+        hasActiveStripeSubscription: async () => false,
+        withFreshMetadataUser: withFreshMetadataUser(user),
+      }),
+    ).resolves.toMatchObject({
+      planId: PRO_PLAN_ID,
+      isPro: true,
+      billingManagement: "none",
       hasManualVmPlanOverride: true,
       metadataChanged: false,
     });
