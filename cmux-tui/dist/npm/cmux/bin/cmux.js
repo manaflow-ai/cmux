@@ -313,7 +313,8 @@ function cleanupStaging() {
         active = !error || error.code !== "ESRCH";
       }
     }
-    if (active && age < STAGING_MAX_AGE_MS) continue;
+    if (active) continue;
+    if (match && age < STAGING_MAX_AGE_MS) continue;
     try {
       fs.rmSync(staging, { recursive: true, force: true });
     } catch {}
@@ -349,10 +350,35 @@ function registryHeaders(url, accept) {
     const registry = new URL(registryBase());
     if (parsed.origin !== registry.origin) return headers;
     const tokenKey = `npm_config_//${parsed.host}/:_authToken`;
-    const token = process.env[tokenKey];
+    const token = process.env[tokenKey] || npmrcAuthToken(parsed);
     if (token) headers.authorization = `Bearer ${token}`;
   } catch {}
   return headers;
+}
+
+function npmrcAuthToken(url) {
+  const configPaths = new Set([
+    process.env.npm_config_userconfig,
+    process.env.npm_config_globalconfig,
+    path.join(os.homedir(), ".npmrc"),
+  ]);
+  const host = url.host.toLowerCase();
+  for (const configPath of configPaths) {
+    if (!configPath) continue;
+    let contents;
+    try {
+      contents = fs.readFileSync(configPath, "utf8");
+    } catch {
+      continue;
+    }
+    for (const line of contents.split(/\r?\n/)) {
+      const match = /^\s*\/\/([^/]+)(\/[^:]+)?\/:_authToken\s*=\s*(.*?)\s*$/.exec(line);
+      if (!match || match[1].toLowerCase() !== host) continue;
+      const token = match[3].replace(/\$\{([^}]+)\}/g, (_, name) => process.env[name] || "");
+      if (token) return token;
+    }
+  }
+  return null;
 }
 
 async function fetchJson(url) {

@@ -38,9 +38,11 @@ class RegistryHandler(http.server.BaseHTTPRequestHandler):
     tarball = make_tarball()
     metadata_requests = 0
     tarball_requests = 0
+    authorization_headers: list[str | None] = []
     status = 200
 
     def do_GET(self) -> None:  # noqa: N802, required by BaseHTTPRequestHandler
+        type(self).authorization_headers.append(self.headers.get("Authorization"))
         if self.path.endswith((
             "/cmux-tui-darwin-arm64/1.2.3",
             "/cmux-tui-darwin-x64/1.2.3",
@@ -116,6 +118,7 @@ def write_launcher(tmp_path: Path, version: str = "1.2.3") -> Path:
 def start_registry() -> tuple[http.server.ThreadingHTTPServer, threading.Thread, str]:
     RegistryHandler.metadata_requests = 0
     RegistryHandler.tarball_requests = 0
+    RegistryHandler.authorization_headers = []
     RegistryHandler.status = 200
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), RegistryHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -163,6 +166,29 @@ def test_launcher_reports_network_failure_without_leaking_details(tmp_path: Path
     assert "could not obtain the native binary" in result.stderr
     assert "127.0.0.1" not in result.stderr
     assert "CMUX_" not in result.stderr
+
+
+def test_launcher_reads_registry_token_from_npmrc(tmp_path: Path) -> None:
+    if sys.platform == "win32":
+        return
+    launcher = write_launcher(tmp_path)
+    cache = tmp_path / "cache"
+    server, thread, registry = start_registry()
+    npmrc = tmp_path / ".npmrc"
+    npmrc.write_text(f"//127.0.0.1:{server.server_port}/:_authToken=fixture-token\n")
+    try:
+        result = run_launcher(
+            launcher,
+            cache,
+            registry,
+            env_extra={"npm_config_userconfig": str(npmrc)},
+        )
+    finally:
+        server.shutdown()
+        thread.join()
+    assert result.returncode == 0, result.stderr
+    assert RegistryHandler.authorization_headers
+    assert all(value == "Bearer fixture-token" for value in RegistryHandler.authorization_headers)
 
 
 def test_launcher_does_not_run_a_mismatched_installed_binary(tmp_path: Path) -> None:
@@ -226,6 +252,7 @@ def main() -> None:
         root = Path(directory)
         test_launcher_downloads_once_and_reuses_verified_cache(root / "download")
         test_launcher_reports_network_failure_without_leaking_details(root / "failure")
+        test_launcher_reads_registry_token_from_npmrc(root / "npmrc")
         test_launcher_does_not_run_a_mismatched_installed_binary(root / "mismatch")
         test_managed_launcher_honors_development_binary_override(root / "override")
         test_missing_binary_override_hides_path_and_variable(root / "missing-override")
