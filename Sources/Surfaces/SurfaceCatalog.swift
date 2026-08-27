@@ -44,6 +44,11 @@ extension SurfaceProvider {
 final class SurfaceCatalog {
     static let shared = SurfaceCatalog()
 
+    /// A provider call with no remaining caller must not occupy a resource forever when the
+    /// provider ignores task cancellation. The deadline starts only after the last caller
+    /// detaches, so a slow but observed materialization is still allowed to finish normally.
+    static let defaultAbandonedMaterializationTimeout: Duration = .seconds(30)
+
     static let didChangeNotification = Notification.Name("cmux.surfaces.didChange")
 
     private(set) var machines: [SurfaceMachineID: SurfaceMachineInfo] = [:]
@@ -57,6 +62,8 @@ final class SurfaceCatalog {
     /// finish because task cancellation is cooperative. Keep only their cleanup handle until
     /// the late result arrives; new calls are allowed to use the replacement provider.
     private var retiredMaterializations: [UUID: any SurfaceProvider] = [:]
+    private let abandonedMaterializationTimeout: Duration
+    private let materializationClock: any Clock<Duration>
     /// Panels whose projection was recorded from a restored session before the provider
     /// re-synced; resolved into `projections` once the resource shows up.
     private var pendingRestoredProjections: [SurfaceProjectionRecord: UUID] = [:]
@@ -64,7 +71,14 @@ final class SurfaceCatalog {
     /// Focus/select behavior the app uses to bring an existing projection forward.
     var focusProjection: ((SurfaceProjection) -> Void)?
 
-    init() {}
+    init(
+        abandonedMaterializationTimeout: Duration = SurfaceCatalog.defaultAbandonedMaterializationTimeout,
+        materializationClock: any Clock<Duration> = ContinuousClock()
+    ) {
+        precondition(abandonedMaterializationTimeout > .zero)
+        self.abandonedMaterializationTimeout = abandonedMaterializationTimeout
+        self.materializationClock = materializationClock
+    }
 
     // MARK: Providers
 
@@ -191,6 +205,8 @@ final class SurfaceCatalog {
 
             if var inFlight = inFlightProjects[id] {
                 inFlight.abandoned = false
+                inFlight.abandonmentDeadlineTask?.cancel()
+                inFlight.abandonmentDeadlineTask = nil
                 inFlight.waiters[waiterID] = (reused: true, continuation: continuation)
                 inFlightProjects[id] = inFlight
                 return
@@ -209,6 +225,7 @@ final class SurfaceCatalog {
                 token: token,
                 provider: provider,
                 task: task,
+                abandonmentDeadlineTask: nil,
                 waiters: [waiterID: (reused: false, continuation: continuation)]
             )
         }
@@ -226,6 +243,7 @@ final class SurfaceCatalog {
             }
             return
         }
+        inFlight.abandonmentDeadlineTask?.cancel()
         inFlightProjects[id] = nil
 
         switch result {
@@ -263,15 +281,44 @@ final class SurfaceCatalog {
         if inFlight.waiters.isEmpty {
             // Cancellation detaches this caller, but the provider operation stays single-flight
             // until it settles. Provider cancellation is cooperative, so starting another call
-            // here would allow an unbounded number of remote panes to race the first one.
+            // here would allow an unbounded number of remote panes to race the first one. The
+            // abandonment deadline below is the recovery boundary for a provider that never
+            // observes cancellation.
             inFlight.abandoned = true
+            let token = inFlight.token
+            let timeout = abandonedMaterializationTimeout
+            let clock = materializationClock
+            inFlight.abandonmentDeadlineTask = Task { [weak self, clock] in
+                do {
+                    try await clock.sleep(for: timeout)
+                } catch {
+                    return
+                }
+                guard !Task.isCancelled else { return }
+                await self?.expireAbandonedMaterialization(id, token: token)
+            }
         }
         inFlightProjects[id] = inFlight
         waiter.continuation.resume(throwing: CancellationError())
     }
 
+    /// Retire a detached provider operation after its bounded recovery window. The provider
+    /// task may still return later, so retain the provider by token until `finishInFlightProject`
+    /// can discard a late pane. New callers can start a fresh operation immediately.
+    private func expireAbandonedMaterialization(_ id: SurfaceResourceID, token: UUID) {
+        guard let inFlight = inFlightProjects[id],
+              inFlight.token == token,
+              inFlight.abandoned,
+              inFlight.waiters.isEmpty else { return }
+        inFlightProjects[id] = nil
+        inFlight.abandonmentDeadlineTask?.cancel()
+        retiredMaterializations[token] = inFlight.provider
+        inFlight.task.cancel()
+    }
+
     private func cancelInFlightProject(_ id: SurfaceResourceID, error: any Error) {
         guard let inFlight = inFlightProjects.removeValue(forKey: id) else { return }
+        inFlight.abandonmentDeadlineTask?.cancel()
         retiredMaterializations[inFlight.token] = inFlight.provider
         inFlight.task.cancel()
         let waiters = inFlight.waiters
