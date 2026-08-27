@@ -170,6 +170,7 @@ extension CMUXCLI {
         "restore",
         "right-sidebar",
         "rpc",
+        "schedule",
         "select-workspace",
         "send",
         "send-key",
