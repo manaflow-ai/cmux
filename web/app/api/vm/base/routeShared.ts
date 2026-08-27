@@ -19,6 +19,12 @@ import {
   resolveVmImage,
 } from "../../../../services/vms/images/resolver";
 import {
+  reportVmImageConfigError,
+  isVmImageKind,
+  VM_IMAGE_KINDS,
+  type VmImageKind,
+} from "../../../../services/vms/images/resolver";
+import {
   jsonResponse,
   requestedVmTeamIdFromRequest,
   vmBillingTeamErrorResponse,
@@ -66,7 +72,7 @@ export async function runBaseRoute(input: {
   let imageSelection;
   try {
     assertVmCreateEnabled(provider);
-    imageSelection = resolveVmImage(provider, parsed.body.image);
+    imageSelection = resolveVmImage(provider, parsed.body.image, process.env, { kind: parsed.body.kind });
   } catch (err) {
     if (isVmCreateDisabledError(err)) {
       return vmErrorResponse({
@@ -80,13 +86,14 @@ export async function runBaseRoute(input: {
       });
     }
     if (isVmImageConfigError(err)) {
+      const described = reportVmImageConfigError(err);
       return vmErrorResponse({
         error: "vm_image_config_error",
         status: 503,
-        message: "The Cloud VM image is not available in this environment.",
-        action: "Retry in a moment. If it keeps failing, contact support so we can check the Cloud VM image configuration.",
+        message: described.message,
+        action: described.action,
         reason: "Cloud VM image configuration is unavailable.",
-        details: { imageRequested: err.image !== undefined },
+        details: described.details,
         phase: "create",
         retryable: true,
       });
@@ -125,6 +132,7 @@ export async function runBaseRoute(input: {
     provider: entry.provider,
     image: entry.image,
     imageVersion: entry.imageVersion,
+    kind: imageSelection.kind,
     status: entry.status,
     createdAt: entry.createdAt,
     base: {
@@ -190,7 +198,7 @@ async function parseBaseRequest(
   request: Request,
   operation: BaseOperation,
 ): Promise<
-  | { readonly ok: true; readonly body: { readonly name?: string; readonly image?: string; readonly provider?: ProviderId; readonly billingTeamId?: string; readonly reason?: string | null } }
+  | { readonly ok: true; readonly body: { readonly name?: string; readonly image?: string; readonly kind?: VmImageKind; readonly provider?: ProviderId; readonly billingTeamId?: string; readonly reason?: string | null } }
   | { readonly ok: false; readonly response: Response }
 > {
   let raw: unknown = {};
@@ -245,6 +253,18 @@ async function parseBaseRequest(
       };
     }
   }
+  if (candidate.kind !== undefined && candidate.kind !== null && !isVmImageKind(candidate.kind)) {
+    return {
+      ok: false,
+      response: vmErrorResponse({
+        error: "vm_invalid_request",
+        status: 400,
+        message: `\`kind\` must be one of ${VM_IMAGE_KINDS.join(", ")} when provided.`,
+        action: "Remove `kind` to use the default Cloud VM image, or pass `desktop` or `base`.",
+        details: { field: "kind", allowedKinds: VM_IMAGE_KINDS },
+      }),
+    };
+  }
   const provider = typeof candidate.provider === "string" ? candidate.provider.trim() : undefined;
   if (provider && provider !== "e2b" && provider !== "freestyle" && provider !== "daytona" && provider !== "blaxel") {
     return {
@@ -263,6 +283,7 @@ async function parseBaseRequest(
     body: {
       name: stringValue(candidate.name),
       image: stringValue(candidate.image),
+      kind: isVmImageKind(candidate.kind) ? candidate.kind : undefined,
       provider: provider as ProviderId | undefined,
       billingTeamId: stringValue(bodyBillingTeamId),
       reason: stringValue(candidate.reason) ?? null,
