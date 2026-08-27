@@ -173,17 +173,22 @@ struct CodexLegacyRolloutScanner: Sendable {
         guard let maximumBytes = readBudget.allowance(for: path, fileManager: fileManager) else {
             return .unavailable
         }
+        let fileWasTruncated = (try? fileManager.attributesOfItem(atPath: path))
+            .flatMap { $0[.size] as? NSNumber }
+            .map { $0.int64Value >= Int64(maximumBytes) } == true
         return readRollout(
             atPath: path,
             fileManager: fileManager,
-            maximumBytes: maximumBytes
+            maximumBytes: maximumBytes,
+            fileWasTruncated: fileWasTruncated
         )
     }
 
     private func readRollout(
         atPath path: String,
         fileManager: FileManager,
-        maximumBytes: Int
+        maximumBytes: Int,
+        fileWasTruncated: Bool
     ) -> RolloutRead {
         guard regularNonEmptyFileExists(atPath: path, fileManager: fileManager),
               let handle = FileHandle(forReadingAtPath: path) else {
@@ -214,14 +219,16 @@ struct CodexLegacyRolloutScanner: Sendable {
                 }
             }
         }
-        if totalBytes >= maximumBytes && !pending.contains(0x0A) {
-            return .unavailable
-        }
         if !pending.isEmpty, let object = jsonObject(pending) {
             sawJSON = true
             if let metadata = sessionMetadata(from: object) {
                 return .metadata(metadata)
             }
+        }
+        if fileWasTruncated && totalBytes >= maximumBytes && !pending.contains(0x0A) {
+            // Parse the pending final object before treating a byte-ceiling
+            // truncation as an inconclusive read.
+            return .unavailable
         }
         return sawJSON ? .readableWithoutMetadata : .unavailable
     }

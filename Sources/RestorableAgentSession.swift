@@ -1602,6 +1602,71 @@ struct RestorableAgentSessionIndex: Sendable {
             )
         }
 
+        func codexRecordIsPreferred(
+            _ candidate: RestorableAgentHookSessionRecord,
+            over existing: RestorableAgentHookSessionRecord
+        ) -> Bool {
+            let candidateRestorable = candidate.isRestorable == true
+            let existingRestorable = existing.isRestorable == true
+            if candidateRestorable != existingRestorable {
+                return candidateRestorable
+            }
+            let candidateCurrent = (candidate.pid ?? 0) > 0
+                || candidate.agentLifecycle == .running
+            let existingCurrent = (existing.pid ?? 0) > 0
+                || existing.agentLifecycle == .running
+            if candidateCurrent != existingCurrent {
+                return candidateCurrent
+            }
+            if candidate.updatedAt != existing.updatedAt {
+                return candidate.updatedAt > existing.updatedAt
+            }
+            let candidateIdentity = [
+                candidate.workspaceId,
+                candidate.surfaceId,
+                candidate.sessionId,
+            ].joined(separator: "\u{0}")
+            let existingIdentity = [
+                existing.workspaceId,
+                existing.surfaceId,
+                existing.sessionId,
+            ].joined(separator: "\u{0}")
+            return candidateIdentity > existingIdentity
+        }
+
+        func selectedCodexHookRecords(
+            from values: Dictionary<String, RestorableAgentHookSessionRecord>.Values
+        ) -> (records: [RestorableAgentHookSessionRecord], truncated: Bool) {
+            // Keep a bounded top-K instead of sorting/materializing the full
+            // history. Restorable/current records outrank legacy entries, and
+            // timestamps plus identity provide a stable tie-breaker.
+            let maximum = CodexSessionResumeVerificationLimits.maximumBatchRequests
+            var selected: [RestorableAgentHookSessionRecord] = []
+            selected.reserveCapacity(maximum)
+            var eligibleCount = 0
+            for record in values {
+                guard record.isRestorable != false,
+                      normalizedNonEmptyValue(record.launchCommand?.source)?.lowercased() != "rejected" else {
+                    continue
+                }
+                eligibleCount += 1
+                if selected.count < maximum {
+                    selected.append(record)
+                    continue
+                }
+                guard let leastIndex = selected.indices.min(by: { lhs, rhs in
+                    codexRecordIsPreferred(selected[rhs], over: selected[lhs])
+                }) else {
+                    continue
+                }
+                if codexRecordIsPreferred(record, over: selected[leastIndex]) {
+                    selected[leastIndex] = record
+                }
+            }
+            selected.sort(by: codexRecordIsPreferred)
+            return (records: selected, truncated: eligibleCount > maximum)
+        }
+
         // Build one durable-state request plan per Codex home before the main
         // hook reconciliation loop. The verifier can then walk a legacy
         // sessions tree once instead of once per historical hook record.
@@ -1613,15 +1678,10 @@ struct RestorableAgentSessionIndex: Sendable {
             if fileManager.fileExists(atPath: fileURL.path),
                let data = try? Data(contentsOf: fileURL),
                let state = try? decoder.decode(RestorableAgentHookSessionStoreFile.self, from: data) {
-                let selectedRecords = Array(
-                    state.sessions.values.prefix(
-                        CodexSessionResumeVerificationLimits.maximumBatchRequests
-                    )
-                )
-                codexHookRecordsForIndex = selectedRecords
-                codexPlanWasTruncated = state.sessions.count
-                    > CodexSessionResumeVerificationLimits.maximumBatchRequests
-                for rawRecord in selectedRecords {
+                let selection = selectedCodexHookRecords(from: state.sessions.values)
+                codexHookRecordsForIndex = selection.records
+                codexPlanWasTruncated = selection.truncated
+                for rawRecord in selection.records {
                     var record = rawRecord
                     record.launchCommand = trustedLaunchCommand(
                         record.launchCommand,
