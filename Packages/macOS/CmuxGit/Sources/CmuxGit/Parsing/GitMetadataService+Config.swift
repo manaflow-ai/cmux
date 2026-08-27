@@ -370,7 +370,9 @@ extension GitMetadataService {
         )
         let hasRuntimeConfigOverrides: Bool = {
             if let rawCount = environment["GIT_CONFIG_COUNT"] {
-                guard let count = Int(rawCount), count == 0 else { return true }
+                if !rawCount.isEmpty {
+                    guard let count = Int(rawCount), count == 0 else { return true }
+                }
                 return environment.keys.contains {
                     $0.hasPrefix("GIT_CONFIG_KEY_")
                         || $0.hasPrefix("GIT_CONFIG_VALUE_")
@@ -524,16 +526,16 @@ extension GitMetadataService {
             return [URL(fileURLWithPath: configured)]
         }
 
-        var candidates: [URL] = []
-        var seenPaths: Set<String> = []
-
+        // Git chooses one installation prefix for the system config. Do not
+        // replace that path with a different candidate merely because it
+        // happens to exist on disk.
         if let execPath = environment["GIT_EXEC_PATH"],
            let prefix = gitInstallationPrefix(from: execPath) {
-            appendGitSystemConfigCandidate(
-                URL(fileURLWithPath: prefix).appendingPathComponent("etc/gitconfig").path,
-                candidates: &candidates,
-                seenPaths: &seenPaths
-            )
+            return [
+                URL(fileURLWithPath: prefix)
+                    .appendingPathComponent("etc/gitconfig")
+                    .standardizedFileURL
+            ]
         }
 
         if let path = environment["PATH"] {
@@ -545,38 +547,17 @@ extension GitMetadataService {
                 }
                 for candidatePath in [executable.path, executable.resolvingSymlinksInPath().path] {
                     if let prefix = gitInstallationPrefix(from: candidatePath) {
-                        appendGitSystemConfigCandidate(
-                            URL(fileURLWithPath: prefix).appendingPathComponent("etc/gitconfig").path,
-                            candidates: &candidates,
-                            seenPaths: &seenPaths
-                        )
+                        return [
+                            URL(fileURLWithPath: prefix)
+                                .appendingPathComponent("etc/gitconfig")
+                                .standardizedFileURL
+                        ]
                     }
                 }
-                break
             }
         }
 
-        appendGitSystemConfigCandidate(
-            "/etc/gitconfig",
-            candidates: &candidates,
-            seenPaths: &seenPaths
-        )
-        if let existing = candidates.first(where: {
-            FileManager.default.fileExists(atPath: $0.path)
-        }) {
-            return [existing]
-        }
-        return candidates.first.map { [$0] } ?? []
-    }
-
-    private nonisolated static func appendGitSystemConfigCandidate(
-        _ path: String,
-        candidates: inout [URL],
-        seenPaths: inout Set<String>
-    ) {
-        let url = URL(fileURLWithPath: path).standardizedFileURL
-        guard seenPaths.insert(url.path).inserted else { return }
-        candidates.append(url)
+        return [URL(fileURLWithPath: "/etc/gitconfig")]
     }
 
     /// Resolves Git's effective home directory for an environment snapshot.
@@ -587,6 +568,11 @@ extension GitMetadataService {
             return URL(fileURLWithPath: configuredHome).standardizedFileURL
         }
         return FileManager.default.homeDirectoryForCurrentUser.standardizedFileURL
+    }
+
+    /// The process home used by path planning when no HOME override exists.
+    nonisolated static var processHomeDirectory: URL {
+        gitHomeDirectory(environment: [:])
     }
 
     /// Derives an installation prefix from Git's executable or exec-root path.

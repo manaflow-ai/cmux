@@ -230,6 +230,48 @@ private final class RecordingGitDirtyStatusReader: GitDirtyStatusReading, @unche
         #expect(descriptor.creationWatchPaths.contains(missingPath.path))
     }
 
+    @Test func descriptorCarriesConfiguredHomeAndXDGCreationWatchRoots() throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmuxgit-configured-home-\(UUID().uuidString)", isDirectory: true)
+        let xdgHome = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmuxgit-configured-xdg-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: xdgHome, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: home)
+            try? FileManager.default.removeItem(at: xdgHome)
+        }
+
+        let descriptor = try #require(
+            GitMetadataService.workspaceGitMetadataWatchDescriptor(
+                for: fixture.root.path,
+                environment: [
+                    "GIT_CONFIG_NOSYSTEM": "1",
+                    "HOME": home.path,
+                    "XDG_CONFIG_HOME": xdgHome.path,
+                ]
+            )
+        )
+        let allowedRoots = Set(
+            descriptor.creationWatchAllowedRoots.map {
+                URL(fileURLWithPath: $0).resolvingSymlinksInPath().standardizedFileURL.path
+            }
+        )
+
+        #expect(allowedRoots.contains(home.resolvingSymlinksInPath().standardizedFileURL.path))
+        #expect(allowedRoots.contains(xdgHome.resolvingSymlinksInPath().standardizedFileURL.path))
+        #expect(
+            !allowedRoots.contains(
+                FileManager.default.homeDirectoryForCurrentUser
+                    .resolvingSymlinksInPath()
+                    .standardizedFileURL
+                    .path
+            )
+        )
+    }
+
     @Test func symlinkedConfigWatchesResolvedTarget() async throws {
         let fixture = try GitRepositoryFixture()
         try fixture.writeBranch("main")

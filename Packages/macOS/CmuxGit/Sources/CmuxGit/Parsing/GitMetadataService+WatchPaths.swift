@@ -91,6 +91,32 @@ extension GitMetadataService {
             gitMetadataPaths: gitMetadataPaths,
             repository: repository
         )
+        let homeDirectory: URL
+        if let configuredHome = environment["HOME"], !configuredHome.isEmpty {
+            homeDirectory = URL(fileURLWithPath: configuredHome).standardizedFileURL
+        } else {
+            homeDirectory = GitMetadataService.processHomeDirectory
+        }
+        let xdgConfigHome: URL
+        if let configuredXDGHome = environment["XDG_CONFIG_HOME"],
+           !configuredXDGHome.isEmpty {
+            xdgConfigHome = URL(fileURLWithPath: configuredXDGHome)
+        } else {
+            xdgConfigHome = homeDirectory.appendingPathComponent(".config", isDirectory: true)
+        }
+        let creationWatchAllowedRoots = [
+            homeDirectory.resolvingSymlinksInPath().path,
+            xdgConfigHome.resolvingSymlinksInPath().path,
+            URL(fileURLWithPath: repository.workTreeRoot)
+                .resolvingSymlinksInPath()
+                .path,
+            URL(fileURLWithPath: repository.gitDirectory)
+                .resolvingSymlinksInPath()
+                .path,
+            URL(fileURLWithPath: repository.commonDirectory)
+                .resolvingSymlinksInPath()
+                .path,
+        ]
         let creationWatchPathSet = Set(creationWatchPaths)
         let recursiveMetadataPaths = gitMetadataPaths.filter {
             !creationWatchPathSet.contains(nativeStandardizedPath($0))
@@ -119,6 +145,7 @@ extension GitMetadataService {
                 repository: repository
             ),
             creationWatchPaths: creationWatchPaths,
+            creationWatchAllowedRoots: creationWatchAllowedRoots,
             trackedEntryPaths: trackedEntryPaths,
             acceptsAllWorkTreeEvents: acceptsAllWorkTreeEvents,
             eventCoalescingInterval: eventCoalescingInterval,
