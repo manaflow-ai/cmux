@@ -372,7 +372,7 @@ final class MachinesPanelModelTests: XCTestCase {
         )
     }
 
-    func testCloudTreePoolsThenWorkspacePointerLists() {
+    func testCloudTreeWorkspacesThenPoolsAndPointerLists() {
         let ws0 = SurfaceRemoteWorkspace(id: "ws_main", name: "main", index: 0, focused: true)
         let ws1 = SurfaceRemoteWorkspace(id: "ws_side", name: "side", index: 1, focused: false)
         let wsEmpty = SurfaceRemoteWorkspace(id: "ws_empty", name: "scratch", index: 2, focused: false)
@@ -405,17 +405,17 @@ final class MachinesPanelModelTests: XCTestCase {
             "machine:local/ws/\(local.uuidString)",
             "resource:local/terminal/AAA",
             "machine:vivid-newt",
-            "machine:vivid-newt/terminals",
-            "resource:vivid-newt/terminal/term_1",
-            "resource:vivid-newt/terminal/term_2",
-            "machine:vivid-newt/displays",
-            "resource:vivid-newt/display/display:1",
             "machine:vivid-newt/workspaces",
             "machine:vivid-newt/ws/ws_main",
             "machine:vivid-newt/ws/ws_main/resource:vivid-newt/terminal/term_1",
             "machine:vivid-newt/ws/ws_side",
             "machine:vivid-newt/ws/ws_side/resource:vivid-newt/terminal/term_1",
             "machine:vivid-newt/ws/ws_empty",
+            "machine:vivid-newt/terminals",
+            "resource:vivid-newt/terminal/term_1",
+            "resource:vivid-newt/terminal/term_2",
+            "machine:vivid-newt/displays",
+            "resource:vivid-newt/display/display:1",
         ])
         XCTAssertFalse(ids.contains { $0.contains("port") }, "ports stay out of the tree for now")
         let flattened = CloudTreeNodeBuilder.flattened(nodes)
