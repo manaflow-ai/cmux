@@ -9,10 +9,13 @@ nonisolated struct NotificationSoundStagingArtifactCleaner: Sendable {
 
     func prune(in directory: URL, preserving preservedURLs: [URL]) {
         let fileManager = FileManager.default
-        guard let enumerator = fileManager.enumerator(
+        // `contentsOfDirectory` is intentionally shallow. The newer
+        // `.skipsSubdirectoryEnumeration` option is unavailable to the
+        // macOS 14 deployment target on older Xcode SDKs.
+        guard let entries = try? fileManager.contentsOfDirectory(
             at: directory,
             includingPropertiesForKeys: [.contentModificationDateKey, .isDirectoryKey],
-            options: [.skipsHiddenFiles, .skipsSubdirectoryEnumeration]
+            options: [.skipsHiddenFiles]
         ) else { return }
         let preserved = Set(preservedURLs.map(\.standardizedFileURL))
         let cutoff = Date().addingTimeInterval(-maximumAge)
@@ -20,11 +23,11 @@ nonisolated struct NotificationSoundStagingArtifactCleaner: Sendable {
             (try? fileManager.attributesOfItem(atPath: url.path)[.modificationDate]) as? Date
                 ?? .distantPast
         }
-        // Walk the complete directory lazily. Only the newest bounded set of
-        // unleased recent artifacts is retained in memory; old artifacts and
-        // over-cap recent artifacts are removed as they are encountered.
+        // Only the newest bounded set of unleased recent artifacts is retained
+        // in memory; old artifacts and over-cap recent artifacts are removed
+        // as they are encountered.
         var recentArtifacts: [(url: URL, modifiedAt: Date)] = []
-        while let entry = enumerator.nextObject() as? URL {
+        for entry in entries {
             guard isManagedArtifact(entry),
                   !preserved.contains(entry.standardizedFileURL) else {
                 continue
@@ -52,7 +55,6 @@ nonisolated struct NotificationSoundStagingArtifactCleaner: Sendable {
     }
 
     private func isManagedArtifact(_ url: URL) -> Bool {
-        let fileManager = FileManager.default
         guard let values = try? url.resourceValues(forKeys: [.isDirectoryKey]),
               values.isDirectory != true else {
             return false
