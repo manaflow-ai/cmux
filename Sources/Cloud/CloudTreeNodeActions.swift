@@ -149,8 +149,10 @@ struct CloudTreeNodeActions {
     }
 
     /// The machine's ⌘N, shared by the sidebar's ＋ and the socket's `vm.workspace_new`:
-    /// create the cmux-tui workspace (empty, per the pointer-list model), give it a starter
-    /// terminal, and open it as a new local workspace.
+    /// create the cmux-tui workspace, give it a starter terminal, and open it as a new
+    /// local workspace. The daemon may attach its own starter to a created workspace
+    /// (older cmux-tui builds do), so an existing terminal is reused before a second one
+    /// is created — ⌘N must yield exactly one pane.
     @MainActor
     static func createWorkspaceAndOpenLocally(
         machine: SurfaceMachineID,
@@ -164,7 +166,16 @@ struct CloudTreeNodeActions {
         opened: (workspaceID: UUID, projections: [SurfaceProjection])
     ) {
         let workspace = try await provider.createRemoteWorkspace(name: name)
-        let terminal = try await provider.createTerminal(command: nil, cwd: nil, name: nil, remoteWorkspaceID: workspace.id)
+        await provider.refresh()
+        let existing = catalog.snapshot.resources(on: machine).first { resource in
+            resource.id.kind == .terminal && resource.remoteWorkspaces.contains { $0.id == workspace.id }
+        }
+        let terminal: SurfaceResource
+        if let existing {
+            terminal = existing
+        } else {
+            terminal = try await provider.createTerminal(command: nil, cwd: nil, name: nil, remoteWorkspaceID: workspace.id)
+        }
         let group = SurfaceResourceGroup(title: workspace.name, resources: [terminal.id])
         let opened = try await catalog.projectGroupAsNewLocalWorkspace(
             group.resources,
