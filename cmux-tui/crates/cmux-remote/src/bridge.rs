@@ -6,7 +6,7 @@ use std::sync::Arc;
 use bytes::Bytes;
 use cmux_remote_protocol::{MUX_INPUT_V1_FEATURE, RouteId, Service, ServiceControl};
 use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::sync::{Semaphore, oneshot};
+use tokio::sync::{Mutex, Semaphore, oneshot, watch};
 
 use crate::mux_codec::{MAX_MUX_DOWNLOAD_LINE_BYTES, MAX_MUX_LINE_BYTES, mux_line_payload_len};
 use crate::service::{ServiceError, ServiceMultiplexer, ServiceStream};
@@ -14,10 +14,39 @@ use crate::services::ServicesError;
 
 pub const DEFAULT_MAX_FORWARD_CONNECTIONS: usize = 128;
 
+struct ForwardConnections {
+    tasks: Mutex<tokio::task::JoinSet<()>>,
+}
+
+impl ForwardConnections {
+    fn new() -> Arc<Self> {
+        Arc::new(Self { tasks: Mutex::new(tokio::task::JoinSet::new()) })
+    }
+
+    async fn reap_finished(&self) {
+        let mut tasks = self.tasks.lock().await;
+        while tasks.try_join_next().is_some() {}
+    }
+
+    async fn shutdown(&self) {
+        let mut tasks = self.tasks.lock().await;
+        tasks.abort_all();
+        while tasks.join_next().await.is_some() {}
+    }
+
+    fn abort_all(&self) {
+        if let Ok(mut tasks) = self.tasks.try_lock() {
+            tasks.abort_all();
+        }
+    }
+}
+
 pub struct LocalPortForward {
     local_addr: SocketAddr,
     shutdown: Option<oneshot::Sender<()>>,
     task: Option<tokio::task::JoinHandle<()>>,
+    connections: Arc<ForwardConnections>,
+    cancellation: watch::Sender<bool>,
 }
 
 impl LocalPortForward {
@@ -45,10 +74,13 @@ impl LocalPortForward {
         let local_addr = listener.local_addr()?;
         let permits = Arc::new(Semaphore::new(maximum_connections));
         let (shutdown_tx, mut shutdown_rx) = oneshot::channel();
+        let connections = ForwardConnections::new();
+        let task_connections = connections.clone();
+        let (cancellation, _) = watch::channel(false);
+        let task_cancellation = cancellation.clone();
         let task = tokio::spawn(async move {
-            let mut connections = tokio::task::JoinSet::new();
             loop {
-                while connections.try_join_next().is_some() {}
+                task_connections.reap_finished().await;
                 let permit = tokio::select! {
                     _ = &mut shutdown_rx => break,
                     permit = permits.clone().acquire_owned() => {
@@ -65,24 +97,37 @@ impl LocalPortForward {
                     continue;
                 }
                 let multiplexer = multiplexer.clone();
-                connections.spawn(async move {
-                    let _permit = permit;
-                    let mut metadata = BTreeMap::new();
-                    metadata.insert("route".into(), route.0.to_string());
-                    let Ok(stream) = multiplexer.open(Service::TcpTunnel, metadata).await else {
-                        return;
+                let mut cancellation = task_cancellation.subscribe();
+                task_connections.tasks.lock().await.spawn(async move {
+                    let handler = async move {
+                        let _permit = permit;
+                        let mut metadata = BTreeMap::new();
+                        metadata.insert("route".into(), route.0.to_string());
+                        let Ok(stream) = multiplexer.open(Service::TcpTunnel, metadata).await
+                        else {
+                            return;
+                        };
+                        if await_opened(&stream).await.is_err() {
+                            return;
+                        }
+                        let (reader, writer) = socket.into_split();
+                        let _ = pump_client(Arc::new(stream), reader, writer).await;
                     };
-                    if await_opened(&stream).await.is_err() {
-                        return;
+                    tokio::select! {
+                        _ = cancellation.changed() => {}
+                        _ = handler => {}
                     }
-                    let (reader, writer) = socket.into_split();
-                    let _ = pump_client(Arc::new(stream), reader, writer).await;
                 });
             }
-            connections.abort_all();
-            while connections.join_next().await.is_some() {}
+            task_connections.shutdown().await;
         });
-        Ok(Self { local_addr, shutdown: Some(shutdown_tx), task: Some(task) })
+        Ok(Self {
+            local_addr,
+            shutdown: Some(shutdown_tx),
+            task: Some(task),
+            connections,
+            cancellation,
+        })
     }
 
     pub fn local_addr(&self) -> SocketAddr {
@@ -97,6 +142,7 @@ impl LocalPortForward {
     }
 
     pub async fn shutdown(mut self) {
+        self.cancellation.send_replace(true);
         if let Some(shutdown) = self.shutdown.take() {
             let _ = shutdown.send(());
         }
@@ -112,8 +158,16 @@ fn configure_forward_socket(socket: &tokio::net::TcpStream) -> std::io::Result<(
 
 impl Drop for LocalPortForward {
     fn drop(&mut self) {
+        self.cancellation.send_replace(true);
+        self.connections.abort_all();
         if let Some(shutdown) = self.shutdown.take() {
             let _ = shutdown.send(());
+        }
+        // A dropped JoinHandle detaches the accept loop. Abort it after the
+        // shared cancellation signal and child-task abort request so Drop does
+        // not leave either owner or tunnel handlers running indefinitely.
+        if let Some(task) = self.task.take() {
+            task.abort();
         }
     }
 }
@@ -456,12 +510,12 @@ impl From<crate::mux_input::MuxInputError> for BridgeError {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
     use async_trait::async_trait;
     use cmux_remote_protocol::{FrameFlags, Lane};
     use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader, split};
-    use tokio::sync::{Mutex, mpsc, watch};
+    use tokio::sync::{Mutex, mpsc, oneshot, watch};
 
     use super::*;
     use crate::service::{EndpointRole, SessionEndpoint};
@@ -948,6 +1002,34 @@ mod tests {
         drop(first_socket);
         drop(second_socket);
         forward.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn emergency_forward_cleanup_aborts_active_tunnel_handlers() {
+        struct DropFlag(Arc<AtomicBool>);
+
+        impl Drop for DropFlag {
+            fn drop(&mut self) {
+                self.0.store(true, Ordering::Release);
+            }
+        }
+
+        let connections = ForwardConnections::new();
+        let dropped = Arc::new(AtomicBool::new(false));
+        let (started_tx, started_rx) = oneshot::channel();
+        connections.tasks.lock().await.spawn({
+            let dropped = dropped.clone();
+            async move {
+                let _flag = DropFlag(dropped);
+                let _ = started_tx.send(());
+                std::future::pending::<()>().await;
+            }
+        });
+
+        started_rx.await.unwrap();
+        connections.abort_all();
+        connections.shutdown().await;
+        assert!(dropped.load(Ordering::Acquire));
     }
 
     #[tokio::test]
