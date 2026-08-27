@@ -229,12 +229,12 @@ fn recv_attach_event(reader: &mut BufReader<UnixStream>, event: &str) -> Value {
 }
 
 fn wait_for<T>(mut f: impl FnMut() -> Option<T>, timeout: Duration) -> Option<T> {
-    let start = Instant::now();
+    let deadline = Instant::now() + test_duration(timeout);
     loop {
         if let Some(value) = f() {
             return Some(value);
         }
-        if start.elapsed() > timeout {
+        if Instant::now() >= deadline {
             return None;
         }
         thread::sleep(Duration::from_millis(20));

@@ -3807,7 +3807,7 @@ fn wait_for_socket(path: &Path) {
 }
 
 fn wait_for_screen(path: &Path, surface: u64, marker: &str) -> String {
-    let deadline = Instant::now() + Duration::from_secs(10);
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
     let mut last = String::new();
     while Instant::now() < deadline {
         last = request(path, serde_json::json!({"cmd": "read-screen", "surface": surface}))["text"]
