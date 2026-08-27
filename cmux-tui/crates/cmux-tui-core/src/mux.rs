@@ -5277,6 +5277,16 @@ impl Mux {
                 "cmux-tui: agent record update for {} ({}) failed: {error}",
                 terminal_id, ingress.kind
             );
+            return;
+        }
+        // An ended session leaves the roster entirely: the done state was
+        // committed and broadcast above (so remote caches converge), and the
+        // live record is dropped so agents views stop listing the terminal
+        // and a fresh agent there starts clean. Hooks of one terminal are
+        // sequential (they follow one agent process's lifecycle), so nothing
+        // races this removal.
+        if state == AgentState::Done {
+            self.agent_records.lock().unwrap().remove(&terminal_id);
         }
     }
 
@@ -21652,12 +21662,17 @@ mod tests {
         append("SubagentStart", "hook-5");
         assert_eq!(mux.list_agents(Some(surface_id), None)[0].state, AgentState::Idle);
 
-        append("SessionEnd", "hook-6");
-        assert_eq!(mux.list_agents(Some(surface_id), None)[0].state, AgentState::Done);
-
         // A socket report cannot downgrade a hook-owned record.
         mux.report_agent(surface_id, AgentState::Working, AgentSource::Socket, None).unwrap();
-        assert_eq!(mux.list_agents(Some(surface_id), None)[0].state, AgentState::Done);
+        assert_eq!(mux.list_agents(Some(surface_id), None)[0].state, AgentState::Idle);
+
+        // An exited agent leaves the roster; a fresh one starts clean.
+        append("SessionEnd", "hook-6");
+        assert!(mux.list_agents(Some(surface_id), None).is_empty());
+        append("SessionStart", "hook-7");
+        let records = mux.list_agents(Some(surface_id), None);
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].state, AgentState::Idle);
     }
 
     #[test]
