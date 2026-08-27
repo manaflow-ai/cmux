@@ -171,6 +171,8 @@ mod unix {
     ) {
         loop {
             let closed = shared.closed_notify.notified();
+            tokio::pin!(closed);
+            closed.as_mut().enable();
             if shared.closed.load(Ordering::SeqCst) {
                 break;
             }
@@ -220,6 +222,8 @@ mod unix {
             loop {
                 let resumed = shared.resume_notify.notified();
                 let closed = shared.closed_notify.notified();
+                tokio::pin!(closed);
+                closed.as_mut().enable();
                 #[cfg(test)]
                 if let Some(waiting) =
                     shared.read_waiting.lock().expect("control read waiter lock").take()
