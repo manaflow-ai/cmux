@@ -10177,7 +10177,18 @@ impl App {
     }
 
     fn focus_rail(&mut self, kind: RailKind) {
-        if kind != RailKind::Workspace {
+        // A workspace preview is a navigation transaction across the
+        // workspace-dependent rails. Keep it while moving between the
+        // workspace, tabs, and projection rails so those child views follow
+        // the highlighted workspace. A machine rail or pane transition ends
+        // the transaction.
+        let keep_workspace_preview = self.workspace_preview.is_some()
+            && matches!(
+                self.focus,
+                FocusTarget::WorkspaceRail | FocusTarget::TabsRail | FocusTarget::ProjectionRail(_)
+            )
+            && matches!(kind, RailKind::Workspace | RailKind::Tabs | RailKind::Projection(_));
+        if !keep_workspace_preview {
             self.cancel_workspace_preview();
         }
         self.focus = match kind {
