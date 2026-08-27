@@ -178,15 +178,38 @@ function cacheLockPath() {
 function tryAcquireCacheLock() {
   try {
     fs.mkdirSync(cacheLockPath(), { recursive: false });
+    fs.writeFileSync(path.join(cacheLockPath(), "pid"), `${process.pid}\n`);
     return true;
   } catch {
-    return false;
+    try {
+      if (!fs.existsSync(path.join(cacheLockPath(), "pid"))) {
+        fs.rmSync(cacheLockPath(), { recursive: true, force: true });
+      }
+    } catch {}
+    try {
+      const pid = Number.parseInt(
+        fs.readFileSync(path.join(cacheLockPath(), "pid"), "utf8"),
+        10
+      );
+      process.kill(pid, 0);
+      return false;
+    } catch (error) {
+      if (!error || error.code !== "ESRCH") return false;
+      try {
+        fs.rmSync(cacheLockPath(), { recursive: true, force: true });
+        fs.mkdirSync(cacheLockPath(), { recursive: false });
+        fs.writeFileSync(path.join(cacheLockPath(), "pid"), `${process.pid}\n`);
+        return true;
+      } catch {
+        return false;
+      }
+    }
   }
 }
 
 function releaseCacheLock() {
   try {
-    fs.rmdirSync(cacheLockPath());
+    fs.rmSync(cacheLockPath(), { recursive: true, force: true });
   } catch {}
 }
 
@@ -246,8 +269,10 @@ function registryHeaders(url, accept) {
   const headers = { accept };
   try {
     const parsed = new URL(url);
+    const registry = new URL(registryBase());
+    if (parsed.origin !== registry.origin) return headers;
     const tokenKey = `npm_config_//${parsed.host}/:_authToken`;
-    const token = process.env[tokenKey] || process.env.npm_config_authToken;
+    const token = process.env[tokenKey];
     if (token) headers.authorization = `Bearer ${token}`;
   } catch {}
   return headers;
