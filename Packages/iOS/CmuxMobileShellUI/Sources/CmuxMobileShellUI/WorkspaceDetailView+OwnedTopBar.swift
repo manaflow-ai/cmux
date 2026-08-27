@@ -20,12 +20,19 @@ extension WorkspaceDetailView {
         HStack(spacing: 13) {
             if backButtonConfiguration != nil {
                 workspaceBackToolbarButton
-                    .frame(minWidth: 17, minHeight: 22)
-                    .ownedBarGlassButton()
+                    .buttonStyle(.plain)
+                    .padding(.horizontal, 12)
+                    .frame(minWidth: 44)
+                    .frame(height: 44)
+                    .ownedBarGlassSurface()
                     .fixedSize()
             }
             workspaceTitleMenu(usesNaturalWidth: true)
-                .ownedBarGlassButton()
+                .menuStyle(.button)
+                .buttonStyle(.plain)
+                .padding(.horizontal, 14)
+                .frame(height: 44)
+                .ownedBarGlassSurface()
             Spacer(minLength: 13)
             ownedBarTrailingCluster
                 .fixedSize()
@@ -61,6 +68,7 @@ extension WorkspaceDetailView {
                 .environment(\.colorScheme, store.activeTerminalTheme.terminalColorScheme)
             }
             terminalPickerToolbarButton
+                .frame(width: 44, height: 44)
         }
         .buttonStyle(.plain)
         .padding(.horizontal, 8)
@@ -72,24 +80,6 @@ extension WorkspaceDetailView {
 // MARK: - Glass parity helpers
 
 private extension View {
-    /// Liquid Glass control chrome for a standalone bar button or menu,
-    /// matching the capsule the system draws around toolbar items; material
-    /// fallback below iOS 26 mirrors the pre-glass bar look.
-    @ViewBuilder
-    func ownedBarGlassButton() -> some View {
-        if #available(iOS 26.0, *) {
-            self
-                .menuStyle(.button)
-                .buttonStyle(.glass)
-                .buttonBorderShape(.capsule)
-        } else {
-            self
-                .padding(.horizontal, 12)
-                .frame(minHeight: 38)
-                .background(.thinMaterial, in: Capsule())
-        }
-    }
-
     /// Liquid Glass surface for the grouped trailing cluster.
     @ViewBuilder
     func ownedBarGlassSurface() -> some View {
