@@ -359,6 +359,20 @@ mod tests {
         std::fs::remove_dir_all(path.parent().unwrap()).ok();
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn owner_read_only_config_is_accepted() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let path = scratch("owner-read-only/config.json");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, r#"{"deviceId":"dev_read_only","token":"tok_read_only"}"#).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o400)).unwrap();
+        let config = load_config(&path).expect("owner-only read config loads");
+        assert_eq!(config.device_id, "dev_read_only");
+        assert!(load_config_checked(&path).unwrap().is_some());
+        std::fs::remove_dir_all(path.parent().unwrap()).ok();
+    }
+
     #[test]
     fn allowed_roots_enforce_count_and_byte_limits() {
         let roots = vec!["/srv".to_owned(); MAX_ALLOWED_ROOTS];
