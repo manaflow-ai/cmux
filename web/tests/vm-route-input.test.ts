@@ -29,11 +29,13 @@ describe("Cloud VM route input", () => {
     expect(empty).toEqual({ ok: true, body: {} });
 
     const valid = await parseOptionalObjectBody(new Request("https://cmux.test", {
+      method: "POST",
       body: JSON.stringify({ name: " agent " }),
     }), { operation: "fork", action: "Send `{}`." });
     expect(valid).toEqual({ ok: true, body: { name: " agent " } });
 
     const malformed = await parseOptionalObjectBody(new Request("https://cmux.test", {
+      method: "POST",
       body: "{",
     }), { operation: "snapshot", action: "Send `{}`." });
     expect(malformed.ok).toBe(false);
@@ -43,6 +45,7 @@ describe("Cloud VM route input", () => {
     }
 
     const array = await parseOptionalObjectBody(new Request("https://cmux.test", {
+      method: "POST",
       body: "[]",
     }), { operation: "snapshot", action: "Send `{}`." });
     expect(array.ok).toBe(false);
@@ -57,11 +60,13 @@ describe("Cloud VM route input", () => {
     expect(required).toEqual({ ok: true, body: null });
 
     const malformed = await parseLenientObjectBody(new Request("https://cmux.test", {
+      method: "POST",
       body: "not-json",
     }));
     expect(malformed).toEqual({});
 
     const primitive = await parseLenientObjectBody(new Request("https://cmux.test", {
+      method: "POST",
       body: "null",
     }));
     expect(primitive).toEqual({});
