@@ -4,7 +4,7 @@ Name=Google Chrome
 Comment=Browse the web
 Exec=/usr/bin/google-chrome-stable --no-first-run --no-default-browser-check --disable-session-crashed-bubble --password-store=basic %U
 Terminal=false
-Icon=google-chrome
+Icon=/etc/cmux/icons/google-chrome.png
 Type=Application
 Categories=Network;WebBrowser;
 StartupNotify=true

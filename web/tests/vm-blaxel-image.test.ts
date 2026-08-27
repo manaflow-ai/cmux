@@ -28,9 +28,11 @@ describe("Blaxel baked image template", () => {
       "chrome-managed-policy.json",
       "cmux-bashrc",
       "entrypoint.sh",
+      "ghostty-cmux.desktop",
       "google-chrome-cmux.desktop",
       "seed-history",
       "start-vnc.sh",
+      "thunar-cmux.desktop",
       "tint2rc",
       "wallpaper.jpg",
     ]);
@@ -132,6 +134,14 @@ describe("Blaxel baked image template", () => {
     );
     expect(entrypoint).toContain('touch "/home/cua/.config/google-chrome/First Run"');
     expect(entrypoint).toContain("chown -R cua:cua /home/cua");
+    // Launcher icons are baked into /etc/cmux/icons because Blaxel's rootfs
+    // slimming strips /usr/share/applications and the raster icon themes.
+    for (const icon of ["google-chrome.png", "thunar.png", "ghostty.png"]) {
+      expect(dockerfile).toContain(`/etc/cmux/icons/${icon}`);
+    }
+    for (const app of ["thunar-cmux.desktop", "ghostty-cmux.desktop"]) {
+      expect(read(app)).toContain("Icon=/etc/cmux/icons/");
+    }
     // Wallpaper is committed with provenance; the license must stay CC0.
     expect(read("WALLPAPER.md")).toContain("CC0 1.0 Universal");
     expect(dockerfile).toContain("COPY wallpaper.jpg /usr/share/backgrounds/cmux/wallpaper.jpg");
@@ -146,8 +156,8 @@ describe("Blaxel baked image template", () => {
     expect(launchers).toBe(
       [
         "launcher_item_app = /etc/cmux/apps/google-chrome-cmux.desktop",
-        "launcher_item_app = /usr/share/applications/thunar.desktop",
-        "launcher_item_app = /usr/share/applications/com.mitchellh.ghostty.desktop",
+        "launcher_item_app = /etc/cmux/apps/thunar-cmux.desktop",
+        "launcher_item_app = /etc/cmux/apps/ghostty-cmux.desktop",
       ].join("\n"),
     );
   });

@@ -22,7 +22,7 @@
 FROM debian:trixie-slim
 
 # Cache-buster: bump to force a full rebuild on Blaxel's builder.
-ENV CMUX_IMAGE_EPOCH=2026-08-26-r2
+ENV CMUX_IMAGE_EPOCH=2026-08-26-r3
 
 # Blaxel's sandbox API binary is mandatory in every custom image: it is the control
 # plane (port 8080) the driver uses for filesystem and process operations.
@@ -130,6 +130,15 @@ COPY chrome-managed-policy.json /etc/opt/chrome/policies/managed/cmux.json
 # ToS dialog ever shows on a machine (or in anything resumed from its snapshot).
 COPY google-chrome-cmux.desktop /etc/cmux/apps/google-chrome-cmux.desktop
 ENV AGENT_BROWSER_EXECUTABLE_PATH=/usr/bin/google-chrome-stable
+# Blaxel's deploy-time rootfs slimming strips /usr/share/applications and the
+# raster icon themes, so the dock's launcher entries and icons are kept under
+# /etc/cmux, which survives. Icons are copied out of the installed packages
+# here, before slimming can eat them.
+COPY thunar-cmux.desktop /etc/cmux/apps/thunar-cmux.desktop
+RUN mkdir -p /etc/cmux/icons \
+  && cp /opt/google/chrome/product_logo_128.png /etc/cmux/icons/google-chrome.png \
+  && cp "$(find /usr/share/icons -name 'org.xfce.thunar.png' -path '*128*' | head -1)" /etc/cmux/icons/thunar.png \
+  && test -s /etc/cmux/icons/thunar.png
 
 # Ghostty, pinned community .deb for trixie (github.com/mkasberg/ghostty-ubuntu;
 # no official upstream .deb exists). libgl1-mesa-dri above is the software GL its
@@ -137,8 +146,11 @@ ENV AGENT_BROWSER_EXECUTABLE_PATH=/usr/bin/google-chrome-stable
 RUN curl -fsSL -o /tmp/ghostty.deb https://github.com/mkasberg/ghostty-ubuntu/releases/download/1.3.1-0-ppa2/ghostty_1.3.1-0.ppa2_amd64_trixie.deb \
   && apt-get update && apt-get install -y --no-install-recommends /tmp/ghostty.deb \
   && rm -rf /var/lib/apt/lists/* /tmp/ghostty.deb \
-  && test -f /usr/share/applications/com.mitchellh.ghostty.desktop \
   && ghostty +version
+COPY ghostty-cmux.desktop /etc/cmux/apps/ghostty-cmux.desktop
+RUN mkdir -p /etc/cmux/icons \
+  && cp "$(find /usr/share/icons -name 'com.mitchellh.ghostty.png' -path '*128*' | head -1)" /etc/cmux/icons/ghostty.png \
+  && test -s /etc/cmux/icons/ghostty.png
 
 # cua computer-use driver, pinned.
 ENV CUA_DRIVER_RS_HOME=/opt/cua-driver
