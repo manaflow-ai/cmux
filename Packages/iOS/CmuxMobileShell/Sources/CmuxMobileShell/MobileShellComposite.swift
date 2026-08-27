@@ -7753,6 +7753,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
     func foregroundMacDeviceIDForTesting() -> String? { foregroundMacDeviceID }
 
+    func terminalInputPipelineHasAuthorizationFallbackForTesting() -> Bool {
+        terminalInputRPCPipeline.hasAuthorizationFallback
+    }
+
     func pooledRouteForTesting(macDeviceID: String) -> CmxAttachRoute? {
         connections[macDeviceID]?.route
     }
@@ -11531,6 +11535,40 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     /// Sends terminal input and stamps its eventual settlement outcome.
+    /// Whether ordered terminal input may skip the awaited round trip and
+    /// pipeline through ``terminalInputRPCPipeline`` (up to four unsettled
+    /// requests instead of one batch per RTT).
+    ///
+    /// Requires the host's ordered-input capability plus two route properties:
+    ///
+    /// - **Arrival order is preserved end to end.** Iroh provides one ordered
+    ///   control stream. The relay provides one WebSocket per leg: the
+    ///   Durable Object forwards data frames in arrival order and the Mac
+    ///   decodes the RPC stream sequentially into its per-surface FIFO.
+    ///   Tailscale TCP would also qualify but stays on the awaited path until
+    ///   it gets its own soak; this gate widens per route, deliberately.
+    /// - **Auth settles without an in-band retry.** Pipelined requests cannot
+    ///   retry a rejected bearer without reordering later input. Iroh strips
+    ///   per-request bearers (transport admission). The relay attaches the
+    ///   provider's current token, which self-refreshes when stale, so a
+    ///   definitive host rejection parks the connection on the awaited path
+    ///   (`recordAuthorizationFallback`) whose force-refresh retry owns the
+    ///   re-auth decision; the fallback clears with the next
+    ///   connection-lifecycle reset.
+    private var pipelinedOrderedTerminalInputIsAvailable: Bool {
+        guard supportedHostCapabilities.contains(
+            Self.terminalInputOrderedCapability
+        ), !terminalInputRPCPipeline.hasAuthorizationFallback else {
+            return false
+        }
+        switch activeRoute?.kind {
+        case .iroh, .websocket:
+            return true
+        case .tailscale, .debugLoopback, nil:
+            return false
+        }
+    }
+
     private func sendRemoteTerminalInput(
         _ text: String,
         workspaceID: MobileWorkspacePreview.ID,
@@ -11639,10 +11677,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             workspaceID: workspaceID,
             terminalID: terminalID
         )
-        if activeRoute?.kind == .iroh,
-           supportedHostCapabilities.contains(
-               Self.terminalInputOrderedCapability
-           ) {
+        let pipelinedRouteKind = activeRoute?.kind
+        if pipelinedOrderedTerminalInputIsAvailable {
             do {
                 try await terminalInputRPCPipeline.enqueue(
                     surfaceID: terminalID.rawValue,
@@ -11686,6 +11722,24 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                                 succeeded: false
                             )
                             guard let self, let client else { return }
+                            // A bearer the host definitively rejected cannot be
+                            // retried in-pipeline without reordering later input.
+                            // Park the connection on the awaited path instead of
+                            // disconnecting: that path force-refreshes the token
+                            // and owns the re-auth decision, so a genuinely dead
+                            // session still ends in today's re-auth prompt while
+                            // a transient rejection self-heals on the next send.
+                            // Iroh keeps its existing behavior (no per-request
+                            // bearer rides its transport-admitted requests).
+                            if pipelinedRouteKind == .websocket,
+                               generation == self.connectionGeneration,
+                               Self.shouldDisconnectForAuthorizationFailure(error) {
+                                self.terminalInputRPCPipeline.recordAuthorizationFallback()
+                                mobileShellLog.error(
+                                    "pipelined terminal input auth-rejected; parking connection on awaited input path"
+                                )
+                                return
+                            }
                             self.handleTerminalInputFailure(
                                 error,
                                 client: client,

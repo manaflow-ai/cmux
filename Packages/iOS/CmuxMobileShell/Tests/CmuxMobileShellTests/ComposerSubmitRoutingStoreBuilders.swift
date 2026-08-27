@@ -74,6 +74,15 @@ func makeRoutingConnectedStore(
                 pathHints: []
             )
         )
+    } else if routeKind == .websocket {
+        // Mirrors the relay method's synthesized route: a wss URL whose
+        // per-connect authority is the minted ticket, dialed here through the
+        // recording transport like every other kind.
+        route = try CmxAttachRoute(
+            id: "relay",
+            kind: .websocket,
+            endpoint: .url("wss://relay.test.invalid/v1/connect")
+        )
     } else {
         route = try CmxAttachRoute(
             id: "debug_loopback",
