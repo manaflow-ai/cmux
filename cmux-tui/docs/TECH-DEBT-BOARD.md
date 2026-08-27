@@ -1,6 +1,76 @@
 # cmux-tui technical-debt board
 
-Current snapshot: 2026-08-27T13:05:00Z. The exact source baseline is
+## Current reconciliation: main `af31628f7b0b2f6c34e184049254fa2fe91f285d`
+
+Audit basis: 2026-08-27T19:39:39Z. Current merged log: [#10984](https://github.com/manaflow-ai/cmux/pull/10984)
+`e9543607420f7b3b3284ac4c71ea21918dea692e`, [#10975](https://github.com/manaflow-ai/cmux/pull/10975)
+`46958aa58d171a01af7a5b1f06164f18d8639612`, [#10986](https://github.com/manaflow-ai/cmux/pull/10986)
+`b5023a455618dd3d4885da2605e162b0bdb67790`, [#10982](https://github.com/manaflow-ai/cmux/pull/10982)
+`642a65b1512d0d61aaef88290f90ef3408bbee74`, [#10985](https://github.com/manaflow-ai/cmux/pull/10985)
+`2b61ecafceb4b1c008b6f07345270615a0fb4286`, and [#10612](https://github.com/manaflow-ai/cmux/pull/10612)
+`af31628f7b0b2f6c34e184049254fa2fe91f285d`. This branch changes documentation only.
+
+Session evidence is now reported conservatively. The strict auditable turn
+count is `unknown` (not zero) because durable session identifiers are absent.
+The practical floor is five documented substantive owner workstreams.
+The branch proxy is 96 TUI references, 78 with substantive non-merge commits;
+it is not a turn count. Unresolved Claude intents are IDs
+`1787650444261`, `1787650724161` (state ownership, manual I/O, reconnect),
+`1787722163382`, `1787723964393` (remove Go daemon, direct I/O and tunnels),
+`1787733887926`, `1787780735531` (machine terminals, VNC, attach, parity),
+`1787794506089` (cloud tree per machine), `1787823710241` (sidebar split),
+`1787825896700` (wheel-to-arrow behavior), and `1787826030510` (Claude
+completion subscriptions). No completion evidence was found.
+
+## Historical refresh: main `2b61ecafceb4b1c008b6f07345270615a0fb4286`
+
+Snapshot: 2026-08-27T18:44:45Z. This docs-only refresh pins
+[`2b61ecafceb4b1c008b6f07345270615a0fb4286`](https://github.com/manaflow-ai/cmux/commit/2b61ecafceb4b1c008b6f07345270615a0fb4286).
+No runtime build or test ran.
+
+Merged [#10982](https://github.com/manaflow-ai/cmux/pull/10982), Lawrence Chen,
+source `1e0c3eefaf43e733c967131199361d587f56a34b`, merge
+`642a65b1512d0d61aaef88290f90ef3408bbee74`, [run 33100547866](https://github.com/manaflow-ai/cmux/actions/runs/33100547866)
+passed. Rollback: `git revert 642a65b1512d0d61aaef88290f90ef3408bbee74`.
+Merged [#10985](https://github.com/manaflow-ai/cmux/pull/10985), Lawrence Chen,
+source `f32d788d1cb503fb7cddf50e70fc40d0e067ec4e`, merge
+`2b61ecafceb4b1c008b6f07345270615a0fb4286`, [run 33103012053](https://github.com/manaflow-ai/cmux/actions/runs/33103012053)
+and [SDK run 33103010095](https://github.com/manaflow-ai/cmux/actions/runs/33103010095)
+passed. Rollback: `git revert 2b61ecafceb4b1c008b6f07345270615a0fb4286`.
+
+| Live PR | Exact head | Exact runs | Gate and reviews |
+| --- | --- | --- | --- |
+| [#10966](https://github.com/manaflow-ai/cmux/pull/10966), Lawrence Chen | `dda134e95835a415d6cce062e896367ad30c3a94` | [33104657912](https://github.com/manaflow-ai/cmux/actions/runs/33104657912), [33104745426](https://github.com/manaflow-ai/cmux/actions/runs/33104745426), in progress | Mergeable; five CodeRabbit comment-only reviews |
+| [#10969](https://github.com/manaflow-ai/cmux/pull/10969), Lawrence Chen | `0a89a140738c68d105ddd7d1cf5bbcb1e713bb02` | [33104519612](https://github.com/manaflow-ai/cmux/actions/runs/33104519612), [33104514655](https://github.com/manaflow-ai/cmux/actions/runs/33104514655), in progress | Mergeable; one CodeRabbit comment-only review |
+| [#10612](https://github.com/manaflow-ai/cmux/pull/10612), Lawrence Chen | `ddc15ed4d7fc737cf86e9bd4bf2adc8bd1ebf5fa`, stale base | [33103112353](https://github.com/manaflow-ai/cmux/actions/runs/33103112353), [33103077154](https://github.com/manaflow-ai/cmux/actions/runs/33103077154), passed | Comment-only Greptile, Codex connector, and CodeRabbit reviews; rebase |
+| [#10891](https://github.com/manaflow-ai/cmux/pull/10891), Lawrence Chen | `e16aa8c35bbb1fafa7b3cb1340f872754c66d6a7`, stale base | [33104968098](https://github.com/manaflow-ai/cmux/actions/runs/33104968098) queued; [33104965438](https://github.com/manaflow-ai/cmux/actions/runs/33104965438) in progress | Mergeability unknown; earlier-head CodeRabbit comments |
+
+Closed without merge: [#9806](https://github.com/manaflow-ai/cmux/pull/9806)
+(`406529665e5494ca559acab47079d8e7fb274386`),
+[#9813](https://github.com/manaflow-ai/cmux/pull/9813)
+(`3b8d500aa23cfe9a7fbbe4a1dbdcf1be19902c61`),
+[#10136](https://github.com/manaflow-ai/cmux/pull/10136)
+(`0786b6b37e5a397c1acc15b14be4a89f4363117b`),
+[#10413](https://github.com/manaflow-ai/cmux/pull/10413)
+(`891544e0ab1f1ab277213b984e7f53078374fb63`),
+[#10237](https://github.com/manaflow-ai/cmux/pull/10237)
+(`187dffe3e181fd6a85f99dc3fec2244c4fbe6fff`),
+[#10267](https://github.com/manaflow-ai/cmux/pull/10267)
+(`7c8e4130737cf15f81086603364b587b13c05f40`), and
+[#10746](https://github.com/manaflow-ai/cmux/pull/10746)
+(`9fa4c1497719f3c205ce6d402b3ce338d7fd5504`). No rollback applies. Issues
+[#10881](https://github.com/manaflow-ai/cmux/issues/10881) and
+[#10394](https://github.com/manaflow-ai/cmux/issues/10394) closed after merged
+[#10954](https://github.com/manaflow-ai/cmux/pull/10954). Browser
+[#335](https://github.com/manaflow-ai/cmux/pull/335) is resolved at merge
+`5697f71fc6956729524a76a5f17d5611c3ff485b`; rollback:
+`git revert 5697f71fc6956729524a76a5f17d5611c3ff485b`.
+
+No new session scan ran. The retained lower bound is 258 named substantive
+turns, not a total and not a 10,000-session claim. Later code merges require a
+final refresh.
+
+Historical snapshot: 2026-08-27T13:05:00Z. The exact source baseline was
 `origin/main` at [`87f31977237cbcbbf8b7f492718685d612fbb9b0`](https://github.com/manaflow-ai/cmux/commit/87f31977237cbcbbf8b7f492718685d612fbb9b0),
 committed 2026-08-27T05:49:57-07:00 with subject
 `Integrate Escape passthrough fix from PR #9810 (#10959)`. This is a documentation-
