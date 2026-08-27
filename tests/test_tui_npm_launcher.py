@@ -936,6 +936,38 @@ def test_launcher_fails_closed_when_another_process_holds_cache_lock(tmp_path: P
     assert owner_path.read_text() == owner
 
 
+def test_launcher_reclaims_cache_lock_when_owner_pid_is_reused(tmp_path: Path) -> None:
+    if sys.platform == "win32":
+        return
+    launcher = write_launcher(tmp_path)
+    cache = tmp_path / "cache"
+    write_cached_binary(
+        cache,
+        "1.2.3",
+        "#!/bin/sh\nprintf '%s\\n' 'cached after pid reuse'\n",
+    )
+    lock = cache / host_platform_key() / ".update.lock"
+    lock.mkdir(parents=True)
+    # Keep the test process PID but use a different process-start identity. A
+    # stale timestamp also covers legacy records without that identity.
+    stale_created_at = int((time.time() - 11 * 60) * 1000)
+    (lock / "owner").write_text(
+        f"{os.getpid()}\nfixture-owner-token\nproc:old-start\n{stale_created_at}\n"
+    )
+    os.utime(lock, (stale_created_at / 1000, stale_created_at / 1000))
+
+    result = run_launcher(
+        launcher,
+        cache,
+        "http://127.0.0.1:1",
+        "--version",
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "cached after pid reuse\n"
+    assert not lock.exists()
+
+
 def test_launcher_waits_for_short_cache_lock_contention(tmp_path: Path) -> None:
     if sys.platform == "win32":
         return
@@ -1322,6 +1354,9 @@ def main() -> None:
         test_binary_override_works_on_an_unsupported_platform(root / "unsupported-override")
         test_missing_binary_override_hides_path_and_variable(root / "missing-override")
         test_launcher_fails_closed_when_another_process_holds_cache_lock(root / "held-lock")
+        test_launcher_reclaims_cache_lock_when_owner_pid_is_reused(
+            root / "reused-lock"
+        )
         test_launcher_waits_for_short_cache_lock_contention(root / "short-lock")
         test_launcher_recovers_stale_empty_cache_lock(root / "stale-empty-lock")
         test_launcher_keeps_fresh_empty_cache_lock(root / "fresh-empty-lock")
