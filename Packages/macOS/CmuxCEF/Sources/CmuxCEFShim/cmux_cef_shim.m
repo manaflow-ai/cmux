@@ -257,6 +257,35 @@ static cef_request_handler_t *CEF_CALLBACK client_get_request_handler(
 
 // MARK: - Life span
 
+static int CEF_CALLBACK life_span_on_before_popup(
+    cef_life_span_handler_t *self, cef_browser_t *browser,
+    cef_frame_t *frame, int popup_id, const cef_string_t *target_url,
+    const cef_string_t *target_frame_name,
+    cef_window_open_disposition_t target_disposition, int user_gesture,
+    const cef_popup_features_t *popup_features,
+    cef_window_info_t *window_info, cef_client_t **client,
+    cef_browser_settings_t *settings, cef_dictionary_value_t **extra_info,
+    int *no_javascript_access) {
+  // cmux owns browser tabs and windows.  Letting CEF create its default popup
+  // would produce an unmanaged top-level window whose requests bypass the
+  // pane's navigation policy and whose browser identity is never tracked.
+  (void)self;
+  (void)browser;
+  (void)frame;
+  (void)popup_id;
+  (void)target_url;
+  (void)target_frame_name;
+  (void)target_disposition;
+  (void)user_gesture;
+  (void)popup_features;
+  (void)window_info;
+  (void)client;
+  (void)settings;
+  (void)extra_info;
+  (void)no_javascript_access;
+  return 1;
+}
+
 static void CEF_CALLBACK life_span_on_after_created(
     cef_life_span_handler_t *self, cef_browser_t *browser) {
   struct cmux_cef_browser *wrapper = life_span_wrapper(self);
@@ -687,6 +716,7 @@ cmux_cef_browser_t *cmux_cef_browser_create(
   wrapper->client.get_request_handler = client_get_request_handler;
 
   life_span_init_base(wrapper, &wrapper->life_span.base, sizeof(wrapper->life_span));
+  wrapper->life_span.on_before_popup = life_span_on_before_popup;
   wrapper->life_span.on_after_created = life_span_on_after_created;
   wrapper->life_span.on_before_close = life_span_on_before_close;
 
@@ -770,8 +800,18 @@ void cmux_cef_browser_load_url(cmux_cef_browser_t *browser, const char *url) {
   ((cef_base_ref_counted_t *)frame)->release((cef_base_ref_counted_t *)frame);
 }
 
+int cmux_cef_browser_can_go_back(cmux_cef_browser_t *browser) {
+  if (!browser || !browser->browser || !browser->browser->can_go_back) return 0;
+  return browser->browser->can_go_back(browser->browser);
+}
+
 void cmux_cef_browser_go_back(cmux_cef_browser_t *browser) {
   if (browser && browser->browser) browser->browser->go_back(browser->browser);
+}
+
+int cmux_cef_browser_can_go_forward(cmux_cef_browser_t *browser) {
+  if (!browser || !browser->browser || !browser->browser->can_go_forward) return 0;
+  return browser->browser->can_go_forward(browser->browser);
 }
 
 void cmux_cef_browser_go_forward(cmux_cef_browser_t *browser) {

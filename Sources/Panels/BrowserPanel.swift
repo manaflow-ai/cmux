@@ -2105,6 +2105,7 @@ final class BrowserPanel: Panel, ObservableObject {
     @Published var shouldRenderWebView: Bool = false {
         didSet {
             if oldValue != shouldRenderWebView {
+                syncChromiumPaneVisibility()
                 refreshWebViewLifecycleState()
                 applyConfiguredWebViewBackground()
             }
@@ -2217,8 +2218,15 @@ final class BrowserPanel: Panel, ObservableObject {
         }
     }
 
-    private var nativeCanGoBack: Bool = false
-    private var nativeCanGoForward: Bool = false
+    /// Engine-native history availability, reconciled with any persisted
+    /// session-history stack before publishing the toolbar state.
+    var nativeCanGoBack: Bool = false
+    var nativeCanGoForward: Bool = false
+    /// The latest URL lists reported by the out-of-process Chromium session.
+    /// They are cached because session snapshotting is synchronous on the main
+    /// actor while the engine's authoritative history query is asynchronous.
+    var chromiumBackHistoryURLs: [URL] = []
+    var chromiumForwardHistoryURLs: [URL] = []
 
     /// The replayable back/forward session history this surface restores from a
     /// prior launch. The pure stack state machine lives in `CmuxBrowser`;
@@ -2230,7 +2238,7 @@ final class BrowserPanel: Panel, ObservableObject {
         sanitizer: SessionHistoryURLSanitizer { browserIsTemporaryHistoryURL($0) }
     )
 
-    private var usesRestoredSessionHistory: Bool {
+    var usesRestoredSessionHistory: Bool {
         restoredSessionHistory.usesRestoredSessionHistory
     }
     var restoredHistoryCurrentURL: URL? {
@@ -2594,6 +2602,7 @@ final class BrowserPanel: Panel, ObservableObject {
             webViewLastVisibleAt = now
         }
         refreshWebViewLifecycleState()
+        syncChromiumPaneVisibility()
 
         // Chromium uses the same bounded hidden-pane lifecycle as WebKit, but
         // discarding stops its child engine instead of replacing the inert
@@ -2660,6 +2669,15 @@ final class BrowserPanel: Panel, ObservableObject {
         }
         guard webViewLifecycleState != nextState else { return }
         webViewLifecycleState = nextState
+    }
+
+    /// Propagates the panel's effective render/visibility state to the selected
+    /// Chromium adapter. This is the shared mutation path used by SwiftUI,
+    /// canvas, dock, and portal visibility entry points.
+    private func syncChromiumPaneVisibility() {
+        guard isChromiumBacked else { return }
+        (browserEngineController.adapter as? (any ChromiumEngineAdapting))?
+            .setPaneVisible(isWebViewVisibleInUI && shouldRenderWebView)
     }
 
     private func resetWebViewLifecycleMetadata(resetVisibility: Bool = true) {
@@ -4424,18 +4442,26 @@ final class BrowserPanel: Panel, ObservableObject {
         backHistoryURLStrings: [String],
         forwardHistoryURLStrings: [String]
     ) {
-        // Chromium owns its history stack in the child process. The panel's
-        // restored-session stack is intentionally not mixed with that live
-        // stack; the current URL is persisted separately and the managed
-        // profile keeps Chromium's history across restarts.
         if isChromiumBacked {
-            return ([], [])
+            if usesRestoredSessionHistory {
+                let restored = restoredSessionHistory.snapshot(
+                    nativeBackURLs: [],
+                    nativeForwardURLs: [],
+                    isLiveAligned: true
+                )
+                return (restored.backHistoryURLStrings, restored.forwardHistoryURLStrings)
+            }
+            return (
+                chromiumBackHistoryURLs.compactMap(Self.serializableSessionHistoryURLString),
+                chromiumForwardHistoryURLs.compactMap(Self.serializableSessionHistoryURLString)
+            )
         }
+
         realignRestoredSessionHistoryToLiveCurrentIfPossible()
 
         let snapshot = restoredSessionHistory.snapshot(
-            nativeBackURLs: webView.backForwardList.backList.map { $0.url },
-            nativeForwardURLs: webView.backForwardList.forwardList.map { $0.url },
+            nativeBackURLs: isChromiumBacked ? [] : webView.backForwardList.backList.map { $0.url },
+            nativeForwardURLs: isChromiumBacked ? [] : webView.backForwardList.forwardList.map { $0.url },
             isLiveAligned: isLiveSessionHistoryAlignedWithRestoredCurrent
         )
         return (snapshot.backHistoryURLStrings, snapshot.forwardHistoryURLStrings)
@@ -6173,6 +6199,8 @@ extension BrowserPanel {
         estimatedProgress = 0
         nativeCanGoBack = false
         nativeCanGoForward = false
+        chromiumBackHistoryURLs.removeAll(keepingCapacity: false)
+        chromiumForwardHistoryURLs.removeAll(keepingCapacity: false)
         navigationDelegate?.clearSSLTrustState()
         abandonRestoredSessionHistoryIfNeeded()
 
@@ -6254,6 +6282,49 @@ extension BrowserPanel {
         isMainFrameProvisionalNavigationActive = false
     }
 
+    /// Replays one restored history entry through Chromium instead of asking
+    /// the freshly-started child to traverse its synthetic about:blank entry.
+    private func goBackRestoredChromium() {
+        let decision = restoredSessionHistory.decideGoBack(
+            // The child history is intentionally ignored while replay is
+            // active; it contains the bootstrap target and may lag the stack.
+            isLiveAligned: true,
+            nativeCanGoBack: false,
+            resolvedCurrentURL: resolvedCurrentSessionHistoryURL()
+        )
+        switch decision {
+        case .navigate(let targetURL):
+            refreshNavigationAvailability()
+            navigateWithoutInsecureHTTPPrompt(
+                to: targetURL,
+                recordTypedNavigation: false,
+                preserveRestoredSessionHistory: true
+            )
+        case .nativeGoBack, .nativeGoForward, .refreshOnly:
+            refreshNavigationAvailability()
+        }
+    }
+
+    /// Replays one restored forward entry through Chromium while the panel's
+    /// history stack is still authoritative.
+    private func goForwardRestoredChromium() {
+        let decision = restoredSessionHistory.decideGoForward(
+            nativeCanGoForward: false,
+            resolvedCurrentURL: resolvedCurrentSessionHistoryURL()
+        )
+        switch decision {
+        case .navigate(let targetURL):
+            refreshNavigationAvailability()
+            navigateWithoutInsecureHTTPPrompt(
+                to: targetURL,
+                recordTypedNavigation: false,
+                preserveRestoredSessionHistory: true
+            )
+        case .nativeGoBack, .nativeGoForward, .refreshOnly:
+            refreshNavigationAvailability()
+        }
+    }
+
     @discardableResult
     func setMuted(_ muted: Bool) -> Bool {
         guard !isChromiumBacked else {
@@ -6275,7 +6346,11 @@ extension BrowserPanel {
     /// Go back in history
     func goBack() {
         if isChromiumBacked {
-            goBackChromium()
+            if usesRestoredSessionHistory {
+                goBackRestoredChromium()
+            } else {
+                goBackChromium()
+            }
             return
         }
         guard canGoBack else { return }
@@ -6313,7 +6388,11 @@ extension BrowserPanel {
     /// Go forward in history
     func goForward() {
         if isChromiumBacked {
-            goForwardChromium()
+            if usesRestoredSessionHistory {
+                goForwardRestoredChromium()
+            } else {
+                goForwardChromium()
+            }
             return
         }
         guard canGoForward else { return }
@@ -7968,15 +8047,21 @@ extension BrowserPanel {
     }
 
     func refreshNavigationAvailability() {
-        if isChromiumBacked {
-            // Snapshot reconciliation owns Chromium's history flags. There is
-            // no separate WebKit state to refresh for this engine.
-            return
+        let availability: NavigationAvailability
+        if isChromiumBacked && usesRestoredSessionHistory {
+            // Ignore the child's bootstrap about:blank entry until the
+            // persisted stack has been replayed. Otherwise the first back at
+            // the restored stack's boundary would navigate to about:blank.
+            availability = NavigationAvailability(
+                canGoBack: !restoredSessionHistory.back.isEmpty,
+                canGoForward: !restoredSessionHistory.forward.isEmpty
+            )
+        } else {
+            availability = restoredSessionHistory.availability(
+                nativeCanGoBack: nativeCanGoBack,
+                nativeCanGoForward: nativeCanGoForward
+            )
         }
-        let availability = restoredSessionHistory.availability(
-            nativeCanGoBack: nativeCanGoBack,
-            nativeCanGoForward: nativeCanGoForward
-        )
 
         if canGoBack != availability.canGoBack {
             canGoBack = availability.canGoBack
@@ -10074,18 +10159,46 @@ enum BrowserDataImporter {
         return Array(dedupedByKey.values)
     }
 
-    private static func domainMatches(host: String, filters: [String]) -> Bool {
+    /// Matches a host against one or more normalized domain selectors while
+    /// respecting label boundaries (so `badexample.com` never matches
+    /// `example.com`). Shared by browser-data import and cookie clearing.
+    static func domainMatches(host: String, filters: [String]) -> Bool {
         if filters.isEmpty { return true }
         var normalizedHost = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         while normalizedHost.hasPrefix(".") {
             normalizedHost.removeFirst()
         }
         guard !normalizedHost.isEmpty else { return false }
-        for filter in filters {
+        for rawFilter in filters {
+            var filter = rawFilter.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if filter.hasPrefix("*.") { filter.removeFirst(2) }
+            while filter.hasPrefix(".") { filter.removeFirst() }
+            guard !filter.isEmpty else { continue }
             if normalizedHost == filter { return true }
             if normalizedHost.hasSuffix(".\(filter)") { return true }
         }
         return false
+    }
+
+    /// Matches a cookie domain against a URL host in either parent or child
+    /// direction, using the same boundary-aware matcher as import filters.
+    static func cookieDomainMatches(cookieDomain: String, host: String) -> Bool {
+        domainMatches(host: cookieDomain, filters: [host])
+            || domainMatches(host: host, filters: [cookieDomain])
+    }
+
+    /// Applies RFC-style cookie path matching without treating `/foo` as a
+    /// prefix of the unrelated path `/foobar`.
+    static func cookiePathMatches(cookiePath: String, urlPath: String) -> Bool {
+        let normalizedCookiePath = cookiePath.isEmpty ? "/" : cookiePath
+        let normalizedURLPath = urlPath.isEmpty ? "/" : urlPath
+        guard normalizedCookiePath != "/" else { return true }
+        return normalizedURLPath == normalizedCookiePath
+            || normalizedURLPath.hasPrefix(
+                normalizedCookiePath.hasSuffix("/")
+                    ? normalizedCookiePath
+                    : "\(normalizedCookiePath)/"
+            )
     }
 
     private static func chromiumDate(fromWebKitMicroseconds rawValue: Int64) -> Date? {

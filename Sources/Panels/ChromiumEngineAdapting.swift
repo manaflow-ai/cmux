@@ -21,6 +21,10 @@ protocol ChromiumEngineAdapting: AnyObject {
     func documentScriptDefinitions() -> [(source: String, isStyle: Bool)]
     /// Cancels the active page load.
     func stopLoadingPage()
+    /// Tells the renderer whether this pane currently needs a visible viewport.
+    /// Hidden streamed panes suspend screencast production and frame decoding;
+    /// CEF panes order their native child window out through the same seam.
+    func setPaneVisible(_ visible: Bool)
 }
 
 extension ChromiumBrowserPaneEngineAdapter: ChromiumEngineAdapting {
@@ -28,6 +32,14 @@ extension ChromiumBrowserPaneEngineAdapter: ChromiumEngineAdapting {
         let session = self.session
         Task { try? await session.stopLoading() }
     }
+
+    func setPaneVisible(_ visible: Bool) {
+        hostView.setPaneVisible(visible)
+    }
 }
 
-extension CEFBrowserPaneEngineAdapter: ChromiumEngineAdapting {}
+extension CEFBrowserPaneEngineAdapter: ChromiumEngineAdapting {
+    func setPaneVisible(_ visible: Bool) {
+        hostView.isPaneVisible = visible
+    }
+}

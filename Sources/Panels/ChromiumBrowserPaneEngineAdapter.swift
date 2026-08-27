@@ -102,6 +102,13 @@ final class ChromiumBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
                 }
             } catch {
                 guard !(error is CancellationError) else { return }
+                // `session.start()` can succeed before document-script,
+                // emulation, or the first navigation bootstrap fails.  Stop
+                // both sides of the adapter here: otherwise the host tasks
+                // keep consuming frames and the child retains its profile
+                // lock while the pane reports a startup failure.
+                hostView.stop()
+                _ = await session.stopAndWait()
                 hasStarted = false
                 remoteDebuggingEndpoint = nil
                 let snapshot = ChromiumSessionSnapshot(

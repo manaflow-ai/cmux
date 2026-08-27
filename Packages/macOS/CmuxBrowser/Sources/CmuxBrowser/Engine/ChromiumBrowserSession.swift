@@ -31,6 +31,8 @@ public actor ChromiumBrowserSession {
     var title: String?
     var canGoBack = false
     var canGoForward = false
+    var backHistoryURLs: [URL] = []
+    var forwardHistoryURLs: [URL] = []
     var isLoading = false
     var navigationRevision: UInt64 = 0
     /// CDP frame id for the page target's top-level frame.
@@ -40,6 +42,13 @@ public actor ChromiumBrowserSession {
     var internalPort: Int?
     var eventTask: Task<Void, Never>?
     var frameForwardTask: Task<Void, Never>?
+    /// Reconciles the CDP screencast with the latest pane visibility request.
+    var screencastUpdateTask: Task<Void, Never>?
+    /// Whether the AppKit host currently needs viewport frames.
+    var isPaneVisible = false
+    /// Whether `Page.startScreencast` has successfully been applied to the
+    /// current CDP connection.
+    var isScreencastActive = false
     var startupTask: Task<Void, any Error>?
     /// Monotonically changes whenever a start/stop lifecycle is replaced.
     /// Process and CDP callbacks carry their captured identity so a late
@@ -105,6 +114,7 @@ public actor ChromiumBrowserSession {
 
     deinit {
         startupTask?.cancel()
+        screencastUpdateTask?.cancel()
         for child in pendingProcesses.values {
             child.terminate()
         }
@@ -272,18 +282,11 @@ public actor ChromiumBrowserSession {
                 parameters: .object(["enabled": .bool(true)])
             )
             await refreshMainFrame(using: cdp)
-            // JPEG, not PNG: screencast frames are retina-sized and travel
-            // base64-encoded through the CDP JSON stream, so per-frame encode
-            // and transfer cost directly bounds interactive frame rate. JPEG
-            // at this quality is visually indistinguishable for page content
-            // and roughly an order of magnitude smaller/faster than PNG.
-            _ = try await cdp.send(method: "Page.startScreencast", parameters: .object([
-                "format": .string("jpeg"),
-                "quality": .number(75),
-                "maxWidth": .number(4096),
-                "maxHeight": .number(4096),
-                "everyNthFrame": .number(1),
-            ]))
+            // Frame delivery is demand-driven by the AppKit host. Hidden
+            // panes do not start a screencast, which avoids retaining and
+            // decoding viewport images while a tab is offscreen.
+            isScreencastActive = false
+            startScreencastUpdateIfNeeded()
             guard isCurrentStartup(generation), process === child, connection === cdp else {
                 cdp.close()
                 child.terminate()
@@ -319,6 +322,9 @@ public actor ChromiumBrowserSession {
         eventTask = nil
         frameForwardTask?.cancel()
         frameForwardTask = nil
+        screencastUpdateTask?.cancel()
+        screencastUpdateTask = nil
+        isScreencastActive = false
         for continuation in frameContinuations.values { continuation.finish() }
         frameContinuations.removeAll()
         let processToTerminate = process
@@ -340,6 +346,8 @@ public actor ChromiumBrowserSession {
         isLoading = false
         canGoBack = false
         canGoForward = false
+        backHistoryURLs.removeAll(keepingCapacity: false)
+        forwardHistoryURLs.removeAll(keepingCapacity: false)
         publish()
     }
 
@@ -368,6 +376,65 @@ public actor ChromiumBrowserSession {
             }
         }
         return allExited
+    }
+
+    /// Enables or suspends CDP viewport-frame delivery for the pane host.
+    ///
+    /// The preference is retained across a child restart and applied as soon
+    /// as the replacement connection is ready. Turning it off sends
+    /// `Page.stopScreencast`; no page or profile state is discarded.
+    ///
+    /// - Parameter enabled: Whether the pane currently needs rendered frames.
+    public func setScreencastEnabled(_ enabled: Bool) {
+        isPaneVisible = enabled
+        startScreencastUpdateIfNeeded()
+    }
+
+    private func startScreencastUpdateIfNeeded() {
+        guard !isStopping,
+              connection != nil,
+              screencastUpdateTask == nil,
+              ChromiumScreencastTransition(
+                  isPaneVisible: isPaneVisible,
+                  isScreencastActive: isScreencastActive
+              ).method != nil else {
+            return
+        }
+        screencastUpdateTask = Task { [weak self] in
+            await self?.drainScreencastUpdates()
+        }
+    }
+
+    private func drainScreencastUpdates() async {
+        defer { screencastUpdateTask = nil }
+        while !Task.isCancelled,
+              let connection,
+              let method = ChromiumScreencastTransition(
+                  isPaneVisible: isPaneVisible,
+                  isScreencastActive: isScreencastActive
+              ).method {
+            let targetVisible = isPaneVisible
+            let parameters: CDPValue? = targetVisible
+                ? .object([
+                    "format": .string("jpeg"),
+                    "quality": .number(75),
+                    "maxWidth": .number(4096),
+                    "maxHeight": .number(4096),
+                    "everyNthFrame": .number(1),
+                ])
+                : nil
+            do {
+                _ = try await connection.send(method: method, parameters: parameters)
+            } catch is CancellationError {
+                return
+            } catch {
+                // Connection teardown resets the active bit; the next child
+                // generation reconciles the latest visibility preference.
+                return
+            }
+            guard self.isCurrentConnection(connection) else { return }
+            isScreencastActive = targetVisible
+        }
     }
 
     func send(method: String, parameters: CDPValue? = nil) async throws -> CDPValue {
@@ -485,9 +552,14 @@ public actor ChromiumBrowserSession {
         eventTask = nil
         frameForwardTask?.cancel()
         frameForwardTask = nil
+        screencastUpdateTask?.cancel()
+        screencastUpdateTask = nil
+        isScreencastActive = false
         internalPort = nil
         isLoading = false
         mainFrameID = nil
+        backHistoryURLs.removeAll(keepingCapacity: false)
+        forwardHistoryURLs.removeAll(keepingCapacity: false)
         state = isStopping ? .stopped : .crashed(status)
         publish()
         finishProcessExit(processID)

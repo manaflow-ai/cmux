@@ -283,7 +283,13 @@ extension TerminalController {
             let targets = cookies.filter { cookie in
                 if clearAll { return true }
                 if let name, cookie.name != name { return false }
-                if let domain, !cookie.domain.contains(domain) { return false }
+                if let domain {
+                    let filters = BrowserDataImporter.parseDomainFilters(domain)
+                    guard !filters.isEmpty,
+                          BrowserDataImporter.domainMatches(host: cookie.domain, filters: filters) else {
+                        return false
+                    }
+                }
                 if let path, cookie.path != path { return false }
                 if let value, cookie.value != value { return false }
                 if let expires {
@@ -292,12 +298,18 @@ extension TerminalController {
                         return false
                     }
                 }
-                if secure == true, !cookie.isSecure { return false }
+                if let secure, cookie.isSecure != secure { return false }
                 if let url = urlFilter, let host = url.host {
-                    guard cookie.domain == host || cookie.domain.hasSuffix(".(host)") || host.hasSuffix(".(cookie.domain)") else {
+                    guard BrowserDataImporter.cookieDomainMatches(
+                        cookieDomain: cookie.domain,
+                        host: host
+                    ) else {
                         return false
                     }
-                    guard url.path.isEmpty || url.path.hasPrefix(cookie.path) else { return false }
+                    guard BrowserDataImporter.cookiePathMatches(
+                        cookiePath: cookie.path,
+                        urlPath: url.path
+                    ) else { return false }
                 }
                 return true
             }

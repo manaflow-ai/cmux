@@ -173,6 +173,8 @@ extension ChromiumBrowserSession {
         isLoading = false
         canGoBack = history.canGoBack
         canGoForward = history.canGoForward
+        backHistoryURLs = history.backURLs
+        forwardHistoryURLs = history.forwardURLs
         publish()
     }
 
@@ -297,11 +299,16 @@ extension ChromiumBrowserSession {
         guard isCurrentConnection(endedConnection, generation: generation), !isStopping else { return }
         self.connection = nil
         connectionGeneration = nil
+        screencastUpdateTask?.cancel()
+        screencastUpdateTask = nil
+        isScreencastActive = false
         endedConnection.close()
         let processToTerminate = process
         state = .crashed(-1)
         isLoading = false
         mainFrameID = nil
+        backHistoryURLs.removeAll(keepingCapacity: false)
+        forwardHistoryURLs.removeAll(keepingCapacity: false)
         processToTerminate?.terminate()
         publish()
     }
@@ -314,8 +321,13 @@ extension ChromiumBrowserSession {
         state = .crashed(-1)
         isLoading = false
         mainFrameID = nil
+        backHistoryURLs.removeAll(keepingCapacity: false)
+        forwardHistoryURLs.removeAll(keepingCapacity: false)
         connection = nil
         connectionGeneration = nil
+        screencastUpdateTask?.cancel()
+        screencastUpdateTask = nil
+        isScreencastActive = false
         crashedConnection.close()
         let processToTerminate = process
         processToTerminate?.terminate()
@@ -351,12 +363,11 @@ extension ChromiumBrowserSession {
         guard isCurrentConnection(connection),
               let value = try? await connection.send(method: "Page.getNavigationHistory"),
               isCurrentConnection(connection),
-              case .object(let object) = value,
-              let rawIndex = object["currentIndex"]?.doubleValue,
-              let index = Int(exactly: rawIndex),
-              case .array(let entries)? = object["entries"] else { return }
-        canGoBack = index > 0
-        canGoForward = index + 1 < entries.count
+              let history = try? ChromiumNavigationHistory(value) else { return }
+        canGoBack = history.canGoBack
+        canGoForward = history.canGoForward
+        backHistoryURLs = history.backURLs
+        forwardHistoryURLs = history.forwardURLs
     }
 
     func refreshTitle(using connection: ChromiumCDPConnection) async {
@@ -402,9 +413,14 @@ extension ChromiumBrowserSession {
         eventTask = nil
         frameForwardTask?.cancel()
         frameForwardTask = nil
+        screencastUpdateTask?.cancel()
+        screencastUpdateTask = nil
+        isScreencastActive = false
         internalPort = nil
         mainFrameID = nil
         isLoading = false
+        backHistoryURLs.removeAll(keepingCapacity: false)
+        forwardHistoryURLs.removeAll(keepingCapacity: false)
         state = error is CancellationError || isStopping
             ? .stopped
             : .failed(ChromiumBrowserDiagnostic.startupFailed.message)

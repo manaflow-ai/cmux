@@ -98,7 +98,11 @@ void cmux_cef_browser_close(cmux_cef_browser_t *browser);
 void cmux_cef_browser_release(cmux_cef_browser_t *browser);
 
 void cmux_cef_browser_load_url(cmux_cef_browser_t *browser, const char *url);
+/// Returns whether the browser currently has a back-history entry.
+int cmux_cef_browser_can_go_back(cmux_cef_browser_t *browser);
 void cmux_cef_browser_go_back(cmux_cef_browser_t *browser);
+/// Returns whether the browser currently has a forward-history entry.
+int cmux_cef_browser_can_go_forward(cmux_cef_browser_t *browser);
 void cmux_cef_browser_go_forward(cmux_cef_browser_t *browser);
 void cmux_cef_browser_reload(cmux_cef_browser_t *browser);
 void cmux_cef_browser_stop(cmux_cef_browser_t *browser);

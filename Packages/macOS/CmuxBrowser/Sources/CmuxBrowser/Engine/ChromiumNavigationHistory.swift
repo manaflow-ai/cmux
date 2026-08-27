@@ -1,7 +1,14 @@
+import Foundation
+
 /// Parsed subset of `Page.getNavigationHistory` used for native back/forward.
 struct ChromiumNavigationHistory: Equatable, Sendable {
+    struct Entry: Equatable, Sendable {
+        let id: Int
+        let url: URL?
+    }
+
     let currentIndex: Int
-    let entryIDs: [Int]
+    let entries: [Entry]
 
     init(_ value: CDPValue) throws {
         guard case .object(let object) = value,
@@ -11,28 +18,43 @@ struct ChromiumNavigationHistory: Equatable, Sendable {
             throw Self.malformedError
         }
 
-        let entryIDs = try entries.map { entry -> Int in
+        let parsedEntries = try entries.map { entry -> Entry in
             guard case .object(let entryObject) = entry,
                   let rawID = entryObject["id"]?.doubleValue,
                   let entryID = Int(exactly: rawID) else {
                 throw Self.malformedError
             }
-            return entryID
+            let rawURL = entryObject["url"]?.stringValue
+                ?? entryObject["userTypedURL"]?.stringValue
+            return Entry(id: entryID, url: rawURL.flatMap(URL.init(string:)))
         }
-        guard entryIDs.indices.contains(currentIndex) else {
+        guard parsedEntries.indices.contains(currentIndex) else {
             throw Self.malformedError
         }
         self.currentIndex = currentIndex
-        self.entryIDs = entryIDs
+        self.entries = parsedEntries
     }
 
-    var canGoBack: Bool { currentIndex > entryIDs.startIndex }
-    var canGoForward: Bool { currentIndex < entryIDs.index(before: entryIDs.endIndex) }
+    var entryIDs: [Int] { entries.map(\.id) }
+
+    var canGoBack: Bool { currentIndex > entries.startIndex }
+    var canGoForward: Bool { currentIndex < entries.index(before: entries.endIndex) }
+
+    /// Back entries ordered oldest-first for session persistence.
+    var backURLs: [URL] {
+        entries[..<currentIndex].compactMap(\.url)
+    }
+
+    /// Forward entries ordered nearest-first for session persistence.
+    var forwardURLs: [URL] {
+        guard currentIndex + 1 < entries.endIndex else { return [] }
+        return entries[(currentIndex + 1)...].compactMap(\.url)
+    }
 
     func targetEntryID(offset: Int) -> Int? {
         let targetIndex = currentIndex + offset
-        guard entryIDs.indices.contains(targetIndex) else { return nil }
-        return entryIDs[targetIndex]
+        guard entries.indices.contains(targetIndex) else { return nil }
+        return entries[targetIndex].id
     }
 
     private static var malformedError: CDPError {

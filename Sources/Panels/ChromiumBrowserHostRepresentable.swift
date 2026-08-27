@@ -25,9 +25,8 @@ struct ChromiumBrowserHostRepresentable: NSViewRepresentable {
             container.subviews.forEach { $0.removeFromSuperview() }
             return
         }
-        if let cefHost = host as? CEFBrowserHostView {
-            cefHost.isPaneVisible = isVisibleInUI && isCurrentPaneOwner
-        }
+        (panel.browserEngineController.adapter as? (any ChromiumEngineAdapting))?
+            .setPaneVisible(isVisibleInUI && isCurrentPaneOwner)
         guard host.superview !== container else {
             host.frame = container.bounds
             return

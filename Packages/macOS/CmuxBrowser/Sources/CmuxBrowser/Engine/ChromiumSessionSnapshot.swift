@@ -14,6 +14,10 @@ public struct ChromiumSessionSnapshot: Equatable, Sendable {
     public let canGoBack: Bool
     /// Whether Chromium can traverse to a newer navigation entry.
     public let canGoForward: Bool
+    /// Back-history URLs ordered oldest-first.
+    public let backHistoryURLs: [URL]?
+    /// Forward-history URLs ordered nearest-first.
+    public let forwardHistoryURLs: [URL]?
     /// Whether the active main frame is still loading.
     public let isLoading: Bool
     /// Monotonically increasing main-frame navigation revision.
@@ -28,6 +32,8 @@ public struct ChromiumSessionSnapshot: Equatable, Sendable {
     ///   - externallyVisibleEndpoint: Advertised loopback CDP endpoint, when enabled.
     ///   - canGoBack: Whether an older history entry exists.
     ///   - canGoForward: Whether a newer history entry exists.
+    ///   - backHistoryURLs: Back entries ordered oldest-first.
+    ///   - forwardHistoryURLs: Forward entries ordered nearest-first.
     ///   - isLoading: Whether the main frame is loading.
     ///   - navigationRevision: Monotonic main-frame navigation revision.
     public init(
@@ -37,6 +43,8 @@ public struct ChromiumSessionSnapshot: Equatable, Sendable {
         externallyVisibleEndpoint: BrowserCDPEndpoint? = nil,
         canGoBack: Bool = false,
         canGoForward: Bool = false,
+        backHistoryURLs: [URL]? = nil,
+        forwardHistoryURLs: [URL]? = nil,
         isLoading: Bool = false,
         navigationRevision: UInt64 = 0
     ) {
@@ -46,6 +54,8 @@ public struct ChromiumSessionSnapshot: Equatable, Sendable {
         self.externallyVisibleEndpoint = externallyVisibleEndpoint
         self.canGoBack = canGoBack
         self.canGoForward = canGoForward
+        self.backHistoryURLs = backHistoryURLs
+        self.forwardHistoryURLs = forwardHistoryURLs
         self.isLoading = isLoading
         self.navigationRevision = navigationRevision
     }

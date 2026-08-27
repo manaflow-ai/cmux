@@ -1373,6 +1373,12 @@
           "descriptionKey": "schemaDescriptions.browser.defaultEngine",
           "description": "Rendering engine for newly-created embedded browser panes. Auto follows the system default browser; explicit WebKit or Chromium choices override it. Chromium runs out of process."
         },
+        "chromiumExtensionDirectories": {
+          "type": "string",
+          "default": "",
+          "descriptionKey": "schemaDescriptions.browser.chromiumExtensionDirectories",
+          "description": "Newline-separated absolute paths to unpacked Chromium extension directories loaded into new Chromium panes."
+        },
         "remoteDebuggingPort": {
           "type": "integer",
           "minimum": 0,

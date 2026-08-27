@@ -194,9 +194,21 @@ public final class CEFBrowser {
         url.absoluteString.withCString { cmux_cef_browser_load_url(handle, $0) }
     }
 
+    /// Whether the browser currently has an older session-history entry.
+    public var canGoBack: Bool {
+        guard let handle else { return false }
+        return cmux_cef_browser_can_go_back(handle) != 0
+    }
+
     /// Traverses one entry back in session history.
     public func goBack() {
         if let handle { cmux_cef_browser_go_back(handle) }
+    }
+
+    /// Whether the browser currently has a newer session-history entry.
+    public var canGoForward: Bool {
+        guard let handle else { return false }
+        return cmux_cef_browser_can_go_forward(handle) != 0
     }
 
     /// Traverses one entry forward in session history.

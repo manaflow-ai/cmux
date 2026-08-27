@@ -37,6 +37,7 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
     private var eventTask: Task<Void, Never>?
     private var startupTask: Task<Void, Never>?
     private var stopCompletionTask: Task<Void, Never>?
+    private var navigationHistoryTask: Task<Void, Never>?
     private var documentScriptRemovalTask: Task<Void, Never>?
     private var colorSchemeTask: Task<Void, Never>?
     private var hasStarted = false
@@ -51,7 +52,12 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
     private var isLoading = false
     private var canGoBack = false
     private var canGoForward = false
+    /// Latest URL lists returned by `Page.getNavigationHistory`; optional so
+    /// callers can distinguish an unavailable query from a valid empty list.
+    private var backHistoryURLs: [URL]?
+    private var forwardHistoryURLs: [URL]?
     private var navigationRevision: UInt64 = 0
+    private var navigationHistoryGeneration: UInt64 = 0
     private var snapshotContinuations: [UUID: AsyncStream<ChromiumSessionSnapshot>.Continuation] = [:]
 
     // Document scripts mirrored so engine restarts can replay them.
@@ -85,6 +91,7 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
     deinit {
         startupTask?.cancel()
         stopCompletionTask?.cancel()
+        navigationHistoryTask?.cancel()
         documentScriptRemovalTask?.cancel()
         colorSchemeTask?.cancel()
         // The lifecycle owner requests `close()` while isolated to the main
@@ -163,10 +170,12 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
         self.browser = browser
         self.devTools = CEFDevToolsClient(browser: browser)
         currentURL = nil
+        backHistoryURLs = nil
+        forwardHistoryURLs = nil
         let events = browser.events()
         eventTask = Task { [weak self] in
             for await event in events {
-                self?.handle(event)
+                await self?.handle(event)
             }
         }
     }
@@ -218,6 +227,9 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
         colorSchemeTask = nil
         eventTask?.cancel()
         eventTask = nil
+        navigationHistoryGeneration &+= 1
+        navigationHistoryTask?.cancel()
+        navigationHistoryTask = nil
         cancelReadyWaiters()
         hostView.detach()
         browser?.stopLoading()
@@ -231,6 +243,8 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
         remoteDebuggingEndpoint = nil
         hasStarted = false
         isReady = false
+        backHistoryURLs = nil
+        forwardHistoryURLs = nil
         publishSnapshot(state: .stopped)
     }
 
@@ -306,14 +320,24 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
 
     func goBack() async throws {
         try await ready()
+        guard let browser else { throw CDPError.notConnected }
         beginNavigation()
-        browser?.goBack()
+        guard browser.canGoBack else {
+            completeNoOpNavigation()
+            return
+        }
+        browser.goBack()
     }
 
     func goForward() async throws {
         try await ready()
+        guard let browser else { throw CDPError.notConnected }
         beginNavigation()
-        browser?.goForward()
+        guard browser.canGoForward else {
+            completeNoOpNavigation()
+            return
+        }
+        browser.goForward()
     }
 
     func reload() async throws {
@@ -556,13 +580,14 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
 
     // MARK: - Event handling
 
-    private func handle(_ event: CEFBrowser.Event) {
+    private func handle(_ event: CEFBrowser.Event) async {
         switch event {
         case .created:
             isReady = true
             if let cefWindow = browser?.nsWindow {
                 hostView.attach(cefWindow: cefWindow)
             }
+            scheduleNavigationHistoryRefresh()
             publishSnapshot(state: .running(nil))
             let waiters = readyContinuations.values
             readyContinuations.removeAll()
@@ -575,15 +600,20 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
         case .addressChanged(let value):
             currentURL = URL(string: value)
             navigationRevision &+= 1
+            scheduleNavigationHistoryRefresh()
             publishSnapshot(state: .running(nil))
         case .loadingStateChanged(let loading, let back, let forward):
             isLoading = loading
             canGoBack = back
             canGoForward = forward
+            scheduleNavigationHistoryRefresh()
             publishSnapshot(state: .running(nil))
         case .rendererCrashed:
             isReady = false
             hasStarted = false
+            navigationHistoryGeneration &+= 1
+            navigationHistoryTask?.cancel()
+            navigationHistoryTask = nil
             startupTask?.cancel()
             startupTask = nil
             eventTask?.cancel()
@@ -594,11 +624,16 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
             browser?.close()
             browser = nil
             devTools = nil
+            backHistoryURLs = nil
+            forwardHistoryURLs = nil
             publishSnapshot(state: .crashed(1))
             finishSnapshotStreams()
         case .closed:
             isReady = false
             hasStarted = false
+            navigationHistoryGeneration &+= 1
+            navigationHistoryTask?.cancel()
+            navigationHistoryTask = nil
             startupTask?.cancel()
             startupTask = nil
             documentScriptRemovalTask?.cancel()
@@ -609,6 +644,8 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
             hostView.detach()
             browser = nil
             devTools = nil
+            backHistoryURLs = nil
+            forwardHistoryURLs = nil
             eventTask = nil
             let waiters = readyContinuations.values
             readyContinuations.removeAll()
@@ -628,6 +665,8 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
             externallyVisibleEndpoint: remoteDebuggingEndpoint,
             canGoBack: canGoBack,
             canGoForward: canGoForward,
+            backHistoryURLs: backHistoryURLs,
+            forwardHistoryURLs: forwardHistoryURLs,
             isLoading: isLoading,
             navigationRevision: navigationRevision
         )
@@ -637,9 +676,56 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
         onSnapshot?(snapshot)
     }
 
+    private func scheduleNavigationHistoryRefresh() {
+        navigationHistoryGeneration &+= 1
+        let generation = navigationHistoryGeneration
+        navigationHistoryTask?.cancel()
+        navigationHistoryTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.refreshNavigationHistory()
+            guard self.navigationHistoryGeneration == generation else { return }
+            self.navigationHistoryTask = nil
+        }
+    }
+
+    private func refreshNavigationHistory() async {
+        guard let result = try? await sendCommand(method: "Page.getNavigationHistory"),
+              case .object(let object) = result,
+              let rawIndex = object["currentIndex"]?.doubleValue,
+              let currentIndex = Int(exactly: rawIndex),
+              case .array(let entries)? = object["entries"],
+              entries.indices.contains(currentIndex) else {
+            return
+        }
+        let urls: [URL?] = entries.map { entry in
+            guard case .object(let entryObject) = entry else { return nil }
+            let rawURL = entryObject["url"]?.stringValue
+                ?? entryObject["userTypedURL"]?.stringValue
+            return rawURL.flatMap(URL.init(string:))
+        }
+        backHistoryURLs = urls[..<currentIndex].compactMap { $0 }
+        forwardHistoryURLs = currentIndex + 1 < urls.endIndex
+            ? urls[(currentIndex + 1)...].compactMap { $0 }
+            : []
+        canGoBack = currentIndex > 0
+        canGoForward = currentIndex + 1 < entries.count
+        publishSnapshot(state: .running(nil))
+    }
+
     private func beginNavigation() {
         navigationRevision &+= 1
         isLoading = true
+        publishSnapshot(state: .running(nil))
+    }
+
+    /// Completes a history request that had no adjacent entry. CEF does not
+    /// emit a loading or address callback for this no-op, so the optimistic
+    /// navigation marker must be cleared explicitly for automation waiters.
+    private func completeNoOpNavigation() {
+        canGoBack = browser?.canGoBack ?? false
+        canGoForward = browser?.canGoForward ?? false
+        scheduleNavigationHistoryRefresh()
+        isLoading = false
         publishSnapshot(state: .running(nil))
     }
 
@@ -661,6 +747,9 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
     private func cleanupAfterStartupFailure() {
         eventTask?.cancel()
         eventTask = nil
+        navigationHistoryGeneration &+= 1
+        navigationHistoryTask?.cancel()
+        navigationHistoryTask = nil
         documentScriptRemovalTask?.cancel()
         documentScriptRemovalTask = nil
         colorSchemeTask?.cancel()

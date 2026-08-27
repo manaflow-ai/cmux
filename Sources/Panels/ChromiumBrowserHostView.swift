@@ -20,6 +20,10 @@ final class ChromiumBrowserHostView: NSView {
     private var pointerTrackingArea: NSTrackingArea?
     private var lastViewport: CGSize = .zero
     private var hasStarted = false
+    /// Whether this host is currently mounted as the visible pane owner.
+    private var isPaneVisible = false
+    private var screencastVisibilityTask: Task<Void, Never>?
+    private var lastRequestedScreencastVisibility: Bool?
 
     private var deviceScaleFactor: CGFloat {
         window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1
@@ -55,6 +59,7 @@ final class ChromiumBrowserHostView: NSView {
         frameTask?.cancel()
         stateTask?.cancel()
         viewportTask?.cancel()
+        screencastVisibilityTask?.cancel()
     }
 
     /// Fully decompresses one screencast frame into a bitmap-backed image.
@@ -100,27 +105,6 @@ final class ChromiumBrowserHostView: NSView {
         hasStarted = true
         guard let session else { return }
 
-        frameTask = Task { [weak self, weak session] in
-            guard let session else { return }
-            let frames = await session.frames()
-            for await frame in frames {
-                guard !Task.isCancelled else { return }
-                // Decode eagerly off the main actor: `NSImage(data:)` defers
-                // decompression to first draw, which would put the whole
-                // JPEG decode on the main thread for every frame.
-                // ImageIO decompression and bitmap allocation are CPU-bound;
-                // keep them off the main actor that owns this AppKit view.
-                let image = await Task.detached(priority: .userInitiated) {
-                    Self.decodedFrameImage(frame)
-                }.value
-                guard !Task.isCancelled, let image else { return }
-                await MainActor.run {
-                    guard let self else { return }
-                    self.imageView.image = image
-                }
-            }
-        }
-
         stateTask = Task { [weak self, weak session] in
             guard let session else { return }
             let snapshots = await session.snapshots()
@@ -140,13 +124,72 @@ final class ChromiumBrowserHostView: NSView {
                 }
             }
         }
+        startFrameTaskIfNeeded()
+        lastRequestedScreencastVisibility = nil
+        requestScreencastVisibilityIfNeeded()
         updateViewportIfNeeded()
+    }
+
+    /// Updates frame delivery when this host moves between an active pane and
+    /// a hidden tab. The session stops producing CDP screencast messages while
+    /// hidden, and the decode task is cancelled so no JPEG work continues in
+    /// the background.
+    func setPaneVisible(_ visible: Bool) {
+        let visibilityChanged = isPaneVisible != visible
+        isPaneVisible = visible
+        if visible {
+            startFrameTaskIfNeeded()
+        } else {
+            frameTask?.cancel()
+            frameTask = nil
+            imageView.image = nil
+        }
+        if visibilityChanged {
+            requestScreencastVisibilityIfNeeded()
+        }
+    }
+
+    private func requestScreencastVisibilityIfNeeded() {
+        guard lastRequestedScreencastVisibility != isPaneVisible else { return }
+        lastRequestedScreencastVisibility = isPaneVisible
+        screencastVisibilityTask?.cancel()
+        guard let session else { return }
+        let visible = isPaneVisible
+        screencastVisibilityTask = Task { [weak session] in
+            await session?.setScreencastEnabled(visible)
+        }
+    }
+
+    private func startFrameTaskIfNeeded() {
+        guard hasStarted, isPaneVisible, frameTask == nil, let session else { return }
+        frameTask = Task { [weak self, weak session] in
+            guard let session else { return }
+            let frames = await session.frames()
+            for await frame in frames {
+                guard !Task.isCancelled else { return }
+                // Decode eagerly off the main actor: `NSImage(data:)` defers
+                // decompression to first draw, which would put the whole
+                // JPEG decode on the main thread for every frame.
+                // ImageIO decompression and bitmap allocation are CPU-bound;
+                // keep them off the main actor that owns this AppKit view.
+                let image = await Task.detached(priority: .userInitiated) {
+                    Self.decodedFrameImage(frame)
+                }.value
+                guard !Task.isCancelled, let image else { return }
+                await MainActor.run {
+                    guard let self, self.isPaneVisible else { return }
+                    self.imageView.image = image
+                }
+            }
+        }
     }
 
     func stop() {
         frameTask?.cancel()
         stateTask?.cancel()
         viewportTask?.cancel()
+        screencastVisibilityTask?.cancel()
+        lastRequestedScreencastVisibility = nil
         inputQueue.cancel()
         frameTask = nil
         stateTask = nil

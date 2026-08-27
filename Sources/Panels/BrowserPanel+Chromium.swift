@@ -46,6 +46,8 @@ extension BrowserPanel {
         automationNavigationCoordinator.invalidate()
         shouldRenderWebView = false
         isLoading = false
+        nativeCanGoBack = false
+        nativeCanGoForward = false
         canGoBack = false
         canGoForward = false
         pageTitle = String(
@@ -181,7 +183,8 @@ extension BrowserPanel {
     /// Chromium has no WebKit delegate callbacks, so this is the single
     /// adapter-to-panel mutation path for URL/title/loading/crash state.
     func applyChromiumSnapshot(_ snapshot: ChromiumSessionSnapshot) {
-        if let url = snapshot.currentURL {
+        if let url = snapshot.currentURL,
+           !(usesRestoredSessionHistory && url.absoluteString == "about:blank") {
             currentURL = url
         }
         if let title = snapshot.title {
@@ -194,8 +197,14 @@ extension BrowserPanel {
             isLoading = snapshot.isLoading
             shouldRenderWebView = true
             hasRecoverableWebContentTermination = false
-            canGoBack = snapshot.canGoBack
-            canGoForward = snapshot.canGoForward
+            nativeCanGoBack = snapshot.canGoBack
+            nativeCanGoForward = snapshot.canGoForward
+            if let backHistoryURLs = snapshot.backHistoryURLs {
+                chromiumBackHistoryURLs = backHistoryURLs
+            }
+            if let forwardHistoryURLs = snapshot.forwardHistoryURLs {
+                chromiumForwardHistoryURLs = forwardHistoryURLs
+            }
             if !snapshot.isLoading,
                lastRecordedChromiumNavigationRevision != snapshot.navigationRevision,
                let url = snapshot.currentURL {
@@ -206,12 +215,12 @@ extension BrowserPanel {
             isLoading = false
             lastRecordedChromiumNavigationRevision = nil
             hasRecoverableWebContentTermination = true
-            canGoBack = false
-            canGoForward = false
+            nativeCanGoBack = false
+            nativeCanGoForward = false
         case .failed(let message):
             isLoading = false
-            canGoBack = false
-            canGoForward = false
+            nativeCanGoBack = false
+            nativeCanGoForward = false
             #if DEBUG
             cmuxDebugLog("browser.chromium.start.failed error=\(message)")
             #endif
@@ -222,9 +231,10 @@ extension BrowserPanel {
         case .stopped:
             isLoading = false
             lastRecordedChromiumNavigationRevision = nil
-            canGoBack = false
-            canGoForward = false
+            nativeCanGoBack = false
+            nativeCanGoForward = false
         }
+        refreshNavigationAvailability()
         refreshWebViewLifecycleState()
     }
 
@@ -307,6 +317,8 @@ extension BrowserPanel {
         hiddenWebViewDiscardManager.markDiscarded(reason: reason, now: now)
         shouldRenderWebView = false
         isLoading = false
+        nativeCanGoBack = false
+        nativeCanGoForward = false
         canGoBack = false
         canGoForward = false
         hasRecoverableWebContentTermination = false
@@ -346,6 +358,10 @@ extension BrowserPanel {
         BrowserProfileStore.shared.noteUsed(nextProfileID)
         lastRecordedChromiumNavigationRevision = nil
         hasRecoverableWebContentTermination = false
+        chromiumBackHistoryURLs.removeAll(keepingCapacity: false)
+        chromiumForwardHistoryURLs.removeAll(keepingCapacity: false)
+        nativeCanGoBack = false
+        nativeCanGoForward = false
         canGoBack = false
         canGoForward = false
         isLoading = false

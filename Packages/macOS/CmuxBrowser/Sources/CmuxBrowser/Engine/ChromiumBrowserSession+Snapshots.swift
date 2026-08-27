@@ -62,6 +62,8 @@ extension ChromiumBrowserSession {
             externallyVisibleEndpoint: externallyVisible,
             canGoBack: canGoBack,
             canGoForward: canGoForward,
+            backHistoryURLs: backHistoryURLs,
+            forwardHistoryURLs: forwardHistoryURLs,
             isLoading: isLoading,
             navigationRevision: navigationRevision
         )
