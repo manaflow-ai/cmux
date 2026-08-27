@@ -145,7 +145,7 @@ struct CmuxTuiSnapshotParser: Sendable {
     static let desktopPort = 6901
 
     static func machineHasDesktop(image: String) -> Bool {
-        image.contains("xfce-vnc")
+        image.contains("xfce-vnc") || image.contains("cmux-devbox")
     }
 
     /// The VNC screen of a desktop machine.

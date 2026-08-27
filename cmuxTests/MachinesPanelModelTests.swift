@@ -44,6 +44,18 @@ final class MachinesPanelModelTests: XCTestCase {
         XCTAssertNil(desktop.createdAt)
     }
 
+    func testBakedDevboxImageIsDesktop() {
+        let devbox = MachineSnapshotBuilder.snapshot(from: VMSummary(
+            id: "vivid-heron",
+            provider: "blaxel",
+            status: "running",
+            image: "sandbox/cmux-devbox:latest",
+            createdAt: 0,
+            base: nil
+        ))
+        XCTAssertTrue(devbox.isDesktop)
+    }
+
     func testLabelDrivesDisplayName() {
         var summary = VMSummary(
             id: "noble-wren",
