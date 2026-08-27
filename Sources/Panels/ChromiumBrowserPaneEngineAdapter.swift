@@ -42,7 +42,7 @@ final class ChromiumBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
         remoteDebuggingPort: ChromiumRemoteDebuggingPort,
         environment: ChromiumBrowserRuntimeEnvironment,
         documentScripts: [(source: String, isStyle: Bool)] = [],
-        startPrerequisite: Task<Void, Never>? = nil
+        startPrerequisite: Task<Bool, Never>? = nil
     ) {
         let session = ChromiumBrowserSession(
             profileID: profileID,
