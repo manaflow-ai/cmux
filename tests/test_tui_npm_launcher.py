@@ -325,6 +325,49 @@ def test_launcher_refetches_a_tampered_cached_binary(tmp_path: Path) -> None:
     assert RegistryHandler.tarball_requests == 2
 
 
+def test_launcher_refetches_non_executable_cached_binary(tmp_path: Path) -> None:
+    if sys.platform == "win32":
+        return
+    launcher = write_launcher(tmp_path)
+    cache = tmp_path / "cache"
+    server, thread, registry = start_registry()
+    try:
+        first = run_launcher(launcher, cache, registry, "--version")
+        binary = cache / f"{host_platform_key()}/v/1.2.3/bin/cmux-tui"
+        binary.chmod(0o644)
+        second = run_launcher(launcher, cache, registry, "--version")
+    finally:
+        server.shutdown()
+        thread.join()
+
+    assert first.returncode == 0, first.stderr
+    assert second.returncode == 0, second.stderr
+    assert second.stdout == "fake cmux-tui 1.2.3\n"
+    assert binary.stat().st_mode & stat.S_IXUSR
+    assert RegistryHandler.tarball_requests == 2
+
+
+def test_prune_preserves_unmanaged_cache_version(tmp_path: Path) -> None:
+    if sys.platform == "win32":
+        return
+    launcher = write_launcher(tmp_path, "1.2.3")
+    cache = tmp_path / "cache"
+    write_cached_binary(cache, "1.0.0", "#!/bin/sh\nexit 0\n", managed=True)
+    write_cached_binary(cache, "1.1.0", "#!/bin/sh\nexit 0\n", managed=True)
+    unmanaged = write_cached_binary(
+        cache,
+        "9.9.9-dev",
+        "#!/bin/sh\nprintf '%s\\n' 'development binary'\n",
+    )
+    write_cached_binary(cache, "1.2.3", "#!/bin/sh\nexit 0\n", managed=True)
+
+    result = run_launcher(launcher, cache, "http://127.0.0.1:1", "--version")
+
+    assert result.returncode == 0, result.stderr
+    assert unmanaged.is_file()
+    assert not unmanaged.parent.parent.joinpath("managed").exists()
+
+
 def test_launcher_reports_network_failure_without_leaking_details(tmp_path: Path) -> None:
     if sys.platform == "win32":
         return
@@ -537,6 +580,49 @@ def test_launcher_fails_closed_when_another_process_holds_cache_lock(tmp_path: P
     assert result.stdout == ""
     assert "could not reserve the native binary" in result.stderr
     assert owner_path.read_text() == owner
+
+
+def test_launcher_waits_for_short_cache_lock_contention(tmp_path: Path) -> None:
+    if sys.platform == "win32":
+        return
+    launcher = write_launcher(tmp_path)
+    cache = tmp_path / "cache"
+    write_cached_binary(
+        cache,
+        "1.2.3",
+        "#!/bin/sh\nprintf '%s\\n' 'cached after short lock contention'\n",
+    )
+    lock = cache / host_platform_key() / ".update.lock"
+    lock.mkdir(parents=True)
+    (lock / "owner").write_text(f"{os.getpid()}\nfixture-owner-token\n")
+
+    process = subprocess.Popen(
+        ["node", str(launcher), "--version"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env={
+            **os.environ,
+            "CMUX_TUI_LAUNCHER_CACHE": str(cache),
+            "CMUX_NPM_REGISTRY": "http://127.0.0.1:1",
+            "NO_COLOR": "1",
+        },
+    )
+    stdout = ""
+    stderr = ""
+    try:
+        time.sleep(0.2)
+        assert process.poll() is None, "launcher failed before the short lock was released"
+        (lock / "owner").unlink()
+        lock.rmdir()
+        stdout, stderr = process.communicate(timeout=5)
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.communicate(timeout=5)
+
+    assert process.returncode == 0, stderr or stdout
+    assert stdout == "cached after short lock contention\n"
 
 
 def test_launcher_recovers_stale_empty_cache_lock(tmp_path: Path) -> None:
@@ -867,6 +953,7 @@ def main() -> None:
         test_launcher_requires_network_runtime_capabilities(root / "runtime")
         test_launcher_rejects_negative_tar_size_without_hanging(root / "negative-size")
         test_launcher_refetches_a_tampered_cached_binary(root / "tampered-cache")
+        test_launcher_refetches_non_executable_cached_binary(root / "non-executable-cache")
         test_launcher_reports_network_failure_without_leaking_details(root / "failure")
         test_launcher_releases_lease_when_native_launch_fails(root / "launch-failure")
         test_launcher_reads_registry_token_from_npmrc(root / "npmrc")
@@ -877,6 +964,7 @@ def main() -> None:
         test_binary_override_works_on_an_unsupported_platform(root / "unsupported-override")
         test_missing_binary_override_hides_path_and_variable(root / "missing-override")
         test_launcher_fails_closed_when_another_process_holds_cache_lock(root / "held-lock")
+        test_launcher_waits_for_short_cache_lock_contention(root / "short-lock")
         test_launcher_recovers_stale_empty_cache_lock(root / "stale-empty-lock")
         test_launcher_keeps_fresh_empty_cache_lock(root / "fresh-empty-lock")
         test_launcher_reclaims_stale_empty_lease_during_prune(root / "stale-empty-lease")
@@ -884,6 +972,7 @@ def main() -> None:
         test_concurrent_launchers_preserve_an_active_lease_during_prune(root / "concurrent")
         test_update_lease_protects_download_from_concurrent_prune(root / "update-concurrent")
         test_concurrent_updates_fail_closed_while_one_downloads(root / "update-serialization")
+        test_prune_preserves_unmanaged_cache_version(root / "unmanaged-cache")
         test_launcher_keeps_current_and_one_previous_after_download(root / "prune")
 
 
