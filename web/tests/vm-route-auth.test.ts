@@ -1443,6 +1443,50 @@ describe("VM REST auth", () => {
     }
   });
 
+  test("maps a provider image-not-found on create to a non-retryable vm_image_unavailable", async () => {
+    getUser.mockResolvedValue(authedStackUser());
+    const originalError = console.error;
+    console.error = mock(() => {}) as unknown as typeof console.error;
+    try {
+      const providerCause = new Error(
+        "POST https://api.blaxel.ai/v0/sandboxes -> 400: {\"code\":\"IMAGE_NOT_FOUND\",\"message\":\"Image 'sandbox/cmux-devbox:latest' not found. Create and deploy a template sandbox.\"}",
+      );
+      const response = await withAuthedVmApiRoute(
+        new Request("https://cmux.test/api/vm", {
+          method: "POST",
+          headers: { origin: "https://cmux.test", "content-type": "application/json" },
+          body: JSON.stringify({ kind: "desktop" }),
+        }),
+        "/api/vm",
+        { "cmux.vm.operation": "create" },
+        "/api/vm failed",
+        async () => {
+          throw new VmProviderOperationError({
+            provider: "blaxel",
+            operation: "create",
+            cause: providerCause,
+          });
+        },
+      );
+
+      expect(response.status).toBe(503);
+      expect(response.headers.get("retry-after")).toBeNull();
+      const payload = await response.json();
+      expect(payload).toMatchObject({
+        error: "vm_image_unavailable",
+        phase: "create",
+        retryable: false,
+        details: { operation: "create", retryable: false, providerCode: "provider_image_not_found" },
+        ui: { title: "Cloud VM image unavailable", retryable: false },
+      });
+      expectNoCloudVmImplementationLeaks(payload);
+      const consoleErrorCalls = (console.error as unknown as { mock: { calls: unknown[][] } }).mock.calls;
+      expect(consoleErrorCalls.some((call) => call[0] === "[vm-image-unavailable]")).toBe(true);
+    } finally {
+      console.error = originalError;
+    }
+  });
+
   test("maps attach provider internal errors to concise retryable VM state", async () => {
     getUser.mockResolvedValue(authedStackUser());
     const originalError = console.error;

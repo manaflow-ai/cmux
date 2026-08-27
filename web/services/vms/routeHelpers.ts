@@ -368,6 +368,36 @@ export function vmWorkflowErrorResponse(err: unknown): Response | null {
   if (isVmProviderOperationError(workflowError)) {
     const providerCause = providerCauseSummary(workflowError.cause);
     const phase = vmPhaseForOperation(workflowError.operation);
+    if (providerImageNotFound(workflowError.cause)) {
+      // The provider rejected the resolved image (e.g. Blaxel IMAGE_NOT_FOUND):
+      // nothing was created and retrying cannot help until an operator
+      // publishes the image, so this is configuration, not availability.
+      console.error(
+        "[vm-image-unavailable]",
+        JSON.stringify({
+          provider: workflowError.provider,
+          operation: workflowError.operation,
+          cause: providerCause?.message ?? String(workflowError.cause),
+        }),
+      );
+      return vmErrorResponse({
+        error: "vm_image_unavailable",
+        status: 503,
+        message: "The Cloud VM image for this machine is not available in this environment.",
+        reason: "The image this machine kind resolves to is not published for this environment.",
+        action:
+          "Ask an admin to publish the Cloud VM image for this environment, then retry. " +
+          "A different machine kind (for example `cmux vm new --base`) may still be available.",
+        phase,
+        retryable: false,
+        displayTitle: "Cloud VM image unavailable",
+        details: {
+          operation: workflowError.operation,
+          retryable: false,
+          providerCode: "provider_image_not_found",
+        },
+      });
+    }
     const retryAfterSeconds = retryAfterForOperation(workflowError.operation);
     const providerMessage = providerCause?.message
       ? sanitizedProviderMessage(providerCause.message)
@@ -428,6 +458,22 @@ export function vmWorkflowErrorResponse(err: unknown): Response | null {
   }
 
   return null;
+}
+
+/** True when the provider reported that the requested image/template does not exist. */
+function providerImageNotFound(cause: unknown): boolean {
+  let current: unknown = cause;
+  for (let depth = 0; depth < 8 && current; depth += 1) {
+    const record = current as { body?: { code?: unknown }; cause?: unknown; message?: unknown };
+    const code = typeof record.body?.code === "string" ? record.body.code : "";
+    const message = typeof record.message === "string" ? record.message : "";
+    if (/IMAGE_NOT_FOUND|TEMPLATE_NOT_FOUND/i.test(code)) return true;
+    if (/IMAGE_NOT_FOUND|TEMPLATE_NOT_FOUND|(image|template)\s+'[^']*'\s+not found|(image|template) not found/i.test(message)) {
+      return true;
+    }
+    current = record.cause;
+  }
+  return false;
 }
 
 function providerCauseSummary(cause: unknown): { code?: string; message?: string } | null {
