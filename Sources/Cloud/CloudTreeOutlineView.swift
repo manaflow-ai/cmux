@@ -17,6 +17,9 @@ struct CloudTreeOutlineView: NSViewRepresentable {
     let machineActions: MachineRowActions
     let nodeActions: CloudTreeNodeActions
     let expansionStore: CloudTreeExpansionStore
+    /// The visual preset the rows render in (the debug gallery pins one per
+    /// column; the live panel passes the stored choice).
+    var style: CloudTreeStyle = CloudTreeStyleStore.current
     /// Fires when a row drag starts (true) and ends (false); the panel freezes catalog
     /// re-reads while a drag is in flight.
     var onDragStateChange: @MainActor (Bool) -> Void = { _ in }
@@ -45,6 +48,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         context.coordinator.machineActions = machineActions
         context.coordinator.nodeActions = nodeActions
         context.coordinator.onDragStateChange = onDragStateChange
+        context.coordinator.apply(style: style)
         context.coordinator.apply(nodes: CloudTreeNodeBuilder.nodes(machines: machines, snapshot: snapshot, localWorkspaces: localWorkspaces))
     }
 
@@ -55,6 +59,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         var machineActions: MachineRowActions
         var nodeActions: CloudTreeNodeActions
         let expansionStore: CloudTreeExpansionStore
+        private(set) var style: CloudTreeStyle = CloudTreeStyleStore.current
         private let tabDragTransferRegistry: @MainActor () -> TabDragTransferRegistry?
         weak var outlineView: CloudTreeNSOutlineView?
         private var nodes: [CloudTreeNode] = []
@@ -89,6 +94,21 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         /// selection; the structure changed (rows added/removed/reordered/re-kinded) →
         /// `reloadData` plus expansion/selection restore. During a drag everything is
         /// deferred until the session ends.
+        /// Switch the visual preset: every row's height, indent and content
+        /// change, so this is always a full reload (cheap — the tree is small).
+        func apply(style: CloudTreeStyle) {
+            guard style != self.style else { return }
+            self.style = style
+            guard let outlineView else { return }
+            outlineView.treeStyle = style
+            outlineView.indentationPerLevel = style.indentPerLevel
+            withProgrammaticUpdate {
+                outlineView.reloadData()
+                restoreExpansion(in: outlineView)
+                restoreSelection(in: outlineView)
+            }
+        }
+
         func apply(nodes: [CloudTreeNode]) {
             if isDragging {
                 deferredNodes = nodes
@@ -181,7 +201,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             guard let node = item as? CloudTreeNode else { return nil }
             let cell = (outlineView.makeView(withIdentifier: CloudTreeCellView.identifier, owner: nil) as? CloudTreeCellView)
                 ?? CloudTreeCellView(frame: .zero)
-            cell.configure(node: node, machineActions: machineActions)
+            cell.configure(node: node, machineActions: machineActions, nodeActions: nodeActions, style: style)
             return cell
         }
 
@@ -190,15 +210,15 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         }
 
         func outlineView(_ outlineView: NSOutlineView, heightOfRowByItem item: Any) -> CGFloat {
-            guard let node = item as? CloudTreeNode else { return GlobalFontMagnification.scaledSize(CloudTreeRowGrid.rowHeight) }
+            guard let node = item as? CloudTreeNode else { return GlobalFontMagnification.scaledSize(style.rowHeight) }
             switch node.kind {
             case .machine(let machine, _):
                 let hasStats = machine.stats.flatMap(CloudTreeMachineRowContent.statsLine) != nil
-                return GlobalFontMagnification.scaledSize(CloudTreeRowGrid.machineRowHeight(hasStats: hasStats))
+                return GlobalFontMagnification.scaledSize(style.machineRowHeight(hasStats: hasStats))
             case .localMachine:
-                return GlobalFontMagnification.scaledSize(CloudTreeRowGrid.machineRowHeight(hasStats: false))
-            case .workspacesGroup, .portsGroup, .browsersGroup, .workspace, .localWorkspace, .terminal, .desktop, .browser, .port, .placeholder:
-                return GlobalFontMagnification.scaledSize(CloudTreeRowGrid.rowHeight)
+                return GlobalFontMagnification.scaledSize(style.machineRowHeight(hasStats: false))
+            case .terminalsPool, .displaysPool, .workspacesGroup, .portsGroup, .browsersGroup, .workspace, .localWorkspace, .terminal, .display, .browser, .port, .placeholder:
+                return GlobalFontMagnification.scaledSize(style.rowHeight)
             }
         }
 
@@ -225,10 +245,16 @@ struct CloudTreeOutlineView: NSViewRepresentable {
 
         // MARK: Opening
 
-        @objc func handleDoubleClick(_ sender: Any?) {
-            guard let outlineView else { return }
+        /// One click means open (D9): a click on any row carries the intent to
+        /// open it. The second click of a double-click is ignored so machine and
+        /// group rows don't toggle twice.
+        @objc func handleSingleClick(_ sender: Any?) {
+            guard let outlineView, NSApp.currentEvent.map({ $0.clickCount <= 1 }) ?? true else { return }
             let row = outlineView.clickedRow >= 0 ? outlineView.clickedRow : outlineView.selectedRow
             guard row >= 0, let node = outlineView.item(atRow: row) as? CloudTreeNode else { return }
+#if DEBUG
+            cmuxDebugLog("cloudTree.click row=\(row) kind=\(node.structureTag) clicks=\(NSApp.currentEvent?.clickCount ?? -1)")
+#endif
             open(node)
         }
 
@@ -239,21 +265,33 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         }
 
         /// One place decides what "open" means per row. Every surface row is
-        /// `SurfaceCatalog.project` (reusing an open pane); a machine row starts a
-        /// plain terminal on that machine.
+        /// `SurfaceCatalog.project` (focusing an open pane first); machine and
+        /// group rows toggle. Creation is never an open side effect: the hover
+        /// "+" and the context menu own it (an expired machine still prompts,
+        /// and the asleep placeholder still wakes, because those rows advertise
+        /// exactly that).
         func open(_ node: CloudTreeNode) {
             switch node.kind {
             case .machine(let machine, _):
-                openMachine(machine)
-            case .localMachine, .workspacesGroup, .portsGroup, .browsersGroup:
+                if machine.freeAccess == .expired {
+                    machineActions.promptUpgrade()
+                } else {
+                    toggle(node)
+                }
+            case .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .portsGroup, .browsersGroup:
                 toggle(node)
             case .workspace(let machine, let workspace, _):
-                nodeActions.openGroup(machine, node.dragGroup ?? SurfaceResourceGroup(title: workspace.name, resources: []), .split, workspace.id)
+                // D9: open never creates. `openGroup` starts a terminal when the
+                // group is empty, so an empty workspace row opens nothing here —
+                // its "+" and menu own creation.
+                if let group = node.dragGroup, !group.isEmpty {
+                    nodeActions.openGroup(machine, group, .split, workspace.id)
+                }
             case .localWorkspace(let row):
                 nodeActions.selectLocalWorkspace(row.workspaceID)
             case .terminal(let row):
                 nodeActions.project(row.resource.id, .split, true)
-            case .desktop(let resource), .port(let resource):
+            case .display(let resource), .port(let resource):
                 nodeActions.project(resource.id, .split, true)
             case .browser(let row):
                 nodeActions.project(row.resource.id, .split, true)
@@ -275,6 +313,9 @@ struct CloudTreeOutlineView: NSViewRepresentable {
 
         private func toggle(_ node: CloudTreeNode) {
             guard let outlineView else { return }
+#if DEBUG
+            cmuxDebugLog("cloudTree.toggle kind=\(node.structureTag) expanded=\(outlineView.isItemExpanded(node))")
+#endif
             if outlineView.isItemExpanded(node) {
                 outlineView.collapseItem(node)
             } else {
@@ -357,8 +398,21 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                     item(String(localized: "cloudTree.menu.newTerminal", defaultValue: "New Terminal")) { [nodeActions] in nodeActions.newTerminal(.local, nil) },
                     item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() },
                 ]
+            case .terminalsPool(let machine, _):
+                return [
+                    item(String(localized: "cloudTree.menu.newTerminal", defaultValue: "New Terminal")) { [nodeActions] in nodeActions.newTerminal(machine, nil) },
+                    item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() },
+                ]
+            case .displaysPool(let machine, _):
+                return [
+                    item(String(localized: "machines.menu.openDesktop", defaultValue: "Open Desktop")) { [nodeActions] in
+                        nodeActions.project(SurfaceResourceID(machine: machine, kind: .display, key: SurfaceResourceID.desktopDisplayKey), .split, true)
+                    },
+                    item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() },
+                ]
             case .workspacesGroup(let machine):
                 return [
+                    item(String(localized: "cloudTree.menu.newWorkspace", defaultValue: "New Workspace")) { [nodeActions] in nodeActions.newWorkspace(machine) },
                     item(String(localized: "cloudTree.menu.newTerminal", defaultValue: "New Terminal")) { [nodeActions] in nodeActions.newTerminal(machine, nil) },
                     item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() },
                 ]
@@ -384,7 +438,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 return resourceMenuItems(row.resource, isLocal: row.resource.machine.isLocal)
             case .browser(let row):
                 return resourceMenuItems(row.resource, isLocal: row.resource.machine.isLocal)
-            case .desktop(let resource), .port(let resource):
+            case .display(let resource), .port(let resource):
                 return resourceMenuItems(resource, isLocal: false)
             case .browsersGroup, .portsGroup:
                 return [
@@ -424,9 +478,10 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 items.append(item(String(localized: "machines.menu.upgradeToReconnect", defaultValue: "Upgrade to Reconnect\u{2026}")) { actions.promptUpgrade() })
             } else {
                 items.append(item(String(localized: "machines.menu.openShell", defaultValue: "Open Shell")) { nodeActions.newTerminal(.cloud(id), nil) })
+                items.append(item(String(localized: "cloudTree.menu.newWorkspace", defaultValue: "New Workspace")) { nodeActions.newWorkspace(.cloud(id)) })
                 if machine.isDesktop {
                     items.append(item(String(localized: "machines.menu.openDesktop", defaultValue: "Open Desktop")) {
-                        nodeActions.project(SurfaceResourceID(machine: .cloud(id), kind: .screen, key: "display:1"), .split, true)
+                        nodeActions.project(SurfaceResourceID(machine: .cloud(id), kind: .display, key: SurfaceResourceID.desktopDisplayKey), .split, true)
                     })
                 }
                 items.append(item(String(localized: "cloudTree.menu.openFullClient", defaultValue: "Open Full cmux-tui Client")) { actions.runCommand(id, ["vm", "tui"]) })
@@ -515,9 +570,10 @@ final class CloudTreeContainerView: NSView {
         outlineView.style = .plain
         outlineView.selectionHighlightStyle = .regular
         outlineView.rowSizeStyle = .custom
-        // One 16pt slot per level: the disclosure chevron lives in the last slot
-        // before a row's content, and leaves keep the slot so glyphs form a column.
-        outlineView.indentationPerLevel = CloudTreeRowGrid.disclosureSlot
+        // One slot per level (style-sized): the disclosure chevron lives in the
+        // last slot before a row's content, and leaves keep the slot so glyphs
+        // form a column. `apply(style:)` keeps this in step with the preset.
+        outlineView.indentationPerLevel = CloudTreeStyleStore.current.indentPerLevel
         outlineView.allowsMultipleSelection = false
         outlineView.autoresizesOutlineColumn = true
         outlineView.floatsGroupRows = false
@@ -534,7 +590,9 @@ final class CloudTreeContainerView: NSView {
         outlineView.dataSource = coordinator
         outlineView.delegate = coordinator
         outlineView.target = coordinator
-        outlineView.doubleAction = #selector(CloudTreeOutlineView.Coordinator.handleDoubleClick(_:))
+        // D9: one click opens. No doubleAction — the handler ignores the second
+        // click of a double-click, so a habitual double-click acts once.
+        outlineView.action = #selector(CloudTreeOutlineView.Coordinator.handleSingleClick(_:))
         outlineView.setDraggingSourceOperationMask(.move, forLocal: true)
         outlineView.onOpenSelection = { [weak coordinator] in coordinator?.openSelection() }
         outlineView.onMoveSelection = { [weak coordinator] delta in coordinator?.moveSelection(by: delta) }
