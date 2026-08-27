@@ -353,24 +353,55 @@ struct WorkstreamStoreTests {
         #expect(store.items.first?.workstreamId == canonicalID)
 
         store.ingest(.permission(
-            canonicalID,
+            legacyID,
             requestId: "permission-1"
         ))
         #expect(store.items.last?.context?.lastUserMessage == "continue the migration")
 
+        let unknownSourceURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workstream-unknown-source-\(UUID().uuidString).jsonl")
+        defer { try? FileManager.default.removeItem(at: unknownSourceURL) }
+        let persistedUnknown = WorkstreamItem(
+            workstreamId: "grok-session",
+            source: .claude,
+            kind: .userPrompt,
+            payload: .userPrompt(text: "raw producer")
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        var persistedObject = try #require(
+            try JSONSerialization.jsonObject(
+                with: encoder.encode(persistedUnknown)
+            ) as? [String: Any]
+        )
+        persistedObject["sourceID"] = "grok"
+        let persistedData = try JSONSerialization.data(withJSONObject: persistedObject)
+        try persistedData.write(to: unknownSourceURL)
+
         let unknownSourceStore = WorkstreamStore(
+            persistence: WorkstreamPersistence(fileURL: unknownSourceURL),
             ringCapacity: 10,
             workstreamIDNormalizer: { rawValue, source in
                 source == "grok" ? "canonical-grok" : rawValue
             }
         )
-        unknownSourceStore.ingest(WorkstreamEvent(
+        await unknownSourceStore.start()
+        #expect(unknownSourceStore.items.first?.workstreamId == "canonical-grok")
+        #expect(unknownSourceStore.items.first?.sourceID == "grok")
+
+        let unknownSourceEventStore = WorkstreamStore(
+            ringCapacity: 10,
+            workstreamIDNormalizer: { rawValue, source in
+                source == "grok" ? "canonical-grok" : rawValue
+            }
+        )
+        unknownSourceEventStore.ingest(WorkstreamEvent(
             sessionId: "grok-session",
             hookEventName: .userPromptSubmit,
             source: "grok",
             toolInputJSON: #"{"prompt":"raw source"}"#
         ))
-        #expect(unknownSourceStore.items.first?.workstreamId == "canonical-grok")
+        #expect(unknownSourceEventStore.items.first?.workstreamId == "canonical-grok")
     }
 }
 
