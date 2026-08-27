@@ -38,6 +38,7 @@ pub const CDP_EVENT_QUEUE_MAX_BYTES: usize = 32 * 1024 * 1024;
 /// unbounded number of JSON messages. Callers fail fast when the queue is
 /// full, so a blocked reader cannot block the TUI thread indefinitely.
 const CDP_OUTBOUND_QUEUE_CAPACITY: usize = 256;
+const CDP_OUTBOUND_QUEUE_MAX_BYTES: usize = 8 * 1024 * 1024;
 const MAX_ENCODED_FRAME_BYTES: usize = 16 * 1024 * 1024;
 const MAX_DECODED_FRAME_BYTES: usize = 12 * 1024 * 1024;
 const TIMESTAMPLESS_CAPTURE_INTERVAL: Duration = Duration::from_secs(1);
@@ -282,6 +283,8 @@ pub struct CdpClient {
 
 struct Inner {
     outbound: SyncSender<Outbound>,
+    outbound_bytes: AtomicU64,
+    outbound_byte_budget: usize,
     pending: Mutex<HashMap<u64, PendingCall>>,
     events: Arc<EventQueue>,
     frame_epochs: Mutex<HashMap<String, FrameSession>>,
@@ -578,6 +581,8 @@ impl CdpClient {
         let client = CdpClient {
             inner: Arc::new(Inner {
                 outbound: outbound_tx,
+                outbound_bytes: AtomicU64::new(0),
+                outbound_byte_budget: CDP_OUTBOUND_QUEUE_MAX_BYTES,
                 pending: Mutex::new(HashMap::new()),
                 events: event_queue,
                 frame_epochs: Mutex::new(HashMap::new()),
@@ -1383,8 +1388,20 @@ impl CdpClient {
         if cdp_debug() {
             eprintln!("cdp-> {text}");
         }
-        self.inner.outbound.try_send(Outbound::Message(text)).map_err(outbound_send_error)?;
+        reserve_outbound_bytes(&self.inner, text.len())?;
+        if let Err(error) = self.inner.outbound.try_send(Outbound::Message(text)) {
+            outbound_bytes_sub(&self.inner, outbound_bytes(&error));
+            return Err(outbound_send_error(error));
+        }
         Ok(())
+    }
+}
+
+fn outbound_bytes(error: &TrySendError<Outbound>) -> usize {
+    match error {
+        TrySendError::Full(Outbound::Message(text))
+        | TrySendError::Disconnected(Outbound::Message(text)) => text.len(),
+        _ => 0,
     }
 }
 
@@ -1393,6 +1410,30 @@ fn outbound_send_error(error: TrySendError<Outbound>) -> anyhow::Error {
         TrySendError::Full(_) => anyhow::anyhow!("CDP outbound queue is full"),
         TrySendError::Disconnected(_) => anyhow::anyhow!("CDP connection is closed"),
     }
+}
+
+fn reserve_outbound_bytes(inner: &Inner, bytes: usize) -> anyhow::Result<()> {
+    let bytes = u64::try_from(bytes).unwrap_or(u64::MAX);
+    loop {
+        let current = inner.outbound_bytes.load(Ordering::Acquire);
+        let next = current
+            .checked_add(bytes)
+            .ok_or_else(|| anyhow::anyhow!("CDP outbound queue byte budget exceeded"))?;
+        if next > inner.outbound_byte_budget as u64 {
+            anyhow::bail!("CDP outbound queue byte budget exceeded");
+        }
+        if inner
+            .outbound_bytes
+            .compare_exchange(current, next, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok()
+        {
+            return Ok(());
+        }
+    }
+}
+
+fn outbound_bytes_sub(inner: &Inner, bytes: usize) {
+    inner.outbound_bytes.fetch_sub(bytes as u64, Ordering::AcqRel);
 }
 
 pub fn resolve_browser_ws_url(input: &str) -> anyhow::Result<String> {
@@ -1426,7 +1467,7 @@ fn reader_loop(
         if inner.closed.load(Ordering::Acquire) {
             break;
         }
-        if let Err(err) = drain_outbound(&mut ws, outbound) {
+        if let Err(err) = drain_outbound(&inner, &mut ws, outbound) {
             close_inner(&inner, &format!("CDP socket error: {err}"));
             break;
         }
@@ -1462,12 +1503,16 @@ fn reader_loop(
 }
 
 fn drain_outbound(
+    inner: &Arc<Inner>,
     ws: &mut WebSocket<TcpStream>,
     outbound: &Receiver<Outbound>,
 ) -> anyhow::Result<()> {
     loop {
         match outbound.try_recv() {
-            Ok(Outbound::Message(text)) => ws.send(Message::Text(text.into()))?,
+            Ok(Outbound::Message(text)) => {
+                outbound_bytes_sub(inner, text.len());
+                ws.send(Message::Text(text.into()))?
+            }
             Ok(Outbound::Flush(done)) => {
                 let _ = done.send(());
             }
@@ -1777,7 +1822,12 @@ fn ack_screencast_frame(inner: &Arc<Inner>, target_session: &str, frame_session:
         "params": { "sessionId": frame_session },
     });
     let Ok(text) = serde_json::to_string(&msg) else { return };
+    if reserve_outbound_bytes(inner, text.len()).is_err() {
+        close_inner(inner, "CDP outbound queue byte budget exceeded");
+        return;
+    }
     if let Err(error) = inner.outbound.try_send(Outbound::Message(text)) {
+        outbound_bytes_sub(inner, outbound_bytes(&error));
         let reason = match error {
             TrySendError::Full(_) => "CDP outbound queue overflow",
             TrySendError::Disconnected(_) => "CDP connection is closed",
@@ -2063,14 +2113,23 @@ mod tests {
     use super::*;
 
     fn test_inner() -> (Arc<Inner>, Receiver<Outbound>) {
-        test_inner_with_capacity(256)
+        test_inner_with_limits(256, CDP_OUTBOUND_QUEUE_MAX_BYTES)
     }
 
     fn test_inner_with_capacity(capacity: usize) -> (Arc<Inner>, Receiver<Outbound>) {
+        test_inner_with_limits(capacity, CDP_OUTBOUND_QUEUE_MAX_BYTES)
+    }
+
+    fn test_inner_with_limits(
+        capacity: usize,
+        outbound_byte_budget: usize,
+    ) -> (Arc<Inner>, Receiver<Outbound>) {
         let (outbound, outbound_rx) = std::sync::mpsc::sync_channel(capacity);
         (
             Arc::new(Inner {
                 outbound,
+                outbound_bytes: AtomicU64::new(0),
+                outbound_byte_budget,
                 pending: Mutex::new(HashMap::new()),
                 events: Arc::new(EventQueue::new()),
                 frame_epochs: Mutex::new(HashMap::new()),
@@ -2086,7 +2145,7 @@ mod tests {
 
     #[test]
     fn outbound_commands_fail_fast_at_the_byte_bound() {
-        let (inner, _outbound_rx) = test_inner_with_capacity(8);
+        let (inner, _outbound_rx) = test_inner_with_limits(8, 16);
         let client = CdpClient { inner };
 
         let error = client.send_value(&json!({"payload": "0123456789"})).unwrap_err();
