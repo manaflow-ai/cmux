@@ -359,6 +359,8 @@ extension SidebarGitMetadataService {
             workspaceId: probeKey.workspaceId,
             panelId: probeKey.panelId
         )
+        let nextRepositoryLink = workspaceGitMetadataCreationWatchRegistrationIncompleteKeys
+            .contains(probeKey) ? nil : snapshot.repositoryLink
         let previousPullRequestBadge = host.panelPullRequestBadge(
             workspaceId: probeKey.workspaceId,
             panelId: probeKey.panelId
@@ -414,7 +416,7 @@ extension SidebarGitMetadataService {
             workspaceGitCleanIndexContentSignatureByKey.removeValue(forKey: probeKey)
             workspaceGitHeadSignatureByKey.removeValue(forKey: probeKey)
             didApplyMaterialSidebarGitChange = previousBranchState != nil
-            if snapshot.repositoryLink == nil {
+            if nextRepositoryLink == nil {
                 host.clearPanelGitBranch(workspaceId: probeKey.workspaceId, panelId: probeKey.panelId)
             } else {
                 host.clearPanelGitBranchPreservingRepositoryLink(
@@ -424,7 +426,7 @@ extension SidebarGitMetadataService {
             }
         }
 
-        if let nextRepositoryLink = snapshot.repositoryLink {
+        if let nextRepositoryLink {
             let repositoryLinkChanged = previousRepositoryLink?.remoteName != nextRepositoryLink.remoteName
                 || previousRepositoryLink?.displayName != nextRepositoryLink.displayName
                 || previousRepositoryLink?.url != nextRepositoryLink.url

@@ -100,7 +100,8 @@ extension SidebarGitMetadataService {
             await updateWorkspaceGitMetadataCreationWatchers(
                 for: key,
                 paths: descriptor.creationWatchPaths,
-                allowedRoots: descriptor.creationWatchAllowedRoots
+                allowedRoots: descriptor.creationWatchAllowedRoots,
+                pathsAreComplete: descriptor.creationWatchPathsAreComplete
             )
             if let degradation,
                workspaceGitMetadataDegradationLoggedRepositoryRoots.insert(descriptor.repositoryRoot).inserted {
@@ -168,7 +169,8 @@ extension SidebarGitMetadataService {
         await updateWorkspaceGitMetadataCreationWatchers(
             for: key,
             paths: descriptor.creationWatchPaths,
-            allowedRoots: descriptor.creationWatchAllowedRoots
+            allowedRoots: descriptor.creationWatchAllowedRoots,
+            pathsAreComplete: descriptor.creationWatchPathsAreComplete
         )
         if let degradation,
            workspaceGitMetadataDegradationLoggedRepositoryRoots.insert(descriptor.repositoryRoot).inserted {
@@ -181,7 +183,8 @@ extension SidebarGitMetadataService {
     private func updateWorkspaceGitMetadataCreationWatchers(
         for key: WorkspaceGitProbeKey,
         paths: [String],
-        allowedRoots: [String]
+        allowedRoots: [String],
+        pathsAreComplete: Bool
     ) async {
         if allowedRoots.isEmpty {
             workspaceGitMetadataCreationWatchAllowedRootsByProbeKey.removeValue(forKey: key)
@@ -200,7 +203,8 @@ extension SidebarGitMetadataService {
             applyWorkspaceGitMetadataCreationWatchers(
                 for: key,
                 paths: normalizedPaths,
-                snapshots: [:]
+                snapshots: [:],
+                pathsAreComplete: pathsAreComplete
             )
             workspaceGitMetadataCreationWatchUpdateGenerationByProbeKey.removeValue(forKey: key)
             return
@@ -217,14 +221,16 @@ extension SidebarGitMetadataService {
         applyWorkspaceGitMetadataCreationWatchers(
             for: key,
             paths: normalizedPaths,
-            snapshots: snapshots
+            snapshots: snapshots,
+            pathsAreComplete: pathsAreComplete
         )
     }
 
     private func applyWorkspaceGitMetadataCreationWatchers(
         for key: WorkspaceGitProbeKey,
         paths normalizedPaths: Set<String>,
-        snapshots: [String: WorkspaceGitMetadataCreationTargetSnapshot]
+        snapshots: [String: WorkspaceGitMetadataCreationTargetSnapshot],
+        pathsAreComplete: Bool
     ) {
         let previousPaths = workspaceGitMetadataCreationWatchPathsByProbeKey[key] ?? []
         for path in previousPaths.subtracting(normalizedPaths) {
@@ -256,6 +262,25 @@ extension SidebarGitMetadataService {
             }
         }
         workspaceGitMetadataCreationWatchPathsByProbeKey[key] = acceptedPaths
+        let registrationIsComplete =
+            pathsAreComplete && acceptedPaths.count == normalizedPaths.count
+        if registrationIsComplete {
+            workspaceGitMetadataCreationWatchRegistrationIncompleteKeys.remove(key)
+        } else {
+            let newlyDegraded =
+                workspaceGitMetadataCreationWatchRegistrationIncompleteKeys.insert(key).inserted
+            host?.clearPanelRepositoryLink(
+                workspaceId: key.workspaceId,
+                panelId: key.panelId
+            )
+            if newlyDegraded {
+                let message =
+                    "workspace.gitWatch.degraded strategy=repository-link-cleared "
+                    + "reason=creation-watch-budget"
+                debugLog(message)
+                Self.gitWatchDiagnosticsLogger.info("\(message, privacy: .public)")
+            }
+        }
         if targetNeedsImmediateRefresh {
             recordWorkspaceGitMetadataFilesystemEvent(for: key)
             scheduleWorkspaceGitMetadataRefreshIfPossible(
@@ -333,6 +358,7 @@ extension SidebarGitMetadataService {
 
     private func stopWorkspaceGitMetadataCreationWatchers(for key: WorkspaceGitProbeKey) {
         workspaceGitMetadataCreationWatchAllowedRootsByProbeKey.removeValue(forKey: key)
+        workspaceGitMetadataCreationWatchRegistrationIncompleteKeys.remove(key)
         workspaceGitMetadataCreationWatchUpdateGenerationByProbeKey.removeValue(forKey: key)
         let paths = workspaceGitMetadataCreationWatchPathsByProbeKey.removeValue(forKey: key) ?? []
         for path in paths {
@@ -784,6 +810,7 @@ extension SidebarGitMetadataService {
             .union(workspaceGitMetadataWatcherDescriptorRequestsByKey.keys.filter { $0.workspaceId == workspaceId })
             .union(workspaceGitMetadataCreationWatchPathsByProbeKey.keys.filter { $0.workspaceId == workspaceId })
             .union(workspaceGitMetadataCreationWatchAllowedRootsByProbeKey.keys.filter { $0.workspaceId == workspaceId })
+            .union(workspaceGitMetadataCreationWatchRegistrationIncompleteKeys.filter { $0.workspaceId == workspaceId })
             .union(workspaceGitMetadataCreationWatchUpdateGenerationByProbeKey.keys.filter { $0.workspaceId == workspaceId })
         for key in keys {
             stopWorkspaceGitMetadataWatcher(for: key)
@@ -811,6 +838,7 @@ extension SidebarGitMetadataService {
         workspaceGitMetadataCreationWatcherTargetExistsByPath.removeAll()
         workspaceGitMetadataCreationWatchPathsByProbeKey.removeAll()
         workspaceGitMetadataCreationWatchAllowedRootsByProbeKey.removeAll()
+        workspaceGitMetadataCreationWatchRegistrationIncompleteKeys.removeAll()
         workspaceGitMetadataCreationWatchUpdateGenerationByProbeKey.removeAll()
         workspaceGitMetadataWatcherSourceDirectoryByKey.removeAll()
         workspaceGitMetadataWatcherKeysBySourceDirectory.removeAll()

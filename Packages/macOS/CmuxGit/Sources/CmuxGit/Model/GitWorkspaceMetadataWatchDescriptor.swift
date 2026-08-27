@@ -13,6 +13,8 @@ public struct GitWorkspaceMetadataWatchDescriptor: Equatable, Sendable {
     public let metadataSentinelPaths: [String]
     /// Missing external config files that need a non-recursive creation watch.
     public let creationWatchPaths: [String]
+    /// Whether all missing external config paths fit within the bounded watch plan.
+    public let creationWatchPathsAreComplete: Bool
     /// Roots allowed for non-recursive creation watches (effective Git home and
     /// repository-owned paths).
     public let creationWatchAllowedRoots: [String]
@@ -49,6 +51,7 @@ public struct GitWorkspaceMetadataWatchDescriptor: Equatable, Sendable {
     ///   - degradation: Active safety-valve mode, if any.
     ///   - creationWatchPaths: Missing external config paths watched
     ///     non-recursively until they are created.
+    ///   - creationWatchPathsAreComplete: Whether no missing paths were omitted.
     ///   - creationWatchAllowedRoots: Roots that bound creation-watch ancestors.
     public init(
         repositoryRoot: String,
@@ -62,13 +65,15 @@ public struct GitWorkspaceMetadataWatchDescriptor: Equatable, Sendable {
         eventFilterIdentity: String?,
         degradation: GitWorkspaceMetadataWatchDegradation? = nil,
         creationWatchPaths: [String] = [],
-        creationWatchAllowedRoots: [String] = []
+        creationWatchAllowedRoots: [String] = [],
+        creationWatchPathsAreComplete: Bool = true
     ) {
         self.repositoryRoot = repositoryRoot
         self.watchedPaths = watchedPaths
         self.gitMetadataPaths = gitMetadataPaths
         self.metadataSentinelPaths = metadataSentinelPaths
         self.creationWatchPaths = creationWatchPaths
+        self.creationWatchPathsAreComplete = creationWatchPathsAreComplete
         self.creationWatchAllowedRoots = creationWatchAllowedRoots
         self.trackedEntryPaths = trackedEntryPaths
         self.forcedWorkTreeRoots = forcedWorkTreeRoots
