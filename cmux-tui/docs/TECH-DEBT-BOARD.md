@@ -55,6 +55,7 @@ is made.
 | --- | --- | --- |
 | Workspace RPC response routing | Unknown responses fail the workspace RPC channel, and canceled request IDs are retired without exposing the local namespace. | Exercise unknown, late, canceled, and reconnect responses from multiple clients, then verify bounded failure and no request-ID leakage. |
 | Escape input routing | Escape passthrough is integrated from #9810. | Exercise terminal, sidebar, and nested-frontend Escape behavior on the exact main snapshot. |
+| Alternate-screen wheel policy | Wheel events use Ghostty wheel reporting with mouse tracking, and emit `ESC[A/B` three times when alternate-screen apps do not enable tracking. | Add a configurable alternate-scroll policy and modifier override, with behavior tests. Changing the default may break TUIs that rely on arrow sequences. |
 
 ## Historical snapshot retained: main `5c2ee1244e2d796c9e4be5307788b320ac2ee4ff`
 
