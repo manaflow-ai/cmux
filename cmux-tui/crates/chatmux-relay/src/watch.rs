@@ -420,7 +420,8 @@ async fn coordinate_open(
                 outbound,
                 code,
                 Some(message),
-            );
+            )
+            .await;
         }
         Err(SetupFailure::Failed(_message)) => {
             finish_open_failure(
@@ -432,7 +433,8 @@ async fn coordinate_open(
                 outbound,
                 wire::WorkspaceErrorCode::Failed,
                 None,
-            );
+            )
+            .await;
         }
     }
 }
@@ -539,7 +541,7 @@ fn commit_open(
     drop(prepared);
 }
 
-fn finish_open_failure(
+async fn finish_open_failure(
     watch_id: &str,
     generation: u64,
     live: Arc<AtomicBool>,
@@ -550,18 +552,32 @@ fn finish_open_failure(
     message: Option<String>,
 ) {
     let text = watch_error_frame(watch_id, code, message.as_deref());
-    if let Ok(mut state) = sessions.lock() {
+    let should_report = sessions.lock().ok().is_some_and(|state| {
+        state.get(watch_id).is_some_and(|slot| {
+            slot.opening.as_ref().is_some_and(|opening| {
+                opening.generation == generation && !opening.cancellation.is_cancelled()
+            })
+        })
+    });
+    if !should_report {
+        cancellation.cancel();
+        return;
+    }
+
+    // Keep the opening reservation until the terminal frame is admitted. The
+    // liveness token lets a newer replacement cancel this send without
+    // delivering a stale error after its own opened frame.
+    tokio::select! {
+        biased;
+        _ = cancellation.cancelled() => return,
+        _ = outbound.critical_text_with_token(text, Some(Arc::clone(&live))) => {}
+    }
+
+    let remove_slot = if let Ok(mut state) = sessions.lock() {
         let remove_slot = if let Some(slot) = state.get_mut(watch_id)
             && slot.opening.as_ref().is_some_and(|opening| {
                 opening.generation == generation && !opening.cancellation.is_cancelled()
             }) {
-            // Keep the active watch intact while the refusal is queued.
-            // Holding the state lock orders this frame before a subsequent
-            // replacement.
-            // This is a terminal response for the open request. Do not attach
-            // the opening token: it is retired immediately below, and a token
-            // would make the writer discard the error before the client sees it.
-            let _ = outbound.try_critical_text(text);
             slot.opening.take();
             live.store(false, Ordering::Release);
             slot.active.is_none()
@@ -571,8 +587,13 @@ fn finish_open_failure(
         if remove_slot {
             state.remove(watch_id);
         }
+        remove_slot
+    } else {
+        false
+    };
+    if remove_slot {
+        cancellation.cancel();
     }
-    cancellation.cancel();
 }
 
 fn finish_active(watch_id: &str, generation: u64, sessions: Sessions) {
@@ -1255,8 +1276,8 @@ mod tests {
         assert!(sessions.lock().unwrap().is_empty());
     }
 
-    #[test]
-    fn failed_open_keeps_its_error_frame_live_until_delivery() {
+    #[tokio::test]
+    async fn failed_open_keeps_its_error_frame_live_until_delivery() {
         let (sink, mut critical, _) = OutboundSink::channels();
         let sessions = Arc::new(Mutex::new(HashMap::new()));
         let live = Arc::new(AtomicBool::new(true));
@@ -1273,7 +1294,7 @@ mod tests {
                 }),
             },
         );
-        finish_open_failure(
+        let task = tokio::spawn(finish_open_failure(
             "failed",
             1,
             live,
@@ -1282,12 +1303,61 @@ mod tests {
             sink,
             wire::WorkspaceErrorCode::Failed,
             None,
-        );
-        let frame = critical.try_recv().expect("failure frame");
-        assert!(frame.live.is_none(), "failure must not be fenced before delivery");
+        ));
+        let mut frame = critical.recv().await.expect("failure frame");
+        assert!(frame.live.is_some(), "failure keeps its opening liveness token until delivery");
         let value: Value = serde_json::from_str(&frame.text).expect("failure json");
         assert_eq!(value["code"], "failed");
         assert!(value["message"].is_null(), "internal failure copy stays out of the wire frame");
+        frame.ack.take().expect("failure delivery ack").send(()).expect("ack receiver");
+        task.await.expect("failure task");
+    }
+
+    #[tokio::test]
+    async fn failed_open_waits_for_critical_capacity() {
+        let (sink, mut critical, _) = OutboundSink::channels();
+        for _ in 0..MAX_OUTBOUND_FRAMES {
+            sink.try_critical_text("{}".to_owned()).expect("fill critical queue");
+        }
+        let sessions = Arc::new(Mutex::new(HashMap::new()));
+        let live = Arc::new(AtomicBool::new(true));
+        let cancellation = CancellationToken::new();
+        sessions.lock().unwrap().insert(
+            "saturated".to_owned(),
+            WatchSlot {
+                active: None,
+                opening: Some(Opening {
+                    generation: 1,
+                    live: Arc::clone(&live),
+                    cancellation: cancellation.clone(),
+                    abort: None,
+                }),
+            },
+        );
+        let task = tokio::spawn(finish_open_failure(
+            "saturated",
+            1,
+            live,
+            cancellation,
+            Arc::clone(&sessions),
+            sink,
+            wire::WorkspaceErrorCode::Failed,
+            None,
+        ));
+        tokio::task::yield_now().await;
+        assert!(!task.is_finished(), "failure waits instead of dropping under queue pressure");
+
+        let _ = critical.recv().await.expect("filler frame");
+        let mut terminal = loop {
+            let frame = critical.recv().await.expect("terminal failure frame");
+            let value: Value = serde_json::from_str(&frame.text).expect("frame json");
+            if value["type"] == "fs_watch_error" {
+                break frame;
+            }
+        };
+        terminal.ack.take().expect("terminal delivery ack").send(()).expect("ack receiver");
+        task.await.expect("failure task");
+        assert!(sessions.lock().unwrap().is_empty(), "opening is cleared after delivery");
     }
 
     #[tokio::test]
