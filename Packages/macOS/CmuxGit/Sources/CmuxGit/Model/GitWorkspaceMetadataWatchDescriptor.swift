@@ -33,14 +33,14 @@ public struct GitWorkspaceMetadataWatchDescriptor: Equatable, Sendable {
     ///   - repositoryRoot: Native Swift path to the working-tree root.
     ///   - watchedPaths: Existing roots passed to the recursive watcher.
     ///   - gitMetadataPaths: Paths whose changes can rebuild this plan.
-    ///   - creationWatchPaths: Missing external config paths watched
-    ///     non-recursively until they are created.
-    ///   - creationWatchAllowedRoots: Roots that bound creation-watch ancestors.
     ///   - trackedEntryPaths: Sorted tracked paths used by exact filtering.
     ///   - acceptsAllWorkTreeEvents: Whether every work-tree event is relevant.
     ///   - eventCoalescingInterval: Leading-edge watcher throttle.
     ///   - eventFilterIdentity: Stable identity for the immutable path filter.
     ///   - degradation: Active safety-valve mode, if any.
+    ///   - creationWatchPaths: Missing external config paths watched
+    ///     non-recursively until they are created.
+    ///   - creationWatchAllowedRoots: Roots that bound creation-watch ancestors.
     public init(
         repositoryRoot: String,
         watchedPaths: [String],

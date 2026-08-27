@@ -144,13 +144,13 @@ extension GitMetadataService {
                 gitMetadataPaths,
                 repository: repository
             ),
-            creationWatchPaths: creationWatchPaths,
-            creationWatchAllowedRoots: creationWatchAllowedRoots,
             trackedEntryPaths: trackedEntryPaths,
             acceptsAllWorkTreeEvents: acceptsAllWorkTreeEvents,
             eventCoalescingInterval: eventCoalescingInterval,
             eventFilterIdentity: indexSnapshot?.contentSignature,
-            degradation: degradation
+            degradation: degradation,
+            creationWatchPaths: creationWatchPaths,
+            creationWatchAllowedRoots: creationWatchAllowedRoots
         )
     }
 

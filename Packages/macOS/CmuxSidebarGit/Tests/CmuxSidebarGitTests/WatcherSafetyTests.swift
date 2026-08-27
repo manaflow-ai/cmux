@@ -35,13 +35,13 @@ import CmuxGit
             repositoryRoot: repositoryRoot,
             watchedPaths: [repositoryRoot],
             gitMetadataPaths: [repositoryRoot + "/.git/index"],
-            creationWatchPaths: creationWatchPaths,
-            creationWatchAllowedRoots: creationWatchAllowedRoots,
             trackedEntryPaths: [repositoryRoot + "/Sources/App.swift"],
             acceptsAllWorkTreeEvents: false,
             eventCoalescingInterval: .milliseconds(250),
             eventFilterIdentity: identity,
-            degradation: degradation
+            degradation: degradation,
+            creationWatchPaths: creationWatchPaths,
+            creationWatchAllowedRoots: creationWatchAllowedRoots
         )
     }
 
