@@ -219,6 +219,8 @@ struct VibeHookConfigTests {
 
         """)
     }
+
+    @Test("Escapes TOML basic string content")
     func escapesTOMLBasicStringContent() {
         let events = [
             VibeHookConfig.Event(
