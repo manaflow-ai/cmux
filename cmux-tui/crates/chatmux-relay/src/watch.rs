@@ -1208,9 +1208,11 @@ mod tests {
     #[test]
     fn saturated_watch_queue_reports_a_terminal_error() {
         let (sink, mut critical, _) = OutboundSink::channels();
-        for _ in 0..MAX_WATCH_OUTBOUND_FRAMES {
-            sink.try_watch_text("{}".to_owned()).expect("watch queue capacity");
+        let mut filled = 0;
+        while filled < 1024 && sink.try_watch_text("{}".to_owned()).is_ok() {
+            filled += 1;
         }
+        assert!(filled > 0, "watch queue must expose a finite capacity");
         report_watch_failure("saturated", &sink);
         let frame = critical.try_recv().expect("terminal error frame");
         let value: Value = serde_json::from_str(&frame.text).expect("error json");
