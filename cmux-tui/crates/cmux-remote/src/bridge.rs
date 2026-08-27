@@ -115,6 +115,12 @@ impl Drop for LocalPortForward {
         if let Some(shutdown) = self.shutdown.take() {
             let _ = shutdown.send(());
         }
+        // A dropped JoinHandle detaches the accept loop. Request cancellation
+        // here so the listener and in-flight tunnel tasks cannot run forever
+        // after the forward's owner is gone.
+        if let Some(task) = self.task.take() {
+            task.abort();
+        }
     }
 }
 
