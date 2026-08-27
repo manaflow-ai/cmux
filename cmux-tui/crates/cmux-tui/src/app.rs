@@ -11,7 +11,7 @@ use std::io::Write;
 use std::panic::AssertUnwindSafe;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
-use std::sync::mpsc::{Receiver, RecvTimeoutError, SyncSender, TrySendError, sync_channel};
+use std::sync::mpsc::{RecvTimeoutError, TrySendError as StdTrySendError};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -28,6 +28,7 @@ use cmux_tui_core::{
     ZoomMode, exact_split_for_pane_edge, exact_split_for_pane_edge_with_viewport, layout_screen,
     layout_screen_with_viewport, split_sides, zellij_default_pane_layout,
 };
+use crossbeam_channel::{Sender as SyncSender, TrySendError, bounded as sync_channel};
 use crossterm::ExecutableCommand;
 use crossterm::event::{
     DisableBracketedPaste, DisableFocusChange, DisableMouseCapture, EnableBracketedPaste,
@@ -278,7 +279,33 @@ struct SessionEventSender {
     tx: SyncSender<AppEvent>,
     generation: Option<u64>,
     surface_filter: Option<SurfaceId>,
+    cancellation: EventCancellation,
+}
+
+/// A cancellation signal that wakes every sender waiting for capacity.
+/// Crossbeam's bounded channel gives the event queue a select-like send, while
+/// dropping its sole sender broadcasts cancellation to all cloned receivers.
+#[derive(Clone)]
+struct EventCancellation {
     stop: Arc<AtomicBool>,
+    receiver: crossbeam_channel::Receiver<()>,
+    sender: Arc<Mutex<Option<SyncSender<()>>>>,
+}
+
+impl EventCancellation {
+    fn new() -> Self {
+        let (sender, receiver) = sync_channel(0);
+        Self {
+            stop: Arc::new(AtomicBool::new(false)),
+            receiver,
+            sender: Arc::new(Mutex::new(Some(sender))),
+        }
+    }
+
+    fn cancel(&self) {
+        self.stop.store(true, Ordering::Release);
+        self.sender.lock().unwrap().take();
+    }
 }
 
 enum SessionTrySendError {
@@ -291,14 +318,14 @@ impl SessionEventSender {
         tx: SyncSender<AppEvent>,
         generation: u64,
         surface_filter: Option<SurfaceId>,
-        stop: Arc<AtomicBool>,
+        cancellation: EventCancellation,
     ) -> Self {
-        Self { tx, generation: Some(generation), surface_filter, stop }
+        Self { tx, generation: Some(generation), surface_filter, cancellation }
     }
 
     #[cfg(test)]
     fn unscoped(tx: SyncSender<AppEvent>) -> Self {
-        Self { tx, generation: None, surface_filter: None, stop: Arc::new(AtomicBool::new(false)) }
+        Self { tx, generation: None, surface_filter: None, cancellation: EventCancellation::new() }
     }
 
     #[cfg(test)]
@@ -307,7 +334,7 @@ impl SessionEventSender {
             tx,
             generation: None,
             surface_filter: Some(surface),
-            stop: Arc::new(AtomicBool::new(false)),
+            cancellation: EventCancellation::new(),
         }
     }
 
@@ -337,7 +364,7 @@ impl SessionEventSender {
     }
 
     fn try_send(&self, event: AppEvent) -> Result<(), SessionTrySendError> {
-        if self.stop.load(Ordering::Acquire) {
+        if self.cancellation.stop.load(Ordering::Acquire) {
             return Err(SessionTrySendError::Disconnected);
         }
         match self.tx.try_send(self.wrap(event)) {
@@ -348,25 +375,29 @@ impl SessionEventSender {
     }
 
     fn send(&self, event: AppEvent) -> Result<(), ()> {
-        let mut event = self.wrap(event);
-        loop {
-            if self.stop.load(Ordering::Acquire) {
-                return Err(());
-            }
-            match self.tx.try_send(event) {
-                Ok(()) => return Ok(()),
-                Err(TrySendError::Full(returned)) => {
-                    event = returned;
-                    std::thread::park_timeout(Duration::from_millis(1));
-                }
-                Err(TrySendError::Disconnected(_)) => return Err(()),
-            }
-        }
+        send_bounded_cancelable(&self.tx, self.wrap(event), &self.cancellation)
+    }
+}
+
+/// Enqueue on a bounded channel while allowing cancellation to interrupt a
+/// producer that is waiting for capacity. There is no polling delay and no
+/// per-send helper thread.
+fn send_bounded_cancelable<T>(
+    tx: &SyncSender<T>,
+    value: T,
+    cancellation: &EventCancellation,
+) -> Result<(), ()> {
+    if cancellation.stop.load(Ordering::Acquire) {
+        return Err(());
+    }
+    crossbeam_channel::select_biased! {
+        recv(cancellation.receiver) -> _ => Err(()),
+        send(tx, value) -> result => result.map_err(|_| ()),
     }
 }
 
 struct SessionEventWorker {
-    stop: Arc<AtomicBool>,
+    cancellation: EventCancellation,
     start: Arc<AtomicBool>,
     mux: Option<JoinHandle<()>>,
 }
@@ -377,7 +408,7 @@ impl SessionEventWorker {
     }
 
     fn stop_and_join(&mut self) {
-        self.stop.store(true, Ordering::Release);
+        self.cancellation.cancel();
         self.activate();
         if let Some(mux) = self.mux.take() {
             let _ = mux.join();
@@ -393,7 +424,7 @@ impl Drop for SessionEventWorker {
 
 struct OwnerReloadWorker {
     stop: Option<cmux_tui_core::MuxEventReceiver>,
-    cancelled: Arc<AtomicBool>,
+    cancellation: EventCancellation,
     thread: Option<JoinHandle<()>>,
 }
 
@@ -401,36 +432,31 @@ impl OwnerReloadWorker {
     fn spawn(mux: &Mux, tx: SyncSender<AppEvent>) -> std::io::Result<Self> {
         let events = mux.subscribe_config_reload();
         let stop = events.clone();
-        let cancelled = Arc::new(AtomicBool::new(false));
-        let worker_cancelled = cancelled.clone();
+        let cancellation = EventCancellation::new();
+        let worker_cancellation = cancellation.clone();
         let thread =
             std::thread::Builder::new().name("owner-config-reload".into()).spawn(move || {
-                while !worker_cancelled.load(Ordering::Acquire) {
+                while !worker_cancellation.stop.load(Ordering::Acquire) {
                     let Ok(event) = events.recv() else { return };
                     if !matches!(event, MuxEvent::ConfigReloadRequested) {
                         continue;
                     }
-                    let mut app_event = AppEvent::OwnerConfigReloadRequested;
-                    loop {
-                        if worker_cancelled.load(Ordering::Acquire) {
-                            return;
-                        }
-                        match tx.try_send(app_event) {
-                            Ok(()) => break,
-                            Err(TrySendError::Full(returned)) => {
-                                app_event = returned;
-                                std::thread::park_timeout(Duration::from_millis(1));
-                            }
-                            Err(TrySendError::Disconnected(_)) => return,
-                        }
+                    if send_bounded_cancelable(
+                        &tx,
+                        AppEvent::OwnerConfigReloadRequested,
+                        &worker_cancellation,
+                    )
+                    .is_err()
+                    {
+                        return;
                     }
                 }
             })?;
-        Ok(Self { stop: Some(stop), cancelled, thread: Some(thread) })
+        Ok(Self { stop: Some(stop), cancellation, thread: Some(thread) })
     }
 
     fn stop_and_join(&mut self) {
-        self.cancelled.store(true, Ordering::Release);
+        self.cancellation.cancel();
         if let Some(stop) = self.stop.take() {
             stop.close();
         }
@@ -619,7 +645,7 @@ fn forward_mux_events(
     mux_titles: Arc<MuxTitleIngress>,
 ) {
     let mut next_recovery_generation = 0_u64;
-    while !tx.stop.load(Ordering::Acquire) {
+    while !tx.cancellation.stop.load(Ordering::Acquire) {
         let needs_recovery = match session_events.recv_timeout(Duration::from_millis(100)) {
             Ok(event) => {
                 if matches!(forward_mux_event(event, &tx, &mux_titles), ForwardMuxOutcome::Stop) {
@@ -648,7 +674,7 @@ fn forward_mux_events(
         // retained while every event accepted before overflow is delivered.
         let overflowed_events = std::mem::replace(&mut session_events, event_source.events());
         for event in overflowed_events.try_iter() {
-            if tx.stop.load(Ordering::Acquire) {
+            if tx.cancellation.stop.load(Ordering::Acquire) {
                 return;
             }
             if matches!(forward_mux_event(event, &tx, &mux_titles), ForwardMuxOutcome::Stop) {
@@ -688,7 +714,7 @@ fn forward_mux_events(
             continue;
         }
         for event in session_events.try_iter() {
-            if tx.stop.load(Ordering::Acquire) {
+            if tx.cancellation.stop.load(Ordering::Acquire) {
                 return;
             }
             if matches!(forward_mux_event(event, &tx, &mux_titles), ForwardMuxOutcome::Stop) {
@@ -769,9 +795,10 @@ fn start_ordered_session_inner(
     surface_filter: Option<SurfaceId>,
     paused: bool,
 ) -> anyhow::Result<(OrderedSession, SessionEventWorker, Arc<MuxTitleIngress>, Arc<AtomicU64>)> {
-    let stop = Arc::new(AtomicBool::new(false));
+    let cancellation = EventCancellation::new();
     let start = Arc::new(AtomicBool::new(!paused));
-    let events = SessionEventSender::scoped(app_events, generation, surface_filter, stop.clone());
+    let events =
+        SessionEventSender::scoped(app_events, generation, surface_filter, cancellation.clone());
     let layout_resize_owner = inner.allocate_layout_resize_owner();
     let operations = operations.for_session_generation(generation);
     let session = OrderedSession::new_with_event_sender(
@@ -792,11 +819,11 @@ fn start_ordered_session_inner(
     let mux =
         std::thread::Builder::new().name(format!("mux-events-{generation}")).spawn(move || {
             while !worker_start.load(Ordering::Acquire)
-                && !worker_events.stop.load(Ordering::Acquire)
+                && !worker_events.cancellation.stop.load(Ordering::Acquire)
             {
                 std::thread::park_timeout(Duration::from_millis(1));
             }
-            if worker_events.stop.load(Ordering::Acquire) {
+            if worker_events.cancellation.stop.load(Ordering::Acquire) {
                 return;
             }
             forward_mux_events(
@@ -810,7 +837,7 @@ fn start_ordered_session_inner(
         })?;
     Ok((
         session,
-        SessionEventWorker { stop, start, mux: Some(mux) },
+        SessionEventWorker { cancellation, start, mux: Some(mux) },
         mux_titles,
         mux_recovery_generation,
     ))
@@ -8176,7 +8203,7 @@ pub(crate) enum MachineControllerCompletion {
 }
 
 struct MachineActionWorker {
-    sender: Option<SyncSender<MachineControllerCommand>>,
+    sender: Option<std::sync::mpsc::SyncSender<MachineControllerCommand>>,
     stop: Arc<AtomicBool>,
     worker: Option<JoinHandle<()>>,
 }
@@ -8192,7 +8219,7 @@ impl MachineActionWorker {
         mut controller: Box<dyn MachineController>,
         app_events: SyncSender<AppEvent>,
     ) -> anyhow::Result<Self> {
-        let (sender, receiver) = sync_channel(1);
+        let (sender, receiver) = std::sync::mpsc::sync_channel(1);
         let stop = Arc::new(AtomicBool::new(false));
         let worker_stop = stop.clone();
         let worker =
@@ -8375,7 +8402,7 @@ impl MachineActionWorker {
             preparation: Box::new(preparation),
         }) {
             Ok(()) => Ok(()),
-            Err(TrySendError::Full(command)) => Err(MachineSubmitError::Busy(match command {
+            Err(StdTrySendError::Full(command)) => Err(MachineSubmitError::Busy(match command {
                 MachineControllerCommand::Perform { request, .. } => request,
                 MachineControllerCommand::SubscribeUpdates => {
                     unreachable!("perform returned a subscription command")
@@ -8388,7 +8415,7 @@ impl MachineActionWorker {
                     unreachable!("perform returned a replacement decision")
                 }
             })),
-            Err(TrySendError::Disconnected(command)) => {
+            Err(StdTrySendError::Disconnected(command)) => {
                 Err(MachineSubmitError::Stopped(match command {
                     MachineControllerCommand::Perform { request, .. } => request,
                     MachineControllerCommand::SubscribeUpdates => {
@@ -8421,13 +8448,13 @@ impl MachineActionWorker {
         };
         match sender.try_send(MachineControllerCommand::AcknowledgeDurableNotice(delivery)) {
             Ok(()) => Ok(()),
-            Err(TrySendError::Full(MachineControllerCommand::AcknowledgeDurableNotice(
+            Err(StdTrySendError::Full(MachineControllerCommand::AcknowledgeDurableNotice(
                 delivery,
             )))
-            | Err(TrySendError::Disconnected(
+            | Err(StdTrySendError::Disconnected(
                 MachineControllerCommand::AcknowledgeDurableNotice(delivery),
             )) => Err(delivery),
-            Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => {
+            Err(StdTrySendError::Full(_)) | Err(StdTrySendError::Disconnected(_)) => {
                 unreachable!("durable notice sender returned a different command")
             }
         }
@@ -10232,7 +10259,7 @@ impl App {
     fn event_loop<B: Backend>(
         &mut self,
         terminal: &mut RatatuiTerminal<B>,
-        rx: Receiver<AppEvent>,
+        rx: crossbeam_channel::Receiver<AppEvent>,
     ) -> anyhow::Result<()>
     where
         B::Error: Send + Sync + 'static,
@@ -10282,7 +10309,7 @@ impl App {
             let timeout = terminal_paints.wait_timeout(timeout, Instant::now());
             let first = match rx.recv_timeout(timeout) {
                 Ok(event) => Some(event),
-                Err(RecvTimeoutError::Timeout) => {
+                Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
                     if self.shake_frames > 0 {
                         action = RenderAction::Draw;
                     }
@@ -10297,7 +10324,7 @@ impl App {
                     }
                     None
                 }
-                Err(RecvTimeoutError::Disconnected) => {
+                Err(crossbeam_channel::RecvTimeoutError::Disconnected) => {
                     let action =
                         terminal_paints.render_immediately(RenderAction::None, Instant::now());
                     self.render_action(terminal, action)?;
@@ -23641,13 +23668,13 @@ mod tests {
     use super::{
         App, AppEvent, BACKGROUND_REFRESH_RETRIES, BrowserResizeFailure, ContextMenu,
         DEFERRED_INPUT_CAPACITY, DeferredInput, DeferredInputAdmission, DeferredInputQueue,
-        DeferredReplayDisposition, Drag, FocusTarget, ForwardMuxOutcome, FrontendJournalQueue,
-        FrontendJournalWorker, GraphicIdentity, GraphicPlacement, GraphicSourceRect,
-        GraphicsSceneCache, GuardedMouseEncode, HostInputIngress, HostInputMessage,
-        HostInputRuntime, MachineActionWorker, MachineConnectRoute, MenuAction, MenuItem,
-        MutationImpact, MuxTitleIngress, OmnibarHit, OmnibarState, OrderedSession, OuterCursorSpec,
-        PaneArea, PaneAreaProjection, PaneContentGeneration, PaneEdge, PaneFocusHistory,
-        PaneResizeDragTarget, PaneViewportClip, PendingSessionMutation,
+        DeferredReplayDisposition, Drag, EventCancellation, FocusTarget, ForwardMuxOutcome,
+        FrontendJournalQueue, FrontendJournalWorker, GraphicIdentity, GraphicPlacement,
+        GraphicSourceRect, GraphicsSceneCache, GuardedMouseEncode, HostInputIngress,
+        HostInputMessage, HostInputRuntime, MachineActionWorker, MachineConnectRoute, MenuAction,
+        MenuItem, MutationImpact, MuxTitleIngress, OmnibarHit, OmnibarState, OrderedSession,
+        OuterCursorSpec, PaneArea, PaneAreaProjection, PaneContentGeneration, PaneEdge,
+        PaneFocusHistory, PaneResizeDragTarget, PaneViewportClip, PendingSessionMutation,
         PendingSessionMutationState, PointerHitIdentity, PointerRouteIdentity, PointerRoutePhase,
         Prompt, PromptTarget, PtyFailureIngress, PtyMousePressResult, RailKind, RenderAction,
         RenderedMenuLevel, RenderedPaneRoute, RenderedPointerFrame, Selection, SessionCompletion,
@@ -23669,17 +23696,19 @@ mod tests {
         outer_cursor_escape_if_changed, pane_area_projection_work, pane_context_menu_groups,
         pane_parts_for_rect, prepare_ordered_session, preserve_client_view, rail_drag_width,
         rebuild_pane_areas, record_surface_resize_dispatch_result, report_after_unwind,
-        reset_pane_area_projection_work, run_status_command, should_claim_clear_history_shortcut,
-        sidebar_layout_for, sidebar_layout_for_state, sidebar_plugin_status_settles_passive_claim,
-        start_ordered_session, swept_viewport_size_leases, thumb_geometry, with_panic_stdout_lock,
+        reset_pane_area_projection_work, run_status_command, send_bounded_cancelable,
+        should_claim_clear_history_shortcut, sidebar_layout_for, sidebar_layout_for_state,
+        sidebar_plugin_status_settles_passive_claim, start_ordered_session,
+        swept_viewport_size_leases, thumb_geometry, with_panic_stdout_lock,
         workspace_creation_selection,
     };
     use cmux_tui_core::{FrontendFocusTarget, FrontendJournalEvent};
+    use crossbeam_channel::Receiver;
     use serde_json::Value;
     use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-    use std::sync::mpsc::Receiver;
+    use std::sync::mpsc::Receiver as StdReceiver;
     use std::sync::{Arc, Barrier, Mutex};
     use std::time::{Duration, Instant};
 
@@ -23869,7 +23898,7 @@ mod tests {
 
     #[test]
     fn host_input_failure_is_forwarded_to_the_event_loop() {
-        let (tx, rx) = std::sync::mpsc::sync_channel(1);
+        let (tx, rx) = crossbeam_channel::bounded(1);
         forward_host_input(
             || -> std::io::Result<Event> {
                 Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "revoked tty"))
@@ -31970,7 +31999,7 @@ mod tests {
 
     #[test]
     fn canceled_mutation_does_not_block_on_a_full_app_channel() {
-        let (events, receiver) = std::sync::mpsc::sync_channel(1);
+        let (events, receiver) = crossbeam_channel::bounded(1);
         events.send(AppEvent::MuxTitlesReady).unwrap();
         let pending_mutations = Arc::new(std::sync::atomic::AtomicUsize::new(1));
         let pending_pointer_mutations = Arc::new(std::sync::atomic::AtomicUsize::new(0));
@@ -31995,7 +32024,7 @@ mod tests {
 
     #[test]
     fn superseded_mutation_settles_without_canceling_session_input() {
-        let (events, receiver) = std::sync::mpsc::sync_channel(1);
+        let (events, receiver) = crossbeam_channel::bounded(1);
         let pending_mutations = Arc::new(std::sync::atomic::AtomicUsize::new(1));
         let pending_pointer_mutations = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let cancellation_pending = Arc::new(AtomicBool::new(false));
@@ -32022,7 +32051,7 @@ mod tests {
     #[test]
     fn pty_failure_ingress_rearms_after_a_full_app_channel_loses_its_wake() {
         let ingress = PtyFailureIngress::default();
-        let (events, receiver) = std::sync::mpsc::sync_channel(1);
+        let (events, receiver) = crossbeam_channel::bounded(1);
         events.send(AppEvent::MuxTitlesReady).unwrap();
         for index in 0..1_000 {
             let wake = ingress.push(PtyOperationFailure {
@@ -32038,7 +32067,7 @@ mod tests {
             if wake {
                 assert!(matches!(
                     events.try_send(AppEvent::PtyFailuresReady),
-                    Err(std::sync::mpsc::TrySendError::Full(_))
+                    Err(crossbeam_channel::TrySendError::Full(_))
                 ));
             }
         }
@@ -32619,7 +32648,7 @@ mod tests {
         for surface in 0..5_000 {
             mux.emit(MuxEvent::Bell(surface));
         }
-        let (tx, rx) = std::sync::mpsc::sync_channel(1);
+        let (tx, rx) = crossbeam_channel::bounded(1);
         let titles = Arc::new(MuxTitleIngress::default());
         let destination_generation = Arc::new(AtomicU64::new(0));
         let recovery_generation = Arc::new(AtomicU64::new(0));
@@ -32685,7 +32714,7 @@ mod tests {
 
     #[test]
     fn mux_forwarder_preserves_empty_while_app_channel_is_full() {
-        let (tx, rx) = std::sync::mpsc::sync_channel(1);
+        let (tx, rx) = crossbeam_channel::bounded(1);
         tx.send(AppEvent::Mux(MuxEvent::Bell(1))).unwrap();
         let titles = MuxTitleIngress::default();
         let forwarder = std::thread::spawn(move || {
@@ -32699,7 +32728,7 @@ mod tests {
 
     #[test]
     fn mux_forwarder_preserves_resize_completion_while_app_channel_is_full() {
-        let (tx, rx) = std::sync::mpsc::sync_channel(1);
+        let (tx, rx) = crossbeam_channel::bounded(1);
         tx.send(AppEvent::Mux(MuxEvent::Bell(1))).unwrap();
         let titles = MuxTitleIngress::default();
         let forwarder = std::thread::spawn(move || {
@@ -32726,7 +32755,7 @@ mod tests {
 
     #[test]
     fn mux_forwarder_preserves_one_shot_event_while_app_channel_is_full() {
-        let (tx, rx) = std::sync::mpsc::sync_channel(1);
+        let (tx, rx) = crossbeam_channel::bounded(1);
         tx.send(AppEvent::Mux(MuxEvent::Bell(1))).unwrap();
         let titles = MuxTitleIngress::default();
         let forwarder = std::thread::spawn(move || {
@@ -32740,7 +32769,7 @@ mod tests {
 
     #[test]
     fn single_surface_mux_forwarder_drops_unrelated_output_titles_and_agents() {
-        let (tx, rx) = std::sync::mpsc::sync_channel(4);
+        let (tx, rx) = crossbeam_channel::bounded(4);
         let tx = SessionEventSender::filtered(tx, 41);
         let titles = MuxTitleIngress::default();
 
@@ -32800,7 +32829,7 @@ mod tests {
 
     #[test]
     fn title_wake_waits_for_app_capacity_without_triggering_recovery() {
-        let (tx, rx) = std::sync::mpsc::sync_channel(1);
+        let (tx, rx) = crossbeam_channel::bounded(1);
         tx.send(AppEvent::Mux(MuxEvent::Bell(1))).unwrap();
         let titles = Arc::new(MuxTitleIngress::default());
         let forwarded_titles = titles.clone();
@@ -35954,7 +35983,7 @@ mod tests {
             modifiers: KeyModifiers::NONE,
         });
         app.pointer_route_phase = PointerRoutePhase::DrawPending;
-        let (events, receiver) = std::sync::mpsc::channel();
+        let (events, receiver) = crossbeam_channel::unbounded();
         events.send(AppEvent::Mux(MuxEvent::SurfaceOutput(999))).unwrap();
         drop(events);
         let mut terminal = Terminal::new(TestBackend::new(100, 12)).unwrap();
@@ -35975,7 +36004,7 @@ mod tests {
         for _ in 0..257 {
             app.defer_input(Event::Key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE)));
         }
-        let (events, receiver) = std::sync::mpsc::channel();
+        let (events, receiver) = crossbeam_channel::unbounded();
         events
             .send(AppEvent::Input(Event::Key(KeyEvent::new(
                 KeyCode::Char('z'),
@@ -36009,7 +36038,7 @@ mod tests {
         while app.session.has_pending_mutations() {
             app.handle(mutation_events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
         }
-        let (events, receiver) = std::sync::mpsc::channel();
+        let (events, receiver) = crossbeam_channel::unbounded();
         events.send(AppEvent::Mux(MuxEvent::SurfaceOutput(999))).unwrap();
         events
             .send(AppEvent::Input(Event::Mouse(MouseEvent {
@@ -36044,7 +36073,7 @@ mod tests {
         let dialog_y = (20 - 10) / 2;
         let approve_width = localization::catalog().pairing.approve.chars().count() as u16;
         let approve_x = dialog_x + width - 2 - approve_width;
-        let (events, receiver) = std::sync::mpsc::channel();
+        let (events, receiver) = crossbeam_channel::unbounded();
         events.send(AppEvent::Mux(MuxEvent::PairingRequested(challenge.clone()))).unwrap();
         events
             .send(AppEvent::Input(Event::Mouse(MouseEvent {
@@ -36093,7 +36122,7 @@ mod tests {
             app.handle(mutation_events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
         }
         let content = app.pane_areas[0].content;
-        let (events, receiver) = std::sync::mpsc::channel();
+        let (events, receiver) = crossbeam_channel::unbounded();
         events.send(AppEvent::Mux(MuxEvent::SurfaceOutput(surface.id))).unwrap();
         events
             .send(AppEvent::Input(Event::Mouse(MouseEvent {
@@ -36248,7 +36277,7 @@ mod tests {
             timeout_started_tx.send(()).unwrap();
             pointer_queued_rx.recv().unwrap();
         }));
-        let (events, receiver) = std::sync::mpsc::channel();
+        let (events, receiver) = crossbeam_channel::unbounded();
         let sender = std::thread::spawn(move || {
             timeout_started_rx.recv().unwrap();
             events
@@ -36674,7 +36703,7 @@ mod tests {
             })))
             .unwrap();
         }
-        let (events, receiver) = std::sync::mpsc::channel();
+        let (events, receiver) = crossbeam_channel::unbounded();
         drop(events);
         app.event_loop(&mut terminal, receiver).unwrap();
 
@@ -36723,7 +36752,7 @@ mod tests {
         let mux = Mux::new("pairing-key-render-barrier-test", SurfaceOptions::default());
         let (challenge, decision) = mux.begin_pairing("127.0.0.1".parse().unwrap()).unwrap();
         let mut app = test_app(Session::Local(mux));
-        let (events, receiver) = std::sync::mpsc::channel();
+        let (events, receiver) = crossbeam_channel::unbounded();
         events.send(AppEvent::Mux(MuxEvent::PairingRequested(challenge.clone()))).unwrap();
         events
             .send(AppEvent::Input(Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))))
@@ -36825,7 +36854,7 @@ mod tests {
         app.prompt = Some(Prompt::new("Rename", "ab".to_string(), PromptTarget::Surface(77)));
         let prompt_x = (100 - 42) / 2;
         let prompt_y = (20 - 9) / 2;
-        let (events, receiver) = std::sync::mpsc::channel();
+        let (events, receiver) = crossbeam_channel::unbounded();
         events.send(AppEvent::Mux(MuxEvent::SurfaceOutput(77))).unwrap();
         events
             .send(AppEvent::Input(Event::Mouse(MouseEvent {
@@ -36873,7 +36902,7 @@ mod tests {
         let content = app.pane_areas[0].content;
         let press = (content.x + 4, content.y + 2);
         let select = (press.0 + 1, press.1);
-        let (events, receiver) = std::sync::mpsc::channel();
+        let (events, receiver) = crossbeam_channel::unbounded();
         events.send(AppEvent::Mux(MuxEvent::SurfaceOutput(999))).unwrap();
         events
             .send(AppEvent::Input(Event::Mouse(MouseEvent {
@@ -41863,7 +41892,7 @@ mod tests {
     }
 
     struct BlockingMachineController {
-        release: Receiver<()>,
+        release: StdReceiver<()>,
     }
 
     impl MachineController for BlockingMachineController {
@@ -41898,7 +41927,7 @@ mod tests {
     #[test]
     fn machine_worker_preserves_exact_durable_notice_ack_result() {
         for fail in [false, true] {
-            let (events, event_receiver) = std::sync::mpsc::sync_channel(4);
+            let (events, event_receiver) = crossbeam_channel::bounded(4);
             let (acknowledgements, acknowledged) = std::sync::mpsc::channel();
             let mut worker = MachineActionWorker::spawn(
                 Box::new(AckMachineController { acknowledgements, fail }),
@@ -41961,7 +41990,7 @@ mod tests {
 
     struct OrderedBlockingMachineController {
         started: std::sync::mpsc::Sender<MachineKey>,
-        release: Receiver<()>,
+        release: StdReceiver<()>,
         closed: Option<std::sync::mpsc::Sender<()>>,
     }
 
@@ -42008,7 +42037,7 @@ mod tests {
 
     #[test]
     fn machine_action_worker_serializes_requests_in_submission_order() {
-        let (events, event_receiver) = std::sync::mpsc::sync_channel(4);
+        let (events, event_receiver) = crossbeam_channel::bounded(4);
         let (started, starts) = std::sync::mpsc::channel();
         let (release, releases) = std::sync::mpsc::channel();
         let mut worker = MachineActionWorker::spawn(
@@ -42050,7 +42079,7 @@ mod tests {
 
     #[test]
     fn machine_action_worker_shutdown_never_joins_a_blocked_action() {
-        let (events, _event_receiver) = std::sync::mpsc::sync_channel(4);
+        let (events, _event_receiver) = crossbeam_channel::bounded(4);
         let (started, starts) = std::sync::mpsc::channel();
         let (release, releases) = std::sync::mpsc::channel();
         let (closed, closes) = std::sync::mpsc::channel();
@@ -43177,7 +43206,7 @@ mod tests {
     fn canceling_a_session_event_worker_joins_a_blocked_mux_reader() {
         let mux = Mux::new("machine-worker-cancel", SurfaceOptions::default());
         let pty_input = PtyInputDispatcher::spawn(|_| {}).unwrap();
-        let (events, _receiver) = std::sync::mpsc::sync_channel(4_096);
+        let (events, _receiver) = crossbeam_channel::bounded(4_096);
         let (_session, mut worker, _, _) =
             start_ordered_session(Session::Local(mux), pty_input.sender(), events, 7, None)
                 .unwrap();
@@ -43188,10 +43217,39 @@ mod tests {
     }
 
     #[test]
+    fn canceling_a_bounded_event_send_unblocks_before_join_when_queue_is_full() {
+        let (events, receiver) = crossbeam_channel::bounded(1);
+        events.send(AppEvent::Mux(MuxEvent::Empty)).unwrap();
+        let cancellation = EventCancellation::new();
+        let worker_cancellation = cancellation.clone();
+        let (started_tx, started_rx) = std::sync::mpsc::sync_channel(1);
+        let (completed_tx, completed_rx) = std::sync::mpsc::sync_channel(1);
+        let worker = std::thread::spawn(move || {
+            started_tx.send(()).unwrap();
+            let result = send_bounded_cancelable(
+                &events,
+                AppEvent::Mux(MuxEvent::Empty),
+                &worker_cancellation,
+            );
+            completed_tx.send(result).unwrap();
+        });
+
+        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(matches!(
+            completed_rx.recv_timeout(Duration::from_millis(50)),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+        ));
+        cancellation.cancel();
+        assert_eq!(completed_rx.recv_timeout(Duration::from_secs(1)).unwrap(), Err(()));
+        worker.join().unwrap();
+        drop(receiver);
+    }
+
+    #[test]
     fn prepared_machine_session_events_stay_paused_until_commit_activation() {
         let mux = Mux::new("prepared-machine-session-events", SurfaceOptions::default());
         let pty_input = PtyInputDispatcher::spawn(|_| {}).unwrap();
-        let (events, receiver) = std::sync::mpsc::sync_channel(4_096);
+        let (events, receiver) = crossbeam_channel::bounded(4_096);
         let (_session, mut worker, _, _) = prepare_ordered_session(
             Session::Local(mux.clone()),
             pty_input.sender(),
@@ -43204,7 +43262,7 @@ mod tests {
         mux.new_workspace(None, None).unwrap();
         assert!(matches!(
             receiver.recv_timeout(Duration::from_millis(50)),
-            Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+            Err(crossbeam_channel::RecvTimeoutError::Timeout)
         ));
 
         worker.activate();
@@ -43310,7 +43368,7 @@ mod tests {
             failure_ingress.push(failure);
         })
         .unwrap();
-        let (events, receiver) = std::sync::mpsc::sync_channel(4_096);
+        let (events, receiver) = crossbeam_channel::bounded(4_096);
         let layout_resize_owner = session.allocate_layout_resize_owner();
         let session =
             OrderedSession::new(session, pty_input.sender(), events.clone(), layout_resize_owner);
