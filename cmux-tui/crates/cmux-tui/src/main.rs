@@ -1433,14 +1433,10 @@ fn normalize_remote_resource_args(raw_args: &mut Vec<String>) -> Result<(), Stri
             }
         }
         if let Some(action) = raw_args.get(action_index).cloned() {
-            let recognized = matches!(
-                action.as_str(),
-                "connect" | "ssh" | "forward" | "rpc" | "enroll" | "known-daemons" | "stop"
-            );
             raw_args.remove(action_index);
-            if recognized {
+            if let Some(command) = crate::cli::remote_action_command(&action) {
                 raw_args.remove(0);
-                raw_args.insert(0, if action == "stop" { "remote-stop".into() } else { action });
+                raw_args.insert(0, command.to_string());
                 return Ok(());
             } else {
                 raw_args.insert(1, action);
