@@ -193,7 +193,12 @@ public actor MobileIrxRuntimeComposition {
                 socketURL: controlPlaneBaseURL
                     .appendingPathComponent("v1/control/socket"),
                 endpointIDHex: identity.endpointIDHex,
-                wantPasses: true,
+                // Phase A: passes stay on the HTTPS autopilot (now hardened
+                // with stale-connection retry). The broker's mint endpoint
+                // requires an endpoint-signed proof for non-legacy
+                // namespaces, which the DO cannot mint bearer-only; flip
+                // this when proof pass-through ships.
+                wantPasses: false,
                 cacheDirectory: stateDirectory
             ),
             accessToken: { [weak auth] in
