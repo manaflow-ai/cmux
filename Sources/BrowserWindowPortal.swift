@@ -2451,12 +2451,11 @@ final class WindowBrowserPortal: NSObject {
         if let existing = entry.containerView {
             if let paneDropContext = entry.paneDropContext {
                 existing.setPaneDropContext(paneDropContext)
-            } else if entry.visibleInUI, !existing.isHidden {
-                // Keep a visible slot's stable ownership while its entry is
-                // being rebound during the same transient recovery window.
-                existing.setPaneDropContext(nil)
             } else {
-                existing.clearPaneDropContext()
+                // A missing entry snapshot is a transient routing gap during
+                // portal rebinds. Keep the slot's stable ownership until an
+                // explicit hide/release path clears it.
+                existing.setPaneDropContext(nil)
             }
             existing.setSearchOverlay(entry.searchOverlay)
             existing.setDesignComposer(entry.designComposer)
