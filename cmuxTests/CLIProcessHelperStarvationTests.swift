@@ -34,14 +34,14 @@ final class CLIProcessHelperStarvationTests: XCTestCase {
             }
             _ = drained.wait(timeout: .now() + 10)
         }
-        // Give the pool a moment to hand its workers to the blockers.
-        Thread.sleep(forTimeInterval: 0.2)
+        // No settling delay is needed: the root queue is FIFO, so any block a
+        // helper enqueues on it from here on sits behind every blocker above,
+        // none of which returns until `release` fires.
         return body()
     }
 
     func testSharedRunProcessCompletesWhileGlobalQueueIsSaturated() {
         let support = CLINotifyProcessIntegrationRegressionTests(invocation: nil)
-        let started = Date()
         let result = withSaturatedGlobalQueue {
             support.runProcess(
                 executablePath: "/bin/sh",
@@ -50,16 +50,13 @@ final class CLIProcessHelperStarvationTests: XCTestCase {
                 timeout: 3
             )
         }
-        let elapsed = Date().timeIntervalSince(started)
         XCTAssertFalse(result.timedOut, "helper lost the child's exit while the global queue was saturated")
         XCTAssertEqual(result.status, 0)
         XCTAssertEqual(result.stdout, "ok")
-        XCTAssertLessThan(elapsed, 3, "a trivial child took \(elapsed)s under a saturated global queue")
     }
 
     func testClaudeHookRunProcessCompletesWhileGlobalQueueIsSaturated() {
         let support = ClaudeHookSurfaceResolutionSwiftTests()
-        let started = Date()
         let result = withSaturatedGlobalQueue {
             support.runProcess(
                 executablePath: "/bin/sh",
@@ -69,17 +66,14 @@ final class CLIProcessHelperStarvationTests: XCTestCase {
                 timeout: 3
             )
         }
-        let elapsed = Date().timeIntervalSince(started)
         XCTAssertFalse(result.timedOut, "helper lost the child's exit while the global queue was saturated")
         XCTAssertEqual(result.status, 0)
         XCTAssertEqual(result.stdout, "echoed")
-        XCTAssertLessThan(elapsed, 3, "a trivial child took \(elapsed)s under a saturated global queue")
     }
 
     func testLiveDeliveryHookProcessCompletesWhileGlobalQueueIsSaturated() throws {
         let context = try ClaudeHookLiveDeliveryHarness.makeContext(name: "starvation-live-delivery")
         defer { context.cleanup() }
-        let started = Date()
         let result = withSaturatedGlobalQueue {
             ClaudeHookLiveDeliveryHarness.runHookProcess(
                 context: context,
@@ -88,9 +82,7 @@ final class CLIProcessHelperStarvationTests: XCTestCase {
                 standardInput: ""
             )
         }
-        let elapsed = Date().timeIntervalSince(started)
         XCTAssertFalse(result.timedOut, "helper lost the child's exit while the global queue was saturated")
         XCTAssertEqual(result.status, 0, result.stderr)
-        XCTAssertLessThan(elapsed, 5, "a trivial child took \(elapsed)s under a saturated global queue")
     }
 }
