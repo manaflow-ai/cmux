@@ -14,6 +14,8 @@ public struct CodexHomeResolver: Sendable {
     ///
     /// - Parameters:
     ///   - launchEnvironment: Environment captured with the agent launch.
+    ///   - launchWorkingDirectory: Directory captured with the agent launch,
+    ///     used to resolve a relative `CODEX_HOME`.
     ///   - launchVerificationHome: Captured user home used for provider-state
     ///     verification when `CODEX_HOME` was not set.
     ///   - ambientEnvironment: Environment of the process doing the lookup.
@@ -22,18 +24,19 @@ public struct CodexHomeResolver: Sendable {
     /// - Returns: A tilde-expanded, standardized Codex state directory path.
     public func resolve(
         launchEnvironment: [String: String]? = nil,
+        launchWorkingDirectory: String? = nil,
         launchVerificationHome: String? = nil,
         ambientEnvironment: [String: String] = ProcessInfo.processInfo.environment,
         fallbackHomeDirectory: String? = nil
     ) -> String {
         if let launchCodexHome = normalized(launchEnvironment?["CODEX_HOME"]) {
-            return standardized(launchCodexHome)
+            return standardized(launchCodexHome, relativeTo: launchWorkingDirectory)
         }
         if let launchHome = normalized(launchVerificationHome) {
-            return codexDirectory(forHome: launchHome)
+            return codexDirectory(forHome: launchHome, relativeTo: launchWorkingDirectory)
         }
         if let launchHome = normalized(launchEnvironment?["HOME"]) {
-            return codexDirectory(forHome: launchHome)
+            return codexDirectory(forHome: launchHome, relativeTo: launchWorkingDirectory)
         }
         if let ambientCodexHome = normalized(ambientEnvironment["CODEX_HOME"]) {
             return standardized(ambientCodexHome)
@@ -44,9 +47,9 @@ public struct CodexHomeResolver: Sendable {
         return codexDirectory(forHome: fallbackHomeDirectory ?? NSHomeDirectory())
     }
 
-    private func codexDirectory(forHome home: String) -> String {
+    private func codexDirectory(forHome home: String, relativeTo base: String? = nil) -> String {
         URL(
-            fileURLWithPath: expanded(home),
+            fileURLWithPath: expanded(home, relativeTo: base),
             isDirectory: true
         )
         .appendingPathComponent(".codex", isDirectory: true)
@@ -54,12 +57,24 @@ public struct CodexHomeResolver: Sendable {
         .path
     }
 
-    private func standardized(_ path: String) -> String {
-        (expanded(path) as NSString).standardizingPath
+    private func standardized(_ path: String, relativeTo base: String? = nil) -> String {
+        (expanded(path, relativeTo: base) as NSString).standardizingPath
     }
 
-    private func expanded(_ path: String) -> String {
-        NSString(string: path).expandingTildeInPath
+    private func expanded(_ path: String, relativeTo base: String? = nil) -> String {
+        let expandedPath = NSString(string: path).expandingTildeInPath
+        guard !expandedPath.hasPrefix("/"),
+              let base,
+              let normalizedBase = normalized(base) else {
+            return expandedPath
+        }
+        return URL(
+            fileURLWithPath: expandedPath,
+            relativeTo: URL(
+                fileURLWithPath: NSString(string: normalizedBase).expandingTildeInPath,
+                isDirectory: true
+            )
+        ).standardizedFileURL.path
     }
 
     private func normalized(_ value: String?) -> String? {

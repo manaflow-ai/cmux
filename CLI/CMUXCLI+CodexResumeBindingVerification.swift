@@ -23,6 +23,7 @@ extension CMUXCLI {
         let environment = ProcessInfo.processInfo.environment
         let codexHome = codexResumeBindingEffectiveHome(
             launchEnvironment: launchCommand?.environment,
+            launchWorkingDirectory: launchCommand?.workingDirectory,
             launchVerificationHome: launchCommand?.verificationHome,
             ambientEnvironment: environment
         )
@@ -35,11 +36,13 @@ extension CMUXCLI {
 
     func codexResumeBindingEffectiveHome(
         launchEnvironment: [String: String]?,
+        launchWorkingDirectory: String? = nil,
         launchVerificationHome: String? = nil,
         ambientEnvironment: [String: String] = ProcessInfo.processInfo.environment
     ) -> String {
         CodexHomeResolver().resolve(
             launchEnvironment: launchEnvironment,
+            launchWorkingDirectory: launchWorkingDirectory,
             launchVerificationHome: launchVerificationHome,
             ambientEnvironment: ambientEnvironment,
             fallbackHomeDirectory: NSHomeDirectory()
@@ -74,6 +77,8 @@ extension CMUXCLI {
         launchEnvironment.merge(record.environment) { _, restored in restored }
         let codexHome = codexResumeBindingEffectiveHome(
             launchEnvironment: launchEnvironment,
+            launchWorkingDirectory: record.launchCommand?.workingDirectory
+                ?? record.workingDirectory,
             launchVerificationHome: record.launchCommand?.verificationHome,
             ambientEnvironment: processEnvironment
         )

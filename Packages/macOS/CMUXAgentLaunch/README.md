@@ -45,6 +45,7 @@ injected file manager, so tests never need the developer's real `~/.codex`:
 ```swift
 let home = CodexHomeResolver().resolve(
     launchEnvironment: ["HOME": "/tmp/captured-user"],
+    launchWorkingDirectory: "/tmp/project",
     ambientEnvironment: ["CODEX_HOME": "/tmp/current-codex"],
     fallbackHomeDirectory: "/tmp/fallback-user"
 )

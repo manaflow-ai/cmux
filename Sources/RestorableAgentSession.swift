@@ -1578,6 +1578,7 @@ struct RestorableAgentSessionIndex: Sendable {
         var codexRequestKeys = Set<String>()
         var codexRequestCount = 0
         var codexPlanWasTruncated = false
+        var codexHookRecordsForIndex: [RestorableAgentHookSessionRecord]?
 
         func codexVerificationKey(
             for record: RestorableAgentHookSessionRecord
@@ -1587,6 +1588,7 @@ struct RestorableAgentSessionIndex: Sendable {
             guard !sessionID.isEmpty else { return nil }
             let home = codexHomeResolver.resolve(
                 launchEnvironment: record.launchCommand?.environment,
+                launchWorkingDirectory: record.launchCommand?.workingDirectory ?? record.cwd,
                 launchVerificationHome: record.launchCommand?.verificationHome,
                 ambientEnvironment: environment,
                 fallbackHomeDirectory: homeDirectory
@@ -1611,12 +1613,15 @@ struct RestorableAgentSessionIndex: Sendable {
             if fileManager.fileExists(atPath: fileURL.path),
                let data = try? Data(contentsOf: fileURL),
                let state = try? decoder.decode(RestorableAgentHookSessionStoreFile.self, from: data) {
-                for rawRecord in state.sessions.values.sorted(by: {
-                    if $0.updatedAt != $1.updatedAt {
-                        return $0.updatedAt > $1.updatedAt
-                    }
-                    return $0.sessionId > $1.sessionId
-                }) {
+                let selectedRecords = Array(
+                    state.sessions.values.prefix(
+                        CodexSessionResumeVerificationLimits.maximumBatchRequests
+                    )
+                )
+                codexHookRecordsForIndex = selectedRecords
+                codexPlanWasTruncated = state.sessions.count
+                    > CodexSessionResumeVerificationLimits.maximumBatchRequests
+                for rawRecord in selectedRecords {
                     var record = rawRecord
                     record.launchCommand = trustedLaunchCommand(
                         record.launchCommand,
@@ -1651,9 +1656,20 @@ struct RestorableAgentSessionIndex: Sendable {
             isComplete = false
         }
         let codexResumeVerifier = CodexSessionResumeVerifier()
-        var codexReadBudget = CodexSessionResumeVerificationLimits()
+        let codexHomeCount = max(1, codexRequestsByHome.count)
+        let perHomeReadBudgetBytes = max(
+            1,
+            CodexSessionResumeVerificationLimits.maximumBatchBytes / codexHomeCount
+        )
         for home in codexRequestsByHome.keys.sorted() {
             guard let requests = codexRequestsByHome[home] else { continue }
+            // Keep each account's read allowance independent: a pathological
+            // history in one CODEX_HOME must not make later homes appear
+            // unavailable. The request cap and equal per-home allocation still
+            // bound the total work for one index load.
+            var codexReadBudget = CodexSessionResumeVerificationLimits(
+                maximumBytes: perHomeReadBudgetBytes
+            )
             let results = codexResumeVerifier.verifyBatch(
                 requests,
                 codexHome: home,
@@ -1675,25 +1691,33 @@ struct RestorableAgentSessionIndex: Sendable {
         }
 
         for (kind, registration) in hookKinds {
-            let fileURL = kind.hookStoreFileURL(
-                homeDirectory: homeDirectory,
-                environment: environment
-            )
-            guard fileManager.fileExists(atPath: fileURL.path) else {
-                continue
-            }
-            guard let data = try? Data(contentsOf: fileURL),
-                  let state = try? decoder.decode(RestorableAgentHookSessionStoreFile.self, from: data) else {
-                isComplete = false
-                continue
-            }
-
-            let hookRecords = kind == .hermesAgent
-                ? canonicalHermesHookRecords(
-                    state.sessions.values,
-                    homeDirectory: homeDirectory
+            let hookRecords: [RestorableAgentHookSessionRecord]
+            if kind == .codex, let codexHookRecordsForIndex {
+                // The planning pass decoded this store once; reuse its
+                // bounded snapshot so a refresh cannot race a second decode.
+                hookRecords = codexHookRecordsForIndex
+            } else {
+                let fileURL = kind.hookStoreFileURL(
+                    homeDirectory: homeDirectory,
+                    environment: environment
                 )
-                : Array(state.sessions.values)
+                guard fileManager.fileExists(atPath: fileURL.path) else {
+                    continue
+                }
+                guard let data = try? Data(contentsOf: fileURL),
+                      let state = try? decoder.decode(RestorableAgentHookSessionStoreFile.self, from: data) else {
+                    isComplete = false
+                    continue
+                }
+                if kind == .hermesAgent {
+                    hookRecords = canonicalHermesHookRecords(
+                        state.sessions.values,
+                        homeDirectory: homeDirectory
+                    )
+                } else {
+                    hookRecords = Array(state.sessions.values)
+                }
+            }
             for record in hookRecords {
                 var effectiveRecord = kind == .claude
                     ? resolvedClaudeWorkflowRecord(

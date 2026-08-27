@@ -123,6 +123,14 @@ struct CodexResumeBindingVerificationTests {
                 fallbackHomeDirectory: "/tmp/fallback"
             ) == "\(launchUserHome)/.codex"
         )
+        #expect(
+            resolver.resolve(
+                launchEnvironment: ["CODEX_HOME": ".codex"],
+                launchWorkingDirectory: "/tmp/captured-project",
+                ambientEnvironment: ["CODEX_HOME": ambientCodexHome],
+                fallbackHomeDirectory: "/tmp/fallback"
+            ) == "/tmp/captured-project/.codex"
+        )
     }
 
     @Test func readableIndexWithoutThreadDoesNotScanUnindexedRollouts() throws {
