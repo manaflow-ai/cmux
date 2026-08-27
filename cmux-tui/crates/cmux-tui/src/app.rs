@@ -3935,6 +3935,11 @@ pub enum Hit {
     RailPad(RailKind),
     /// A rail's right border.
     RailResize(RailKind),
+    /// A draggable divider between two panes of a sidebar split group.
+    SidebarSplitDivider {
+        group: usize,
+        index: usize,
+    },
     /// Pane border resize handle.
     PaneResize {
         horizontal: Option<(PaneId, PaneEdge)>,
@@ -4033,12 +4038,49 @@ pub struct RailPlacement {
     pub rect: Rect,
 }
 
+/// One top-level sidebar column. A column holds one rail, or a split group
+/// of rails; width drag and the packing solver operate on columns.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SidebarColumnPlacement {
+    /// Width-override key: the leaf view id, or the split group id.
+    pub key: String,
+    pub rect: Rect,
+    pub max_width: u16,
+    /// Rails inside this column, tree order.
+    pub rails: Vec<RailKind>,
+}
+
+/// A rendered split group: the region its children partition. Divider drags
+/// convert pointer positions into new child fractions through this record.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SidebarSplitGroupPlacement {
+    pub id: String,
+    pub dir: crate::config::SidebarSplitDir,
+    pub children: Vec<Rect>,
+}
+
+/// A draggable boundary between two children of a split group. A vertical
+/// split renders its divider as a dedicated row; a horizontal split reuses
+/// the left child's border column.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SidebarDividerPlacement {
+    /// Index into `SidebarLayout::split_groups`.
+    pub group: usize,
+    /// The divider sits between child `index` and child `index + 1`.
+    pub index: usize,
+    pub rect: Rect,
+    pub dir: crate::config::SidebarSplitDir,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SidebarLayout {
     pub machine: Option<Rect>,
     pub workspace: Option<Rect>,
     pub tabs: Option<Rect>,
     pub ordered: Vec<RailPlacement>,
+    pub columns: Vec<SidebarColumnPlacement>,
+    pub split_groups: Vec<SidebarSplitGroupPlacement>,
+    pub dividers: Vec<SidebarDividerPlacement>,
     pub content: Rect,
 }
 
@@ -5490,6 +5532,8 @@ enum Drag {
     },
     /// Independent rail width override drag.
     RailResize(RailKind),
+    /// Sidebar split-group divider drag: re-shares the group's children.
+    SidebarSplit { group: usize, index: usize },
     /// Pane split resize drag.
     ResizeSplit { horizontal: Option<PaneResizeDragTarget>, vertical: Option<PaneResizeDragTarget> },
 }
@@ -6935,6 +6979,9 @@ pub struct App {
     machine_sidebar_width_override: Option<u16>,
     tabs_sidebar_width_override: Option<u16>,
     projection_sidebar_width_overrides: HashMap<String, u16>,
+    /// Session-local divider drags inside sidebar split groups, keyed by
+    /// group id: each child's share of the group, in child order.
+    sidebar_split_fractions: HashMap<String, Vec<f32>>,
     /// Session-local visibility overrides, keyed by profile and stable view id.
     hidden_sidebar_views: HashMap<String, HashSet<String>>,
     /// Pane region of the current frame (screen minus sidebar/status).
@@ -7140,6 +7187,9 @@ fn preserve_client_view(previous: &TreeView, next: &mut TreeView) {
 
 const MIN_RAIL_WIDTH: u16 = 10;
 const MIN_CONTENT_WIDTH: u16 = 40;
+/// Minimum rows for a rail stacked inside a vertical sidebar split: the top
+/// pad, one full entry, and a row of slack so the list stays usable.
+const MIN_SPLIT_RAIL_HEIGHT: u16 = 4;
 const MIN_TABBED_PANE_HEIGHT: u16 = 3;
 const RAIL_REVEAL_HYSTERESIS: u16 = 4;
 
@@ -7811,9 +7861,253 @@ fn sidebar_layout_for(
         overrides.machine,
         overrides.tabs,
         &HashMap::new(),
+        &HashMap::new(),
         &HashSet::new(),
         None,
     )
+}
+
+/// One top-level sidebar column after visibility pruning: hidden views and
+/// an absent machine provider drop leaves, empty splits collapse away.
+#[derive(Clone)]
+enum SidebarColumnNode {
+    Leaf { view_index: usize, kind: RailKind, priority: u16 },
+    Split {
+        id: String,
+        dir: crate::config::SidebarSplitDir,
+        priority: u16,
+        children: Vec<(u16, SidebarColumnNode)>,
+    },
+}
+
+impl SidebarColumnNode {
+    fn priority(&self) -> u16 {
+        match self {
+            SidebarColumnNode::Leaf { priority, .. }
+            | SidebarColumnNode::Split { priority, .. } => *priority,
+        }
+    }
+
+    fn first_kind(&self) -> RailKind {
+        match self {
+            SidebarColumnNode::Leaf { kind, .. } => *kind,
+            SidebarColumnNode::Split { children, .. } => children[0].1.first_kind(),
+        }
+    }
+
+    fn collect_rails(&self, rails: &mut Vec<RailKind>) {
+        match self {
+            SidebarColumnNode::Leaf { kind, .. } => rails.push(*kind),
+            SidebarColumnNode::Split { children, .. } => {
+                for (_, child) in children {
+                    child.collect_rails(rails);
+                }
+            }
+        }
+    }
+}
+
+fn prune_sidebar_layout_node(
+    node: &crate::config::SidebarLayoutNode,
+    views: &[SidebarViewSpec],
+    hidden_views: &HashSet<String>,
+    machine_visible: bool,
+) -> Option<SidebarColumnNode> {
+    use crate::config::SidebarLayoutNode;
+    match node {
+        SidebarLayoutNode::Leaf(view_index) => {
+            let view = views.get(*view_index)?;
+            if hidden_views.contains(&view.id) {
+                return None;
+            }
+            if view.includes(SidebarResourceKind::Machines) && !machine_visible {
+                return None;
+            }
+            let kind = match view.legacy_kind() {
+                Some(SidebarColumnKind::Machines) => RailKind::Machine,
+                Some(SidebarColumnKind::Workspaces) => RailKind::Workspace,
+                Some(SidebarColumnKind::Tabs) => RailKind::Tabs,
+                None => RailKind::Projection(*view_index),
+            };
+            Some(SidebarColumnNode::Leaf {
+                view_index: *view_index,
+                kind,
+                priority: view.collapse_priority,
+            })
+        }
+        SidebarLayoutNode::Split(split) => {
+            let children: Vec<(u16, SidebarColumnNode)> = split
+                .children
+                .iter()
+                .enumerate()
+                .filter_map(|(index, child)| {
+                    prune_sidebar_layout_node(child, views, hidden_views, machine_visible).map(
+                        |node| (split.weights.get(index).copied().unwrap_or(1).max(1), node),
+                    )
+                })
+                .collect();
+            match children.len() {
+                0 => None,
+                1 => children.into_iter().next().map(|(_, child)| child),
+                _ => Some(SidebarColumnNode::Split {
+                    id: split.id.clone(),
+                    dir: split.dir,
+                    priority: split.collapse_priority,
+                    children,
+                }),
+            }
+        }
+    }
+}
+
+/// Lay out one pruned column node inside `rect`, appending rail placements,
+/// split-group records, and divider handles. Children that no longer fit at
+/// their minimum size collapse away lowest-priority-first, exactly like
+/// columns do when the terminal narrows.
+fn place_sidebar_column_node(
+    node: &SidebarColumnNode,
+    rect: Rect,
+    layout: &mut SidebarLayout,
+    split_fractions: &HashMap<String, Vec<f32>>,
+) {
+    use crate::config::SidebarSplitDir;
+    if rect.width == 0 || rect.height == 0 {
+        return;
+    }
+    match node {
+        SidebarColumnNode::Leaf { view_index, kind, .. } => {
+            match kind {
+                RailKind::Machine => layout.machine = Some(rect),
+                RailKind::Workspace => layout.workspace = Some(rect),
+                RailKind::Tabs => layout.tabs = Some(rect),
+                RailKind::Projection(_) => {}
+            }
+            layout.ordered.push(RailPlacement { kind: *kind, view_index: *view_index, rect });
+        }
+        SidebarColumnNode::Split { id, dir, children, .. } => {
+            let (total, min_each, divider_size) = match dir {
+                SidebarSplitDir::Vertical => (rect.height, MIN_SPLIT_RAIL_HEIGHT, 1u16),
+                SidebarSplitDir::Horizontal => (rect.width, MIN_RAIL_WIDTH, 0u16),
+            };
+            let mut kept: Vec<&(u16, SidebarColumnNode)> = children.iter().collect();
+            while kept.len() > 1 {
+                let dividers = divider_size.saturating_mul(kept.len().saturating_sub(1) as u16);
+                let needed =
+                    min_each.saturating_mul(kept.len() as u16).saturating_add(dividers);
+                if total >= needed {
+                    break;
+                }
+                let Some((drop_index, _)) = kept
+                    .iter()
+                    .enumerate()
+                    .min_by_key(|(_, (_, child))| child.priority())
+                else {
+                    break;
+                };
+                kept.remove(drop_index);
+            }
+            if kept.len() == 1 {
+                place_sidebar_column_node(&kept[0].1, rect, layout, split_fractions);
+                return;
+            }
+            let dividers = divider_size.saturating_mul(kept.len().saturating_sub(1) as u16);
+            let available = total.saturating_sub(dividers);
+            if available < min_each.saturating_mul(kept.len() as u16) {
+                place_sidebar_column_node(&kept[0].1, rect, layout, split_fractions);
+                return;
+            }
+            // A committed divider drag overrides the configured weights while
+            // the same children remain visible.
+            let shares: Vec<f32> = split_fractions
+                .get(id)
+                .filter(|fractions| {
+                    fractions.len() == kept.len()
+                        && fractions.iter().all(|value| value.is_finite() && *value > 0.0)
+                })
+                .cloned()
+                .unwrap_or_else(|| kept.iter().map(|(weight, _)| f32::from(*weight)).collect());
+            let sum: f32 = shares.iter().sum();
+            let mut sizes: Vec<u16> = shares
+                .iter()
+                .map(|share| {
+                    (((share / sum) * f32::from(available)) as u16).clamp(min_each, available)
+                })
+                .collect();
+            let mut used: u16 = sizes.iter().fold(0, |sum, size| sum.saturating_add(*size));
+            while used > available {
+                let Some((largest, _)) = sizes
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, size)| **size > min_each)
+                    .max_by_key(|(_, size)| **size)
+                else {
+                    break;
+                };
+                sizes[largest] -= 1;
+                used -= 1;
+            }
+            let mut round_robin = 0usize;
+            while used < available {
+                sizes[round_robin % sizes.len()] += 1;
+                used += 1;
+                round_robin += 1;
+            }
+            let group_index = layout.split_groups.len();
+            layout.split_groups.push(SidebarSplitGroupPlacement {
+                id: id.clone(),
+                dir: *dir,
+                children: Vec::new(),
+            });
+            let mut offset = 0u16;
+            for (child_index, (_, child)) in kept.iter().enumerate() {
+                let child_rect = match dir {
+                    SidebarSplitDir::Vertical => Rect {
+                        x: rect.x,
+                        y: rect.y + offset,
+                        width: rect.width,
+                        height: sizes[child_index],
+                    },
+                    SidebarSplitDir::Horizontal => Rect {
+                        x: rect.x + offset,
+                        y: rect.y,
+                        width: sizes[child_index],
+                        height: rect.height,
+                    },
+                };
+                layout.split_groups[group_index].children.push(child_rect);
+                place_sidebar_column_node(child, child_rect, layout, split_fractions);
+                offset = offset.saturating_add(sizes[child_index]);
+                if child_index + 1 < kept.len() {
+                    let divider_rect = match dir {
+                        SidebarSplitDir::Vertical => {
+                            let divider = Rect {
+                                x: rect.x,
+                                y: rect.y + offset,
+                                width: rect.width,
+                                height: 1,
+                            };
+                            offset = offset.saturating_add(1);
+                            divider
+                        }
+                        // The horizontal handle overlays the left child's
+                        // border column; no extra cell is carved out.
+                        SidebarSplitDir::Horizontal => Rect {
+                            x: (rect.x + offset).saturating_sub(1),
+                            y: rect.y,
+                            width: 1,
+                            height: rect.height,
+                        },
+                    };
+                    layout.dividers.push(SidebarDividerPlacement {
+                        group: group_index,
+                        index: child_index,
+                        rect: divider_rect,
+                        dir: *dir,
+                    });
+                }
+            }
+        }
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -7827,6 +8121,7 @@ fn sidebar_layout_for_state(
     machine_override: Option<u16>,
     tabs_override: Option<u16>,
     projection_overrides: &HashMap<String, u16>,
+    split_fractions: &HashMap<String, Vec<f32>>,
     hidden_views: &HashSet<String>,
     previous: Option<&SidebarLayout>,
 ) -> SidebarLayout {
@@ -7841,63 +8136,89 @@ fn sidebar_layout_for_state(
         };
     }
 
-    #[derive(Clone, Copy)]
     struct Spec {
-        kind: RailKind,
-        view_index: usize,
+        node: SidebarColumnNode,
+        key: String,
+        first_kind: RailKind,
         desired: u16,
         max_width: u16,
         priority: u16,
     }
 
-    let mut specs = config
-        .sidebar
-        .views
+    let views = &config.sidebar.views;
+    // The resolved layout always covers every view exactly once. Anything
+    // else means `views` was replaced without its layout (tests and older
+    // call sites do this), so fall back to one column per view.
+    let identity: Vec<crate::config::SidebarLayoutNode>;
+    let layout_nodes: &[crate::config::SidebarLayoutNode] = {
+        let mut leaves: Vec<usize> =
+            config.sidebar.layout.iter().flat_map(|node| node.leaves()).collect();
+        leaves.sort_unstable();
+        if leaves == (0..views.len()).collect::<Vec<_>>() {
+            &config.sidebar.layout
+        } else {
+            identity = crate::config::sidebar_layout_of_columns(views);
+            &identity
+        }
+    };
+    let mut specs = layout_nodes
         .iter()
-        .enumerate()
-        .filter_map(|(view_index, view)| {
-            if hidden_views.contains(&view.id) {
-                return None;
-            }
-            if view.includes(SidebarResourceKind::Machines) && !machine_visible {
-                return None;
-            }
-            let kind = match view.legacy_kind() {
-                Some(SidebarColumnKind::Machines) => RailKind::Machine,
-                Some(SidebarColumnKind::Workspaces) => RailKind::Workspace,
-                Some(SidebarColumnKind::Tabs) => RailKind::Tabs,
-                None => RailKind::Projection(view_index),
-            };
-            let width_override = match kind {
-                RailKind::Machine => machine_override,
-                RailKind::Workspace => workspace_override,
-                RailKind::Tabs => tabs_override,
-                RailKind::Projection(_) => projection_overrides.get(&view.id).copied(),
-            };
-            let legacy_width = match kind {
-                RailKind::Machine => config.machine_sidebar.width,
-                RailKind::Workspace => config.sidebar.width,
-                RailKind::Tabs | RailKind::Projection(_) => view.width,
-            };
-            let desired = if compact && kind == RailKind::Workspace {
-                config.sidebar.compact_width
-            } else {
-                width_override.unwrap_or(if config.sidebar.views_explicit {
-                    view.width
-                } else {
-                    legacy_width
-                })
-            };
-            let max_width = if config.sidebar.views_explicit {
-                view.max_width
-            } else {
-                match kind {
-                    RailKind::Machine => config.machine_sidebar.max_width,
-                    RailKind::Workspace => config.sidebar.max_width,
-                    RailKind::Tabs | RailKind::Projection(_) => view.max_width,
+        .filter_map(|layout_node| {
+            let node =
+                prune_sidebar_layout_node(layout_node, views, hidden_views, machine_visible)?;
+            let (key, first_kind, desired, max_width, priority) = match &node {
+                SidebarColumnNode::Leaf { view_index, kind, priority } => {
+                    let view = views.get(*view_index)?;
+                    let width_override = match kind {
+                        RailKind::Machine => machine_override,
+                        RailKind::Workspace => workspace_override,
+                        RailKind::Tabs => tabs_override,
+                        RailKind::Projection(_) => projection_overrides.get(&view.id).copied(),
+                    };
+                    let legacy_width = match kind {
+                        RailKind::Machine => config.machine_sidebar.width,
+                        RailKind::Workspace => config.sidebar.width,
+                        RailKind::Tabs | RailKind::Projection(_) => view.width,
+                    };
+                    let desired = if compact && *kind == RailKind::Workspace {
+                        config.sidebar.compact_width
+                    } else {
+                        width_override.unwrap_or(if config.sidebar.views_explicit {
+                            view.width
+                        } else {
+                            legacy_width
+                        })
+                    };
+                    let max_width = if config.sidebar.views_explicit {
+                        view.max_width
+                    } else {
+                        match kind {
+                            RailKind::Machine => config.machine_sidebar.max_width,
+                            RailKind::Workspace => config.sidebar.max_width,
+                            RailKind::Tabs | RailKind::Projection(_) => view.max_width,
+                        }
+                    };
+                    (view.id.clone(), *kind, desired, max_width, *priority)
+                }
+                SidebarColumnNode::Split { id, priority, .. } => {
+                    // A pruned single-child split resolves as a leaf above,
+                    // so this arm always covers a real multi-pane column.
+                    let split = sidebar_split_spec(&config.sidebar.layout, id);
+                    let desired = projection_overrides
+                        .get(id)
+                        .copied()
+                        .or(split.map(|split| split.width))
+                        .unwrap_or(22);
+                    (
+                        id.clone(),
+                        node.first_kind(),
+                        desired,
+                        split.map_or(0, |split| split.max_width),
+                        *priority,
+                    )
                 }
             };
-            Some(Spec { kind, view_index, desired, max_width, priority: view.collapse_priority })
+            Some(Spec { node, key, first_kind, desired, max_width, priority })
         })
         .collect::<Vec<_>>();
 
@@ -7912,7 +8233,7 @@ fn sidebar_layout_for_state(
     }
 
     if let Some(previous) = previous {
-        while specs.iter().any(|spec| previous.rail(spec.kind).is_none())
+        while specs.iter().any(|spec| previous.rail(spec.first_kind).is_none())
             && width
                 < MIN_CONTENT_WIDTH
                     .saturating_add(MIN_RAIL_WIDTH.saturating_mul(specs.len() as u16))
@@ -7921,7 +8242,7 @@ fn sidebar_layout_for_state(
             let Some((index, _)) = specs
                 .iter()
                 .enumerate()
-                .filter(|(_, spec)| previous.rail(spec.kind).is_none())
+                .filter(|(_, spec)| previous.rail(spec.first_kind).is_none())
                 .min_by_key(|(_, spec)| spec.priority)
             else {
                 break;
@@ -7942,42 +8263,88 @@ fn sidebar_layout_for_state(
             continue;
         };
         let rect = Rect { x, y: 0, width: rail_width, height };
-        match spec.kind {
-            RailKind::Machine => layout.machine = Some(rect),
-            RailKind::Workspace => layout.workspace = Some(rect),
-            RailKind::Tabs => layout.tabs = Some(rect),
-            RailKind::Projection(_) => {}
-        }
-        layout.ordered.push(RailPlacement { kind: spec.kind, view_index: spec.view_index, rect });
+        let mut rails = Vec::new();
+        spec.node.collect_rails(&mut rails);
+        layout.columns.push(SidebarColumnPlacement {
+            key: spec.key.clone(),
+            rect,
+            max_width: spec.max_width,
+            rails,
+        });
+        place_sidebar_column_node(&spec.node, rect, &mut layout, split_fractions);
         x = x.saturating_add(rail_width);
     }
     layout.content = Rect { x, y: 0, width: width.saturating_sub(x), height: content_height };
     layout
 }
 
+/// Ids of every split group in the layout forest, depth first.
+fn collect_sidebar_split_ids(nodes: &[crate::config::SidebarLayoutNode], ids: &mut Vec<String>) {
+    use crate::config::SidebarLayoutNode;
+    for node in nodes {
+        if let SidebarLayoutNode::Split(split) = node {
+            ids.push(split.id.clone());
+            collect_sidebar_split_ids(&split.children, ids);
+        }
+    }
+}
+
+/// Find a split group's config spec by id anywhere in the layout forest.
+fn sidebar_split_spec<'a>(
+    nodes: &'a [crate::config::SidebarLayoutNode],
+    id: &str,
+) -> Option<&'a crate::config::SidebarSplitSpec> {
+    use crate::config::SidebarLayoutNode;
+    for node in nodes {
+        if let SidebarLayoutNode::Split(split) = node {
+            if split.id == id {
+                return Some(split);
+            }
+            if let Some(found) = sidebar_split_spec(&split.children, id) {
+                return Some(found);
+            }
+        }
+    }
+    None
+}
+
+/// A rail's width drag resizes its whole column: stacked rails share their
+/// column's width, so the drag target is the column, not the one rail.
 fn rail_drag_width(config: &Config, layout: &SidebarLayout, kind: RailKind, x: u16) -> Option<u16> {
-    let rail = layout.rail(kind)?;
+    let column_index = sidebar_column_for_rail(layout, kind)?;
+    let column = &layout.columns[column_index];
     let terminal_width = layout.content.x.saturating_add(layout.content.width);
     let other_width = layout
-        .ordered
+        .columns
         .iter()
-        .filter(|placement| placement.kind != kind)
-        .map(|placement| placement.rect.width)
+        .enumerate()
+        .filter(|(index, _)| *index != column_index)
+        .map(|(_, column)| column.rect.width)
         .fold(0u16, u16::saturating_add);
     let available = terminal_width.saturating_sub(MIN_CONTENT_WIDTH).saturating_sub(other_width);
-    let view_index = layout.ordered.iter().find(|placement| placement.kind == kind)?.view_index;
-    let view = config.sidebar.views.get(view_index)?;
-    let configured_max = if config.sidebar.views_explicit {
-        view.max_width
+    let configured_max = if column.rails.len() > 1 {
+        column.max_width
     } else {
-        match kind {
-            RailKind::Machine => config.machine_sidebar.max_width,
-            RailKind::Workspace => config.sidebar.max_width,
-            RailKind::Tabs | RailKind::Projection(_) => view.max_width,
+        let view_index =
+            layout.ordered.iter().find(|placement| placement.kind == kind)?.view_index;
+        let view = config.sidebar.views.get(view_index)?;
+        if config.sidebar.views_explicit {
+            view.max_width
+        } else {
+            match kind {
+                RailKind::Machine => config.machine_sidebar.max_width,
+                RailKind::Workspace => config.sidebar.max_width,
+                RailKind::Tabs | RailKind::Projection(_) => view.max_width,
+            }
         }
     };
-    let desired = x.saturating_sub(rail.x).saturating_add(1);
+    let desired = x.saturating_sub(column.rect.x).saturating_add(1);
     clamp_rail_width(desired, configured_max, available)
+}
+
+/// The index of the column holding `kind`, in `layout.columns`.
+fn sidebar_column_for_rail(layout: &SidebarLayout, kind: RailKind) -> Option<usize> {
+    layout.columns.iter().position(|column| column.rails.contains(&kind))
 }
 
 fn content_size_for_rect(
@@ -9120,6 +9487,7 @@ fn run_with_machine_updates_inner(
         machine_sidebar_width_override: None,
         tabs_sidebar_width_override: None,
         projection_sidebar_width_overrides: HashMap::new(),
+        sidebar_split_fractions: HashMap::new(),
         hidden_sidebar_views: HashMap::new(),
         content_area: Rect::default(),
         hits: Vec::new(),
@@ -9856,10 +10224,17 @@ impl App {
         let agents = if spec.includes(SidebarResourceKind::Agents) {
             // Finished reports are historical records, not active agents.
             // Otherwise detached "surface..." rows remain forever after exit.
+            // An `all`-scoped view is a chronological status board, so it
+            // keeps done agents; unknown stays out everywhere.
+            let keep_done = spec.scope == crate::config::SidebarViewScope::All;
             self.session
                 .agents()
                 .into_iter()
-                .filter(|agent| !matches!(agent.state.as_str(), "done" | "unknown"))
+                .filter(|agent| match agent.state.as_str() {
+                    "unknown" => false,
+                    "done" => keep_done,
+                    _ => true,
+                })
                 .collect::<Vec<_>>()
         } else {
             Vec::new()
@@ -10141,6 +10516,7 @@ impl App {
             self.machine_sidebar_width_override,
             self.tabs_sidebar_width_override,
             &self.projection_sidebar_width_overrides,
+            &self.sidebar_split_fractions,
             &hidden_views,
             None,
         )
@@ -10190,16 +10566,59 @@ impl App {
     }
 
     fn focus_adjacent_rail(&mut self, kind: RailKind, delta: isize) -> bool {
-        let order = self.visible_rail_order();
-        let Some(index) = order.iter().position(|candidate| *candidate == kind) else {
+        let direction = if delta < 0 { Direction::Left } else { Direction::Right };
+        let Some(next) = self.adjacent_rail(kind, direction) else {
             return false;
         };
-        let next = index as isize + delta;
-        let Some(next) = usize::try_from(next).ok().filter(|next| *next < order.len()) else {
-            return false;
-        };
-        self.focus_rail(order[next]);
+        self.focus_rail(next);
         true
+    }
+
+    /// The rail geometrically next to `kind`. With stacked rails, left and
+    /// right mean the neighboring column (preferring the vertically closest
+    /// rail there), and up and down move within the column.
+    fn adjacent_rail(&self, kind: RailKind, direction: Direction) -> Option<RailKind> {
+        let placements = &self.sidebar_layout.ordered;
+        let rect = placements.iter().find(|placement| placement.kind == kind)?.rect;
+        let overlap = |low_a: u16, len_a: u16, low_b: u16, len_b: u16| -> u16 {
+            let high = (low_a.saturating_add(len_a)).min(low_b.saturating_add(len_b));
+            let low = low_a.max(low_b);
+            high.saturating_sub(low)
+        };
+        placements
+            .iter()
+            .filter(|placement| placement.kind != kind)
+            .filter_map(|placement| {
+                let candidate = placement.rect;
+                let (distance, alignment) = match direction {
+                    Direction::Left if candidate.x.saturating_add(candidate.width) <= rect.x => (
+                        rect.x - candidate.x.saturating_add(candidate.width),
+                        overlap(rect.y, rect.height, candidate.y, candidate.height),
+                    ),
+                    Direction::Right if candidate.x >= rect.x.saturating_add(rect.width) => (
+                        candidate.x - rect.x.saturating_add(rect.width),
+                        overlap(rect.y, rect.height, candidate.y, candidate.height),
+                    ),
+                    Direction::Up
+                        if candidate.y.saturating_add(candidate.height) <= rect.y
+                            && overlap(rect.x, rect.width, candidate.x, candidate.width) > 0 =>
+                    (
+                        rect.y - candidate.y.saturating_add(candidate.height),
+                        overlap(rect.x, rect.width, candidate.x, candidate.width),
+                    ),
+                    Direction::Down
+                        if candidate.y >= rect.y.saturating_add(rect.height)
+                            && overlap(rect.x, rect.width, candidate.x, candidate.width) > 0 =>
+                    (
+                        candidate.y - rect.y.saturating_add(rect.height),
+                        overlap(rect.x, rect.width, candidate.x, candidate.width),
+                    ),
+                    _ => return None,
+                };
+                Some((distance, std::cmp::Reverse(alignment), placement.kind))
+            })
+            .min_by_key(|(distance, alignment, _)| (*distance, *alignment))
+            .map(|(_, _, kind)| kind)
     }
 
     fn move_focus_between_sidebar_rails(&mut self, direction: Direction) -> bool {
@@ -10215,8 +10634,28 @@ impl App {
                 }
                 true
             }
-            Direction::Up | Direction::Down => false,
+            Direction::Up | Direction::Down => {
+                if let Some(next) = self.adjacent_rail(kind, direction) {
+                    self.focus_rail(next);
+                    true
+                } else {
+                    false
+                }
+            }
         }
+    }
+
+    /// At a rail's first or last row, Up/Down continues into the stacked
+    /// neighbor rail. Returns whether focus moved.
+    fn continue_past_rail_boundary(&mut self, kind: RailKind, key: &KeyEvent) -> bool {
+        let direction = match key.code {
+            KeyCode::Up | KeyCode::Char('k') => Direction::Up,
+            KeyCode::Down | KeyCode::Char('j') => Direction::Down,
+            _ => return false,
+        };
+        let Some(next) = self.adjacent_rail(kind, direction) else { return false };
+        self.focus_rail(next);
+        true
     }
 
     fn focus_rightmost_sidebar_rail(&mut self) -> bool {
@@ -11921,6 +12360,7 @@ impl App {
             | Hit::HorizontalScrollbar { .. }
             | Hit::WorkspaceScrollbar { .. }
             | Hit::RailResize(_)
+            | Hit::SidebarSplitDivider { .. }
             | Hit::PaneResize { .. }
             | Hit::TabScroll { .. } => None,
         }
@@ -13673,9 +14113,14 @@ impl App {
         self.session.apply_config(config.clone());
         self.sidebar_view = config.sidebar.view;
         self.config = config;
-        let valid_view_ids =
+        let mut valid_view_ids =
             self.config.sidebar.views.iter().map(|view| view.id.clone()).collect::<HashSet<_>>();
         self.projection_rails.retain(|id, _| valid_view_ids.contains(id));
+        let mut group_ids = Vec::new();
+        collect_sidebar_split_ids(&self.config.sidebar.layout, &mut group_ids);
+        self.sidebar_split_fractions.retain(|id, _| group_ids.contains(id));
+        // Split-group column widths share the projection override map.
+        valid_view_ids.extend(group_ids);
         self.projection_sidebar_width_overrides.retain(|id, _| valid_view_ids.contains(id));
         if let Some(id) = focused_projection_id {
             if let Some((index, view)) =
@@ -14079,6 +14524,7 @@ impl App {
                 self.machine_sidebar_width_override,
                 self.tabs_sidebar_width_override,
                 &self.projection_sidebar_width_overrides,
+                &self.sidebar_split_fractions,
                 &hidden_views,
                 previous,
             )
@@ -17805,6 +18251,11 @@ impl App {
             .projection_sidebar_area(view_index)
             .map_or(1, |area| usize::from(area.height.saturating_sub(2)).max(1));
         if let Some(next) = rail_navigation_index(key, current, selectable_rows, page) {
+            if next == current
+                && self.continue_past_rail_boundary(RailKind::Projection(view_index), key)
+            {
+                return Ok(RenderAction::Draw);
+            }
             let state = self.projection_rail_state_mut(view_index);
             if next < rows.len() {
                 state.selected = next;
@@ -18218,6 +18669,11 @@ impl App {
                     .unwrap_or_default();
                 let page = rail_page_size(self.sidebar_layout.workspace);
                 if let Some(next) = rail_navigation_index(key, current, targets.len(), page) {
+                    if next == current
+                        && self.continue_past_rail_boundary(RailKind::Workspace, key)
+                    {
+                        return Ok(RenderAction::Draw);
+                    }
                     if let Some(target) = targets.get(next).cloned() {
                         self.select_workspace_rail_target(target);
                     }
@@ -18279,6 +18735,11 @@ impl App {
         if let Some(next) =
             rail_navigation_index(key, self.tabs_rail_selection, targets.len(), page)
         {
+            if next == self.tabs_rail_selection
+                && self.continue_past_rail_boundary(RailKind::Tabs, key)
+            {
+                return Ok(RenderAction::Draw);
+            }
             self.tabs_rail_selection = next;
         } else if key.code == KeyCode::Enter
             && let Some(target) = targets.get(self.tabs_rail_selection)
@@ -20778,7 +21239,8 @@ impl App {
                 | Drag::Scrollbar { .. }
                 | Drag::HorizontalScrollbar { .. }
                 | Drag::WorkspaceScrollbar { .. }
-                | Drag::RailResize(_),
+                | Drag::RailResize(_)
+                | Drag::SidebarSplit { .. },
             )
             | None => {}
             Some(Drag::PtyMouse { .. }) => unreachable!("PTY drag returned before take"),
@@ -21737,7 +22199,24 @@ impl App {
                     self.start_workspace_scrollbar_drag(track, total_rows, visible_rows, y);
                 }
                 Hit::RailResize(kind) => {
-                    self.drag = Some(Drag::RailResize(kind));
+                    // A horizontal split divider shares the left child's
+                    // border column; a press there re-shares the split
+                    // instead of resizing the whole column.
+                    if let Some(divider) = self
+                        .sidebar_layout
+                        .dividers
+                        .iter()
+                        .find(|divider| divider.rect.contains(x, y))
+                        .copied()
+                    {
+                        self.drag =
+                            Some(Drag::SidebarSplit { group: divider.group, index: divider.index });
+                    } else {
+                        self.drag = Some(Drag::RailResize(kind));
+                    }
+                }
+                Hit::SidebarSplitDivider { group, index } => {
+                    self.drag = Some(Drag::SidebarSplit { group, index });
                 }
                 Hit::PaneResize { horizontal, vertical } => {
                     let horizontal = horizontal
@@ -21980,22 +22459,37 @@ impl App {
             Some(Drag::RailResize(kind)) => {
                 let kind = *kind;
                 if let Some(width) = rail_drag_width(&self.config, &self.sidebar_layout, kind, x) {
-                    match kind {
-                        RailKind::Machine => self.machine_sidebar_width_override = Some(width),
-                        RailKind::Workspace => {
-                            self.sidebar_compact = false;
-                            self.sidebar_width_override = Some(width);
-                        }
-                        RailKind::Tabs => self.tabs_sidebar_width_override = Some(width),
-                        RailKind::Projection(index) => {
-                            if let Some(id) =
-                                self.config.sidebar.views.get(index).map(|view| view.id.clone())
-                            {
-                                self.projection_sidebar_width_overrides.insert(id, width);
+                    // Stacked rails share their column's width, so the drag
+                    // commits to the column key instead of the one rail.
+                    let shared_column = sidebar_column_for_rail(&self.sidebar_layout, kind)
+                        .map(|index| &self.sidebar_layout.columns[index])
+                        .filter(|column| column.rails.len() > 1)
+                        .map(|column| column.key.clone());
+                    if let Some(key) = shared_column {
+                        self.projection_sidebar_width_overrides.insert(key, width);
+                    } else {
+                        match kind {
+                            RailKind::Machine => self.machine_sidebar_width_override = Some(width),
+                            RailKind::Workspace => {
+                                self.sidebar_compact = false;
+                                self.sidebar_width_override = Some(width);
+                            }
+                            RailKind::Tabs => self.tabs_sidebar_width_override = Some(width),
+                            RailKind::Projection(index) => {
+                                if let Some(id) =
+                                    self.config.sidebar.views.get(index).map(|view| view.id.clone())
+                                {
+                                    self.projection_sidebar_width_overrides.insert(id, width);
+                                }
                             }
                         }
                     }
                 }
+                Ok(RenderAction::Draw)
+            }
+            Some(Drag::SidebarSplit { group, index }) => {
+                let (group, index) = (*group, *index);
+                self.drag_sidebar_split_divider(group, index, x, y);
                 Ok(RenderAction::Draw)
             }
             Some(Drag::ResizeSplit { horizontal, vertical }) => {
@@ -22010,6 +22504,53 @@ impl App {
             }
             None => Ok(RenderAction::None),
         }
+    }
+
+    /// Convert a divider drag into new share fractions for its split group.
+    /// Only the two children flanking the divider change; the rest keep
+    /// their rendered sizes.
+    fn drag_sidebar_split_divider(&mut self, group: usize, index: usize, x: u16, y: u16) {
+        use crate::config::SidebarSplitDir;
+        let Some(placement) = self.sidebar_layout.split_groups.get(group) else { return };
+        let Some(first) = placement.children.get(index).copied() else { return };
+        let Some(second) = placement.children.get(index + 1).copied() else { return };
+        let mut sizes: Vec<u16> = placement
+            .children
+            .iter()
+            .map(|child| match placement.dir {
+                SidebarSplitDir::Vertical => child.height,
+                SidebarSplitDir::Horizontal => child.width,
+            })
+            .collect();
+        let (combined, min_each, desired_first) = match placement.dir {
+            SidebarSplitDir::Vertical => (
+                first.height.saturating_add(second.height),
+                MIN_SPLIT_RAIL_HEIGHT,
+                // The divider row sits below the first child, so the row
+                // under the pointer becomes the first child's height.
+                y.saturating_sub(first.y),
+            ),
+            SidebarSplitDir::Horizontal => (
+                first.width.saturating_add(second.width),
+                MIN_RAIL_WIDTH,
+                // The border column belongs to the first child, matching
+                // column-width drags.
+                x.saturating_sub(first.x).saturating_add(1),
+            ),
+        };
+        if combined < min_each.saturating_mul(2) {
+            return;
+        }
+        let desired_first = desired_first.clamp(min_each, combined - min_each);
+        sizes[index] = desired_first;
+        sizes[index + 1] = combined - desired_first;
+        let total: f32 = sizes.iter().map(|size| f32::from(*size)).sum();
+        if total <= 0.0 {
+            return;
+        }
+        let id = placement.id.clone();
+        let fractions = sizes.iter().map(|size| f32::from(*size) / total).collect();
+        self.sidebar_split_fractions.insert(id, fractions);
     }
 
     fn handle_left_up(&mut self, x: u16, y: u16) -> anyhow::Result<RenderAction> {
@@ -22715,6 +23256,7 @@ impl App {
         let focused_view = self.focused_sidebar_view_id();
         self.config.sidebar.active_profile = profile.id;
         self.config.sidebar.views = profile.views;
+        self.config.sidebar.layout = profile.layout;
         self.config.sidebar.columns = self
             .config
             .sidebar
@@ -26275,12 +26817,19 @@ mod tests {
             width: 30,
             max_width: 0,
             collapse_priority: 30,
+            scope: crate::config::SidebarViewScope::Workspace,
         }];
         app.config.sidebar.profiles = vec![
-            SidebarProfileSpec { id: "full".into(), name: "Full".into(), views: full.clone() },
+            SidebarProfileSpec {
+                id: "full".into(),
+                name: "Full".into(),
+                layout: crate::config::sidebar_layout_of_columns(&full),
+                views: full.clone(),
+            },
             SidebarProfileSpec {
                 id: "focused".into(),
                 name: "Focused".into(),
+                layout: crate::config::sidebar_layout_of_columns(&focused),
                 views: focused.clone(),
             },
         ];
@@ -26331,6 +26880,7 @@ mod tests {
             None,
             None,
             &overrides,
+            &HashMap::new(),
             &HashSet::new(),
             None,
         );
@@ -26346,6 +26896,7 @@ mod tests {
             None,
             None,
             &overrides,
+            &HashMap::new(),
             &HashSet::new(),
             Some(&collapsed),
         );
@@ -26360,10 +26911,191 @@ mod tests {
             None,
             None,
             &overrides,
+            &HashMap::new(),
             &HashSet::new(),
             Some(&at_boundary),
         );
         assert!(revealed.machine.is_some());
+    }
+
+    fn split_sidebar_config() -> Config {
+        use crate::config::{
+            SidebarLayoutNode, SidebarSplitDir, SidebarSplitSpec, SidebarViewScope,
+        };
+        let mut config = Config::default();
+        config.sidebar.views = vec![
+            SidebarViewSpec::legacy(SidebarColumnKind::Workspaces, 26, 0),
+            SidebarViewSpec {
+                id: "all-agents".into(),
+                levels: vec![SidebarResourceKind::Agents],
+                actions: Vec::new(),
+                actions_position: crate::config::ActionsPosition::Bottom,
+                width: 26,
+                max_width: 0,
+                collapse_priority: 20,
+                scope: SidebarViewScope::All,
+            },
+        ];
+        config.sidebar.views_explicit = true;
+        config.sidebar.layout = vec![SidebarLayoutNode::Split(SidebarSplitSpec {
+            id: "left".into(),
+            dir: SidebarSplitDir::Vertical,
+            weights: vec![1, 1],
+            children: vec![SidebarLayoutNode::Leaf(0), SidebarLayoutNode::Leaf(1)],
+            width: 26,
+            max_width: 0,
+            collapse_priority: 30,
+        })];
+        config
+    }
+
+    #[test]
+    fn vertical_split_column_stacks_rails_around_a_divider_row() {
+        let config = split_sidebar_config();
+        let layout = sidebar_layout_for_state(
+            &config,
+            true,
+            false,
+            false,
+            (120, 31),
+            None,
+            None,
+            None,
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashSet::new(),
+            None,
+        );
+        assert_eq!(layout.columns.len(), 1);
+        assert_eq!(layout.ordered.len(), 2);
+        let top = layout.ordered[0].rect;
+        let bottom = layout.ordered[1].rect;
+        assert_eq!(layout.workspace, Some(top));
+        assert_eq!(layout.ordered[1].kind, RailKind::Projection(1));
+        assert_eq!((top.x, bottom.x), (0, 0));
+        assert_eq!(top.width, bottom.width);
+        assert_eq!(layout.dividers.len(), 1);
+        let divider = layout.dividers[0];
+        assert_eq!(divider.rect.y, top.y + top.height);
+        assert_eq!(bottom.y, divider.rect.y + 1);
+        assert_eq!(top.height + bottom.height + 1, 31, "children partition the full column");
+        assert_eq!(layout.content.x, top.width, "one column, one column width");
+    }
+
+    #[test]
+    fn split_fraction_overrides_replace_configured_weights() {
+        let config = split_sidebar_config();
+        let mut fractions = HashMap::new();
+        fractions.insert("left".to_string(), vec![0.2f32, 0.8f32]);
+        let layout = sidebar_layout_for_state(
+            &config,
+            true,
+            false,
+            false,
+            (120, 31),
+            None,
+            None,
+            None,
+            &HashMap::new(),
+            &fractions,
+            &HashSet::new(),
+            None,
+        );
+        let top = layout.ordered[0].rect;
+        let bottom = layout.ordered[1].rect;
+        assert_eq!(top.height, 6, "0.2 of the 30 shared rows");
+        assert_eq!(bottom.height, 24);
+    }
+
+    #[test]
+    fn hidden_split_pane_gives_the_column_to_the_remaining_rail() {
+        let config = split_sidebar_config();
+        let mut hidden = HashSet::new();
+        hidden.insert("all-agents".to_string());
+        let layout = sidebar_layout_for_state(
+            &config,
+            true,
+            false,
+            false,
+            (120, 31),
+            None,
+            None,
+            None,
+            &HashMap::new(),
+            &HashMap::new(),
+            &hidden,
+            None,
+        );
+        assert_eq!(layout.ordered.len(), 1);
+        assert!(layout.dividers.is_empty());
+        assert_eq!(layout.ordered[0].rect.height, 31);
+    }
+
+    #[test]
+    fn sidebar_split_divider_drag_re_shares_the_column() {
+        let mux = Mux::new("sidebar-split-drag-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.config = split_sidebar_config();
+        app.sync_layout((120, 31));
+        assert_eq!(app.sidebar_layout.dividers.len(), 1);
+
+        app.drag_sidebar_split_divider(0, 0, 0, 9);
+        app.sync_layout((120, 31));
+        let top = app.sidebar_layout.ordered[0].rect;
+        let bottom = app.sidebar_layout.ordered[1].rect;
+        assert_eq!(top.height, 9, "the dragged divider row becomes the boundary");
+        assert_eq!(top.height + bottom.height, 30);
+
+        // The two rails clamp at their minimum height.
+        app.drag_sidebar_split_divider(0, 0, 0, 0);
+        app.sync_layout((120, 31));
+        assert_eq!(app.sidebar_layout.ordered[0].rect.height, MIN_SPLIT_RAIL_HEIGHT);
+    }
+
+    #[test]
+    fn focus_moves_vertically_between_stacked_rails() {
+        let mux = Mux::new("sidebar-split-focus-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.config = split_sidebar_config();
+        app.sync_layout((120, 31));
+
+        app.focus = FocusTarget::WorkspaceRail;
+        assert!(app.move_focus_between_sidebar_rails(Direction::Down));
+        assert_eq!(app.focus, FocusTarget::ProjectionRail(1));
+        assert!(app.move_focus_between_sidebar_rails(Direction::Up));
+        assert_eq!(app.focus, FocusTarget::WorkspaceRail);
+        assert!(
+            !app.move_focus_between_sidebar_rails(Direction::Up),
+            "no rail above the top of the column"
+        );
+    }
+
+    #[test]
+    fn rail_width_drag_on_a_stacked_rail_resizes_the_whole_column() {
+        let mux = Mux::new("sidebar-split-width-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.config = split_sidebar_config();
+        app.sync_layout((120, 31));
+
+        app.drag = Some(Drag::RailResize(RailKind::Projection(1)));
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Drag(MouseButton::Left),
+            column: 33,
+            row: 25,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        app.sync_layout((120, 31));
+        assert_eq!(
+            app.projection_sidebar_width_overrides.get("left").copied(),
+            Some(34),
+            "the override commits under the split group id"
+        );
+        let top = app.sidebar_layout.ordered[0].rect;
+        let bottom = app.sidebar_layout.ordered[1].rect;
+        assert_eq!(top.width, 34);
+        assert_eq!(bottom.width, 34);
+        app.drag = None;
     }
 
     #[test]
@@ -41607,6 +42339,7 @@ mod tests {
             width: 40,
             max_width: 0,
             collapse_priority: 30,
+            scope: crate::config::SidebarViewScope::Workspace,
         }];
         app.config.sidebar.views_explicit = true;
         app.replace_tree(app.session.tree());
@@ -41685,6 +42418,7 @@ mod tests {
             width: 40,
             max_width: 0,
             collapse_priority: 30,
+            scope: crate::config::SidebarViewScope::Workspace,
         }];
         app.config.sidebar.views_explicit = true;
         app.replace_tree(app.session.tree());
@@ -41720,6 +42454,7 @@ mod tests {
             width: 40,
             max_width: 0,
             collapse_priority: 30,
+            scope: crate::config::SidebarViewScope::Workspace,
         }];
         app.config.sidebar.views_explicit = true;
         app.replace_tree(app.session.tree());
@@ -41758,6 +42493,7 @@ mod tests {
             width: 40,
             max_width: 0,
             collapse_priority: 30,
+            scope: crate::config::SidebarViewScope::Workspace,
         }];
         app.config.sidebar.views_explicit = true;
         app.replace_tree(app.session.tree());
@@ -41909,6 +42645,7 @@ mod tests {
             width: 40,
             max_width: 0,
             collapse_priority: 30,
+            scope: crate::config::SidebarViewScope::Workspace,
         }];
         app.config.sidebar.views_explicit = true;
         app.replace_tree(app.session.tree());
@@ -42008,6 +42745,7 @@ mod tests {
             width: 40,
             max_width: 0,
             collapse_priority: 30,
+            scope: crate::config::SidebarViewScope::Workspace,
         }];
         app.config.sidebar.views_explicit = true;
         app.sync_layout((100, 12));
@@ -43929,6 +44667,7 @@ mod tests {
             machine_sidebar_width_override: None,
             tabs_sidebar_width_override: None,
             projection_sidebar_width_overrides: HashMap::new(),
+            sidebar_split_fractions: HashMap::new(),
             hidden_sidebar_views: HashMap::new(),
             content_area: Rect::default(),
             hits: Vec::new(),

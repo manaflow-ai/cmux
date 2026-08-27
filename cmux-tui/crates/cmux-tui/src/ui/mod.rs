@@ -133,6 +133,7 @@ pub fn draw(app: &mut App, frame: &mut Frame) {
                 RailKind::Projection(index) => sidebar::draw_projection(app, frame, index),
             }
         }
+        sidebar::draw_split_dividers(app, frame);
     }
 
     let pane_cursors = if draw_machine_transition(app, frame) {
