@@ -139,6 +139,36 @@ extension DockSplitStore {
         return true
     }
 
+    /// Checks a non-socket binding writer against an in-flight restore claim.
+    ///
+    /// Snapshot and transfer paths historically wrote the effective binding
+    /// directly. They must share the same claim gate as hook publications so a
+    /// different process observation cannot replace the generation authorized
+    /// for execution.
+    @discardableResult
+    func surfaceResumeBindingMutationAllowed(
+        _ incoming: SurfaceResumeBindingSnapshot,
+        panelId: UUID
+    ) -> Bool {
+        guard let claim = surfaceResumeRestoreClaim(for: panelId) else {
+            return true
+        }
+        guard claim.binding.acceptsRestoreBindingClaim(from: incoming) else {
+            return false
+        }
+        surfaceResumeRestoreClaimsByPanelId[panelId] = (
+            binding: incoming,
+            claimedAt: claim.claimedAt
+        )
+        return true
+    }
+
+    /// Returns false while a claimed generation is still active.
+    @discardableResult
+    func surfaceResumeBindingRemovalAllowed(panelId: UUID) -> Bool {
+        surfaceResumeRestoreClaim(for: panelId) == nil
+    }
+
     private func surfaceResumeRestoreClaim(
         for panelId: UUID
     ) -> (binding: SurfaceResumeBindingSnapshot, claimedAt: Date)? {

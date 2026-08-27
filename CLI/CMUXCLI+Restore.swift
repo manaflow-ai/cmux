@@ -221,7 +221,8 @@ extension CMUXCLI {
                 appliedWorkingDirectory: effectiveWorkingDirectory
             )
         }
-        if let bindingCheckpoint = codexRestoreBindingCheckpoint(bindingPayload),
+        if record.kind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "codex",
+           let bindingCheckpoint = codexRestoreBindingCheckpoint(bindingPayload),
            bindingCheckpoint == normalizedHookValue(record.checkpointID),
            !claimCodexRestoreBinding(
                record: record,

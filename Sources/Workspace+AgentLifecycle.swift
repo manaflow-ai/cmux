@@ -385,7 +385,9 @@ extension Workspace {
             return
         }
         binding.autoResume = false
-        surfaceResumeBindingsByPanelId[panelId] = binding
+        if surfaceResumeBindingMutationAllowed(binding, panelId: panelId) {
+            surfaceResumeBindingsByPanelId[panelId] = binding
+        }
     }
 
     /// Keep an in-flight restored launch tied to the same structured binding

@@ -194,7 +194,8 @@ struct CodexLegacyRolloutScanner: Sendable {
             atPath: path,
             fileManager: fileManager,
             maximumBytes: maximumBytes,
-            fileWasTruncated: fileWasTruncated
+            fileWasTruncated: fileWasTruncated,
+            readBudget: &readBudget
         )
     }
 
@@ -202,7 +203,8 @@ struct CodexLegacyRolloutScanner: Sendable {
         atPath path: String,
         fileManager: FileManager,
         maximumBytes: Int,
-        fileWasTruncated: Bool
+        fileWasTruncated: Bool,
+        readBudget: inout CodexSessionResumeVerificationLimits
     ) -> RolloutRead {
         guard regularNonEmptyFileExists(atPath: path, fileManager: fileManager),
               let handle = FileHandle(forReadingAtPath: path) else {
@@ -220,6 +222,7 @@ struct CodexLegacyRolloutScanner: Sendable {
                 break
             }
             totalBytes += chunk.count
+            readBudget.consume(chunk.count)
             pending.append(chunk)
             while let newline = pending.firstIndex(of: 0x0A), lineCount < CodexSessionResumeVerificationLimits.maximumRolloutLines {
                 let line = Data(pending[..<newline])

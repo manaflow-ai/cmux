@@ -31,7 +31,12 @@ public struct CodexSessionResumeVerificationLimits: Sendable {
         remainingBytes > 0
     }
 
-    /// Reserves a conservative per-file allowance from the aggregate budget.
+    /// Returns the maximum number of bytes this file may read from the budget.
+    ///
+    /// The budget is charged as bytes actually arrive from the file handle, not
+    /// by the file's advertised size. A large rollout normally exposes its
+    /// `session_meta` record near the beginning, so charging the whole 8 MiB
+    /// ceiling would needlessly starve later identities in the same batch.
     mutating func allowance(
         for path: String,
         fileManager: FileManager,
@@ -44,10 +49,14 @@ public struct CodexSessionResumeVerificationLimits: Sendable {
               size.int64Value > 0 else {
             return nil
         }
-        let fileSize = min(Int64(maximumFileBytes), size.int64Value)
-        let allowed = min(Int64(remainingBytes), fileSize)
+        let allowed = min(Int64(remainingBytes), Int64(maximumFileBytes))
         guard allowed > 0 else { return nil }
-        remainingBytes -= Int(allowed)
         return Int(allowed)
+    }
+
+    /// Charges bytes actually consumed by a bounded rollout read.
+    mutating func consume(_ byteCount: Int) {
+        guard byteCount > 0 else { return }
+        remainingBytes = max(0, remainingBytes - byteCount)
     }
 }

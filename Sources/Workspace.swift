@@ -1365,6 +1365,12 @@ extension Workspace {
 
             guard let storedBinding else {
                 if let detectedBinding, detectedBinding.isProcessDetected {
+                    guard surfaceResumeBindingMutationAllowed(
+                        detectedBinding,
+                        panelId: panelId
+                    ) else {
+                        continue
+                    }
                     surfaceResumeBindingsByPanelId[panelId] = detectedBinding
                 }
                 continue
@@ -1379,6 +1385,9 @@ extension Workspace {
                         let restoreMisses = (plainSSHDetectionMissesByPanelId[panelId] ?? 0) + 1
                         plainSSHDetectionMissesByPanelId[panelId] = restoreMisses
                         if restoreMisses >= Self.plainSSHRestoreObservationMissLimit {
+                            guard surfaceResumeBindingRemovalAllowed(panelId: panelId) else {
+                                continue
+                            }
                             surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
                             pendingPlainSSHRestorePanelIds.remove(panelId)
                             plainSSHDetectionMissesByPanelId.removeValue(forKey: panelId)
@@ -1388,6 +1397,9 @@ extension Workspace {
                     let misses = (plainSSHDetectionMissesByPanelId[panelId] ?? 0) + 1
                     plainSSHDetectionMissesByPanelId[panelId] = misses
                     if misses >= 2 {
+                        guard surfaceResumeBindingRemovalAllowed(panelId: panelId) else {
+                            continue
+                        }
                         surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
                         observedPlainSSHPanelIds.remove(panelId)
                         plainSSHDetectionMissesByPanelId.removeValue(forKey: panelId)
@@ -1395,6 +1407,9 @@ extension Workspace {
                     continue
                 }
                 if storedBinding.isProcessDetected {
+                    guard surfaceResumeBindingRemovalAllowed(panelId: panelId) else {
+                        continue
+                    }
                     surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
                 } else if isStaleAgentHookBinding(
                     storedBinding,
@@ -1409,12 +1424,21 @@ extension Workspace {
                 continue
             }
             if storedBinding.shouldYieldToDetectedSurfaceResumeBinding(detectedBinding) {
+                guard surfaceResumeBindingMutationAllowed(
+                    detectedBinding,
+                    panelId: panelId
+                ) else {
+                    continue
+                }
                 invalidateRestoredAgentLifecycleIfBindingIsReplaced(
                     by: detectedBinding,
                     panelId: panelId
                 )
                 surfaceResumeBindingsByPanelId[panelId] = detectedBinding
             } else if storedBinding.isProcessDetected {
+                guard surfaceResumeBindingRemovalAllowed(panelId: panelId) else {
+                    continue
+                }
                 surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
                 observedPlainSSHPanelIds.remove(panelId)
                 pendingPlainSSHRestorePanelIds.remove(panelId)
@@ -1921,7 +1945,12 @@ extension Workspace {
                     surfaceID: terminalPanel.id,
                     persistentPTYSessionID: restoredRemotePTYSessionID
                 )
-                surfaceResumeBindingsByPanelId[terminalPanel.id] = restoredBinding
+                if surfaceResumeBindingMutationAllowed(
+                    restoredBinding,
+                    panelId: terminalPanel.id
+                ) {
+                    surfaceResumeBindingsByPanelId[terminalPanel.id] = restoredBinding
+                }
                 if restoredBinding.isPlainSSHProcessDetectedBinding,
                    restoredBindingLaunch != nil {
                     pendingPlainSSHRestorePanelIds.insert(terminalPanel.id)
@@ -1929,7 +1958,9 @@ extension Workspace {
                     plainSSHDetectionMissesByPanelId[terminalPanel.id] = 0
                 }
             } else {
-                surfaceResumeBindingsByPanelId.removeValue(forKey: terminalPanel.id)
+                if surfaceResumeBindingRemovalAllowed(panelId: terminalPanel.id) {
+                    surfaceResumeBindingsByPanelId.removeValue(forKey: terminalPanel.id)
+                }
             }
             // A terminal whose startup command cds itself (agent resume, tmux attach, agent-hook)
             // is spawned without a working directory, so its shell starts in the default directory
@@ -5523,6 +5554,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 // The SSH child has exited and the pane is back at its local
                 // shell.  Retaining this binding would relaunch a connection
                 // the user has intentionally left.
+                guard surfaceResumeBindingRemovalAllowed(panelId: panelId) else {
+                    break
+                }
                 surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
                 observedPlainSSHPanelIds.remove(panelId)
                 plainSSHDetectionMissesByPanelId.removeValue(forKey: panelId)
@@ -5750,6 +5784,38 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             claimedAt: Date.now
         )
         return true
+    }
+
+    /// Checks a non-socket binding writer against an in-flight restore claim.
+    ///
+    /// Hook publications use ``setSurfaceResumeBinding`` directly, while
+    /// reconciliation and transfer paths historically wrote the dictionary
+    /// inline. Those paths must share the same claim gate so no writer can
+    /// replace the generation after the CLI has been authorized to exec it.
+    @discardableResult
+    func surfaceResumeBindingMutationAllowed(
+        _ incoming: SurfaceResumeBindingSnapshot,
+        panelId: UUID
+    ) -> Bool {
+        guard let claim = surfaceResumeRestoreClaim(for: panelId) else {
+            return true
+        }
+        guard claim.binding.acceptsRestoreBindingClaim(from: incoming) else {
+            return false
+        }
+        // Preserve the lease when a same-session writer refreshes metadata,
+        // otherwise the current-generation check would discard the claim.
+        surfaceResumeRestoreClaimsByPanelId[panelId] = (
+            binding: incoming,
+            claimedAt: claim.claimedAt
+        )
+        return true
+    }
+
+    /// Returns false while a claimed generation is still active.
+    @discardableResult
+    func surfaceResumeBindingRemovalAllowed(panelId: UUID) -> Bool {
+        surfaceResumeRestoreClaim(for: panelId) == nil
     }
 
     private func surfaceResumeRestoreClaim(
@@ -10517,7 +10583,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             panelDirectories.removeValue(forKey: detached.panelId)
             panelDirectoryDisplayLabels.removeValue(forKey: detached.panelId)
             surfaceTTYNames.removeValue(forKey: detached.panelId)
-            surfaceResumeBindingsByPanelId.removeValue(forKey: detached.panelId)
+            if surfaceResumeBindingRemovalAllowed(panelId: detached.panelId) {
+                surfaceResumeBindingsByPanelId.removeValue(forKey: detached.panelId)
+                surfaceResumeRestoreClaimsByPanelId.removeValue(forKey: detached.panelId)
+            }
             pendingPlainSSHRestorePanelIds.remove(detached.panelId)
             observedPlainSSHPanelIds.remove(detached.panelId)
             plainSSHDetectionMissesByPanelId.removeValue(forKey: detached.panelId)
@@ -10598,9 +10667,17 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             return detached.resolvedManagedAgentResumeBinding
         }()
         if let transferredResumeBinding {
-            surfaceResumeBindingsByPanelId[detached.panelId] = transferredResumeBinding
+            if surfaceResumeBindingMutationAllowed(
+                transferredResumeBinding,
+                panelId: detached.panelId
+            ) {
+                surfaceResumeBindingsByPanelId[detached.panelId] = transferredResumeBinding
+            }
         } else {
-            surfaceResumeBindingsByPanelId.removeValue(forKey: detached.panelId)
+            if surfaceResumeBindingRemovalAllowed(panelId: detached.panelId) {
+                surfaceResumeBindingsByPanelId.removeValue(forKey: detached.panelId)
+                surfaceResumeRestoreClaimsByPanelId.removeValue(forKey: detached.panelId)
+            }
         }
         adoptDetachedAgentRuntimeState(detached.agentRuntime)
         if let markdownPanel = detached.panel as? MarkdownPanel,
@@ -10644,13 +10721,19 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 surfaceId: detached.panelId
             )
             if let resumeBinding = surfaceResumeBindingsByPanelId[detached.panelId] {
-                surfaceResumeBindingsByPanelId[detached.panelId] = resumeBinding.retargetingRemoteOwner(
+                let retargetedBinding = resumeBinding.retargetingRemoteOwner(
                     expectedWorkspaceID: detached.sourceWorkspaceId,
                     expectedSurfaceID: detached.panelId,
                     workspaceID: id,
                     surfaceID: detached.panelId,
                     persistentPTYSessionID: remotePTYSessionIDsByPanelId[detached.panelId]
                 )
+                if surfaceResumeBindingMutationAllowed(
+                    retargetedBinding,
+                    panelId: detached.panelId
+                ) {
+                    surfaceResumeBindingsByPanelId[detached.panelId] = retargetedBinding
+                }
             }
         }
         // Seed deferred restore work only after the destination binding and

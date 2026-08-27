@@ -138,7 +138,9 @@ extension DockSplitStore {
         )
         managedAgentResumeBindingsByPanelId.removeValue(forKey: detached.panelId)
         if let resumeBinding = detached.resumeBinding {
-            surfaceResumeBindingsByPanelId[detached.panelId] = resumeBinding
+            if surfaceResumeBindingMutationAllowed(resumeBinding, panelId: detached.panelId) {
+                surfaceResumeBindingsByPanelId[detached.panelId] = resumeBinding
+            }
         }
         if let transferredManagedBinding = detached.resolvedManagedAgentResumeBinding {
             managedAgentResumeBindingsByPanelId[detached.panelId] = transferredManagedBinding
@@ -214,10 +216,14 @@ extension DockSplitStore {
         }
         if let effectiveBinding = surfaceResumeBindingsByPanelId[panelId] {
             if effectiveBinding == originalBinding || effectiveBinding.isSameManagedSession(as: binding) {
-                surfaceResumeBindingsByPanelId[panelId] = binding
+                if surfaceResumeBindingMutationAllowed(binding, panelId: panelId) {
+                    surfaceResumeBindingsByPanelId[panelId] = binding
+                }
             }
         } else {
-            surfaceResumeBindingsByPanelId[panelId] = binding
+            if surfaceResumeBindingMutationAllowed(binding, panelId: panelId) {
+                surfaceResumeBindingsByPanelId[panelId] = binding
+            }
         }
     }
 
