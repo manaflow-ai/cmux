@@ -225,6 +225,7 @@ struct SurfaceCatalogTests {
         gate.release()
         await observer.value
         #expect(catalog.projections.isEmpty)
+        #expect(provider.discarded.count == 1, "a late provider result must close the pane after the last caller cancels")
     }
 
     @Test func `Unregistering cancels in-flight materialization`() async throws {
