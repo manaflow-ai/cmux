@@ -167,6 +167,7 @@ public struct GitMetadataService: Sendable {
         )
     }
 
+    @concurrent
     nonisolated func gitRepositoryLink(
         repository: ResolvedGitRepository,
         headSignature: String?

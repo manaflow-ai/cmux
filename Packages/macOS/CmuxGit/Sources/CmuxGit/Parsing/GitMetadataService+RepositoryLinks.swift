@@ -68,7 +68,7 @@ extension GitMetadataService {
     private nonisolated static func normalizedBrowsableRepositoryURL(from remoteURL: String) -> URL? {
         let trimmed = remoteURL.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, trimmed.utf8.count <= 64 * 1024 else { return nil }
-        guard !trimmed.contains("::") else { return nil }
+        guard !trimmed.lowercased().hasPrefix("ext::") else { return nil }
 
         if !trimmed.contains("://") {
             return normalizedBrowsableSCPRepositoryURL(from: trimmed)

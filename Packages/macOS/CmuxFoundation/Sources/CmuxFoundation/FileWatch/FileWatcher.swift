@@ -76,6 +76,7 @@ public actor FileWatcher {
     private var watchedDirectory: String?
     private var throttleTask: Task<Void, Never>?
     private var isStopped = false
+    private var hasStarted = false
 
     // OptionSet masks. Inlined (not stored as statics) because
     // `DispatchSource.FileSystemEvent` is not `Sendable`.
@@ -94,7 +95,7 @@ public actor FileWatcher {
         [.write, .rename, .delete]
     }
 
-    /// Creates and starts a watcher for `path`.
+    /// Creates a watcher for `path`, starting it synchronously unless deferred.
     ///
     /// - Parameters:
     ///   - path: The file or directory to watch. Need not exist yet; the nearest
@@ -106,12 +107,17 @@ public actor FileWatcher {
     ///   - allowsFilesystemRootAncestor: Whether a missing path may fall back to
     ///     watching the filesystem root. Disable for user-controlled paths.
     ///   - fileManager: Filesystem dependency used to resolve missing ancestors.
+    ///   - startsAsynchronously: Whether path resolution and source attachment
+    ///     should be deferred to the watcher actor. The default preserves the
+    ///     historical synchronous-start behavior; callers registering from a
+    ///     main-actor lifecycle can opt into off-main setup.
     public init(
         path: String,
         throttle: Duration? = nil,
         clock: any FileWatchClock = SystemFileWatchClock(),
         allowsFilesystemRootAncestor: Bool = true,
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        startsAsynchronously: Bool = false
     ) {
         self.path = path
         self.throttle = throttle
@@ -130,28 +136,42 @@ public actor FileWatcher {
         )
         self.rawContinuation = rawContinuation
 
-        // Attach the sources synchronously so the watcher is already listening
-        // when init returns. The handlers capture `rawContinuation` (Sendable),
-        // not `self`, so this does not escape the actor mid-init.
-        let directory = pathResolver.nearestExistingDirectory(
-            forPath: path,
-            allowsFilesystemRootAncestor: allowsFilesystemRootAncestor
-        )
-        self.watchedDirectory = directory
-        self.directorySource = directory.flatMap {
-            Self.makeSource(
-                forPath: $0,
-                eventMask: Self.directoryEventMask,
+        // The default path attaches sources synchronously so the watcher is
+        // already listening when init returns. Deferred instances attach them
+        // from start() on the watcher actor. Handlers capture the Sendable raw
+        // continuation, not self, so init never escapes the actor mid-init.
+        if startsAsynchronously {
+            // Path resolution and descriptor opens happen in start() on the
+            // watcher actor's executor, not on the caller's actor.
+            self.watchedDirectory = nil
+            self.directorySource = nil
+            self.fileSource = nil
+        } else {
+            // Attach the sources synchronously so the default initializer
+            // remains listening when it returns. The handlers capture the
+            // Sendable raw continuation, not self, so this does not escape
+            // the actor mid-init.
+            let directory = pathResolver.nearestExistingDirectory(
+                forPath: path,
+                allowsFilesystemRootAncestor: allowsFilesystemRootAncestor
+            )
+            self.watchedDirectory = directory
+            self.directorySource = directory.flatMap {
+                Self.makeSource(
+                    forPath: $0,
+                    eventMask: Self.directoryEventMask,
+                    queue: queue,
+                    rawContinuation: rawContinuation
+                )
+            }
+            self.fileSource = Self.makeSource(
+                forPath: path,
+                eventMask: Self.fileEventMask,
                 queue: queue,
                 rawContinuation: rawContinuation
             )
+            self.hasStarted = true
         }
-        self.fileSource = Self.makeSource(
-            forPath: path,
-            eventMask: Self.fileEventMask,
-            queue: queue,
-            rawContinuation: rawContinuation
-        )
 
         // Drain raw events through the actor (reattach sources, then
         // yield/throttle). Started last so init touches no isolated state after
@@ -161,6 +181,36 @@ public actor FileWatcher {
                 await self?.handleRawEvent()
             }
         }
+    }
+
+    /// Completes deferred path resolution and source attachment exactly once.
+    ///
+    /// This method is intended for instances created with
+    /// startsAsynchronously: true. It runs on the watcher actor's executor,
+    /// keeping filesystem setup away from the caller's actor.
+    public func start() {
+        guard !hasStarted, !isStopped else { return }
+        hasStarted = true
+        let directory = pathResolver.nearestExistingDirectory(
+            forPath: path,
+            allowsFilesystemRootAncestor: allowsFilesystemRootAncestor
+        )
+        guard !isStopped, !Task.isCancelled else { return }
+        watchedDirectory = directory
+        directorySource = directory.flatMap {
+            Self.makeSource(
+                forPath: $0,
+                eventMask: Self.directoryEventMask,
+                queue: queue,
+                rawContinuation: rawContinuation
+            )
+        }
+        fileSource = Self.makeSource(
+            forPath: path,
+            eventMask: Self.fileEventMask,
+            queue: queue,
+            rawContinuation: rawContinuation
+        )
     }
 
     /// Stops the watcher, tears down its sources, and finishes ``events``.
