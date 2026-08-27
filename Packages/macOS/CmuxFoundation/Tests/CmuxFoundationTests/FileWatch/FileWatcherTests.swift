@@ -6,7 +6,7 @@ import Testing
 @Suite struct FileWatcherTests {
     @Test func pathResolverCanRejectFilesystemRootAncestor() {
         let missingPath = "/cmux-file-watcher-\(UUID().uuidString)/future/file.txt"
-        let resolver = FileWatchPathResolver()
+        let resolver = FileWatchPathResolver(fileManager: .default)
 
         #expect(
             resolver.nearestExistingDirectory(
@@ -35,7 +35,7 @@ import Testing
         let missingPath = rootLink.appendingPathComponent("future/file.txt").path
 
         #expect(
-            FileWatchPathResolver().nearestExistingDirectory(
+            FileWatchPathResolver(fileManager: .default).nearestExistingDirectory(
                 forPath: missingPath,
                 allowsFilesystemRootAncestor: false
             ) == nil
