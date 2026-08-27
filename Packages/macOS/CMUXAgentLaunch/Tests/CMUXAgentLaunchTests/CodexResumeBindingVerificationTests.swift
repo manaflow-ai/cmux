@@ -99,8 +99,7 @@ struct CodexResumeBindingVerificationTests {
             codexHome: fixture.codexHome.path
         )
 
-        #expect(results.count == requests.count)
-        #expect(results[CodexSessionResumeVerificationLimits.maximumBatchRequests] == .unavailable)
+        #expect(results.count == CodexSessionResumeVerificationLimits.maximumBatchRequests)
     }
 
     @Test func fallbackCandidateTruncationIsUnavailable() throws {

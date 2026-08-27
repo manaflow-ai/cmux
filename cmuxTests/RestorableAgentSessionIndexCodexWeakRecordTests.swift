@@ -132,9 +132,9 @@ struct RestorableAgentSessionIndexCodexWeakRecordTests {
             ]
         )
 
+        let index = RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
         let snapshot = try #require(
-            RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
-                .snapshot(workspaceId: ws, panelId: panel)
+            index.snapshot(workspaceId: ws, panelId: panel)
         )
         #expect(snapshot.sessionId == sessionId)
         #expect(snapshot.workingDirectory == repo.path)
@@ -395,14 +395,15 @@ struct RestorableAgentSessionIndexCodexWeakRecordTests {
             ]
         )
 
+        let index = RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
         let snapshot = try #require(
-            RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
-                .snapshot(workspaceId: ws, panelId: panel)
+            index.snapshot(workspaceId: ws, panelId: panel)
         )
         #expect(
             snapshot.sessionId == parentID,
             "a nil normal hook record for a review child must not replace the TUI parent"
         )
+        #expect(!index.isComplete(forPanelId: panel))
     }
 
     @Test
