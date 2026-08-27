@@ -130,18 +130,25 @@ if ! command -v lsof >/dev/null 2>&1; then
   echo "npx エントリが使用中か確認するため lsof が必要です" >&2
   exit 1
 fi
-if open_pids="$(lsof -nP -t +D "$entry" 2>&1)"; then
-  [ -z "$open_pids" ] || {
-    echo "プロセスが開いている npx エントリのため中止します: $open_pids" >&2
-    exit 1
-  }
-else
-  lsof_status=$?
-  if [ "$lsof_status" -ne 1 ] || [ -n "$open_pids" ]; then
-    echo "npx エントリが非アクティブだと確認できません: $entry" >&2
+assert_entry_inactive() {
+  if [ ! -d "$entry" ] || [ -L "$entry" ]; then
+    echo "選択した npx エントリが変更されたか、シンボリックリンクになっています: $entry" >&2
     exit 1
   fi
-fi
+  if open_pids="$(lsof -nP -t +D "$entry" 2>&1)"; then
+    [ -z "$open_pids" ] || {
+      echo "プロセスが開いている npx エントリのため中止します: $open_pids" >&2
+      exit 1
+    }
+  else
+    lsof_status=$?
+    if [ "$lsof_status" -ne 1 ] || [ -n "$open_pids" ]; then
+      echo "npx エントリが非アクティブだと確認できません: $entry" >&2
+      exit 1
+    fi
+  fi
+}
+assert_entry_inactive
 printf '隔離対象（このエントリだけ）: %s\n' "$entry"
 read -r -p '続行する場合は yes と入力してください: ' confirm
 [ "$confirm" = yes ] || exit 1
@@ -156,6 +163,8 @@ destination="$quarantine/${hash}-$(date +%s)-$$"
   echo "既存の隔離エントリを上書きするため中止します: $destination" >&2
   exit 1
 }
+# 確認後、隔離へ原子的に移動する直前に再確認します。
+assert_entry_inactive
 mv "$entry" "$destination"
 printf '隔離先: %s\n' "$destination"
 npx cmux@latest

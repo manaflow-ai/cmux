@@ -256,18 +256,25 @@ if ! command -v lsof >/dev/null 2>&1; then
   echo "lsof is required to check whether the npx entry is active" >&2
   exit 1
 fi
-if open_pids="$(lsof -nP -t +D "$entry" 2>&1)"; then
-  [ -z "$open_pids" ] || {
-    echo "Refusing an npx entry opened by process(es): $open_pids" >&2
-    exit 1
-  }
-else
-  lsof_status=$?
-  if [ "$lsof_status" -ne 1 ] || [ -n "$open_pids" ]; then
-    echo "Could not prove that the npx entry is inactive: $entry" >&2
+assert_entry_inactive() {
+  if [ ! -d "$entry" ] || [ -L "$entry" ]; then
+    echo "The selected npx entry changed or became a symlink: $entry" >&2
     exit 1
   fi
-fi
+  if open_pids="$(lsof -nP -t +D "$entry" 2>&1)"; then
+    [ -z "$open_pids" ] || {
+      echo "Refusing an npx entry opened by process(es): $open_pids" >&2
+      exit 1
+    }
+  else
+    lsof_status=$?
+    if [ "$lsof_status" -ne 1 ] || [ -n "$open_pids" ]; then
+      echo "Could not prove that the npx entry is inactive: $entry" >&2
+      exit 1
+    fi
+  fi
+}
+assert_entry_inactive
 printf 'About to quarantine only: %s\n' "$entry"
 read -r -p 'Type yes to continue: ' confirm
 [ "$confirm" = yes ] || exit 1
@@ -282,6 +289,8 @@ destination="$quarantine/${hash}-$(date +%s)-$$"
   echo "Refusing to overwrite an existing quarantine entry: $destination" >&2
   exit 1
 }
+# Recheck after confirmation, immediately before the atomic quarantine move.
+assert_entry_inactive
 mv "$entry" "$destination"
 printf 'Quarantined at: %s\n' "$destination"
 npx cmux@latest
