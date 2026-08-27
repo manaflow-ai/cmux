@@ -33,16 +33,19 @@ public struct RelayClientTransportFactory: CmxRouteAwareByteTransportFactory {
         guard request.route.kind == .websocket else {
             throw RelayTransportError.invalidRequest("unsupported route kind")
         }
+        // The route endpoint is nominal (routes require one); the actual dial
+        // target is the URL the ticket mint returns, so the server controls
+        // the relay endpoint per environment. Still reject a malformed route.
         guard case .url(let raw) = request.route.endpoint,
               let url = URL(string: raw),
               url.scheme == "wss" || url.scheme == "ws" else {
             throw RelayTransportError.invalidRequest("relay route needs a ws(s) URL endpoint")
         }
+        _ = url
         guard let hostDeviceID = request.expectedPeerDeviceID, !hostDeviceID.isEmpty else {
             throw RelayTransportError.invalidRequest("relay route needs the host device id")
         }
         return RelayClientByteTransport(
-            relayURL: url,
             hostDeviceID: hostDeviceID,
             deviceID: deviceID,
             ticketProvider: ticketProvider,

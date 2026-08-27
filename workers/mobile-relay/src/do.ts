@@ -254,6 +254,9 @@ export class HostRelay extends DurableObject<RelayEnv> {
         (candidate) => attachment(candidate)?.sessionId === control.sessionId,
       );
       if (target) {
+        // The runtime fires webSocketClose for this socket too; notifying
+        // here once (and tolerating the duplicate) keeps the host informed
+        // even when the close handshake never completes.
         const targetInfo = attachment(target);
         sendByeAndClose(target, BYE_HOST_CLOSED, "closed by host");
         if (targetInfo) this.notifyPeerLeft(targetInfo, BYE_HOST_CLOSED);
