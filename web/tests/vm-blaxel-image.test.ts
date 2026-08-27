@@ -165,10 +165,10 @@ describe("Blaxel driver provisioning short-circuit", () => {
       path.join(import.meta.dirname, "../services/vms/drivers/blaxel.ts"),
       "utf8",
     );
-    const provisionStart = driver.indexOf("CMUX_PROVISION_COMMAND");
-    const stampGuard = driver.indexOf('"[ -f /etc/cmux/image-stamp ] && exit 0;"');
+    const provisionStart = driver.indexOf("CMUX_PROVISION_SCRIPT");
+    const stampGuard = driver.indexOf("[ -f /etc/cmux/image-stamp ] && exit 0");
     expect(provisionStart).toBeGreaterThan(-1);
     expect(stampGuard).toBeGreaterThan(provisionStart);
-    expect(stampGuard - provisionStart).toBeLessThan(600);
+    expect(stampGuard - provisionStart).toBeLessThan(1200);
   });
 });

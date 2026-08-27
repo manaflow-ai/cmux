@@ -154,7 +154,7 @@
       "imageId": "sandbox/cmux-devbox:latest",
       "envVar": "BLAXEL_SANDBOX_IMAGE",
       "defaultForLocalDev": true,
-      "cmuxdRemoteCommit": "bootstrap-on-create",
+      "cmuxdRemoteCommit": "none-cmux-tui",
       "builtAt": "2026-08-26T00:00:00.000Z",
       "builderScriptVersion": "cmux-devbox-2026-08-26-r2",
       "agentToolResolvedVersions": {
@@ -165,7 +165,7 @@
         "agent-browser": "0.35.1"
       },
       "validationStatus": "passed",
-      "notes": "Baked cmux machine image (services/vms/images/blaxel, deployed with web/scripts/build-blaxel-image.sh): chatmux-devbox tool parity (mise node/python/bun, uv, gh, devtools, pinned coding agents, ble.sh ghost text, half-life prompt, seeded history) plus an openbox/TigerVNC desktop with Ghostty, Chrome, Thunar, and noVNC on 6901. Keeps the stock desktop driver contract: start-vnc.sh as user cua, RFB 5901. /etc/cmux/image-stamp makes the driver skip create-time provisioning. cmuxd-remote is still injected at create time. Validated 2026-08-26 on tag b0c4419e0446711a96624 in us-pdx-1: driver E2E (create, daemon inject, WS PTY lease round trip, replay rejection, smart-sleep watcher), agents/toolchain/Ghostty/Chrome versions, half-life prompt + seeded history in an interactive shell, 5901+6901 listening, and the noVNC page served through a tokened gateway preview of port 6901."
+      "notes": "Baked cmux machine image (services/vms/images/blaxel, deployed with web/scripts/build-blaxel-image.sh): chatmux-devbox tool parity (mise node/python/bun, uv, gh, devtools, pinned coding agents, ble.sh ghost text, half-life prompt, seeded history) plus an openbox/TigerVNC desktop with Ghostty, Chrome, Thunar, and noVNC on 6901. Keeps the stock desktop driver contract: start-vnc.sh as user cua, RFB 5901. /etc/cmux/image-stamp makes the driver skip create-time provisioning. The session daemon is not baked: the driver installs the pinned cmux-tui build at create time exactly as on stock images. Validated 2026-08-26 on tag b0c4419e0446711a96624 in us-pdx-1: driver E2E (create, daemon inject, WS PTY lease round trip, replay rejection, smart-sleep watcher), agents/toolchain/Ghostty/Chrome versions, half-life prompt + seeded history in an interactive shell, 5901+6901 listening, and the noVNC page served through a tokened gateway preview of port 6901."
     },
     {
       "provider": "blaxel",
@@ -173,11 +173,11 @@
       "imageId": "blaxel/xfce-vnc:latest",
       "envVar": "BLAXEL_SANDBOX_IMAGE",
       "defaultForLocalDev": false,
-      "cmuxdRemoteCommit": "bootstrap-on-create",
+      "cmuxdRemoteCommit": "none-cmux-tui",
       "builtAt": "2026-08-20T04:30:00.000Z",
       "builderScriptVersion": "bootstrap-on-create",
       "validationStatus": "passed",
-      "notes": "Stock Blaxel xfce + noVNC image (a machine comes with its screen; `cmux vm new --base` picks blaxel/base-image:latest explicitly); the driver injects cmuxd-remote at create time via the sandbox filesystem API (gzip+base64) and starts serve --ws as a keepAlive process, so no baked template is required. Validated WS PTY lease auth, shell round trip, healthz through a private preview URL + minted preview token, and standby/wake process preservation in us-pdx-1."
+      "notes": "Stock Blaxel xfce + TigerVNC/noVNC image (a machine comes with its screen; `cmux vm new --base` picks blaxel/base-image:latest explicitly). No cmuxd-remote: at create time the sandbox installs the pinned cmux-tui build from the artifacts manifest onto its persistent home volume and the supervisor runs `cmux-tui server start --remote-ws 0.0.0.0:1337`, so no baked template is required. Validated cmux-remote attach (route + enrollment), exec, private preview URL + minted preview token, and standby/wake process preservation in us-pdx-1."
     }
   ]
 }
