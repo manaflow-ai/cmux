@@ -64749,6 +64749,23 @@
         }
       }
     },
+    "command.cloudVM.newMachine.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Cloud Machine…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいクラウドマシン…"
+          }
+        }
+      }
+    },
     "command.cloudVM.open.title": {
       "extractionState": "manual",
       "localizations": {

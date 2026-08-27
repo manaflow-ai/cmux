@@ -254,30 +254,17 @@ struct MachinesPanelView: View {
     /// Otherwise the New Machine sheet collects name, kind, and size, and its
     /// Create runs the same `cmux vm new` path the CLI and palette use.
     private func requestNewMachine() {
-        if let plan = viewModel.plan, plan.isAtLimit, !plan.isPaidPlan {
-            ProUpgradePresenter.present()
-            return
-        }
-        let model = NewMachineModel(
-            mode: .newMachine,
+        NewMachineSheetPresenter.shared.presentNewMachine(
             plan: viewModel.plan,
             imageKinds: viewModel.imageKinds,
-            launch: { [weak viewModel] arguments, completion in
+            preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow,
+            operationDidBegin: { [weak viewModel] in
                 viewModel?.beginOperation(String(localized: "machines.operation.create", defaultValue: "Creating a new machine\u{2026}"))
-                let didStart = MachineRowActions.openNewMachine(arguments: arguments) { result in
-                    viewModel?.endOperation()
-                    completion(result)
-                }
-                if !didStart {
-                    // A sign-out can race the button click. CloudVMActionLauncher
-                    // opens the shared sign-in flow and returns false; clear the
-                    // panel's progress state because no completion callback follows.
-                    viewModel?.endOperation()
-                }
-                return didStart
+            },
+            operationDidEnd: { [weak viewModel] in
+                viewModel?.endOperation()
             }
         )
-        NewMachineSheetPresenter.shared.present(model: model, preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow)
     }
 
     /// The Finder-like tree over the surface catalog: This Mac, then every
