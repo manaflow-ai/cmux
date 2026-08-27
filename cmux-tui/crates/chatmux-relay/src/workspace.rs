@@ -66,7 +66,6 @@ pub const MAX_IN_FLIGHT_WORKSPACE_REQUESTS: usize = 256;
 const GIT_DIFF_LINE_MAX_BYTES: usize = DIFF_MAX_BYTES + 1;
 const GIT_STDERR_MAX_BYTES: usize = 64 * 1024;
 const GIT_STDERR_DRAIN_TIMEOUT: Duration = Duration::from_millis(250);
-const GIT_STDOUT_DRAIN_TIMEOUT: Duration = Duration::from_secs(5);
 const GIT_CHILD_WAIT_TIMEOUT: Duration = Duration::from_secs(5);
 const GIT_STOP_TIMEOUT: Duration = Duration::from_secs(1);
 const CONNECTION_REQUEST_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(2);
@@ -1633,16 +1632,21 @@ async fn stop_git(child: &mut tokio::process::Child) {
     let _ = tokio::time::timeout(GIT_STOP_TIMEOUT, child.wait()).await;
 }
 
-fn remaining_git_time(deadline: std::time::Instant, cap: Duration) -> Option<Duration> {
-    let remaining = deadline.checked_duration_since(std::time::Instant::now())?;
-    Some(remaining.min(cap))
+fn remaining_git_time(deadline: std::time::Instant) -> Option<Duration> {
+    // Normal stdout reads use the complete request budget. Keep short caps in
+    // `bounded_git_time` for post-cancellation cleanup and child reaping only.
+    deadline.checked_duration_since(std::time::Instant::now())
+}
+
+fn bounded_git_time(deadline: std::time::Instant, cap: Duration) -> Option<Duration> {
+    Some(remaining_git_time(deadline)?.min(cap))
 }
 
 async fn wait_git_until(
     child: &mut tokio::process::Child,
     deadline: std::time::Instant,
 ) -> Result<std::process::ExitStatus, Refusal> {
-    let Some(timeout) = remaining_git_time(deadline, GIT_CHILD_WAIT_TIMEOUT) else {
+    let Some(timeout) = bounded_git_time(deadline, GIT_CHILD_WAIT_TIMEOUT) else {
         stop_git(child).await;
         return Err(Refusal::failed("git operation deadline exceeded"));
     };
@@ -1664,7 +1668,7 @@ async fn finish_git_stderr(
     operation: &str,
 ) -> Result<Vec<u8>, Refusal> {
     let Some(task) = stderr_task else { return Ok(Vec::new()) };
-    let Some(timeout) = remaining_git_time(deadline, GIT_STDERR_DRAIN_TIMEOUT) else {
+    let Some(timeout) = bounded_git_time(deadline, GIT_STDERR_DRAIN_TIMEOUT) else {
         guard.kill_group();
         stop_git(child).await;
         disarm_if_reaped(child, guard);
@@ -1769,7 +1773,7 @@ async fn run_git_status_with_cancel_until(
             "git status cancelled",
         )),
         result = async {
-            let Some(timeout) = remaining_git_time(deadline, GIT_STDOUT_DRAIN_TIMEOUT) else {
+            let Some(timeout) = remaining_git_time(deadline) else {
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::TimedOut,
                     "git status operation deadline exceeded",
@@ -1996,7 +2000,7 @@ async fn run_git_diff_with_cancel_until(
                 return Err(Refusal::failed("git diff cancelled"));
             }
             result = async {
-                let Some(timeout) = remaining_git_time(deadline, GIT_STDOUT_DRAIN_TIMEOUT) else {
+                let Some(timeout) = remaining_git_time(deadline) else {
                     return Err(std::io::Error::new(
                         std::io::ErrorKind::TimedOut,
                         "git diff operation deadline exceeded",
@@ -2994,6 +2998,14 @@ mod tests {
 
         assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
         assert!(line.len() <= 8, "reader appended bytes past its limit");
+    }
+
+    #[test]
+    fn git_stdout_read_uses_the_request_deadline() {
+        let remaining = remaining_git_time(std::time::Instant::now() + Duration::from_secs(30))
+            .expect("future request deadline");
+
+        assert!(remaining > GIT_CHILD_WAIT_TIMEOUT);
     }
 
     #[tokio::test]
