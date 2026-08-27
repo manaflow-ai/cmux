@@ -1,6 +1,28 @@
 # cmux-tui technical-debt board
 
-## Current refresh: main `2b61ecafceb4b1c008b6f07345270615a0fb4286`
+## Current reconciliation: main `af31628f7b0b2f6c34e184049254fa2fe91f285d`
+
+Audit basis: 2026-08-27T19:39:39Z. Current merged log: [#10984](https://github.com/manaflow-ai/cmux/pull/10984)
+`e9543607420f7b3b3284ac4c71ea21918dea692e`, [#10975](https://github.com/manaflow-ai/cmux/pull/10975)
+`46958aa58d171a01af7a5b1f06164f18d8639612`, [#10986](https://github.com/manaflow-ai/cmux/pull/10986)
+`b5023a455618dd3d4885da2605e162b0bdb67790`, [#10982](https://github.com/manaflow-ai/cmux/pull/10982)
+`642a65b1512d0d61aaef88290f90ef3408bbee74`, [#10985](https://github.com/manaflow-ai/cmux/pull/10985)
+`2b61ecafceb4b1c008b6f07345270615a0fb4286`, and [#10612](https://github.com/manaflow-ai/cmux/pull/10612)
+`af31628f7b0b2f6c34e184049254fa2fe91f285d`. This branch changes documentation only.
+
+Session evidence is now reported conservatively. The strict auditable turn
+count is unknown and recorded as `0` because durable session identifiers are
+absent. The practical floor is five documented substantive owner workstreams.
+The branch proxy is 96 TUI references, 78 with substantive non-merge commits;
+it is not a turn count. Unresolved Claude intents are IDs
+`1787650444261`, `1787650724161` (state ownership, manual I/O, reconnect),
+`1787722163382`, `1787723964393` (remove Go daemon, direct I/O and tunnels),
+`1787733887926`, `1787780735531` (machine terminals, VNC, attach, parity),
+`1787794506089` (cloud tree per machine), `1787823710241` (sidebar split),
+`1787825896700` (wheel-to-arrow behavior), and `1787826030510` (Claude
+completion subscriptions). No completion evidence was found.
+
+## Historical refresh: main `2b61ecafceb4b1c008b6f07345270615a0fb4286`
 
 Snapshot: 2026-08-27T18:44:45Z. This docs-only refresh pins
 [`2b61ecafceb4b1c008b6f07345270615a0fb4286`](https://github.com/manaflow-ai/cmux/commit/2b61ecafceb4b1c008b6f07345270615a0fb4286).
