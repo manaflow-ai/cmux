@@ -295,15 +295,14 @@ final class FeedCoordinator: @unchecked Sendable {
                     // Publication intentionally follows the committed mutation:
                     // a stalled callback cannot hold the synchronous result lock
                     // past the socket caller's deadline.
-                    let liveOwnerId = acceptedEvent.workspaceId.flatMap {
-                        UUID(uuidString: $0.trimmingCharacters(in: .whitespacesAndNewlines))
-                    }
-                    let liveSurfaceId = acceptedEvent.surfaceId.flatMap {
-                        UUID(uuidString: $0.trimmingCharacters(in: .whitespacesAndNewlines))
-                    }
-                    let attentionTarget = liveOwnerId.map {
-                        (ownerId: $0, surfaceId: liveSurfaceId)
-                    } ?? resolvedAttentionTarget
+                    // Keep the off-main session lookup's surface when this
+                    // hook supplied only a workspace id. A workspace-only
+                    // event is common for blocking hooks and must not fall
+                    // back to whichever panel happens to be focused.
+                    let attentionTarget = FeedCoordinator.mergeAttentionTarget(
+                        event: acceptedEvent,
+                        sessionMatch: resolvedAttentionTarget
+                    )
                     let attentionTabManager = attentionTarget.flatMap {
                         AppDelegate.shared?.tabManagerFor(tabId: $0.ownerId)
                             ?? AppDelegate.shared?.tabManagerFor(windowId: $0.ownerId)
@@ -887,7 +886,11 @@ extension FeedCoordinator {
         guard let ownerId = eventOwnerId ?? sessionMatch?.ownerId else {
             return nil
         }
-        let surfaceId = (sessionMatch?.ownerId == ownerId) ? sessionMatch?.surfaceId : nil
+        let eventSurfaceId = event.surfaceId.flatMap {
+            UUID(uuidString: $0.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+        let fallbackSurfaceId = (sessionMatch?.ownerId == ownerId) ? sessionMatch?.surfaceId : nil
+        let surfaceId = eventSurfaceId ?? fallbackSurfaceId
         return (ownerId, surfaceId)
     }
 
@@ -910,19 +913,19 @@ extension FeedCoordinator {
         return Self.mergeAttentionTarget(event: event, sessionMatch: sessionMatch)
     }
 
-    /// Parses ownership supplied directly by a Feed event.  A surface is
-    /// optional because some producers only know their workspace; malformed
-    /// optional surface values are ignored rather than redirecting delivery.
+    /// Parses complete ownership supplied directly by a Feed event. Workspace-
+    /// only events return `nil` so the caller can recover their session surface
+    /// from the hook-session index before choosing a focused-panel fallback.
     nonisolated static func explicitAttentionTarget(
         for event: WorkstreamEvent
     ) -> (ownerId: UUID, surfaceId: UUID?)? {
         guard let ownerId = event.workspaceId.flatMap({
             UUID(uuidString: $0.trimmingCharacters(in: .whitespacesAndNewlines))
+        }),
+        let surfaceId = event.surfaceId.flatMap({
+            UUID(uuidString: $0.trimmingCharacters(in: .whitespacesAndNewlines))
         }) else {
             return nil
-        }
-        let surfaceId = event.surfaceId.flatMap {
-            UUID(uuidString: $0.trimmingCharacters(in: .whitespacesAndNewlines))
         }
         return (ownerId, surfaceId)
     }

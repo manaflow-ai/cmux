@@ -60,6 +60,34 @@ public struct FeedWorkstreamIdentifier: Hashable, RawRepresentable, Sendable {
         self.rawValue = rawValue
     }
 
+    /// Returns the canonical v1 value for either a legacy or versioned id.
+    ///
+    /// Older cmux builds persisted workstream ids as
+    /// `agentID-sessionID`. The session component is opaque and may contain
+    /// hyphens, so the agent prefix is removed exactly once. Values that are
+    /// already versioned, unrelated to `agentID`, or malformed are returned
+    /// unchanged so callers can preserve unknown history.
+    ///
+    /// - Parameters:
+    ///   - agentID: The source/registry id that owns the workstream.
+    ///   - rawValue: A legacy or versioned workstream id.
+    /// - Returns: A v1 id when the legacy value can be safely converted.
+    public static func canonicalizedRawValue(
+        agentID: String,
+        rawValue: String
+    ) -> String {
+        if let versioned = Self(rawValue: rawValue), versioned.agentID == agentID {
+            return versioned.rawValue
+        }
+        let legacyPrefix = agentID + "-"
+        guard rawValue.hasPrefix(legacyPrefix) else { return rawValue }
+        let sessionID = String(rawValue.dropFirst(legacyPrefix.count))
+        guard let versioned = Self(agentID: agentID, sessionID: sessionID) else {
+            return rawValue
+        }
+        return versioned.rawValue
+    }
+
     private static func encode(_ value: String) -> String {
         Data(value.utf8).base64EncodedString()
     }

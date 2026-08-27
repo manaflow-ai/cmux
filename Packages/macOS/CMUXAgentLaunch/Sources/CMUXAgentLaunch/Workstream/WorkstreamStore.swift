@@ -40,6 +40,8 @@ public final class WorkstreamStore {
     private let historyPageSize: Int
     private let clock: @Sendable () -> Date
     private let titleProvider: (WorkstreamEvent) -> String?
+    /// App-owned migration hook for versioned workstream identities.
+    let workstreamIDNormalizer: @Sendable (String, WorkstreamSource) -> String
     private var oldestLoadedPersistenceOffset: UInt64?
 
     /// Last known conversational context for each workstream. Tool hooks
@@ -57,6 +59,8 @@ public final class WorkstreamStore {
     ///   - historyPageSize: Page size for older persisted history.
     ///   - clock: Clock used for timestamps and expiry checks.
     ///   - titleProvider: App boundary hook for localized display titles.
+    ///   - workstreamIDNormalizer: Optional migration for legacy ids loaded
+    ///     from persistence or received from a producer.
     public init(
         transport: any WorkstreamTransport = NullWorkstreamTransport(),
         persistence: WorkstreamPersistence? = nil,
@@ -64,7 +68,10 @@ public final class WorkstreamStore {
         initialLoadLimit: Int = WorkstreamDefaultInitialLoadLimit,
         historyPageSize: Int = WorkstreamDefaultHistoryPageSize,
         clock: @escaping @Sendable () -> Date = { Date() },
-        titleProvider: @escaping (WorkstreamEvent) -> String? = { _ in nil }
+        titleProvider: @escaping (WorkstreamEvent) -> String? = { _ in nil },
+        workstreamIDNormalizer: @escaping @Sendable (String, WorkstreamSource) -> String = { rawValue, _ in
+            rawValue
+        }
     ) {
         self.transport = transport
         self.persistence = persistence
@@ -73,12 +80,13 @@ public final class WorkstreamStore {
         self.historyPageSize = historyPageSize
         self.clock = clock
         self.titleProvider = titleProvider
+        self.workstreamIDNormalizer = workstreamIDNormalizer
     }
 
     public func start() async {
         if let persistence {
             if let page = try? await persistence.loadPage(limit: min(initialLoadLimit, ringCapacity)) {
-                items = page.items
+                items = page.items.map(normalizedWorkstreamItem)
                 hasMorePersistedItems = page.hasMoreBefore
                 oldestLoadedPersistenceOffset = page.startOffset
                 rebuildContextIndex()
@@ -116,7 +124,9 @@ public final class WorkstreamStore {
         }
 
         let existingIds = Set(items.map(\.id))
-        let olderItems = page.items.filter { !existingIds.contains($0.id) }
+        let olderItems = page.items.map(normalizedWorkstreamItem).filter {
+            !existingIds.contains($0.id)
+        }
         if !olderItems.isEmpty {
             items.insert(contentsOf: olderItems, at: 0)
         }
@@ -212,7 +222,7 @@ public final class WorkstreamStore {
         let (kind, payload) = decode(event: event, source: source)
         let status: WorkstreamStatus = kind.isActionable ? .pending : .telemetry
         return WorkstreamItem(
-            workstreamId: event.sessionId,
+            workstreamId: workstreamIDNormalizer(event.sessionId, source),
             source: source,
             kind: kind,
             createdAt: event.receivedAt,
