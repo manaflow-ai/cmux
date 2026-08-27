@@ -439,6 +439,40 @@ mod tests {
     }
 
     #[test]
+    fn deletion_reports_changed_only_when_text_was_removed() {
+        let no_op_keys = [
+            key(KeyCode::Backspace, KeyModifiers::NONE),
+            key(KeyCode::Delete, KeyModifiers::NONE),
+            key(KeyCode::Backspace, KeyModifiers::ALT),
+            key(KeyCode::Char('d'), KeyModifiers::CONTROL),
+            key(KeyCode::Char('w'), KeyModifiers::CONTROL),
+            key(KeyCode::Char('d'), KeyModifiers::ALT),
+            key(KeyCode::Char('k'), KeyModifiers::CONTROL),
+            key(KeyCode::Char('u'), KeyModifiers::CONTROL),
+            key(KeyCode::Char('c'), KeyModifiers::CONTROL),
+        ];
+        for key in no_op_keys {
+            let mut input = text_input("");
+            assert_eq!(input.handle_key(&key), InputEvent::None, "{key:?}");
+        }
+
+        let mut input = text_input("x");
+        input.cursor = 1;
+        assert_eq!(
+            input.handle_key(&key(KeyCode::Backspace, KeyModifiers::NONE)),
+            InputEvent::Changed
+        );
+        assert!(input.buffer.is_empty());
+
+        let mut input = text_input("x");
+        assert_eq!(
+            input.handle_key(&key(KeyCode::Delete, KeyModifiers::NONE)),
+            InputEvent::Changed
+        );
+        assert!(input.buffer.is_empty());
+    }
+
+    #[test]
     fn utf8_safe_movement_and_deletion() {
         let mut input = text_input("héllo wörld");
         input.handle_key(&key(KeyCode::Char('a'), KeyModifiers::CONTROL));
