@@ -10278,6 +10278,11 @@ impl App {
         }
     }
 
+    fn leave_sidebar_to_pane(&mut self) {
+        self.cancel_workspace_preview();
+        self.focus = FocusTarget::Pane;
+    }
+
     fn host_input_is_ready(
         deferred_len: usize,
         deferred_bytes: usize,
@@ -17893,7 +17898,7 @@ impl App {
         key: &KeyEvent,
     ) -> anyhow::Result<RenderAction> {
         if key.code == KeyCode::Esc {
-            self.focus = FocusTarget::Pane;
+            self.leave_sidebar_to_pane();
             return Ok(RenderAction::Draw);
         }
         let rows = self.projection_rows(view_index);
@@ -17929,7 +17934,7 @@ impl App {
             {
                 self.projection_rail_state_mut(view_index).collapsed.remove(&branch);
             } else if !self.focus_adjacent_rail(RailKind::Projection(view_index), 1) {
-                self.focus = FocusTarget::Pane;
+                self.leave_sidebar_to_pane();
             }
             return Ok(RenderAction::Draw);
         }
@@ -18390,12 +18395,12 @@ impl App {
         }
         if matches!(key.code, KeyCode::Right | KeyCode::Char('l')) {
             if !self.focus_adjacent_rail(RailKind::Tabs, 1) {
-                self.focus = FocusTarget::Pane;
+                self.leave_sidebar_to_pane();
             }
             return Ok(RenderAction::Draw);
         }
         if key.code == KeyCode::Esc {
-            self.focus = FocusTarget::Pane;
+            self.leave_sidebar_to_pane();
             return Ok(RenderAction::Draw);
         }
         if matches!(
@@ -21748,10 +21753,11 @@ impl App {
         // Any click outside the plugin rect returns keyboard focus to the
         // panes; otherwise typing would keep going to the plugin PTY after
         // the user clicked into a pane.
+        let pointer_hit = self.hit_at(x, y);
         self.leave_workspace_sidebar();
         self.sidebar_focus_pending = false;
 
-        if let Some(hit) = self.hit_at(x, y) {
+        if let Some(hit) = pointer_hit {
             match hit {
                 Hit::Machine { index, key } => {
                     self.machine_rail_follow_selection = true;
