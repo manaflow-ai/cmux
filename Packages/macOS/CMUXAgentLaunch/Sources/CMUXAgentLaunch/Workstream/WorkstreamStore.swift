@@ -220,12 +220,16 @@ public final class WorkstreamStore {
     }
 
     private func makeItem(from event: WorkstreamEvent) -> WorkstreamItem {
-        let source = WorkstreamSource(wireName: event.source) ?? .claude
+        let parsedSource = WorkstreamSource(wireName: event.source)
+        let source = parsedSource ?? .claude
+        let sourceID = parsedSource == nil ? event.source : nil
+        let workstreamID = workstreamIDNormalizer(event.sessionId, event.source)
         let (kind, payload) = decode(event: event, source: source)
         let status: WorkstreamStatus = kind.isActionable ? .pending : .telemetry
         return WorkstreamItem(
-            workstreamId: workstreamIDNormalizer(event.sessionId, event.source),
+            workstreamId: workstreamID,
             source: source,
+            sourceID: sourceID,
             kind: kind,
             createdAt: event.receivedAt,
             updatedAt: event.receivedAt,
@@ -233,7 +237,11 @@ public final class WorkstreamStore {
             title: defaultTitle(for: event),
             status: status,
             payload: payload,
-            context: context(for: event, payload: payload),
+            context: context(
+                for: event,
+                payload: payload,
+                workstreamID: workstreamID
+            ),
             ppid: event.ppid
         )
     }
@@ -393,8 +401,15 @@ public final class WorkstreamStore {
         }
     }
 
-    private func context(for event: WorkstreamEvent, payload: WorkstreamPayload) -> WorkstreamContext? {
-        let fallback = lastContextByWorkstream[event.sessionId]
+    private func context(
+        for event: WorkstreamEvent,
+        payload: WorkstreamPayload,
+        workstreamID: String
+    ) -> WorkstreamContext? {
+        let fallback = lastContextByWorkstream[workstreamID]
+            ?? (workstreamID == event.sessionId
+                ? nil
+                : lastContextByWorkstream[event.sessionId])
         var context = event.context?.mergingMissing(from: fallback) ?? fallback
 
         switch payload {

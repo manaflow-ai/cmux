@@ -25,6 +25,25 @@ extension TerminalNotificationStore {
         workspace(for: tabId)?.isMuted == true
     }
 
+    /// Resolves the workspace used for the first notification-mute admission
+    /// check. Surface-scoped local notifications follow a moved surface, so
+    /// the check must use its current owner before policy hooks run.
+    func notificationMuteAdmissionTabID(
+        claimedTabId: UUID,
+        surfaceId: UUID?,
+        retargetsToLiveSurfaceOwner: Bool
+    ) -> UUID {
+        guard retargetsToLiveSurfaceOwner,
+              let surfaceId,
+              let liveTarget = AppDelegate.shared?.agentNotificationDeliveryTarget(
+                  claimedTabId: claimedTabId,
+                  surfaceId: surfaceId
+              ) else {
+            return claimedTabId
+        }
+        return liveTarget.tabId
+    }
+
     /// Returns whether every workspace in a selection is muted. An empty
     /// selection is never considered muted.
     func allWorkspaceNotificationsMuted(forTabIds tabIds: [UUID]) -> Bool {

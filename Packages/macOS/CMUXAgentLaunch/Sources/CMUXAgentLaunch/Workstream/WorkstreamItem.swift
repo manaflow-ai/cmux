@@ -35,6 +35,10 @@ public struct WorkstreamItem: Identifiable, Codable, Sendable, Equatable {
     public let id: UUID
     public let workstreamId: String
     public let source: WorkstreamSource
+    /// Raw producer id when the wire source is not represented by
+    /// ``WorkstreamSource``. This keeps persisted migrations lossless for
+    /// newly registered or custom agents; older rows may leave it `nil`.
+    public let sourceID: String?
     public let kind: WorkstreamKind
     public let createdAt: Date
     public var updatedAt: Date
@@ -54,6 +58,7 @@ public struct WorkstreamItem: Identifiable, Codable, Sendable, Equatable {
         id: UUID = UUID(),
         workstreamId: String,
         source: WorkstreamSource,
+        sourceID: String? = nil,
         kind: WorkstreamKind,
         createdAt: Date = Date(),
         updatedAt: Date? = nil,
@@ -67,6 +72,8 @@ public struct WorkstreamItem: Identifiable, Codable, Sendable, Equatable {
         self.id = id
         self.workstreamId = workstreamId
         self.source = source
+        let normalizedSourceID = sourceID?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.sourceID = normalizedSourceID?.isEmpty == true ? nil : normalizedSourceID
         self.kind = kind
         self.createdAt = createdAt
         self.updatedAt = updatedAt ?? createdAt

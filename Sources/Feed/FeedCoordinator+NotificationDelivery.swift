@@ -19,14 +19,7 @@ extension FeedCoordinator {
         let appFocused = AppFocusState.isAppFocused()
 
         let resolved = await resolveAttentionTarget(event: event)
-        let ownerID = event.workspaceId.flatMap {
-            UUID(uuidString: $0.trimmingCharacters(in: .whitespacesAndNewlines))
-        } ?? resolved?.ownerId
-        let surfaceID = event.surfaceId.flatMap {
-            UUID(uuidString: $0.trimmingCharacters(in: .whitespacesAndNewlines))
-        } ?? resolved?.surfaceId
-
-        guard let ownerID, let appDelegate = AppDelegate.shared else {
+        guard let appDelegate = AppDelegate.shared else {
             // Preserve the historical app-wide suppression when Feed cannot
             // resolve a concrete workspace or Dock target.
             return .resolve(
@@ -37,6 +30,20 @@ extension FeedCoordinator {
                 effects: effects
             )
         }
+        guard let target = liveNotificationTarget(for: event, resolved: resolved) else {
+            // A surface claim that no longer exists must never fall back to a
+            // stale workspace (or to the focused panel). Drop the external
+            // effects until a producer supplies a live target.
+            return .resolve(
+                isAppFocused: appFocused,
+                isActiveTab: false,
+                isFocusedSurface: false,
+                isMuted: true,
+                effects: effects
+            )
+        }
+        let ownerID = target.ownerID
+        let surfaceID = target.surfaceID
 
         if let dock = appDelegate.existingWindowDock(forWindowId: ownerID) {
             let context = appDelegate.mainWindowContexts.values.first {
@@ -70,5 +77,41 @@ extension FeedCoordinator {
             isMuted: isMuted,
             effects: effects
         )
+    }
+
+    /// Resolves the live owner used for Feed notification admission. A surface
+    /// claim is only a validated hint: the current surface registry wins after
+    /// a pane move, while workspace-only events may use the hook-session match.
+    @MainActor
+    private func liveNotificationTarget(
+        for event: WorkstreamEvent,
+        resolved: (ownerId: UUID, surfaceId: UUID?)?
+    ) -> (ownerID: UUID, surfaceID: UUID?)? {
+        let claimedWorkspaceID = event.workspaceId.flatMap {
+            UUID(uuidString: $0.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+        if let claimedSurfaceID = event.surfaceId.flatMap({
+            UUID(uuidString: $0.trimmingCharacters(in: .whitespacesAndNewlines))
+        }) {
+            guard let live = AppDelegate.shared?.liveSurfaceOwner(
+                surfaceID: claimedSurfaceID,
+                preferredTabID: claimedWorkspaceID
+            ) else {
+                return nil
+            }
+            return (ownerID: live.tabID, surfaceID: live.surfaceID)
+        }
+
+        // A session lookup can recover the current owner for workspace-only
+        // events. Prefer it whenever it carries a concrete surface; otherwise
+        // retain the validated workspace claim.
+        if let resolved, resolved.surfaceId != nil {
+            return (ownerID: resolved.ownerId, surfaceID: resolved.surfaceId)
+        }
+        if let claimedWorkspaceID {
+            return (ownerID: claimedWorkspaceID, surfaceID: resolved?.surfaceId)
+        }
+        guard let resolved else { return nil }
+        return (ownerID: resolved.ownerId, surfaceID: resolved.surfaceId)
     }
 }

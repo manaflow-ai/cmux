@@ -1055,6 +1055,14 @@ private extension FeedCoordinator {
             guard let self, self.isAwaitingDecision(requestId: requestId) else {
                 return
             }
+            // Workspace mute is an admission gate. Check the live owner before
+            // resolving or executing user policy hooks so a muted Feed event
+            // cannot expose its payload or trigger hook side effects.
+            let admission = await self.feedNotificationDeliveryDecision(
+                for: event,
+                effects: TerminalNotificationPolicyEffects()
+            )
+            guard admission.disposition != .muted else { return }
 
             let categoryId: String
             let title: String
@@ -1712,7 +1720,7 @@ enum FeedSocketEncoding {
         var dict: [String: Any] = [
             "id": item.id.uuidString,
             "workstream_id": item.workstreamId,
-            "source": item.source.rawValue,
+            "source": item.sourceID ?? item.source.rawValue,
             "kind": item.kind.rawValue,
             "created_at": isoFormatter.string(from: item.createdAt),
             "updated_at": isoFormatter.string(from: item.updatedAt),
