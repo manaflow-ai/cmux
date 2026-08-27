@@ -155,11 +155,6 @@ use wait_timeout::ChildExt;
 
 use crate::localization::catalog;
 
-#[cfg(all(test, unix))]
-std::thread_local! {
-    static FAIL_CONFIG_PARENT_SYNC: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
-}
-
 /// For a field typed `Option<Option<T>>`: makes an explicit `null` in the
 /// input deserialize to `Some(None)` rather than the `None` an absent key
 /// also produces, so callers can tell "not set" from "set to null".
@@ -4141,8 +4136,16 @@ fn read_config_value(path: &Path) -> anyhow::Result<Value> {
 /// [`ConfigWriteOutcome::CommittedButUnsynced`] value means the rename did
 /// commit, but the parent directory sync failed.
 fn write_config_value_atomic(path: &Path, value: &Value) -> anyhow::Result<ConfigWriteOutcome> {
+    write_config_value_atomic_with_sync(path, value, &sync_config_parent_directory)
+}
+
+fn write_config_value_atomic_with_sync(
+    path: &Path,
+    value: &Value,
+    sync_parent: &dyn Fn(&Path) -> anyhow::Result<()>,
+) -> anyhow::Result<ConfigWriteOutcome> {
     let parent = config_parent_directory(path);
-    std::fs::create_dir_all(parent)?;
+    let created_directories = ensure_config_parent_directory(parent)?;
     let file_name = path.file_name().and_then(|name| name.to_str()).unwrap_or("cmux-tui.json");
     let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos();
     let tmp_path = parent.join(format!(".{file_name}.{}.{}.tmp", std::process::id(), stamp));
@@ -4173,31 +4176,38 @@ fn write_config_value_atomic(path: &Path, value: &Value) -> anyhow::Result<Confi
     }
 
     #[cfg(unix)]
-    if let Err(error) = sync_config_parent_directory(parent) {
+    if let Err(error) = sync_config_parent_directories(parent, &created_directories, sync_parent) {
         return Ok(ConfigWriteOutcome::CommittedButUnsynced { error });
     }
+    #[cfg(not(unix))]
+    let _ = created_directories;
 
     Ok(ConfigWriteOutcome::Committed)
 }
 
+fn ensure_config_parent_directory(parent: &Path) -> anyhow::Result<Vec<PathBuf>> {
+    std::fs::create_dir_all(parent)?;
+    Ok(Vec::new())
+}
+
 #[cfg(unix)]
 fn sync_config_parent_directory(parent: &Path) -> anyhow::Result<()> {
-    #[cfg(test)]
-    if FAIL_CONFIG_PARENT_SYNC.with(|fail| fail.replace(false)) {
-        return Err(std::io::Error::other("injected parent directory sync failure").into());
-    }
-    let result = std::fs::File::open(parent).and_then(|directory| directory.sync_all());
-    #[cfg(target_os = "macos")]
-    if let Err(error) = &result {
-        if matches!(error.raw_os_error(), Some(code) if code == libc::EINVAL || code == libc::ENOTSUP)
-        {
-            // macOS filesystems may not support fsync on a directory. The file
-            // itself is already durable, and the rename has completed, so this
-            // unsupported directory operation must not report a false failure.
-            return Ok(());
-        }
-    }
-    result.map_err(Into::into)
+    std::fs::File::open(parent)?.sync_all()?;
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn sync_config_parent_directory(_parent: &Path) -> anyhow::Result<()> {
+    Ok(())
+}
+
+#[cfg(unix)]
+fn sync_config_parent_directories(
+    parent: &Path,
+    _created_directories: &[PathBuf],
+    sync_parent: &dyn Fn(&Path) -> anyhow::Result<()>,
+) -> anyhow::Result<()> {
+    sync_parent(parent)
 }
 
 fn config_parent_directory(path: &Path) -> &Path {
@@ -5472,7 +5482,7 @@ fn overlay_ghostty_defaults(defaults: &mut DefaultColors, overrides: DefaultColo
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::cell::Cell;
+    use std::cell::{Cell, RefCell};
 
     #[test]
     fn config_diagnostics_do_not_echo_parser_details() {
@@ -5535,6 +5545,13 @@ mod tests {
             Some(value) => unsafe { std::env::set_var(key, value) },
             None => unsafe { std::env::remove_var(key) },
         }
+    }
+
+    fn assert_committed(outcome: ConfigWriteOutcome) {
+        assert!(matches!(
+            outcome,
+            ConfigWriteOutcome::Committed | ConfigWriteOutcome::CommittedButUnsynced { .. }
+        ));
     }
 
     #[test]
@@ -8871,21 +8888,20 @@ mod tests {
         )
         .unwrap();
 
-        assert!(matches!(
+        assert_committed(
             write_sidebar_plugin_at_path(
                 &path,
                 Some(&SidebarPluginConfig {
                     command: vec![
                         "/tmp/plugin".to_string(),
                         "--mode".to_string(),
-                        "test".to_string()
+                        "test".to_string(),
                     ],
                     cwd: Some("/tmp".to_string()),
                 }),
             )
             .unwrap(),
-            ConfigWriteOutcome::Committed
-        ));
+        );
         let value: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
         assert_eq!(value["theme"]["sidebar_rail"], json!(42));
         assert_eq!(value["sidebar"]["width"], json!(31));
@@ -8893,10 +8909,7 @@ mod tests {
         assert_eq!(value["sidebar"]["plugin"]["command"][0], json!("/tmp/plugin"));
         assert_eq!(value["sidebar"]["plugin"]["cwd"], json!("/tmp"));
 
-        assert!(matches!(
-            write_sidebar_plugin_at_path(&path, None).unwrap(),
-            ConfigWriteOutcome::Committed
-        ));
+        assert_committed(write_sidebar_plugin_at_path(&path, None).unwrap());
         let value: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
         assert_eq!(value["sidebar"]["width"], json!(31));
         assert!(value["sidebar"].get("plugin").is_none());
@@ -8916,14 +8929,13 @@ mod tests {
         let file = options.open(&path).unwrap();
         drop(file);
 
-        assert!(matches!(
+        assert_committed(
             write_sidebar_plugin_at_path(
                 &path,
                 Some(&SidebarPluginConfig { command: vec!["/tmp/plugin".to_string()], cwd: None }),
             )
             .unwrap(),
-            ConfigWriteOutcome::Committed
-        ));
+        );
 
         let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode, 0o600, "config permissions must not expose server.ws_token");
@@ -8954,10 +8966,9 @@ mod tests {
     fn config_write_succeeds_after_parent_directory_sync() {
         let dir = TestDirectory::new("parent-sync");
         let path = dir.path.join("cmux-tui.json");
-        assert!(matches!(
+        assert_committed(
             write_config_value_atomic(&path, &json!({"server": {"ws_token": "secret"}})).unwrap(),
-            ConfigWriteOutcome::Committed
-        ));
+        );
 
         let value: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
         assert_eq!(value["server"]["ws_token"], json!("secret"));
@@ -8968,9 +8979,14 @@ mod tests {
     fn config_write_does_not_report_failure_after_parent_sync_error() {
         let dir = TestDirectory::new("parent-sync-failure");
         let path = dir.path.join("cmux-tui.json");
-        FAIL_CONFIG_PARENT_SYNC.with(|fail| fail.set(true));
+        let sync_parent =
+            |_parent: &Path| Err(anyhow::anyhow!("injected parent directory sync failure"));
 
-        let result = write_config_value_atomic(&path, &json!({"server": {"ws_token": "secret"}}));
+        let result = write_config_value_atomic_with_sync(
+            &path,
+            &json!({"server": {"ws_token": "secret"}}),
+            &sync_parent,
+        );
 
         assert!(matches!(
             result.expect("a committed rename must not be reported as a write failure"),
@@ -8978,5 +8994,31 @@ mod tests {
         ));
         let value: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
         assert_eq!(value["server"]["ws_token"], json!("secret"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn config_write_syncs_parents_of_new_directories() {
+        let dir = TestDirectory::new("created-parent-sync");
+        let parent = dir.path.join("new").join("nested");
+        let path = parent.join("cmux-tui.json");
+        let synced = RefCell::new(Vec::new());
+        let sync_parent = |directory: &Path| {
+            synced.borrow_mut().push(directory.to_path_buf());
+            Ok(())
+        };
+
+        assert_committed(
+            write_config_value_atomic_with_sync(
+                &path,
+                &json!({"server": {"ws_token": "secret"}}),
+                &sync_parent,
+            )
+            .unwrap(),
+        );
+
+        let synced = synced.into_inner();
+        assert!(synced.iter().any(|directory| directory == &parent));
+        assert!(synced.iter().any(|directory| directory == &dir.path));
     }
 }
