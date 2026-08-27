@@ -257,7 +257,10 @@ public struct CloudMachinesPlanSummary: Equatable, Sendable {
 }
 
 public extension SettingsHostActions {
+    /// Returns the registry-backed agent choices shown by notification sound settings.
     func notificationSoundAgentOptions() -> [NotificationSoundAgentOption] { [] }
+
+    /// Validates a candidate custom notification sound path on the host.
     func validateNotificationSoundFile(path: String) async -> Bool { false }
 
     /// Default no-op for previews and tests without a live control socket.
