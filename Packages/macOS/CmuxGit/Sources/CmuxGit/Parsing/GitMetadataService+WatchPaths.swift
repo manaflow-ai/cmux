@@ -87,13 +87,13 @@ extension GitMetadataService {
         let eventCoalescingInterval = acceptsAllWorkTreeEvents
             ? safetyConfiguration.unfilteredWorkTreeEventThrottle
             : safetyConfiguration.filteredWorkTreeEventThrottle
-        let creationWatchPlan = missingExternalConfigWatchPaths(
+        let creationWatchPaths = missingExternalConfigWatchPaths(
             gitMetadataPaths: gitMetadataPaths,
             repository: repository
         )
-        let creationWatchPaths = creationWatchPlan.paths
+        let creationWatchPathSet = Set(creationWatchPaths)
         let recursiveMetadataPaths = gitMetadataPaths.filter {
-            !creationWatchPlan.excludedPaths.contains(nativeStandardizedPath($0))
+            !creationWatchPathSet.contains(nativeStandardizedPath($0))
         }
         let candidatePaths = (includesWorkTreeRoot ? [repository.workTreeRoot] : [])
             + recursiveMetadataPaths
@@ -302,16 +302,14 @@ extension GitMetadataService {
     private nonisolated static func missingExternalConfigWatchPaths(
         gitMetadataPaths: [String],
         repository: ResolvedGitRepository
-    ) -> (paths: [String], excludedPaths: Set<String>) {
+    ) -> [String] {
         let repositoryRoots = [
             repository.workTreeRoot,
             repository.gitDirectory,
             repository.commonDirectory,
         ]
         var paths: [String] = []
-        var excludedPaths: Set<String> = []
         var seen: Set<String> = []
-        var pathBytes = 0
         for path in sortedUniqueNormalizedPaths(gitMetadataPaths) {
             guard path != "/",
                   !FileManager.default.fileExists(atPath: path),
@@ -319,15 +317,9 @@ extension GitMetadataService {
                   seen.insert(path).inserted else {
                 continue
             }
-            excludedPaths.insert(path)
-            guard paths.count < 64,
-                  pathBytes <= 16 * 1024 - path.utf8.count else {
-                continue
-            }
-            pathBytes += path.utf8.count
             paths.append(path)
         }
-        return (paths, excludedPaths)
+        return paths
     }
 
     /// Standardizes once outside event loops and copies Foundation-backed path

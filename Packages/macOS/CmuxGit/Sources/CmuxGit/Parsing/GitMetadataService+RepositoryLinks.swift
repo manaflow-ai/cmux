@@ -44,7 +44,8 @@ extension GitMetadataService {
 
     /// Produces one sanitized browser URL from a remote name and its Git URL.
     private nonisolated static func repositoryLink(remoteName: String, remoteURL: String) -> GitRepositoryLink? {
-        guard let normalizedURL = normalizedBrowsableRepositoryURL(from: remoteURL),
+        guard remoteName.utf8.count <= 256,
+              let normalizedURL = normalizedBrowsableRepositoryURL(from: remoteURL),
               let displayName = repositoryLinkDisplayName(from: normalizedURL.path) else {
             return nil
         }
@@ -66,7 +67,7 @@ extension GitMetadataService {
     /// Converts supported Git remote URL forms into sanitized HTTP(S) URLs.
     private nonisolated static func normalizedBrowsableRepositoryURL(from remoteURL: String) -> URL? {
         let trimmed = remoteURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
+        guard !trimmed.isEmpty, trimmed.utf8.count <= 64 * 1024 else { return nil }
         guard !trimmed.contains("::") else { return nil }
 
         if !trimmed.contains("://") {
@@ -167,7 +168,7 @@ extension GitMetadataService {
     /// Removes separators and a trailing `.git` from a non-empty repository path.
     private nonisolated static func repositoryLinkDisplayName(from rawPath: String) -> String? {
         var path = rawPath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        guard !path.isEmpty else { return nil }
+        guard !path.isEmpty, path.utf8.count <= 4 * 1024 else { return nil }
         if path.hasSuffix(".git") {
             path.removeLast(4)
         }
