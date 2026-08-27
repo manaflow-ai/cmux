@@ -14,8 +14,8 @@ import OSLog
 final class MobileHostIrxRuntime {
     static let shared = MobileHostIrxRuntime()
 
-    static let enabledDefaultsKey = "cmux.irx.enabled"
-    static let forceRelayDefaultsKey = "cmux.irx.force-relay"
+    nonisolated static let enabledDefaultsKey = "cmux.irx.enabled"
+    nonisolated static let forceRelayDefaultsKey = "cmux.irx.force-relay"
 
     /// The activation gate, readable before any runtime exists. Release
     /// builds compile the code but can never enable it.
