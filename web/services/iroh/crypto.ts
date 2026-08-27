@@ -125,6 +125,47 @@ export function verifyEndpointRegistrationSignature(input: {
   if (!valid) throw new IrohForbiddenError({ code: "invalid_registration_signature" });
 }
 
+/**
+ * One-round registration transcript. The server-minted challenge nonce is
+ * replaced by a client-chosen nonce plus a signed timestamp: the server
+ * enforces the same ±5-minute freshness window it already grants
+ * timestamp-signed binding requests, and consumes the nonce exactly once
+ * (`registerWithSelfProof`), so an observed proof can never be replayed and a
+ * stale signature can never register outside the skew window.
+ */
+export function selfProofRegistrationTranscript(input: {
+  readonly issuedAtSeconds: number;
+  readonly nonce: string;
+  readonly payloadSha256: string;
+}): Uint8Array {
+  return Buffer.from(
+    `cmux/iroh/device-registration/v2\n${input.issuedAtSeconds}\n${input.nonce}\n${input.payloadSha256}`,
+    "utf8",
+  );
+}
+
+export function verifySelfProofRegistrationSignature(input: {
+  readonly endpointId: string;
+  readonly issuedAtSeconds: number;
+  readonly nonce: string;
+  readonly payloadSha256: string;
+  readonly signature: string;
+}): void {
+  const publicKey = endpointPublicKey(input.endpointId);
+  const signature = decodeCanonicalBase64url(
+    input.signature,
+    64,
+    "invalid_registration_signature",
+  );
+  const valid = verify(
+    null,
+    selfProofRegistrationTranscript(input),
+    publicKey,
+    signature,
+  );
+  if (!valid) throw new IrohForbiddenError({ code: "invalid_registration_signature" });
+}
+
 export type IrohBindingRequestProof = {
   readonly bindingId: string;
   readonly method: string;
