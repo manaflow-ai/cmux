@@ -1,4 +1,5 @@
 @preconcurrency public import Foundation
+import Darwin
 
 /// Owns one out-of-process Chromium instance and its page-level CDP session.
 ///
@@ -47,11 +48,14 @@ public actor ChromiumBrowserSession {
     var startupGeneration: UInt64?
     var connectionGeneration: UInt64?
     var isStopping = false
+    private static let processExitDeadline: Duration = .seconds(15)
+    private static let processKillGrace: Duration = .seconds(3)
     /// Waiters keyed by the exact child process identity. `Process.terminate()`
     /// is asynchronous; keeping the reference until its termination callback
     /// arrives lets a replacement session serialize startup without polling or
     /// blocking an executor thread in `waitUntilExit()`.
     var processExitWaiters: [ObjectIdentifier: [UUID: CheckedContinuation<Void, Never>]] = [:]
+    private var cancelledProcessExitWaiters: Set<UUID> = []
     /// Children that have been launched but have not delivered their
     /// termination callback. `process` is the current generation's child;
     /// this table also retains a child from a cancelled/replaced startup so a
@@ -116,7 +120,7 @@ public actor ChromiumBrowserSession {
             try await startupTask.value
             return
         }
-        await waitForCurrentProcessExitIfNeeded()
+        try await waitForCurrentProcessExitIfNeeded()
         isStopping = false
         lifecycleGeneration &+= 1
         let generation = lifecycleGeneration
@@ -345,21 +349,25 @@ public actor ChromiumBrowserSession {
     /// used before profile replacement and restart so a new child never races
     /// the old process. It deliberately does not use `waitUntilExit()` because
     /// that would block an app executor thread.
-    public func stopAndWait() async {
-        guard !pendingProcesses.isEmpty else {
-            stop()
-            return
-        }
-
+    @discardableResult
+    public func stopAndWait() async -> Bool {
         let processIDs = Array(pendingProcesses.keys)
         stop()
-        await withTaskGroup(of: Void.self) { group in
-            for processID in processIDs {
-                group.addTask { [weak self] in
-                    await self?.waitForProcessExit(processID)
-                }
+        guard !processIDs.isEmpty else { return true }
+
+        var allExited = true
+        for processID in processIDs {
+            if await waitForProcessExit(processID, timeout: Self.processExitDeadline) {
+                continue
+            }
+            // Escalate once the bounded graceful-stop deadline expires, while
+            // retaining the process identity until its termination callback.
+            forceKill(processID)
+            if !(await waitForProcessExit(processID, timeout: Self.processKillGrace)) {
+                allExited = false
             }
         }
+        return allExited
     }
 
     func send(method: String, parameters: CDPValue? = nil) async throws -> CDPValue {
@@ -371,27 +379,91 @@ public actor ChromiumBrowserSession {
     /// generation can launch. This also covers callers that hold the actor
     /// directly (socket automation) rather than going through the AppKit
     /// adapter's prerequisite task.
-    private func waitForCurrentProcessExitIfNeeded() async {
+    private func waitForCurrentProcessExitIfNeeded() async throws {
         let processIDs = Array(pendingProcesses.keys)
         guard !processIDs.isEmpty else { return }
-        await withTaskGroup(of: Void.self) { group in
-            for processID in processIDs {
-                group.addTask { [weak self] in
-                    await self?.waitForProcessExit(processID)
-                }
+        var failedProcessIDs: [ObjectIdentifier] = []
+        for processID in processIDs {
+            if await waitForProcessExit(processID, timeout: Self.processExitDeadline) {
+                continue
             }
+            forceKill(processID)
+            if !(await waitForProcessExit(processID, timeout: Self.processKillGrace)) {
+                failedProcessIDs.append(processID)
+            }
+        }
+        guard failedProcessIDs.isEmpty else {
+            throw CDPError.disconnected(ChromiumBrowserDiagnostic.connectionClosed.message)
         }
     }
 
-    private func waitForProcessExit(_ processID: ObjectIdentifier) async {
-        guard pendingProcesses[processID] != nil else { return }
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            // Actor isolation keeps the callback from interleaving between the
-            // guard and registration, so the termination signal cannot be
-            // lost.
-            let waiterID = UUID()
-            processExitWaiters[processID, default: [:]][waiterID] = continuation
+    private func waitForProcessExit(
+        _ processID: ObjectIdentifier,
+        timeout: Duration
+    ) async -> Bool {
+        guard pendingProcesses[processID] != nil else { return true }
+        let waiterID = UUID()
+        return await withTaskGroup(of: Bool.self) { group in
+            group.addTask { [weak self] in
+                await self?.waitForProcessExitSignal(processID, waiterID: waiterID) ?? true
+            }
+            group.addTask {
+                do {
+                    try await Task.sleep(for: timeout)
+                    return false
+                } catch {
+                    return true
+                }
+            }
+            let result = await group.next() ?? true
+            group.cancelAll()
+            if !result {
+                cancelProcessExitWaiter(processID, waiterID: waiterID)
+            }
+            return result
         }
+    }
+
+    private func waitForProcessExitSignal(
+        _ processID: ObjectIdentifier,
+        waiterID: UUID
+    ) async -> Bool {
+        guard pendingProcesses[processID] != nil else { return true }
+        await withTaskCancellationHandler(operation: {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                if cancelledProcessExitWaiters.remove(waiterID) != nil {
+                    continuation.resume()
+                } else if pendingProcesses[processID] == nil {
+                    continuation.resume()
+                } else {
+                    processExitWaiters[processID, default: [:]][waiterID] = continuation
+                }
+            }
+        }, onCancel: {
+            Task { await self.cancelProcessExitWaiter(processID, waiterID: waiterID) }
+        })
+        return true
+    }
+
+    private func cancelProcessExitWaiter(
+        _ processID: ObjectIdentifier,
+        waiterID: UUID
+    ) {
+        guard let waiter = processExitWaiters[processID]?.removeValue(forKey: waiterID) else {
+            if pendingProcesses[processID] != nil {
+                cancelledProcessExitWaiters.insert(waiterID)
+            }
+            return
+        }
+        if processExitWaiters[processID]?.isEmpty == true {
+            processExitWaiters.removeValue(forKey: processID)
+        }
+        waiter.resume()
+    }
+
+    private func forceKill(_ processID: ObjectIdentifier) {
+        guard let process = pendingProcesses[processID], process.processIdentifier > 0 else { return }
+        _ = Darwin.kill(process.processIdentifier, SIGKILL)
     }
 
     func childTerminated(process terminatedProcess: Process, status: Int32) {

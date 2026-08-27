@@ -63,8 +63,14 @@ extension BrowserPanel {
 
         let controller = browserEngineController
         chromiumIsolationTask = Task { @MainActor [weak self, controller] in
-            await controller.stopAndWait()
+            let didStop = await controller.stopAndWait()
             guard let self else { return }
+            guard didStop else {
+                self.chromiumIsolationTask = nil
+                self.pageTitle = ChromiumBrowserDiagnostic.connectionClosed.message
+                self.refreshWebViewLifecycleState()
+                return
+            }
             self.chromiumIsolationPending = false
             self.chromiumIsolationTask = nil
             self.refreshWebViewLifecycleState()
@@ -86,7 +92,8 @@ extension BrowserPanel {
             chromiumNavigationPolicy: { [weak self] url in
                 guard let self else { return true }
                 return self.shouldBlockInsecureHTTPNavigation(to: url)
-            }
+            },
+            startPrerequisite: chromiumStartPrerequisite
         )
         controller.setChromiumSnapshotHandler { [weak self] snapshot in
             self?.applyChromiumSnapshot(snapshot)
@@ -262,9 +269,10 @@ extension BrowserPanel {
         if let discardTask = chromiumMemoryDiscardTask {
             guard isWebViewVisibleInUI, chromiumMemoryDiscardRestoreTask == nil else { return }
             chromiumMemoryDiscardRestoreTask = Task { @MainActor [weak self, discardTask] in
-                await discardTask.value
+                let didStop = await discardTask.value
                 guard let self else { return }
                 self.chromiumMemoryDiscardRestoreTask = nil
+                guard didStop else { return }
                 self.restoreDeferredChromiumIfNeeded(reason: "\(reason).after_stop")
             }
             return
@@ -294,9 +302,7 @@ extension BrowserPanel {
               !isWebViewVisibleInUI,
               shouldRenderWebView,
               currentURL != nil else { return false }
-        cancelHiddenWebViewDiscard()
         clearBrowserFocusMode(reason: "chromiumMemoryDiscard")
-        invalidateSearchFocusRequests(reason: "chromiumMemoryDiscard")
         automationNavigationCoordinator.invalidate()
         hiddenWebViewDiscardManager.markDiscarded(reason: reason, now: now)
         shouldRenderWebView = false
@@ -310,7 +316,7 @@ extension BrowserPanel {
 
         let controller = browserEngineController
         chromiumMemoryDiscardTask = Task { @MainActor [weak self, controller] in
-            await controller.stopAndWait()
+            let didStop = await controller.stopAndWait()
             guard let self else { return }
             self.chromiumMemoryDiscardTask = nil
             self.refreshNavigationAvailability()
@@ -322,7 +328,7 @@ extension BrowserPanel {
             )
             if effectiveEngine != .chromium {
                 self.enforceChromiumIsolationIfNeeded(reason: "memory_discard_policy")
-            } else if self.isWebViewVisibleInUI {
+            } else if didStop, self.isWebViewVisibleInUI {
                 self.restoreDeferredChromiumIfNeeded(reason: "memory_discard_complete")
             }
         }
@@ -486,6 +492,22 @@ extension BrowserPanel {
     func stopChromium() {
         guard isChromiumBacked else { return }
         browserEngineController.stop()
+    }
+
+    /// Starts the final Chromium shutdown and returns its completion barrier.
+    /// The returned task is retained by the workspace when a closed-panel
+    /// snapshot may be reopened with the same storage identity.
+    func prepareChromiumShutdownForClose() -> Task<Bool, Never>? {
+        guard isChromiumBacked else { return nil }
+        if let chromiumCloseTask { return chromiumCloseTask }
+        let controller = browserEngineController
+        let task = Task { @MainActor [weak self, controller] in
+            let didStop = await controller.stopAndWait()
+            self?.chromiumCloseTask = nil
+            return didStop
+        }
+        chromiumCloseTask = task
+        return task
     }
 
     /// Replaces the Chromium child with the cmux-owned profile selected by the

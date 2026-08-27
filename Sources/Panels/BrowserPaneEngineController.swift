@@ -12,6 +12,12 @@ final class BrowserPaneEngineController {
     private var chromiumFocusHandler: (() -> Void)?
     private let chromiumRuntimeEnvironment: ChromiumBrowserRuntimeEnvironment
     private let chromiumNavigationPolicy: ((URL) -> Bool)?
+    private let profileID: UUID
+    private let storageID: UUID
+    private let remoteDebuggingPort: ChromiumRemoteDebuggingPort
+    private let startPrerequisite: Task<Bool, Never>?
+    private var initialURL: URL?
+    private var didFallbackFromCEF = false
 
     var kind: BrowserEngineKind { adapter.kind }
     var contentView: NSView? { adapter.contentView }
@@ -25,8 +31,13 @@ final class BrowserPaneEngineController {
         storageID: UUID,
         remoteDebuggingPort: ChromiumRemoteDebuggingPort,
         chromiumRuntimeEnvironment: ChromiumBrowserRuntimeEnvironment,
-        chromiumNavigationPolicy: ((URL) -> Bool)? = nil
+        chromiumNavigationPolicy: ((URL) -> Bool)? = nil,
+        startPrerequisite: Task<Bool, Never>? = nil
     ) {
+        self.profileID = profileID
+        self.storageID = storageID
+        self.remoteDebuggingPort = remoteDebuggingPort
+        self.startPrerequisite = startPrerequisite
         self.chromiumRuntimeEnvironment = chromiumRuntimeEnvironment
         self.chromiumNavigationPolicy = chromiumNavigationPolicy
         switch kind {
@@ -37,18 +48,24 @@ final class BrowserPaneEngineController {
             // frame streaming. The child-process streamed engine remains the
             // fallback when the CEF framework is not embedded in this build.
             if CEFRuntimeBootstrap.isRuntimeAvailable {
-                adapter = CEFBrowserPaneEngineAdapter(
+                let cefAdapter = CEFBrowserPaneEngineAdapter(
                     profileID: profileID,
                     storageID: storageID,
                     remoteDebuggingPort: remoteDebuggingPort,
+                    startPrerequisite: startPrerequisite,
                     navigationPolicy: chromiumNavigationPolicy
                 )
+                adapter = cefAdapter
+                cefAdapter.onStartupFailure = { [weak self] in
+                    self?.fallbackFromCEF()
+                }
             } else {
                 adapter = ChromiumBrowserPaneEngineAdapter(
                     profileID: profileID,
                     storageID: storageID,
                     remoteDebuggingPort: remoteDebuggingPort,
-                    environment: chromiumRuntimeEnvironment
+                    environment: chromiumRuntimeEnvironment,
+                    startPrerequisite: startPrerequisite
                 )
             }
         }
@@ -127,7 +144,33 @@ final class BrowserPaneEngineController {
     }
 
     func start(initialURL: URL?) {
+        self.initialURL = initialURL
         adapter.start(initialURL: initialURL)
+    }
+
+    /// Replaces an unusable embedded CEF runtime with the streamed child
+    /// engine while preserving the pane's profile, callbacks, and URL.
+    private func fallbackFromCEF() {
+        guard !didFallbackFromCEF,
+              let oldCEF = adapter as? CEFBrowserPaneEngineAdapter else { return }
+        didFallbackFromCEF = true
+        oldCEF.onStartupFailure = nil
+        oldCEF.onSnapshot = nil
+        let stopTask = Task { @MainActor in
+            await oldCEF.stopAndWait()
+        }
+        let replacement = ChromiumBrowserPaneEngineAdapter(
+            profileID: profileID,
+            storageID: storageID,
+            remoteDebuggingPort: remoteDebuggingPort,
+            environment: chromiumRuntimeEnvironment,
+            documentScripts: oldCEF.documentScriptDefinitions(),
+            startPrerequisite: stopTask
+        )
+        replacement.onSnapshot = chromiumSnapshotHandler
+        replacement.onContentFocused = chromiumFocusHandler
+        adapter = replacement
+        replacement.start(initialURL: initialURL)
     }
 
     func waitForStartupReadiness() async {
@@ -140,13 +183,15 @@ final class BrowserPaneEngineController {
 
     /// Stops an engine at its completed lifecycle boundary when it exposes
     /// asynchronous teardown (CEF); synchronous engines stop immediately.
-    func stopAndWait() async {
+    @discardableResult
+    func stopAndWait() async -> Bool {
         if let cef = adapter as? CEFBrowserPaneEngineAdapter {
-            await cef.stopAndWait()
+            return await cef.stopAndWait()
         } else if let chromium = adapter as? ChromiumBrowserPaneEngineAdapter {
-            await chromium.stopAndWait()
+            return await chromium.stopAndWait()
         } else {
             adapter.stop()
+            return true
         }
     }
 }

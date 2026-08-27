@@ -3951,12 +3951,14 @@ class TabManager: ObservableObject {
               let tab = tabs.first(where: { $0.id == selectedTabId }),
               let focusedPanelId = tab.focusedPanelId else { return nil }
         tab.clearSplitZoom()
+        let inheritedEngine = tab.browserPanel(for: focusedPanelId)?.engineKind
         return newBrowserSplit(
             tabId: selectedTabId,
             fromPanelId: focusedPanelId,
             orientation: direction.orientation,
             insertFirst: direction.insertFirst,
-            url: url
+            url: url,
+            engine: inheritedEngine
         )
     }
 

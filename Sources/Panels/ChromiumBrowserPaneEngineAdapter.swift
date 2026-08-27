@@ -12,8 +12,8 @@ final class ChromiumBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
     private var startupTask: Task<Void, Never>?
     /// The signal-driven shutdown of the previous child. A replacement waits
     /// on this task before opening a profile that may still be locked.
-    private var stopTask: Task<Void, Never>?
-    private let startPrerequisite: Task<Void, Never>?
+    private var stopTask: Task<Bool, Never>?
+    private let startPrerequisite: Task<Bool, Never>?
     private var hasStarted = false
     private var initScriptSources: [String] = []
     private var styleScriptSources: [String] = []
@@ -82,11 +82,13 @@ final class ChromiumBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
         let pendingStop = stopTask
         stopTask = nil
         hostView.start()
-        startupTask = Task { [weak self] in
+        let startPrerequisite = self.startPrerequisite
+        startupTask = Task { [weak self, startPrerequisite] in
             guard let self else { return }
             do {
-                if let startPrerequisite {
-                    await startPrerequisite.value
+                if let startPrerequisite,
+                   !(await startPrerequisite.value) {
+                    throw CDPError.disconnected(ChromiumBrowserDiagnostic.connectionClosed.message)
                 }
                 if let pendingStop {
                     await pendingStop.value
@@ -119,7 +121,7 @@ final class ChromiumBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
     /// Begins signal-driven shutdown and returns a task that completes only
     /// after the child process has actually exited.
     @discardableResult
-    func beginStop() -> Task<Void, Never> {
+    func beginStop() -> Task<Bool, Never> {
         startupTask?.cancel()
         startupTask = nil
         documentScriptRemovalTask?.cancel()
@@ -141,9 +143,10 @@ final class ChromiumBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
         return task
     }
 
-    func stopAndWait() async {
+    @discardableResult
+    func stopAndWait() async -> Bool {
         let task = beginStop()
-        await task.value
+        return await task.value
     }
 
     func navigate(to url: URL) async throws {

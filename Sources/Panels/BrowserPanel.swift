@@ -2029,6 +2029,7 @@ final class BrowserPanel: Panel, ObservableObject {
     /// receives its own Chromium user-data directory.
     let chromiumStorageID: UUID
     private let chromiumRemoteDebuggingPort: ChromiumRemoteDebuggingPort
+    private let chromiumStartPrerequisite: Task<Bool, Never>?
 
     /// The underlying web view
     private(set) var webView: WKWebView
@@ -2351,8 +2352,9 @@ final class BrowserPanel: Panel, ObservableObject {
     var chromiumIsolationTask: Task<Void, Never>?
     /// Completes after a hidden Chromium engine has relinquished its child
     /// process/window; a visible reveal waits for this boundary before restart.
-    var chromiumMemoryDiscardTask: Task<Void, Never>?
+    var chromiumMemoryDiscardTask: Task<Bool, Never>?
     var chromiumMemoryDiscardRestoreTask: Task<Void, Never>?
+    var chromiumCloseTask: Task<Bool, Never>?
     var chromiumIsolationPending = false
     var lastRecordedChromiumNavigationRevision: UInt64?
     private(set) var navigationDelegate: BrowserNavigationDelegate?
@@ -3536,7 +3538,8 @@ final class BrowserPanel: Panel, ObservableObject {
         engine: BrowserEngineKind? = nil,
         isRemoteWorkspace: Bool = false,
         remoteWebsiteDataStoreIdentifier: UUID? = nil,
-        websiteDataStore explicitWebsiteDataStore: WKWebsiteDataStore? = nil
+        websiteDataStore explicitWebsiteDataStore: WKWebsiteDataStore? = nil,
+        chromiumStartPrerequisite: Task<Bool, Never>? = nil
     ) {
         // Register fallback defaults and normalize legacy/out-of-range settings once
         // per process, before any setting is read below or by the SwiftUI view.
@@ -3560,6 +3563,7 @@ final class BrowserPanel: Panel, ObservableObject {
         self.engineKind = resolvedEngine
         self.chromiumStorageID = chromiumStorageID ?? UUID()
         self.chromiumRemoteDebuggingPort = browserEngineSettings.remoteDebuggingPort()
+        self.chromiumStartPrerequisite = chromiumStartPrerequisite
         self.insecureHTTPBypassHostOnce = BrowserInsecureHTTPSettings.normalizeHost(bypassInsecureHTTPHostOnce ?? "")
         self.bypassesRemoteWorkspaceProxy = bypassRemoteProxy
         self.remoteProxyEndpoint = bypassRemoteProxy ? nil : proxyEndpoint
@@ -5165,7 +5169,9 @@ final class BrowserPanel: Panel, ObservableObject {
         cancelPendingInteractiveBrowserPrompts(reason: "close", cancelAuthenticationPrompts: false)
         closeBackgroundPreloadHost(reason: "close")
         closeAllPopupControllers()
-        stopChromium()
+        if isChromiumBacked {
+            _ = prepareChromiumShutdownForClose()
+        }
         webAuthnCoordinator.tearDown(from: webView); webView.stopLoading()
         designModeController.webViewWillBeRemoved(webView)
         designModeController.releaseDeliveredHandoffForTeardown()

@@ -22,12 +22,15 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
     var isBrowserWindowFocusReady: Bool { hostView.isFocusReady }
     var onSnapshot: ((ChromiumSessionSnapshot) -> Void)?
     var onContentFocused: (() -> Void)?
+    /// Called when the embedded CEF runtime cannot start; the owning
+    /// controller may replace this adapter with the streamed fallback.
+    var onStartupFailure: (() -> Void)?
     var startupReadinessTask: Task<Void, Never>? { startupTask }
 
     private let profileID: UUID
     private let storageID: UUID
     private let remoteDebuggingPort: ChromiumRemoteDebuggingPort
-    private let startPrerequisite: Task<Void, Never>?
+    private let startPrerequisite: Task<Bool, Never>?
     private let navigationPolicy: ((URL) -> Bool)?
     private var browser: CEFBrowser?
     private var devTools: CEFDevToolsClient?
@@ -64,7 +67,7 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
         storageID: UUID = UUID(),
         remoteDebuggingPort: ChromiumRemoteDebuggingPort = .disabled,
         documentScripts: [(source: String, isStyle: Bool)] = [],
-        startPrerequisite: Task<Void, Never>? = nil,
+        startPrerequisite: Task<Bool, Never>? = nil,
         navigationPolicy: ((URL) -> Bool)? = nil
     ) {
         self.profileID = profileID
@@ -96,13 +99,22 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
         startupTask?.cancel()
         let startPrerequisite = self.startPrerequisite
         startupTask = Task { @MainActor [weak self, startPrerequisite] in
-            if let startPrerequisite {
-                await startPrerequisite.value
-            }
-            await CEFRuntimeBootstrap.waitUntilSafeToInitialize()
             guard let self, self.hasStarted, !Task.isCancelled else { return }
             do {
-                try self.completeStart()
+                if let startPrerequisite,
+                   !(await startPrerequisite.value) {
+                    throw CDPError.disconnected(ChromiumBrowserDiagnostic.connectionClosed.message)
+                }
+                await CEFRuntimeBootstrap.waitUntilSafeToInitialize()
+                guard self.hasStarted, !Task.isCancelled else { return }
+                do {
+                    try self.completeStart()
+                } catch {
+                    self.cleanupAfterStartupFailure()
+                    self.publishFailure(ChromiumBrowserDiagnostic.startupFailed.message)
+                    self.onStartupFailure?()
+                    return
+                }
                 try await self.ready()
                 try await self.installStoredDocumentScripts()
                 try await self.applyStoredColorScheme()
@@ -167,22 +179,34 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
         }
         stopCompletionTask?.cancel()
         stopCompletionTask = Task { @MainActor [weak self, browser] in
-            await browser.closeAndWait()
+            let didClose = await browser.closeAndWait()
             guard let self else { return }
-            self.finishStop()
+            if didClose {
+                self.finishStop()
+            } else {
+                self.publishFailure(ChromiumBrowserDiagnostic.operationEnded.message)
+            }
         }
     }
 
     /// Closes CEF and waits for its asynchronous `.closed` callback before
     /// exposing a policy/workspace transition to the rest of cmux.
-    func stopAndWait() async {
+    @discardableResult
+    func stopAndWait() async -> Bool {
         stopCompletionTask?.cancel()
         stopCompletionTask = nil
         let browser = beginStopRequest()
-        if let browser {
-            await browser.closeAndWait()
+        guard let browser else {
+            finishStop()
+            return true
         }
-        finishStop()
+        let didClose = await browser.closeAndWait()
+        if didClose {
+            finishStop()
+        } else {
+            publishFailure(ChromiumBrowserDiagnostic.operationEnded.message)
+        }
+        return didClose
     }
 
     private func beginStopRequest() -> CEFBrowser? {

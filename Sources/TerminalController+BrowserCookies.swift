@@ -191,8 +191,10 @@ extension TerminalController {
 
     nonisolated func v2BrowserCookiesClear(params: [String: Any]) -> V2CallResult {
         return v2BrowserWithPanelContext(params: params) { ctx in
-            let unsupportedSelectors = ["value", "url", "expires", "secure"]
-                .filter { params[$0] != nil }
+            let isChromium = v2MainSync { ctx.browserPanel.isChromiumBacked }
+            let unsupportedSelectors = isChromium
+                ? ["value", "url", "expires", "secure"].filter { params[$0] != nil }
+                : []
             guard unsupportedSelectors.isEmpty else {
                 return .err(
                     code: "invalid_params",
@@ -203,7 +205,25 @@ extension TerminalController {
             let name = v2String(params, "name")
             let domain = v2String(params, "domain")
             let path = v2String(params, "path")
-            let hasScope = name != nil || domain != nil || path != nil
+            let value = v2String(params, "value")
+            let rawURL = v2String(params, "url")
+            let urlFilter: URL?
+            if let rawURL {
+                guard let parsedURL = URL(string: rawURL), parsedURL.host != nil else {
+                    return .err(
+                        code: "invalid_params",
+                        message: ChromiumBrowserDiagnostic.invalidCookiePayload.message,
+                        data: ["url": rawURL]
+                    )
+                }
+                urlFilter = parsedURL
+            } else {
+                urlFilter = nil
+            }
+            let expires = v2Int(params, "expires")
+            let secure = v2Bool(params, "secure")
+            let hasScope = name != nil || domain != nil || path != nil ||
+                value != nil || urlFilter != nil || expires != nil || secure != nil
             let hasAllParameter = params["all"] != nil
             guard !hasAllParameter || v2Bool(params, "all") != nil else {
                 return .err(
@@ -227,8 +247,15 @@ extension TerminalController {
                     data: nil
                 )
             }
-            let clearAll = all || (!hasAllParameter && !hasScope)
-            if v2MainSync({ ctx.browserPanel.isChromiumBacked }) {
+            guard all || hasScope else {
+                return .err(
+                    code: "invalid_params",
+                    message: ChromiumBrowserDiagnostic.invalidCookiePayload.message,
+                    data: nil
+                )
+            }
+            let clearAll = all
+            if isChromium {
                 switch v2ClearChromiumCookies(
                     browserPanel: ctx.browserPanel,
                     all: clearAll,
@@ -258,6 +285,20 @@ extension TerminalController {
                 if let name, cookie.name != name { return false }
                 if let domain, !cookie.domain.contains(domain) { return false }
                 if let path, cookie.path != path { return false }
+                if let value, cookie.value != value { return false }
+                if let expires {
+                    guard let cookieExpires = cookie.expiresDate else { return false }
+                    guard Int(cookieExpires.timeIntervalSince1970.rounded(.towardZero)) == expires else {
+                        return false
+                    }
+                }
+                if secure == true, !cookie.isSecure { return false }
+                if let url = urlFilter, let host = url.host {
+                    guard cookie.domain == host || cookie.domain.hasSuffix(".(host)") || host.hasSuffix(".(cookie.domain)") else {
+                        return false
+                    }
+                    guard url.path.isEmpty || url.path.hasPrefix(cookie.path) else { return false }
+                }
                 return true
             }
 

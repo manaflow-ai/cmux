@@ -35,7 +35,7 @@ public final class CEFBrowser {
     private var handle: OpaquePointer?
     private var eventContinuations: [UUID: AsyncStream<Event>.Continuation] = [:]
     private var devToolsContinuations: [UUID: AsyncStream<Data>.Continuation] = [:]
-    private var closeWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
+    private var closeWaiters: [UUID: CheckedContinuation<Bool, Never>] = [:]
     private var closeTimeoutTasks: [UUID: Task<Void, Never>] = [:]
     private var selfRetain: Unmanaged<CEFBrowser>?
     private var shouldBlockNavigation: ((URL) -> Bool)?
@@ -223,13 +223,13 @@ public final class CEFBrowser {
     ///
     /// This is the safe lifecycle boundary for policy or workspace changes:
     /// callers must not expose a replacement request context before `.closed`.
-    public func closeAndWait(timeout: Duration = .seconds(15)) async {
-        guard !isClosed else { return }
+    public func closeAndWait(timeout: Duration = .seconds(15)) async -> Bool {
+        guard !isClosed else { return true }
         let waiterID = UUID()
-        await withTaskCancellationHandler(operation: {
-            await withCheckedContinuation { continuation in
+        return await withTaskCancellationHandler(operation: {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
                 if isClosed {
-                    continuation.resume()
+                    continuation.resume(returning: true)
                     return
                 }
                 closeWaiters[waiterID] = continuation
@@ -239,13 +239,17 @@ public final class CEFBrowser {
                     } catch {
                         return
                     }
-                    await self?.finishCloseWaiter(waiterID, requestClose: true)
+                    await self?.finishCloseWaiter(
+                        waiterID,
+                        closed: false,
+                        requestClose: true
+                    )
                 }
                 close()
             }
         }, onCancel: {
             Task { @MainActor [weak self] in
-                self?.finishCloseWaiter(waiterID)
+                self?.finishCloseWaiter(waiterID, closed: false)
             }
         })
     }
@@ -278,7 +282,7 @@ public final class CEFBrowser {
         closeWaiters.removeAll()
         for task in closeTimeoutTasks.values { task.cancel() }
         closeTimeoutTasks.removeAll()
-        for waiter in waiters { waiter.resume() }
+        for waiter in waiters { waiter.resume(returning: true) }
         for continuation in eventContinuations.values { continuation.finish() }
         eventContinuations.removeAll()
         for continuation in devToolsContinuations.values { continuation.finish() }
@@ -292,11 +296,17 @@ public final class CEFBrowser {
         selfRetain = nil
     }
 
-    private func finishCloseWaiter(_ waiterID: UUID, requestClose: Bool = false) {
-        guard let waiter = closeWaiters.removeValue(forKey: waiterID) else { return }
+    @discardableResult
+    private func finishCloseWaiter(
+        _ waiterID: UUID,
+        closed: Bool,
+        requestClose: Bool = false
+    ) -> Bool {
+        guard let waiter = closeWaiters.removeValue(forKey: waiterID) else { return false }
         closeTimeoutTasks.removeValue(forKey: waiterID)?.cancel()
         if requestClose { close() }
-        waiter.resume()
+        waiter.resume(returning: closed)
+        return true
     }
 
     private func publish(_ event: Event) {
