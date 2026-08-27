@@ -103,6 +103,34 @@ struct CodexResumeBindingVerificationTests {
         #expect(results[CodexSessionResumeVerificationLimits.maximumBatchRequests] == .unavailable)
     }
 
+    @Test func fallbackCandidateTruncationIsUnavailable() throws {
+        let fixture = try Fixture(createIndex: false)
+        defer { fixture.remove() }
+
+        let directory = fixture.codexHome
+            .appendingPathComponent("sessions/2026/08/12", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let event: [String: Any] = [
+            "type": "event_msg",
+            "payload": ["type": "task_started"],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: event, options: [.sortedKeys])
+        for index in 0...512 {
+            try data.write(
+                to: directory.appendingPathComponent("unrelated-\(index).jsonl"),
+                options: .atomic
+            )
+        }
+
+        #expect(
+            CodexSessionResumeVerifier().verify(
+                sessionId: "fallback-candidate-cap-target",
+                transcriptPath: nil,
+                codexHome: fixture.codexHome.path
+            ) == .unavailable
+        )
+    }
+
     @Test func codexHomeResolverPrefersLaunchMetadataOverAmbientState() {
         let resolver = CodexHomeResolver()
         let launchCodexHome = "/tmp/launch-codex"

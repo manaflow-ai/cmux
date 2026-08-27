@@ -317,6 +317,191 @@ struct RestorableAgentSessionIndexCodexWeakRecordTests {
         )
     }
 
+    @Test
+    func testCodexNilHookRecordUsesDurableProvenanceBeforeChoosingSurfaceOwner() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-codex-nil-hook-provenance-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        let repo = root.appendingPathComponent("repo", isDirectory: true)
+        let codexHome = root.appendingPathComponent(".codex", isDirectory: true)
+        try fm.createDirectory(at: repo, withIntermediateDirectories: true)
+        try fm.createDirectory(
+            at: codexHome.appendingPathComponent("sessions/2026/08/26", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+
+        let parentID = "019ff98a-d827-7831-960d-fd9bdf7d54e2"
+        let childID = "019ff9a1-cbe1-7231-9478-0c55a8c44560"
+        let parentRollout = try writeCodexRollout(
+            codexHome: codexHome,
+            sessionID: parentID,
+            source: "cli",
+            originator: "codex-tui",
+            cwd: repo.path
+        )
+        let childRollout = try writeCodexRollout(
+            codexHome: codexHome,
+            sessionID: childID,
+            source: "review",
+            originator: "codex_exec",
+            cwd: repo.path
+        )
+        let databaseURL = codexHome.appendingPathComponent("state_5.sqlite")
+        try createCodexStateDatabase(at: databaseURL)
+        try insertCodexThread(
+            at: databaseURL,
+            sessionID: parentID,
+            rolloutPath: parentRollout.path,
+            source: "cli"
+        )
+        try insertCodexThread(
+            at: databaseURL,
+            sessionID: childID,
+            rolloutPath: childRollout.path,
+            source: "review"
+        )
+
+        let ws = UUID()
+        let panel = UUID()
+        let launchCommand: [String: Any] = [
+            "launcher": "codex",
+            "arguments": ["/usr/local/bin/codex"],
+            "workingDirectory": repo.path,
+            "environment": ["CODEX_HOME": codexHome.path],
+            "source": "environment",
+        ]
+        try writeHookStore(
+            root: root,
+            sessions: [
+                parentID: codexHookRecord(
+                    sessionId: parentID,
+                    workspaceId: ws,
+                    panelId: panel,
+                    cwd: repo.path,
+                    transcriptPath: parentRollout.path,
+                    updatedAt: 10,
+                    launchCommand: launchCommand
+                ),
+                childID: codexHookRecord(
+                    sessionId: childID,
+                    workspaceId: ws,
+                    panelId: panel,
+                    cwd: repo.path,
+                    transcriptPath: childRollout.path,
+                    updatedAt: 20,
+                    launchCommand: launchCommand
+                ),
+            ]
+        )
+
+        let snapshot = try #require(
+            RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
+                .snapshot(workspaceId: ws, panelId: panel)
+        )
+        #expect(
+            snapshot.sessionId == parentID,
+            "a nil normal hook record for a review child must not replace the TUI parent"
+        )
+    }
+
+    @Test
+    func testCodexOversizedStoreKeepsUnrelatedOwnerComplete() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-codex-oversized-store-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        let repo = root.appendingPathComponent("repo", isDirectory: true)
+        let codexHome = root.appendingPathComponent(".codex", isDirectory: true)
+        try fm.createDirectory(at: repo, withIntermediateDirectories: true)
+        try fm.createDirectory(
+            at: codexHome.appendingPathComponent("sessions/2026/08/26", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+
+        let ownerID = "019ff9b0-cbe1-7231-9478-0c55a8c44560"
+        let ownerWorkspace = UUID()
+        let ownerPanel = UUID()
+        let ownerRollout = try writeCodexRollout(
+            codexHome: codexHome,
+            sessionID: ownerID,
+            source: "cli",
+            originator: "codex-tui",
+            cwd: repo.path
+        )
+        let databaseURL = codexHome.appendingPathComponent("state_5.sqlite")
+        try createCodexStateDatabase(at: databaseURL)
+        try insertCodexThread(
+            at: databaseURL,
+            sessionID: ownerID,
+            rolloutPath: ownerRollout.path,
+            source: "cli"
+        )
+
+        var sessions: [String: [String: Any]] = [
+            ownerID: codexHookRecord(
+                sessionId: ownerID,
+                workspaceId: ownerWorkspace,
+                panelId: ownerPanel,
+                cwd: repo.path,
+                transcriptPath: ownerRollout.path,
+                updatedAt: 10_000,
+                launchCommand: [
+                    "launcher": "codex",
+                    "arguments": ["/usr/local/bin/codex"],
+                    "workingDirectory": repo.path,
+                    "environment": ["CODEX_HOME": codexHome.path],
+                    "source": "environment",
+                ]
+            ),
+        ]
+        let retainedNoiseCount = CodexSessionResumeVerificationLimits.maximumBatchRequests - 1
+        for index in 0..<retainedNoiseCount {
+            let sessionID = "noise-\(index)"
+            sessions[sessionID] = codexHookRecord(
+                sessionId: sessionID,
+                workspaceId: ownerWorkspace,
+                panelId: UUID(),
+                cwd: repo.path,
+                transcriptPath: nil,
+                updatedAt: TimeInterval(index + 1),
+                launchCommand: nil
+            )
+        }
+        let omittedWorkspace = ownerWorkspace
+        let omittedPanelA = UUID()
+        let omittedPanelB = UUID()
+        sessions["omitted-a"] = codexHookRecord(
+            sessionId: "omitted-a",
+            workspaceId: omittedWorkspace,
+            panelId: omittedPanelA,
+            cwd: repo.path,
+            transcriptPath: nil,
+            updatedAt: -1,
+            launchCommand: nil
+        )
+        sessions["omitted-b"] = codexHookRecord(
+            sessionId: "omitted-b",
+            workspaceId: omittedWorkspace,
+            panelId: omittedPanelB,
+            cwd: repo.path,
+            transcriptPath: nil,
+            updatedAt: -2,
+            launchCommand: nil
+        )
+        try writeHookStore(root: root, sessions: sessions)
+
+        let index = RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
+        #expect(index.isComplete)
+        #expect(index.isComplete(forWorkspaceId: ownerWorkspace, panelId: ownerPanel))
+        #expect(!index.isComplete(forPanelId: omittedPanelA))
+        #expect(!index.isComplete(forPanelId: omittedPanelB))
+        let snapshot = try #require(
+            index.snapshot(workspaceId: ownerWorkspace, panelId: ownerPanel)
+        )
+        #expect(snapshot.sessionId == ownerID)
+    }
+
     private func codexHookRecord(
         sessionId: String,
         workspaceId: UUID,
@@ -339,6 +524,29 @@ struct RestorableAgentSessionIndexCodexWeakRecordTests {
         if let isRestorable { record["isRestorable"] = isRestorable }
         if let launchCommand { record["launchCommand"] = launchCommand }
         return record
+    }
+
+    private func writeCodexRollout(
+        codexHome: URL,
+        sessionID: String,
+        source: String,
+        originator: String,
+        cwd: String
+    ) throws -> URL {
+        let path = codexHome
+            .appendingPathComponent("sessions/2026/08/26/rollout-\(sessionID).jsonl")
+        let metadata: [String: Any] = [
+            "type": "session_meta",
+            "payload": [
+                "id": sessionID,
+                "cwd": cwd,
+                "source": source,
+                "originator": originator,
+            ],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: metadata, options: [.sortedKeys])
+        try data.write(to: path, options: .atomic)
+        return path
     }
 
     private func createCodexStateDatabase(at url: URL) throws {
