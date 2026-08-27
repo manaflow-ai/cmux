@@ -94,9 +94,23 @@ import Testing
         "byte/snapshot replay fallbacks must not clear alternate-screen raw-byte suppression"
     )
 
+    // The unknown-screen gate is deliberately bounded. If the host remains
+    // unable to emit a structured frame, liveness eventually wins without
+    // inventing a stale primary/alternate value.
+    clock.advance(by: MobileShellComposite.terminalUnknownScreenFailOpenTimeout + 1)
+    await transport.deliver(try terminalBytesEventFrame(
+        surfaceID: "live-terminal",
+        seq: 5,
+        text: "raw-after-unknown-timeout"
+    ))
+    let rawAfterUnknownTimeoutDelivered = try await pollUntil {
+        collector.lines.contains { $0.contains("raw-after-unknown-timeout") }
+    }
+    #expect(rawAfterUnknownTimeoutDelivered)
+
     await transport.deliver(try renderGridEventFrame(
         surfaceID: "live-terminal",
-        seq: 10,
+        seq: 100,
         text: "primary-full"
     ))
     let primaryDelivered = try await pollUntil {
@@ -109,7 +123,7 @@ import Testing
     )
     await transport.deliver(try terminalBytesEventFrame(
         surfaceID: "live-terminal",
-        seq: 10,
+        seq: 100,
         text: "raw-after-primary"
     ))
     let rawAfterPrimaryDelivered = try await pollUntil {
