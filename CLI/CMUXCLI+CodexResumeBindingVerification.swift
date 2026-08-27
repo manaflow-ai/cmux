@@ -85,7 +85,8 @@ extension CMUXCLI {
         let verification = CodexSessionResumeVerifier().verify(
             sessionId: sessionId,
             transcriptPath: nil,
-            codexHome: codexHome
+            codexHome: codexHome,
+            allowLegacyFallbackForIndexedMissing: true
         )
         switch verification {
         case .exists(let evidence):
@@ -96,12 +97,10 @@ extension CMUXCLI {
                 ? .rejectedChild(evidence)
                 : .allowed(evidence)
         case .missing:
-            // #10100 may have accepted a hook transcript before Codex indexed
-            // its row. A classified TUI binding is therefore retained on this
-            // read gap; legacy/unprovenanced bindings still fail closed.
-            return codexRestoreBindingHasTUIProvenance(bindingPayload)
-                ? .unavailable
-                : .missing
+            // The restore-mode verifier has already attempted the bounded
+            // rollout bridge for a readable index. A remaining miss is
+            // definitive and may retire the guarded stale binding.
+            return .missing
         case .unavailable:
             return .unavailable
         }
@@ -203,18 +202,6 @@ extension CMUXCLI {
             (bindingPayload["checkpoint_id"] as? String)
                 ?? (bindingPayload["checkpointId"] as? String)
         )
-    }
-
-    private func codexRestoreBindingHasTUIProvenance(
-        _ bindingPayload: [String: Any]?
-    ) -> Bool {
-        guard codexRestoreBindingCheckpoint(bindingPayload) != nil,
-              let provenance = normalizedHookValue(
-                  bindingPayload?["resume_evidence_provenance"] as? String
-              ) else {
-            return false
-        }
-        return provenance.lowercased() == "tui"
     }
 
     private func isCodexRestoreBindingOwner(

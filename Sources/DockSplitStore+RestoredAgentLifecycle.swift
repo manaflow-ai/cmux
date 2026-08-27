@@ -461,7 +461,11 @@ extension DockSplitStore {
                 cancelDeferredAgentResumeRestore(panelId: panelId, restore: restore)
                 continue
             }
-            guard index.isComplete(forPanelId: restore.stablePanelID) else {
+            let expectedKind = restore.restorableAgent?.kind.rawValue ?? restore.resumeBinding?.kind
+            guard index.isComplete(
+                forPanelId: restore.stablePanelID,
+                kind: expectedKind
+            ) else {
                 cancelDeferredAgentResumeRestore(panelId: panelId, restore: restore)
                 continue
             }
@@ -499,7 +503,6 @@ extension DockSplitStore {
                 }
             }
             let ownershipPanelID = restore.stablePanelID
-            let expectedKind = restore.restorableAgent?.kind.rawValue ?? restore.resumeBinding?.kind
             let expectedSessionId = restore.restorableAgent?.sessionId ?? restore.resumeBinding?.checkpointId
             // Deferred admission has no exact-owner snapshot that can override a
             // stable-panel tie, so structural ambiguity remains fail-closed even

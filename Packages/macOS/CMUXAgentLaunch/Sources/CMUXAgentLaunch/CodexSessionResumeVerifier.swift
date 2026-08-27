@@ -20,13 +20,16 @@ public struct CodexSessionResumeVerifier: Sendable {
     ///   - transcriptPath: A hook-provided rollout candidate, when available.
     ///   - codexHome: The effective Codex state directory for the launch.
     ///   - fileManager: The filesystem implementation used for inspection.
+    ///   - allowLegacyFallbackForIndexedMissing: Whether restore-time callers
+    ///     may bridge an exact rollout when a readable index has no row.
     /// - Returns: Exact evidence, missing, or safely unavailable. Legacy scans
     ///   are bounded by bytes, lines, candidates, and entries and fail closed.
     public func verify(
         sessionId: String,
         transcriptPath: String?,
         codexHome: String,
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        allowLegacyFallbackForIndexedMissing: Bool = false
     ) -> CodexSessionResumeVerification {
         verifyBatch(
             [CodexSessionResumeVerificationRequest(
@@ -34,7 +37,8 @@ public struct CodexSessionResumeVerifier: Sendable {
                 transcriptPath: transcriptPath
             )],
             codexHome: codexHome,
-            fileManager: fileManager
+            fileManager: fileManager,
+            allowLegacyFallbackForIndexedMissing: allowLegacyFallbackForIndexedMissing
         ).first ?? .missing
     }
 
@@ -50,18 +54,22 @@ public struct CodexSessionResumeVerifier: Sendable {
     ///   - requests: The exact identities and optional hook rollout candidates.
     ///   - codexHome: The effective Codex state directory.
     ///   - fileManager: The filesystem implementation used for inspection.
+    ///   - allowLegacyFallbackForIndexedMissing: Whether restore-time callers
+    ///     may bridge an exact rollout when a readable index has no row.
     /// - Returns: Results for at most the configured maximum batch size.
     public func verifyBatch(
         _ requests: [CodexSessionResumeVerificationRequest],
         codexHome: String,
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        allowLegacyFallbackForIndexedMissing: Bool = false
     ) -> [CodexSessionResumeVerification] {
         var readBudget = CodexSessionResumeVerificationLimits()
         return verifyBatch(
             requests,
             codexHome: codexHome,
             readBudget: &readBudget,
-            fileManager: fileManager
+            fileManager: fileManager,
+            allowLegacyFallbackForIndexedMissing: allowLegacyFallbackForIndexedMissing
         )
     }
 
@@ -76,12 +84,15 @@ public struct CodexSessionResumeVerifier: Sendable {
     ///   - codexHome: The effective Codex state directory.
     ///   - readBudget: Shared aggregate rollout-read budget.
     ///   - fileManager: The filesystem implementation used for inspection.
+    ///   - allowLegacyFallbackForIndexedMissing: Whether restore-time callers
+    ///     may bridge an exact rollout when a readable index has no row.
     /// - Returns: Results for at most the configured maximum batch size.
     public func verifyBatch(
         _ requests: [CodexSessionResumeVerificationRequest],
         codexHome: String,
         readBudget: inout CodexSessionResumeVerificationLimits,
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        allowLegacyFallbackForIndexedMissing: Bool = false
     ) -> [CodexSessionResumeVerification] {
         guard !requests.isEmpty else { return [] }
         let home = expandedPath(codexHome)
@@ -159,6 +170,7 @@ public struct CodexSessionResumeVerifier: Sendable {
             }
             return results
         }
+        var indexedMissingSessionIDs = Set<String>()
         for (index, request) in verificationRequests.enumerated() {
             guard !request.sessionId.isEmpty else { continue }
             switch indexedResults[request.sessionId] ?? .threadMissing {
@@ -197,11 +209,38 @@ public struct CodexSessionResumeVerifier: Sendable {
                     // A shared budget exhaustion is an inconclusive read, not
                     // evidence that this indexed-missing thread is absent.
                     results[index] = .unavailable
+                } else if allowLegacyFallbackForIndexedMissing {
+                    indexedMissingSessionIDs.insert(request.sessionId)
                 }
             case .databaseMissing, .unavailable:
                 // The database existed when the batch started, so a race
                 // that removes it or makes it unreadable is unavailable.
                 results[index] = .unavailable
+            }
+        }
+        if allowLegacyFallbackForIndexedMissing, !indexedMissingSessionIDs.isEmpty {
+            let scan = legacyRolloutScanner.scan(
+                sessionIDs: indexedMissingSessionIDs,
+                sessionsRoot: URL(fileURLWithPath: home, isDirectory: true)
+                    .appendingPathComponent("sessions", isDirectory: true),
+                fileManager: fileManager,
+                readBudget: &readBudget
+            )
+            for (index, request) in verificationRequests.enumerated()
+                where indexedMissingSessionIDs.contains(request.sessionId)
+                    && results[index] == .missing {
+                if let match = scan.found[request.sessionId] {
+                    results[index] = .exists(makeEvidence(
+                        sessionId: request.sessionId,
+                        path: match.path,
+                        source: .legacyRollout,
+                        metadata: match.metadata,
+                        indexedSource: nil,
+                        threadSource: nil
+                    ))
+                } else if scan.sawUnavailable {
+                    results[index] = .unavailable
+                }
             }
         }
         return results

@@ -1037,6 +1037,12 @@ struct RestorableAgentSessionIndex: Sendable {
     /// verification pass or had inconclusive durable evidence.
     private let incompleteCodexPanelKeys: Set<PanelKey>
     private let incompleteCodexPanelIds: Set<UUID>
+    /// Panel owners that completed the bounded Codex verification pass.
+    private let verifiedCodexPanelKeys: Set<PanelKey>
+    private let verifiedCodexPanelIds: Set<UUID>
+    /// Whether truncation left additional Codex panels without a retained
+    /// per-panel marker. Such panels are incomplete unless explicitly verified.
+    private let hasUnboundedCodexIncompleteness: Bool
     private let candidatesByPanelId: [UUID: [(PanelKey, Entry)]]
     private let entriesByPanelId: [UUID: Entry]
     private let ambiguousPanelIds: Set<UUID>
@@ -1067,10 +1073,21 @@ struct RestorableAgentSessionIndex: Sendable {
     /// A bounded Codex history can be incomplete for one panel while unrelated
     /// verified owners remain safe to restore. A global store failure still
     /// makes every owner incomplete through the global flag.
-    func isComplete(forWorkspaceId workspaceId: UUID, panelId: UUID) -> Bool {
-        isComplete && !incompleteCodexPanelKeys.contains(
-            PanelKey(workspaceId: workspaceId, panelId: panelId)
-        )
+    func isComplete(
+        forWorkspaceId workspaceId: UUID,
+        panelId: UUID,
+        kind: String? = nil
+    ) -> Bool {
+        guard isComplete else { return false }
+        guard kind?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "codex"
+                || kind == nil else {
+            return true
+        }
+        let key = PanelKey(workspaceId: workspaceId, panelId: panelId)
+        if incompleteCodexPanelKeys.contains(key) {
+            return false
+        }
+        return !hasUnboundedCodexIncompleteness || verifiedCodexPanelKeys.contains(key)
     }
 
     /// Whether the durable index is complete for a restart-stable panel identity.
@@ -1078,8 +1095,16 @@ struct RestorableAgentSessionIndex: Sendable {
     /// Deferred restore admission has the stable panel UUID but may not have
     /// the pre-restart workspace UUID, so this form intentionally ignores the
     /// workspace component.
-    func isComplete(forPanelId panelId: UUID) -> Bool {
-        isComplete && !incompleteCodexPanelIds.contains(panelId)
+    func isComplete(forPanelId panelId: UUID, kind: String? = nil) -> Bool {
+        guard isComplete else { return false }
+        guard kind?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "codex"
+                || kind == nil else {
+            return true
+        }
+        if incompleteCodexPanelIds.contains(panelId) {
+            return false
+        }
+        return !hasUnboundedCodexIncompleteness || verifiedCodexPanelIds.contains(panelId)
     }
 
     /// Fingerprint used by the shared index cache to publish scoped completion
@@ -1091,6 +1116,12 @@ struct RestorableAgentSessionIndex: Sendable {
         if !isComplete {
             values.append("global")
         }
+        if hasUnboundedCodexIncompleteness {
+            values.append("codex-omitted")
+        }
+        values.append(contentsOf: verifiedCodexPanelKeys.map {
+            "codex-verified|" + $0.workspaceId.uuidString + "|" + $0.panelId.uuidString
+        })
         return Set(values)
     }
 
@@ -1504,7 +1535,9 @@ struct RestorableAgentSessionIndex: Sendable {
         return RestorableAgentSessionIndex(
             entriesByPanel: revalidatedEntries,
             isComplete: self.isComplete,
-            incompleteCodexPanelKeys: self.incompleteCodexPanelKeys
+            incompleteCodexPanelKeys: self.incompleteCodexPanelKeys,
+            verifiedCodexPanelKeys: self.verifiedCodexPanelKeys,
+            hasUnboundedCodexIncompleteness: self.hasUnboundedCodexIncompleteness
         )
     }
 
@@ -1615,6 +1648,8 @@ struct RestorableAgentSessionIndex: Sendable {
         var codexRequestKeys = Set<String>()
         var codexRequestCount = 0
         var incompleteCodexPanelKeys = Set<PanelKey>()
+        var verifiedCodexPanelKeys = Set<PanelKey>()
+        var hasUnboundedCodexIncompleteness = false
         var codexIndexedStoreByHome: [String: Bool] = [:]
         var codexHookRecordsForIndex: [RestorableAgentHookSessionRecord]?
 
@@ -1686,13 +1721,6 @@ struct RestorableAgentSessionIndex: Sendable {
             if candidateRestorable != existingRestorable {
                 return candidateRestorable
             }
-            let candidateCurrent = (candidate.pid ?? 0) > 0
-                || candidate.agentLifecycle == .running
-            let existingCurrent = (existing.pid ?? 0) > 0
-                || existing.agentLifecycle == .running
-            if candidateCurrent != existingCurrent {
-                return candidateCurrent
-            }
             if candidate.updatedAt != existing.updatedAt {
                 return candidate.updatedAt > existing.updatedAt
             }
@@ -1713,8 +1741,9 @@ struct RestorableAgentSessionIndex: Sendable {
             from values: Dictionary<String, RestorableAgentHookSessionRecord>.Values
         ) -> (records: [RestorableAgentHookSessionRecord], truncated: Bool) {
             // Keep a bounded top-K instead of sorting/materializing the full
-            // history. Restorable/current records outrank legacy entries, and
-            // timestamps plus identity provide a stable tie-breaker.
+            // history. Explicitly restorable records outrank legacy entries;
+            // timestamps and identity provide stable tie-breakers. Persisted
+            // PIDs are intentionally not used here because they may be stale.
             let maximum = CodexSessionResumeVerificationLimits.maximumBatchRequests
             var selected: [RestorableAgentHookSessionRecord] = []
             selected.reserveCapacity(maximum)
@@ -1783,14 +1812,21 @@ struct RestorableAgentSessionIndex: Sendable {
                 codexHookRecordsForIndex = selection.records
                 if selection.truncated {
                     let selectedIdentities = Set(selection.records.map(codexRecordSelectionIdentity))
+                    let selectedPanelKeys = Set(selection.records.compactMap(codexPanelKey))
                     for record in state.sessions.values {
                         guard record.isRestorable != false,
                               normalizedNonEmptyValue(record.launchCommand?.source)?.lowercased() != "rejected",
-                              !selectedIdentities.contains(codexRecordSelectionIdentity(record)),
-                              let panelKey = codexPanelKey(for: record) else {
+                              !selectedIdentities.contains(codexRecordSelectionIdentity(record)) else {
                             continue
                         }
-                        incompleteCodexPanelKeys.insert(panelKey)
+                        guard let panelKey = codexPanelKey(for: record) else {
+                            continue
+                        }
+                        if selectedPanelKeys.contains(panelKey) {
+                            incompleteCodexPanelKeys.insert(panelKey)
+                        } else {
+                            hasUnboundedCodexIncompleteness = true
+                        }
                     }
                 }
                 for rawRecord in selection.records {
@@ -1907,6 +1943,7 @@ struct RestorableAgentSessionIndex: Sendable {
                     isComplete = false
                     continue
                 }
+                let panelKey = PanelKey(workspaceId: workspaceId, panelId: panelId)
                 let codexKey = kind == .codex
                     ? codexVerificationKey(for: effectiveRecord)
                     : nil
@@ -1921,9 +1958,7 @@ struct RestorableAgentSessionIndex: Sendable {
                     // A selected record that was not durably inspected (or
                     // hit a transient read limit) leaves this panel
                     // inconclusive, but must not poison unrelated owners.
-                    incompleteCodexPanelKeys.insert(
-                        PanelKey(workspaceId: workspaceId, panelId: panelId)
-                    )
+                    incompleteCodexPanelKeys.insert(panelKey)
                 }
                 let codexOwnerIsAdmitted = hookRecordIsRestorable(
                     effectiveRecord,
@@ -1938,12 +1973,13 @@ struct RestorableAgentSessionIndex: Sendable {
                     // still unsafe for binding-only automatic restore. Keep
                     // this panel deferred so the restore boundary can clear
                     // only the rejected checkpoint.
-                    incompleteCodexPanelKeys.insert(
-                        PanelKey(workspaceId: workspaceId, panelId: panelId)
-                    )
+                    incompleteCodexPanelKeys.insert(panelKey)
                 }
                 guard codexOwnerIsAdmitted else {
                     continue
+                }
+                if kind == .codex {
+                    verifiedCodexPanelKeys.insert(panelKey)
                 }
                 let snapshot = SessionRestorableAgentSnapshot(
                     kind: kind,
@@ -1960,7 +1996,7 @@ struct RestorableAgentSessionIndex: Sendable {
                     registration: registration,
                     permissionMode: effectiveRecord.lastPermissionMode
                 )
-                let key = PanelKey(workspaceId: workspaceId, panelId: panelId)
+                let key = panelKey
                 let sessionKey = SessionKey(kind: kind, sessionId: normalizedSessionId)
                 let panelKindKey = PanelKindKey(panelKey: key, kind: kind)
                 let panelIDKindKey = PanelIDKindKey(panelId: panelId, kind: kind)
@@ -2178,7 +2214,9 @@ struct RestorableAgentSessionIndex: Sendable {
         return RestorableAgentSessionIndex(
             entriesByPanel: resolved,
             isComplete: isComplete,
-            incompleteCodexPanelKeys: incompleteCodexPanelKeys
+            incompleteCodexPanelKeys: incompleteCodexPanelKeys,
+            verifiedCodexPanelKeys: verifiedCodexPanelKeys,
+            hasUnboundedCodexIncompleteness: hasUnboundedCodexIncompleteness
         )
     }
 
@@ -3379,12 +3417,17 @@ struct RestorableAgentSessionIndex: Sendable {
     private init(
         entriesByPanel: [PanelKey: Entry],
         isComplete: Bool = true,
-        incompleteCodexPanelKeys: Set<PanelKey> = []
+        incompleteCodexPanelKeys: Set<PanelKey> = [],
+        verifiedCodexPanelKeys: Set<PanelKey> = [],
+        hasUnboundedCodexIncompleteness: Bool = false
     ) {
         self.entriesByPanel = entriesByPanel
         self.isComplete = isComplete
         self.incompleteCodexPanelKeys = incompleteCodexPanelKeys
         self.incompleteCodexPanelIds = Set(incompleteCodexPanelKeys.map(\.panelId))
+        self.verifiedCodexPanelKeys = verifiedCodexPanelKeys
+        self.verifiedCodexPanelIds = Set(verifiedCodexPanelKeys.map(\.panelId))
+        self.hasUnboundedCodexIncompleteness = hasUnboundedCodexIncompleteness
         // Keep only the bounded candidate prefix while indexing. Exact owner
         // lookups still use `entriesByPanel`, but stable-panel resolution must
         // never retain or sort an unbounded owner history a second time.
