@@ -1225,6 +1225,12 @@ class TerminalController {
                     }
                 }
             }
+            if let feedResult = controlCommandCoordinator.handleSocketWorkerFeed(
+                parsedRequest,
+                context: self
+            ) {
+                return Self.v2Encoder.response(id: parsedRequest.id, feedResult)
+            }
             // Coordinator-owned worker-lane bodies (the tranche-D resolution
             // reads): nonisolated coordinator code runs on this worker thread
             // — pure parse plus JSON payload build — with ONE

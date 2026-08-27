@@ -6,10 +6,10 @@ internal import Foundation
 /// dictionaries); the resulting Foundation object is identical, so the encoded
 /// wire bytes match.
 ///
-/// The worker-lane feed methods (`feed.push`, `feed.permission.reply`,
-/// `feed.question.reply`, `feed.exit_plan.reply`) block or await on the socket
-/// worker and remain on the app-side worker path — they are deliberately NOT
-/// dispatched here.
+/// The blocking feed methods (`feed.push`, `feed.permission.reply`,
+/// `feed.question.reply`, `feed.exit_plan.reply`) remain on the app-side worker
+/// path. `feed.jump` has both synchronous and asynchronous entrypoints so the
+/// in-process dispatcher and the real socket share the same response shape.
 extension ControlCommandCoordinator {
     /// Dispatches the feed methods this coordinator owns; returns `nil` for
     /// anything else so the core `handle(_:)` can fall through.
@@ -23,6 +23,34 @@ extension ControlCommandCoordinator {
         default:
             return nil
         }
+    }
+
+    /// Handles the synchronous worker-lane `feed.jump` call used by
+    /// in-process socket-line callers. The app seam performs the legacy
+    /// filesystem lookup off the main actor.
+    public nonisolated func handleSocketWorkerFeed(
+        _ request: ControlRequest,
+        context: (any ControlCommandContext)?
+    ) -> ControlCallResult? {
+        guard request.method == "feed.jump" else { return nil }
+        guard let workstreamID = rawString(request.params, "workstream_id") else {
+            return .err(
+                code: "invalid_params",
+                message: context?.controlFeedInvalidJumpMessage()
+                    ?? String(
+                        localized: "socket.feed.jump.invalidParams",
+                        defaultValue: "feed.jump requires workstream_id"
+                    ),
+                data: nil
+            )
+        }
+        let matched = context?.controlFeedResolvePossibleSurface(
+            workstreamID: workstreamID
+        ) ?? false
+        return .ok(.object([
+            "workstream_id": .string(workstreamID),
+            "matched": .bool(matched),
+        ]))
     }
 
     /// Dispatches the asynchronous `feed.jump` lookup. The socket worker

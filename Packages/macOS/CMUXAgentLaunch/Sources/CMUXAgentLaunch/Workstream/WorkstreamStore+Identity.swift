@@ -3,7 +3,7 @@ import Foundation
 extension WorkstreamStore {
     /// Applies the app-provided workstream identity migration to one item.
     func normalizedWorkstreamItem(_ item: WorkstreamItem) -> WorkstreamItem {
-        let normalizedID = workstreamIDNormalizer(item.workstreamId, item.source)
+        let normalizedID = workstreamIDNormalizer(item.workstreamId, item.source.rawValue)
         guard normalizedID != item.workstreamId else { return item }
         return WorkstreamItem(
             id: item.id,

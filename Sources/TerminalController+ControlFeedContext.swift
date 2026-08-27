@@ -8,9 +8,11 @@ import Foundation
 /// bodies performed, with the per-item encoding (`FeedSocketEncoding.itemDict`)
 /// bridged to `JSONValue` so the wire bytes match exactly.
 ///
-/// Only the MAIN-ACTOR feed methods move here. The worker-lane feed methods
-/// (`feed.push`, `feed.permission.reply`, `feed.question.reply`,
-/// `feed.exit_plan.reply`) stay on the app-side socket-worker path.
+/// Feed jump exposes both async and synchronous resolution witnesses: the real
+/// socket awaits the actor-owned lookup, while off-main in-process workers use
+/// the direct compatibility reader. The blocking feed methods (`feed.push`,
+/// `feed.permission.reply`, `feed.question.reply`, `feed.exit_plan.reply`)
+/// stay on the app-side socket-worker path.
 extension TerminalController: ControlFeedContext {
     nonisolated func controlFeedInvalidJumpMessage() -> String {
         String(
@@ -23,6 +25,12 @@ extension TerminalController: ControlFeedContext {
         workstreamID: String
     ) async -> Bool {
         await FeedCoordinator.shared.resolvePossibleSurfaceAsync(for: workstreamID)
+    }
+
+    nonisolated func controlFeedResolvePossibleSurface(
+        workstreamID: String
+    ) -> Bool {
+        FeedJumpResolver.resolve(workstreamID) != nil
     }
 
     @MainActor

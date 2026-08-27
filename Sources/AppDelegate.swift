@@ -1440,7 +1440,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 titleProvider: Self.feedWorkstreamTitle(for:),
                 workstreamIDNormalizer: { rawValue, source in
                     FeedWorkstreamIdentifier.canonicalizedRawValue(
-                        agentID: source.rawValue,
+                        agentID: source,
                         rawValue: rawValue
                     )
                 }

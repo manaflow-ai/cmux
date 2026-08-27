@@ -34033,7 +34033,8 @@ export default CMUXSessionRestore;
                     )
                     let pendingMeta = AgentHookNotifyCategory.needsPermission.metaSegment(
                         pending: false,
-                        agentKind: def.name,
+                        agentID: def.name,
+                        alertType: .needsInput,
                         isSubagent: false,
                         correlationKey: resolution.remainingNotificationCorrelationKey
                     )

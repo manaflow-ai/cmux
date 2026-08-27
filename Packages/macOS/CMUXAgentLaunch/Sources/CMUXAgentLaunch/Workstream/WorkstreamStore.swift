@@ -41,7 +41,7 @@ public final class WorkstreamStore {
     private let clock: @Sendable () -> Date
     private let titleProvider: (WorkstreamEvent) -> String?
     /// App-owned migration hook for versioned workstream identities.
-    let workstreamIDNormalizer: @Sendable (String, WorkstreamSource) -> String
+    let workstreamIDNormalizer: @Sendable (String, String) -> String
     private var oldestLoadedPersistenceOffset: UInt64?
 
     /// Last known conversational context for each workstream. Tool hooks
@@ -60,7 +60,9 @@ public final class WorkstreamStore {
     ///   - clock: Clock used for timestamps and expiry checks.
     ///   - titleProvider: App boundary hook for localized display titles.
     ///   - workstreamIDNormalizer: Optional migration for legacy ids loaded
-    ///     from persistence or received from a producer.
+    ///     from persistence or received from a producer. The second argument
+    ///     is the raw producer identity, including registered agents not yet
+    ///     represented by ``WorkstreamSource``.
     public init(
         transport: any WorkstreamTransport = NullWorkstreamTransport(),
         persistence: WorkstreamPersistence? = nil,
@@ -69,7 +71,7 @@ public final class WorkstreamStore {
         historyPageSize: Int = WorkstreamDefaultHistoryPageSize,
         clock: @escaping @Sendable () -> Date = { Date() },
         titleProvider: @escaping (WorkstreamEvent) -> String? = { _ in nil },
-        workstreamIDNormalizer: @escaping @Sendable (String, WorkstreamSource) -> String = { rawValue, _ in
+        workstreamIDNormalizer: @escaping @Sendable (String, String) -> String = { rawValue, _ in
             rawValue
         }
     ) {
@@ -222,7 +224,7 @@ public final class WorkstreamStore {
         let (kind, payload) = decode(event: event, source: source)
         let status: WorkstreamStatus = kind.isActionable ? .pending : .telemetry
         return WorkstreamItem(
-            workstreamId: workstreamIDNormalizer(event.sessionId, source),
+            workstreamId: workstreamIDNormalizer(event.sessionId, event.source),
             source: source,
             kind: kind,
             createdAt: event.receivedAt,

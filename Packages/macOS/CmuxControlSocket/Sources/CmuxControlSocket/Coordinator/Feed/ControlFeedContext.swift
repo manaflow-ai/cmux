@@ -8,9 +8,11 @@
 ///
 /// The app target (today `TerminalController`, the interim composition owner;
 /// later `TerminalControlComposition`) conforms by reaching `FeedCoordinator`
-/// state. `feed.jump` is asynchronous and actor-owned so hook-session reads do
-/// not run on the socket worker or main actor. `feed.list` remains main-actor
-/// isolated because it snapshots the observable Feed store.
+/// state. The real socket uses the asynchronous `feed.jump` seam so hook-session
+/// reads do not run on the main actor; in-process worker callers use the
+/// synchronous seam after establishing their off-main execution context.
+/// `feed.list` remains main-actor isolated because it snapshots the observable
+/// Feed store.
 @MainActor
 public protocol ControlFeedContext: AnyObject {
     /// Localized validation text for a malformed `feed.jump` request. The app
@@ -23,6 +25,12 @@ public protocol ControlFeedContext: AnyObject {
     nonisolated func controlFeedResolvePossibleSurfaceAsync(
         workstreamID: String
     ) async -> Bool
+
+    /// Synchronously resolves a workstream id for in-process callers that
+    /// cannot suspend. The caller must already be off the main actor.
+    nonisolated func controlFeedResolvePossibleSurface(
+        workstreamID: String
+    ) -> Bool
 
     /// Snapshots the workstream feed items for `feed.list`, already shaped as the
     /// per-item JSON the legacy `FeedSocketEncoding.itemDict` produced and bridged
