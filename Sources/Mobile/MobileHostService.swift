@@ -483,6 +483,7 @@ final class MobileHostService {
         } else {
             MobileHostIrohRuntime.shared.configure(auth: auth)
         }
+        MobileHostRelayRuntime.shared.configure(auth: auth)
     }
 
     func updateIrohRoute(
@@ -1132,6 +1133,7 @@ final class MobileHostService {
 
     func stop() {
         MobileHostIrohRuntime.shared.setDesiredActive(false)
+        MobileHostRelayRuntime.shared.setDesiredActive(false)
         stopLegacyListener(reason: "service stopped")
         for connection in MobileHostConnectionRegistry.shared.removeAll() {
             Task { await connection.close(reason: "service stopped") }
@@ -1289,6 +1291,10 @@ final class MobileHostService {
         // Settings control only the legacy TCP/Tailscale listener. Account-
         // authenticated Iroh stays available for signed-in Macs.
         MobileHostIrohRuntime.shared.setDesiredActive(true)
+        // The relay host is opt-in per Mac: off means zero relay connections.
+        MobileHostRelayRuntime.shared.setDesiredActive(
+            MobileHostRelayRuntime.isEnabled(defaults: defaults)
+        )
         // An invalid stored port (`resolvedDesiredPort == nil`, e.g. mid-edit)
         // must not restart a running listener. Treat it as "no change" by
         // reusing the applied port; a fresh start still binds the default via
@@ -1482,7 +1488,7 @@ final class MobileHostService {
         stackAuthorization: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?
     ) async -> MobileHostRPCResult? {
         switch authorization {
-        case .stackBearer:
+        case .stackBearer, .relaySession:
             guard requiresAuthorization(method: request.method) else { return nil }
             return await stackAuthorization(request)
         case .irohAdmission:
@@ -1497,7 +1503,7 @@ final class MobileHostService {
         stackStatus: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult
     ) async -> MobileHostRPCResult {
         switch authorization {
-        case .stackBearer:
+        case .stackBearer, .relaySession:
             return await stackStatus(request)
         case .irohAdmission:
             let phonePushStatus = await MainActor.run {

@@ -854,6 +854,7 @@ public enum DiagnosticConnectionMethod: Int, Sendable, Codable, CaseIterable {
     case automatic = 0
     case tailscale = 1
     case direct = 2
+    case relay = 3
 }
 
 /// High-level lifecycle state for one phone-controlled Simulator stream.

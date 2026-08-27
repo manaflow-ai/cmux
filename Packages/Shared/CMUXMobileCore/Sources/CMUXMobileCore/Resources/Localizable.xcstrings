@@ -120,6 +120,23 @@
         }
       }
     },
+    "diagnostics.connectionMethod.relay": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relay"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リレー"
+          }
+        }
+      }
+    },
     "diagnostics.connectionMethod.tailscale": {
       "extractionState": "manual",
       "localizations": {

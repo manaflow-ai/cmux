@@ -9,6 +9,7 @@ import SwiftUI
 @MainActor
 public struct MobileSection: View {
     @State private var iOSPairingHost: DefaultsValueModel<Bool>
+    @State private var relayHost: DefaultsValueModel<Bool>
     @State private var port: DefaultsValueModel<Int>
     @State private var displayName: DefaultsValueModel<String>
     @State private var artifactFolderAccess: DefaultsValueModel<MobileArtifactFolderAccess>
@@ -52,6 +53,7 @@ public struct MobileSection: View {
         hostActions: SettingsHostActions
     ) {
         _iOSPairingHost = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.mobile.iOSPairingHost))
+        _relayHost = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.mobile.relayHost))
         _port = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.mobile.iOSPairingPort))
         _displayName = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.mobile.iOSPairingDisplayName))
         _artifactFolderAccess = State(initialValue: DefaultsValueModel(
@@ -105,6 +107,8 @@ public struct MobileSection: View {
                     SettingsCardDivider()
                     iOSPairingHostRow
                     SettingsCardDivider()
+                    relayHostRow
+                    SettingsCardDivider()
                     portRow
                     boundPortStatusRow
                     SettingsCardDivider()
@@ -137,6 +141,7 @@ public struct MobileSection: View {
     private func startObservingSettings() {
         let models: [any SettingObservationStarting] = [
             iOSPairingHost,
+            relayHost,
             port,
             displayName,
             artifactFolderAccess,
@@ -283,6 +288,23 @@ public struct MobileSection: View {
                 .labelsHidden()
                 .controlSize(.small)
                 .accessibilityIdentifier("SettingsMobileIOSPairingHostToggle")
+        }
+    }
+
+    @ViewBuilder
+    private var relayHostRow: some View {
+        SettingsCardRow(
+            configurationReview: .settingsOnly,
+            searchAnchorID: "setting:mobile:relayHost",
+            String(localized: "settings.mobile.relayHost", defaultValue: "Relay Remote Access"),
+            subtitle: relayHost.current
+                ? String(localized: "settings.mobile.relayHost.subtitleOn", defaultValue: "This Mac stays reachable from your iPhone anywhere through the cmux relay.")
+                : String(localized: "settings.mobile.relayHost.subtitleOff", defaultValue: "Off: this Mac never connects to the cmux relay. Independent of Tailscale pairing; the two never substitute for each other.")
+        ) {
+            Toggle("", isOn: Binding(get: { relayHost.current }, set: { relayHost.set($0) }))
+                .labelsHidden()
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsMobileRelayHostToggle")
         }
     }
 

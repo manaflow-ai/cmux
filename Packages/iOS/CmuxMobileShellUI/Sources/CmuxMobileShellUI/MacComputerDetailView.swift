@@ -317,6 +317,12 @@ struct MacComputerDetailView: View {
                 ))
                 .tag(MobileConnectionMethod.direct)
                 .accessibilityIdentifier("MobileComputerConnectionMethodDirect")
+                Text(L10n.string(
+                    "mobile.connections.method.relay",
+                    defaultValue: "Relay"
+                ))
+                .tag(MobileConnectionMethod.relay)
+                .accessibilityIdentifier("MobileComputerConnectionMethodRelay")
             }
             .accessibilityIdentifier("MobileComputerConnectionMethod")
             // Tailscale Only with no authorized route for THIS computer is
@@ -606,6 +612,11 @@ struct MacComputerDetailView: View {
                 network, then scan the Mac's pairing code once. cmux stays disconnected until that local \
                 authorization exists.
                 """
+            )
+        case .relay:
+            return L10n.string(
+                "mobile.settings.connectionMethod.relayFooter",
+                defaultValue: "Connects through the cmux relay: works from anywhere, one WebSocket, no VPN. Requires Relay Remote Access to be enabled on the Mac. No other method is ever used as a fallback."
             )
         }
     }

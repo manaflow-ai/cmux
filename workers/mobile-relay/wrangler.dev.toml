@@ -1,0 +1,19 @@
+# Dev/staging deployment of the mobile relay: same code, separate worker name,
+# no custom domain (served from workers.dev). Deploy with:
+#   wrangler deploy --config wrangler.dev.toml
+# Provision its own MOBILE_RELAY_TICKET_SECRET; dev and prod never share it.
+
+name = "cmux-mobile-relay-dev"
+main = "src/index.ts"
+compatibility_date = "2026-05-01"
+
+[observability]
+enabled = true
+
+[[durable_objects.bindings]]
+name = "HOST_RELAY"
+class_name = "HostRelay"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["HostRelay"]

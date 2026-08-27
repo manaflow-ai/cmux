@@ -21234,6 +21234,40 @@
         }
       }
     },
+    "mobile.connections.method.relay": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relay"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リレー"
+          }
+        }
+      }
+    },
+    "mobile.settings.connectionMethod.relayFooter": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connects through the cmux relay: works from anywhere, one WebSocket, no VPN. Requires Relay Remote Access to be enabled on the Mac. No other method is ever used as a fallback."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux リレー経由で接続します。どこからでも 1 本の WebSocket で接続でき、VPN は不要です。Mac 側でリレーリモートアクセスを有効にする必要があります。他の接続方法へのフォールバックは行いません。"
+          }
+        }
+      }
+    },
     "mobile.connections.method.tailscale": {
       "extractionState": "manual",
       "localizations": {

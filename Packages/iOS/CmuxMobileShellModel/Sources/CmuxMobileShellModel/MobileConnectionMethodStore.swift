@@ -15,6 +15,11 @@ public enum MobileConnectionMethod: String, CaseIterable, Sendable {
     /// Computer (LAN, WireGuard, or any other reachable network). No other
     /// method is ever used as a fallback while this method is selected.
     case direct
+    /// Dial only the cmux mobile relay (one WebSocket through the HostRelay
+    /// Durable Object). Requires the Mac's "Relay Remote Access" toggle; no
+    /// other method is ever used as a fallback while this method is selected,
+    /// and no other method ever falls back to the relay.
+    case relay
 }
 
 extension MobileConnectionMethod {
@@ -25,6 +30,7 @@ extension MobileConnectionMethod {
         case .automatic: .automatic
         case .tailscale: .tailscale
         case .direct: .direct
+        case .relay: .relay
         }
     }
 }

@@ -138,6 +138,7 @@ enum SettingsSearchAliasIndex {
         "betaFeatures:feed": localized("settings.search.alias.setting.betaFeatures.feed", defaultValue: "feed right sidebar agent decisions permissions questions approval beta unstable"),
         "betaFeatures:dock": localized("settings.search.alias.setting.betaFeatures.dock", defaultValue: "dock right sidebar terminal controls tui beta unstable"),
         "mobile:iOSPairingHost": localized("settings.search.alias.setting.mobile.iOSPairingHost", defaultValue: "ios iphone ipad mobile pairing local network permission sync"),
+        "mobile:relayHost": localized("settings.search.alias.setting.mobile.relayHost", defaultValue: "mobile ios iphone relay remote access cloudflare websocket anywhere"),
         "mobile:iOSPairingPort": localized("settings.search.alias.setting.mobile.iOSPairingPort", defaultValue: "mobile ios iphone pairing port tcp listener firewall conflict bind"),
         "mobile:iOSPairingDisplayName": localized("settings.search.alias.setting.mobile.iOSPairingDisplayName", defaultValue: "mobile ios iphone pairing display name mac hostname device label"),
         "mobile:artifactFolderAccess": localized("settings.search.alias.setting.mobile.artifactFolderAccess", defaultValue: "mobile ios iphone files folders directory subtree one level authorization security"),
