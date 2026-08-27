@@ -11,7 +11,7 @@ supplemented by five named audit turns in this wave.
 
 The current main tail includes [#10936](https://github.com/manaflow-ai/cmux/pull/10936),
 [#10944](https://github.com/manaflow-ai/cmux/pull/10944), and
-[#10950](https://github.com/manaflow-ai/cmux/pull/10950), [#10951](https://github.com/manaflow-ai/cmux/pull/10951), [#10954](https://github.com/manaflow-ai/cmux/pull/10954), [#10958](https://github.com/manaflow-ai/cmux/pull/10958), [#10962](https://github.com/manaflow-ai/cmux/pull/10962), [#10970](https://github.com/manaflow-ai/cmux/pull/10970), [#10959](https://github.com/manaflow-ai/cmux/pull/10959), and [#10929](https://github.com/manaflow-ai/cmux/pull/10929). Their exact source
+[#10950](https://github.com/manaflow-ai/cmux/pull/10950), [#10951](https://github.com/manaflow-ai/cmux/pull/10951), [#10954](https://github.com/manaflow-ai/cmux/pull/10954), [#10958](https://github.com/manaflow-ai/cmux/pull/10958), [#10962](https://github.com/manaflow-ai/cmux/pull/10962), [#10970](https://github.com/manaflow-ai/cmux/pull/10970), [#10959](https://github.com/manaflow-ai/cmux/pull/10959), [#10973](https://github.com/manaflow-ai/cmux/pull/10973), and [#10929](https://github.com/manaflow-ai/cmux/pull/10929). Their exact source
  heads, authors, merge times, merge SHAs, and rollback commands are recorded in
 [`TECH-DEBT-CHANGELOG.md`](TECH-DEBT-CHANGELOG.md).
 The current ancestry also contains [#10972](https://github.com/manaflow-ai/cmux/pull/10972).
@@ -62,6 +62,7 @@ replacement in progress).
 | [#10970](https://github.com/manaflow-ai/cmux/pull/10970) | Lawrence Chen | `561ddccdc9da7d6389d90940f73e9ea30205fa26` | 2026-08-27 12:25:26 | `aa8ca45e0b3a140678c4a6ae588e201cb421ac50` | `git revert aa8ca45e0b3a140678c4a6ae588e201cb421ac50` |
 | [#10972](https://github.com/manaflow-ai/cmux/pull/10972) | Lawrence Chen | `d41cac100d2488c41cbabff7c236166186b9deb4` | 2026-08-27 12:22:32 | `2f95b8760005047ff470afe4a00fd33783e4cf93` | `git revert 2f95b8760005047ff470afe4a00fd33783e4cf93` |
 | [#10959](https://github.com/manaflow-ai/cmux/pull/10959) | Lawrence Chen | `8f74239c78a81352d69e8fe5512a688b0a9d7b7e` | 2026-08-27 12:49:58 | `87f31977237cbcbbf8b7f492718685d612fbb9b0` | `git revert 87f31977237cbcbbf8b7f492718685d612fbb9b0` |
+| [#10973](https://github.com/manaflow-ai/cmux/pull/10973) | Lawrence Chen | `ed9497e9f00fdbb12ff7b412468d6ef9db8635b6` | 2026-08-27 13:26:49 | `d5ad6eb41426d0ab1b612f3b3fa7321365a6cb66` | `git revert d5ad6eb41426d0ab1b612f3b3fa7321365a6cb66` |
 | [#10929](https://github.com/manaflow-ai/cmux/pull/10929) | Lawrence Chen | `8ba9a3869c83e1f1f1b83e1781d484490e2aea40` | 2026-08-27 13:56:43 | `31a74487e1f824b450eaf0c2b43f0d77fe51563c` | `git revert 31a74487e1f824b450eaf0c2b43f0d77fe51563c` |
 
 ## Historical snapshot retained: main `5c2ee1244e2d796c9e4be5307788b320ac2ee4ff`
