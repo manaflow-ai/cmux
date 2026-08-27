@@ -89,19 +89,29 @@ extension FeedCoordinator {
     ) -> (ownerID: UUID, surfaceID: UUID?)? {
         let claimedWorkspaceID: UUID?
         if let rawWorkspaceID = event.workspaceId {
-            guard let workspaceID = UUID(
-                uuidString: rawWorkspaceID.trimmingCharacters(in: .whitespacesAndNewlines)
-            ) else {
-                return nil
+            let normalizedWorkspaceID = rawWorkspaceID.trimmingCharacters(in: .whitespacesAndNewlines)
+            if normalizedWorkspaceID.isEmpty {
+                claimedWorkspaceID = nil
+            } else {
+                guard let workspaceID = UUID(uuidString: normalizedWorkspaceID) else {
+                    return nil
+                }
+                claimedWorkspaceID = workspaceID
             }
-            claimedWorkspaceID = workspaceID
         } else {
             claimedWorkspaceID = nil
         }
         if let rawSurfaceID = event.surfaceId {
-            guard let claimedSurfaceID = UUID(
-                uuidString: rawSurfaceID.trimmingCharacters(in: .whitespacesAndNewlines)
-            ) else {
+            let normalizedSurfaceID = rawSurfaceID.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !normalizedSurfaceID.isEmpty else {
+                // Empty wire values have historically represented an omitted
+                // surface; malformed non-empty values fail closed below.
+                return targetForWorkspaceOnlyEvent(
+                    claimedWorkspaceID: claimedWorkspaceID,
+                    resolved: resolved
+                )
+            }
+            guard let claimedSurfaceID = UUID(uuidString: normalizedSurfaceID) else {
                 return nil
             }
             guard let live = AppDelegate.shared?.liveSurfaceOwner(
@@ -113,9 +123,16 @@ extension FeedCoordinator {
             return (ownerID: live.tabID, surfaceID: live.surfaceID)
         }
 
-        // A session lookup can recover the current owner for workspace-only
-        // events. Re-resolve that surface through the live registry as well,
-        // because the hook-session file can retain the pre-move workspace.
+        return targetForWorkspaceOnlyEvent(
+            claimedWorkspaceID: claimedWorkspaceID,
+            resolved: resolved
+        )
+    }
+
+    private func targetForWorkspaceOnlyEvent(
+        claimedWorkspaceID: UUID?,
+        resolved: (ownerId: UUID, surfaceId: UUID?)?
+    ) -> (ownerID: UUID, surfaceID: UUID?)? {
         if let resolved,
            let resolvedSurfaceID = resolved.surfaceId {
             guard let live = AppDelegate.shared?.liveSurfaceOwner(
