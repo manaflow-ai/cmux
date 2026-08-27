@@ -3817,6 +3817,7 @@ enum WorkspaceRailTarget {
 struct WorkspacePreview {
     origin: WorkspaceId,
     target: WorkspaceId,
+    origin_scroll: usize,
 }
 
 fn rail_page_size(area: Option<Rect>) -> usize {
@@ -17419,11 +17420,14 @@ impl App {
             return;
         };
         let origin = self.workspace_preview.map_or(current, |preview| preview.origin);
+        let origin_scroll = self
+            .workspace_preview
+            .map_or(self.workspace_rail_scroll, |preview| preview.origin_scroll);
         if target == origin {
             self.cancel_workspace_preview();
             return;
         }
-        self.workspace_preview = Some(WorkspacePreview { origin, target });
+        self.workspace_preview = Some(WorkspacePreview { origin, target, origin_scroll });
         self.tree.active_workspace = index;
     }
 
@@ -17459,6 +17463,7 @@ impl App {
 
     fn cancel_workspace_preview(&mut self) {
         let Some(preview) = self.workspace_preview.take() else { return };
+        self.workspace_rail_scroll = preview.origin_scroll;
         if let Some(index) =
             self.tree.workspaces.iter().position(|workspace| workspace.id == preview.origin)
         {
@@ -36444,8 +36449,11 @@ mod tests {
         let second = mux.new_workspace(Some("Beta".into()), Some((80, 24))).unwrap();
         let tree = Session::Local(mux.clone()).tree();
         let mut app = test_app(Session::Local(mux.clone()));
-        app.workspace_preview =
-            Some(WorkspacePreview { origin: tree.workspaces[0].id, target: tree.workspaces[1].id });
+        app.workspace_preview = Some(WorkspacePreview {
+            origin: tree.workspaces[0].id,
+            target: tree.workspaces[1].id,
+            origin_scroll: 0,
+        });
 
         app.reset_session_presentation(tree);
 
@@ -41514,7 +41522,8 @@ mod tests {
         assert_eq!(app.focus, FocusTarget::WorkspaceRail);
 
         let workspace = app.tree.workspaces[0].id;
-        app.workspace_preview = Some(WorkspacePreview { origin: workspace, target: workspace + 1 });
+        app.workspace_preview =
+            Some(WorkspacePreview { origin: workspace, target: workspace + 1, origin_scroll: 0 });
         app.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::ALT)).unwrap();
         assert_eq!(app.focus, FocusTarget::Pane);
         assert_eq!(app.workspace_preview, None);
@@ -41951,7 +41960,11 @@ mod tests {
         assert_eq!(app.active_surface(), Some(second.id));
         assert_eq!(
             app.workspace_preview,
-            Some(WorkspacePreview { origin: first_workspace, target: second_workspace })
+            Some(WorkspacePreview {
+                origin: first_workspace,
+                target: second_workspace,
+                origin_scroll: 0,
+            })
         );
         assert_eq!(mux.with_state(|state| state.active_workspace), 0);
 
@@ -41973,6 +41986,48 @@ mod tests {
         for surface in [first.id, second.id] {
             mux.close_surface(surface).unwrap();
         }
+    }
+
+    #[test]
+    fn workspace_preview_escape_restores_origin_rail_scroll() {
+        let mux = Mux::new("workspace-preview-escape-scroll-test", SurfaceOptions::default());
+        for index in 0..8 {
+            mux.new_workspace(Some(format!("workspace-{index}")), None).unwrap();
+        }
+        let mut app = test_app(Session::Local(mux));
+        app.sidebar_view = SidebarView::Workspaces;
+        app.replace_tree(app.session.tree());
+        app.tree.active_workspace = 0;
+        app.sidebar_workspace_selection = 0;
+        app.workspace_rail_selection = WorkspaceRailSelection::Workspace;
+        app.workspace_rail_scroll = 0;
+        app.focus = FocusTarget::WorkspaceRail;
+        app.sync_layout((80, 10));
+
+        let mut terminal = Terminal::new(TestBackend::new(80, 10)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        for _ in 0..7 {
+            app.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)).unwrap();
+        }
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+
+        assert_eq!(app.tree.active_workspace, 7);
+        assert!(
+            app.workspace_rail_scroll > 0,
+            "preview target should reveal in the overflowing rail"
+        );
+        assert_eq!(
+            app.workspace_preview.map(|preview| preview.origin_scroll),
+            Some(0),
+            "preview must retain the origin viewport"
+        );
+
+        app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)).unwrap();
+
+        assert_eq!(app.tree.active_workspace, 0);
+        assert_eq!(app.sidebar_workspace_selection, 0);
+        assert_eq!(app.workspace_rail_scroll, 0);
+        assert_eq!(app.workspace_preview, None);
     }
 
     #[test]
@@ -42009,7 +42064,11 @@ mod tests {
         assert_eq!(app.active_surface(), Some(second.id));
         assert_eq!(
             app.workspace_preview,
-            Some(WorkspacePreview { origin: first_workspace, target: second_workspace })
+            Some(WorkspacePreview {
+                origin: first_workspace,
+                target: second_workspace,
+                origin_scroll: 0,
+            })
         );
 
         app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)).unwrap();
@@ -42144,8 +42203,11 @@ mod tests {
             app.sidebar_workspace_selection = 1;
             app.workspace_rail_selection = WorkspaceRailSelection::Workspace;
             app.focus = FocusTarget::WorkspaceRail;
-            app.workspace_preview =
-                Some(WorkspacePreview { origin: first_workspace, target: second_workspace });
+            app.workspace_preview = Some(WorkspacePreview {
+                origin: first_workspace,
+                target: second_workspace,
+                origin_scroll: 0,
+            });
             app.menu = None;
             app.drag = None;
             app.active_pointer_buttons.clear();
@@ -42206,8 +42268,11 @@ mod tests {
         app.tree.active_workspace = 0;
         app.sidebar_workspace_selection = 1;
         app.workspace_rail_selection = WorkspaceRailSelection::Workspace;
-        app.workspace_preview =
-            Some(WorkspacePreview { origin: first_workspace, target: second_workspace });
+        app.workspace_preview = Some(WorkspacePreview {
+            origin: first_workspace,
+            target: second_workspace,
+            origin_scroll: 0,
+        });
         app.tree.active_workspace = 1;
         app.focus = FocusTarget::WorkspaceRail;
         app.sync_layout((100, 20));
@@ -42217,7 +42282,11 @@ mod tests {
         assert_eq!(app.focus, FocusTarget::TabsRail);
         assert_eq!(
             app.workspace_preview,
-            Some(WorkspacePreview { origin: first_workspace, target: second_workspace })
+            Some(WorkspacePreview {
+                origin: first_workspace,
+                target: second_workspace,
+                origin_scroll: 0,
+            })
         );
         assert_eq!(app.sidebar_workspace_selection, 1);
         assert!(app.sidebar_tab_targets().iter().all(|target| target.workspace == 1));
@@ -42266,8 +42335,11 @@ mod tests {
         app.tree.active_workspace = 0;
         app.sidebar_workspace_selection = 1;
         app.workspace_rail_selection = WorkspaceRailSelection::Workspace;
-        app.workspace_preview =
-            Some(WorkspacePreview { origin: first_workspace, target: second_workspace });
+        app.workspace_preview = Some(WorkspacePreview {
+            origin: first_workspace,
+            target: second_workspace,
+            origin_scroll: 0,
+        });
         app.tree.active_workspace = 1;
         app.focus = FocusTarget::WorkspaceRail;
         app.sync_layout((100, 20));
@@ -42298,8 +42370,11 @@ mod tests {
         let second_workspace = workspace_tree.workspaces[1].id;
         let mut app = test_app(Session::Local(mux.clone()));
         app.replace_tree(app.session.tree());
-        app.workspace_preview =
-            Some(WorkspacePreview { origin: first_workspace, target: second_workspace });
+        app.workspace_preview = Some(WorkspacePreview {
+            origin: first_workspace,
+            target: second_workspace,
+            origin_scroll: 0,
+        });
 
         let mut target_removed = app.tree.clone();
         target_removed.workspaces.remove(1);
@@ -42316,8 +42391,11 @@ mod tests {
         origin_removed.active_workspace = 0;
         app.tree = origin_removed;
         app.sidebar_workspace_selection = 1;
-        app.workspace_preview =
-            Some(WorkspacePreview { origin: first_workspace, target: second_workspace });
+        app.workspace_preview = Some(WorkspacePreview {
+            origin: first_workspace,
+            target: second_workspace,
+            origin_scroll: 0,
+        });
         app.reconcile_workspace_preview();
         assert_eq!(app.workspace_preview, None);
         assert_eq!(app.tree.active_workspace, 0);
