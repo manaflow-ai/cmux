@@ -64,8 +64,12 @@ pub fn is_remote_invocation(args: &[String]) -> bool {
     crate::cli::is_remote_invocation(args)
 }
 
-pub fn run(args: &[String], usage: &str) -> i32 {
-    match run_inner(args, usage) {
+pub fn run(
+    args: &[String],
+    usage: &str,
+    load_config: impl FnOnce() -> crate::config::StartupConfigSnapshot,
+) -> i32 {
+    match run_inner(args, usage, load_config) {
         Ok(()) => 0,
         Err(error) => {
             crate::client_log::stderr_log!("remote", "cmux-tui: {error:#}");
@@ -74,17 +78,21 @@ pub fn run(args: &[String], usage: &str) -> i32 {
     }
 }
 
-fn run_inner(args: &[String], usage: &str) -> anyhow::Result<()> {
+fn run_inner(
+    args: &[String],
+    usage: &str,
+    load_config: impl FnOnce() -> crate::config::StartupConfigSnapshot,
+) -> anyhow::Result<()> {
     if remote_help_requested(&args[1..]) {
         print!("{}", remote_help(args.first().map(String::as_str)));
         return Ok(());
     }
     match args.first().map(String::as_str) {
-        Some("connect") => run_connect(&args[1..], None),
-        Some("ssh") => run_ssh(&args[1..]),
+        Some("connect") => run_connect(&args[1..], None, load_config),
+        Some("ssh") => run_ssh(&args[1..], load_config),
         Some("forward") => run_forward(&args[1..]),
         Some("rpc") => run_rpc(&args[1..]),
-        Some("enroll") => run_enroll(&args[1..]),
+        Some("enroll") => run_enroll(&args[1..], load_config),
         Some("known-daemons") => run_known_daemons(&args[1..]),
         Some("remote-probe") => run_probe(&args[1..]),
         Some("remote-link") => run_remote_link(&args[1..]),
@@ -493,15 +501,22 @@ fn set_invitation_arg(
     Ok(())
 }
 
-fn run_connect(args: &[String], preset_route: Option<String>) -> anyhow::Result<()> {
+fn run_connect(
+    args: &[String],
+    preset_route: Option<String>,
+    load_config: impl FnOnce() -> crate::config::StartupConfigSnapshot,
+) -> anyhow::Result<()> {
     let mut flags = parse_connect_flags(args)?;
     if preset_route.is_some() {
         flags.route = preset_route;
     }
-    connect_with_flags(flags)
+    connect_with_flags(flags, load_config)
 }
 
-fn connect_with_flags(flags: ConnectFlags) -> anyhow::Result<()> {
+fn connect_with_flags(
+    flags: ConnectFlags,
+    load_config: impl FnOnce() -> crate::config::StartupConfigSnapshot,
+) -> anyhow::Result<()> {
     let headless = flags.headless;
     let json = flags.json;
     let connected = start_connected(flags)?;
@@ -546,7 +561,8 @@ fn connect_with_flags(flags: ConnectFlags) -> anyhow::Result<()> {
     }
 
     let remote = RemoteSession::connect(&connected.runtime.info().local_socket)?;
-    let result = crate::run_tui(Session::Remote(remote), connected.route, None);
+    let config = load_config();
+    let result = crate::run_tui(Session::Remote(remote), connected.route, None, config);
     let shutdown = connected.runtime.shutdown();
     result.and(shutdown)
 }
@@ -1100,8 +1116,11 @@ fn run_rpc(args: &[String]) -> anyhow::Result<()> {
     result.and(shutdown)
 }
 
-fn run_ssh(args: &[String]) -> anyhow::Result<()> {
-    connect_with_flags(direct_ssh_flags(args)?)
+fn run_ssh(
+    args: &[String],
+    load_config: impl FnOnce() -> crate::config::StartupConfigSnapshot,
+) -> anyhow::Result<()> {
+    connect_with_flags(direct_ssh_flags(args)?, load_config)
 }
 
 fn direct_ssh_flags(args: &[String]) -> anyhow::Result<ConnectFlags> {
@@ -1403,9 +1422,12 @@ fn strict_option_value(args: &[String], index: &mut usize, option: &str) -> anyh
     Ok(value)
 }
 
-fn run_enroll(args: &[String]) -> anyhow::Result<()> {
+fn run_enroll(
+    args: &[String],
+    load_config: impl FnOnce() -> crate::config::StartupConfigSnapshot,
+) -> anyhow::Result<()> {
     if args.first().is_some_and(|action| action == "connect") {
-        return run_connect(&args[1..], None);
+        return run_connect(&args[1..], None, load_config);
     }
     let parsed = parse_enroll_admin_args(args)?;
     let admin_socket = parsed.admin_socket.clone().unwrap_or_else(|| {
@@ -2528,6 +2550,29 @@ fn expand_home(path: String) -> anyhow::Result<PathBuf> {
 #[cfg(test)]
 mod tests {
     #[test]
+    fn startup_config_loader_stays_lazy_for_help_and_parse_errors() {
+        let load_count = std::cell::Cell::new(0);
+        let help_args = ["connect", "--help"].map(str::to_string);
+        assert!(
+            super::run_inner(&help_args, "usage", || {
+                load_count.set(load_count.get() + 1);
+                panic!("remote help must not load startup config");
+            })
+            .is_ok()
+        );
+
+        let invalid_args = ["ssh", "--unknown"].map(str::to_string);
+        assert!(
+            super::run_inner(&invalid_args, "usage", || {
+                load_count.set(load_count.get() + 1);
+                panic!("remote parse errors must not load startup config");
+            })
+            .is_err()
+        );
+        assert_eq!(load_count.get(), 0);
+    }
+
+    #[test]
     fn probe_capabilities_include_direct_ws_user_agent() {
         assert!(super::PROBE_CAPABILITIES.contains(&"direct-ws-user-agent"));
     }
@@ -2993,7 +3038,10 @@ mod tests {
     fn every_remote_subcommand_help_exits_without_running_the_command() {
         for command in ["connect", "ssh", "forward", "rpc", "enroll", "remote-probe"] {
             let args = [command.to_string(), "--help".to_string()];
-            assert!(run_inner(&args, "unused").is_ok(), "{command}");
+            assert!(
+                run_inner(&args, "unused", || panic!("help must not load TUI config")).is_ok(),
+                "{command}"
+            );
             assert!(remote_help(Some(command)).starts_with("USAGE:"));
         }
     }
@@ -3541,7 +3589,11 @@ mod tests {
                 parse_connect_flags(&args).err().expect("invalid connect arguments were accepted");
             assert_japanese(&error.to_string());
         }
-        assert_japanese(&run_ssh(&[]).unwrap_err().to_string());
+        assert_japanese(
+            &run_ssh(&[], || panic!("invalid SSH arguments must not load TUI config"))
+                .unwrap_err()
+                .to_string(),
+        );
         assert_japanese(&ssh_url("invalid destination").unwrap_err().to_string());
         assert_japanese(&run_forward(&[]).unwrap_err().to_string());
         assert_japanese(&run_rpc(&["--request".into()]).unwrap_err().to_string());
