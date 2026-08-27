@@ -19,10 +19,12 @@ struct GitSystemConfigPathResolver {
                 guard fileManager.isExecutableFile(atPath: executable.path) else {
                     continue
                 }
-                for candidatePath in [executable.path, executable.resolvingSymlinksInPath().path] {
-                    if let configURL = systemConfigURL(forExecutablePath: candidatePath) {
-                        return configURL
-                    }
+                let resolvedPath = executable.resolvingSymlinksInPath().path
+                if let configURL = systemConfigURL(
+                    executablePath: executable.path,
+                    resolvedExecutablePath: resolvedPath
+                ) {
+                    return configURL
                 }
                 break
             }
@@ -30,17 +32,32 @@ struct GitSystemConfigPathResolver {
         return URL(fileURLWithPath: "/etc/gitconfig")
     }
 
-    private func systemConfigURL(forExecutablePath path: String) -> URL? {
-        let normalized = URL(fileURLWithPath: path).standardizedFileURL.path
-        if isAppleToolchainGit(normalized) {
+    private func systemConfigURL(
+        executablePath: String,
+        resolvedExecutablePath: String
+    ) -> URL? {
+        let normalizedExecutablePath = URL(fileURLWithPath: executablePath)
+            .standardizedFileURL
+            .path
+        let normalizedResolvedPath = URL(fileURLWithPath: resolvedExecutablePath)
+            .standardizedFileURL
+            .path
+        if isAppleToolchainGit(normalizedResolvedPath)
+            || isAppleToolchainGit(normalizedExecutablePath) {
             return URL(fileURLWithPath: "/etc/gitconfig")
         }
-        guard let prefix = installationPrefix(from: normalized) else {
-            return nil
+        if let homebrewPrefix = homebrewInstallationPrefix(from: normalizedResolvedPath) {
+            return URL(fileURLWithPath: homebrewPrefix)
+                .appendingPathComponent("etc/gitconfig")
+                .standardizedFileURL
         }
-        return URL(fileURLWithPath: prefix)
-            .appendingPathComponent("etc/gitconfig")
-            .standardizedFileURL
+        if let prefix = installationPrefix(from: normalizedResolvedPath)
+            ?? installationPrefix(from: normalizedExecutablePath) {
+            return URL(fileURLWithPath: prefix)
+                .appendingPathComponent("etc/gitconfig")
+                .standardizedFileURL
+        }
+        return nil
     }
 
     private func isAppleToolchainGit(_ path: String) -> Bool {
@@ -64,5 +81,13 @@ struct GitSystemConfigPathResolver {
         return executableURL.deletingLastPathComponent()
             .deletingLastPathComponent()
             .path
+    }
+
+    private func homebrewInstallationPrefix(from path: String) -> String? {
+        guard let range = path.range(of: "/Cellar/git/") else {
+            return nil
+        }
+        let prefix = String(path[..<range.lowerBound])
+        return prefix.isEmpty ? "/" : prefix
     }
 }

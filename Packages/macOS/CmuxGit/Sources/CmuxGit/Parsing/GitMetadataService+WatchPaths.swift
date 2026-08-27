@@ -49,16 +49,33 @@ extension GitMetadataService {
             (watchOnlyPathsByRepository?.values.flatMap { $0 } ?? [])
                 + metadataSentinelParentPaths
         )
+        let repositoryConfigURLs = gitConfigURLs(
+            repository: repository,
+            safetyConfiguration: safetyConfiguration,
+            environment: environment
+        )
+        let repositoryRoots = [
+            repository.workTreeRoot,
+            repository.gitDirectory,
+            repository.commonDirectory
+        ].map(nativeStandardizedPath)
+        let sharedGlobalConfigURLs = repositoryConfigURLs.filter { configURL in
+            let path = nativeStandardizedPath(configURL.path)
+            return !repositoryRoots.contains { isSameOrInside(path, root: $0) }
+        }
         let gitMetadataPaths = gitRepositoryMetadataWatchPaths(
             repository: repository,
             configPathsByRepository: configPathsByRepository,
+            configURLsOverride: repositoryConfigURLs,
             environment: environment
         ) + gitlinkMetadataWatchPaths(
             repository: repository,
             safetyConfiguration: safetyConfiguration,
             configPathsByRepository: configPathsByRepository,
             indexSnapshotsByRepository: indexSnapshotsByRepository,
-            deadline: deadline
+            deadline: deadline,
+            environment: environment,
+            sharedGlobalConfigURLs: sharedGlobalConfigURLs
         )
         let indexPath = joinedPath(root: repository.gitDirectory, relativePath: "index")
         let indexReadResult = GitIndexDataReader().read(
@@ -134,7 +151,7 @@ extension GitMetadataService {
             gitMetadataPaths: gitMetadataPaths,
             repository: repository
         )
-        let creationWatchPaths = creationWatchPlan.paths
+        let creationWatchPaths = creationWatchPlan
         let homeDirectory: URL
         if let configuredHome = environment["HOME"], !configuredHome.isEmpty {
             homeDirectory = URL(fileURLWithPath: configuredHome).standardizedFileURL
@@ -205,10 +222,13 @@ extension GitMetadataService {
     nonisolated static func gitRepositoryMetadataWatchPaths(
         repository: ResolvedGitRepository,
         configPathsByRepository: [String: [String]]? = nil,
+        configURLsOverride: [URL]? = nil,
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> [String] {
         let configPaths: [String]
-        if let configPathsByRepository {
+        if let configURLsOverride {
+            configPaths = configURLsOverride.map(\.path)
+        } else if let configPathsByRepository {
             configPaths = configPathsByRepository[repository.workTreeRoot]
                 ?? gitRootConfigURLs(repository: repository, environment: environment).map(\.path)
         } else {
@@ -420,8 +440,26 @@ extension GitMetadataService {
         safetyConfiguration: GitMetadataSafetyConfiguration,
         configPathsByRepository: [String: [String]]? = nil,
         indexSnapshotsByRepository: [String: GitIndexSnapshot]? = nil,
-        deadline: DispatchTime? = nil
+        deadline: DispatchTime? = nil,
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        sharedGlobalConfigURLs: [URL]? = nil
     ) -> [String] {
+        let sharedGlobalConfigURLs = sharedGlobalConfigURLs ?? {
+            let configURLs = gitConfigURLs(
+                repository: repository,
+                safetyConfiguration: safetyConfiguration,
+                environment: environment
+            )
+            let repositoryRoots = [
+                repository.workTreeRoot,
+                repository.gitDirectory,
+                repository.commonDirectory
+            ].map(nativeStandardizedPath)
+            return configURLs.filter { configURL in
+                let path = nativeStandardizedPath(configURL.path)
+                return !repositoryRoots.contains { isSameOrInside(path, root: $0) }
+            }
+        }()
         var visitedWorkTreeRoots: Set<String> = [repository.workTreeRoot]
         return gitlinkMetadataWatchPaths(
             repository: repository,
@@ -430,7 +468,9 @@ extension GitMetadataService {
             safetyConfiguration: safetyConfiguration,
             configPathsByRepository: configPathsByRepository,
             indexSnapshotsByRepository: indexSnapshotsByRepository,
-            deadline: deadline
+            deadline: deadline,
+            environment: environment,
+            sharedGlobalConfigURLs: sharedGlobalConfigURLs
         )
     }
 
@@ -441,7 +481,9 @@ extension GitMetadataService {
         safetyConfiguration: GitMetadataSafetyConfiguration,
         configPathsByRepository: [String: [String]]?,
         indexSnapshotsByRepository: [String: GitIndexSnapshot]?,
-        deadline: DispatchTime?
+        deadline: DispatchTime?,
+        environment: [String: String],
+        sharedGlobalConfigURLs: [URL]
     ) -> [String] {
         guard depth < safetyConfiguration.submoduleDepth else { return [] }
         if let deadline, deadline <= DispatchTime.now() { return [] }
@@ -486,7 +528,11 @@ extension GitMetadataService {
                 ]
             paths.append(contentsOf: gitRepositoryMetadataWatchPaths(
                 repository: submoduleRepository,
-                configPathsByRepository: [submoduleRepository.workTreeRoot: submoduleConfigPaths]
+                configPathsByRepository: [submoduleRepository.workTreeRoot: submoduleConfigPaths],
+                configURLsOverride: sharedGlobalConfigURLs + submoduleConfigPaths.map {
+                    URL(fileURLWithPath: $0)
+                },
+                environment: environment
             ))
             paths.append(
                 contentsOf: gitlinkMetadataWatchPaths(
@@ -496,7 +542,9 @@ extension GitMetadataService {
                     safetyConfiguration: safetyConfiguration,
                     configPathsByRepository: configPathsByRepository,
                     indexSnapshotsByRepository: indexSnapshotsByRepository,
-                    deadline: deadline
+                    deadline: deadline,
+                    environment: environment,
+                    sharedGlobalConfigURLs: sharedGlobalConfigURLs
                 )
             )
         }
