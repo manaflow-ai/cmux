@@ -32,7 +32,20 @@ extension ShortcutAction {
     /// next to unbound rows, and so the Reset action in the Settings
     /// UI can restore a row by writing the default stroke through
     /// the JSON store.
+    ///
+    /// A host-installed ``ShortcutDefaultOverrides`` provider takes
+    /// precedence: cmux computes the right-sidebar digit defaults
+    /// positionally from the visible tab order, which this package
+    /// cannot read. The static values below for those actions are the
+    /// factory tab-order fallback used when no provider is installed.
     public var defaultStroke: ShortcutStroke? {
+        if case .stroke(let stroke) = ShortcutDefaultOverrides.result(for: self) {
+            return stroke
+        }
+        return builtInDefaultStroke
+    }
+
+    private var builtInDefaultStroke: ShortcutStroke? {
         switch self {
         case .openSettings: return ShortcutStroke(key: ",", command: true)
         case .reloadConfiguration: return ShortcutStroke(key: ",", command: true, shift: true)

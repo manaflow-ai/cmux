@@ -155613,6 +155613,23 @@
         }
       }
     },
+    "rightSidebar.tabs.customize": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Customize Tabs…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブをカスタマイズ…"
+          }
+        }
+      }
+    },
     "rightSidebar.toggle.tooltip": {
       "extractionState": "manual",
       "localizations": {
@@ -206851,6 +206868,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "pt"
+          }
+        }
+      }
+    },
+    "settings.sidebar.rightTabs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Right Sidebar Tabs"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右サイドバーのタブ"
+          }
+        }
+      }
+    },
+    "settings.sidebar.rightTabs.moveDown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move %@ Down"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@を下に移動"
+          }
+        }
+      }
+    },
+    "settings.sidebar.rightTabs.moveUp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move %@ Up"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@を上に移動"
+          }
+        }
+      }
+    },
+    "settings.sidebar.rightTabs.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose which tabs the right sidebar shows and their order. The ⌃1–⌃9 shortcuts follow the visible order."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右サイドバーに表示するタブとその順序を選択します。⌃1〜⌃9 のショートカットは表示順に従います。"
           }
         }
       }

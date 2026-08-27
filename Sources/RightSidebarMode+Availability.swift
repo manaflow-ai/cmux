@@ -47,6 +47,32 @@ extension RightSidebarMode {
         )
     }
 
+    /// The tabs the mode bar actually shows: feature-available modes in the
+    /// user's configured order, minus the ones the user hid. This list also
+    /// defines the positional `ctrl+1…9` digit-shortcut defaults, so the Nth
+    /// visible tab always answers ctrl+N unless the user rebound it.
+    nonisolated static func visibleModes(defaults: UserDefaults = .standard) -> [RightSidebarMode] {
+        let hidden = RightSidebarTabPreferences.hiddenModes(defaults: defaults)
+        let visible = RightSidebarTabPreferences.orderedModes(defaults: defaults)
+            .filter { $0.isAvailable(defaults: defaults) && !hidden.contains($0) }
+        // A hidden set written directly to defaults can hide everything; the
+        // sidebar still needs tabs, so fall back to every available mode.
+        return visible.isEmpty ? availableModes(defaults: defaults) : visible
+    }
+
+    /// 1-based `ctrl+digit` position of `mode` among the visible tabs, or nil
+    /// when the mode is hidden, unavailable, or past position 9. Single source
+    /// for the app's positional shortcut defaults and the CmuxSettings
+    /// default-stroke override.
+    nonisolated static func positionalDigit(
+        for mode: RightSidebarMode,
+        defaults: UserDefaults = .standard
+    ) -> Int? {
+        let visible = visibleModes(defaults: defaults)
+        guard let index = visible.firstIndex(of: mode), index < 9 else { return nil }
+        return index + 1
+    }
+
     func isAvailable(feedEnabled: Bool, dockEnabled: Bool, machinesEnabled: Bool) -> Bool {
         switch self {
         case .files, .find, .sessions:

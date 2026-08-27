@@ -1202,8 +1202,8 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
         RightSidebarBetaFeatureSettings.feedEnabledKey,
         RightSidebarBetaFeatureSettings.dockEnabledKey,
         RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey,
-        "rightSidebar.tabs.order",
-        "rightSidebar.tabs.hidden",
+        RightSidebarTabPreferences.orderKey,
+        RightSidebarTabPreferences.hiddenKey,
     ]
     private var originalSettingsFileStore: KeyboardShortcutSettingsFileStore!
     private var savedShortcutData: [KeyboardShortcutSettings.Action: Data?] = [:]
@@ -1226,8 +1226,8 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
         UserDefaults.standard.set(true, forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
         UserDefaults.standard.set(true, forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
         UserDefaults.standard.set(true, forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
-        UserDefaults.standard.removeObject(forKey: "rightSidebar.tabs.order")
-        UserDefaults.standard.removeObject(forKey: "rightSidebar.tabs.hidden")
+        UserDefaults.standard.removeObject(forKey: RightSidebarTabPreferences.orderKey)
+        UserDefaults.standard.removeObject(forKey: RightSidebarTabPreferences.hiddenKey)
 
         let directoryURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
