@@ -59,6 +59,9 @@ struct SurfaceSelectionTests {
         let cases: [(source: String, selected: String, start: Int, end: Int)] = [
             ("alpha\nbeta\ngamma", "beta", 2, 2),
             ("alpha\r\nbeta\r\ngamma", "beta\r\ngamma", 2, 3),
+            ("alpha\rbeta", "beta", 2, 2),
+            ("alpha\u{0085}beta", "beta", 2, 2),
+            ("alpha\u{2028}beta", "beta", 2, 2),
             ("zero\n😀 emoji\nlast\n", "😀 emoji\nlast\n", 2, 3),
         ]
 
@@ -470,6 +473,9 @@ struct SurfaceSelectionTests {
         let programmaticClearSnapshot = try snapshot(from: await panel.readSurfaceSelection())
         #expect(!programmaticClearSnapshot.hasSelection)
         #expect(programmaticClearSnapshot.text.isEmpty)
+
+        _ = try await panel.evaluateJavaScript("(() => { const nodes = Array.from({ length: 4100 }, () => document.createTextNode('x')); document.body.replaceChildren(...nodes); const range = document.createRange(); range.setStart(nodes[0], 0); range.setEnd(nodes[nodes.length - 1], 1); const selection = window.getSelection(); selection.removeAllRanges(); selection.addRange(range); return true; })()")
+        #expect(await panel.readSurfaceSelection() == .unavailable)
     }
 
     private func snapshot(

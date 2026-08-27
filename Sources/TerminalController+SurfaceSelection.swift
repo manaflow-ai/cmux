@@ -121,7 +121,18 @@ extension TerminalController {
             return v2MainSync { v2ResolveHandleRef(trimmed) } == nil
         }
         if hasUnresolvedOpaqueSelector {
-            v2RefreshKnownRefs()
+            if let pendingRefresh = socketReadSnapshotRefreshTask {
+                // A startup or notification-driven publication may be about to
+                // mint the requested ref. Let it finish before declaring the
+                // opaque selector invalid; the gate still coalesces the live
+                // fallback refresh after the publication.
+                await pendingRefresh.value
+            }
+            if AppDelegate.shared != nil,
+               controlCommandCoordinator.needsHandleTopologyRefresh {
+                v2RefreshKnownRefs()
+                controlCommandCoordinator.markHandleTopologyRefreshCompleted()
+            }
         }
         if let invalidSelector = selectorKeys.first(where: {
             v2HasNonNullParam(params, $0) && v2UUID(params, $0) == nil

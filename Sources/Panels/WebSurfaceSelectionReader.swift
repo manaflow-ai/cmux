@@ -9,10 +9,12 @@ final class WebSurfaceSelectionReader {
     private nonisolated struct Payload: Decodable {
         let hasSelection: Bool
         let text: String
+        let blocksFallback: Bool
 
         enum CodingKeys: String, CodingKey {
             case hasSelection = "has_selection"
             case text
+            case blocksFallback = "blocks_fallback"
         }
     }
 
@@ -108,10 +110,15 @@ final class WebSurfaceSelectionReader {
         }
       };
       const empty = () => Object.freeze({ has_selection: false, text: '' });
-      const unreadable = () => Object.freeze({
+      const unreadable = (sourceDocument = null, sourceFrame = null) => Object.freeze({
         has_selection: false,
         text: '',
-        blocks_fallback: true
+        blocks_fallback: true, source_document: sourceDocument, source_frame: sourceFrame
+      });
+      const privacyBlocked = () => Object.freeze({
+        has_selection: false,
+        text: '',
+        privacy_blocked: true
       });
       const selected = (text, sourceDocument = null, metadata = {}) => Object.freeze({
         has_selection: true,
@@ -127,12 +134,12 @@ final class WebSurfaceSelectionReader {
         }
         return active;
       };
-      const readLiveSelection = (targetWindow) => {
+      const readLiveSelection = (targetWindow, fallbackDocument = null, fallbackFrame = null) => {
         let targetDocument;
         try {
           targetDocument = targetWindow.document;
         } catch (_) {
-          return unreadable();
+          return unreadable(fallbackDocument, fallbackFrame);
         }
 
         const active = deepestActiveElement(targetDocument);
@@ -140,20 +147,20 @@ final class WebSurfaceSelectionReader {
         if (activeTag === 'iframe' || activeTag === 'frame') {
           try {
             const childWindow = active.contentWindow;
-            if (!childWindow) return unreadable();
+            if (!childWindow) return unreadable(targetDocument, active);
             try {
               installDocument?.(childWindow.document);
             } catch (_) {}
-            return readLiveSelection(childWindow);
+            return readLiveSelection(childWindow, targetDocument, active);
           } catch (_) {
-            return unreadable();
+            return unreadable(targetDocument, active);
           }
         }
 
         const isInput = activeTag === 'input';
         const isTextControl = isInput || activeTag === 'textarea';
         const isPassword = isInput && String(active.type || '').toLowerCase() === 'password';
-        if (isPassword) return unreadable();
+        if (isPassword) return privacyBlocked();
         if (isTextControl) {
           if (typeof active.selectionStart === 'number' &&
               typeof active.selectionEnd === 'number' &&
@@ -177,10 +184,10 @@ final class WebSurfaceSelectionReader {
             const range = selection.getRangeAt(0).cloneRange();
             const text = boundedRangeText(range);
             return text === null
-              ? unreadable()
+              ? unreadable(targetDocument)
               : selected(text, targetDocument, { selection_range: range });
           } catch (_) {
-            return unreadable();
+            return unreadable(targetDocument);
           }
         }
         return empty();
@@ -196,20 +203,20 @@ final class WebSurfaceSelectionReader {
       };
       let retainedSelection = empty();
       let retainedDocument = null;
+      let retainedFrame = null;
       let retainedLocation = null;
       let retainedRange = null;
       let retainedControl = null;
       let retainedControlStart = null;
       let retainedControlEnd = null;
       const clear = (sourceDocument = null) => {
-        if (sourceDocument && retainedDocument !== sourceDocument) return;
+        if (sourceDocument && retainedDocument && retainedDocument !== sourceDocument) return;
         retainedSelection = empty();
         retainedDocument = null;
         retainedLocation = null;
         retainedRange = null;
         retainedControl = null;
-        retainedControlStart = null;
-        retainedControlEnd = null;
+        retainedControlStart = null; retainedControlEnd = null; retainedFrame = null;
       };
       const retain = (live) => {
         retainedSelection = selected(live.text);
@@ -218,11 +225,23 @@ final class WebSurfaceSelectionReader {
         retainedRange = live.selection_range || null;
         retainedControl = live.selection_control || null;
         retainedControlStart = live.selection_start ?? null;
-        retainedControlEnd = live.selection_end ?? null;
+        retainedControlEnd = live.selection_end ?? null; retainedFrame = null;
+      };
+      const retainUnreadable = (live) => {
+        retainedSelection = unreadable(live.source_document || null, live.source_frame || null);
+        retainedDocument = live.source_document || null;
+        retainedFrame = live.source_frame || null;
+        retainedLocation = locationForDocument(retainedDocument);
+        retainedRange = null;
+        retainedControl = null;
+        retainedControlStart = null;
+        retainedControlEnd = null;
       };
       const capture = (targetWindow, clearWhenEmpty = false) => {
         const live = readLiveSelection(targetWindow);
         if (live.blocks_fallback) {
+          retainUnreadable(live);
+        } else if (live.privacy_blocked) {
           clear();
         } else if (live.has_selection) {
           retain(live);
@@ -259,6 +278,7 @@ final class WebSurfaceSelectionReader {
         return true;
       };
       const clearIfDetachedFrame = () => {
+        if (retainedFrame && !retainedFrame.isConnected) { clear(); return; }
         if (!retainedDocument || retainedDocument === document) return;
         try {
           const frame = retainedDocument.defaultView?.frameElement;
@@ -411,7 +431,8 @@ final class WebSurfaceSelectionReader {
         const result = runtime.read();
         return JSON.stringify({
           has_selection: result?.has_selection === true,
-          text: result?.has_selection === true ? boundedText(result.text) : ''
+          text: result?.has_selection === true ? boundedText(result.text) : '',
+          blocks_fallback: result?.blocks_fallback === true
         });
       };
       return await Promise.race([
@@ -450,6 +471,9 @@ final class WebSurfaceSelectionReader {
             let payload = try JSONDecoder().decode(Payload.self, from: data)
             let normalizedPath = filePath.map {
                 URL(fileURLWithPath: $0).standardizedFileURL.path
+            }
+            if payload.blocksFallback {
+                return .unavailable
             }
             if payload.hasSelection {
                 return .snapshot(.selected(

@@ -547,10 +547,25 @@ class TerminalController {
             NotificationCenter.default.addObserver(
                 forName: name,
                 object: nil,
-                queue: .main
-            ) { [weak self] _ in
-                Task { @MainActor [weak self] in
-                    self?.scheduleSocketReadSnapshotRefresh()
+                // These topology notifications are posted by MainActor-owned
+                // workspace/window mutations. A nil queue keeps invalidation
+                // synchronous at the notification boundary.
+                queue: nil
+            ) { [weak self] notification in
+                let topologyChanged = name == .mainWindowContextsDidChange
+                    || name == .workspaceOrderDidChange
+                    || (name == .workspacePaneGeometryDidChange
+                        && notification.userInfo?[GhosttyNotificationKey.topologyChanged] as? Bool == true)
+                // This observer is explicitly installed on the main queue.
+                // Invalidate before creating the deferred publication task so
+                // a queued socket read cannot observe a completed claim after
+                // the topology has already changed.
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    if topologyChanged {
+                        self.invalidateSocketHandleTopologyRefresh()
+                    }
+                    self.scheduleSocketReadSnapshotRefresh()
                 }
             }
         }
@@ -4100,6 +4115,7 @@ class TerminalController {
                 }
             }
         }
+        controlCommandCoordinator.markHandleTopologyRefreshCompleted()
     }
 
     // MARK: - V2 Context Resolution

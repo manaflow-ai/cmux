@@ -14300,10 +14300,15 @@ extension Workspace: BonsplitDelegate {
 
     func splitTabBar(_ controller: BonsplitController, didChangeGeometry snapshot: LayoutSnapshot) {
         tmuxLayoutSnapshot = snapshot
+        _ = surfaceList.registerGeometryChange()
+        let topologyChanged = surfaceList.lastGeometryChangeChangedMembership
         NotificationCenter.default.post(
             name: .workspacePaneGeometryDidChange,
             object: self,
-            userInfo: [GhosttyNotificationKey.tabId: id]
+            userInfo: [
+                GhosttyNotificationKey.tabId: id,
+                GhosttyNotificationKey.topologyChanged: topologyChanged,
+            ]
         )
         // Every order/membership mutation (same-pane reorder, cross-pane move,
         // split, close) routes through here. A pure reorder mutates only
@@ -14311,7 +14316,6 @@ extension Workspace: BonsplitDelegate {
         // would miss it. Bump `paneLayoutVersion` only when the ordered panel-id
         // sequence actually changed, so divider drags and selection-only events
         // (also routed here) do not fire `objectWillChange` app-wide.
-        surfaceList.registerGeometryChange()
         scheduleTerminalGeometryReconcile()
         if !isDetachingCloseTransaction {
             scheduleFocusReconcile()

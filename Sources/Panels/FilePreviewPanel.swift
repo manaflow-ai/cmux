@@ -1177,6 +1177,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     var isClosed = false
     weak var textView: NSTextView?
     let focusCoordinator: FilePreviewFocusCoordinator
+    private let selectionReader = NativeTextSurfaceSelectionReader()
     private let textLoader: @Sendable (URL) async -> FilePreviewTextLoader.Result
     private let textSaver: @Sendable (String, URL, String.Encoding) async -> FilePreviewTextSaver.Result
     private let modeResolver: @Sendable (URL) async -> FilePreviewMode
@@ -1243,6 +1244,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         stopWatchingForFileChanges()
         textLoadCoordinator.cancel()
         modeLoadCoordinator.cancel()
+        selectionReader.close()
         nativeViewSessions.closeAll()
         textView = nil
         focusCoordinator.unregisterAll()
@@ -1250,7 +1252,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
 
     func readSurfaceSelection() async -> SurfaceSelectionReadResult {
         guard previewMode == .text else { return .unsupported }
-        return .snapshot(await NativeTextSurfaceSelectionReader().read(
+        return .snapshot(await selectionReader.read(
             textView: textView,
             kind: .filePreview,
             filePath: filePath

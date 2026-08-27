@@ -84,6 +84,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     private var activeSaveGeneration: Int?
     private var pendingSearchNeedle: String?
     private weak var textView: NSTextView?
+    private let selectionReader = NativeTextSurfaceSelectionReader()
     private var isClosed: Bool = false
     // NotificationCenter token; removal is thread-safe so deinit can drop it.
     private nonisolated(unsafe) var typographyDefaultsObserver: NSObjectProtocol?
@@ -245,6 +246,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     func close() {
         isClosed = true
         rendererSession.close()
+        selectionReader.close()
         GlobalSearchCoordinator.shared.purgePanel(id: id)
         textView = nil
         stopWatching()
@@ -271,7 +273,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     func readSurfaceSelection() async -> SurfaceSelectionReadResult {
         switch displayMode {
         case .text:
-            return .snapshot(await NativeTextSurfaceSelectionReader().read(
+            return .snapshot(await selectionReader.read(
                 textView: textView,
                 kind: .markdown,
                 filePath: filePath
