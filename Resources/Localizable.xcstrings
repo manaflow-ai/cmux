@@ -59443,23 +59443,6 @@
         }
       }
     },
-    "cloudTree.menu.copyTerminalID": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Copy Terminal ID"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ターミナル ID をコピー"
-          }
-        }
-      }
-    },
     "cloudTree.menu.copyWorkspaceID": {
       "extractionState": "manual",
       "localizations": {
@@ -59524,23 +59507,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "開く"
-          }
-        }
-      }
-    },
-    "cloudTree.menu.openAll": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open All Terminals"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "すべてのターミナルを開く"
           }
         }
       }
@@ -59711,40 +59677,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ でターミナルを起動しています…"
-          }
-        }
-      }
-    },
-    "cloudTree.operation.openPort": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Opening port %2$d on %1$@…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ のポート %2$d を開いています…"
-          }
-        }
-      }
-    },
-    "cloudTree.operation.openTerminal": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Opening terminal on %@…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ のターミナルを開いています…"
           }
         }
       }
