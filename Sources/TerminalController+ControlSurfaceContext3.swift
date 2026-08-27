@@ -17,6 +17,10 @@ extension TerminalController {
             launchCommandMustBeValid: String(
                 localized: "socket.surface.resume.launchCommandMustBeValid",
                 defaultValue: "launch_command.arguments must be a non-empty array of strings"
+            ),
+            restoreClaimMustBeValid: String(
+                localized: "socket.surface.resume.restoreClaimMustBeValid",
+                defaultValue: "Missing or invalid restore claim"
             )
         )
     }

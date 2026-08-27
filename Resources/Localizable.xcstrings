@@ -51373,6 +51373,23 @@
         }
       }
     },
+    "cli.restore.codexCheckpointUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: the saved agent session is unavailable. The terminal remains in its saved directory; retry later or start a new agent session."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: 保存されたエージェント セッションを利用できません。ターミナルは保存されたディレクトリに残っています。後でもう一度試すか、新しいエージェント セッションを開始してください。"
+          }
+        }
+      }
+    },
     "cli.restore.error.checkpointMismatch": {
       "extractionState": "manual",
       "localizations": {
@@ -241612,6 +241629,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "launch_command.arguments は空でない文字列の配列である必要があります"
+          }
+        }
+      }
+    },
+    "socket.surface.resume.restoreClaimMustBeValid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Missing or invalid restore claim"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "復元要求のクレームがないか無効です"
           }
         }
       }
