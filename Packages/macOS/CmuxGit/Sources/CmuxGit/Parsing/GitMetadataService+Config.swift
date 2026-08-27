@@ -254,7 +254,7 @@ extension GitMetadataService {
             var currentRemoteName: String?
             var allowsInclude = false
             var currentSectionIsExtensions = false
-            for rawLine in config.components(separatedBy: .newlines) {
+            for rawLine in GitConfigLogicalLineReader().lines(from: config) {
                 let line = GitMetadataService.gitConfigLineRemovingInlineComment(rawLine)
                     .trimmingCharacters(in: .whitespaces)
                 if line.hasPrefix("[") && line.hasSuffix("]") {
@@ -555,26 +555,10 @@ extension GitMetadataService {
             return [URL(fileURLWithPath: configured)]
         }
 
-        if let path = environment["PATH"] {
-            for component in path.split(separator: ":", omittingEmptySubsequences: true) {
-                let executable = URL(fileURLWithPath: String(component))
-                    .appendingPathComponent("git")
-                guard FileManager.default.isExecutableFile(atPath: executable.path) else {
-                    continue
-                }
-                for candidatePath in [executable.path, executable.resolvingSymlinksInPath().path] {
-                    if let prefix = gitInstallationPrefix(from: candidatePath) {
-                        return [
-                            URL(fileURLWithPath: prefix)
-                                .appendingPathComponent("etc/gitconfig")
-                                .standardizedFileURL
-                        ]
-                    }
-                }
-            }
-        }
-
-        return [URL(fileURLWithPath: "/etc/gitconfig")]
+        return [
+            GitSystemConfigPathResolver()
+                .automaticSystemConfigURL(environment: environment)
+        ]
     }
 
     /// Resolves Git's effective home directory for an environment snapshot.
@@ -590,25 +574,6 @@ extension GitMetadataService {
     /// The process home used by path planning when no HOME override exists.
     nonisolated static var processHomeDirectory: URL {
         gitHomeDirectory(environment: [:])
-    }
-
-    /// Derives an installation prefix from Git's executable or exec-root path.
-    private nonisolated static func gitInstallationPrefix(from path: String) -> String? {
-        let normalized = URL(fileURLWithPath: path).standardizedFileURL.path
-        for suffix in ["/libexec/git-core", "/git-core"] {
-            guard normalized.hasSuffix(suffix) else { continue }
-            let prefix = String(normalized.dropLast(suffix.count))
-            return prefix.isEmpty ? "/" : prefix
-        }
-
-        let executableURL = URL(fileURLWithPath: normalized)
-        guard executableURL.lastPathComponent == "git",
-              executableURL.deletingLastPathComponent().lastPathComponent == "bin" else {
-            return nil
-        }
-        return executableURL.deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .path
     }
 
     /// Parses Git's accepted boolean spellings, returning nil for invalid input.
@@ -651,7 +616,7 @@ extension GitMetadataService {
         var lines: [String] = []
         var effectiveRemoteLineIndexByName: [String: Int] = [:]
 
-        for rawLine in config.components(separatedBy: .newlines) {
+        for rawLine in GitConfigLogicalLineReader().lines(from: config) {
             let line = gitConfigLineRemovingInlineComment(rawLine)
                 .trimmingCharacters(in: .whitespaces)
             if line.hasPrefix("[") && line.hasSuffix("]") {
@@ -731,7 +696,7 @@ extension GitMetadataService {
         var currentSectionIsExtensions = false
         var currentSectionIsHasConfig = false
 
-        for rawLine in config.components(separatedBy: .newlines) {
+        for rawLine in GitConfigLogicalLineReader().lines(from: config) {
             let line = gitConfigLineRemovingInlineComment(rawLine)
                 .trimmingCharacters(in: .whitespaces)
             if line.hasPrefix("[") && line.hasSuffix("]") {
@@ -851,7 +816,7 @@ extension GitMetadataService {
         var currentSectionAllowsPath = false
         var urls: [URL] = []
 
-        for rawLine in config.components(separatedBy: .newlines) {
+        for rawLine in GitConfigLogicalLineReader().lines(from: config) {
             let line = gitConfigLineRemovingInlineComment(rawLine)
                 .trimmingCharacters(in: .whitespaces)
             if line.hasPrefix("[") && line.hasSuffix("]") {
