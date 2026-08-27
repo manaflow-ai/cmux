@@ -348,21 +348,22 @@ impl SessionEventSender {
     }
 
     fn send(&self, event: AppEvent) -> Result<(), ()> {
-        let mut event = self.wrap(event);
-        loop {
-            if self.stop.load(Ordering::Acquire) {
-                return Err(());
-            }
-            match self.tx.try_send(event) {
-                Ok(()) => return Ok(()),
-                Err(TrySendError::Full(returned)) => {
-                    event = returned;
-                    std::thread::park_timeout(Duration::from_millis(1));
-                }
-                Err(TrySendError::Disconnected(_)) => return Err(()),
-            }
-        }
+        send_bounded_cancelable(&self.tx, self.wrap(event), &self.stop).map_err(|_| ())
     }
+}
+
+/// Enqueue on a bounded channel without polling sleeps. The cancellation check
+/// handles shutdown before entering the blocking send; a send already in
+/// progress is released when the receiver drains or disconnects.
+fn send_bounded_cancelable<T>(
+    tx: &SyncSender<T>,
+    value: T,
+    cancelled: &AtomicBool,
+) -> Result<(), ()> {
+    if cancelled.load(Ordering::Acquire) {
+        return Err(());
+    }
+    tx.send(value).map_err(|_| ())
 }
 
 struct SessionEventWorker {
@@ -410,19 +411,14 @@ impl OwnerReloadWorker {
                     if !matches!(event, MuxEvent::ConfigReloadRequested) {
                         continue;
                     }
-                    let mut app_event = AppEvent::OwnerConfigReloadRequested;
-                    loop {
-                        if worker_cancelled.load(Ordering::Acquire) {
-                            return;
-                        }
-                        match tx.try_send(app_event) {
-                            Ok(()) => break,
-                            Err(TrySendError::Full(returned)) => {
-                                app_event = returned;
-                                std::thread::park_timeout(Duration::from_millis(1));
-                            }
-                            Err(TrySendError::Disconnected(_)) => return,
-                        }
+                    if send_bounded_cancelable(
+                        &tx,
+                        AppEvent::OwnerConfigReloadRequested,
+                        &worker_cancelled,
+                    )
+                    .is_err()
+                    {
+                        return;
                     }
                 }
             })?;
