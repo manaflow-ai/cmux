@@ -738,6 +738,10 @@ def test_update_lease_protects_download_from_concurrent_prune(tmp_path: Path) ->
         assert RegistryHandler.tarball_started.wait(timeout=3), (
             "update did not start its download"
         )
+        update_lock = cache / host_platform_key() / ".update-operation.lock"
+        assert (update_lock / "owner").is_file(), (
+            "update did not hold the operation lock during its download"
+        )
         active_root = cache / host_platform_key() / "v/1.2.3/.active"
         assert any(entry.is_dir() for entry in active_root.iterdir()), (
             "update did not publish its target lease before downloading"
@@ -765,6 +769,62 @@ def test_update_lease_protects_download_from_concurrent_prune(tmp_path: Path) ->
     assert update_process.returncode == 0, update_stderr or update_stdout
     assert target.is_file()
     assert (target.parent.parent / "managed").is_file()
+
+
+def test_concurrent_updates_fail_closed_while_one_downloads(tmp_path: Path) -> None:
+    if sys.platform == "win32":
+        return
+    update_launcher = write_launcher(tmp_path / "first", "1.0.0")
+    concurrent_launcher = write_launcher(tmp_path / "second", "1.0.0")
+    cache = tmp_path / "cache"
+    write_cached_binary(cache, "1.0.0", "#!/bin/sh\nexit 0\n", managed=True)
+
+    server, thread, registry = start_registry()
+    RegistryHandler.block_tarball = True
+    env = os.environ.copy()
+    env.update(
+        {
+            "CMUX_TUI_LAUNCHER_CACHE": str(cache),
+            "CMUX_NPM_REGISTRY": registry,
+            "NO_COLOR": "1",
+        }
+    )
+    first_process = subprocess.Popen(
+        ["node", str(update_launcher), "update"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env=env,
+    )
+    first_stdout = ""
+    first_stderr = ""
+    try:
+        assert RegistryHandler.tarball_started.wait(timeout=3), (
+            "first update did not start its download"
+        )
+        second = run_launcher(
+            concurrent_launcher,
+            cache,
+            registry,
+            "update",
+            timeout_seconds=5,
+        )
+        assert second.returncode != 0
+        assert "could not reserve the native binary for update" in second.stderr
+    finally:
+        RegistryHandler.tarball_release.set()
+        try:
+            first_stdout, first_stderr = first_process.communicate(timeout=10)
+        except subprocess.TimeoutExpired:
+            first_process.kill()
+            first_stdout, first_stderr = first_process.communicate(timeout=5)
+        server.shutdown()
+        thread.join()
+
+    assert first_process.returncode == 0, first_stderr or first_stdout
+    state = json.loads((cache / host_platform_key() / "state.json").read_text())
+    assert state["version"] == "1.2.3"
+    assert not (cache / host_platform_key() / ".update-operation.lock").exists()
 
 
 def test_launcher_keeps_current_and_one_previous_after_download(tmp_path: Path) -> None:
@@ -823,6 +883,7 @@ def main() -> None:
         test_launcher_keeps_fresh_empty_lease_during_prune(root / "fresh-empty-lease")
         test_concurrent_launchers_preserve_an_active_lease_during_prune(root / "concurrent")
         test_update_lease_protects_download_from_concurrent_prune(root / "update-concurrent")
+        test_concurrent_updates_fail_closed_while_one_downloads(root / "update-serialization")
         test_launcher_keeps_current_and_one_previous_after_download(root / "prune")
 
 
