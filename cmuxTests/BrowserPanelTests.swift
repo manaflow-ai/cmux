@@ -3330,6 +3330,38 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             ),
             "Rebinding a visible Dock browser without a fresh context must preserve divider ownership"
         )
+
+        // The visibility update can also win the race and arrive before the
+        // context clear. The slot is still mounted and visible in that order,
+        // so the ownership snapshot must survive until the next real bind.
+        portal.updatePaneDropContext(
+            forWebViewId: ObjectIdentifier(dockWebView),
+            context: dockContext
+        )
+        portal.updateEntryVisibility(
+            forWebViewId: ObjectIdentifier(dockWebView),
+            visibleInUI: false,
+            zPriority: 0
+        )
+        portal.updatePaneDropContext(
+            forWebViewId: ObjectIdentifier(dockWebView),
+            context: nil
+        )
+        portal.bind(
+            webView: dockWebView,
+            to: dockAnchor,
+            visibleInUI: true,
+            paneDropContext: nil
+        )
+
+        XCTAssertNil(
+            host.performHitTest(
+                at: dividerPointInHost,
+                currentEvent: event,
+                dragPasteboard: pasteboard
+            ),
+            "Dock ownership must survive either ordering of transient visibility and context updates"
+        )
     }
 
     private func dropZoneOverlay(in slot: WindowBrowserSlotView, excluding webView: WKWebView) -> NSView? {
