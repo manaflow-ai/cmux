@@ -39,8 +39,6 @@ const MAX_PENDING_NOTIFY_EVENTS: usize = 1024;
 const WATCH_SETUP_CONCURRENCY: usize = 2;
 const WATCH_SETUP_FAILURE_MESSAGE: &str = "filesystem watcher setup failed";
 const WATCH_RUNTIME_FAILURE_MESSAGE: &str = "filesystem watcher stopped";
-const WATCH_SETUP_FAILURE_MESSAGE: &str = "filesystem watcher setup failed";
-const WATCH_RUNTIME_FAILURE_MESSAGE: &str = "filesystem watcher stopped";
 
 /// All fallible watcher setup happens before a watch is published in the
 /// registry. A failed replacement therefore leaves the existing watch intact.
