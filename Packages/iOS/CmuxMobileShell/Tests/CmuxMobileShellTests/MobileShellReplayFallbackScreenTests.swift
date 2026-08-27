@@ -98,19 +98,29 @@ import Testing
         "byte/snapshot replay fallbacks must not clear alternate-screen raw-byte suppression"
     )
 
-    // The unknown-screen gate is deliberately bounded. If the host remains
-    // unable to emit a structured frame, liveness eventually wins without
-    // inventing a stale primary/alternate value.
-    clock.advance(by: MobileShellComposite.terminalUnknownScreenFailOpenTimeout + 1)
+    // The unknown-screen gate stays fail-closed after its bounded recovery
+    // attempt. No timeout may invent a stale primary/alternate value.
+    let replayCountBeforeUnknownTimeout = await router.count(of: "mobile.terminal.replay")
+    clock.advance(by: MobileShellComposite.terminalUnknownScreenRecoveryTimeout + 1)
     await transport.deliver(try terminalBytesEventFrame(
         surfaceID: "live-terminal",
         seq: 5,
         text: "raw-after-unknown-timeout"
     ))
-    let rawAfterUnknownTimeoutDelivered = try await pollUntil {
+    let rawAfterUnknownTimeoutDelivered = try await pollUntil(attempts: 50) {
         collector.lines.contains { $0.contains("raw-after-unknown-timeout") }
     }
-    #expect(rawAfterUnknownTimeoutDelivered)
+    #expect(!rawAfterUnknownTimeoutDelivered)
+    let unknownRecoveryRequested = try await pollUntil {
+        await router.count(of: "mobile.terminal.replay") > replayCountBeforeUnknownTimeout
+    }
+    #expect(unknownRecoveryRequested)
+    #expect(store.terminalActiveScreenUnknownSurfaceIDs.contains("live-terminal"))
+    let unknownRecoverySettled = try await pollUntil {
+        store.terminalReplayBarrierTokensBySurfaceID["live-terminal"] == nil
+            && !store.terminalReplaySurfaceIDsInFlight.contains("live-terminal")
+    }
+    #expect(unknownRecoverySettled)
 
     await transport.deliver(try renderGridEventFrame(
         surfaceID: "live-terminal",
