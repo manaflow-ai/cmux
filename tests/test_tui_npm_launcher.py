@@ -112,7 +112,7 @@ class RegistryHandler(http.server.BaseHTTPRequestHandler):
 def run_launcher(
     launcher: Path,
     cache: Path,
-    registry: str,
+    registry: str | None,
     *args: str,
     env_extra: dict[str, str] | None = None,
     timeout_seconds: float | None = None,
@@ -121,10 +121,14 @@ def run_launcher(
     env.update(
         {
             "CMUX_TUI_LAUNCHER_CACHE": str(cache),
-            "CMUX_NPM_REGISTRY": registry,
             "NO_COLOR": "1",
         }
     )
+    if registry is None:
+        for name in ("CMUX_NPM_REGISTRY", "npm_config_registry", "NPM_CONFIG_REGISTRY"):
+            env.pop(name, None)
+    else:
+        env["CMUX_NPM_REGISTRY"] = registry
     env.update(env_extra or {})
     return subprocess.run(
         ["node", str(launcher), *args],
@@ -492,6 +496,45 @@ def test_prune_preserves_unmanaged_cache_version(tmp_path: Path) -> None:
     assert not (unmanaged.stat().st_mode & stat.S_IXUSR)
 
 
+def test_prune_preserves_versions_selected_by_each_channel_state(
+    tmp_path: Path,
+) -> None:
+    if sys.platform == "win32":
+        return
+    launcher = write_launcher(tmp_path, "1.2.3")
+    cache = tmp_path / "cache"
+    stable_old = "1.0.0"
+    stable_previous = "1.1.0"
+    stable_current = "1.2.3"
+    nightly_old = "1.0.0-nightly.20260820.1"
+    nightly_previous = "1.0.0-nightly.20260821.1"
+    for version in (
+        stable_old,
+        stable_previous,
+        stable_current,
+        nightly_old,
+        nightly_previous,
+    ):
+        write_cached_binary(cache, version, "#!/bin/sh\nexit 0\n", managed=True)
+
+    platform_root = cache / host_platform_key()
+    state_root = platform_root / "state"
+    state_root.mkdir(parents=True)
+    (state_root / "stable.json").write_text(
+        json.dumps({"version": stable_old, "channel": "stable"}) + "\n"
+    )
+    (state_root / "nightly.json").write_text(
+        json.dumps({"version": nightly_old, "channel": "nightly"}) + "\n"
+    )
+
+    result = run_launcher(launcher, cache, "http://127.0.0.1:1", "--version")
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "fake cmux-tui 1.2.3\n"
+    for version in (stable_old, nightly_old, stable_previous, nightly_previous):
+        assert (platform_root / f"v/{version}").is_dir()
+
+
 def test_update_uses_channel_latest_and_persists_channel_state(tmp_path: Path) -> None:
     if sys.platform == "win32":
         return
@@ -653,6 +696,31 @@ def test_launcher_reads_registry_token_from_npmrc(tmp_path: Path) -> None:
     assert result.returncode == 0, result.stderr
     assert RegistryHandler.authorization_headers
     assert all(value == "Bearer fixture-token" for value in RegistryHandler.authorization_headers)
+
+
+def test_launcher_reads_registry_from_npmrc(tmp_path: Path) -> None:
+    if sys.platform == "win32":
+        return
+    launcher = write_launcher(tmp_path)
+    cache = tmp_path / "cache"
+    server, thread, registry = start_registry()
+    npmrc = tmp_path / ".npmrc"
+    npmrc.write_text(f"registry={registry}\n")
+    try:
+        result = run_launcher(
+            launcher,
+            cache,
+            None,
+            "--version",
+            env_extra={"npm_config_userconfig": str(npmrc)},
+        )
+    finally:
+        server.shutdown()
+        thread.join()
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "fake cmux-tui 1.2.3\n"
+    assert RegistryHandler.metadata_requests == 1
+    assert RegistryHandler.tarball_requests == 1
 
 
 def test_launcher_scopes_registry_token_to_npmrc_path(tmp_path: Path) -> None:
