@@ -48,6 +48,7 @@ final class SurfaceCatalog {
     /// provider ignores task cancellation. The deadline starts only after the last caller
     /// detaches, so a slow but observed materialization is still allowed to finish normally.
     static let defaultAbandonedMaterializationTimeout: Duration = .seconds(30)
+    static let defaultRetiredMaterializationRetention: Duration = .seconds(30)
 
     static let didChangeNotification = Notification.Name("cmux.surfaces.didChange")
 
@@ -59,9 +60,10 @@ final class SurfaceCatalog {
     /// pass the reuse check before either provider has returned a projection.
     private var inFlightProjects: [SurfaceResourceID: SurfaceProjectionMaterialization] = [:]
     /// Materializations retired with their provider (for example during unregister) may still
-    /// finish because task cancellation is cooperative. Keep only their cleanup handle until
-    /// the late result arrives; new calls are allowed to use the replacement provider.
-    private var retiredMaterializations: [UUID: any SurfaceProvider] = [:]
+    /// finish because task cancellation is cooperative. Keep only a bounded token record until
+    /// the late result arrives; the provider itself stays owned by its task.
+    private var retiredMaterializations: [UUID: SurfaceProjectionMaterializationRetirement] = [:]
+    private let retiredMaterializationRetention: Duration
     private let abandonedMaterializationTimeout: Duration
     private let materializationClock: any Clock<Duration>
     /// Panels whose projection was recorded from a restored session before the provider
@@ -73,10 +75,13 @@ final class SurfaceCatalog {
 
     init(
         abandonedMaterializationTimeout: Duration = SurfaceCatalog.defaultAbandonedMaterializationTimeout,
+        retiredMaterializationRetention: Duration = SurfaceCatalog.defaultRetiredMaterializationRetention,
         materializationClock: any Clock<Duration> = ContinuousClock()
     ) {
         precondition(abandonedMaterializationTimeout > .zero)
+        precondition(retiredMaterializationRetention > .zero)
         self.abandonedMaterializationTimeout = abandonedMaterializationTimeout
+        self.retiredMaterializationRetention = retiredMaterializationRetention
         self.materializationClock = materializationClock
     }
 
@@ -216,9 +221,9 @@ final class SurfaceCatalog {
             let task = Task { @MainActor [weak self] in
                 do {
                     let projection = try await provider.materialize(resource, at: destination, focus: focus)
-                    self?.finishInFlightProject(id, token: token, result: .success(projection))
+                    self?.finishInFlightProject(id, token: token, provider: provider, result: .success(projection))
                 } catch {
-                    self?.finishInFlightProject(id, token: token, result: .failure(error))
+                    self?.finishInFlightProject(id, token: token, provider: provider, result: .failure(error))
                 }
             }
             inFlightProjects[id] = SurfaceProjectionMaterialization(
@@ -234,11 +239,14 @@ final class SurfaceCatalog {
     private func finishInFlightProject(
         _ id: SurfaceResourceID,
         token: UUID,
+        provider: any SurfaceProvider,
         result: Result<SurfaceProjection, any Error>
     ) {
         guard var inFlight = inFlightProjects[id], inFlight.token == token else {
-            if let provider = retiredMaterializations.removeValue(forKey: token),
-               case .success(let projection) = result {
+            if let retirement = retiredMaterializations.removeValue(forKey: token) {
+                retirement.evictionTask?.cancel()
+            }
+            if case .success(let projection) = result {
                 provider.discardMaterialization(projection)
             }
             return
@@ -302,9 +310,8 @@ final class SurfaceCatalog {
         waiter.continuation.resume(throwing: CancellationError())
     }
 
-    /// Retire a detached provider operation after its bounded recovery window. The provider
-    /// task may still return later, so retain the provider by token until `finishInFlightProject`
-    /// can discard a late pane. New callers can start a fresh operation immediately.
+    /// Retire a detached provider operation after its bounded recovery window. New callers can
+    /// start a fresh operation immediately while the old task drains cooperatively.
     private func expireAbandonedMaterialization(_ id: SurfaceResourceID, token: UUID) {
         guard let inFlight = inFlightProjects[id],
               inFlight.token == token,
@@ -312,14 +319,40 @@ final class SurfaceCatalog {
               inFlight.waiters.isEmpty else { return }
         inFlightProjects[id] = nil
         inFlight.abandonmentDeadlineTask?.cancel()
-        retiredMaterializations[token] = inFlight.provider
+        retireMaterialization(token)
         inFlight.task.cancel()
+    }
+
+    /// Keep only a short-lived token for a retired operation. A late success is always stale,
+    /// so `finishInFlightProject` can discard it directly with the provider captured by its task
+    /// even after this token has been evicted.
+    private func retireMaterialization(_ token: UUID) {
+        retiredMaterializations[token] = SurfaceProjectionMaterializationRetirement(evictionTask: nil)
+        let timeout = retiredMaterializationRetention
+        let clock = materializationClock
+        let evictionTask = Task { [weak self, clock] in
+            do {
+                try await clock.sleep(for: timeout)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            await self?.evictRetiredMaterialization(token)
+        }
+        guard var retirement = retiredMaterializations[token] else { return }
+        retirement.evictionTask = evictionTask
+        retiredMaterializations[token] = retirement
+    }
+
+    private func evictRetiredMaterialization(_ token: UUID) {
+        guard let retirement = retiredMaterializations.removeValue(forKey: token) else { return }
+        retirement.evictionTask?.cancel()
     }
 
     private func cancelInFlightProject(_ id: SurfaceResourceID, error: any Error) {
         guard let inFlight = inFlightProjects.removeValue(forKey: id) else { return }
         inFlight.abandonmentDeadlineTask?.cancel()
-        retiredMaterializations[inFlight.token] = inFlight.provider
+        retireMaterialization(inFlight.token)
         inFlight.task.cancel()
         let waiters = inFlight.waiters
         resume(waiters, throwing: error)
