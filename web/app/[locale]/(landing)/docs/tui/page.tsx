@@ -152,8 +152,8 @@ cmux attach --session agents`}</CodeBlock>
       </DocsHeading>
       <p>{t("automationIntro")}</p>
       <CodeBlock lang="bash">{`cmux --session agents workspace list --json
-cmux --session agents workspace create --name review
-cmux --session agents workspace review run -- npm test
+workspace_id="$(cmux --session agents workspace create --name review --json | jq -r '.value.workspace_id')"
+cmux --session agents workspace "$workspace_id" run -- npm test
 cmux --session agents terminal <terminal-id> screen read`}</CodeBlock>
       <p>{t("automationBody")}</p>
 
