@@ -538,6 +538,52 @@ def test_launcher_keeps_fresh_empty_cache_lock(tmp_path: Path) -> None:
     assert not (lock / "owner").exists()
 
 
+def test_launcher_reclaims_stale_empty_lease_during_prune(tmp_path: Path) -> None:
+    if sys.platform == "win32":
+        return
+    launcher = write_launcher(tmp_path)
+    cache = tmp_path / "cache"
+    write_cached_binary(cache, "1.0.0", "#!/bin/sh\nexit 0\n", managed=True)
+    write_cached_binary(cache, "1.1.0", "#!/bin/sh\nexit 0\n", managed=True)
+    lease_root = cache / host_platform_key() / "v/1.0.0/.active"
+    stale_lease = lease_root / "interrupted-lease"
+    stale_lease.mkdir(parents=True)
+    stale = time.time() - 10 * 60
+    os.utime(stale_lease, (stale, stale))
+
+    server, thread, registry = start_registry()
+    try:
+        result = run_launcher(launcher, cache, registry)
+    finally:
+        server.shutdown()
+        thread.join()
+
+    assert result.returncode == 0, result.stderr
+    assert not (cache / host_platform_key() / "v/1.0.0").exists()
+
+
+def test_launcher_keeps_fresh_empty_lease_during_prune(tmp_path: Path) -> None:
+    if sys.platform == "win32":
+        return
+    launcher = write_launcher(tmp_path)
+    cache = tmp_path / "cache"
+    write_cached_binary(cache, "1.0.0", "#!/bin/sh\nexit 0\n", managed=True)
+    write_cached_binary(cache, "1.1.0", "#!/bin/sh\nexit 0\n", managed=True)
+    lease_root = cache / host_platform_key() / "v/1.0.0/.active"
+    fresh_lease = lease_root / "initializing-lease"
+    fresh_lease.mkdir(parents=True)
+
+    server, thread, registry = start_registry()
+    try:
+        result = run_launcher(launcher, cache, registry)
+    finally:
+        server.shutdown()
+        thread.join()
+
+    assert result.returncode == 0, result.stderr
+    assert fresh_lease.is_dir()
+
+
 def test_concurrent_launchers_preserve_an_active_lease_during_prune(tmp_path: Path) -> None:
     if sys.platform == "win32":
         return
@@ -643,6 +689,8 @@ def main() -> None:
         test_launcher_fails_closed_when_another_process_holds_cache_lock(root / "held-lock")
         test_launcher_recovers_stale_empty_cache_lock(root / "stale-empty-lock")
         test_launcher_keeps_fresh_empty_cache_lock(root / "fresh-empty-lock")
+        test_launcher_reclaims_stale_empty_lease_during_prune(root / "stale-empty-lease")
+        test_launcher_keeps_fresh_empty_lease_during_prune(root / "fresh-empty-lease")
         test_concurrent_launchers_preserve_an_active_lease_during_prune(root / "concurrent")
         test_launcher_prunes_old_managed_cache_after_download(root / "prune")
 

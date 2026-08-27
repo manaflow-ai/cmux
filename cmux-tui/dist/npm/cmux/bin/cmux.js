@@ -56,6 +56,9 @@ const CACHE_LOCK_ATTEMPTS = 3;
 // publishing its owner file. Reclaim only an ownerless lock that has been
 // quiet for long enough that the creator cannot still be in that window.
 const CACHE_LOCK_EMPTY_MAX_AGE_MS = 5 * 60 * 1000;
+// Leases are published by renaming a fully initialized temporary directory.
+// Keep the same bounded recovery window for legacy or interrupted leases.
+const CACHE_LEASE_EMPTY_MAX_AGE_MS = 5 * 60 * 1000;
 const MIN_NODE_MAJOR = 18;
 
 function fail(message) {
@@ -404,19 +407,33 @@ function acquireVersionLease(version) {
     const lock = tryAcquireCacheLock();
     if (!lock) continue;
     let lease = null;
+    let pendingLease = null;
     try {
       lease = path.join(
         leaseRoot,
         `${process.pid}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
       );
+      pendingLease = `${lease}.pending`;
       fs.mkdirSync(leaseRoot, { recursive: true });
-      fs.mkdirSync(lease, { recursive: false });
-      fs.writeFileSync(path.join(lease, "pid"), `${process.pid}\n`);
+      // Build the lease away from the directory scanned by prune. Publish it
+      // only after its PID record is complete, using an atomic directory
+      // rename so an interruption cannot expose an empty active lease.
+      fs.mkdirSync(pendingLease, { recursive: false });
+      const pidTemp = path.join(pendingLease, ".pid.tmp");
+      fs.writeFileSync(pidTemp, `${process.pid}\n`, {
+        encoding: "utf8",
+        flag: "wx",
+        mode: 0o600,
+      });
+      fs.renameSync(pidTemp, path.join(pendingLease, "pid"));
+      fs.renameSync(pendingLease, lease);
+      pendingLease = null;
       return lease;
     } catch {
-      if (lease) {
+      for (const pathToRemove of [pendingLease, lease]) {
+        if (!pathToRemove) continue;
         try {
-          fs.rmSync(lease, { recursive: true, force: true });
+          fs.rmSync(pathToRemove, { recursive: true, force: true });
         } catch {}
       }
     } finally {
@@ -435,15 +452,44 @@ function releaseVersionLease(lease) {
   } catch {}
 }
 
-function leaseIsActive(lease) {
+// Returns "live" or "dead" for a PID owner, "missing" or "malformed" for a
+// recoverable interrupted record, and "unknown" for an unreadable record.
+function leaseActivity(lease) {
+  let raw;
   try {
-    const pid = Number.parseInt(fs.readFileSync(path.join(lease, "pid"), "utf8"), 10);
-    if (!Number.isInteger(pid) || pid <= 0) return true;
-    process.kill(pid, 0);
-    return true;
+    raw = fs.readFileSync(path.join(lease, "pid"), "utf8");
   } catch (error) {
-    return error && error.code !== "ESRCH";
+    return error && (error.code === "ENOENT" || error.code === "EISDIR")
+      ? "missing"
+      : "unknown";
   }
+  const pid = Number.parseInt(raw, 10);
+  if (!Number.isInteger(pid) || pid <= 0) return "malformed";
+  try {
+    process.kill(pid, 0);
+    return "live";
+  } catch (error) {
+    return error && error.code === "ESRCH" ? "dead" : "unknown";
+  }
+}
+
+function leaseIsStale(lease) {
+  try {
+    const stat = fs.statSync(lease);
+    return (
+      Number.isFinite(stat.mtimeMs) &&
+      Date.now() - stat.mtimeMs >= CACHE_LEASE_EMPTY_MAX_AGE_MS
+    );
+  } catch {
+    return false;
+  }
+}
+
+function leaseCanBeReclaimed(lease) {
+  const activity = leaseActivity(lease);
+  if (activity === "live" || activity === "unknown") return false;
+  if (activity === "dead") return true;
+  return leaseIsStale(lease);
 }
 
 function versionHasActiveLease(versionDir) {
@@ -455,15 +501,24 @@ function versionHasActiveLease(versionDir) {
     for (const entry of entries) {
       const lease = path.join(leaseRoot, entry.name);
       if (entry.isDirectory()) {
-        if (leaseIsActive(lease)) {
-          active = true;
-        } else {
+        if (leaseCanBeReclaimed(lease)) {
           fs.rmSync(lease, { recursive: true, force: true });
+        } else {
+          active = true;
         }
       } else if (entry.name === "pid") {
         // Read leases written by older launchers, before leases became
         // per-process directories.
-        active = leaseIsActive(leaseRoot);
+        const activity = leaseActivity(leaseRoot);
+        if (activity === "live" || activity === "unknown") {
+          active = true;
+        } else if (activity === "dead" || leaseIsStale(leaseRoot)) {
+          fs.rmSync(path.join(leaseRoot, "pid"), { recursive: false, force: true });
+        } else {
+          // A fresh malformed legacy record may belong to a process that is
+          // still publishing its PID. Retain the version until it is stale.
+          active = true;
+        }
       } else {
         // Unknown lease state is retained conservatively.
         active = true;
