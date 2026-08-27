@@ -1137,6 +1137,12 @@ async fn run_spec(
                     Ok(status) => status.code().map(i64::from).unwrap_or(1),
                     Err(_) => 1,
                 });
+                // `wait` has reaped the leader. Disarm before any subsequent
+                // cancellation can run the guard and target a reused PID.
+                #[cfg(unix)]
+                {
+                    process_group_guard.armed = false;
+                }
             }
             () = &mut deadline, if !timed_out => {
                 timed_out = true;
