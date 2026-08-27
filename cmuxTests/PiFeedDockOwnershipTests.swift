@@ -193,6 +193,28 @@ struct PiFeedDockOwnershipTests {
     }
 
     @MainActor
+    @Test("Malformed Feed surface claims fail closed")
+    func malformedSurfaceClaimDoesNotWidenToWorkspaceDelivery() async throws {
+        try await withAppContext { _, _, workspace, _ in
+            let event = WorkstreamEvent(
+                sessionId: "pi-malformed-surface-feed",
+                hookEventName: .permissionRequest,
+                source: "pi",
+                workspaceId: workspace.id.uuidString,
+                surfaceId: "not-a-surface-id",
+                requestId: "pi-malformed-surface-request"
+            )
+            let decision = await FeedCoordinator.shared.feedNotificationDeliveryDecision(
+                for: event,
+                effects: TerminalNotificationPolicyEffects()
+            )
+
+            #expect(decision.disposition == .muted)
+            #expect(decision.effects == .allSuppressed)
+        }
+    }
+
+    @MainActor
     @Test("Blocking Feed leaves the agent lifecycle state untouched")
     func blockingFeedLeavesAgentLifecycleStateUntouched() async throws {
         try await withAppContext { _, manager, workspace, _ in
