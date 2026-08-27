@@ -5267,6 +5267,28 @@ struct CMUXCLI {
                 throw CLIError(message: "Unknown feed subcommand: \(sub)")
             }
         }
+        if command == "schedule", scheduleCommandDoesNotNeedSocket(commandArgs) {
+            try runScheduleCommand(
+                commandArgs: commandArgs,
+                client: nil,
+                jsonOutput: jsonOutput,
+                explicitPassword: socketPasswordArg,
+                socketPath: resolvedSocketPath
+            )
+            return
+        }
+        if command == "schedule",
+           commandArgs.first?.lowercased() == "run",
+           commandArgs.count != 2 {
+            try runScheduleCommand(
+                commandArgs: commandArgs,
+                client: nil,
+                jsonOutput: jsonOutput,
+                explicitPassword: socketPasswordArg,
+                socketPath: resolvedSocketPath
+            )
+            return
+        }
         if command == "events" {
             try runEventsCommand(
                 commandArgs: commandArgs,
@@ -5366,6 +5388,16 @@ struct CMUXCLI {
                     )
                 }
             } else {
+                if command == "schedule", commandArgs.first?.lowercased() == "run" {
+                    try runScheduleCommand(
+                        commandArgs: commandArgs,
+                        client: nil,
+                        jsonOutput: jsonOutput,
+                        explicitPassword: socketPasswordArg,
+                        socketPath: resolvedSocketPath
+                    )
+                    return
+                }
                 throw error
             }
         }
@@ -5378,6 +5410,17 @@ struct CMUXCLI {
             responseTimeout: cursorHookSocketTimeout,
             deadline: cursorHookDeadline
         )
+
+        if command == "schedule" {
+            try runScheduleCommand(
+                commandArgs: commandArgs,
+                client: client,
+                jsonOutput: jsonOutput,
+                explicitPassword: socketPasswordArg,
+                socketPath: resolvedSocketPath
+            )
+            return
+        }
 
         let idFormat = try resolvedIDFormat(jsonOutput: jsonOutput, raw: idFormatArg)
         // Workspace inspection JSON is a scripting boundary: keep stable UUIDs
@@ -7954,6 +7997,11 @@ struct CMUXCLI {
             // `feed tui` is the socket-backed exception; help, clear, and
             // malformed subcommands are all local argument/config paths.
             return commandArgs.first?.lowercased() != "tui"
+        case "schedule":
+            // Local schedule actions and launchd's run entry point must reach
+            // their own parser so they can report product-level errors.
+            return scheduleCommandDoesNotNeedSocket(commandArgs)
+                || commandArgs.first?.lowercased() == "run"
         case "disable-browser", "enable-browser", "browser-status":
             return true
         case "browser":
@@ -18002,6 +18050,8 @@ struct CMUXCLI {
             return simulatorSubcommandUsage()
         case "ios":
             return iosSubcommandUsage()
+        case "schedule":
+            return scheduleUsage()
         case "events":
             let timeoutDescription = String(
                 localized: "cli.events.help.timeout",
@@ -39824,6 +39874,7 @@ export default CMUXSessionRestore;
           \(restoreCommandUsageLine)
           restore-session
           \(String(localized: "cli.sessions.command", defaultValue: "sessions [list] [options]"))
+          \(String(localized: "cli.schedule.command", defaultValue: "schedule <list|create|run|pause|resume|delete>"))
           open <path-or-url>... [--workspace <id|ref|index>] [--surface <id|ref|index>] [--pane <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>] [--no-focus]
           diff [patch-file|-] [--source <unstaged|staged|branch|last-turn>] [--unstaged|--staged|--branch|--last-turn] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--cwd <path>] [--base <ref>] [--focus <true|false>] [--no-focus] [--title <text>] [--layout <split|unified>] [--font-size <points>]
           feedback [--email <email> --body <text> [--image <path> ...]]
