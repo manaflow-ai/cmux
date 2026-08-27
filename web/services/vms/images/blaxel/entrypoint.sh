@@ -13,8 +13,12 @@ done
 
 # Blaxel's rootfs transform does not carry /home/cua over from the image, so
 # recreate the desktop user's home on every boot before dropping privileges.
-mkdir -p /home/cua
-chown cua:cua /home/cua
+# The "First Run" marker pre-accepts Chrome's first-run/ToS dialog, so the
+# dock's Chrome opens straight to a page on a fresh machine and in anything
+# resumed from its snapshot.
+mkdir -p "/home/cua/.config/google-chrome"
+touch "/home/cua/.config/google-chrome/First Run"
+chown -R cua:cua /home/cua
 
 # Bring the desktop up, and bring it back if a component dies. The driver's
 # VNC heal covers bootstrap/resurrect only; this loop covers mid-life crashes.

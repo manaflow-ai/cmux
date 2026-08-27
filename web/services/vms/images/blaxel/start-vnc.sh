@@ -42,7 +42,12 @@ if ! pgrep -u "$(id -u)" -x openbox >/dev/null 2>&1; then
   dbus-launch openbox >>"$LOG_DIR/openbox.log" 2>&1 &
 fi
 
-xsetroot -solid '#1f2430' >/dev/null 2>&1 || true
+if [ -f /usr/share/backgrounds/cmux/wallpaper.jpg ] && command -v feh >/dev/null 2>&1; then
+  feh --no-fehbg --bg-fill /usr/share/backgrounds/cmux/wallpaper.jpg >/dev/null 2>&1 \
+    || xsetroot -solid '#1f2430' >/dev/null 2>&1 || true
+else
+  xsetroot -solid '#1f2430' >/dev/null 2>&1 || true
+fi
 
 if ! pgrep -u "$(id -u)" -x tint2 >/dev/null 2>&1; then
   tint2 -c /etc/cmux/tint2rc >>"$LOG_DIR/tint2.log" 2>&1 &

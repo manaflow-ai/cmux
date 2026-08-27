@@ -23,13 +23,16 @@ describe("Blaxel baked image template", () => {
   test("template directory contains exactly the expected files", () => {
     expect(readdirSync(templateDir).sort()).toEqual([
       "Dockerfile",
+      "WALLPAPER.md",
       "blaxel.toml",
       "chrome-managed-policy.json",
       "cmux-bashrc",
       "entrypoint.sh",
+      "google-chrome-cmux.desktop",
       "seed-history",
       "start-vnc.sh",
       "tint2rc",
+      "wallpaper.jpg",
     ]);
   });
 
@@ -118,6 +121,35 @@ describe("Blaxel baked image template", () => {
     expect(toml).toContain('type = "sandbox"');
     expect(toml).toContain("target = 7777");
     expect(toml).toContain("target = 6901");
+  });
+
+  test("desktop polish: pre-accepted Chrome, CC0 wallpaper, no clock, dock order", () => {
+    // Chrome opens from the dock with first run pre-accepted: flagged .desktop
+    // plus the "First Run" marker seeded into the recreated home at boot.
+    expect(read("google-chrome-cmux.desktop")).toContain("--no-first-run");
+    expect(dockerfile).toContain(
+      "COPY google-chrome-cmux.desktop /etc/cmux/apps/google-chrome-cmux.desktop",
+    );
+    expect(entrypoint).toContain('touch "/home/cua/.config/google-chrome/First Run"');
+    expect(entrypoint).toContain("chown -R cua:cua /home/cua");
+    // Wallpaper is committed with provenance; the license must stay CC0.
+    expect(read("WALLPAPER.md")).toContain("CC0 1.0 Universal");
+    expect(dockerfile).toContain("COPY wallpaper.jpg /usr/share/backgrounds/cmux/wallpaper.jpg");
+    expect(startVnc).toContain("feh --no-fehbg --bg-fill /usr/share/backgrounds/cmux/wallpaper.jpg");
+    const tint2 = read("tint2rc");
+    expect(tint2).toContain("panel_items = LT");
+    expect(tint2).not.toContain("time1_format");
+    const launchers = tint2
+      .split("\n")
+      .filter((line) => line.startsWith("launcher_item_app"))
+      .join("\n");
+    expect(launchers).toBe(
+      [
+        "launcher_item_app = /etc/cmux/apps/google-chrome-cmux.desktop",
+        "launcher_item_app = /usr/share/applications/thunar.desktop",
+        "launcher_item_app = /usr/share/applications/com.mitchellh.ghostty.desktop",
+      ].join("\n"),
+    );
   });
 
   test("never installs docker (unsupported in Blaxel microVMs)", () => {

@@ -65,7 +65,7 @@ enum MachineSnapshotBuilder {
             id: summary.id,
             provider: summary.provider,
             image: summary.image,
-            isDesktop: summary.image.contains("xfce-vnc") || summary.image.contains("cmux-devbox"),
+            isDesktop: summary.image.contains("xfce-vnc"),
             activity: activity(fromStatus: summary.status),
             createdAt: summary.createdAt > 0
                 ? Date(timeIntervalSince1970: TimeInterval(summary.createdAt) / 1000)

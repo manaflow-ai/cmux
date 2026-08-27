@@ -4257,9 +4257,8 @@ struct CMUXCLI {
     // creation succeeds. Do not rotate it without a migration.
     private static let persistentCloudVMSlotID = "cmux-default-freestyle-sshd-v1"
     private static let persistentCloudVMWorkspaceName = "sshd"
-    /// Baked cmux machine image (web/services/vms/images/blaxel): devtools, coding
-    /// agents, and an openbox desktop with a noVNC web front end, all preinstalled.
-    private static let cloudVMDesktopImage = "sandbox/cmux-devbox:latest"
+    /// Blaxel image that boots an xfce desktop with a noVNC web front end.
+    private static let cloudVMDesktopImage = "blaxel/xfce-vnc:latest"
     /// Shell-only image for `vm new --base`; the backend default is the desktop image.
     private static let cloudVMBaseImage = "blaxel/base-image:latest"
     /// `--size` spellings → memory in MB. vCPUs scale with memory on Blaxel.
@@ -4278,7 +4277,7 @@ struct CMUXCLI {
     }
     private static let cloudVMDesktopPort = 6901
     private static func cloudVMImageHasDesktop(_ image: String) -> Bool {
-        image.contains("xfce-vnc") || image.contains("cmux-devbox")
+        image.contains("xfce-vnc")
     }
 
     /// Streams the VM's desktop (noVNC) into a browser split beside the shell. Best effort:

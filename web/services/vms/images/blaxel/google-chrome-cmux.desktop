@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Name=Google Chrome
+Comment=Browse the web
+Exec=/usr/bin/google-chrome-stable --no-first-run --no-default-browser-check --disable-session-crashed-bubble --password-store=basic %U
+Terminal=false
+Icon=google-chrome
+Type=Application
+Categories=Network;WebBrowser;
+StartupNotify=true

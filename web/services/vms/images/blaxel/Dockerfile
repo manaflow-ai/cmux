@@ -22,7 +22,7 @@
 FROM debian:trixie-slim
 
 # Cache-buster: bump to force a full rebuild on Blaxel's builder.
-ENV CMUX_IMAGE_EPOCH=2026-08-26-r1
+ENV CMUX_IMAGE_EPOCH=2026-08-26-r2
 
 # Blaxel's sandbox API binary is mandatory in every custom image: it is the control
 # plane (port 8080) the driver uses for filesystem and process operations.
@@ -97,6 +97,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     openbox \
     tint2 \
     thunar \
+    feh \
     novnc \
     websockify \
     at-spi2-core \
@@ -125,6 +126,9 @@ RUN curl -fsSL -o /tmp/chrome.deb https://dl.google.com/linux/direct/google-chro
   && apt-get update && apt-get install -y --no-install-recommends /tmp/chrome.deb \
   && rm -rf /var/lib/apt/lists/* /tmp/chrome.deb
 COPY chrome-managed-policy.json /etc/opt/chrome/policies/managed/cmux.json
+# The dock launches Chrome through this entry: first run is pre-accepted so no
+# ToS dialog ever shows on a machine (or in anything resumed from its snapshot).
+COPY google-chrome-cmux.desktop /etc/cmux/apps/google-chrome-cmux.desktop
 ENV AGENT_BROWSER_EXECUTABLE_PATH=/usr/bin/google-chrome-stable
 
 # Ghostty, pinned community .deb for trixie (github.com/mkasberg/ghostty-ubuntu;
@@ -177,6 +181,8 @@ RUN curl -fsSL https://github.com/akinomyoga/ble.sh/releases/download/nightly/bl
 COPY cmux-bashrc /etc/cmux/bashrc
 COPY seed-history /etc/cmux/seed-history
 COPY tint2rc /etc/cmux/tint2rc
+# CC0 mountain-lake wallpaper; provenance and license in WALLPAPER.md.
+COPY wallpaper.jpg /usr/share/backgrounds/cmux/wallpaper.jpg
 RUN printf '%s\n' '[ -f /etc/cmux/bashrc ] && . /etc/cmux/bashrc' >> /etc/bash.bashrc \
   && printf '%s\n' '[ -f /etc/cmux/bashrc ] && . /etc/cmux/bashrc' >> /etc/skel/.bashrc \
   && printf '%s\n' '[ -f /etc/cmux/bashrc ] && . /etc/cmux/bashrc' >> /root/.bashrc \
