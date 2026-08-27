@@ -20,8 +20,7 @@
       "type": "object",
       "required": [
         "endpointId",
-        "homeRelayUrl",
-        "proof"
+        "homeRelayUrl"
       ],
       "additionalProperties": false,
       "properties": {
@@ -33,7 +32,7 @@
         },
         "proof": {
           "type": "object",
-          "description": "Signed identity assertion: same Ed25519 binding-request proof the broker HTTPS API accepts via x-cmux-iroh-* headers",
+          "description": "Optional signed identity assertion (reserved for the source-of-truth migration; phase A authorizes via the bearer-authenticated socket and confirms hints by re-fetching discovery)",
           "required": [
             "bindingId",
             "timestamp",

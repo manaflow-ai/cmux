@@ -396,16 +396,17 @@ public struct CTLMintRequest: Codable, Equatable {
 // MARK: - CTLMintRequestPayload
 public struct CTLMintRequestPayload: Codable, Equatable {
     public let endpointID: String
-    /// Signed identity assertion: same Ed25519 binding-request proof the broker HTTPS API
-    /// accepts via x-cmux-iroh-* headers
-    public let proof: PurpleProof
+    /// Optional signed identity assertion (reserved for the source-of-truth migration; phase A
+    /// authorizes via the bearer-authenticated socket and confirms hints by re-fetching
+    /// discovery)
+    public let proof: PurpleProof?
 
     public enum CodingKeys: String, CodingKey {
         case endpointID = "endpointId"
         case proof = "proof"
     }
 
-    public init(endpointID: String, proof: PurpleProof) {
+    public init(endpointID: String, proof: PurpleProof?) {
         self.endpointID = endpointID
         self.proof = proof
     }
@@ -417,8 +418,9 @@ public struct CTLMintRequestPayload: Codable, Equatable {
 // for types that require the use of JSONAny, nor will the implementation of Hashable be
 // synthesized for types that have collections (such as arrays or dictionaries).
 
-/// Signed identity assertion: same Ed25519 binding-request proof the broker HTTPS API
-/// accepts via x-cmux-iroh-* headers
+/// Optional signed identity assertion (reserved for the source-of-truth migration; phase A
+/// authorizes via the bearer-authenticated socket and confirms hints by re-fetching
+/// discovery)
 // MARK: - PurpleProof
 public struct PurpleProof: Codable, Equatable {
     public let bindingID: String
@@ -480,9 +482,10 @@ public struct CTLPublishHint: Codable, Equatable {
 public struct CTLPublishHintPayload: Codable, Equatable {
     public let endpointID: String
     public let homeRelayURL: String
-    /// Signed identity assertion: same Ed25519 binding-request proof the broker HTTPS API
-    /// accepts via x-cmux-iroh-* headers
-    public let proof: FluffyProof
+    /// Optional signed identity assertion (reserved for the source-of-truth migration; phase A
+    /// authorizes via the bearer-authenticated socket and confirms hints by re-fetching
+    /// discovery)
+    public let proof: FluffyProof?
 
     public enum CodingKeys: String, CodingKey {
         case endpointID = "endpointId"
@@ -490,7 +493,7 @@ public struct CTLPublishHintPayload: Codable, Equatable {
         case proof = "proof"
     }
 
-    public init(endpointID: String, homeRelayURL: String, proof: FluffyProof) {
+    public init(endpointID: String, homeRelayURL: String, proof: FluffyProof?) {
         self.endpointID = endpointID
         self.homeRelayURL = homeRelayURL
         self.proof = proof
@@ -503,8 +506,9 @@ public struct CTLPublishHintPayload: Codable, Equatable {
 // for types that require the use of JSONAny, nor will the implementation of Hashable be
 // synthesized for types that have collections (such as arrays or dictionaries).
 
-/// Signed identity assertion: same Ed25519 binding-request proof the broker HTTPS API
-/// accepts via x-cmux-iroh-* headers
+/// Optional signed identity assertion (reserved for the source-of-truth migration; phase A
+/// authorizes via the bearer-authenticated socket and confirms hints by re-fetching
+/// discovery)
 // MARK: - FluffyProof
 public struct FluffyProof: Codable, Equatable {
     public let bindingID: String

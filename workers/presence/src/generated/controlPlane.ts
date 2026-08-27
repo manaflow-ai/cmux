@@ -126,15 +126,17 @@ export interface CTLMintRequest {
 export interface CTLMintRequestPayload {
     endpointId: string;
     /**
-     * Signed identity assertion: same Ed25519 binding-request proof the broker HTTPS API
-     * accepts via x-cmux-iroh-* headers
+     * Optional signed identity assertion (reserved for the source-of-truth migration; phase A
+     * authorizes via the bearer-authenticated socket and confirms hints by re-fetching
+     * discovery)
      */
-    proof: PurpleProof;
+    proof?: PurpleProof;
 }
 
 /**
- * Signed identity assertion: same Ed25519 binding-request proof the broker HTTPS API
- * accepts via x-cmux-iroh-* headers
+ * Optional signed identity assertion (reserved for the source-of-truth migration; phase A
+ * authorizes via the bearer-authenticated socket and confirms hints by re-fetching
+ * discovery)
  */
 export interface PurpleProof {
     bindingId: string;
@@ -163,15 +165,17 @@ export interface CTLPublishHintPayload {
     endpointId:   string;
     homeRelayUrl: string;
     /**
-     * Signed identity assertion: same Ed25519 binding-request proof the broker HTTPS API
-     * accepts via x-cmux-iroh-* headers
+     * Optional signed identity assertion (reserved for the source-of-truth migration; phase A
+     * authorizes via the bearer-authenticated socket and confirms hints by re-fetching
+     * discovery)
      */
-    proof: FluffyProof;
+    proof?: FluffyProof;
 }
 
 /**
- * Signed identity assertion: same Ed25519 binding-request proof the broker HTTPS API
- * accepts via x-cmux-iroh-* headers
+ * Optional signed identity assertion (reserved for the source-of-truth migration; phase A
+ * authorizes via the bearer-authenticated socket and confirms hints by re-fetching
+ * discovery)
  */
 export interface FluffyProof {
     bindingId: string;
