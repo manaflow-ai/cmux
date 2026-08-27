@@ -16,6 +16,9 @@ extension SidebarGitMetadataService {
             return
         }
 
+        // Non-forced calls are content-only refreshes. HEAD/branch changes,
+        // metadata events, and creation-watch races all force a descriptor
+        // rebuild so conditional config paths cannot be skipped by this reuse.
         if !forceDescriptorRefresh,
            workspaceGitMetadataWatcherSourceDirectoryByKey[key] == directory,
            let watchedPathsKey = workspaceGitMetadataWatcherWatchedPathsKeyByProbeKey[key],
@@ -225,22 +228,38 @@ extension SidebarGitMetadataService {
         if targetIsNew {
             let targetCount = workspaceGitMetadataCreationWatcherAncestorByTargetPath.count
             guard targetCount < 512 else { return false }
-            let ancestorIsNew = workspaceGitMetadataCreationWatchTargetsByAncestor[ancestor] == nil
-            if ancestorIsNew {
-                guard workspaceGitMetadataCreationWatchersByAncestor.count < 128 else {
-                    return false
-                }
+            let logicalParent = logicalSymlinkParent(for: path)
+            let ancestors = Set([ancestor, logicalParent].compactMap { $0 })
+            let newAncestors = ancestors.filter {
+                workspaceGitMetadataCreationWatchTargetsByAncestor[$0] == nil
+            }
+            guard workspaceGitMetadataCreationWatchersByAncestor.count + newAncestors.count <= 128 else {
+                return false
             }
             workspaceGitMetadataCreationWatcherAncestorByTargetPath[path] = ancestor
+            if let logicalParent {
+                workspaceGitMetadataCreationWatcherLogicalParentByTargetPath[path] = logicalParent
+            }
+            workspaceGitMetadataCreationWatcherLogicalSignatureByTargetPath[path] =
+                logicalSymlinkSignature(for: path)
             let targetExists = creationWatchFileManager.fileExists(atPath: path)
             workspaceGitMetadataCreationWatcherTargetExistsByPath[path] = targetExists
             targetWasAlreadyCreated = targetWasAlreadyCreated || targetExists
-            workspaceGitMetadataCreationWatchTargetsByAncestor[ancestor, default: []].insert(path)
+            for watchAncestor in ancestors {
+                workspaceGitMetadataCreationWatchTargetsByAncestor[watchAncestor, default: []]
+                    .insert(path)
+            }
         } else if workspaceGitMetadataCreationWatcherTargetExistsByPath[path] == true {
             targetWasAlreadyCreated = true
         }
         workspaceGitMetadataCreationWatcherProbeKeysByTargetPath[path, default: []].insert(key)
-        ensureWorkspaceGitMetadataCreationWatcher(for: ancestor)
+        let watchAncestors = Set([
+            workspaceGitMetadataCreationWatcherAncestorByTargetPath[path],
+            workspaceGitMetadataCreationWatcherLogicalParentByTargetPath[path],
+        ].compactMap { $0 })
+        for watchAncestor in watchAncestors {
+            ensureWorkspaceGitMetadataCreationWatcher(for: watchAncestor)
+        }
         return true
     }
 
@@ -254,14 +273,18 @@ extension SidebarGitMetadataService {
         }
         workspaceGitMetadataCreationWatcherProbeKeysByTargetPath.removeValue(forKey: path)
         workspaceGitMetadataCreationWatcherTargetExistsByPath.removeValue(forKey: path)
-        guard let ancestor = workspaceGitMetadataCreationWatcherAncestorByTargetPath.removeValue(forKey: path) else {
-            return
-        }
-        workspaceGitMetadataCreationWatchTargetsByAncestor[ancestor]?.remove(path)
-        if workspaceGitMetadataCreationWatchTargetsByAncestor[ancestor]?.isEmpty == true {
-            workspaceGitMetadataCreationWatchTargetsByAncestor.removeValue(forKey: ancestor)
-            workspaceGitMetadataCreationWatcherTasksByAncestor.removeValue(forKey: ancestor)?.cancel()
-            workspaceGitMetadataCreationWatchersByAncestor.removeValue(forKey: ancestor)
+        let ancestors = Set([
+            workspaceGitMetadataCreationWatcherAncestorByTargetPath.removeValue(forKey: path),
+            workspaceGitMetadataCreationWatcherLogicalParentByTargetPath.removeValue(forKey: path),
+        ].compactMap { $0 })
+        workspaceGitMetadataCreationWatcherLogicalSignatureByTargetPath.removeValue(forKey: path)
+        for ancestor in ancestors {
+            workspaceGitMetadataCreationWatchTargetsByAncestor[ancestor]?.remove(path)
+            if workspaceGitMetadataCreationWatchTargetsByAncestor[ancestor]?.isEmpty == true {
+                workspaceGitMetadataCreationWatchTargetsByAncestor.removeValue(forKey: ancestor)
+                workspaceGitMetadataCreationWatcherTasksByAncestor.removeValue(forKey: ancestor)?.cancel()
+                workspaceGitMetadataCreationWatchersByAncestor.removeValue(forKey: ancestor)
+            }
         }
     }
 
@@ -283,30 +306,50 @@ extension SidebarGitMetadataService {
                 )
                 let snapshots = await self.creationTargetSnapshots(for: targets)
                 guard !Task.isCancelled else { break }
-                var changed = false
+                var changedTargets: Set<String> = []
                 for target in targets {
-                    guard self.workspaceGitMetadataCreationWatcherAncestorByTargetPath[target]
-                            == ancestor,
+                    let isResolvedAncestor =
+                        self.workspaceGitMetadataCreationWatcherAncestorByTargetPath[target]
+                        == ancestor
+                    let isLogicalAncestor =
+                        self.workspaceGitMetadataCreationWatcherLogicalParentByTargetPath[target]
+                        == ancestor
+                    guard isResolvedAncestor || isLogicalAncestor,
                           let snapshot = snapshots[target] else {
                         continue
                     }
                     let closerAncestor = snapshot.nearestExistingDirectory
-                    if closerAncestor != ancestor, closerAncestor != "/" {
+                    if isResolvedAncestor, closerAncestor != ancestor, closerAncestor != "/" {
                         self.migrateWorkspaceGitMetadataCreationWatchTarget(
                             target,
                             from: ancestor,
                             to: closerAncestor
                         )
+                        changedTargets.insert(target)
+                    }
+                    if isLogicalAncestor {
+                        if self.updateWorkspaceGitMetadataLogicalParent(
+                            target,
+                            to: snapshot.logicalSymlinkParent
+                        ) {
+                            changedTargets.insert(target)
+                        }
+                        if self.workspaceGitMetadataCreationWatcherLogicalSignatureByTargetPath[target]
+                            != snapshot.logicalSymlinkSignature {
+                            self.workspaceGitMetadataCreationWatcherLogicalSignatureByTargetPath[target] =
+                                snapshot.logicalSymlinkSignature
+                            changedTargets.insert(target)
+                        }
                     }
                     if self.workspaceGitMetadataCreationWatcherTargetExistsByPath[target]
                         != snapshot.exists {
                         self.workspaceGitMetadataCreationWatcherTargetExistsByPath[target] =
                             snapshot.exists
-                        changed = true
+                        changedTargets.insert(target)
                     }
                 }
-                guard changed else { continue }
-                let keySet = targets.reduce(into: Set<WorkspaceGitProbeKey>()) { result, target in
+                guard !changedTargets.isEmpty else { continue }
+                let keySet = changedTargets.reduce(into: Set<WorkspaceGitProbeKey>()) { result, target in
                     result.formUnion(
                         self.workspaceGitMetadataCreationWatcherProbeKeysByTargetPath[target] ?? []
                     )
@@ -346,8 +389,14 @@ extension SidebarGitMetadataService {
                 || removesPreviousWatcher else {
             return
         }
-        workspaceGitMetadataCreationWatchTargetsByAncestor[previousAncestor]?.remove(target)
-        if workspaceGitMetadataCreationWatchTargetsByAncestor[previousAncestor]?.isEmpty == true {
+        let previousAncestorIsLogical =
+            workspaceGitMetadataCreationWatcherLogicalParentByTargetPath[target]
+            == previousAncestor
+        if !previousAncestorIsLogical {
+            workspaceGitMetadataCreationWatchTargetsByAncestor[previousAncestor]?.remove(target)
+        }
+        if !previousAncestorIsLogical,
+           workspaceGitMetadataCreationWatchTargetsByAncestor[previousAncestor]?.isEmpty == true {
             workspaceGitMetadataCreationWatchTargetsByAncestor.removeValue(forKey: previousAncestor)
             workspaceGitMetadataCreationWatcherTasksByAncestor
                 .removeValue(forKey: previousAncestor)?
@@ -359,6 +408,43 @@ extension SidebarGitMetadataService {
         ensureWorkspaceGitMetadataCreationWatcher(for: ancestor)
     }
 
+    @discardableResult
+    private func updateWorkspaceGitMetadataLogicalParent(
+        _ target: String,
+        to newParent: String?
+    ) -> Bool {
+        let oldParent = workspaceGitMetadataCreationWatcherLogicalParentByTargetPath[target]
+        guard oldParent != newParent else { return false }
+        if let newParent, newParent != oldParent, newParent != "/" {
+            let isNewAncestor = workspaceGitMetadataCreationWatchTargetsByAncestor[newParent] == nil
+            guard !isNewAncestor || workspaceGitMetadataCreationWatchersByAncestor.count < 128 else {
+                return false
+            }
+        }
+        if let oldParent {
+            let primaryParent = workspaceGitMetadataCreationWatcherAncestorByTargetPath[target]
+            if primaryParent != oldParent {
+                workspaceGitMetadataCreationWatchTargetsByAncestor[oldParent]?.remove(target)
+            }
+            if primaryParent != oldParent,
+               workspaceGitMetadataCreationWatchTargetsByAncestor[oldParent]?.isEmpty == true {
+                workspaceGitMetadataCreationWatchTargetsByAncestor.removeValue(forKey: oldParent)
+                workspaceGitMetadataCreationWatcherTasksByAncestor
+                    .removeValue(forKey: oldParent)?
+                    .cancel()
+                workspaceGitMetadataCreationWatchersByAncestor.removeValue(forKey: oldParent)
+            }
+        }
+        guard let newParent, newParent != "/" else {
+            workspaceGitMetadataCreationWatcherLogicalParentByTargetPath.removeValue(forKey: target)
+            return true
+        }
+        workspaceGitMetadataCreationWatcherLogicalParentByTargetPath[target] = newParent
+        workspaceGitMetadataCreationWatchTargetsByAncestor[newParent, default: []].insert(target)
+        ensureWorkspaceGitMetadataCreationWatcher(for: newParent)
+        return true
+    }
+
     @concurrent
     nonisolated private func creationTargetSnapshots(
         for paths: [String]
@@ -366,7 +452,9 @@ extension SidebarGitMetadataService {
         paths.reduce(into: [String: WorkspaceGitMetadataCreationTargetSnapshot]()) { result, path in
             result[path] = WorkspaceGitMetadataCreationTargetSnapshot(
                 exists: creationWatchFileManager.fileExists(atPath: path),
-                nearestExistingDirectory: nearestExistingDirectory(for: path)
+                nearestExistingDirectory: nearestExistingDirectory(for: path),
+                logicalSymlinkParent: logicalSymlinkParent(for: path),
+                logicalSymlinkSignature: logicalSymlinkSignature(for: path)
             )
         }
     }
@@ -388,6 +476,34 @@ extension SidebarGitMetadataService {
             candidate.deleteLastPathComponent()
         }
         return "/"
+    }
+
+    nonisolated private func logicalSymlinkParent(for path: String) -> String? {
+        var current = URL(fileURLWithPath: "/")
+        for component in path.split(separator: "/") {
+            let next = current.appendingPathComponent(String(component))
+            if (try? creationWatchFileManager.destinationOfSymbolicLink(atPath: next.path)) != nil {
+                let parent = current.standardizedFileURL.path
+                return parent == "/" ? nil : parent
+            }
+            current = next
+        }
+        return nil
+    }
+
+    nonisolated private func logicalSymlinkSignature(for path: String) -> String? {
+        var current = URL(fileURLWithPath: "/")
+        var components: [String] = []
+        for component in path.split(separator: "/") {
+            let next = current.appendingPathComponent(String(component))
+            if let destination = try? creationWatchFileManager.destinationOfSymbolicLink(
+                atPath: next.path
+            ) {
+                components.append("\(next.path)=\(destination)")
+            }
+            current = next
+        }
+        return components.isEmpty ? nil : components.joined(separator: "|")
     }
 
     func workspaceGitSnapshotCacheGeneration(directory: String) -> UInt64? {
@@ -539,6 +655,8 @@ extension SidebarGitMetadataService {
         workspaceGitMetadataCreationWatchTargetsByAncestor.removeAll()
         workspaceGitMetadataCreationWatcherProbeKeysByTargetPath.removeAll()
         workspaceGitMetadataCreationWatcherAncestorByTargetPath.removeAll()
+        workspaceGitMetadataCreationWatcherLogicalParentByTargetPath.removeAll()
+        workspaceGitMetadataCreationWatcherLogicalSignatureByTargetPath.removeAll()
         workspaceGitMetadataCreationWatcherTargetExistsByPath.removeAll()
         workspaceGitMetadataCreationWatchPathsByProbeKey.removeAll()
         workspaceGitMetadataWatcherSourceDirectoryByKey.removeAll()

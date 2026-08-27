@@ -74,6 +74,8 @@ public final class SidebarGitMetadataService: SidebarGitMetadataServing {
     var workspaceGitMetadataCreationWatchTargetsByAncestor: [String: Set<String>] = [:]
     var workspaceGitMetadataCreationWatcherProbeKeysByTargetPath: [String: Set<WorkspaceGitProbeKey>] = [:]
     var workspaceGitMetadataCreationWatcherAncestorByTargetPath: [String: String] = [:]
+    var workspaceGitMetadataCreationWatcherLogicalParentByTargetPath: [String: String] = [:]
+    var workspaceGitMetadataCreationWatcherLogicalSignatureByTargetPath: [String: String?] = [:]
     var workspaceGitMetadataCreationWatcherTargetExistsByPath: [String: Bool] = [:]
     var workspaceGitMetadataCreationWatchPathsByProbeKey: [WorkspaceGitProbeKey: Set<String>] = [:]
     var workspaceGitMetadataWatcherWatchedPathsKeyByProbeKey: [WorkspaceGitProbeKey: WorkspaceGitMetadataWatchedPathsKey] = [:]
