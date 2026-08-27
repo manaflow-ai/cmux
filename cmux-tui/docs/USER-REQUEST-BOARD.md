@@ -1,14 +1,14 @@
 # cmux-tui user request board
 
 Current snapshot: 2026-08-27T12:20:00Z, pinned to `origin/main`
-[`de3902db48d2924c227b5acb26cbe1d89fe03cc0`](https://github.com/manaflow-ai/cmux/commit/de3902db48d2924c227b5acb26cbe1d89fe03cc0),
-committed 2026-08-27T05:04:41-07:00 with subject
-`refactor(tui): share startup option scanning (#10951)`. The prior
+[`aa8ca45e0b3a140678c4a6ae588e201cb421ac50`](https://github.com/manaflow-ai/cmux/commit/aa8ca45e0b3a140678c4a6ae588e201cb421ac50),
+committed 2026-08-27T05:25:26-07:00 with subject
+`refactor(tui): share draw and paint render path (#10970)`. The prior
 `5c2ee1244e2d796c9e4be5307788b320ac2ee4ff` and earlier
 `99bdc375e98eb9abddd3f54289bc16ef876e8095` snapshots are retained below.
 Metadata-only scan: 587 Codex session files dated after the prior snapshot and
 2,505 Codex/Claude files mentioning TUI. No transcript values or secrets were
-copied. Open dependent intents remain [#10736](https://github.com/manaflow-ai/cmux/pull/10736), [#10742](https://github.com/manaflow-ai/cmux/pull/10742), and [#10812](https://github.com/manaflow-ai/cmux/pull/10812).
+copied. Open dependent intents remain [#10736](https://github.com/manaflow-ai/cmux/pull/10736) and [#10742](https://github.com/manaflow-ai/cmux/pull/10742). Cloud resource projection [#10812](https://github.com/manaflow-ai/cmux/pull/10812) is superseded by merged [#10887](https://github.com/manaflow-ai/cmux/pull/10887). Packaging duplicate [#10886](https://github.com/manaflow-ai/cmux/pull/10886) remains open and is superseded pending [#10891](https://github.com/manaflow-ai/cmux/pull/10891).
 
 The retained session receipt supports at least 258 named substantive turns.
 This is a verifiable lower bound, not a total session count, and no

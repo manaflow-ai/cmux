@@ -1,9 +1,9 @@
 # cmux-tui technical-debt board
 
 Current snapshot: 2026-08-27T12:20:00Z. The exact source baseline is
-`origin/main` at [`de3902db48d2924c227b5acb26cbe1d89fe03cc0`](https://github.com/manaflow-ai/cmux/commit/de3902db48d2924c227b5acb26cbe1d89fe03cc0),
-committed 2026-08-27T05:04:41-07:00 with subject
-`refactor(tui): share startup option scanning (#10951)`. This is a documentation-
+`origin/main` at [`aa8ca45e0b3a140678c4a6ae588e201cb421ac50`](https://github.com/manaflow-ai/cmux/commit/aa8ca45e0b3a140678c4a6ae588e201cb421ac50),
+committed 2026-08-27T05:25:26-07:00 with subject
+`refactor(tui): share draw and paint render path (#10970)`. This is a documentation-
 only update, with no local Rust, Zig, or runtime build/test. The prior
 `5c2ee1244e2d796c9e4be5307788b320ac2ee4ff` and `99bdc375e98eb9abddd3f54289bc16ef876e8095`
 snapshots are retained below as historical layers.
