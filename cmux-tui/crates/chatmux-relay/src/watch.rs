@@ -619,6 +619,10 @@ async fn finish_open_failure(
 }
 
 fn finish_active(watch_id: &str, generation: u64, sessions: Sessions) {
+    // Every runner exit retires its liveness token. Replacement, close, and
+    // watcher failure must discard queued events from a dead generation; a
+    // terminal critical frame is awaited before those paths return, so it is
+    // delivered before this token is retired.
     let mut live = None;
     if let Ok(mut state) = sessions.lock() {
         let mut remove_slot = false;
