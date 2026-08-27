@@ -224,6 +224,13 @@ struct SurfaceCatalogTests {
     @Test func `Cancelling the last project caller detaches without leaking a late materialization`() async throws {
         let catalog = SurfaceCatalog()
         let provider = FakeProvider(machine: .cloud("vivid-newt"))
+        let (discarded, discardedContinuation) = AsyncStream<SurfaceProjection>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        provider.onDiscard = { projection in
+            discardedContinuation.yield(projection)
+            discardedContinuation.finish()
+        }
         let gate = MaterializeGate()
         provider.materializeGate = gate
         catalog.register(provider)
@@ -253,6 +260,7 @@ struct SurfaceCatalogTests {
 
         gate.release()
         await observer.value
+        _ = try await awaitFirst(discarded)
         #expect(catalog.projections.isEmpty)
         #expect(provider.discarded.count == 1, "a late provider result must close the pane after the last caller cancels")
     }
