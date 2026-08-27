@@ -37,6 +37,8 @@ const MAX_PENDING_NOTIFY_EVENTS: usize = 1024;
 /// filesystem operations. Keep them off the relay executor and bound the
 /// number of concurrent setup walks per connection.
 const WATCH_SETUP_CONCURRENCY: usize = 2;
+const WATCH_SETUP_FAILURE_MESSAGE: &str = "filesystem watcher setup failed";
+const WATCH_RUNTIME_FAILURE_MESSAGE: &str = "filesystem watcher stopped";
 
 /// All fallible watcher setup happens before a watch is published in the
 /// registry. A failed replacement therefore leaves the existing watch intact.
@@ -1125,6 +1127,69 @@ mod tests {
         .expect("old watch did not survive queue failure");
         assert_eq!(frame["watchId"], "same");
         registry.close("same");
+    }
+
+    #[tokio::test]
+    async fn completed_watch_invalidates_queued_frames() {
+        let sessions = Arc::new(Mutex::new(HashMap::new()));
+        let live = Arc::new(AtomicBool::new(true));
+        let cancellation = CancellationToken::new();
+        let task = tokio::spawn(async {});
+        sessions.lock().unwrap().insert(
+            "finished".to_owned(),
+            WatchSlot {
+                active: Some(ActiveWatch {
+                    generation: 1,
+                    live: Arc::clone(&live),
+                    cancellation,
+                    abort: task.abort_handle(),
+                }),
+                opening: None,
+            },
+        );
+        finish_active("finished", 1, Arc::clone(&sessions));
+        assert!(!live.load(Ordering::Acquire));
+        assert!(sessions.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn failed_open_keeps_its_error_frame_live_until_delivery() {
+        let (sink, mut critical, _) = OutboundSink::channels();
+        let sessions = Arc::new(Mutex::new(HashMap::new()));
+        let live = Arc::new(AtomicBool::new(true));
+        let cancellation = CancellationToken::new();
+        sessions.lock().unwrap().insert(
+            "failed".to_owned(),
+            WatchSlot {
+                active: None,
+                opening: Some(Opening {
+                    generation: 1,
+                    live: Arc::clone(&live),
+                    cancellation: cancellation.clone(),
+                    abort: None,
+                }),
+            },
+        );
+        finish_open_failure(
+            "failed",
+            1,
+            live,
+            cancellation,
+            Arc::clone(&sessions),
+            sink,
+            wire::WorkspaceErrorCode::Failed,
+            "internal details must not escape".to_owned(),
+        );
+        let frame = critical.try_recv().expect("failure frame");
+        assert!(frame.live.is_none(), "failure must not be fenced before delivery");
+        let value: Value = serde_json::from_str(&frame.text).expect("failure json");
+        assert_eq!(value["code"], "failed");
+    }
+
+    #[test]
+    fn watcher_failure_messages_are_stable() {
+        assert_eq!(WATCH_SETUP_FAILURE_MESSAGE, "filesystem watcher setup failed");
+        assert_eq!(WATCH_RUNTIME_FAILURE_MESSAGE, "filesystem watcher stopped");
     }
 
     #[cfg(unix)]
