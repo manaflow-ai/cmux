@@ -1635,6 +1635,114 @@ final class WindowBrowserHostViewTests: XCTestCase {
         )
     }
 
+    func testHostViewForwardsDockDividerMouseDownToLiveSidebarTracker() throws {
+        // The portal host is a window-level sibling above the SwiftUI tree. A
+        // browser pane immediately left of the Dock must hand ownership to the
+        // host and let it forward the synchronous divider drag to the native
+        // tracker below, even when a hosting wrapper claims the underlying hit.
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView,
+              let container = contentView.superview else {
+            XCTFail("Expected window content container")
+            return
+        }
+
+        let wrapper = NonPropagatingHostingView(frame: contentView.bounds)
+        contentView.addSubview(wrapper)
+
+        var eventNames: [String] = []
+        var changedTranslation: CGFloat?
+        let liveDivider = SidebarDividerTrackingView(
+            frame: NSRect(x: 206, y: 0, width: 10, height: contentView.bounds.height)
+        )
+        liveDivider.onBegan = { eventNames.append("began") }
+        liveDivider.onChanged = { translation in
+            eventNames.append("changed")
+            changedTranslation = translation
+            // Post the terminating event only after the tracker has received
+            // the drag, so its synchronous loop exercises the real callback
+            // path without relying on a timer or a test sleep.
+            let up = self.makeMouseEvent(
+                type: .leftMouseUp,
+                location: NSPoint(x: 238, y: 130),
+                window: window
+            )
+            window.postEvent(up, atStart: true)
+        }
+        liveDivider.onEnded = { eventNames.append("ended") }
+        wrapper.addSubview(liveDivider)
+
+        let hostFrame = container.convert(contentView.bounds, from: contentView)
+        let host = WindowBrowserHostView(frame: hostFrame)
+        host.autoresizingMask = [.width, .height]
+        container.addSubview(host, positioned: .above, relativeTo: contentView)
+
+        let paneWidth: CGFloat = 210
+        let browserSlot = WindowBrowserSlotView(
+            frame: NSRect(x: 0, y: 0, width: paneWidth, height: host.bounds.height)
+        )
+        let dockSlot = WindowBrowserSlotView(
+            frame: NSRect(x: paneWidth, y: 0, width: paneWidth, height: host.bounds.height)
+        )
+        browserSlot.addSubview(CapturingView(frame: browserSlot.bounds))
+        dockSlot.addSubview(CapturingView(frame: dockSlot.bounds))
+        host.addSubview(browserSlot)
+        host.addSubview(dockSlot)
+
+        let dock = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { nil })
+        let dockPane = try XCTUnwrap(dock.bonsplitController.allPaneIds.first)
+        dockSlot.setPaneDropContext(BrowserPaneDropContext(
+            workspaceId: dock.workspaceId,
+            panelId: UUID(),
+            paneId: dockPane,
+            isDockHosted: true
+        ))
+        defer { dock.retire() }
+
+        window.makeKeyAndOrderFront(nil)
+        contentView.layoutSubtreeIfNeeded()
+
+        let dividerPointInHost = NSPoint(x: paneWidth, y: host.bounds.midY)
+        let dividerPointInWindow = host.convert(dividerPointInHost, to: nil)
+        let down = self.makeMouseEvent(
+            type: .leftMouseDown,
+            location: dividerPointInWindow,
+            window: window
+        )
+        let hit = container.hitTest(container.convert(dividerPointInWindow, from: nil))
+        XCTAssertTrue(
+            hit === host,
+            "The portal must own the shared divider before forwarding it to the live sidebar tracker. actual=\(String(describing: hit))"
+        )
+        guard hit === host else { return }
+
+        let drag = self.makeMouseEvent(
+            type: .leftMouseDragged,
+            location: NSPoint(x: dividerPointInWindow.x + 32, y: dividerPointInWindow.y),
+            window: window
+        )
+        window.postEvent(drag, atStart: true)
+        host.mouseDown(with: down)
+
+        XCTAssertEqual(
+            eventNames,
+            ["began", "changed", "ended"],
+            "A shared browser/Dock divider hit must follow the native sidebar drag lifecycle"
+        )
+        XCTAssertEqual(
+            changedTranslation,
+            32,
+            accuracy: 0.5,
+            "The forwarded drag must reach the native sidebar tracker"
+        )
+    }
+
     func testHostViewKeepsDockDividerPassThroughDuringTransientPortalContextClear() throws {
         // Portal reparenting can briefly clear a visible slot's drop context while
         // preserving its existing frame. The Dock divider must remain owned by the
