@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -14,6 +14,7 @@ use crate::services::MessageStream;
 type PendingResponse = Result<RpcResponse, String>;
 type PendingRequests = Arc<Mutex<HashMap<RequestId, oneshot::Sender<PendingResponse>>>>;
 const DROPPED_CANCELLATION_QUEUE: usize = 128;
+const MAX_IGNORED_RESPONSES: usize = 4096;
 
 pub struct WorkspaceClient {
     multiplexer: Arc<ServiceMultiplexer>,
@@ -28,7 +29,30 @@ pub struct WorkspaceClient {
 struct WorkspaceRpcChannel {
     messages: Arc<MessageStream>,
     pending: PendingRequests,
+    ignored: Arc<Mutex<IgnoredResponses>>,
     shutdown: watch::Sender<bool>,
+}
+
+#[derive(Default)]
+struct IgnoredResponses {
+    ids: HashSet<RequestId>,
+    order: VecDeque<RequestId>,
+}
+
+impl IgnoredResponses {
+    fn insert(&mut self, id: RequestId) {
+        if self.ids.insert(id) {
+            self.order.push_back(id);
+        }
+        while self.order.len() > MAX_IGNORED_RESPONSES {
+            let Some(oldest) = self.order.pop_front() else { break };
+            self.ids.remove(&oldest);
+        }
+    }
+
+    fn remove(&mut self, id: &RequestId) -> bool {
+        self.ids.remove(id)
+    }
 }
 
 struct DroppedWorkspaceRequest {
@@ -60,7 +84,11 @@ impl WorkspaceClient {
             connect_rpc_channel(multiplexer.clone(), RpcTrafficClass::Cancellation),
             connect_rpc_channel(multiplexer.clone(), RpcTrafficClass::Bulk),
         )?;
-        let dropped_cancellations = cancellation_worker(cancellation.messages.clone());
+        let dropped_cancellations = cancellation_worker(
+            cancellation.messages.clone(),
+            cancellation.pending.clone(),
+            cancellation.ignored.clone(),
+        );
         Ok(Arc::new(Self {
             multiplexer,
             process_input,
@@ -145,6 +173,7 @@ impl WorkspaceClient {
             receiver: Some(receiver),
             deadline,
             pending: channel.pending.clone(),
+            ignored: channel.ignored.clone(),
             cancellable,
             dropped_cancellations: self.dropped_cancellations.clone(),
             origin_shutdown: channel.shutdown.clone(),
@@ -247,6 +276,7 @@ pub struct PendingWorkspaceRequest {
     receiver: Option<oneshot::Receiver<PendingResponse>>,
     deadline: Option<tokio::time::Instant>,
     pending: PendingRequests,
+    ignored: Arc<Mutex<IgnoredResponses>>,
     cancellable: bool,
     dropped_cancellations: mpsc::Sender<DroppedWorkspaceRequest>,
     origin_shutdown: watch::Sender<bool>,
@@ -291,8 +321,10 @@ impl Drop for PendingWorkspaceRequest {
         }
         self.armed = false;
         if pending_requests(&self.pending).remove(&self.id).is_none() || !self.cancellable {
+            ignored_responses(&self.ignored).insert(self.id);
             return;
         }
+        ignored_responses(&self.ignored).insert(self.id);
         let dropped = DroppedWorkspaceRequest {
             target: self.id,
             origin_shutdown: self.origin_shutdown.clone(),
@@ -340,9 +372,15 @@ async fn connect_rpc_channel(
     await_opened(&stream, rpc_lane(class)).await?;
     let messages = Arc::new(MessageStream::with_lane(Arc::new(stream), rpc_lane(class)));
     let pending = Arc::new(Mutex::new(HashMap::new()));
+    let ignored = Arc::new(Mutex::new(IgnoredResponses::default()));
     let (shutdown, mut shutdown_rx) = watch::channel(false);
-    let channel =
-        WorkspaceRpcChannel { messages: messages.clone(), pending: pending.clone(), shutdown };
+    let failure_shutdown = shutdown.clone();
+    let channel = WorkspaceRpcChannel {
+        messages: messages.clone(),
+        pending: pending.clone(),
+        ignored: ignored.clone(),
+        shutdown,
+    };
     tokio::spawn(async move {
         let failure = loop {
             let received = tokio::select! {
@@ -364,8 +402,9 @@ async fn connect_rpc_channel(
                 Ok(response) => response,
                 Err(error) => break error.to_string(),
             };
-            if let Some(sender) = pending_requests(&pending).remove(&response.id) {
-                let _ = sender.send(Ok(response));
+            if let Err(error) = route_response(response, &pending, &ignored) {
+                failure_shutdown.send_replace(true);
+                break error;
             }
         };
         let _ = messages.close().await;
@@ -382,7 +421,36 @@ fn pending_requests(
     pending.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
-fn cancellation_worker(messages: Arc<MessageStream>) -> mpsc::Sender<DroppedWorkspaceRequest> {
+fn ignored_responses(
+    ignored: &Arc<Mutex<IgnoredResponses>>,
+) -> std::sync::MutexGuard<'_, IgnoredResponses> {
+    ignored.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+fn route_response(
+    response: RpcResponse,
+    pending: &PendingRequests,
+    ignored: &Arc<Mutex<IgnoredResponses>>,
+) -> Result<(), String> {
+    // A response without a live request indicates a peer that lost protocol
+    // state. Retired IDs are the bounded exception for cancellation and
+    // callers that timed out or were dropped while their response was in
+    // flight.
+    if let Some(sender) = pending_requests(pending).remove(&response.id) {
+        let _ = sender.send(Ok(response));
+        return Ok(());
+    }
+    if ignored_responses(ignored).remove(&response.id) {
+        return Ok(());
+    }
+    Err(format!("workspace RPC response has unknown request id {}", response.id))
+}
+
+fn cancellation_worker(
+    messages: Arc<MessageStream>,
+    pending: PendingRequests,
+    ignored: Arc<Mutex<IgnoredResponses>>,
+) -> mpsc::Sender<DroppedWorkspaceRequest> {
     let (sender, mut receiver) =
         mpsc::channel::<DroppedWorkspaceRequest>(DROPPED_CANCELLATION_QUEUE);
     tokio::spawn(async move {
@@ -399,7 +467,9 @@ fn cancellation_worker(messages: Arc<MessageStream>) -> mpsc::Sender<DroppedWork
                     continue;
                 }
             };
+            ignored_responses(&ignored).insert(request.id);
             if messages.send(&encoded).await.is_err() {
+                ignored_responses(&ignored).remove(&request.id);
                 dropped.origin_shutdown.send_replace(true);
                 while let Ok(queued) = receiver.try_recv() {
                     queued.origin_shutdown.send_replace(true);
