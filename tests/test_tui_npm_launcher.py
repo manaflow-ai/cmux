@@ -272,6 +272,38 @@ def test_launcher_downloads_once_and_reuses_verified_cache(tmp_path: Path) -> No
     assert not (cache / platform_key / "v/1.2.3/.active").exists()
 
 
+def test_launcher_runs_verified_binary_from_read_only_cache(tmp_path: Path) -> None:
+    if sys.platform == "win32":
+        return
+    launcher = write_launcher(tmp_path)
+    cache = tmp_path / "cache"
+    binary = write_cached_binary(
+        cache,
+        "1.2.3",
+        "#!/bin/sh\nprintf '%s\\n' 'read-only cached binary'\n",
+        managed=True,
+    )
+    platform_root = cache / host_platform_key()
+    cache_dirs = [path for path in platform_root.rglob("*") if path.is_dir()]
+    cache_dirs.append(platform_root)
+    original_modes = {
+        directory: stat.S_IMODE(directory.stat().st_mode) for directory in cache_dirs
+    }
+    for directory in cache_dirs:
+        directory.chmod(original_modes[directory] & ~0o222)
+    try:
+        result = run_launcher(launcher, cache, "http://127.0.0.1:1", "--version")
+    finally:
+        for directory in reversed(cache_dirs):
+            directory.chmod(original_modes[directory])
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "read-only cached binary\n"
+    assert binary.is_file()
+    assert not (platform_root / ".update.lock").exists()
+    assert not (platform_root / "v/1.2.3/.active").exists()
+
+
 def test_launcher_requires_network_runtime_capabilities(tmp_path: Path) -> None:
     if sys.platform == "win32":
         return
