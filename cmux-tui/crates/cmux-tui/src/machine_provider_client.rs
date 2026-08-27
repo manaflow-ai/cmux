@@ -362,7 +362,7 @@ struct ProviderClientInner {
     writer: Mutex<Box<dyn Write + Send>>,
     control_guard: ProviderIoGuard,
     streams: Arc<dyn MachineStreamConnector>,
-    pending: Mutex<HashMap<String, Sender<PendingResponse>>>,
+    pending: Mutex<HashMap<String, SyncSender<PendingResponse>>>,
     events: Mutex<ProviderEventHubState>,
     snapshot_subscribers: Mutex<Vec<SyncSender<u64>>>,
     next_request_id: AtomicU64,
@@ -381,7 +381,7 @@ impl ProviderClientInner {
             return;
         };
         for (_, response) in pending.drain() {
-            let _ = response.send(Err(failure.clone()));
+            let _ = response.try_send(Err(failure.clone()));
         }
     }
 
@@ -1117,7 +1117,9 @@ impl ProviderClient {
             .map_err(|error| ProviderClientError::Protocol(error.to_string()))?;
         let id_key = id.as_str().to_string();
         let envelope = RequestEnvelope::new(id.clone(), request);
-        let (sender, receiver) = mpsc::channel();
+        // A request has exactly one response. Keep one slot so a late or
+        // duplicated response cannot accumulate memory after cancellation.
+        let (sender, receiver) = mpsc::sync_channel(1);
         {
             let mut pending = self
                 .inner
@@ -1303,10 +1305,10 @@ fn dispatch_control_frame(
                 .remove(&id);
             zeroize_json_strings(&mut value);
             if let Some(response) = response {
-                if let Err(error) = response.send(Ok(frame))
-                    && let Ok(mut frame) = error.0
-                {
-                    frame.zeroize();
+                if let Err(error) = response.try_send(Ok(frame)) {
+                    if let Ok(mut frame) = error.into_inner() {
+                        frame.zeroize();
+                    }
                 }
             } else {
                 frame.zeroize();
