@@ -52,7 +52,6 @@ mod unix {
     use tokio::net::unix::{OwnedReadHalf, OwnedWriteHalf};
     use tokio::sync::mpsc::{self, Receiver, Sender};
     use tokio::sync::{Mutex as AsyncMutex, Notify, oneshot};
-    use tokio_util::sync::CancellationToken;
 
     struct OutboundLine {
         bytes: Vec<u8>,
@@ -69,7 +68,7 @@ mod unix {
         deliberate: AtomicBool,
         paused: AtomicBool,
         resume_notify: Notify,
-        closed_token: CancellationToken,
+        closed_notify: Notify,
         #[cfg(test)]
         read_done: Notify,
         #[cfg(test)]
@@ -83,10 +82,10 @@ mod unix {
             }
             // Resolve every pending request with "no reply".
             self.pending.lock().expect("control pending lock").clear();
-            // Both the writer and a paused reader wait on this state. A
-            // cancellation token retains the closed state, so an end racing
-            // waiter registration cannot leave either task asleep.
-            self.closed_token.cancel();
+            // Both the writer and a paused reader wait on this state. Keep a
+            // broadcast wakeup so either task can observe closure without
+            // consuming the other's permit.
+            self.closed_notify.notify_waiters();
             if !self.deliberate.load(Ordering::SeqCst)
                 && let Some(handler) =
                     self.close_handler.lock().expect("control close lock").as_ref()
@@ -134,7 +133,7 @@ mod unix {
             deliberate: AtomicBool::new(false),
             paused: AtomicBool::new(false),
             resume_notify: Notify::new(),
-            closed_token: CancellationToken::new(),
+            closed_notify: Notify::new(),
             #[cfg(test)]
             read_done: Notify::new(),
             #[cfg(test)]
@@ -171,7 +170,7 @@ mod unix {
         shared: Arc<Shared>,
     ) {
         loop {
-            let closed = shared.closed_token.cancelled();
+            let closed = shared.closed_notify.notified();
             if shared.closed.load(Ordering::SeqCst) {
                 break;
             }
@@ -220,7 +219,7 @@ mod unix {
             // the reader asleep after the wakeup.
             loop {
                 let resumed = shared.resume_notify.notified();
-                let closed = shared.closed_token.cancelled();
+                let closed = shared.closed_notify.notified();
                 #[cfg(test)]
                 if let Some(waiting) =
                     shared.read_waiting.lock().expect("control read waiter lock").take()
@@ -404,7 +403,7 @@ mod tests {
     use std::time::Duration;
     use tokio::io::{AsyncBufReadExt as _, AsyncReadExt as _, AsyncWriteExt as _};
     use tokio::net::UnixListener;
-    use tokio::sync::oneshot;
+    use tokio::sync::{Notify, oneshot};
 
     #[tokio::test]
     async fn end_wakes_paused_reader_and_closes_socket() {
@@ -449,6 +448,40 @@ mod tests {
             .expect("server observes client close")
             .expect("join control close test server");
         let _ = std::fs::remove_file(socket_path);
+    }
+
+    #[tokio::test]
+    async fn close_broadcast_wakes_two_waiters() {
+        let notify = Arc::new(Notify::new());
+        let (first_ready_tx, first_ready_rx) = oneshot::channel();
+        let (second_ready_tx, second_ready_rx) = oneshot::channel();
+        let first_notify = Arc::clone(&notify);
+        let first = tokio::spawn(async move {
+            let notified = first_notify.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+            first_ready_tx.send(()).expect("signal first waiter registration");
+            notified.await;
+        });
+        let second_notify = Arc::clone(&notify);
+        let second = tokio::spawn(async move {
+            let notified = second_notify.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+            second_ready_tx.send(()).expect("signal second waiter registration");
+            notified.await;
+        });
+        first_ready_rx.await.expect("first waiter registered");
+        second_ready_rx.await.expect("second waiter registered");
+        notify.notify_waiters();
+        tokio::time::timeout(Duration::from_secs(1), first)
+            .await
+            .expect("first waiter wakes")
+            .expect("first waiter joins");
+        tokio::time::timeout(Duration::from_secs(1), second)
+            .await
+            .expect("second waiter wakes")
+            .expect("second waiter joins");
     }
 
     #[tokio::test]

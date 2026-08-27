@@ -52,7 +52,9 @@ struct PreparedWatch {
 
 /// Owns a notify watcher on a dedicated thread because some backends perform
 /// synchronous thread joins from `Drop`. The relay task only sends the bounded
-/// shutdown signal and never drops the backend itself.
+/// shutdown signal and never drops the backend itself. One owner thread exists
+/// per prepared or active watch, bounded by the 16-session registry cap plus
+/// the two setup slots.
 struct WatcherOwner {
     shutdown: Option<SyncSender<()>>,
 }
