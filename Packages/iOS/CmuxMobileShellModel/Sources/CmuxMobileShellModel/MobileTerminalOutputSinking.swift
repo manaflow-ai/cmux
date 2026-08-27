@@ -31,6 +31,14 @@ public struct MobileTerminalOutputChunk: Sendable {
     public let endSequence: UInt64?
     /// Whether nonempty output must pass render-grid verification before display.
     public let requiresVerifiedReplay: Bool
+    /// Whether the consumer must discard any prior verified presentation before
+    /// applying this chunk through the legacy compatibility path.
+    ///
+    /// Retry-exhaustion replacements are deliberately unverified byte snapshots.
+    /// A verifier that keeps its previous grid baseline can reject the next live
+    /// delta or reveal stale frozen pixels, so the UI starts a fresh full-frame
+    /// verification generation when this flag is set.
+    public let requiresVerifiedReplayReset: Bool
     /// Raw Ghostty defaults that must be installed before this chunk's VT replay.
     public let terminalConfigTheme: TerminalTheme?
 
@@ -43,6 +51,8 @@ public struct MobileTerminalOutputChunk: Sendable {
     ///   - sourceRenderGridFrame: Source grid represented by the bytes.
     ///   - endSequence: Terminal byte high-water mark represented by the chunk.
     ///   - requiresVerifiedReplay: Whether the verified replay path is required.
+    ///   - requiresVerifiedReplayReset: Whether a stale verified presentation
+    ///     must be cleared before applying this compatibility chunk.
     ///   - terminalConfigTheme: Raw Ghostty defaults paired with the bytes.
     public init(
         data: Data,
@@ -51,6 +61,7 @@ public struct MobileTerminalOutputChunk: Sendable {
         sourceRenderGridFrame: MobileTerminalRenderGridFrame? = nil,
         endSequence: UInt64? = nil,
         requiresVerifiedReplay: Bool = false,
+        requiresVerifiedReplayReset: Bool = false,
         terminalConfigTheme: TerminalTheme? = nil
     ) {
         self.data = data
@@ -59,6 +70,7 @@ public struct MobileTerminalOutputChunk: Sendable {
         self.sourceRenderGridFrame = sourceRenderGridFrame
         self.endSequence = endSequence
         self.requiresVerifiedReplay = requiresVerifiedReplay
+        self.requiresVerifiedReplayReset = requiresVerifiedReplayReset
         self.terminalConfigTheme = terminalConfigTheme
     }
 }

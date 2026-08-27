@@ -38,6 +38,12 @@ struct TerminalOutputDelivery: Equatable, Sendable {
         replacementScope != nil
     }
 
+    /// Compatibility replacements must reset the consumer's verified replay
+    /// baseline before their bytes are applied through the legacy path.
+    var requiresVerifiedReplayReset: Bool {
+        replayVerificationPolicy == .bestEffortCompatibility
+    }
+
     init(
         bytes: Data,
         replaceable: Bool,

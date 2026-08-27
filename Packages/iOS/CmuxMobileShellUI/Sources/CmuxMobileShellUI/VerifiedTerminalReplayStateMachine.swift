@@ -256,6 +256,19 @@ final class VerifiedTerminalReplayStateMachine {
         return nextTransactionID
     }
 
+    /// Discards the verified presentation baseline after an unverified
+    /// compatibility replacement and requires a fresh full frame before any
+    /// later render-grid delta can become visible.
+    ///
+    /// Compatibility bytes may repaint the visible terminal without preserving
+    /// the producer's render epoch, revision floors, or cell-grid snapshot. A
+    /// subsequent delta therefore cannot safely apply to the old baseline.
+    func resetForCompatibilityFallback() {
+        nextTransactionID &+= 1
+        clearPresentationState()
+        phase = .recovering
+    }
+
     /// Orders viewport acknowledgements against frame captures from the same
     /// producer epoch. A capture at or below the returned floor was taken
     /// before the Mac acknowledged the new effective grid.

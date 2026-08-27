@@ -440,6 +440,21 @@ extension GhosttySurfaceView {
         resumeQueuedRenderAfterReplaySuppression()
     }
 
+    /// Clears retained verified-replay pixels before an unverified compatibility
+    /// replacement is applied by the shell's legacy output path.
+    ///
+    /// The compatibility bytes do not carry a render-grid baseline. Removing the
+    /// frozen layer and resuming ordinary submissions keeps stale verified pixels
+    /// from covering the replacement and lets the next full render-grid frame
+    /// establish a new presentation transaction.
+    public func resetVerifiedReplayPresentationForCompatibilityFallback() {
+        clearVerifiedReplayPresentation()
+        // A byte fallback may be empty after a host-side clear. Ensure the
+        // ordinary renderer still gets a wakeup after suppression is lifted.
+        needsDraw = true
+        drawForWakeup()
+    }
+
     /// Called by Ghostty after one exact tokened command reaches the model
     /// renderer layer. A stale completion has a different token and cannot arm
     /// the pending fence.

@@ -46,6 +46,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     static let maxTerminalReplayFailureRetries = 2
     static let maxTerminalReplayBarrierFollowUps = 1
+    /// Upper bounds for compatibility dimensions before they reach Ghostty's
+    /// pixel-size arithmetic. These are deliberately conservative because the
+    /// fallback fields are diagnostics, not a negotiated render-grid contract.
+    static let maxTerminalReplayFallbackColumns = 1_000
+    static let maxTerminalReplayFallbackRows = 1_000
 
     nonisolated enum TerminalOutputTransport: Equatable {
         case hybrid
@@ -13266,6 +13271,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     private func terminalReplayFallbackViewportPolicy(
+        surfaceID: String,
         payload: MobileTerminalReplayResponse?
     ) -> MobileTerminalOutputViewportPolicy {
         guard terminalReplayFallbackScreen(payload: payload) == .alternate else {
@@ -13274,13 +13280,49 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard let columns = payload?.columns,
               let rows = payload?.rows,
               columns > 0,
-              rows > 0 else {
+              rows > 0,
+              columns <= Self.maxTerminalReplayFallbackColumns,
+              rows <= Self.maxTerminalReplayFallbackRows,
+              let effectiveGrid = effectiveViewportSizesBySurfaceID[surfaceID],
+              effectiveGrid.columns == columns,
+              effectiveGrid.rows == rows else {
             // Preserve the current contract when an older host omits grid
-            // dimensions; the alternate-screen discriminator still remains
-            // tracked so raw primary bytes cannot paint over the TUI.
+            // dimensions. Even when dimensions are present, only a bounded
+            // grid that matches this phone's acknowledged effective viewport
+            // may reach the geometry path; stale or hostile values stay
+            // natural so they cannot trigger an oversized allocation or pin
+            // the surface to the wrong grid. The alternate-screen discriminator
+            // is still tracked separately so raw primary bytes cannot paint
+            // over the TUI.
             return .natural
         }
         return .remoteGrid(columns: columns, rows: rows)
+    }
+
+    /// Records the active screen carried by an accepted compatibility fallback.
+    ///
+    /// A fallback's screen metadata is authoritative for the bytes just
+    /// delivered, but the bytes do not establish a verified render-grid
+    /// baseline. Keep the screen tracker in sync for hybrid raw-byte suppression
+    /// while clearing any alternate baseline marker until a full grid verifies.
+    private func recordTerminalReplayFallbackScreen(
+        surfaceID: String,
+        activeScreen: MobileTerminalRenderGridFrame.Screen?
+    ) {
+        guard let activeScreen else { return }
+        if terminalActiveScreenBySurfaceID[surfaceID] != activeScreen {
+            terminalActiveScreenBySurfaceID[surfaceID] = activeScreen
+            recordAppEvent(
+                .terminalAlternateScreenChanged,
+                correlationID: surfaceID,
+                count: activeScreen == .alternate ? 1 : 0
+            )
+        }
+        // Neither fallback screen is a verified render-grid baseline. A
+        // primary fallback explicitly clears an alternate marker; an alternate
+        // fallback must also clear it so the next full grid remains the only
+        // operation that can authorize alternate deltas.
+        terminalAlternateRenderGridBaselineSurfaceIDs.remove(surfaceID)
     }
 
     @discardableResult
@@ -13767,6 +13809,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     payload: payload
                 )
                 let fallbackViewportPolicy = self.terminalReplayFallbackViewportPolicy(
+                    surfaceID: surfaceID,
                     payload: payload
                 )
                 if let renderGrid {
@@ -13901,6 +13944,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     // replay refetches history instead of treating the
                     // truncated mirror as complete.
                     self.terminalMirrorHydrationNeededSurfaceIDs.insert(surfaceID)
+                }
+                if accepted {
+                    self.recordTerminalReplayFallbackScreen(
+                        surfaceID: surfaceID,
+                        activeScreen: fallbackScreen
+                    )
                 }
                 if accepted, let replaySeq {
                     // Only a sequence-carrying acceptance re-bases the stale

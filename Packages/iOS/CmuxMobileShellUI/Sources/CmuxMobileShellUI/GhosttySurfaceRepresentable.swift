@@ -595,6 +595,14 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                         )
                         continue
                     case .legacy:
+                        if chunk.requiresVerifiedReplayReset {
+                            // An exhausted compatibility replay is not a
+                            // render-grid baseline. Drop the verifier's old
+                            // epoch/snapshot and any retained frozen pixels
+                            // before the legacy bytes repaint the surface.
+                            self.verifiedReplayState.resetForCompatibilityFallback()
+                            surfaceView.resetVerifiedReplayPresentationForCompatibilityFallback()
+                        }
                         break
                     }
                     switch chunk.viewportPolicy {

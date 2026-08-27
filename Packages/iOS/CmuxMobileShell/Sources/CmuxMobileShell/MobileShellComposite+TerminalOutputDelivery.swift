@@ -471,6 +471,7 @@ extension MobileShellComposite {
                     sourceRenderGridFrame: immediate.sourceRenderGridFrame,
                     endSequence: immediate.endSequence,
                     requiresVerifiedReplay: requiresVerifiedReplayApplication(for: immediate),
+                    requiresVerifiedReplayReset: immediate.requiresVerifiedReplayReset,
                     terminalConfigTheme: immediate.terminalConfigTheme
                 )
             )
@@ -590,6 +591,7 @@ extension MobileShellComposite {
             sourceRenderGridFrame: next.sourceRenderGridFrame,
             endSequence: next.endSequence,
             requiresVerifiedReplay: requiresVerifiedReplayApplication(for: next),
+            requiresVerifiedReplayReset: next.requiresVerifiedReplayReset,
             terminalConfigTheme: next.terminalConfigTheme
         ))
     }
