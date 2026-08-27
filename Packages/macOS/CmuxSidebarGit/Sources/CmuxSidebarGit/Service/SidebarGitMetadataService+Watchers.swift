@@ -106,7 +106,8 @@ extension SidebarGitMetadataService {
             moveWorkspaceGitSnapshotCacheEligibility(for: key, to: request.directory)
             updateWorkspaceGitMetadataCreationWatchers(
                 for: key,
-                paths: descriptor.creationWatchPaths
+                paths: descriptor.creationWatchPaths,
+                allowedRoots: descriptor.creationWatchAllowedRoots
             )
             return
         }
@@ -167,14 +168,26 @@ extension SidebarGitMetadataService {
         }
         updateWorkspaceGitMetadataCreationWatchers(
             for: key,
-            paths: descriptor.creationWatchPaths
+            paths: descriptor.creationWatchPaths,
+            allowedRoots: descriptor.creationWatchAllowedRoots
         )
     }
 
     private func updateWorkspaceGitMetadataCreationWatchers(
         for key: WorkspaceGitProbeKey,
-        paths: [String]
+        paths: [String],
+        allowedRoots: [String]
     ) {
+        if allowedRoots.isEmpty {
+            workspaceGitMetadataCreationWatchAllowedRootsByProbeKey.removeValue(forKey: key)
+        } else {
+            workspaceGitMetadataCreationWatchAllowedRootsByProbeKey[key] = allowedRoots.map {
+                URL(fileURLWithPath: $0)
+                    .resolvingSymlinksInPath()
+                    .standardizedFileURL
+                    .path
+            }
+        }
         let normalizedPaths = Set(paths.map { URL(fileURLWithPath: $0).standardizedFileURL.path })
         let previousPaths = workspaceGitMetadataCreationWatchPathsByProbeKey[key] ?? []
         for path in previousPaths.subtracting(normalizedPaths) {
@@ -276,6 +289,7 @@ extension SidebarGitMetadataService {
     }
 
     private func stopWorkspaceGitMetadataCreationWatchers(for key: WorkspaceGitProbeKey) {
+        workspaceGitMetadataCreationWatchAllowedRootsByProbeKey.removeValue(forKey: key)
         let paths = workspaceGitMetadataCreationWatchPathsByProbeKey.removeValue(forKey: key) ?? []
         for path in paths {
             removeWorkspaceGitMetadataCreationWatchTarget(path, for: key)
@@ -588,6 +602,12 @@ extension SidebarGitMetadataService {
             .standardizedFileURL
             .path
         guard resolvedAncestor != "/" else { return false }
+        if let allowedRoots = workspaceGitMetadataCreationWatchAllowedRootsByProbeKey[key],
+           !allowedRoots.isEmpty {
+            return allowedRoots.contains { root in
+                root != "/" && isSameOrInside(resolvedAncestor, root: root)
+            }
+        }
         let home = URL(fileURLWithPath: creationWatchHomeDirectory)
             .resolvingSymlinksInPath()
             .standardizedFileURL
@@ -745,6 +765,7 @@ extension SidebarGitMetadataService {
             .union(workspaceGitMetadataWatcherWatchedPathsKeyByProbeKey.keys.filter { $0.workspaceId == workspaceId })
             .union(workspaceGitMetadataWatcherDescriptorRequestsByKey.keys.filter { $0.workspaceId == workspaceId })
             .union(workspaceGitMetadataCreationWatchPathsByProbeKey.keys.filter { $0.workspaceId == workspaceId })
+            .union(workspaceGitMetadataCreationWatchAllowedRootsByProbeKey.keys.filter { $0.workspaceId == workspaceId })
         for key in keys {
             stopWorkspaceGitMetadataWatcher(for: key)
         }
@@ -770,6 +791,7 @@ extension SidebarGitMetadataService {
         workspaceGitMetadataCreationWatcherLogicalSignatureByTargetPath.removeAll()
         workspaceGitMetadataCreationWatcherTargetExistsByPath.removeAll()
         workspaceGitMetadataCreationWatchPathsByProbeKey.removeAll()
+        workspaceGitMetadataCreationWatchAllowedRootsByProbeKey.removeAll()
         workspaceGitMetadataWatcherSourceDirectoryByKey.removeAll()
         workspaceGitMetadataWatcherKeysBySourceDirectory.removeAll()
         workspaceGitMetadataWatcherWatchedPathsKeyByProbeKey.removeAll()

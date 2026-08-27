@@ -28,13 +28,15 @@ import CmuxGit
         repositoryRoot: String,
         identity: String,
         degradation: GitWorkspaceMetadataWatchDegradation? = nil,
-        creationWatchPaths: [String] = []
+        creationWatchPaths: [String] = [],
+        creationWatchAllowedRoots: [String] = []
     ) -> GitWorkspaceMetadataWatchDescriptor {
         GitWorkspaceMetadataWatchDescriptor(
             repositoryRoot: repositoryRoot,
             watchedPaths: [repositoryRoot],
             gitMetadataPaths: [repositoryRoot + "/.git/index"],
             creationWatchPaths: creationWatchPaths,
+            creationWatchAllowedRoots: creationWatchAllowedRoots,
             trackedEntryPaths: [repositoryRoot + "/Sources/App.swift"],
             acceptsAllWorkTreeEvents: false,
             eventCoalescingInterval: .milliseconds(250),
@@ -514,6 +516,60 @@ import CmuxGit
         _ = try #require(await logIterator.next())
 
         #expect(service.workspaceGitMetadataCreationWatchersByAncestor.isEmpty)
+        service.stopWorkspaceGitMetadataWatcher(for: key)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func descriptorCreationWatchRootsAllowConfiguredGitHomeOnly() async throws {
+        let fixture = try SidebarGitLargeRepositoryFixture(entryCount: 1)
+        let configuredHome = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-configured-home-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: configuredHome, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: configuredHome) }
+        let allowedTarget = configuredHome.appendingPathComponent("future.inc").path
+        let rejectedTarget = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-creation-outside-\(UUID().uuidString)")
+            .appendingPathComponent("future.inc")
+            .path
+        let host = RecordingSidebarGitHost()
+        let (workspaceId, panelId) = host.addWorkspace(panelDirectory: fixture.root.path)
+        let key = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
+        let descriptorReader = GatedWatchDescriptorReader()
+        let (logEvents, logContinuation) = AsyncStream<String>.makeStream()
+        defer { logContinuation.finish() }
+        let service = makeService(
+            host: host,
+            descriptorReader: descriptorReader,
+            debugLog: { logContinuation.yield($0) }
+        )
+        service.workspaceGitTrackedDirectoryByKey[key] = fixture.root.path
+
+        service.updateWorkspaceGitMetadataWatcher(for: key, directory: fixture.root.path)
+        #expect(await descriptorReader.nextRequestedDirectory() == fixture.root.path)
+        await descriptorReader.resumeNext(with: descriptor(
+            repositoryRoot: fixture.root.path,
+            identity: "configured-home-scope",
+            degradation: .boundedGitStatus(entryCount: 2, directEntryLimit: 1),
+            creationWatchPaths: [allowedTarget, rejectedTarget],
+            creationWatchAllowedRoots: [configuredHome.path]
+        ))
+        var logIterator = logEvents.makeAsyncIterator()
+        _ = try #require(await logIterator.next())
+
+        let allowedAncestor = configuredHome.resolvingSymlinksInPath().path
+        #expect(
+            service.workspaceGitMetadataCreationWatchersByAncestor[allowedAncestor] != nil
+        )
+        #expect(
+            service.workspaceGitMetadataCreationWatchTargetsByAncestor[allowedAncestor]
+                == Set([allowedTarget])
+        )
+        #expect(
+            !(service.workspaceGitMetadataCreationWatchPathsByProbeKey[key] ?? [])
+                .contains(rejectedTarget)
+        )
         service.stopWorkspaceGitMetadataWatcher(for: key)
     }
 }

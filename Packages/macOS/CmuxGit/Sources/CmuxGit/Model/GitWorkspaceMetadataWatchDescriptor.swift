@@ -13,6 +13,9 @@ public struct GitWorkspaceMetadataWatchDescriptor: Equatable, Sendable {
     public let metadataSentinelPaths: [String]
     /// Missing external config files that need a non-recursive creation watch.
     public let creationWatchPaths: [String]
+    /// Roots allowed for non-recursive creation watches (effective Git home and
+    /// repository-owned paths).
+    public let creationWatchAllowedRoots: [String]
     /// Sorted native Swift paths for tracked entries used by exact filtering.
     public let trackedEntryPaths: [String]
     /// Work-tree roots whose descendants must be treated as relevant when an
@@ -38,6 +41,7 @@ public struct GitWorkspaceMetadataWatchDescriptor: Equatable, Sendable {
     ///   - metadataSentinelPaths: Missing config paths matched exactly on creation.
     ///   - creationWatchPaths: Missing external config paths watched
     ///     non-recursively until they are created.
+    ///   - creationWatchAllowedRoots: Roots that bound creation-watch ancestors.
     ///   - trackedEntryPaths: Sorted tracked paths used by exact filtering.
     ///   - acceptsAllWorkTreeEvents: Whether every work-tree event is relevant.
     ///   - eventCoalescingInterval: Leading-edge watcher throttle.
@@ -54,13 +58,15 @@ public struct GitWorkspaceMetadataWatchDescriptor: Equatable, Sendable {
         eventCoalescingInterval: Duration,
         eventFilterIdentity: String?,
         degradation: GitWorkspaceMetadataWatchDegradation? = nil,
-        creationWatchPaths: [String] = []
+        creationWatchPaths: [String] = [],
+        creationWatchAllowedRoots: [String] = []
     ) {
         self.repositoryRoot = repositoryRoot
         self.watchedPaths = watchedPaths
         self.gitMetadataPaths = gitMetadataPaths
         self.metadataSentinelPaths = metadataSentinelPaths
         self.creationWatchPaths = creationWatchPaths
+        self.creationWatchAllowedRoots = creationWatchAllowedRoots
         self.trackedEntryPaths = trackedEntryPaths
         self.forcedWorkTreeRoots = forcedWorkTreeRoots
         self.acceptsAllWorkTreeEvents = acceptsAllWorkTreeEvents
