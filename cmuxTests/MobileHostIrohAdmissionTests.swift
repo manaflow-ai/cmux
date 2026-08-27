@@ -574,6 +574,41 @@ extension MobileHostAuthorizationTests {
         }
     }
 
+    @Test func testIrohArtifactIssueRejectsReplacedAuthorizedAncestor() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-iroh-artifact-ancestor-swap-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let insideDirectory = root.appendingPathComponent("inside", isDirectory: true)
+        let outsideDirectory = root.appendingPathComponent("outside", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: insideDirectory,
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(
+            at: outsideDirectory,
+            withIntermediateDirectories: true
+        )
+        let authorizedFile = insideDirectory.appendingPathComponent("preview.bin")
+        let outsideFile = outsideDirectory.appendingPathComponent("preview.bin")
+        try Data("authorized".utf8).write(to: authorizedFile, options: .atomic)
+        try Data("outside".utf8).write(to: outsideFile, options: .atomic)
+        let authorizedPath = authorizedFile.resolvingSymlinksInPath().standardizedFileURL.path
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        try FileManager.default.removeItem(at: insideDirectory)
+        try FileManager.default.createSymbolicLink(
+            at: insideDirectory,
+            withDestinationURL: outsideDirectory
+        )
+
+        let registry = MobileHostIrohArtifactTransferRegistry()
+        let peer = try irohPeer(endpointCharacter: "e")
+        await #expect(throws: MobileHostIrohArtifactTransferRegistry.Error.fileNotFound) {
+            try await registry.issue(canonicalPath: authorizedPath, peer: peer)
+        }
+    }
+
     @Test func testIrohArtifactCapabilityIsOpaquePeerBoundAndSeriallyResumable() async throws {
         let fixture = try MobileHostIrohArtifactFixture(contents: Data("abcdef".utf8))
         defer { fixture.remove() }
