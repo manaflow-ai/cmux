@@ -88,12 +88,19 @@ extension GitMetadataService {
     }
 
     nonisolated static func gitIndexHeaderSummary(indexPath: String) -> GitIndexHeaderSummary? {
-        let descriptor = Darwin.open(indexPath, O_RDONLY | O_CLOEXEC)
+        let descriptor = Darwin.open(indexPath, O_RDONLY | O_NONBLOCK | O_CLOEXEC)
         guard descriptor >= 0 else { return nil }
         defer { Darwin.close(descriptor) }
 
         var status = stat()
-        guard Darwin.fstat(descriptor, &status) == 0, status.st_size >= 12 else {
+        guard Darwin.fstat(descriptor, &status) == 0,
+              status.st_mode & mode_t(S_IFMT) == mode_t(S_IFREG),
+              status.st_size >= 12 else {
+            return nil
+        }
+        var filesystem = statfs()
+        guard Darwin.fstatfs(descriptor, &filesystem) == 0,
+              (UInt64(filesystem.f_flags) & UInt64(MNT_LOCAL)) != 0 else {
             return nil
         }
         var bytes = [UInt8](repeating: 0, count: 12)

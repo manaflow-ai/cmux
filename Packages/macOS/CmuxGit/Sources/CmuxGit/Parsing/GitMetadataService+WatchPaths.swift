@@ -42,23 +42,26 @@ extension GitMetadataService {
             deadline: deadline
         )
         let indexPath = joinedPath(root: repository.gitDirectory, relativePath: "index")
-        let indexExists = FileManager.default.fileExists(atPath: indexPath)
-        let header = gitIndexHeaderSummary(indexPath: indexPath)
+        let indexReadResult = GitIndexDataReader().read(
+            at: URL(fileURLWithPath: indexPath),
+            maximumByteCount: safetyConfiguration.directIndexByteCount,
+            deadline: deadline
+        )
+        let indexExists = indexReadResult.exists
+        let header = indexReadResult.header
         let declaredEntryCount = header?.entryCount ?? 0
         let exceedsTrackedPathBudget = header.map {
             $0.entryCount > safetyConfiguration.trackedEventPathCount
                 || $0.fileByteCount > Int64(safetyConfiguration.directIndexByteCount)
         } ?? false
         let indexSnapshot: GitIndexSnapshot? = if header != nil, !exceedsTrackedPathBudget {
+            let parser = GitIndexSnapshotParser()
             if let cached = indexSnapshotsByRepository?[repository.workTreeRoot],
-               gitIndexFileSignature(
-                   indexURL: URL(fileURLWithPath: indexPath)
-               ) == cached.signature {
+               let data = indexReadResult.data,
+               parser.signature(data: data) == cached.signature {
                 cached
             } else {
-                gitIndexSnapshot(
-                    indexURL: URL(fileURLWithPath: indexPath)
-                )
+                indexReadResult.data.flatMap { parser.parse(data: $0, deadline: deadline) }
             }
         } else {
             nil

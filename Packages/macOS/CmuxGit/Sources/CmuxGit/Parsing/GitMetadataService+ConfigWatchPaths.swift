@@ -135,6 +135,10 @@ extension GitMetadataService {
               header.entryCount <= safetyConfiguration.trackedEventPathCount,
               header.fileByteCount <= Int64(safetyConfiguration.directIndexByteCount),
               let indexSnapshot = indexResult.snapshot else {
+            if deadline <= DispatchTime.now()
+                || (indexResult.header != nil && indexResult.snapshot == nil) {
+                forceWorkTreeRoots.insert(repository.workTreeRoot)
+            }
             return (pathsByRepository, metadataSentinelsByRepository, indexSnapshotsByRepository, forceWorkTreeRoots, visitedRoots, remainingRepositoryCount)
         }
         // Reuse the parse in the descriptor itself. Child snapshots retain only
@@ -332,15 +336,19 @@ extension GitMetadataService {
                 Self.blockingStatusQueue.async {
                     let result = cancellationSignal.withCurrentBinding {
                         guard deadline > DispatchTime.now() else { return (nil, nil) }
-                        let header = Self.gitIndexHeaderSummary(indexPath: indexPath)
-                        let snapshot = header.flatMap { header in
-                            guard header.entryCount <= maximumEntryCount,
-                                  header.fileByteCount <= Int64(maximumFileByteCount) else {
+                        let readResult = GitIndexDataReader().read(
+                            at: URL(fileURLWithPath: indexPath),
+                            maximumByteCount: maximumFileByteCount,
+                            deadline: deadline
+                        )
+                        let parser = GitIndexSnapshotParser()
+                        let header = readResult.header
+                        let snapshot = readResult.data.flatMap { data in
+                            guard let header,
+                                  header.entryCount <= maximumEntryCount else {
                                 return nil
                             }
-                            return Self.gitIndexSnapshot(
-                                indexURL: URL(fileURLWithPath: indexPath)
-                            )
+                            return parser.parse(data: data, deadline: deadline)
                         }
                         return (header, snapshot)
                     }

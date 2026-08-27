@@ -70,7 +70,7 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
         var rootWatchPaths = result.configURLs
             .prefix(2)
             .map { $0.standardizedFileURL.path }
-        if result.isComplete, result.worktreeConfigEnabled {
+        if result.worktreeConfigEnabled || !result.isComplete {
             if configReader.isLocalRegularFile(at: worktreeConfigURL, deadline: deadline) {
                 rootWatchPaths.append(worktreeConfigURL.path)
             } else {
