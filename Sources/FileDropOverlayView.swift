@@ -144,7 +144,8 @@ final class FileDropOverlayView: NSView {
         }
 
         if forwardedMouseDragButton != nil,
-           NSEvent.pressedMouseButtons == 0 {
+           NSEvent.pressedMouseButtons == 0,
+           !isTrackedForwardedMouseDragEnd(for: event) {
             clearForwardedMouseDragState(reason: "buttonsReleased")
         }
     }
