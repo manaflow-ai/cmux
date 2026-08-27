@@ -398,12 +398,12 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
                groupsById[groupId] != nil {
                 switch context.edge {
                 case .top:
-                    if target.isGroupHeader, groupsById[groupId]?.isEmpty == true {
-                        // A header-only group has no member/boundary row. Treat
-                        // its full header as the explicit adopt zone so a root
-                        // placeholder never enters the commit row space.
-                        return (groupId, false)
-                    }
+                    // A group header's upper half is the root slot *before* the
+                    // group, whether or not the group has members: an empty
+                    // group's header is still the only row a root workspace can
+                    // be dropped ahead of, and its lower half remains the adopt
+                    // zone (see the `.bottom` case), so both destinations stay
+                    // reachable from the header alone.
                     guard !target.isGroupHeader else { return nil }
                     return (groupId, false)
                 case .bottom:

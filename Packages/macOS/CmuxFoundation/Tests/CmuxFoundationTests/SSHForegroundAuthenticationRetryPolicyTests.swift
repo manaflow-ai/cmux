@@ -315,7 +315,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
         ( trap '' HUP INT TERM; : > "$CMUX_TEST_READY_MARKER"; while :; do /bin/sleep 30; done ) &
         cmux_test_auth_root=$!
-        trap '/bin/kill -KILL "$cmux_test_auth_root" >/dev/null 2>&1 || true' EXIT
+        trap 'kill -KILL "$cmux_test_auth_root" >/dev/null 2>&1 || true' EXIT
         cmux_test_ready_attempt=0
         while [ ! -f "$CMUX_TEST_READY_MARKER" ] && [ "$cmux_test_ready_attempt" -lt 300 ]; do
           /bin/sleep 0.01
@@ -323,8 +323,8 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         done
         test -f "$CMUX_TEST_READY_MARKER" || exit 98
         cmux_ssh_terminate_auth_process_tree "$cmux_test_auth_root" 1
-        /bin/kill -0 "$cmux_test_auth_root" >/dev/null 2>&1 || exit 97
-        /bin/kill -KILL "$cmux_test_auth_root" >/dev/null 2>&1 || true
+        kill -0 "$cmux_test_auth_root" >/dev/null 2>&1 || exit 97
+        kill -KILL "$cmux_test_auth_root" >/dev/null 2>&1 || true
         wait "$cmux_test_auth_root" 2>/dev/null || true
         trap - EXIT
         """
@@ -389,13 +389,19 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
           cmux_test_ready_attempt=$((cmux_test_ready_attempt + 1))
         done
         test -f "$CMUX_TEST_READY_MARKER" || exit 98
+        echo "harness: sh=$BASH_VERSION maxproc=$(ulimit -u) pgid=$(/bin/ps -o pgid= -p $$) root=$cmux_test_auth_root self=$$ ppid=$PPID" >&2
         cmux_ssh_terminate_auth_process_tree "$cmux_test_auth_root" "$$"
+        echo "harness: cleanup_rc=$?" >&2
+        /bin/ps -o pid= -o ppid= -o pgid= -o state= -o command= -p "$(/usr/bin/tr '\\n' ',' < "$CMUX_TEST_PID_LOG" | /usr/bin/sed 's/,$//')" >&2 || true
         wait "$cmux_test_auth_root" 2>/dev/null || true
         """
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        process.arguments = ["-c", command]
+        // `-x`: the walk's trace lands in the captured stderr, which the status
+        // expectation below surfaces on failure. The walk is intermittently flaky on
+        // shared CI runners, and a bare exit status cannot say which step gave up.
+        process.arguments = ["-x", "-c", command]
         process.environment = ProcessInfo.processInfo.environment.merging([
             "CMUX_TEST_CHAIN_SCRIPT": chainScript.path,
             "CMUX_TEST_READY_MARKER": readyMarker.path,
@@ -420,10 +426,15 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
             Thread.sleep(forTimeInterval: 0.01)
         }
 
-        #expect(process.terminationStatus == 0)
+        let capturedStderr = (try? String(contentsOf: stderrCapture.url, encoding: .utf8)) ?? ""
+        let stderrTail = capturedStderr.split(separator: "\n").suffix(400).joined(separator: "\n")
+        #expect(process.terminationStatus == 0, "terminator stderr:\n\(stderrTail)")
         #expect(processIDs.count == 25)
+        // The budget covers spawning the 25-process chain, the single two-second grace
+        // deadline, and the bounded post-deadline sweep. A per-level deadline regression
+        // would take ~50 s; on a loaded CI Mac the honest walk lands between 2.5 s and 4 s.
         #expect(
-            elapsed < 3,
+            elapsed < 5,
             "Foreground authentication cleanup took \(elapsed) seconds instead of one bounded deadline"
         )
         #expect(!processIDs.contains(where: { Darwin.kill($0, 0) == 0 }))
