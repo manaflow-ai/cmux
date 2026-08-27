@@ -131,7 +131,7 @@ struct ChromiumScreencastFastPathTests {
             "method": "Page.screencastFrame",
             "params": [
                 "data": payload.base64EncodedString(),
-                "sessionId": 7,
+                "sessionId": "7",
                 "metadata": ["timestamp": 1.0],
             ],
         ]
@@ -145,7 +145,7 @@ struct ChromiumScreencastFastPathTests {
             try JSONSerialization.jsonObject(with: ack) as? [String: Any]
         )
         #expect(ackObject["method"] as? String == "Page.screencastFrameAck")
-        #expect((ackObject["params"] as? [String: Any])?["sessionId"] as? Double == 7)
+        #expect((ackObject["params"] as? [String: Any])?["sessionId"] as? String == "7")
 
         await transport.finishFromPeer()
         #expect(await receivedEvents.value == ["Page.loadEventFired"])

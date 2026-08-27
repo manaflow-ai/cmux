@@ -398,11 +398,24 @@ actor ChromiumCDPConnection {
             // filter the generic event path applies.
             guard object["sessionId"] as? String == activeTargetSessionID else { return true }
         }
-        if let ackSessionID = (params["sessionId"] as? NSNumber)?.doubleValue {
+        let ackSessionID: CDPValue?
+        if let numericSessionID = (params["sessionId"] as? NSNumber)?.doubleValue {
+            // The public CDP schema uses an integer frame number.
+            ackSessionID = .number(numericSessionID)
+        } else if let stringSessionID = params["sessionId"] as? String,
+                  !stringSessionID.isEmpty {
+            // A few Chromium/CEF revisions serialize the same token as a
+            // string. Preserve that wire type so the acknowledgement remains
+            // valid for either protocol variant.
+            ackSessionID = .string(stringSessionID)
+        } else {
+            ackSessionID = nil
+        }
+        if let ackSessionID {
             Task { [weak self] in
                 _ = try? await self?.send(
                     method: "Page.screencastFrameAck",
-                    parameters: .object(["sessionId": .number(ackSessionID)])
+                    parameters: .object(["sessionId": ackSessionID])
                 )
             }
         }
