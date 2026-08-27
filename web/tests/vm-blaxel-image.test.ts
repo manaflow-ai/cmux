@@ -196,6 +196,14 @@ describe("Blaxel baked image template", () => {
     const tint2 = read("tint2rc");
     expect(tint2).toContain("panel_items = LT");
     expect(tint2).not.toContain("time1_format");
+    // Regression: tint2 background blocks must be defined BEFORE the panel
+    // options and referenced by explicit ids. A config whose first `rounded`
+    // block sits after `panel_items` parses into "too large rounded value"
+    // errors and the panel renders nothing (missing toolbar, 2026-08-27).
+    expect(tint2.indexOf("rounded = 0")).toBeLessThan(tint2.indexOf("panel_items"));
+    expect(tint2).toContain("panel_background_id = 1");
+    expect(tint2).toContain("task_active_background_id = 2");
+    expect(tint2).toContain("strut_policy = follow_size");
     const launchers = tint2
       .split("\n")
       .filter((line) => line.startsWith("launcher_item_app"))
