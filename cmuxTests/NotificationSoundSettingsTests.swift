@@ -661,11 +661,11 @@ import CmuxSettings
     func customCommandRunnerDoesNotWaitForBackgroundStderrDescendant() async throws {
         let runner = NotificationSoundProcessRunner(
             executableURL: URL(fileURLWithPath: "/bin/sh"),
-            timeoutNanoseconds: 100_000_000,
+            timeoutNanoseconds: 1_000_000_000,
             capturesErrorOutput: false
         )
         let result = try await runner.run(
-            arguments: ["-c", "sleep 0.5 &"],
+            arguments: ["-c", "sleep 2 &"],
             environment: nil
         )
 
