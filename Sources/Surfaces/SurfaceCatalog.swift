@@ -53,6 +53,10 @@ final class SurfaceCatalog {
     /// Materializations are asynchronous, so actor reentrancy can otherwise let two callers
     /// pass the reuse check before either provider has returned a projection.
     private var inFlightProjects: [SurfaceResourceID: SurfaceProjectionMaterialization] = [:]
+    /// Materializations retired with their provider (for example during unregister) may still
+    /// finish because task cancellation is cooperative. Keep only their cleanup handle until
+    /// the late result arrives; new calls are allowed to use the replacement provider.
+    private var retiredMaterializations: [UUID: any SurfaceProvider] = [:]
     /// Panels whose projection was recorded from a restored session before the provider
     /// re-synced; resolved into `projections` once the resource shows up.
     private var pendingRestoredProjections: [SurfaceProjectionRecord: UUID] = [:]
@@ -215,7 +219,13 @@ final class SurfaceCatalog {
         token: UUID,
         result: Result<SurfaceProjection, any Error>
     ) {
-        guard var inFlight = inFlightProjects[id], inFlight.token == token else { return }
+        guard var inFlight = inFlightProjects[id], inFlight.token == token else {
+            if let provider = retiredMaterializations.removeValue(forKey: token),
+               case .success(let projection) = result {
+                provider.discardMaterialization(projection)
+            }
+            return
+        }
         inFlightProjects[id] = nil
 
         switch result {
@@ -261,11 +271,10 @@ final class SurfaceCatalog {
     }
 
     private func cancelInFlightProject(_ id: SurfaceResourceID, error: any Error) {
-        guard var inFlight = inFlightProjects[id] else { return }
-        inFlight.abandoned = true
+        guard let inFlight = inFlightProjects.removeValue(forKey: id) else { return }
+        retiredMaterializations[inFlight.token] = inFlight.provider
+        inFlight.task.cancel()
         let waiters = inFlight.waiters
-        inFlight.waiters.removeAll()
-        inFlightProjects[id] = inFlight
         resume(waiters, throwing: error)
     }
 
