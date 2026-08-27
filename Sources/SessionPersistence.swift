@@ -176,6 +176,75 @@ enum SessionRestorePolicy {
     }
 }
 
+/// Guards against relaunching straight back into a session snapshot the previous launch could not
+/// survive.
+///
+/// A wedged main thread cannot rescue itself: anything scheduled on it waits for the stall to end,
+/// which for a hung restore never happens. So rather than trying to interrupt a stuck restore
+/// in-process, this records that a restore *started* and clears that record only once the main
+/// thread has proven it is still alive afterwards. A marker still present at the next launch means
+/// the previous launch never got through its restore - hang, force quit or crash - so that launch
+/// comes up clean instead of walking into the same state again.
+///
+/// The snapshot itself is never discarded. It is copied aside before the clean session can overwrite
+/// it, so the workspaces stay recoverable.
+enum SessionRestoreGuard {
+    /// How long the main thread must keep servicing work after a restore before the attempt counts
+    /// as successful. Reaching the end of the restore call is not sufficient - the restored panes
+    /// mount later, during SwiftUI layout.
+    static let livenessConfirmationDelay: TimeInterval = 5
+
+    static func markerFileURL(for snapshotFileURL: URL) -> URL {
+        let base = snapshotFileURL.deletingPathExtension().lastPathComponent
+        return snapshotFileURL
+            .deletingLastPathComponent()
+            .appendingPathComponent("\(base)-restore-in-progress", isDirectory: false)
+    }
+
+    static func recoveredSnapshotFileURL(for snapshotFileURL: URL) -> URL {
+        let base = snapshotFileURL.deletingPathExtension().lastPathComponent
+        let fileExtension = snapshotFileURL.pathExtension
+        let name = fileExtension.isEmpty ? "\(base)-recovered" : "\(base)-recovered.\(fileExtension)"
+        return snapshotFileURL
+            .deletingLastPathComponent()
+            .appendingPathComponent(name, isDirectory: false)
+    }
+
+    static func markRestoreStarted(snapshotFileURL: URL) {
+        let marker = markerFileURL(for: snapshotFileURL)
+        try? FileManager.default.createDirectory(
+            at: marker.deletingLastPathComponent(),
+            withIntermediateDirectories: true,
+            attributes: nil
+        )
+        let stamp = ISO8601DateFormatter().string(from: Date())
+        try? Data(stamp.utf8).write(to: marker, options: .atomic)
+    }
+
+    static func markRestoreFinished(snapshotFileURL: URL) {
+        try? FileManager.default.removeItem(at: markerFileURL(for: snapshotFileURL))
+    }
+
+    static func hasInterruptedRestore(snapshotFileURL: URL) -> Bool {
+        FileManager.default.fileExists(atPath: markerFileURL(for: snapshotFileURL).path)
+    }
+
+    /// Reports whether the previous launch started a restore it never finished. Always clears the
+    /// marker, and copies the snapshot aside first so that skipping the restore is not destructive.
+    @discardableResult
+    static func consumeInterruptedRestore(snapshotFileURL: URL) -> Bool {
+        guard hasInterruptedRestore(snapshotFileURL: snapshotFileURL) else { return false }
+        try? FileManager.default.removeItem(at: markerFileURL(for: snapshotFileURL))
+
+        if FileManager.default.fileExists(atPath: snapshotFileURL.path) {
+            let recovered = recoveredSnapshotFileURL(for: snapshotFileURL)
+            try? FileManager.default.removeItem(at: recovered)
+            try? FileManager.default.copyItem(at: snapshotFileURL, to: recovered)
+        }
+        return true
+    }
+}
+
 struct SessionRectSnapshot: Codable, Equatable, Sendable {
     let x: Double
     let y: Double

@@ -2276,6 +2276,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
         }
         ClosedItemHistoryStore.shared.flushPendingSaves()
+        // A graceful quit is proof the main thread was never stuck, even if it happened inside the
+        // liveness window. Without this, quitting within seconds of launch would make the next
+        // launch skip restore for no reason.
+        if let snapshotURL = sessionSnapshotStore.defaultSnapshotFileURL() {
+            SessionRestoreGuard.markRestoreFinished(snapshotFileURL: snapshotURL)
+        }
         terminationWatchdog.arm()
         sentryStopMemoryContextRefresh()
         // Plain quit detaches local ssh clients; explicit close already killed marked sessions.
@@ -3516,6 +3522,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         syncManualRestoreSnapshotCachePruningCrashDiagnostics()
         let sanitizedStartupSnapshot = loadStartupSessionSnapshotPruningCrashDiagnostics()
         guard SessionRestorePolicy.shouldAttemptRestore() else { return }
+        // The previous launch began a restore it never finished, so restoring the same snapshot
+        // would most likely wedge this launch the same way. Come up clean instead. The guard copies
+        // the snapshot to session-<bundle>-recovered.json first, so nothing is lost.
+        if let snapshotURL = sessionSnapshotStore.defaultSnapshotFileURL(),
+           SessionRestoreGuard.consumeInterruptedRestore(snapshotFileURL: snapshotURL) {
+            updateLog.append(
+                "session restore skipped: previous launch did not finish restoring; "
+                    + "snapshot preserved as \(SessionRestoreGuard.recoveredSnapshotFileURL(for: snapshotURL).lastPathComponent)"
+            )
+            return
+        }
         startupSessionSnapshot = sanitizedStartupSnapshot
     }
 
@@ -3679,6 +3696,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard let primaryContext = contextForMainTerminalWindow(primaryWindow) else { return false }
 
         let startupSnapshot = startupSessionSnapshot
+        if startupSnapshot != nil, let snapshotURL = sessionSnapshotStore.defaultSnapshotFileURL() {
+            // Cleared by completeSessionRestoreOperation() once the main thread proves it survived
+            // the restore. If this launch never gets that far, the next one comes up clean.
+            SessionRestoreGuard.markRestoreStarted(snapshotFileURL: snapshotURL)
+        }
         primaryContext.tabManager.prepareLegacyWorkspaceCustomizationMigration(
             afterRestoring: startupSnapshot?.windows.flatMap(\.tabManager.workspaces) ?? []
         )
@@ -3775,6 +3797,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // Auto-resume input can be queued before tmux has spawned; preserve
             // restored process-detected bindings until a later live scan.
             _ = saveSessionSnapshot(includeScrollback: false)
+        }
+        // Clearing the guard here would be too early: reaching this line only means the snapshot was
+        // handed to SwiftUI, and the restored panes mount later during layout - which is exactly
+        // where a many-pane workspace wedges the main thread. Require proof of liveness instead. If
+        // the main thread is stuck, this block never runs and the marker survives to the next launch.
+        if let snapshotURL = sessionSnapshotStore.defaultSnapshotFileURL() {
+            DispatchQueue.main.asyncAfter(deadline: .now() + SessionRestoreGuard.livenessConfirmationDelay) {
+                SessionRestoreGuard.markRestoreFinished(snapshotFileURL: snapshotURL)
+            }
         }
     }
 
@@ -9754,6 +9785,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // cmux persists and restores main windows itself. Disable AppKit window
         // restoration so the OS cannot resurrect stale duplicate main windows.
         window.isRestorable = false
+        // Disable AppKit's automatic key-view-loop recalculation. Every pane is wrapped in its own
+        // NSHostingController (bonsplit's SinglePaneWrapper), so a many-pane workspace stacks ~15
+        // nested NSHostingViews. AppKit rebuilds the default key view loop on *every* subview
+        // insertion (AppKitPlatformViewHost.viewDidMoveToSuperview -> -[NSView _setDefaultKeyViewLoop]),
+        // and SwiftUI answers each nested host's acceptsFirstResponder by running a fresh
+        // FocusNavigationSequence over the subtree below it. That work multiplies across the nesting
+        // levels, so mounting a 21-pane workspace pins the main thread for 9s+ and the window never
+        // becomes visible - both on session restore and on workspace switch.
+        // cmux never reads this loop (no nextKeyView / selectNextKeyView / canBecomeKeyView anywhere):
+        // Tab belongs to the shell and pane focus is driven by our own focus system, so turning the
+        // recalculation off removes the trigger without changing observable focus behavior.
+        // Must be set before `contentView` is assigned below, i.e. before any pane mounts.
+        window.autorecalculatesKeyViewLoop = false
         configureCmuxMainWindowDragBehavior(window)
         let explicitInitialFrame = restoredFrame ?? persistedGeometryFrame
         if let explicitInitialFrame {

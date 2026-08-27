@@ -1846,6 +1846,66 @@ final class SessionPersistenceTests: XCTestCase {
         return RestorableAgentSessionIndex.load(homeDirectory: home.path)
     }
 
+    func testRestoreGuardReportsNothingAfterACompletedRestore() throws {
+        let (snapshotURL, cleanup) = try makeGuardFixture()
+        defer { cleanup() }
+
+        SessionRestoreGuard.markRestoreStarted(snapshotFileURL: snapshotURL)
+        SessionRestoreGuard.markRestoreFinished(snapshotFileURL: snapshotURL)
+
+        XCTAssertFalse(SessionRestoreGuard.consumeInterruptedRestore(snapshotFileURL: snapshotURL))
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: SessionRestoreGuard.recoveredSnapshotFileURL(for: snapshotURL).path
+            ),
+            "A clean restore should not leave a recovery copy behind"
+        )
+    }
+
+    func testRestoreGuardDetectsARestoreThatNeverFinished() throws {
+        let (snapshotURL, cleanup) = try makeGuardFixture()
+        defer { cleanup() }
+
+        // Launch begins restoring and is then wedged or killed: no finish call ever happens.
+        SessionRestoreGuard.markRestoreStarted(snapshotFileURL: snapshotURL)
+
+        XCTAssertTrue(SessionRestoreGuard.consumeInterruptedRestore(snapshotFileURL: snapshotURL))
+        // Consuming clears the marker, so a launch that then succeeds is not punished for it.
+        XCTAssertFalse(SessionRestoreGuard.consumeInterruptedRestore(snapshotFileURL: snapshotURL))
+    }
+
+    func testRestoreGuardPreservesTheSnapshotItRefusesToRestore() throws {
+        let (snapshotURL, cleanup) = try makeGuardFixture()
+        defer { cleanup() }
+
+        let store = sessionStore(appSupportDirectory: snapshotURL.deletingLastPathComponent())
+        let original = makeSnapshot(version: SessionSnapshotSchema.currentVersion)
+        XCTAssertTrue(store.save(original, fileURL: snapshotURL))
+
+        SessionRestoreGuard.markRestoreStarted(snapshotFileURL: snapshotURL)
+        XCTAssertTrue(SessionRestoreGuard.consumeInterruptedRestore(snapshotFileURL: snapshotURL))
+
+        // Skipping restore means the app comes up clean, and the clean session is persisted over the
+        // snapshot moments later. That must not be what destroys the user's workspaces.
+        var replacement = original
+        replacement.createdAt = 12_345
+        XCTAssertTrue(store.save(replacement, fileURL: snapshotURL))
+
+        let recoveredURL = SessionRestoreGuard.recoveredSnapshotFileURL(for: snapshotURL)
+        let recovered = try XCTUnwrap(store.load(fileURL: recoveredURL))
+        XCTAssertEqual(recovered.createdAt, original.createdAt, accuracy: 0.0001)
+        XCTAssertEqual(recovered.windows.count, original.windows.count)
+        XCTAssertEqual(recovered.windows.first?.tabManager.workspaces.first?.customTitle, "Restored")
+    }
+
+    private func makeGuardFixture() throws -> (snapshotURL: URL, cleanup: () -> Void) {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-restore-guard-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        let snapshotURL = tempDir.appendingPathComponent("session.json", isDirectory: false)
+        return (snapshotURL, { try? FileManager.default.removeItem(at: tempDir) })
+    }
+
     private func makeSnapshot(version: Int) -> AppSessionSnapshot {
         let workspace = SessionWorkspaceSnapshot(
             processTitle: "Terminal",
