@@ -6507,12 +6507,18 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         })
         remoteDirectoryTrustRequiredPanelIds.formUnion(activeRemoteTerminalSurfaceIds)
         remoteDirectoryReportPanelIds.removeAll()
+        // Placeholders left by a disconnect belong to the previous
+        // configuration; release them before seeding so a terminal that
+        // stopped being a placeholder here can become the initial remote
+        // surface again. Seeding first left such a pane neither parked nor
+        // tracked, so its persistent PTY session id never matched until a
+        // manual retrack.
+        remoteDisconnectPlaceholderPanelIds.subtract(remoteDisconnectPlaceholderPanelIdsToClear)
         seedInitialRemoteTerminalSessionIfNeeded(configuration: configuration)
         for panelId in remoteDirectoryTrustRequiredPanelIds {
             clearPanelGitBranch(panelId: panelId)
         }
         notifyPresentedCurrentDirectoryChanged(from: previousPresentedDirectory, force: clearedRemoteDirectoryTrust)
-        remoteDisconnectPlaceholderPanelIds.subtract(remoteDisconnectPlaceholderPanelIdsToClear)
         clearRemoteDetectedSurfacePorts()
         remoteDetectedPorts = []
         remoteForwardedPorts = []
