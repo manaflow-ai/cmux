@@ -47,7 +47,7 @@ def make_negative_size_tarball() -> bytes:
 class RegistryHandler(http.server.BaseHTTPRequestHandler):
     tarball = make_tarball()
     latest_version = "1.2.3"
-    nightly_version = "1.2.3-nightly.20260827.1"
+    nightly_version = "1.2.3-nightly.20260826.1"
     block_tarball = False
     tarball_started = threading.Event()
     tarball_release = threading.Event()
@@ -213,6 +213,54 @@ def write_runtime_capability_stub(tmp_path: Path) -> Path:
     return stub
 
 
+def write_fake_npm(tmp_path: Path) -> Path:
+    """Return a Node script that exercises the launcher npm transport path."""
+    fake = tmp_path / "fake-npm.cjs"
+    fake.write_text(
+        """
+const fs = require('fs');
+const path = require('path');
+const args = process.argv.slice(2);
+const log = process.env.FAKE_NPM_LOG;
+if (log) {
+  fs.appendFileSync(log, JSON.stringify({
+    args,
+    proxy: process.env.npm_config_https_proxy || null,
+    cafile: process.env.npm_config_cafile || null,
+    certfile: process.env.npm_config_certfile || null,
+    keyfile: process.env.npm_config_keyfile || null,
+  }) + '\\n');
+}
+if (args[0] === 'view') {
+  const field = args[2];
+  if (field === 'version') {
+    process.stdout.write(JSON.stringify(process.env.FAKE_NPM_LATEST));
+    process.exit(0);
+  }
+  if (field === 'dist') {
+    process.stdout.write(JSON.stringify({
+      tarball: 'https://registry.invalid/unused.tgz',
+      integrity: process.env.FAKE_NPM_INTEGRITY,
+    }));
+    process.exit(0);
+  }
+}
+if (args[0] === 'pack') {
+  const destinationIndex = args.indexOf('--pack-destination');
+  const destination = destinationIndex >= 0 ? args[destinationIndex + 1] : null;
+  if (!destination) process.exit(2);
+  const filename = 'cmux-tui-fixture.tgz';
+  fs.copyFileSync(process.env.FAKE_NPM_TARBALL, path.join(destination, filename));
+  process.stdout.write(JSON.stringify([{ filename }]));
+  process.exit(0);
+}
+process.exit(2);
+""".lstrip()
+    )
+    fake.chmod(0o755)
+    return fake
+
+
 def write_platform_stub(tmp_path: Path, platform_name: str = "freebsd") -> Path:
     stub = tmp_path / "unsupported-platform.cjs"
     stub.write_text(
@@ -285,15 +333,27 @@ def test_launcher_runs_verified_binary_from_read_only_cache(tmp_path: Path) -> N
     )
     platform_root = cache / host_platform_key()
     cache_dirs = [path for path in platform_root.rglob("*") if path.is_dir()]
-    cache_dirs.append(platform_root)
+    cache_dirs.extend((platform_root, cache))
     original_modes = {
         directory: stat.S_IMODE(directory.stat().st_mode) for directory in cache_dirs
     }
+    trusted_files = [
+        binary,
+        binary.parent.parent / "manifest.json",
+        binary.parent.parent / "managed",
+    ]
+    original_file_modes = {
+        file: stat.S_IMODE(file.stat().st_mode) for file in trusted_files if file.exists()
+    }
     for directory in cache_dirs:
         directory.chmod(original_modes[directory] & ~0o222)
+    for file in original_file_modes:
+        file.chmod(original_file_modes[file] & ~0o222)
     try:
         result = run_launcher(launcher, cache, "http://127.0.0.1:1", "--version")
     finally:
+        for file in original_file_modes:
+            file.chmod(original_file_modes[file])
         for directory in reversed(cache_dirs):
             directory.chmod(original_modes[directory])
 
@@ -449,7 +509,7 @@ def test_update_uses_channel_latest_and_persists_channel_state(tmp_path: Path) -
     assert result.returncode == 0, result.stderr
     assert RegistryHandler.latest_requests == ["/cmux/nightly"]
     nightly_state = json.loads(
-        (nightly_cache / host_platform_key() / "state.json").read_text()
+        (nightly_cache / host_platform_key() / "state/nightly.json").read_text()
     )
     assert nightly_state["version"] == RegistryHandler.nightly_version
     assert nightly_state["channel"] == "nightly"
@@ -466,7 +526,7 @@ def test_update_uses_channel_latest_and_persists_channel_state(tmp_path: Path) -
     assert result.returncode == 0, result.stderr
     assert RegistryHandler.latest_requests == ["/cmux/latest"]
     stable_state = json.loads(
-        (stable_cache / host_platform_key() / "state.json").read_text()
+        (stable_cache / host_platform_key() / "state/stable.json").read_text()
     )
     assert stable_state["version"] == RegistryHandler.latest_version
     assert stable_state["channel"] == "stable"
@@ -478,62 +538,66 @@ def test_launcher_keeps_stable_and_nightly_state_channels_separate(
     if sys.platform == "win32":
         return
 
-    nightly_version = "1.2.3-nightly.20260827.1"
+    nightly_version = "1.2.3-nightly.20260826.1"
+    cache = tmp_path / "shared-cache"
     nightly_launcher = write_launcher(tmp_path / "nightly", nightly_version)
-    nightly_cache = tmp_path / "nightly-cache"
+    stable_launcher = write_launcher(tmp_path / "stable", "1.2.2")
+
+    server, thread, registry = start_registry()
+    try:
+        nightly_update = run_launcher(nightly_launcher, cache, registry, "update")
+    finally:
+        server.shutdown()
+        thread.join()
+    assert nightly_update.returncode == 0, nightly_update.stderr
+    assert RegistryHandler.latest_requests == ["/cmux/nightly"]
+
+    server, thread, registry = start_registry()
+    try:
+        stable_update = run_launcher(stable_launcher, cache, registry, "update")
+    finally:
+        server.shutdown()
+        thread.join()
+    assert stable_update.returncode == 0, stable_update.stderr
+    assert RegistryHandler.latest_requests == ["/cmux/latest"]
+
+    platform_root = cache / host_platform_key()
+    nightly_state = json.loads((platform_root / "state/nightly.json").read_text())
+    stable_state = json.loads((platform_root / "state/stable.json").read_text())
+    assert nightly_state["version"] == RegistryHandler.nightly_version
+    assert nightly_state["channel"] == "nightly"
+    assert stable_state["version"] == RegistryHandler.latest_version
+    assert stable_state["channel"] == "stable"
+
+    # Replace the downloaded fixture payloads with channel-specific markers,
+    # then launch older shims offline using their persisted channel state.
     write_cached_binary(
-        nightly_cache,
-        "1.2.3",
-        "#!/bin/sh\nprintf '%s\\n' 'stable binary'\n",
-        managed=True,
-    )
-    nightly_binary = write_cached_binary(
-        nightly_cache,
-        nightly_version,
+        cache,
+        RegistryHandler.nightly_version,
         "#!/bin/sh\nprintf '%s\\n' 'nightly binary'\n",
         managed=True,
     )
-    nightly_state = nightly_cache / host_platform_key() / "state.json"
-    nightly_state.write_text(json.dumps({"version": "1.2.3"}) + "\n")
-
-    nightly_result = run_launcher(
-        nightly_launcher,
-        nightly_cache,
-        "http://127.0.0.1:1",
-        "--version",
+    write_cached_binary(
+        cache,
+        RegistryHandler.latest_version,
+        "#!/bin/sh\nprintf '%s\\n' 'stable binary'\n",
+        managed=True,
     )
-
+    # A legacy shared file from an older launcher must not cross-satisfy a
+    # stable shim with a nightly version.
+    (platform_root / "state.json").write_text(
+        json.dumps({"version": RegistryHandler.nightly_version}) + "\n"
+    )
+    nightly_result = run_launcher(
+        nightly_launcher, cache, "http://127.0.0.1:1", "--version"
+    )
+    stable_result = run_launcher(
+        stable_launcher, cache, "http://127.0.0.1:1", "--version"
+    )
     assert nightly_result.returncode == 0, nightly_result.stderr
     assert nightly_result.stdout == "nightly binary\n"
-    assert nightly_binary.is_file()
-
-    stable_launcher = write_launcher(tmp_path / "stable", "1.2.3")
-    stable_cache = tmp_path / "stable-cache"
-    stable_binary = write_cached_binary(
-        stable_cache,
-        "1.2.3",
-        "#!/bin/sh\nprintf '%s\\n' 'stable binary'\n",
-        managed=True,
-    )
-    write_cached_binary(
-        stable_cache,
-        nightly_version,
-        "#!/bin/sh\nprintf '%s\\n' 'nightly binary'\n",
-        managed=True,
-    )
-    stable_state = stable_cache / host_platform_key() / "state.json"
-    stable_state.write_text(json.dumps({"version": nightly_version}) + "\n")
-
-    stable_result = run_launcher(
-        stable_launcher,
-        stable_cache,
-        "http://127.0.0.1:1",
-        "--version",
-    )
-
     assert stable_result.returncode == 0, stable_result.stderr
     assert stable_result.stdout == "stable binary\n"
-    assert stable_binary.is_file()
 
 
 def test_launcher_reports_network_failure_without_leaking_details(tmp_path: Path) -> None:
@@ -624,6 +688,56 @@ def test_launcher_scopes_registry_token_to_npmrc_path(tmp_path: Path) -> None:
     finally:
         server.shutdown()
         thread.join()
+
+
+def test_launcher_uses_npm_for_proxy_and_tls_config(tmp_path: Path) -> None:
+    if sys.platform == "win32":
+        return
+    launcher = write_launcher(tmp_path)
+    cache = tmp_path / "cache"
+    fake_npm = write_fake_npm(tmp_path)
+    tarball = tmp_path / "fixture.tgz"
+    tarball.write_bytes(make_tarball())
+    integrity = "sha512-" + base64.b64encode(hashlib.sha512(tarball.read_bytes()).digest()).decode()
+    log = tmp_path / "npm.log"
+    cafile = tmp_path / "ca.pem"
+    certfile = tmp_path / "client.crt"
+    keyfile = tmp_path / "client.key"
+    for file in (cafile, certfile, keyfile):
+        file.write_text("fixture\n")
+
+    result = run_launcher(
+        launcher,
+        cache,
+        "http://127.0.0.1:1",
+        "--version",
+        env_extra={
+            "npm_execpath": str(fake_npm),
+            "npm_config_https_proxy": "http://proxy.invalid:8080",
+            "npm_config_cafile": str(cafile),
+            "npm_config_certfile": str(certfile),
+            "npm_config_keyfile": str(keyfile),
+            "FAKE_NPM_LOG": str(log),
+            "FAKE_NPM_TARBALL": str(tarball),
+            "FAKE_NPM_INTEGRITY": integrity,
+        },
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "fake cmux-tui 1.2.3\n"
+    records = [json.loads(line) for line in log.read_text().splitlines()]
+    assert [record["args"][0] for record in records] == ["view", "pack"]
+    view_args, pack_args = (record["args"] for record in records)
+    assert f"cmux-tui-{host_platform_key()}@1.2.3" in view_args
+    assert f"cmux-tui-{host_platform_key()}@1.2.3" in pack_args
+    for args in (view_args, pack_args):
+        assert "--ignore-scripts" in args
+        assert "--registry" in args
+        assert "http://127.0.0.1:1" in args
+    assert all(record["proxy"] == "http://proxy.invalid:8080" for record in records)
+    assert all(record["cafile"] == str(cafile) for record in records)
+    assert all(record["certfile"] == str(certfile) for record in records)
+    assert all(record["keyfile"] == str(keyfile) for record in records)
 
 
 def test_launcher_does_not_run_a_mismatched_installed_binary(tmp_path: Path) -> None:
@@ -1081,7 +1195,9 @@ def test_concurrent_updates_fail_closed_while_one_downloads(tmp_path: Path) -> N
         thread.join()
 
     assert first_process.returncode == 0, first_stderr or first_stdout
-    state = json.loads((cache / host_platform_key() / "state.json").read_text())
+    state = json.loads(
+        (cache / host_platform_key() / "state/stable.json").read_text()
+    )
     assert state["version"] == "1.2.3"
     assert not (cache / host_platform_key() / ".update-operation.lock").exists()
 
@@ -1131,6 +1247,7 @@ def main() -> None:
         test_launcher_releases_lease_when_native_launch_fails(root / "launch-failure")
         test_launcher_reads_registry_token_from_npmrc(root / "npmrc")
         test_launcher_scopes_registry_token_to_npmrc_path(root / "npmrc-scope")
+        test_launcher_uses_npm_for_proxy_and_tls_config(root / "npm-network-config")
         test_launcher_does_not_run_a_mismatched_installed_binary(root / "mismatch")
         test_launcher_runs_matching_installed_binary_without_cache_access(root / "installed-offline")
         test_managed_launcher_honors_development_binary_override(root / "override")
