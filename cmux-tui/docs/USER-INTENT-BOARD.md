@@ -20,6 +20,13 @@ The retained session receipt supports at least 258 named substantive turns.
 This is a verifiable lower bound, not a total session count, and no
 10,000-session claim is made.
 
+The scroll audit confirms alternate-screen wheel behavior is intentional: crossterm
+classifies wheel events as scroll, cmux forwards Ghostty wheel events when mouse
+tracking is enabled, and otherwise emits three arrow sequences. A configurable
+policy and modifier override remain open; changing the default may break TUIs
+that rely on arrows. Evidence: `cmux-tui/src/app.rs` `handle_scroll_with_admission`
+and the crossterm `MouseEventKind` and Ghostty terminal configuration references.
+
 | PR | Author | Source head | Merged at (UTC) | Merge SHA | Rollback |
 | --- | --- | --- | --- | --- | --- |
 | [#10944](https://github.com/manaflow-ai/cmux/pull/10944) | Lawrence Chen | `976b9d427b7e91b900fc8545aea6ea6e878b99c0` | 2026-08-27 09:13:59 | `99bdc375e98eb9abddd3f54289bc16ef876e8095` | `git revert 99bdc375e98eb9abddd3f54289bc16ef876e8095` |
