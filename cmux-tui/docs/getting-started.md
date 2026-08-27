@@ -118,6 +118,8 @@ Run this command from an interactive terminal with `/dev/tty`; the agent fails c
 
 ## Packaged installs and updates
 
+Japanese: [パッケージのインストールと更新](getting-started.ja.md)
+
 The `cmux` npm package is a small launcher with no dependencies. On first run it downloads the prebuilt `cmux-tui-<platform>` package for your platform from the npm registry, verifies the registry's sha512 integrity for the tarball, and caches the binaries in a versioned launcher cache (`~/Library/Caches/cmux-tui-launcher` on macOS, `$XDG_CACHE_HOME/cmux-tui-launcher` or `~/.cache/cmux-tui-launcher` on Linux). Later runs start instantly from that cache.
 
 Update with the launcher itself:
@@ -127,13 +129,18 @@ npx cmux update           # download the latest published version
 npx cmux update --check   # report whether a newer version exists
 ```
 
-`cmux update` talks only to the npm registry and writes only the launcher cache. It never rewrites npm's `_npx` cache, so it cannot hit the npm `ENOTEMPTY` bug described below, and the updated binary is used on the next start.
+`cmux update` talks only to the npm registry and writes only the launcher cache. It does not rewrite npm's `_npx` cache, but `npx` can still touch that cache, or fail before cmux starts, while resolving the launcher. Use `cmux update` for routine platform-binary updates. Use `npx cmux@latest` when you need to update the npm launcher itself.
 
 For offline or air-gapped machines, install the platform package next to the launcher; the launcher prefers a matching installed package and needs no network:
 
 ```bash
-npm install -g cmux cmux-tui-darwin-arm64   # pick your platform package
+npm install -g cmux@0.11.0 cmux-tui-darwin-arm64@0.11.0   # pick your platform package and version
 ```
+
+For a machine without registry access, download both matching tarballs first
+and install their local paths, or pre-populate npm's cache with those exact
+versions before running the command. The launcher then uses the installed
+platform package without resolving a different version.
 
 ## Troubleshooting npx installs
 
@@ -146,14 +153,15 @@ npm error path ~/.npm/_npx/<hash>/node_modules/cmux-tui-darwin-arm64
 npm error ENOTEMPTY: directory not empty, rename ...
 ```
 
-This is a long-standing npm bug in the `npx` package cache, not a cmux failure. It triggers when the cache holds an older cmux version and npm upgrades it in place, and it hits per-platform binary packages most often. cmux 0.11.0 and older shipped the platform binaries as optional dependencies of the launcher, so upgrading over a cached 0.11.0 can still fail this way once. Clear the npx cache and rerun:
+This is a long-standing npm bug in the `npx` package cache, not a cmux failure. It triggers when the cache holds an older cmux version and npm upgrades it in place, and it hits per-platform binary packages most often. cmux 0.11.0 and older shipped the platform binaries as optional dependencies of the launcher, so upgrading over a cached 0.11.0 can still fail this way once. Derive npm's cache location, clear only its npx entries, and rerun:
 
 ```bash
-rm -rf ~/.npm/_npx
+npm_cache="$(npm config get cache)"
+rm -rf "$npm_cache/_npx"
 npx cmux@latest
 ```
 
-Newer launchers keep binaries out of npm's cache entirely (see the previous section), and `npx cmux update` replaces `npx cmux@latest` as the routine upgrade path.
+Newer launchers keep platform binaries out of npm's cache entirely (see the previous section). `npx cmux update` is the routine platform-binary upgrade path; `npx cmux@latest` remains the npm-launcher upgrade path.
 
 ## Sessions and sockets
 
