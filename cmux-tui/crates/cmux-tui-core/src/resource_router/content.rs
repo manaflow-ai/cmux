@@ -345,7 +345,11 @@ fn terminal_effect(mux: &Arc<Mux>, request: ParsedResourceRequest) -> Result<Val
     validate_terminal_effect_fields(&request)?;
     let fields = request.fields.clone();
     let preparation = effects::prepare(mux, &request, || {
-        let (terminal_id, _) = resolve_terminal_surface(mux, &request.selectors)?;
+        let terminal_id = if request.envelope.operation == ResourceOperation::TerminalClose {
+            resolve_terminal_close_id(mux, &request.selectors)?
+        } else {
+            resolve_terminal_surface(mux, &request.selectors)?.0
+        };
         Ok(json!({"terminal_id":terminal_id,"fields":fields}))
     })?;
     match preparation {
@@ -371,6 +375,15 @@ fn execute_terminal_effect(
         Ok(fields) => fields.clone(),
         Err(error) => return effects::commit_known_failure(mux, prepared, error),
     };
+    if prepared.operation == "terminal.close" {
+        let commit = mux.commit_resource_terminal_close_effect(
+            &terminal_id,
+            &prepared.idempotency_key,
+            &prepared.operation,
+            &prepared.fingerprint,
+        );
+        return finish_projection_commit(mux, prepared, commit);
+    }
     let Some(surface_id) = mux.resource_surface_for_terminal(&terminal_id) else {
         return effects::commit_known_failure(
             mux,
@@ -402,7 +415,6 @@ fn execute_terminal_effect(
             surface.clear_history().map_err(|error| ActionFailure::Indeterminate(error.to_string()))
         }
         "terminal.viewport.scroll" => terminal_scroll_viewport(mux, &surface, &fields),
-        "terminal.close" => Ok(()),
         operation => Err(ActionFailure::Known(ResourceError::operation_failed(
             operation,
             "stored terminal effect operation is invalid",
@@ -411,16 +423,6 @@ fn execute_terminal_effect(
     };
     if let Err(failure) = action {
         return finish_action_failure(mux, prepared, failure);
-    }
-
-    if prepared.operation == "terminal.close" {
-        let commit = mux.commit_resource_terminal_close_effect(
-            surface_id,
-            &prepared.idempotency_key,
-            &prepared.operation,
-            &prepared.fingerprint,
-        );
-        return finish_projection_commit(mux, prepared, commit);
     }
 
     debug_assert!(effects::receipt_only_operation(&prepared.operation));
@@ -1049,6 +1051,43 @@ fn resolve_terminal_surface(
     Ok((terminal_id, surface))
 }
 
+/// Resolve a close target from durable public topology. Close is the one
+/// terminal effect that does not require an adopted runtime: restored views
+/// are public before their host is attached to this daemon.
+fn resolve_terminal_close_id(
+    mux: &Arc<Mux>,
+    selectors: &ResourceSelectors,
+) -> Result<TerminalPublicId, ResourceError> {
+    match mux.resolve_resource_path(ResourceTarget::Terminal, selectors) {
+        Ok(path) => path.terminal.ok_or_else(|| ResourceError::not_found("terminal", "<resolved>")),
+        Err(error)
+            if error.code == "selector.not_found"
+                && error.details["scope"] == "terminal"
+                && selectors.workspace.is_none()
+                && selectors.screen.is_none()
+                && selectors.pane.is_none()
+                && selectors.tab.is_none() =>
+        {
+            let Some(selector) = selectors.terminal.as_deref() else {
+                return Err(error);
+            };
+            let Ok(terminal_id) = TerminalPublicId::parse(selector) else {
+                return Err(error);
+            };
+            if mux
+                .live_terminal_host_for_resource(&terminal_id)
+                .map_err(resource_operation_error)?
+                .is_some()
+            {
+                Ok(terminal_id)
+            } else {
+                Err(error)
+            }
+        }
+        Err(error) => Err(error),
+    }
+}
+
 fn resolve_browser_surface(
     mux: &Arc<Mux>,
     selectors: &ResourceSelectors,
@@ -1569,10 +1608,13 @@ fn finish_action_failure(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::mpsc;
 
     use super::*;
+    use crate::NotificationLevel;
     use crate::SurfaceOptions;
+    use crate::resource::NotificationPublicId;
 
     fn terminal_fixture(
         command: Option<Vec<String>>,
@@ -1858,6 +1900,446 @@ mod tests {
                 .all(|terminal| terminal["id"] != terminal_id.as_str())
         );
         assert!(mux.surface(original.id).is_none());
+    }
+
+    #[test]
+    fn terminal_listed_before_runtime_adoption_closes_by_public_id_atomically() {
+        let (mux, surface, selectors) = terminal_fixture(None);
+        let terminal_id = TerminalPublicId::parse(selectors.terminal.as_deref().unwrap()).unwrap();
+        let initial = public_session_snapshot(&mux).unwrap();
+        let projected = dispatch(
+            &mux,
+            parsed_request(
+                "terminal.project",
+                &selectors,
+                json!({
+                    "destination_workspace":initial["workspaces"][0]["id"],
+                    "destination_screen":initial["screens"][0]["id"],
+                    "destination_pane":initial["panes"][0]["id"],
+                    "index":1,
+                    "name":"restored mirror",
+                }),
+                Some("project-terminal-before-adoption"),
+            ),
+        )
+        .unwrap();
+        let projected_tab = projected["value"]["id"].as_str().unwrap();
+        let placements = mux.with_state(|state| {
+            state.placements_of_content(&ContentPublicId::Terminal(terminal_id.clone())).to_vec()
+        });
+        assert_eq!(placements.len(), 2);
+        assert!(placements.contains(&surface.id));
+        let tab_ids = mux.with_state(|state| {
+            placements
+                .iter()
+                .map(|placement| state.resource_indexes.tab_ids[placement].clone())
+                .collect::<Vec<_>>()
+        });
+        assert!(tab_ids.iter().any(|tab| tab.as_str() == projected_tab));
+        for (index, placement) in placements.iter().enumerate() {
+            mux.post_resource_notification(
+                NotificationPublicId::random().unwrap(),
+                format!("placement {index}"),
+                String::new(),
+                NotificationLevel::Info,
+                Some(*placement),
+                None,
+                1,
+            );
+        }
+        mux.post_resource_notification(
+            NotificationPublicId::random().unwrap(),
+            "terminal".into(),
+            String::new(),
+            NotificationLevel::Info,
+            Some(surface.id),
+            Some(terminal_id.clone()),
+            2,
+        );
+        let before_resource_revision = mux.with_state(|state| state.resource_revision);
+        let before_terminal_revision = mux.terminal_registry_snapshot().unwrap().revision;
+
+        let removed_surfaces = placements
+            .iter()
+            .map(|placement| {
+                mux.remove_surface_runtime_for_test(*placement).expect("fixture has a live view")
+            })
+            .collect::<Vec<_>>();
+        let removed_runtime = mux
+            .remove_terminal_catalog_for_test(&terminal_id)
+            .expect("fixture has a catalog runtime");
+        assert!(
+            removed_surfaces
+                .iter()
+                .all(|removed| removed.shares_terminal_runtime(&removed_runtime))
+        );
+        assert!(placements.iter().all(|placement| mux.surface_notification(*placement).is_some()));
+        assert!(mux.terminal_notification(&terminal_id).is_some());
+        assert_eq!(
+            mux.with_state(|state| state
+                .placements_of_content(&ContentPublicId::Terminal(terminal_id.clone()))
+                .to_vec()),
+            placements,
+            "pre-adoption fixture must retain its projected view"
+        );
+
+        let session_selectors = ResourceSelectors {
+            machine: Some("current".into()),
+            session: Some("current".into()),
+            ..ResourceSelectors::default()
+        };
+        let listed = super::super::handle_parsed_resource_request(
+            &mux,
+            parsed_request("terminal.list", &session_selectors, json!({}), None),
+        )
+        .unwrap();
+        assert_eq!(listed["ok"], true);
+        assert_eq!(listed["result"].as_array().unwrap().len(), 1);
+        assert_eq!(listed["result"][0]["id"], terminal_id.as_str());
+        assert_eq!(listed["result"][0]["tab_ids"].as_array().unwrap().len(), 2);
+
+        let close_installed = Arc::new(AtomicBool::new(false));
+        mux.set_resource_close_cleanup_hook_for_test(Some(Arc::new({
+            let mux = Arc::downgrade(&mux);
+            let close_installed = close_installed.clone();
+            move || {
+                let installed = mux.upgrade().is_some_and(|mux| {
+                    mux.with_state(|state| state.resource_revision == before_resource_revision + 1)
+                        && mux
+                            .terminal_registry_snapshot()
+                            .is_ok_and(|snapshot| snapshot.revision == before_terminal_revision + 1)
+                        && mux.discovered_terminal_terminations_for_test().is_empty()
+                });
+                close_installed.store(installed, Ordering::Release);
+            }
+        })));
+
+        let closed = super::super::handle_parsed_resource_request(
+            &mux,
+            parsed_request(
+                "terminal.close",
+                &selectors,
+                json!({}),
+                Some("close-terminal-before-adoption"),
+            ),
+        )
+        .unwrap();
+        if closed["ok"] != true {
+            mux.shutdown();
+            panic!("a terminal returned by terminal.list was not closable: {closed}");
+        }
+        assert_eq!(closed["result"]["replayed"], false);
+        assert!(close_installed.load(Ordering::Acquire));
+        assert_eq!(mux.discovered_terminal_terminations_for_test().len(), 1);
+
+        let after = super::super::handle_parsed_resource_request(
+            &mux,
+            parsed_request("terminal.list", &session_selectors, json!({}), None),
+        )
+        .unwrap();
+        assert_eq!(after["result"], json!([]));
+        assert!(mux.with_state(|state| {
+            state.placements_of_content(&ContentPublicId::Terminal(terminal_id.clone())).is_empty()
+        }));
+        assert!(mux.surface(surface.id).is_none());
+        assert!(placements.iter().all(|placement| mux.surface_notification(*placement).is_none()));
+        assert!(mux.terminal_notification(&terminal_id).is_none());
+
+        let close_events = mux.resource_events_after(before_resource_revision).unwrap();
+        assert_eq!(close_events.batches.len(), 1);
+        let changes = close_events.batches[0].changes.as_array().unwrap();
+        assert_eq!(
+            changes
+                .iter()
+                .filter(|change| {
+                    change["kind"] == "delete"
+                        && change["resource"] == "terminal"
+                        && change["id"] == terminal_id.as_str()
+                })
+                .count(),
+            1
+        );
+        for tab_id in &tab_ids {
+            assert_eq!(
+                changes
+                    .iter()
+                    .filter(|change| {
+                        change["kind"] == "delete"
+                            && change["resource"] == "tab"
+                            && change["id"] == tab_id.as_str()
+                    })
+                    .count(),
+                1
+            );
+        }
+        assert_eq!(mux.with_state(|state| state.resource_revision), before_resource_revision + 1);
+        let (terminal_snapshot, terminal_events) =
+            mux.terminal_registry_events_page(before_terminal_revision).unwrap();
+        assert_eq!(terminal_snapshot.revision, before_terminal_revision + 1);
+        assert_eq!(terminal_events.len(), 1);
+        assert_eq!(terminal_events[0].kind, "terminal-closed");
+
+        let replay = super::super::handle_parsed_resource_request(
+            &mux,
+            parsed_request(
+                "terminal.close",
+                &selectors,
+                json!({}),
+                Some("close-terminal-before-adoption"),
+            ),
+        )
+        .unwrap();
+        assert_eq!(replay["ok"], true);
+        assert_eq!(replay["result"]["replayed"], true);
+        assert_eq!(replay["result"]["revision"], closed["result"]["revision"]);
+        assert_eq!(mux.resource_events_after(before_resource_revision).unwrap().batches.len(), 1);
+        assert_eq!(
+            mux.terminal_registry_snapshot().unwrap().revision,
+            before_terminal_revision + 1
+        );
+        assert_eq!(mux.discovered_terminal_terminations_for_test().len(), 1);
+        mux.shutdown();
+    }
+
+    #[test]
+    fn terminal_close_before_adoption_preserves_topology_when_atomic_commit_fails() {
+        let (mux, surface, selectors) = terminal_fixture(None);
+        let terminal_id = TerminalPublicId::parse(selectors.terminal.as_deref().unwrap()).unwrap();
+        let before_resource_revision = mux.with_state(|state| state.resource_revision);
+        let before_terminal_revision = mux.terminal_registry_snapshot().unwrap().revision;
+
+        let removed_surface =
+            mux.remove_surface_runtime_for_test(surface.id).expect("fixture has a live view");
+        let removed_runtime = mux
+            .remove_terminal_catalog_for_test(&terminal_id)
+            .expect("fixture has a catalog runtime");
+        assert!(removed_surface.shares_terminal_runtime(&removed_runtime));
+        mux.set_resource_patch_failure_for_test(true);
+
+        let failed = super::super::handle_parsed_resource_request(
+            &mux,
+            parsed_request(
+                "terminal.close",
+                &selectors,
+                json!({}),
+                Some("close-terminal-before-adoption-failure"),
+            ),
+        )
+        .unwrap();
+        assert_eq!(failed["ok"], false);
+        assert_eq!(failed["error"]["code"], "mutation.indeterminate");
+        mux.set_resource_patch_failure_for_test(false);
+
+        assert_eq!(mux.with_state(|state| state.resource_revision), before_resource_revision);
+        assert_eq!(mux.terminal_registry_snapshot().unwrap().revision, before_terminal_revision);
+        assert!(mux.discovered_terminal_terminations_for_test().is_empty());
+        assert_eq!(
+            mux.with_state(|state| state
+                .placements_of_content(&ContentPublicId::Terminal(terminal_id.clone()))
+                .to_vec()),
+            vec![surface.id],
+            "failed close must retain the projected terminal view"
+        );
+
+        let retry = super::super::handle_parsed_resource_request(
+            &mux,
+            parsed_request(
+                "terminal.close",
+                &selectors,
+                json!({}),
+                Some("close-terminal-before-adoption-retry"),
+            ),
+        )
+        .unwrap();
+        assert_eq!(retry["ok"], true);
+        assert_eq!(retry["result"]["replayed"], false);
+        assert!(mux.with_state(|state| {
+            state.placements_of_content(&ContentPublicId::Terminal(terminal_id.clone())).is_empty()
+        }));
+        mux.shutdown();
+    }
+
+    #[test]
+    fn zero_view_terminal_closes_only_by_its_exact_unscoped_public_id() {
+        let (mux, surface, selectors) = terminal_fixture(None);
+        let terminal_id = TerminalPublicId::parse(selectors.terminal.as_deref().unwrap()).unwrap();
+        let snapshot = public_session_snapshot(&mux).unwrap();
+        let workspace_id = snapshot["workspaces"][0]["id"].as_str().unwrap().to_string();
+        let tab_id = snapshot["terminals"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|terminal| terminal["id"] == terminal_id.as_str())
+            .unwrap()["tab_ids"][0]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let pane_id = snapshot["tabs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|tab| tab["id"] == tab_id)
+            .unwrap()["pane_id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        super::super::topology::dispatch(
+            &mux,
+            parsed_request(
+                "tab.create_terminal",
+                &ResourceSelectors {
+                    machine: Some("current".into()),
+                    session: Some("current".into()),
+                    pane: Some(pane_id),
+                    ..ResourceSelectors::default()
+                },
+                json!({}),
+                Some("keep-zero-view-workspace-live"),
+            ),
+        )
+        .unwrap();
+        let tab_selectors = ResourceSelectors {
+            machine: Some("current".into()),
+            session: Some("current".into()),
+            tab: Some(tab_id),
+            ..ResourceSelectors::default()
+        };
+        super::super::topology::dispatch(
+            &mux,
+            parsed_request(
+                "tab.close",
+                &tab_selectors,
+                json!({}),
+                Some("detach-terminal-zero-view"),
+            ),
+        )
+        .unwrap();
+        assert!(mux.surface(surface.id).is_some(), "detaching the last view retains its runtime");
+        let removed_runtime = mux
+            .remove_terminal_catalog_for_test(&terminal_id)
+            .expect("detached terminal retains its catalog runtime");
+        assert!(removed_runtime.shares_terminal_runtime(&surface));
+        assert!(mux.with_state(|state| {
+            state.placements_of_content(&ContentPublicId::Terminal(terminal_id.clone())).is_empty()
+        }));
+        let listed = super::super::handle_parsed_resource_request(
+            &mux,
+            parsed_request(
+                "terminal.list",
+                &ResourceSelectors {
+                    machine: Some("current".into()),
+                    session: Some("current".into()),
+                    ..ResourceSelectors::default()
+                },
+                json!({}),
+                None,
+            ),
+        )
+        .unwrap();
+        let listed_terminal = listed["result"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|terminal| terminal["id"] == terminal_id.as_str())
+            .expect("terminal.list retains the zero-view terminal");
+        assert_eq!(listed_terminal["tab_ids"], json!([]));
+
+        let scoped = ResourceSelectors { workspace: Some(workspace_id), ..selectors.clone() };
+        let scoped_close = super::super::handle_parsed_resource_request(
+            &mux,
+            parsed_request("terminal.close", &scoped, json!({}), Some("close-zero-view-scoped")),
+        )
+        .unwrap();
+        assert_eq!(scoped_close["ok"], false);
+        assert_eq!(scoped_close["error"]["code"], "selector.not_found");
+
+        let exact_close = super::super::handle_parsed_resource_request(
+            &mux,
+            parsed_request("terminal.close", &selectors, json!({}), Some("close-zero-view-exact")),
+        )
+        .unwrap();
+        assert_eq!(exact_close["ok"], true);
+        assert_eq!(exact_close["result"]["replayed"], false);
+        assert!(
+            public_session_snapshot(&mux).unwrap()["terminals"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|terminal| terminal["id"] != terminal_id.as_str())
+        );
+        mux.shutdown();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn terminal_close_tombstone_wins_an_adoption_waiting_on_the_same_state_owner() {
+        let (mux, surface, selectors) = terminal_fixture(None);
+        let terminal_id = TerminalPublicId::parse(selectors.terminal.as_deref().unwrap()).unwrap();
+        let removed_surface =
+            mux.remove_surface_runtime_for_test(surface.id).expect("fixture has a live view");
+        let removed_runtime = mux
+            .remove_terminal_catalog_for_test(&terminal_id)
+            .expect("fixture has a catalog runtime");
+        assert!(removed_surface.shares_terminal_runtime(&removed_runtime));
+        let host = mux
+            .resource_terminal_host_identity(&removed_runtime)
+            .expect("fixture runtime has a durable host identity");
+        let commit_ready = Arc::new(std::sync::Barrier::new(2));
+        let allow_install = Arc::new(std::sync::Barrier::new(2));
+        mux.set_resource_close_after_commit_hook_for_test(Some(Arc::new({
+            let commit_ready = commit_ready.clone();
+            let allow_install = allow_install.clone();
+            move || {
+                commit_ready.wait();
+                allow_install.wait();
+            }
+        })));
+
+        let closing = {
+            let mux = mux.clone();
+            std::thread::spawn(move || {
+                super::super::handle_parsed_resource_request(
+                    &mux,
+                    parsed_request(
+                        "terminal.close",
+                        &selectors,
+                        json!({}),
+                        Some("close-terminal-during-adoption"),
+                    ),
+                )
+            })
+        };
+        commit_ready.wait();
+        let (adoption_tx, adoption_rx) = mpsc::channel();
+        let adopting = {
+            let mux = mux.clone();
+            std::thread::spawn(move || {
+                let result = mux.finish_terminal_adoption_for_test(
+                    &host.terminal_id,
+                    &host.incarnation,
+                    removed_runtime,
+                );
+                adoption_tx.send(result).unwrap();
+            })
+        };
+        assert!(
+            adoption_rx.recv_timeout(Duration::from_millis(50)).is_err(),
+            "adoption entered while terminal close held registry and state ownership"
+        );
+        allow_install.wait();
+        let closed = closing.join().unwrap().unwrap();
+        assert_eq!(closed["ok"], true);
+        let adoption = adoption_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(adoption.is_err(), "a committed close tombstone must reject late adoption");
+        adopting.join().unwrap();
+        mux.set_resource_close_after_commit_hook_for_test(None);
+        assert!(mux.with_state(|state| {
+            !state.terminal_catalog.contains_key(&terminal_id)
+                && state
+                    .placements_of_content(&ContentPublicId::Terminal(terminal_id.clone()))
+                    .is_empty()
+        }));
+        mux.shutdown();
     }
 
     #[test]

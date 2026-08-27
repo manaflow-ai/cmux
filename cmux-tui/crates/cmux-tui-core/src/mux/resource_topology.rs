@@ -68,6 +68,7 @@ struct ResourceCloseInputs {
 struct ResourceClosePlan {
     state: State,
     removed: Vec<Arc<Surface>>,
+    placement_ids: Vec<SurfaceId>,
     terminal_runtime: Option<Arc<Surface>>,
     closed_terminal_public_id: Option<TerminalPublicId>,
     terminal_batch: Vec<(String, Option<String>)>,
@@ -79,6 +80,7 @@ struct ResourceClosePlan {
 
 struct ResourceCloseEffects {
     removed: Vec<Arc<Surface>>,
+    placement_ids: Vec<SurfaceId>,
     terminal_runtime: Option<Arc<Surface>>,
     closed_terminal_public_id: Option<TerminalPublicId>,
     tree_publication: ResourceCloseTreePublication,
@@ -89,6 +91,111 @@ struct ResourceCloseEffects {
 
 fn terminal_close_state_error(detail: impl Into<String>) -> anyhow::Error {
     anyhow::Error::msg(detail.into()).context("terminal close state is unavailable")
+}
+
+fn ensure_terminal_close_projection(
+    terminal_public_id: &TerminalPublicId,
+    terminal_incarnation: Option<&str>,
+    projection: &mut ResourceEffectProjection,
+) -> anyhow::Result<()> {
+    let has_terminal_tombstone = projection.patch.changes.iter().any(|change| {
+        matches!(
+            change,
+            ResourceChange::TombstoneTerminal { public_id, .. }
+                if public_id == terminal_public_id
+        )
+    });
+    if !has_terminal_tombstone {
+        projection.patch.changes.push(ResourceChange::TombstoneTerminal {
+            public_id: terminal_public_id.clone(),
+            expected_incarnation: terminal_incarnation.map(str::to_string),
+        });
+        let changes = projection.changes.as_array_mut().ok_or_else(|| {
+            terminal_close_state_error("terminal close public changes are not an array")
+        })?;
+        changes.push(json!({
+            "kind":"delete",
+            "sequence":changes.len(),
+            "resource":"terminal",
+            "id":terminal_public_id,
+        }));
+    }
+    Ok(())
+}
+
+fn validate_terminal_close_projection(
+    terminal_public_id: &TerminalPublicId,
+    tab_ids: &[TabPublicId],
+    projection: &ResourceEffectProjection,
+) -> anyhow::Result<()> {
+    let terminal_tombstones = projection
+        .patch
+        .changes
+        .iter()
+        .filter(|change| {
+            matches!(
+                change,
+                ResourceChange::TombstoneTerminal { public_id, .. }
+                    if public_id == terminal_public_id
+            )
+        })
+        .count();
+    if terminal_tombstones != 1 {
+        return Err(terminal_close_state_error(format!(
+            "terminal close projected {terminal_tombstones} terminal tombstones"
+        )));
+    }
+    for tab_id in tab_ids {
+        let tombstones = projection
+            .patch
+            .changes
+            .iter()
+            .filter(|change| {
+                matches!(
+                    change,
+                    ResourceChange::TombstoneTab { tab_id: closing, close_content: true }
+                        if closing == tab_id
+                )
+            })
+            .count();
+        if tombstones != 1 {
+            return Err(terminal_close_state_error(format!(
+                "terminal close projected {tombstones} tombstones for tab {tab_id}"
+            )));
+        }
+    }
+    let public_changes = projection.changes.as_array().ok_or_else(|| {
+        terminal_close_state_error("terminal close public changes are not an array")
+    })?;
+    let terminal_deletes = public_changes
+        .iter()
+        .filter(|change| {
+            change["kind"] == "delete"
+                && change["resource"] == "terminal"
+                && change["id"].as_str() == Some(terminal_public_id.as_str())
+        })
+        .count();
+    if terminal_deletes != 1 {
+        return Err(terminal_close_state_error(format!(
+            "terminal close projected {terminal_deletes} public terminal deletes"
+        )));
+    }
+    for tab_id in tab_ids {
+        let deletes = public_changes
+            .iter()
+            .filter(|change| {
+                change["kind"] == "delete"
+                    && change["resource"] == "tab"
+                    && change["id"].as_str() == Some(tab_id.as_str())
+            })
+            .count();
+        if deletes != 1 {
+            return Err(terminal_close_state_error(format!(
+                "terminal close projected {deletes} public deletes for tab {tab_id}"
+            )));
+        }
+    }
+    Ok(())
 }
 
 enum ResourceCloseTreePublication {
@@ -122,6 +229,7 @@ impl ResourceClosePlan {
         *state = self.state;
         ResourceCloseEffects {
             removed: self.removed,
+            placement_ids: self.placement_ids,
             terminal_runtime: self.terminal_runtime,
             closed_terminal_public_id: self.closed_terminal_public_id,
             tree_publication: self.delta.map_or(
@@ -195,6 +303,13 @@ impl Drop for ResourceCreationActivity<'_> {
 }
 
 impl Mux {
+    pub(crate) fn live_terminal_host_for_resource(
+        &self,
+        terminal_public_id: &TerminalPublicId,
+    ) -> anyhow::Result<Option<String>> {
+        self.workspace_registry.lock().unwrap().live_terminal_host_id(terminal_public_id)
+    }
+
     #[cfg(test)]
     pub(crate) fn set_resource_terminal_reservation_hook_for_test(
         &self,
@@ -2191,30 +2306,140 @@ impl Mux {
 
     pub(crate) fn commit_resource_terminal_close_effect(
         &self,
-        surface: SurfaceId,
+        terminal_public_id: &TerminalPublicId,
         idempotency_key: &str,
         operation_name: &str,
         fingerprint: &Value,
     ) -> anyhow::Result<ResourcePatchCommit> {
         let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
         let _creation_fence = self.resource_creation_execution.lock().unwrap();
-        let committed = self.commit_resource_close_with(
-            ResourceOperation::TerminalClose,
-            None,
+        let mut registry = self.workspace_registry.lock().unwrap();
+        let terminal_id = registry.live_terminal_host_id(terminal_public_id)?.ok_or_else(|| {
+            terminal_close_state_error(format!(
+                "terminal {terminal_public_id} disappeared before close"
+            ))
+        })?;
+        let terminal = registry.terminal_record(&terminal_id)?.ok_or_else(|| {
+            terminal_close_state_error(format!(
+                "terminal {terminal_public_id} has no durable host record"
+            ))
+        })?;
+        let terminal_incarnation = terminal.incarnation;
+        let mut state = self.state.lock().unwrap();
+        let closing_tab_ids = state
+            .placements_of_content(&ContentPublicId::Terminal(terminal_public_id.clone()))
+            .iter()
+            .map(|surface| {
+                state.resource_indexes.tab_ids.get(surface).cloned().ok_or_else(|| {
+                    terminal_close_state_error(format!(
+                        "terminal {terminal_public_id} placement {surface} has no durable tab"
+                    ))
+                })
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?;
+        let mut plan = self.resource_terminal_close_plan_locked(
+            terminal_public_id,
+            &terminal_id,
+            terminal_incarnation.as_deref(),
+            &state,
+        )?;
+        let mut projection =
+            self.resource_effect_projection_locked(&registry, &mut plan.state, json!({}))?;
+        ensure_terminal_close_projection(
+            terminal_public_id,
+            terminal_incarnation.as_deref(),
+            &mut projection,
+        )?;
+        validate_terminal_close_projection(terminal_public_id, &closing_tab_ids, &projection)?;
+        #[cfg(test)]
+        if let Some(hook) = self.resource_projection_before_commit.lock().unwrap().clone() {
+            hook();
+        }
+        let close = registry.commit_resource_close_patch(
             idempotency_key,
             operation_name,
             fingerprint,
-            move |state| {
-                anyhow::ensure!(
-                    state.terminal_runtime_by_id(surface).is_some(),
-                    "terminal disappeared"
-                );
-                Ok(EffectSlots { workspace: None, screen: None, pane: None, tab: Some(surface) })
-            },
+            &projection.patch,
+            &projection.result,
+            &projection.changes,
+            &plan.terminal_batch,
+            None,
         )?;
+        #[cfg(test)]
+        if let Some(hook) = self.resource_close_after_commit.lock().unwrap().clone() {
+            hook();
+        }
+        let had_runtime = plan.terminal_runtime.is_some();
+        let effects = plan.install(&mut state, close.resource.revision, close.workspace_revision);
+        drop(state);
+        if close.terminal_batch.closed != 0 {
+            self.emit_terminal_registry_changed(&registry, close.terminal_batch.revision);
+        }
+        drop(registry);
         drop(_creation_fence);
         drop(_creation_handoff);
-        Ok(self.finish_resource_close(committed))
+        let commit =
+            self.finish_resource_close(CommittedResourceClose { commit: close.resource, effects });
+        if !had_runtime {
+            self.terminate_discovered_terminal_host(&terminal_id, terminal_incarnation.as_deref());
+        }
+        Ok(commit)
+    }
+
+    /// Build the close plan from the durable public identity. The terminal
+    /// catalog owner is optional because restored views precede host adoption.
+    fn resource_terminal_close_plan_locked(
+        &self,
+        terminal_public_id: &TerminalPublicId,
+        terminal_id: &str,
+        terminal_incarnation: Option<&str>,
+        state: &State,
+    ) -> anyhow::Result<ResourceClosePlan> {
+        let content_id = ContentPublicId::Terminal(terminal_public_id.clone());
+        let placements = state.placements_of_content(&content_id).to_vec();
+        let changed_screens = unique_screen_ids(
+            placements.iter().filter_map(|surface| surface_screen_id(state, *surface)),
+        );
+        let selection_before = active_tree_selection(state);
+        let mut projected = state.clone();
+        let (terminal_runtime, removed, _) =
+            remove_terminal_content_from_state(self, &mut projected, terminal_public_id);
+        if let Some(runtime) = terminal_runtime.as_ref() {
+            let host = self.resource_terminal_host_identity(runtime).ok_or_else(|| {
+                terminal_close_state_error("terminal runtime omitted its durable host identity")
+            })?;
+            if host.terminal_id != terminal_id {
+                return Err(terminal_close_state_error("terminal resource changed hosts"));
+            }
+            if terminal_incarnation.is_some_and(|expected| host.incarnation != expected) {
+                return Err(terminal_close_state_error("terminal resource changed incarnations"));
+            }
+        }
+        if !projected.placements_of_content(&content_id).is_empty() {
+            return Err(terminal_close_state_error("terminal close retained a projected view"));
+        }
+        if projected.terminal_catalog.contains_key(terminal_public_id) {
+            return Err(terminal_close_state_error("terminal close retained its catalog runtime"));
+        }
+        let mut placement_ids = placements;
+        placement_ids.extend(removed.iter().map(|surface| surface.id));
+        placement_ids.sort_unstable();
+        placement_ids.dedup();
+        Ok(ResourceClosePlan {
+            selection_resync: selection_before != active_tree_selection(&projected),
+            state: projected,
+            removed,
+            placement_ids,
+            terminal_runtime,
+            closed_terminal_public_id: Some(terminal_public_id.clone()),
+            terminal_batch: vec![(
+                terminal_id.to_string(),
+                terminal_incarnation.map(str::to_string),
+            )],
+            workspace_close: None,
+            delta: None,
+            changed_screens,
+        })
     }
 
     /// Route the legacy host close through the same projected topology owner
@@ -2291,6 +2516,7 @@ impl Mux {
                 ResourceClosePlan {
                     state: state.clone(),
                     removed: Vec::new(),
+                    placement_ids: Vec::new(),
                     terminal_runtime: None,
                     closed_terminal_public_id: Some(public_id.clone()),
                     terminal_batch: Vec::new(),
@@ -2301,37 +2527,29 @@ impl Mux {
                 },
             )
         };
+        let closing_tab_ids = state
+            .placements_of_content(&ContentPublicId::Terminal(public_id.clone()))
+            .iter()
+            .map(|surface| {
+                state.resource_indexes.tab_ids.get(surface).cloned().ok_or_else(|| {
+                    terminal_close_state_error(format!(
+                        "terminal {public_id} placement {surface} has no durable tab"
+                    ))
+                })
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?;
         let mut projection =
             self.resource_effect_projection_locked(&registry, &mut plan.state, json!({}))?;
-        if !projection.patch.changes.iter().any(|change| {
-            matches!(
-                change,
-                ResourceChange::TombstoneTerminal { public_id: closing, .. }
-                    if closing == &public_id
-            )
-        }) {
-            let incarnation = registry
-                .terminal_record(terminal_id)?
-                .ok_or_else(|| {
-                    terminal_close_state_error(format!(
-                        "terminal close projection omitted host {terminal_id}"
-                    ))
-                })?
-                .incarnation;
-            projection.patch.changes.push(ResourceChange::TombstoneTerminal {
-                public_id: public_id.clone(),
-                expected_incarnation: incarnation,
-            });
-            let changes = projection.changes.as_array_mut().ok_or_else(|| {
-                terminal_close_state_error("terminal close projection changes are not an array")
-            })?;
-            changes.push(json!({
-                "kind":"delete",
-                "sequence":changes.len(),
-                "resource":"terminal",
-                "id":public_id,
-            }));
-        }
+        let incarnation = registry
+            .terminal_record(terminal_id)?
+            .ok_or_else(|| {
+                terminal_close_state_error(format!(
+                    "terminal close projection omitted host {terminal_id}"
+                ))
+            })?
+            .incarnation;
+        ensure_terminal_close_projection(&public_id, incarnation.as_deref(), &mut projection)?;
+        validate_terminal_close_projection(&public_id, &closing_tab_ids, &projection)?;
         #[cfg(test)]
         if let Some(hook) = self.resource_projection_before_commit.lock().unwrap().clone() {
             hook();
@@ -2672,9 +2890,18 @@ impl Mux {
         Ok(CommittedResourceClose { commit: close.resource, effects })
     }
     fn finish_resource_close(&self, committed: CommittedResourceClose) -> ResourcePatchCommit {
-        let effects = committed.effects;
-        if let Some(terminal_id) = effects.closed_terminal_public_id {
-            self.notify_terminal_exit_waiters(Some(terminal_id));
+        let ResourceCloseEffects {
+            removed,
+            placement_ids,
+            terminal_runtime,
+            closed_terminal_public_id,
+            tree_publication,
+            changed_screens,
+            selection_resync,
+            empty_revision,
+        } = committed.effects;
+        if let Some(terminal_id) = closed_terminal_public_id.as_ref() {
+            self.notify_terminal_exit_waiters(Some(terminal_id.clone()));
         }
 
         #[cfg(test)]
@@ -2682,32 +2909,38 @@ impl Mux {
             hook();
         }
         self.publish_resource_event();
-        for surface in effects.removed {
-            self.purge_surface_side_tables(surface.id);
+        for placement in placement_ids {
+            self.purge_surface_side_tables(placement);
+        }
+        for surface in &removed {
             if surface.kind() == SurfaceKind::Browser {
                 surface.kill();
             }
         }
-        if let Some(runtime) = effects.terminal_runtime {
+        drop(removed);
+        if let Some(terminal_id) = closed_terminal_public_id.as_ref() {
+            self.purge_terminal_side_tables(terminal_id);
+        }
+        if let Some(runtime) = terminal_runtime {
             self.purge_terminal_runtime_side_tables(&runtime);
             self.terminate_terminal_runtime(&runtime);
         }
-        match effects.tree_publication {
+        match tree_publication {
             ResourceCloseTreePublication::PendingDelta(delta) => {
-                self.emit_tree_delta(delta, effects.selection_resync);
+                self.emit_tree_delta(delta, selection_resync);
             }
             ResourceCloseTreePublication::PendingSnapshot => {
                 self.emit(MuxEvent::TreeChanged);
-                if effects.selection_resync {
+                if selection_resync {
                     self.emit(MuxEvent::TreeSelectionChanged);
                 }
             }
             ResourceCloseTreePublication::Published => {}
         }
-        for screen in effects.changed_screens {
+        for screen in changed_screens {
             self.emit(MuxEvent::LayoutChanged(screen));
         }
-        self.emit_empty_if_current(effects.empty_revision);
+        self.emit_empty_if_current(empty_revision);
         committed.commit
     }
 
@@ -2847,9 +3080,9 @@ impl Mux {
             );
             removed = terminal_views;
             split_index_changed = changed;
-            for surface in surface_ids {
+            for surface in &surface_ids {
                 anyhow::ensure!(
-                    projected.pane_of(surface).is_none(),
+                    projected.pane_of(*surface).is_none(),
                     "close target surface {surface} remained attached"
                 );
             }
@@ -2859,10 +3092,10 @@ impl Mux {
                     removed.push(surface);
                 }
             }
-            for surface in surface_ids {
-                let (_, changed) = remove_surface(self, &mut projected, surface);
+            for surface in &surface_ids {
+                let (_, changed) = remove_surface(self, &mut projected, *surface);
                 anyhow::ensure!(
-                    projected.pane_of(surface).is_none(),
+                    projected.pane_of(*surface).is_none(),
                     "close target surface {surface} remained attached"
                 );
                 split_index_changed |= changed;
@@ -2914,9 +3147,14 @@ impl Mux {
         if let Some(delta) = &mut delta {
             delta.workspace_revision = None;
         }
+        let mut placement_ids = surface_ids;
+        placement_ids.extend(removed.iter().map(|surface| surface.id));
+        placement_ids.sort_unstable();
+        placement_ids.dedup();
         Ok(ResourceClosePlan {
             state: projected,
             removed,
+            placement_ids,
             terminal_runtime,
             closed_terminal_public_id: terminal_public_id,
             terminal_batch,

@@ -1980,6 +1980,8 @@ pub struct Mux {
     resource_close_after_commit: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
     resource_close_cleanup: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+    #[cfg(test)]
+    discovered_terminal_terminations: Mutex<Vec<(String, Option<String>)>>,
     browser_providers: Arc<BrowserProviderRegistry>,
     browser_runtime: Mutex<Option<Arc<BrowserRuntime>>>,
     active_render_attachments: Arc<AtomicUsize>,
@@ -2347,6 +2349,8 @@ impl Mux {
             resource_close_after_commit: Mutex::new(None),
             #[cfg(test)]
             resource_close_cleanup: Mutex::new(None),
+            #[cfg(test)]
+            discovered_terminal_terminations: Mutex::new(Vec::new()),
             browser_providers: Arc::new(BrowserProviderRegistry::default()),
             browser_runtime: Mutex::new(None),
             active_render_attachments: Arc::new(AtomicUsize::new(0)),
@@ -8220,6 +8224,11 @@ impl Mux {
         terminal_id: &str,
         incarnation: Option<&str>,
     ) {
+        #[cfg(test)]
+        self.discovered_terminal_terminations
+            .lock()
+            .unwrap()
+            .push((terminal_id.to_string(), incarnation.map(str::to_string)));
         #[cfg(unix)]
         {
             let root = self.surface_options.lock().unwrap().terminal_host_root.clone();
@@ -8241,6 +8250,23 @@ impl Mux {
         }
         #[cfg(not(unix))]
         let _ = (terminal_id, incarnation);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn discovered_terminal_terminations_for_test(
+        &self,
+    ) -> Vec<(String, Option<String>)> {
+        self.discovered_terminal_terminations.lock().unwrap().clone()
+    }
+
+    #[cfg(all(test, unix))]
+    pub(crate) fn finish_terminal_adoption_for_test(
+        &self,
+        terminal_id: &str,
+        incarnation: &str,
+        surface: Arc<Surface>,
+    ) -> anyhow::Result<()> {
+        self.finish_terminal_adoption(terminal_id, incarnation, surface)
     }
 
     fn terminate_terminal_runtime(&self, runtime: &Arc<Surface>) {
