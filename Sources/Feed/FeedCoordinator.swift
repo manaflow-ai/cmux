@@ -1512,13 +1512,19 @@ private extension FeedCoordinator {
         soundContext: NotificationSoundOverrideContext? = nil
     ) async {
         guard isAwaitingDecision(requestId: requestId) else { return }
-        await NativeNotificationDeliveryHooks.runLocalFeedback(
+        let store = TerminalNotificationStore.shared
+        await store.runLocalNotificationFeedback(
+            ownerID: "feed.\(requestId)",
             title: title,
             subtitle: subtitle,
             body: body,
             effects: effects,
             runCommand: runCommand,
-            soundContext: soundContext
+            soundContext: soundContext,
+            playbackAdmission: { [weak self] in
+                guard let self else { return false }
+                return self.isAwaitingDecision(requestId: requestId)
+            }
         )
     }
 
@@ -1535,6 +1541,13 @@ private extension FeedCoordinator {
         let identifier = "feed.\(requestId)"
         Task { @MainActor [weak self] in
             guard let self else { return }
+            // Cancel any in-flight local fallback before waiting on the
+            // notification daemon. The queued operation also re-checks the
+            // request id at its playback boundary for a race-free stale-work
+            // guard.
+            TerminalNotificationStore.shared.cancelNotificationFeedback(
+                ownerID: identifier
+            )
             let center = self.resolvedUserNotificationCenter
             let pendingResult = await center.removePendingNotificationRequests(
                 withIdentifiers: [identifier]

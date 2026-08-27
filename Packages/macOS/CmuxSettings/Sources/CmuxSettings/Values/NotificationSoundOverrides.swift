@@ -63,20 +63,31 @@ nonisolated public struct NotificationSoundOverrides: Codable, Equatable, Sendab
     ///   - value: The override, or `nil` to restore global fallback.
     ///   - agentID: The stable agent identifier.
     ///   - alertType: The semantic alert class.
+    /// - Returns: `true` when the mutation was accepted. A new agent row is
+    ///   rejected once ``maximumAgentCount`` is already occupied; clearing an
+    ///   absent cell returns `false`.
+    @discardableResult
     public mutating func set(
         _ value: NotificationSoundOverride?,
         forAgentID agentID: String,
         alertType: NotificationSoundAlertType
-    ) {
+    ) -> Bool {
         let normalized = agentID.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard NotificationSoundOverrideContext.isValidAgentID(normalized) else { return }
+        guard NotificationSoundOverrideContext.isValidAgentID(normalized) else { return false }
         if let value {
+            if storage[normalized] == nil,
+               storage.count >= Self.maximumAgentCount {
+                return false
+            }
             storage[normalized, default: [:]][alertType] = value
+            return true
         } else {
+            guard storage[normalized]?[alertType] != nil else { return false }
             storage[normalized]?[alertType] = nil
             if storage[normalized]?.isEmpty == true {
                 storage[normalized] = nil
             }
+            return true
         }
     }
 
@@ -84,7 +95,8 @@ nonisolated public struct NotificationSoundOverrides: Codable, Equatable, Sendab
     ///
     /// - Parameter jsonString: A JSON object keyed by agent and alert type.
     public init?(jsonString: String) {
-        guard let data = jsonString.data(using: .utf8),
+        guard jsonString.utf8.count <= Self.maximumJSONBytes,
+              let data = jsonString.data(using: .utf8),
               let decoded = try? Self(jsonData: data) else { return nil }
         self = decoded
     }

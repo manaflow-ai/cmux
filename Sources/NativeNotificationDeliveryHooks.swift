@@ -16,6 +16,10 @@ struct NativeNotificationDeliveryHooks: Sendable {
         TerminalNotificationPolicyEffects,
         NotificationSoundOverrideContext?
     ) async -> Void
+    /// Main-actor admission checked immediately before direct sound playback.
+    /// A caller uses this to invalidate work whose request was resolved while
+    /// sound preparation was suspended.
+    typealias PlaybackAdmission = @MainActor @Sendable () -> Bool
 
     static let defaultCommandRunner: CommandRunner = {
         title,
@@ -87,7 +91,8 @@ struct NativeNotificationDeliveryHooks: Sendable {
         body: String,
         effects: TerminalNotificationPolicyEffects,
         runCommand: Bool = true,
-        soundContext: NotificationSoundOverrideContext? = nil
+        soundContext: NotificationSoundOverrideContext? = nil,
+        playbackAdmission: PlaybackAdmission? = nil
     ) async {
         await Self.runLocalFeedback(
             title: title,
@@ -96,6 +101,7 @@ struct NativeNotificationDeliveryHooks: Sendable {
             effects: effects,
             runCommand: runCommand,
             soundContext: soundContext,
+            playbackAdmission: playbackAdmission,
             commandRunner: commandRunner
         )
     }
@@ -117,6 +123,7 @@ struct NativeNotificationDeliveryHooks: Sendable {
         effects: TerminalNotificationPolicyEffects,
         runCommand: Bool = true,
         soundContext: NotificationSoundOverrideContext? = nil,
+        playbackAdmission: PlaybackAdmission? = nil,
         commandRunner: CommandRunner = {
             title,
             subtitle,
@@ -124,15 +131,19 @@ struct NativeNotificationDeliveryHooks: Sendable {
             NotificationSoundSettings.runCustomCommand(title: title, subtitle: subtitle, body: body)
         }
     ) async {
-        guard !Task.isCancelled else { return }
+        guard !Task.isCancelled, await (playbackAdmission?() ?? true) else { return }
         if effects.sound {
             // Keep command hooks responsive while the sound is staged, but
             // retain the playback in this structured child task so callers
             // can await completion and tests never race a detached task.
             async let didPlay = NotificationSoundSettings.playSelectedSound(
-                context: soundContext
+                context: soundContext,
+                playbackAdmission: playbackAdmission
             )
-            if !Task.isCancelled, effects.command, runCommand {
+            if !Task.isCancelled,
+               await (playbackAdmission?() ?? true),
+               effects.command,
+               runCommand {
                 commandRunner(title, subtitle, body)
             }
             _ = await didPlay

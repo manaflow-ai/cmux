@@ -225,6 +225,34 @@ struct NativeNotificationFallbackCommandTests {
     }
 
     @Test
+    func storeOwnedFeedbackDropsResolvedRequestBeforeRunningEffects() async {
+        let store = TerminalNotificationStore.shared
+        let commands = CommandInvocationRecorder()
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+        resetState(originalAppFocusOverride: false)
+        defer { resetState(originalAppFocusOverride: originalAppFocusOverride) }
+
+        store.configureNotificationCommandRunnerForTesting { title, subtitle, body in
+            commands.append(title: title, subtitle: subtitle, body: body)
+        }
+        var effects = TerminalNotificationPolicyEffects()
+        effects.sound = false
+        effects.command = true
+
+        await store.runLocalNotificationFeedback(
+            ownerID: "feed.resolved-\(UUID().uuidString)",
+            title: "Resolved title",
+            subtitle: "",
+            body: "Resolved body",
+            effects: effects,
+            runCommand: true,
+            playbackAdmission: { false }
+        )
+
+        #expect(commands.invocations.isEmpty)
+    }
+
+    @Test
     func unavailableFeedbackPlayerReceivesSoundContext() async {
         var hooks = NativeNotificationDeliveryHooks(
             userNotificationCenter: UserNotificationCenterService(

@@ -9,7 +9,15 @@ final class NotificationSoundProcessCancellation: @unchecked Sendable {
     private struct State: Sendable {
         var processIdentifier: pid_t?
         var cancellationRequested = false
+        var reaping = false
+        var terminationRequested = false
         var finished = false
+    }
+
+    enum ResumeResult: Sendable {
+        case resumed
+        case cancelled
+        case failed(Int32)
     }
 
     // Safety: this lock is only a short compare-and-set for the process handle
@@ -19,34 +27,79 @@ final class NotificationSoundProcessCancellation: @unchecked Sendable {
 
     /// Registers the child before it is resumed, returning whether it may run.
     func register(processIdentifier: pid_t) -> Bool {
-        let shouldResume = state.withLock { state in
+        state.withLock { state in
             state.processIdentifier = processIdentifier
-            return !state.cancellationRequested && !state.finished
+            guard !state.cancellationRequested, !state.finished else {
+                state.cancellationRequested = true
+                terminateIfNeeded(state: &state, processIdentifier: processIdentifier)
+                return false
+            }
+            return true
         }
-        if !shouldResume {
-            terminate(processIdentifier: processIdentifier)
+    }
+
+    /// Resumes the suspended child while it is still owned by this run.
+    func resume(processIdentifier: pid_t) -> ResumeResult {
+        state.withLock { state in
+            guard state.processIdentifier == processIdentifier,
+                  !state.finished,
+                  !state.reaping else {
+                return .cancelled
+            }
+            guard !state.cancellationRequested else { return .cancelled }
+            let result = Darwin.kill(processIdentifier, SIGCONT)
+            guard result == 0 else { return .failed(errno) }
+            return .resumed
         }
-        return shouldResume
+    }
+
+    /// Reserves the child for the sole `waitpid` owner after exit is observed
+    /// without reaping. Cancellation skips signalling once this reservation is
+    /// held, so a recycled process-group PID can never be targeted.
+    @discardableResult
+    func beginReaping(processIdentifier: pid_t) -> Bool {
+        state.withLock { state in
+            guard state.processIdentifier == processIdentifier, !state.finished else {
+                return false
+            }
+            state.reaping = true
+            return true
+        }
     }
 
     /// Marks a reaped child so a late cancellation cannot signal a recycled PID.
     func markFinished(processIdentifier: pid_t) {
         state.withLock { state in
             guard state.processIdentifier == processIdentifier else { return }
+            state.reaping = true
             state.finished = true
             state.processIdentifier = nil
         }
     }
 
     func cancel() {
-        let processID = state.withLock { state -> pid_t? in
+        state.withLock { state in
             state.cancellationRequested = true
-            guard !state.finished else { return nil }
-            return state.processIdentifier
+            guard let processID = state.processIdentifier,
+                  !state.finished,
+                  !state.reaping else {
+                return
+            }
+            // Keep the ownership reservation and the signal in one synchronous
+            // critical section. `beginReaping` flips `reaping` before the
+            // non-reaping exit observation is followed by `waitpid`, so this
+            // branch can only signal a still-owned, non-reaped process group.
+            terminateIfNeeded(state: &state, processIdentifier: processID)
         }
-        if let processID {
-            terminate(processIdentifier: processID)
-        }
+    }
+
+    private func terminateIfNeeded(
+        state: inout State,
+        processIdentifier: pid_t
+    ) {
+        guard !state.terminationRequested else { return }
+        state.terminationRequested = true
+        terminate(processIdentifier: processIdentifier)
     }
 
     private func terminate(processIdentifier: pid_t) {
@@ -243,9 +296,10 @@ struct NotificationSoundProcessRunner: NotificationSoundProcessRunning, Sendable
         Darwin.close(pipeDescriptors[1])
         pipeDescriptors[1] = -1
 
-        // Start waiting before registering/resuming. If cancellation was
-        // already requested, registration kills the still-suspended child and
-        // this single waiter still owns the required reap.
+        // Start observing before registering/resuming. The child is suspended,
+        // so the observer cannot miss an exit; `waitid(WNOWAIT)` below reports
+        // exit without reaping, allowing cancellation to reserve the PID safely
+        // until the one blocking `waitpid` owner claims it.
         let terminationTask: Task<Int32, Error> = Task {
             switch await Self.waitForProcess(
                 processIdentifier,
@@ -266,9 +320,16 @@ struct NotificationSoundProcessRunner: NotificationSoundProcessRunning, Sendable
             throw CancellationError()
         }
 
-        let continueResult = Darwin.kill(processIdentifier, SIGCONT)
-        if continueResult != 0 {
-            let continueError = errno
+        switch cancellation.resume(processIdentifier: processIdentifier) {
+        case .resumed:
+            break
+        case .cancelled:
+            cancellation.cancel()
+            _ = await terminationTask.result
+            _ = await errorReaderTask.value
+            closeReadDescriptor(&pipeDescriptors)
+            throw CancellationError()
+        case .failed(let continueError):
             cancellation.cancel()
             _ = await terminationTask.result
             _ = await errorReaderTask.value
@@ -496,6 +557,31 @@ struct NotificationSoundProcessRunner: NotificationSoundProcessRunning, Sendable
     ) async -> ProcessWaitResult {
         await withCheckedContinuation { continuation in
             blockingIOQueue.async {
+                // WNOWAIT observes the child's terminal state while leaving it
+                // waitable. A cancellation that races this observation can
+                // still signal safely because the PID remains a zombie and
+                // cannot be recycled until the subsequent waitpid reaps it.
+                var waitInfo = siginfo_t()
+                var observationResult: Int32
+                repeat {
+                    observationResult = waitid(
+                        P_PID,
+                        id_t(processIdentifier),
+                        &waitInfo,
+                        WEXITED | WNOWAIT
+                    )
+                } while observationResult == -1 && errno == EINTR
+                guard observationResult == 0 else {
+                    let waitError = errno
+                    cancellation.markFinished(processIdentifier: processIdentifier)
+                    continuation.resume(returning: .failure(waitError))
+                    return
+                }
+
+                // Reaping ownership is reserved before the child is actually
+                // reaped. `cancel()` observes this bit and never signals after
+                // the process has crossed the waitpid boundary.
+                cancellation.beginReaping(processIdentifier: processIdentifier)
                 var rawStatus: Int32 = 0
                 var waitResult: pid_t
                 repeat {

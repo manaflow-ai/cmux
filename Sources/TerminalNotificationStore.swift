@@ -433,6 +433,9 @@ final class TerminalNotificationStore: ObservableObject {
     /// Owns admitted local sound/feedback operations until they finish.
     private static let maxNotificationFeedbackTasks = 32
     private var notificationFeedbackTasks: [UUID: Task<Void, Never>] = [:]
+    /// Maps request-scoped feedback owners to their currently admitted task so
+    /// a resolved Feed request can cancel only its own pending sound work.
+    private var notificationFeedbackTaskIDsByOwner: [String: UUID] = [:]
     private var suppressedNotificationFeedbackHandler: (TerminalNotificationStore, TerminalNotification, TerminalNotificationPolicyEffects) -> Void = {
         store,
         notification,
@@ -484,24 +487,61 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     /// Starts one admitted feedback operation and retains its task until it
-    /// completes or the store is torn down.
+    /// completes or the store is torn down. An owner id replaces any previous
+    /// operation for that request, allowing callers to cancel stale work.
+    @discardableResult
     private func enqueueNotificationFeedback(
+        ownerID: String? = nil,
         _ operation: @escaping @MainActor @Sendable () async -> Void
-    ) {
+    ) -> Task<Void, Never> {
+        if let ownerID {
+            cancelNotificationFeedback(ownerID: ownerID)
+        }
         // Sound preparation is serialized by NotificationSoundStager. Bound
         // the retained backlog so a burst cannot keep every title/body alive
         // for the lifetime of a slow conversion.
         while notificationFeedbackTasks.count >= Self.maxNotificationFeedbackTasks,
               let evictedID = notificationFeedbackTasks.keys.first {
-            notificationFeedbackTasks.removeValue(forKey: evictedID)?.cancel()
+            removeNotificationFeedbackTask(taskID: evictedID)?.cancel()
         }
         let taskID = UUID()
         let task = Task { @MainActor [weak self] in
-            defer { self?.notificationFeedbackTasks.removeValue(forKey: taskID) }
+            defer {
+                self?.finishNotificationFeedback(taskID: taskID, ownerID: ownerID)
+            }
             guard !Task.isCancelled else { return }
             await operation()
         }
         notificationFeedbackTasks[taskID] = task
+        if let ownerID {
+            notificationFeedbackTaskIDsByOwner[ownerID] = taskID
+        }
+        return task
+    }
+
+    /// Cancels the currently admitted feedback operation for one request.
+    func cancelNotificationFeedback(ownerID: String) {
+        guard let taskID = notificationFeedbackTaskIDsByOwner.removeValue(forKey: ownerID) else {
+            return
+        }
+        notificationFeedbackTasks.removeValue(forKey: taskID)?.cancel()
+    }
+
+    private func removeNotificationFeedbackTask(
+        taskID: UUID
+    ) -> Task<Void, Never>? {
+        if let owner = notificationFeedbackTaskIDsByOwner.first(where: { $0.value == taskID })?.key {
+            notificationFeedbackTaskIDsByOwner.removeValue(forKey: owner)
+        }
+        return notificationFeedbackTasks.removeValue(forKey: taskID)
+    }
+
+    private func finishNotificationFeedback(taskID: UUID, ownerID: String?) {
+        notificationFeedbackTasks.removeValue(forKey: taskID)
+        if let ownerID,
+           notificationFeedbackTaskIDsByOwner[ownerID] == taskID {
+            notificationFeedbackTaskIDsByOwner.removeValue(forKey: ownerID)
+        }
     }
 
     private func removeNotificationRequestsAndReleaseSoundReferences(
@@ -2487,6 +2527,36 @@ final class TerminalNotificationStore: ObservableObject {
                 soundContext: soundContext
             )
         }
+    }
+
+    /// Runs request-scoped local feedback through the store's bounded task
+    /// owner. The optional admission closure is evaluated both when the task
+    /// starts and immediately before sound playback, so a caller can invalidate
+    /// work while staging or conversion is suspended.
+    func runLocalNotificationFeedback(
+        ownerID: String? = nil,
+        title: String,
+        subtitle: String,
+        body: String,
+        effects: TerminalNotificationPolicyEffects,
+        runCommand: Bool,
+        soundContext: NotificationSoundOverrideContext? = nil,
+        playbackAdmission: NativeNotificationDeliveryHooks.PlaybackAdmission? = nil
+    ) async {
+        let hooks = nativeNotificationDeliveryHooks
+        let task = enqueueNotificationFeedback(ownerID: ownerID) {
+            guard !Task.isCancelled, playbackAdmission?() ?? true else { return }
+            await hooks.runLocalFeedback(
+                title: title,
+                subtitle: subtitle,
+                body: body,
+                effects: effects,
+                runCommand: runCommand,
+                soundContext: soundContext,
+                playbackAdmission: playbackAdmission
+            )
+        }
+        await task.value
     }
 
     /// `completion` receives the decision plus the effective authorization

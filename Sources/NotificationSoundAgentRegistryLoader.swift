@@ -21,17 +21,33 @@ actor NotificationSoundAgentRegistryLoader {
         }
 
         let registry = CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory)
-        for registration in registry.registrations {
+        // Keep the eager Settings grid bounded even when cmux.json contains a
+        // very large (but schema-valid) Vault registry. Built-ins occupy their
+        // slots first; user registrations fill only the remaining capacity.
+        let remainingCapacity = max(
+            0,
+            NotificationSoundOverrides.maximumAgentCount - optionsByID.count
+        )
+        var addedRegistrations = 0
+        for registration in registry.registrations.prefix(
+            NotificationSoundOverrides.maximumAgentCount
+        ) {
             guard NotificationSoundOverrideContext.isValidAgentID(registration.id) else {
                 continue
+            }
+            if optionsByID[registration.id] == nil {
+                guard addedRegistrations < remainingCapacity else { break }
+                addedRegistrations += 1
             }
             optionsByID[registration.id] = NotificationSoundAgentOption(
                 id: registration.id,
                 displayName: registration.name
             )
         }
-        return optionsByID.values.sorted {
-            $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending
-        }
+        return Array(
+            optionsByID.values.sorted {
+                $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending
+            }.prefix(NotificationSoundOverrides.maximumAgentCount)
+        )
     }
 }

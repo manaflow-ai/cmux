@@ -686,8 +686,15 @@ public struct AppSection: View {
                             // an empty one while editing a different cell.
                             return
                         }
-                        overrides.set(value, forAgentID: agentID, alertType: alertType)
-                        soundOverrides.set(overrides.jsonString)
+                        guard overrides.set(value, forAgentID: agentID, alertType: alertType) else {
+                            return
+                        }
+                        let encoded = overrides.jsonString
+                        // A non-empty matrix must never be replaced by the
+                        // serializer's failure sentinel when a cell contains
+                        // an oversized value.
+                        guard overrides.isEmpty || encoded != "{}" else { return }
+                        soundOverrides.set(encoded)
                     },
                     hostActions: hostActions,
                     agents: soundAgents

@@ -199,7 +199,8 @@ nonisolated enum NotificationSoundSettings {
     static func playSelectedSound(
         defaults: UserDefaults = .standard,
         assertionsFileURL: URL = defaultAssertionsFileURL,
-        context: NotificationSoundOverrideContext? = nil
+        context: NotificationSoundOverrideContext? = nil,
+        playbackAdmission: (@MainActor @Sendable () -> Bool)? = nil
     ) async -> Bool {
         guard !Task.isCancelled else { return false }
         let snapshot = await cachedResolutionSnapshot(
@@ -220,7 +221,10 @@ nonisolated enum NotificationSoundSettings {
             return false
         }
         guard !Task.isCancelled else { return false }
-        return await MainActor.run { playPreparedSound(prepared) }
+        return await MainActor.run {
+            guard playbackAdmission?() ?? true else { return false }
+            return playPreparedSound(prepared)
+        }
     }
 
     @discardableResult
