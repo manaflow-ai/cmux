@@ -113,7 +113,10 @@ struct CmxIrohPairedPeerAdmissionTests {
             credential: nil,
             authenticatedPeerID: fixture.initiator.endpointID
         )
-        #expect(warm.isAcceptedForTest)
+        guard case .accepted = warm else {
+            Issue.record("allowlist admission after relaunch was denied")
+            return
+        }
     }
 
     @Test
@@ -269,12 +272,5 @@ struct CmxIrohPairedPeerAdmissionTests {
             authenticatedPeerID: fixture.initiator.endpointID
         )
         #expect(warm == .denied(code: 1))
-    }
-}
-
-private extension CmxIrohAdmissionAuthorization {
-    var isAcceptedForTest: Bool {
-        if case .accepted = self { return true }
-        return false
     }
 }

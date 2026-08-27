@@ -2,49 +2,6 @@ import CryptoKit
 public import CMUXMobileCore
 public import Foundation
 
-/// The Mac-local account, app, and namespace scope owning one allowlist store.
-public struct CmxIrohPairedPeerAllowlistScope: Equatable, Sendable {
-    public let accountID: String
-    public let clientNamespace: String
-    public let appInstanceID: String
-
-    public init(
-        accountID: String,
-        clientNamespace: String,
-        appInstanceID: String
-    ) {
-        self.accountID = accountID
-        self.clientNamespace = clientNamespace
-        self.appInstanceID = appInstanceID
-    }
-}
-
-/// One phone endpoint whose pairing this Mac has already verified once.
-///
-/// The entry pins the complete initiator and acceptor tuples the verified pair
-/// grant carried, so allowlist admission preserves exactly the account-scoped
-/// binding authority the grant used to prove in-band. `expiresAt` is the
-/// signed expiry of the last verified grant: allowlist authority never
-/// outlives the credential that established it.
-public struct CmxIrohPairedPeerAllowlistEntry: Equatable, Sendable {
-    public let initiator: CmxIrohGrantPeer
-    public let acceptor: CmxIrohGrantPeer
-    public let expiresAt: Date
-    public let recordedAt: Date
-
-    public init(
-        initiator: CmxIrohGrantPeer,
-        acceptor: CmxIrohGrantPeer,
-        expiresAt: Date,
-        recordedAt: Date
-    ) {
-        self.initiator = initiator
-        self.acceptor = acceptor
-        self.expiresAt = expiresAt
-        self.recordedAt = recordedAt
-    }
-}
-
 /// Durable Mac-side allowlist of phone EndpointIDs whose pairing was verified.
 ///
 /// Written once when a pair grant is verified for the first time for a given
@@ -115,6 +72,8 @@ public actor CmxIrohPairedPeerAllowlist {
     ///
     /// The production default uses a Keychain service distinct from host
     /// policy and relay credentials, with device-only data protection.
+    ///
+    /// - Parameter secureStore: The secure persistence boundary.
     public init(
         secureStore: any CmxIrohSecureCredentialStoring = CmxIrohKeychainCredentialStore(
             service: "com.cmuxterm.iroh.paired-peers.v1"
@@ -125,6 +84,11 @@ public actor CmxIrohPairedPeerAllowlist {
 
     /// Records one verified pairing, replacing any prior entry for the same
     /// phone endpoint. A no-op when an identical entry is already stored.
+    ///
+    /// - Parameters:
+    ///   - entry: The verified initiator and acceptor tuples plus expiry.
+    ///   - scope: The active account, namespace, and app-instance owner.
+    ///   - now: The verification time; already-expired entries are dropped.
     public func record(
         _ entry: CmxIrohPairedPeerAllowlistEntry,
         scope: CmxIrohPairedPeerAllowlistScope,
@@ -158,6 +122,11 @@ public actor CmxIrohPairedPeerAllowlist {
     /// Returns the unexpired entry for one TLS-proven phone EndpointID, or
     /// `nil` when the endpoint was never paired under this scope. An expired
     /// entry is deleted and reported as a miss.
+    ///
+    /// - Parameters:
+    ///   - endpointID: The remote identity proven by the QUIC handshake.
+    ///   - scope: The active account, namespace, and app-instance owner.
+    ///   - now: The admission time used for the expiry check.
     public func entry(
         forInitiatorEndpointID endpointID: CmxIrohPeerIdentity,
         scope: CmxIrohPairedPeerAllowlistScope,
@@ -191,6 +160,10 @@ public actor CmxIrohPairedPeerAllowlist {
     }
 
     /// Removes the entry for one phone endpoint after a definitive refusal.
+    ///
+    /// - Parameters:
+    ///   - endpointID: The refused entry's initiator EndpointID.
+    ///   - scope: The active account, namespace, and app-instance owner.
     public func removeEntry(
         forInitiatorEndpointID endpointID: CmxIrohPeerIdentity,
         scope: CmxIrohPairedPeerAllowlistScope
@@ -206,6 +179,10 @@ public actor CmxIrohPairedPeerAllowlist {
 
     /// Applies a local revoke: entries whose initiator carries the binding are
     /// removed, and a revoke of this Mac's own acceptor binding clears all.
+    ///
+    /// - Parameters:
+    ///   - bindingID: The locally revoked broker binding.
+    ///   - scope: The active account, namespace, and app-instance owner.
     public func removeEntries(
         bindingID: String,
         scope: CmxIrohPairedPeerAllowlistScope
@@ -220,6 +197,8 @@ public actor CmxIrohPairedPeerAllowlist {
     }
 
     /// Removes every entry during sign-out or app-instance revocation.
+    ///
+    /// - Throws: A secure-storage error.
     public func deactivate() async throws {
         deactivationCount += 1
         defer { deactivationCount -= 1 }
@@ -231,7 +210,7 @@ public actor CmxIrohPairedPeerAllowlist {
     private func entries(
         scope: CmxIrohPairedPeerAllowlistScope
     ) async -> [StoredEntry] {
-        let digest = Self.scopeDigest(for: scope)
+        let digest = pairedPeerAllowlistScopeDigest(for: scope)
         if let loadedEntries, loadedScopeDigest == digest {
             return loadedEntries
         }
@@ -258,7 +237,7 @@ public actor CmxIrohPairedPeerAllowlist {
         _ entries: [StoredEntry],
         scope: CmxIrohPairedPeerAllowlistScope
     ) async {
-        let digest = Self.scopeDigest(for: scope)
+        let digest = pairedPeerAllowlistScopeDigest(for: scope)
         loadedEntries = entries
         loadedScopeDigest = digest
         guard !entries.isEmpty else {
@@ -277,15 +256,16 @@ public actor CmxIrohPairedPeerAllowlist {
             accessibility: .afterFirstUnlockThisDeviceOnly
         )
     }
+}
 
-    private static func scopeDigest(
-        for scope: CmxIrohPairedPeerAllowlistScope
-    ) -> String {
-        let transcript = Data(
-            "cmux/iroh/paired-peer-allowlist-scope/v1\0\(scope.accountID)\0\(scope.clientNamespace)\0\(scope.appInstanceID)".utf8
-        )
-        return SHA256.hash(data: transcript)
-            .map { String(format: "%02x", $0) }
-            .joined()
-    }
+/// Digest binding one persisted allowlist record to its exact owner scope.
+private func pairedPeerAllowlistScopeDigest(
+    for scope: CmxIrohPairedPeerAllowlistScope
+) -> String {
+    let transcript = Data(
+        "cmux/iroh/paired-peer-allowlist-scope/v1\0\(scope.accountID)\0\(scope.clientNamespace)\0\(scope.appInstanceID)".utf8
+    )
+    return SHA256.hash(data: transcript)
+        .map { String(format: "%02x", $0) }
+        .joined()
 }
