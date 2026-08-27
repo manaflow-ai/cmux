@@ -12,11 +12,3 @@ struct SurfaceProjectionMaterialization {
 
     typealias Result = (projection: SurfaceProjection, reused: Bool)
 }
-
-/// A bounded token record for an operation that can still report after the catalog moved on.
-/// The provider is held by the provider task itself and is passed to the late-result callback,
-/// so this record never keeps a disconnected provider alive.
-@MainActor
-struct SurfaceProjectionMaterializationRetirement {
-    var evictionTask: Task<Void, Never>?
-}

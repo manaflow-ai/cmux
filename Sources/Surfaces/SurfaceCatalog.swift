@@ -42,6 +42,13 @@ extension SurfaceProvider {
 @MainActor
 @Observable
 final class SurfaceCatalog {
+    /// A bounded token record for an operation that can still report after the catalog moved on.
+    /// The provider is held by the provider task itself and is passed to the late-result callback,
+    /// so this record never keeps a disconnected provider alive.
+    private struct RetiredMaterialization {
+        var evictionTask: Task<Void, Never>?
+    }
+
     static let shared = SurfaceCatalog()
 
     /// A provider call with no remaining caller must not occupy a resource forever when the
@@ -62,7 +69,7 @@ final class SurfaceCatalog {
     /// Materializations retired with their provider (for example during unregister) may still
     /// finish because task cancellation is cooperative. Keep only a bounded token record until
     /// the late result arrives; the provider itself stays owned by its task.
-    private var retiredMaterializations: [UUID: SurfaceProjectionMaterializationRetirement] = [:]
+    private var retiredMaterializations: [UUID: RetiredMaterialization] = [:]
     private let retiredMaterializationRetention: Duration
     private let abandonedMaterializationTimeout: Duration
     private let materializationClock: any Clock<Duration>
@@ -327,7 +334,7 @@ final class SurfaceCatalog {
     /// so `finishInFlightProject` can discard it directly with the provider captured by its task
     /// even after this token has been evicted.
     private func retireMaterialization(_ token: UUID) {
-        retiredMaterializations[token] = SurfaceProjectionMaterializationRetirement(evictionTask: nil)
+        retiredMaterializations[token] = RetiredMaterialization(evictionTask: nil)
         let timeout = retiredMaterializationRetention
         let clock = materializationClock
         let evictionTask = Task { [weak self, clock] in
