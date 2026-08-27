@@ -346,9 +346,25 @@ async function blaxelFetch<T>(
   });
   const text = await response.text();
   if (!response.ok) {
-    throw new ProviderError("blaxel", `${method} ${url} -> ${response.status}: ${text.slice(0, 500)}`);
+    // Blaxel private previews use `bl_preview_token` in the URL. Provider error
+    // messages are persisted and returned to clients, so never include query,
+    // fragment, credentials, or an upstream response body in them.
+    throw new ProviderError("blaxel", `${method} ${safeProviderUrl(url)} -> ${response.status}`);
   }
   return (text ? JSON.parse(text) : undefined) as T;
+}
+
+function safeProviderUrl(value: string): string {
+  try {
+    const parsed = new URL(value);
+    parsed.username = "";
+    parsed.password = "";
+    parsed.search = "";
+    parsed.hash = "";
+    return parsed.toString().replace(/\/$/, "");
+  } catch {
+    return "[invalid URL]";
+  }
 }
 
 export type CmuxTuiSource = { url: string; sha256: string; commit: string; builtAt: string | null };
