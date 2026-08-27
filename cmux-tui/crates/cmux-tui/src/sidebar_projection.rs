@@ -111,26 +111,6 @@ impl ProjectionRailState {
     }
 }
 
-impl ProjectionRailState {
-    pub(crate) fn reconcile_selection(&mut self, rows: &[ProjectionRow]) {
-        if rows.is_empty() {
-            self.selected = 0;
-            self.selected_target = None;
-            return;
-        }
-        if let Some(target) = self.selected_target
-            && let Some((index, row)) =
-                rows.iter().enumerate().find(|(_, row)| row.target.same_resource(target))
-        {
-            self.selected = index;
-            self.selected_target = Some(row.target);
-            return;
-        }
-        self.selected = self.selected.min(rows.len().saturating_sub(1));
-        self.selected_target = rows.get(self.selected).map(|row| row.target);
-    }
-}
-
 /// Return the workspace-selection component that can affect this projection.
 /// Flat all-scoped tab/agent views enumerate every workspace themselves, and
 /// workspace rows do the same. Keeping those views independent of the current
@@ -301,6 +281,7 @@ fn append_level(
             } else {
                 vec![context.map_or(selected_workspace, |context| context.workspace)]
             };
+            let order_by_recency = all_workspaces && agent_only;
             // (last status change, insertion order) so an `all`-scoped agents
             // view reads chronologically, newest first. `u64::MAX - ...`
             // inverts recency while the tree-order index breaks ties.
@@ -353,44 +334,48 @@ fn append_level(
                             } else {
                                 pane.short_id.clone()
                             };
-                            let recency = if all_workspaces && agent_only {
+                            let recency = if order_by_recency {
                                 u64::MAX
                                     - agent.map(|agent| agent.updated_at_ms).unwrap_or_default()
                             } else {
                                 0
                             };
-                            entries.push((
-                                (recency, entries.len()),
-                                ProjectionRow {
-                                    resource,
-                                    depth: depth as u16,
-                                    name,
-                                    subtitle,
-                                    agent_state: agent
-                                        .filter(|_| agent_only)
-                                        .map(|agent| agent.state.clone()),
-                                    active: workspace_index == tree.active_workspace
-                                        && screen_index == workspace.active_screen
-                                        && pane.id == screen.active_pane
-                                        && pane.active_tab == tab_index,
-                                    branch: None,
-                                    expanded: false,
-                                    target: ProjectionTarget::Surface {
-                                        workspace: workspace_index,
-                                        screen: screen_index,
-                                        pane: pane.id,
-                                        index: tab_index,
-                                        surface: tab.surface,
-                                        agent: agent_only,
-                                    },
+                            let row = ProjectionRow {
+                                resource,
+                                depth: depth as u16,
+                                name,
+                                subtitle,
+                                agent_state: agent
+                                    .filter(|_| agent_only)
+                                    .map(|agent| agent.state.clone()),
+                                active: workspace_index == tree.active_workspace
+                                    && screen_index == workspace.active_screen
+                                    && pane.id == screen.active_pane
+                                    && pane.active_tab == tab_index,
+                                branch: None,
+                                expanded: false,
+                                target: ProjectionTarget::Surface {
+                                    workspace: workspace_index,
+                                    screen: screen_index,
+                                    pane: pane.id,
+                                    index: tab_index,
+                                    surface: tab.surface,
+                                    agent: agent_only,
                                 },
-                            ));
+                            };
+                            if order_by_recency {
+                                entries.push(((recency, entries.len()), row));
+                            } else {
+                                output.push(row);
+                            }
                         }
                     }
                 }
             }
-            entries.sort_by_key(|(key, _)| *key);
-            output.extend(entries.into_iter().map(|(_, row)| row));
+            if order_by_recency {
+                entries.sort_by_key(|(key, _)| *key);
+                output.extend(entries.into_iter().map(|(_, row)| row));
+            }
         }
     }
 }
@@ -689,6 +674,37 @@ mod tests {
             rows(&spec(vec![SidebarResourceKind::Agents]), &tree, &agents, 1, &HashSet::new());
         assert_eq!(rows.len(), 1);
         assert!(matches!(rows[0].target, ProjectionTarget::Surface { surface: 22, .. }));
+    }
+
+    #[test]
+    fn workspace_scoped_agents_keep_tree_order() {
+        let tree = tree();
+        let agents = vec![
+            AgentInfo {
+                surface: 4,
+                state: "working".into(),
+                source: "hook".into(),
+                session: None,
+                updated_at_ms: 900,
+            },
+            AgentInfo {
+                surface: 5,
+                state: "working".into(),
+                source: "hook".into(),
+                session: None,
+                updated_at_ms: 100,
+            },
+        ];
+        let rows =
+            rows(&spec(vec![SidebarResourceKind::Agents]), &tree, &agents, 0, &HashSet::new());
+        let surfaces = rows
+            .iter()
+            .map(|row| match row.target {
+                ProjectionTarget::Surface { surface, .. } => surface,
+                _ => panic!("agent rows target surfaces"),
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(surfaces, vec![4, 5]);
     }
 
     #[test]
