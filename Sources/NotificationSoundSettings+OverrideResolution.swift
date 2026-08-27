@@ -57,7 +57,7 @@ extension NotificationSoundSettings {
     /// Captures settings synchronously, then decodes the matrix on the cache
     /// actor. Callers that are already on the main actor use this path so JSON
     /// parsing never occupies the UI executor.
-    private static func cachedResolutionSnapshot(
+    fileprivate static func cachedResolutionSnapshot(
         context: NotificationSoundOverrideContext?,
         defaults: UserDefaults
     ) async -> NotificationSoundResolutionSnapshot {
