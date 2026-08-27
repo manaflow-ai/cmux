@@ -430,6 +430,13 @@ final class BrowserProfileStore: ObservableObject {
     }
 
     func deleteProfile(id: UUID) -> BrowserProfileDefinition? {
+        // Profile data is shared by every Chromium pane. Check usage on the
+        // main actor immediately before removing the repository entry so a
+        // concurrent pane creation either wins first or resolves to the
+        // built-in profile; no live pane can begin using a deleted profile.
+        guard BrowserProfileAutomation.liveBrowserPanelCount(profileID: id) == 0 else {
+            return nil
+        }
         let result = repository.deleteProfile(id: id)
         if result != nil {
             Task { @MainActor [weak self] in
@@ -441,6 +448,9 @@ final class BrowserProfileStore: ObservableObject {
     }
 
     func clearProfileData(id: UUID) async -> BrowserProfileClearOutcome? {
+        guard BrowserProfileAutomation.liveBrowserPanelCount(profileID: id) == 0 else {
+            return nil
+        }
         let result = await repository.clearProfileData(id: id)
         if result != nil {
             await removeChromiumProfileData(for: id)
@@ -450,6 +460,13 @@ final class BrowserProfileStore: ObservableObject {
     }
 
     private func removeChromiumProfileData(for profileID: UUID) async {
+        // This second check is intentionally adjacent to the asynchronous
+        // filesystem work. The repository mutation above is main-actor
+        // serialized, and a profile removed from it cannot be selected by a
+        // new pane; an existing pane therefore makes cleanup fail closed.
+        guard BrowserProfileAutomation.liveBrowserPanelCount(profileID: profileID) == 0 else {
+            return
+        }
         await ChromiumBrowserSession.removeOwnedProfileData(
             for: profileID,
             environment: .cmuxLive
