@@ -1772,10 +1772,13 @@ mod tests {
 
         let stopped = Arc::new(AtomicBool::new(false));
         let signal = Arc::clone(&stopped);
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
         let worker = tokio::spawn(async move {
             let _signal = DropSignal(signal);
+            started_tx.send(()).expect("test receiver is waiting");
             std::future::pending::<()>().await;
         });
+        started_rx.await.expect("worker must be polled before abort");
         let mut tasks = HashMap::new();
         tasks.insert("session".to_owned(), worker);
 
