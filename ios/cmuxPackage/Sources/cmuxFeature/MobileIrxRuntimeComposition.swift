@@ -14,30 +14,26 @@ public actor MobileIrxRuntimeComposition {
     public static let enabledDefaultsKey = "cmux.irx.enabled"
     public static let forceRelayDefaultsKey = "cmux.irx.force-relay"
 
+    /// irx is the PRIMARY transport: on by default in every configuration.
+    /// An explicit `false` in defaults (the remote revert switch writes it)
+    /// falls back to the legacy stack; the env var re-arms and persists.
     public nonisolated static var isEnabled: Bool {
-        #if DEBUG
         if ProcessInfo.processInfo.environment["CMUX_IRX_ENABLED"] == "1" {
-            // Sticky: launch-env opt-in persists so later env-less launches
-            // (queue drains, manual taps, sim-leg relaunches) stay in irx mode.
             UserDefaults.standard.set(true, forKey: enabledDefaultsKey)
             return true
         }
-        return UserDefaults.standard.bool(forKey: enabledDefaultsKey)
-        #else
-        return false
-        #endif
+        if UserDefaults.standard.object(forKey: enabledDefaultsKey) != nil {
+            return UserDefaults.standard.bool(forKey: enabledDefaultsKey)
+        }
+        return true
     }
 
     public nonisolated static var forceRelayOnly: Bool {
-        #if DEBUG
         if ProcessInfo.processInfo.environment["CMUX_IRX_FORCE_RELAY"] == "1" {
             UserDefaults.standard.set(true, forKey: forceRelayDefaultsKey)
             return true
         }
         return UserDefaults.standard.bool(forKey: forceRelayDefaultsKey)
-        #else
-        return false
-        #endif
     }
 
     public enum CompositionError: Error, Sendable {
@@ -72,6 +68,9 @@ public actor MobileIrxRuntimeComposition {
     private let stateDirectory: URL
 
     private weak var auth: AuthCoordinator?
+    /// Identity donor (identity adoption): the legacy composition owns the
+    /// Keychain identity, app-instance scope, and durable device ID.
+    private weak var legacyComposition: MobileIrohRuntimeComposition?
     private var broker: IrxBrokerService?
     private var endpointSupervisor: IrxEndpointSupervisor?
     private var autopilot: IrxRelayCredentialAutopilot?
@@ -139,8 +138,12 @@ public actor MobileIrxRuntimeComposition {
 
     // MARK: - Lifecycle
 
-    public func configure(auth: AuthCoordinator) {
+    public func configure(
+        auth: AuthCoordinator,
+        legacy: MobileIrohRuntimeComposition? = nil
+    ) {
         self.auth = auth
+        legacyComposition = legacy
         Self.journal.record(
             "client-runtime", "configured",
             [
@@ -215,10 +218,20 @@ public actor MobileIrxRuntimeComposition {
         guard let auth, let brokerBaseURL else {
             throw CompositionError.notSignedIn
         }
-        let identity = try IrxIdentityProvisioner.loadOrCreate(
-            store: IrxFileIdentityStore(
-                fileURL: stateDirectory.appendingPathComponent("identity.json")),
-            deviceID: cmxCanonicalDeviceID(irxDeviceID())
+        let session = try await auth.authenticatedSessionSnapshot()
+        // IDENTITY ADOPTION: same identity/device/app-instance as the legacy
+        // stack, so the binding refreshes in place and stored routes + pair
+        // grants stay valid across the transport switch.
+        guard let legacyComposition,
+            let adopted = try await legacyComposition.irxAdoptedIdentity(
+                accountID: session.accountID, tag: tag)
+        else {
+            throw CompositionError.notSignedIn
+        }
+        let identity = IrxIdentity(
+            privateKeyData: adopted.material.secretKey.bytes,
+            deviceID: adopted.deviceID,
+            appInstanceID: adopted.appInstanceID
         )
         let broker = try IrxBrokerService(
             configuration: .init(
@@ -227,7 +240,8 @@ public actor MobileIrxRuntimeComposition {
                 tag: tag,
                 platform: .ios,
                 displayName: nil,
-                cacheDirectory: stateDirectory
+                cacheDirectory: stateDirectory,
+                identityGeneration: adopted.material.generation
             ),
             identity: identity,
             accessTokenPair: { [weak auth] in
@@ -251,12 +265,30 @@ public actor MobileIrxRuntimeComposition {
         )
         let pilot = IrxRelayCredentialAutopilot(
             broker: broker, endpoint: supervisor, journal: Self.journal)
-        // Warm everything off the dial path. Registration FIRST: non-legacy
-        // namespaces need its binding authorization before relay minting or
-        // discovery are accepted.
-        _ = try await broker.register(pairingEnabled: false, relayURLHint: nil)
-        _ = try await pilot.usableCredentials()
-        _ = try? await broker.discover()
+        // Launch-latency shape (measured on device: registration 636ms +
+        // discovery 445ms + lazy bind-to-online 1186ms serialized into a
+        // 3.3s first connect): when the binding and trust snapshot are
+        // already on disk, publish immediately and refresh registration +
+        // discovery in the BACKGROUND; and warm the endpoint's relay link
+        // during provisioning so the first dial never pays for it.
+        let cachedBinding = await broker.cachedBinding()
+        let cachedTrust = await broker.cachedTrust()
+        if cachedBinding == nil || cachedTrust == nil {
+            // First run for this identity: the full serial path, correctness
+            // over speed (registration must precede mint/discovery).
+            _ = try await broker.register(pairingEnabled: false, relayURLHint: nil)
+            _ = try await pilot.usableCredentials()
+            _ = try? await broker.discover()
+        } else {
+            Task {
+                _ = try? await broker.register(pairingEnabled: false, relayURLHint: nil)
+                _ = try? await broker.discover()
+            }
+        }
+        let credentials = try await pilot.usableCredentials()
+        // Fire-and-forget relay-link warm-up: bind + come online now, in
+        // parallel with whatever the UI is doing.
+        Task { _ = try? await supervisor.readyEndpoint(credentials: credentials) }
         await pilot.start()
         self.identity = identity
         self.broker = broker

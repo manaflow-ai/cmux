@@ -87,6 +87,9 @@ public actor IrxBrokerService {
         public var platform: CmxIrohPlatform
         public var displayName: String?
         public var cacheDirectory: URL
+        /// Rotates only when the endpoint identity rotates (legacy-adopted
+        /// identities carry their existing generation).
+        public var identityGeneration: Int
 
         public init(
             baseURL: URL,
@@ -94,7 +97,8 @@ public actor IrxBrokerService {
             tag: String,
             platform: CmxIrohPlatform,
             displayName: String?,
-            cacheDirectory: URL
+            cacheDirectory: URL,
+            identityGeneration: Int = 1
         ) {
             self.baseURL = baseURL
             self.clientNamespace = clientNamespace
@@ -102,6 +106,7 @@ public actor IrxBrokerService {
             self.platform = platform
             self.displayName = displayName
             self.cacheDirectory = cacheDirectory
+            self.identityGeneration = identityGeneration
         }
     }
 
@@ -145,6 +150,10 @@ public actor IrxBrokerService {
         credentialCache = IrxDiskCache(fileURL: dir.appendingPathComponent("relay-credentials.json"))
         grantCache = IrxDiskCache(fileURL: dir.appendingPathComponent("grants.json"))
     }
+
+    /// The underlying trust-broker client, exposed for the legacy-dialect
+    /// admission registry (online revalidation parity for old phones).
+    public nonisolated var hostBrokerClient: CmxIrohTrustBrokerClient { client }
 
     // MARK: - Registration
 
@@ -216,7 +225,8 @@ public actor IrxBrokerService {
             }
         }
         let secretKey = try CmxIrohSecretKey(bytes: identity.privateKeyData)
-        let material = try CmxIrohIdentityMaterial(secretKey: secretKey, generation: 1)
+        let material = try CmxIrohIdentityMaterial(
+            secretKey: secretKey, generation: configuration.identityGeneration)
         let payload = try CmxIrohRegistrationPayload(
             deviceID: identity.deviceID,
             appInstanceID: identity.appInstanceID,
@@ -225,7 +235,7 @@ public actor IrxBrokerService {
             platform: configuration.platform,
             displayName: configuration.displayName,
             endpointID: identity.endpointIDHex,
-            identityGeneration: 1,
+            identityGeneration: configuration.identityGeneration,
             pairingEnabled: pairingEnabled,
             capabilities: ["cmux.irx.v1"],
             pathHints: hints,
@@ -302,7 +312,10 @@ public actor IrxBrokerService {
     // MARK: - Relay credentials
 
     public func cachedRelayCredentials() -> [IrxRelayCredential] {
-        credentialCache.load()?.usable(at: Date()) ?? []
+        guard let snapshot = credentialCache.load(),
+            snapshot.endpointIDHex == identity.endpointIDHex
+        else { return [] }
+        return snapshot.usable(at: Date())
     }
 
     /// Mints fresh endpoint-bound relay credentials. Only relay URLs present
@@ -345,7 +358,12 @@ public actor IrxBrokerService {
         guard !minted.isEmpty else {
             throw IrxBrokerServiceError.noCredentialsIssued
         }
-        credentialCache.save(IrxRelayCredentialSnapshot(credentials: minted, mintedAt: Date()))
+        credentialCache.save(
+            IrxRelayCredentialSnapshot(
+                credentials: minted,
+                mintedAt: Date(),
+                endpointIDHex: identity.endpointIDHex
+            ))
         let elapsedMs =
             (DispatchTime.now().uptimeNanoseconds - startedAt.uptimeNanoseconds) / 1_000_000
         journal.record(

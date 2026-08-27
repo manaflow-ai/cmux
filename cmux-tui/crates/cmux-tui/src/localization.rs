@@ -248,6 +248,7 @@ pub(crate) struct ShortcutMessages {
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct BrowserMessages {
     failed_prefix: &'static str,
+    control_failed: &'static str,
     not_responding: &'static str,
     resize_recovery: &'static str,
     new_page_verification_prefix: &'static str,
@@ -264,6 +265,10 @@ pub(crate) struct BrowserMessages {
 }
 
 impl BrowserMessages {
+    pub(crate) fn control_failed(&self, error: &str) -> String {
+        self.control_failed.replace("{error}", error)
+    }
+
     pub(crate) fn loading(&self, url: &str) -> String {
         self.loading.replace("{url}", url)
     }
@@ -872,7 +877,6 @@ pub(crate) struct SidebarMessages {
     pub machine_provider_lifecycle_update_failed: &'static str,
     pub machine_provider_workspace_update_failed: &'static str,
     pub machine_reconnect_failed: &'static str,
-    pub machine_terminal_colors_failed: &'static str,
     pub machine_provider_external_connect_unsupported: &'static str,
     pub machine_provider_external_connect_ambiguous: &'static str,
     pub machine_not_ready_to_connect: &'static str,
@@ -1323,6 +1327,7 @@ edits shell files. Authenticate with the configured host before retrying.
     },
     browser: BrowserMessages {
         failed_prefix: "browser failed: ",
+        control_failed: "browser command failed: {error}",
         not_responding: "browser failed: browser is not responding",
         resize_recovery: "browser failed: browser resize recovery failed; reload to retry",
         new_page_verification_prefix: "browser failed: could not verify new page pixels: ",
@@ -1725,7 +1730,6 @@ OPTIONS:
         machine_provider_lifecycle_update_failed: "Machine provider lifecycle update failed",
         machine_provider_workspace_update_failed: "Machine provider workspace update failed",
         machine_reconnect_failed: "Could not reconnect machine",
-        machine_terminal_colors_failed: "Could not apply terminal colors",
         machine_provider_external_connect_unsupported: "This machine provider cannot connect external machines",
         machine_provider_external_connect_ambiguous: "The previous connection attempt may have succeeded; reconnect the provider and retry with the same pairing code",
         machine_not_ready_to_connect: "Selected machine is not ready to connect",
@@ -1967,6 +1971,7 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
     },
     browser: BrowserMessages {
         failed_prefix: "ブラウザでエラーが発生しました: ",
+        control_failed: "ブラウザ操作に失敗しました: {error}",
         not_responding: "ブラウザが応答していません",
         resize_recovery: "ブラウザのサイズ変更を復旧できませんでした。再読み込みして再試行してください",
         new_page_verification_prefix: "新しいページの表示を確認できませんでした: ",
@@ -2366,7 +2371,6 @@ ID とセッション:
         machine_provider_lifecycle_update_failed: "マシンプロバイダーのライフサイクル更新に失敗しました",
         machine_provider_workspace_update_failed: "マシンプロバイダーのワークスペース更新に失敗しました",
         machine_reconnect_failed: "マシンに再接続できませんでした",
-        machine_terminal_colors_failed: "ターミナルの色を適用できませんでした",
         machine_provider_external_connect_unsupported: "このマシンプロバイダーは外部マシンに接続できません",
         machine_provider_external_connect_ambiguous: "前回の接続処理が完了している可能性があります。プロバイダーを再接続し、同じペアリングコードで再試行してください",
         machine_not_ready_to_connect: "選択したマシンは接続準備ができていません",
@@ -2858,6 +2862,22 @@ mod tests {
                 japanese
             );
         }
+    }
+
+    #[test]
+    fn browser_control_failures_are_localized_at_the_ui_boundary() {
+        assert_eq!(
+            catalog_for_locale("en_US.UTF-8")
+                .browser
+                .control_failed("browser panes are not supported over attach yet"),
+            "browser command failed: browser panes are not supported over attach yet"
+        );
+        assert_eq!(
+            catalog_for_locale("ja_JP.UTF-8")
+                .browser
+                .control_failed("browser panes are not supported over attach yet"),
+            "ブラウザ操作に失敗しました: browser panes are not supported over attach yet"
+        );
     }
 
     #[test]
