@@ -26,8 +26,8 @@
 //   5. fail closed when the requested version cannot be obtained
 //
 // Wanted version = max(shim's own package version, version recorded by
-// `cmux update`), compared by semver so a nightly shim is not downgraded by
-// an older stable `update` record.
+// `cmux update`) within the same release channel. A stable update record must
+// never satisfy a nightly (or another prerelease-channel) shim.
 
 const { spawnSync } = require("child_process");
 const crypto = require("crypto");
@@ -99,6 +99,18 @@ function shimVersion() {
 
 function validVersion(version) {
   return typeof version === "string" && PUBLISHED_VERSION.test(version);
+}
+
+function versionChannel(version) {
+  if (typeof version !== "string") return null;
+  const match = /^\d+\.\d+\.\d+-([0-9A-Za-z]+)/.exec(version);
+  return match ? match[1].toLowerCase() : "stable";
+}
+
+function sameVersionChannel(left, right) {
+  const leftChannel = versionChannel(left);
+  const rightChannel = versionChannel(right);
+  return leftChannel !== null && leftChannel === rightChannel;
 }
 
 function isManagedPlaceholder(version) {
@@ -1105,7 +1117,11 @@ function wantedVersion(pkg) {
   if (!validVersion(pinned)) {
     fail("this launcher has an invalid release version");
   }
-  if (state && compareVersions(state.version, pinned) > 0) {
+  if (
+    state &&
+    sameVersionChannel(state.version, pinned) &&
+    compareVersions(state.version, pinned) > 0
+  ) {
     return validVersion(state.version) ? state.version : pinned;
   }
   return pinned;
