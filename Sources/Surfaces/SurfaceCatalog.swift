@@ -42,12 +42,7 @@ final class SurfaceCatalog {
     private var providers: [SurfaceMachineID: any SurfaceProvider] = [:]
     /// Materializations are asynchronous, so actor reentrancy can otherwise let two callers
     /// pass the reuse check before either provider has returned a projection.
-    private struct InFlightProject {
-        let token: UUID
-        let task: Task<SurfaceProjection, Error>
-    }
-
-    private var inFlightProjects: [SurfaceResourceID: InFlightProject] = [:]
+    private var inFlightProjects: [SurfaceResourceID: SurfaceProjectionMaterialization] = [:]
     /// Panels whose projection was recorded from a restored session before the provider
     /// re-synced; resolved into `projections` once the resource shows up.
     private var pendingRestoredProjections: [SurfaceProjectionRecord: UUID] = [:]
@@ -153,7 +148,7 @@ final class SurfaceCatalog {
                 self.record(projection)
                 return projection
             }
-            inFlightProjects[id] = InFlightProject(token: token, task: materialization)
+            inFlightProjects[id] = SurfaceProjectionMaterialization(token: token, task: materialization)
             let projection = try await materialization.value
             return (projection, false)
         }

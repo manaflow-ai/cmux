@@ -1,4 +1,5 @@
-import XCTest
+import Foundation
+import Testing
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)
@@ -7,7 +8,8 @@ import XCTest
 
 /// The surface catalog: one identity per resource, zero or more projections, one open path.
 @MainActor
-final class SurfaceCatalogTests: XCTestCase {
+@Suite
+struct SurfaceCatalogTests {
     @MainActor
     private final class MaterializeGate {
         private(set) var entered = false
@@ -70,16 +72,16 @@ final class SurfaceCatalogTests: XCTestCase {
         SurfaceResource(id: SurfaceResourceID(machine: machine, kind: .terminal, key: key), title: title, detail: "/root", lifecycle: .running, agent: nil, remoteWorkspace: nil, port: nil, url: nil)
     }
 
-    func testResourceIDRoundTripsThroughTheWireForm() {
+    @Test func `Resource ID round trips through the wire form`() {
         let id = SurfaceResourceID(machine: .cloud("vivid-newt"), kind: .browser, key: "port:8000/https://x.y/z")
-        XCTAssertEqual(id.rawValue, "vivid-newt/browser/port:8000/https://x.y/z")
-        XCTAssertEqual(SurfaceResourceID(rawValue: id.rawValue), id)
-        XCTAssertEqual(SurfaceResourceID(rawValue: "local/terminal/ABC")?.machine, .local)
-        XCTAssertNil(SurfaceResourceID(rawValue: "local/nope/x"))
-        XCTAssertNil(SurfaceResourceID(rawValue: "local/terminal/"))
+        #expect(id.rawValue == "vivid-newt/browser/port:8000/https://x.y/z")
+        #expect(SurfaceResourceID(rawValue: id.rawValue) == id)
+        #expect(SurfaceResourceID(rawValue: "local/terminal/ABC")?.machine == .local)
+        #expect(SurfaceResourceID(rawValue: "local/nope/x") == nil)
+        #expect(SurfaceResourceID(rawValue: "local/terminal/") == nil)
     }
 
-    func testProjectMaterializesOnceAndReusesTheOpenPane() async throws {
+    @Test func `Project materializes once and reuses the open pane`() async throws {
         let catalog = SurfaceCatalog()
         let provider = FakeProvider(machine: .cloud("vivid-newt"))
         catalog.register(provider)
@@ -90,23 +92,23 @@ final class SurfaceCatalogTests: XCTestCase {
 
         let ws = UUID()
         let first = try await catalog.project(term.id, into: .workspace(id: ws, placement: .split))
-        XCTAssertFalse(first.reused)
-        XCTAssertEqual(provider.materialized.count, 1)
-        XCTAssertEqual(catalog.projections(of: term.id).count, 1)
-        XCTAssertTrue(catalog.snapshot.isOpen(term.id))
+        #expect(!first.reused)
+        #expect(provider.materialized.count == 1)
+        #expect(catalog.projections(of: term.id).count == 1)
+        #expect(catalog.snapshot.isOpen(term.id))
 
         let second = try await catalog.project(term.id, into: .workspace(id: UUID(), placement: .tab))
-        XCTAssertTrue(second.reused)
-        XCTAssertEqual(second.projection, first.projection)
-        XCTAssertEqual(provider.materialized.count, 1, "reuse must not materialize a second pane")
-        XCTAssertEqual(focused, [first.projection])
+        #expect(second.reused)
+        #expect(second.projection == first.projection)
+        #expect(provider.materialized.count == 1, "reuse must not materialize a second pane")
+        #expect(focused == [first.projection])
 
         let third = try await catalog.project(term.id, into: .workspace(id: ws, placement: .split), reuseExisting: false)
-        XCTAssertFalse(third.reused)
-        XCTAssertEqual(catalog.projections(of: term.id).count, 2)
+        #expect(!third.reused)
+        #expect(catalog.projections(of: term.id).count == 2)
     }
 
-    func testConcurrentReuseWaitsForTheInFlightMaterialization() async throws {
+    @Test func `Concurrent reuse waits for the in-flight materialization`() async throws {
         let catalog = SurfaceCatalog()
         let provider = FakeProvider(machine: .cloud("vivid-newt"))
         let gate = MaterializeGate()
@@ -125,18 +127,18 @@ final class SurfaceCatalogTests: XCTestCase {
             return try await catalog.project(term.id, into: destination)
         }
         while !secondStarted.value { await Task.yield() }
-        XCTAssertEqual(provider.materialized.count, 1, "a concurrent reuse must share the pending provider call")
+        #expect(provider.materialized.count == 1, "a concurrent reuse must share the pending provider call")
 
         gate.release()
         let firstResult = try await first.value
         let secondResult = try await second.value
-        XCTAssertFalse(firstResult.reused)
-        XCTAssertTrue(secondResult.reused)
-        XCTAssertEqual(firstResult.projection, secondResult.projection)
-        XCTAssertEqual(catalog.projections(of: term.id).count, 1)
+        #expect(!firstResult.reused)
+        #expect(secondResult.reused)
+        #expect(firstResult.projection == secondResult.projection)
+        #expect(catalog.projections(of: term.id).count == 1)
     }
 
-    func testUnregisteringACancelsInFlightMaterialization() async throws {
+    @Test func `Unregistering cancels in-flight materialization`() async throws {
         let catalog = SurfaceCatalog()
         let provider = FakeProvider(machine: .cloud("vivid-newt"))
         let gate = MaterializeGate()
@@ -150,16 +152,13 @@ final class SurfaceCatalogTests: XCTestCase {
         catalog.unregister(machine: .cloud("vivid-newt"))
         gate.release()
 
-        do {
-            _ = try await project.value
-            XCTFail("an unregistered machine must not record a completed projection")
-        } catch let error as SurfaceCatalogError {
-            XCTAssertEqual(error, .unknownResource(term.id))
+        await #expect(throws: SurfaceCatalogError.unknownResource(term.id)) {
+            try await project.value
         }
-        XCTAssertTrue(catalog.projections.isEmpty)
+        #expect(catalog.projections.isEmpty)
     }
 
-    func testEndingAProjectionKeepsTheRemoteResourceAndTellsTheProvider() async throws {
+    @Test func `Ending a projection keeps the remote resource and tells the provider`() async throws {
         let catalog = SurfaceCatalog()
         let provider = FakeProvider(machine: .cloud("m"))
         catalog.register(provider)
@@ -168,12 +167,12 @@ final class SurfaceCatalogTests: XCTestCase {
         let projection = try await catalog.project(term.id, into: .workspace(id: UUID(), placement: .split)).projection
 
         catalog.endProjections(panelID: projection.panelID)
-        XCTAssertTrue(catalog.projections(of: term.id).isEmpty)
-        XCTAssertNotNil(catalog.snapshot.resources.first { $0.id == term.id }, "closing a pane never destroys a remote resource")
-        XCTAssertEqual(provider.ended, [projection])
+        #expect(catalog.projections(of: term.id).isEmpty)
+        #expect(catalog.snapshot.resources.first { $0.id == term.id } != nil, "closing a pane never destroys a remote resource")
+        #expect(provider.ended == [projection])
     }
 
-    func testMovingAPaneMovesItsProjection() async throws {
+    @Test func `Moving a pane moves its projection`() async throws {
         let catalog = SurfaceCatalog()
         let provider = FakeProvider(machine: .local)
         catalog.register(provider)
@@ -182,24 +181,24 @@ final class SurfaceCatalogTests: XCTestCase {
         let projection = try await catalog.project(term.id, into: .workspace(id: UUID(), placement: .split)).projection
         let other = UUID()
         catalog.moveProjections(panelID: projection.panelID, to: other)
-        XCTAssertEqual(catalog.projection(forPanel: projection.panelID)?.workspaceID, other)
+        #expect(catalog.projection(forPanel: projection.panelID)?.workspaceID == other)
     }
 
-    func testRestoredProjectionsResolveWhenTheProviderReportsTheResource() {
+    @Test func `Restored projections resolve when the provider reports the resource`() {
         let catalog = SurfaceCatalog()
         let provider = FakeProvider(machine: .cloud("m"))
         catalog.register(provider)
         let ws = UUID(), panel = UUID()
         let id = SurfaceResourceID(machine: .cloud("m"), kind: .terminal, key: "term_9")
         catalog.restore([SurfaceProjectionRecord(panelID: panel, resource: id)], workspaceID: ws)
-        XCTAssertFalse(catalog.snapshot.isOpen(id), "unknown until the link reports it")
+        #expect(!catalog.snapshot.isOpen(id), "unknown until the link reports it")
 
         catalog.replaceResources([terminal(.cloud("m"), "term_9")], on: .cloud("m"))
-        XCTAssertEqual(catalog.projection(forPanel: panel), SurfaceProjection(resource: id, workspaceID: ws, panelID: panel))
-        XCTAssertEqual(catalog.projectionRecords(forWorkspace: ws), [SurfaceProjectionRecord(panelID: panel, resource: id)])
+        #expect(catalog.projection(forPanel: panel) == SurfaceProjection(resource: id, workspaceID: ws, panelID: panel))
+        #expect(catalog.projectionRecords(forWorkspace: ws) == [SurfaceProjectionRecord(panelID: panel, resource: id)])
     }
 
-    func testSnapshotOrdersLocalFirstThenByNameAndWorkspaceIndex() {
+    @Test func `Snapshot orders local first, then by name and workspace index`() {
         let catalog = SurfaceCatalog()
         catalog.register(FakeProvider(machine: .cloud("zeta")))
         catalog.register(FakeProvider(machine: .cloud("alpha")))
@@ -208,11 +207,11 @@ final class SurfaceCatalogTests: XCTestCase {
         var t0 = terminal(.cloud("alpha"), "term_a"); t0.remoteWorkspace = SurfaceRemoteWorkspace(id: "ws_0", name: "0", index: 0, focused: true)
         catalog.replaceResources([t1, t0], on: .cloud("alpha"))
         let snapshot = catalog.snapshot
-        XCTAssertEqual(snapshot.machines.map { $0.id }, [.local, .cloud("alpha"), .cloud("zeta")])
-        XCTAssertEqual(snapshot.resources(on: .cloud("alpha")).map { $0.id.key }, ["term_a", "term_b"])
+        #expect(snapshot.machines.map { $0.id } == [.local, .cloud("alpha"), .cloud("zeta")])
+        #expect(snapshot.resources(on: .cloud("alpha")).map { $0.id.key } == ["term_a", "term_b"])
     }
 
-    func testUnregisteringAMachineDropsItsResourcesAndProjections() async throws {
+    @Test func `Unregistering a machine drops its resources and projections`() async throws {
         let catalog = SurfaceCatalog()
         let provider = FakeProvider(machine: .cloud("m"))
         catalog.register(provider)
@@ -220,9 +219,9 @@ final class SurfaceCatalogTests: XCTestCase {
         catalog.replaceResources([term], on: .cloud("m"))
         _ = try await catalog.project(term.id, into: .workspace(id: UUID(), placement: .split))
         catalog.unregister(machine: .cloud("m"))
-        XCTAssertTrue(catalog.snapshot.resources.isEmpty)
-        XCTAssertTrue(catalog.snapshot.projections.isEmpty)
-        XCTAssertNil(catalog.provider(for: .cloud("m")))
+        #expect(catalog.snapshot.resources.isEmpty)
+        #expect(catalog.snapshot.projections.isEmpty)
+        #expect(catalog.provider(for: .cloud("m")) == nil)
     }
 }
 
