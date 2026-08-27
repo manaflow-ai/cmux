@@ -550,6 +550,52 @@ struct SurfaceCatalogTests {
         gate.release()
     }
 
+    @Test func `Retired materialization eviction releases its machine capacity`() async throws {
+        let (evictionStarted, evictionStartedContinuation) = AsyncStream<Void>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        let clock = ImmediateClock { sleepCount in
+            guard sleepCount == 2 else { return }
+            evictionStartedContinuation.yield(())
+            evictionStartedContinuation.finish()
+        }
+        let catalog = SurfaceCatalog(
+            abandonedMaterializationTimeout: .seconds(30),
+            retiredMaterializationRetention: .seconds(30),
+            maximumTrackedMaterializations: 1,
+            materializationClock: clock
+        )
+        let oldProvider = FakeProvider(machine: .cloud("vivid-newt"))
+        let oldGate = MaterializeGate()
+        oldProvider.materializeGate = oldGate
+        catalog.register(oldProvider)
+        let term = terminal(.cloud("vivid-newt"), "term_1")
+        catalog.replaceResources([term], on: .cloud("vivid-newt"))
+
+        let oldProject = Task {
+            try await catalog.project(term.id, into: .workspace(id: UUID(), placement: .split))
+        }
+        await oldGate.waitUntilEntered()
+        oldProject.cancel()
+        await #expect(throws: CancellationError.self) {
+            try await oldProject.value
+        }
+
+        _ = try await awaitFirst(evictionStarted)
+        await Task.yield()
+
+        let replacementProvider = FakeProvider(machine: .cloud("vivid-newt"))
+        catalog.register(replacementProvider)
+        let replacement = try await catalog.project(
+            term.id,
+            into: .workspace(id: UUID(), placement: .split)
+        )
+        #expect(!replacement.reused)
+        #expect(replacementProvider.materialized.count == 1)
+
+        oldGate.release()
+    }
+
     @Test func `A replacement provider does not join retired materialization`() async throws {
         let catalog = SurfaceCatalog()
         let oldProvider = FakeProvider(machine: .cloud("vivid-newt"))
