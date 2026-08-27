@@ -292,7 +292,7 @@ extension SidebarGitMetadataService {
         let targetIsNew = workspaceGitMetadataCreationWatcherAncestorByTargetPath[path] == nil
         if targetIsNew {
             let targetCount = workspaceGitMetadataCreationWatcherAncestorByTargetPath.count
-            guard targetCount < 512 else { return false }
+            guard targetCount < 2_048 else { return false }
             let logicalParent = logicalSymlinkParent(for: path).flatMap {
                 creationWatchAncestorIsSafe($0, for: key) ? $0 : nil
             }
