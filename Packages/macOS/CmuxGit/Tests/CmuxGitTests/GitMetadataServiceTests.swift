@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Testing
 @testable import CmuxGit
@@ -45,6 +46,25 @@ import Testing
         let repo = try #require(GitMetadataService.resolveGitRepository(containing: worktree.path))
         #expect(repo.workTreeRoot == worktree.standardizedFileURL.path)
         #expect(repo.gitDirectory == realGitDir.standardizedFileURL.path)
+    }
+
+    @Test func oversizedDotGitPointerIsRejectedWithoutUnboundedRead() throws {
+        let base = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmuxgit-gitfile-oversized-\(UUID().uuidString)", isDirectory: true)
+        let worktree = base.appendingPathComponent("wt", isDirectory: true)
+        let realGitDir = base.appendingPathComponent("realgit", isDirectory: true)
+        try FileManager.default.createDirectory(at: worktree, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: realGitDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: base) }
+
+        let pointer = "gitdir: \(realGitDir.path)\n" + String(repeating: "x", count: 20_000)
+        try pointer.write(
+            to: worktree.appendingPathComponent(".git"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        #expect(GitMetadataService.resolveGitRepository(containing: worktree.path) == nil)
     }
 
     @Test(arguments: [

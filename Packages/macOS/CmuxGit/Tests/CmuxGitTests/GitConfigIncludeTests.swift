@@ -204,6 +204,7 @@ private nonisolated struct FixedGitReferenceReader: GitReferenceReading {
         let descriptor = try #require(await service.watchDescriptor(for: fixture.root.path))
 
         #expect(descriptor.watchedPaths.contains(fixture.gitDirectory.standardizedFileURL.path))
+        #expect(!descriptor.gitMetadataPaths.contains(fixture.gitDirectory.standardizedFileURL.path))
         #expect(descriptor.containsGitMetadataChange(paths: [missingURL.path]))
         #expect(!descriptor.containsGitMetadataChange(
             paths: [fixture.gitDirectory.appendingPathComponent("info/other").path]

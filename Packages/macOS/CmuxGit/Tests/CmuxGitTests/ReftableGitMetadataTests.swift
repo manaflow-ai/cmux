@@ -48,6 +48,33 @@ private nonisolated struct NeverDirectoryProbe: GitReferenceStorageProbing {
         #expect(candidates.contains("/Library/Developer/CommandLineTools/usr/bin/git"))
     }
 
+    @Test func legacyReferenceProbeSkipsUnusableGitCandidate() throws {
+        let first = FakeWorkspaceChangesGitRunner(results: [
+            ["rev-parse", "--show-ref-format"]: .result(exitCode: 1),
+            ["rev-parse", "--git-dir"]: .result(exitCode: 1),
+            ["marker"]: .result("stale"),
+        ])
+        let second = FakeWorkspaceChangesGitRunner(results: [
+            ["rev-parse", "--show-ref-format"]: .result(exitCode: 1),
+            ["rev-parse", "--git-dir"]: .result(".git\n"),
+            ["marker"]: .result("working"),
+        ])
+        let selector = GitReferenceRunnerSelector(runners: [first, second])
+        let repository = ResolvedGitRepository(
+            workTreeRoot: "/repo",
+            gitDirectory: "/repo/.git",
+            commonDirectory: "/repo/.git"
+        )
+
+        let selected = try #require(selector.select(repository: repository))
+        let marker = try selected.run(
+            arguments: ["marker"],
+            in: URL(fileURLWithPath: repository.workTreeRoot, isDirectory: true)
+        )
+
+        #expect(String(data: marker.output, encoding: .utf8) == "working")
+    }
+
     @Test func failedReftablePlumbingRemainsMarkedAsPlumbing() throws {
         let fixture = try GitRepositoryFixture()
         try fixture.writeBranch("main")
