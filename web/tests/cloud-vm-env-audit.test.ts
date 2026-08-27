@@ -8,6 +8,7 @@ import {
   auditProviderReadiness,
   CODE_DEFAULT_PROVIDER,
 } from "../scripts/cloud-vm/defaultProviderAudit.mjs";
+import { defaultProviderId } from "../services/vms/drivers";
 
 type Manifest = {
   images: Array<{
@@ -144,13 +145,11 @@ describe("sensitive env placeholders", () => {
 });
 
 describe("audit constants stay tied to the runtime", () => {
-  test("CODE_DEFAULT_PROVIDER matches defaultProviderId() with no env override", async () => {
+  test("CODE_DEFAULT_PROVIDER matches defaultProviderId() with no env override", () => {
     // The audit script cannot import the runtime driver module (it must stay
     // a dependency-free .mjs for CI), so this test enforces the pairing: if
     // defaultProviderId()'s fallback changes, this fails until the audit's
-    // CODE_DEFAULT_PROVIDER moves with it. Dynamic import on purpose: loading
-    // the driver registry is only needed for this one assertion.
-    const { defaultProviderId } = await import("../services/vms/drivers");
+    // CODE_DEFAULT_PROVIDER moves with it.
     const saved = process.env.CMUX_VM_DEFAULT_PROVIDER;
     delete process.env.CMUX_VM_DEFAULT_PROVIDER;
     try {

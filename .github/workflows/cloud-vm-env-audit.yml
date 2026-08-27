@@ -38,6 +38,16 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
 
+      - name: Install dependencies
+        working-directory: web
+        run: bun install --frozen-lockfile
+
+      # The audit is only as strong as its own checks; run its regression
+      # tests first so a weakened guard fails CI instead of staying green.
+      - name: Audit guard self-tests
+        working-directory: web
+        run: bun test tests/cloud-vm-env-audit.test.ts
+
       - name: Audit production Cloud VM env
         working-directory: web
         env:
