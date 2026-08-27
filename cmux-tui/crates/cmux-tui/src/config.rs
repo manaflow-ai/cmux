@@ -155,7 +155,7 @@ use wait_timeout::ChildExt;
 
 use crate::localization::catalog;
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 std::thread_local! {
     static FAIL_CONFIG_PARENT_SYNC: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
@@ -4074,6 +4074,8 @@ pub(crate) enum ConfigWriteOutcome {
 }
 
 impl ConfigWriteOutcome {
+    /// Takes the parent-sync error, if the replacement committed without a
+    /// durability confirmation.
     pub(crate) fn into_unsynced_error(self) -> Option<anyhow::Error> {
         match self {
             Self::Committed => None,
@@ -4082,6 +4084,7 @@ impl ConfigWriteOutcome {
     }
 }
 
+/// Writes the sidebar plugin selection to the configured path.
 pub(crate) fn write_sidebar_plugin(
     plugin: Option<&SidebarPluginConfig>,
 ) -> anyhow::Result<ConfigWriteOutcome> {
@@ -4089,6 +4092,7 @@ pub(crate) fn write_sidebar_plugin(
     write_sidebar_plugin_at_path(&path, plugin)
 }
 
+/// Writes the sidebar plugin selection to an explicit path.
 pub(crate) fn write_sidebar_plugin_at_path(
     path: &Path,
     plugin: Option<&SidebarPluginConfig>,
