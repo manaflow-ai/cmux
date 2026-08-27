@@ -797,7 +797,7 @@ import Testing
         #expect(!snapshot.isComplete)
     }
 
-    @Test func worktreeIncludeIfMatchesWorkingTreeRoot() throws {
+    @Test func unsupportedWorktreeIncludeIfFailsClosed() throws {
         let fixture = try GitRepositoryFixture()
         try fixture.writeBranch("main")
         let globalConfigURL = fixture.root.appendingPathComponent("global.gitconfig")
@@ -822,7 +822,7 @@ import Testing
             ]
         )
 
-        #expect(snapshot.remoteVOutput?.contains("https://github.com/worktree-conditional/repo.git") == true)
+        #expect(snapshot.remoteVOutput == nil)
     }
 
     @Test func repositoryLinkUsesFirstFetchURLForDuplicateRemoteURLs() {
@@ -854,6 +854,40 @@ import Testing
             """
         }
         try (remoteSections + conditions)
+            .joined(separator: "\n")
+            .write(to: globalConfigURL, atomically: true, encoding: .utf8)
+
+        let repository = try #require(
+            GitMetadataService.resolveGitRepository(containing: fixture.root.path)
+        )
+        let snapshot = GitMetadataService.gitRemoteConfigSnapshot(
+            repository: repository,
+            environment: [
+                "GIT_CONFIG_GLOBAL": globalConfigURL.path,
+                "GIT_CONFIG_NOSYSTEM": "1",
+            ]
+        )
+
+        #expect(!snapshot.isComplete)
+    }
+
+    @Test func urlRewriteMatchingStopsAtItsOperationBudget() throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        let globalConfigURL = fixture.root.appendingPathComponent("global.gitconfig")
+        let rewrites = (0..<256).map { index in
+            """
+            [url "https://github.com/rewrite-\(index)/"]
+                insteadOf = rewrite-\(index):
+            """
+        }
+        let remotes = (0..<257).map { index in
+            """
+            [remote "remote-\(index)"]
+                url = unmatched-\(index):repository.git
+            """
+        }
+        try (rewrites + remotes)
             .joined(separator: "\n")
             .write(to: globalConfigURL, atomically: true, encoding: .utf8)
 
