@@ -10,12 +10,13 @@
 </p>
 
 <p align="center">
-  <a href="README.md">English</a> | <a href="README.zh-CN.md">简体中文</a> | <a href="README.zh-TW.md">繁體中文</a> | <a href="README.ko.md">한국어</a> | <a href="README.de.md">Deutsch</a> | <a href="README.es.md">Español</a> | <a href="README.fr.md">Français</a> | <a href="README.it.md">Italiano</a> | <a href="README.da.md">Dansk</a> | <a href="README.ja.md">日本語</a> | <a href="README.pl.md">Polski</a> | Русский | <a href="README.bs.md">Bosanski</a> | <a href="README.ar.md">العربية</a> | <a href="README.no.md">Norsk</a> | <a href="README.pt-BR.md">Português (Brasil)</a> | <a href="README.th.md">ไทย</a> | <a href="README.tr.md">Türkçe</a>
+  <a href="README.md">English</a> | <a href="README.ja.md">日本語</a> | <a href="README.vi.md">Tiếng Việt</a> | <a href="README.zh-CN.md">简体中文</a> | <a href="README.zh-TW.md">繁體中文</a> | <a href="README.ko.md">한국어</a> | <a href="README.de.md">Deutsch</a> | <a href="README.es.md">Español</a> | <a href="README.fr.md">Français</a> | <a href="README.it.md">Italiano</a> | <a href="README.da.md">Dansk</a> | <a href="README.pl.md">Polski</a> | Русский | <a href="README.bs.md">Bosanski</a> | <a href="README.ar.md">العربية</a> | <a href="README.no.md">Norsk</a> | <a href="README.pt-BR.md">Português (Brasil)</a> | <a href="README.th.md">ไทย</a> | <a href="README.tr.md">Türkçe</a> | <a href="README.km.md">ភាសាខ្មែរ</a> | <a href="README.uk.md">Українська</a>
 </p>
 
 <p align="center">
   <a href="https://x.com/manaflowai"><img src="https://img.shields.io/badge/@manaflow-555?logo=x" alt="X / Twitter" /></a>
   <a href="https://discord.gg/xsgFEVrWCZ"><img src="https://img.shields.io/badge/Discord-555?logo=discord" alt="Discord" /></a>
+  <a href="https://github.com/manaflow-ai/cmux"><img src="https://img.shields.io/github/stars/manaflow-ai/cmux?style=flat&logo=github&label=stars&color=4c71f2" alt="GitHub stars" /></a>
 </p>
 
 <p align="center">
@@ -23,7 +24,7 @@
 </p>
 
 <p align="center">
-  <a href="https://www.youtube.com/watch?v=i-WxO5YUTOs">▶ Демо-видео</a> · <a href="https://cmux.dev/blog/zen-of-cmux">The Zen of cmux</a>
+  <a href="https://www.youtube.com/watch?v=i-WxO5YUTOs">▶ Демо-видео</a> · <a href="https://cmux.com/blog/zen-of-cmux">The Zen of cmux</a>
 </p>
 
 ## Возможности
@@ -65,12 +66,34 @@
 <img src="./docs/assets/vertical-horizontal-tabs-and-splits.png" alt="Вертикальные вкладки и разделённые панели" width="100%" />
 </td>
 </tr>
+<tr>
+<td width="40%" valign="middle">
+<h3>SSH</h3>
+<code>cmux ssh user@remote</code> создаёт рабочее пространство для удалённой машины. Панели браузера маршрутизируются через удалённую сеть, поэтому localhost просто работает. Перетащите изображение в удалённую сессию для загрузки через scp.
+</td>
+<td width="60%">
+<img src="./docs/assets/ssh.png" alt="cmux SSH" width="100%" />
+</td>
+</tr>
+<tr>
+<td width="40%" valign="middle">
+<h3>Claude Code Teams</h3>
+<code>cmux claude-teams</code> запускает режим напарника Claude Code одной командой. Напарники появляются как нативные разделения с метаданными в боковой панели и уведомлениями. tmux не требуется.
+</td>
+<td width="60%">
+<img src="./docs/assets/claude-code-teams.png" alt="Claude Code Teams" width="100%" />
+</td>
+</tr>
 </table>
 
+- **Импорт из браузера** — Импорт куки, истории и сессий из Chrome, Firefox, Arc и 20+ других браузеров, чтобы панели браузера запускались авторизованными
+- **Пользовательские команды** — Определяйте команды для конкретного проекта в [`cmux.json`](https://cmux.com/docs/custom-commands), которые запускаются из палитры команд
 - **Скриптуемость** — CLI и socket API для создания рабочих пространств, разделения панелей, отправки нажатий клавиш и автоматизации браузера
 - **Нативное приложение macOS** — Создано на Swift и AppKit, не Electron. Быстрый запуск, низкое потребление памяти.
 - **Совместимость с Ghostty** — Читает вашу существующую конфигурацию `~/.config/ghostty/config` для тем, шрифтов и цветов
 - **Ускорение GPU** — На базе libghostty для плавного рендеринга
+- **Сочетания клавиш** — [Обширные сочетания](https://cmux.com/docs/keyboard-shortcuts) для рабочих пространств, разделений, браузера и многого другого
+- **Открытый исходный код** — Бесплатно и под лицензией GPL
 
 ## Установка
 
@@ -121,7 +144,7 @@ cmux — это примитив, а не решение. Он даёт вам �
 
 ## Документация
 
-Подробнее о настройке cmux читайте в [нашей документации](https://cmux.dev/docs/getting-started?utm_source=readme).
+Подробнее о настройке cmux читайте в [нашей документации](https://cmux.com/docs/getting-started?utm_source=readme).
 
 ## Сочетания Клавиш
 
@@ -136,7 +159,10 @@ cmux — это примитив, а не решение. Он даёт вам �
 | ⌃ ⌘ [ | Предыдущее рабочее пространство |
 | ⌘ ⇧ W | Закрыть рабочее пространство |
 | ⌘ ⇧ R | Переименовать рабочее пространство |
+| ⌥ ⌘ E | Редактировать описание рабочего пространства |
 | ⌘ B | Переключить боковую панель |
+| ⌥ ⌘ B | Переключить правую боковую панель |
+| ⌘ ⇧ E | Переключить фокус правой боковой панели |
 
 ### Поверхности
 
@@ -163,6 +189,7 @@ cmux — это примитив, а не решение. Он даёт вам �
 ### Браузер
 
 Сочетания клавиш инструментов разработчика браузера соответствуют настройкам Safari по умолчанию и настраиваются в `Настройки → Сочетания клавиш`.
+Сочетания клавиш навигации по палитре команд, включая ⌃ P, также настраиваются и могут быть очищены, чтобы нажатие клавиши достигало активного терминала.
 
 | Сочетание | Действие |
 |----------|--------|
@@ -180,14 +207,17 @@ cmux — это примитив, а не решение. Он даёт вам �
 |----------|--------|
 | ⌘ I | Показать панель уведомлений |
 | ⌘ ⇧ U | Перейти к последнему непрочитанному |
+| ⌥ ⌘ U | Переключить состояние «прочитано» для текущего элемента |
+| ⌃ ⌘ U | Отметить текущий элемент как самый старый непрочитанный и перейти к следующему последнему непрочитанному |
 
 ### Поиск
 
 | Сочетание | Действие |
 |----------|--------|
 | ⌘ F | Поиск |
-| ⌘ G / ⌘ ⇧ G | Найти следующий / предыдущий |
-| ⌘ ⇧ F | Скрыть панель поиска |
+| ⌘ ⇧ F | Поиск в каталоге |
+| ⌘ G / ⌥ ⌘ G | Найти следующий / предыдущий |
+| ⌥ ⌘ ⇧ F | Скрыть панель поиска |
 | ⌘ E | Использовать выделение для поиска |
 
 ### Терминал
@@ -205,6 +235,7 @@ cmux — это примитив, а не решение. Он даёт вам �
 | Сочетание | Действие |
 |----------|--------|
 | ⌘ ⇧ N | Новое окно |
+| ⌘ ⇧ O | Открыть предыдущую сессию заново |
 | ⌘ , | Настройки |
 | ⌘ ⇧ , | Перезагрузить конфигурацию |
 | ⌘ Q | Выход |
@@ -215,23 +246,136 @@ cmux — это примитив, а не решение. Он даёт вам �
 
 cmux NIGHTLY — это отдельное приложение с собственным идентификатором пакета, поэтому оно работает параллельно со стабильной версией. Собирается автоматически из последнего коммита `main` и обновляется через собственный канал Sparkle.
 
-## Восстановление сессии (текущее поведение)
+Сообщайте об ошибках в ночных сборках на [GitHub Issues](https://github.com/manaflow-ai/cmux/issues) или в [#nightly-bugs в Discord](https://discord.gg/xsgFEVrWCZ).
 
-При перезапуске cmux в настоящее время восстанавливает только макет приложения и метаданные:
+## Восстановление сессии
+
+При выходе cmux сохраняет текущую сессию. При повторном запуске cmux восстанавливает состояние, которым управляет приложение:
 - Макет окон/рабочих пространств/панелей
 - Рабочие каталоги
 - Scrollback терминала (по возможности)
 - URL браузера и история навигации
 
-cmux **не** восстанавливает состояние живых процессов внутри терминальных приложений. Например, активные сессии Claude Code/tmux/vim пока не возобновляются после перезапуска.
+cmux не создает checkpoint для произвольного состояния живых процессов. tmux, vim, shell и неподдерживаемые терминальные приложения открываются заново как обычные терминалы.
+
+Поддерживаемые сессии агентов могут возобновляться, если hooks сохранили нативный ID сессии. Устанавливайте hooks после установки CLI агента, чтобы его бинарный файл был в `PATH`:
+
+```bash
+cmux hooks setup
+cmux hooks setup codex
+cmux hooks setup --agent opencode
+```
+
+`cmux hooks setup` устанавливает поддерживаемых агентов, которых может найти, и выводит сводку для пропущенных агентов. Поддерживаемые интеграции возобновления включают Claude Code, Codex, Grok, OpenCode, Pi, Amp, Cursor CLI, Gemini, Rovo Dev, Copilot, CodeBuddy, Factory и Qoder. Claude Code обрабатывается обёрткой Claude cmux, когда интеграция Claude включена в Настройках.
+
+Опытные пользователи и интеграции могут привязать пользовательскую команду возобновления к текущей terminal surface. Это полезно для инструментов с собственным долговременным состоянием, например tmux-сессий или пользовательских agent CLI:
+
+```bash
+cmux surface resume set --kind tmux --checkpoint work --shell "tmux attach -t work"
+cmux surface resume show --json
+cmux surface resume clear --checkpoint work
+```
+
+Привязка остается связанной с surface в cmux. Привязки, созданные публичным CLI или socket, сохраняются для проверки и ручного возобновления, если вы не одобрите подписанный префикс команды для автоматического возобновления. Одобренные префиксы также привязаны к рабочему каталогу и точным значениям окружения, если они присутствуют. Просматривайте или редактируйте одобрения в **Настройки > Терминал > Resume Commands**. cmux автоматически запускает только привязки возобновления, которые помечает как доверенные, например tmux-привязки, обнаруженные из живых процессов, или одобренные пользователем префиксы. Чувствительные ключи окружения, такие как токены, пароли, секреты и API-ключи, отбрасываются перед сохранением привязки возобновления.
+
+Чтобы восстановленные терминалы агентов оставались бездействующими вместо автоматического запуска их команд возобновления, отключите **Настройки > Терминал > Resume Agent Sessions on Reopen** или задайте это в `~/.config/cmux/cmux.json`:
+
+```json
+{
+  "terminal": {
+    "autoResumeAgentSessions": false
+  }
+}
+```
+
+Это отключает только автоматические команды возобновления агентов. cmux по-прежнему восстанавливает сохранённый макет, рабочие каталоги, scrollback и историю браузера.
+
+Если вам нужно вручную повторно применить последний сохранённый снимок, используйте:
+- `File > Reopen Previous Session`
+- `⌘ ⇧ O`
+- `cmux restore-session`
+
+Под капотом cmux записывает версионированный снимок в `~/Library/Application Support/cmux/`, а hooks агентов записывают сопоставления сессий в `~/.cmuxterm/`. При восстановлении cmux сначала перестраивает макет, а затем запускает нативную команду возобновления поддерживаемого агента, когда автоматическое возобновление агентов включено.
+
+Прочтите полное руководство на <https://cmux.com/docs/session-restore>.
+
+## FAQ
+
+### Как cmux связан с Ghostty?
+
+cmux не является форком Ghostty. Он использует [libghostty](https://github.com/ghostty-org/ghostty) как библиотеку для рендеринга терминала, так же как приложения используют WebKit для веб-представлений. Ghostty — это самостоятельный терминал; cmux — это другое приложение, построенное поверх его движка рендеринга.
+
+### Какие платформы поддерживаются?
+
+Пока только macOS. cmux — это нативное приложение Swift + AppKit.
+
+### Есть ли приложение для iOS?
+
+Да, в бета-версии. Свяжите свой iPhone с Mac из окна Mobile Connect и подключайтесь к своим терминалам с телефона, с опциональной пересылкой уведомлений терминала. Оно поставляется в TestFlight как cmux BETA. Смотрите [документацию по iOS](https://cmux.com/docs/ios).
+
+### С какими агентами программирования работает cmux?
+
+Со всеми. cmux — это терминал, поэтому любой агент, работающий в терминале, работает из коробки: Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, Goose, Amp, Cline, Cursor Agent и всё остальное, что можно запустить из командной строки.
+
+### Может ли cmux оркестрировать несколько агентов и субагентов?
+
+Да. Когда агент порождает субагентов или напарников, cmux превращает их в нативные панели и разделения вместо скрытых фоновых процессов. Он поддерживает [Claude Code teams](https://cmux.com/docs/agent-integrations/claude-code-teams) и мульти-модельную оркестрацию [oh-my-opencode](https://cmux.com/docs/agent-integrations/oh-my-opencode), так что каждый агент в запуске виден и управляем.
+
+### Могу ли я использовать cmux с удалёнными машинами?
+
+Да. Открывайте рабочие пространства по SSH и подключайтесь к удалённым tmux-сессиям, чтобы агенты могли работать на удалённом хосте, пока вы управляете ими из cmux. Смотрите [SSH и удалённый доступ](https://cmux.com/docs/ssh).
+
+### Как работают уведомления?
+
+Когда процесс требует внимания, cmux показывает кольца уведомлений вокруг панелей, значки непрочитанного в боковой панели, всплывающее окно уведомлений и десктопное уведомление macOS. Они срабатывают автоматически через стандартные escape-последовательности терминала (OSC 9/99/777), или вы можете запустить их с помощью [cmux CLI](https://cmux.com/docs/notifications#cli-usage) и [хуков агентов](https://cmux.com/docs/notifications#integration-examples). Работает любой агент, поддерживающий hooks или OSC, включая Claude Code, Codex, OpenCode и pi.
+
+### Программируется ли cmux?
+
+Да. Каждое действие доступно через cmux CLI и Unix-сокет: создание рабочих пространств, открытие разделённых панелей, отправка ввода, чтение содержимого экрана, создание снимков экрана и управление встроенным браузером. Смотрите [справочник по CLI](https://cmux.com/docs/api) и документацию по [автоматизации браузера](https://cmux.com/docs/browser-automation).
+
+### Что может встроенный браузер?
+
+cmux может разделить настоящую панель браузера рядом с вашим терминалом, и она полностью программируется: навигация, снимок DOM, клики, ввод, выполнение JavaScript, а также чтение активности консоли и сети через тот же socket API. Агенты используют его для проверки собственных веб-изменений, не покидая cmux. Смотрите [автоматизацию браузера](https://cmux.com/docs/browser-automation).
+
+### Есть ли у cmux skills?
+
+Да. Skills — это многоразовые рабочие процессы, которые вы можете дать любому агенту, работающему в cmux, для таких вещей, как управление CLI, автоматизация рабочих пространств, настройки и поверхности браузера. Просматривайте открытую коллекцию на [cmux-skills](https://github.com/manaflow-ai/cmux-skills) или читайте [документацию по skills](https://cmux.com/docs/skills).
+
+### Могу ли я настроить сочетания клавиш?
+
+Сочетания клавиш терминала читаются из вашего файла конфигурации Ghostty (`~/.config/ghostty/config`). Специфичные для cmux сочетания (рабочие пространства, разделения, браузер, уведомления) можно настроить в Настройках. Полный список смотрите в [сочетаниях по умолчанию](https://cmux.com/docs/keyboard-shortcuts).
+
+### Могу ли я настроить cmux?
+
+Да. Рендеринг терминала использует вашу конфигурацию Ghostty, поэтому темы, шрифты, цвета и курсор переносятся напрямую. Собственные настройки cmux в `~/.config/cmux/cmux.json` управляют боковой панелью, панелью вкладок, разделёнными панелями и поведением, и каждое [сочетание клавиш](https://cmux.com/docs/keyboard-shortcuts) можно редактировать. Смотрите [конфигурацию](https://cmux.com/docs/configuration).
+
+### Сохраняются ли мои сессии?
+
+Да. cmux восстанавливает ваши окна, рабочие пространства, панели, рабочие каталоги и scrollback при повторном запуске, и состояние переживает полную перезагрузку компьютера, а не только закрытие приложения. Сессии агентов, такие как Claude Code, Codex и OpenCode, тоже возвращаются. Смотрите [восстановление сессии](https://cmux.com/docs/session-restore).
+
+### Как он сравнивается с tmux?
+
+tmux — это мультиплексор терминала, который работает внутри любого терминала. cmux — это нативное приложение macOS с GUI: вертикальные вкладки, разделённые панели, встроенный браузер и socket API, всё встроено, без необходимости в файлах конфигурации или префиксных клавишах. Тем не менее, многие с удовольствием используют cmux вместе с SSH и tmux, и cmux может нативно подключаться к вашим удалённым tmux-сессиям ([beta](https://cmux.com/docs/remote-tmux)).
+
+### Бесплатен ли cmux?
+
+Да, cmux бесплатен в использовании. Исходный код доступен на [GitHub](https://github.com/manaflow-ai/cmux).
+
+### Как я могу поддержать cmux?
+
+cmux бесплатен и с открытым исходным кодом, и всегда будет таким. Если вы хотите поддержать разработку и получить ранний доступ к тому, что будет дальше, включая cmux AI, приложение для iOS и Cloud VMs, ознакомьтесь с [cmux Founders Edition](https://github.com/manaflow-ai/cmux#founders-edition).
+
+### У меня есть запрос на функцию или я нашёл ошибку?
+
+Мы хотим об этом услышать. Откройте [issue](https://github.com/manaflow-ai/cmux/issues) или [pull request](https://github.com/manaflow-ai/cmux/pulls) на GitHub, или [напишите нам](mailto:founders@manaflow.com?subject=cmux%20feature%20request).
 
 ## История звёзд
 
-<a href="https://star-history.com/#manaflow-ai/cmux&Date">
+<a href="https://www.star-history.com/?repos=manaflow-ai%2Fcmux&type=date&legend=top-left">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=manaflow-ai/cmux&type=Date&theme=dark" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=manaflow-ai/cmux&type=Date" />
-   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=manaflow-ai/cmux&type=Date" width="600" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=manaflow-ai/cmux&type=date&theme=dark&legend=top-left&sealed_token=N5E-Mdh7zIesE2fP9_q8wEZyOg3un2Ki7u61afJnUUu6ZIUEUsrH_dsPrA8CWrw12owIEezjOyhDiXcfIEoSzAlIybOqvxTk-xCpuXbpnFk86SkJzfErObW1u0MrAuLp-_tXZDM1kAMI2jMtAeXZK3_VEe2HH9dNyhXxgMTCns6c7lMmCJ_kSIgtooYf" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=manaflow-ai/cmux&type=date&legend=top-left&sealed_token=N5E-Mdh7zIesE2fP9_q8wEZyOg3un2Ki7u61afJnUUu6ZIUEUsrH_dsPrA8CWrw12owIEezjOyhDiXcfIEoSzAlIybOqvxTk-xCpuXbpnFk86SkJzfErObW1u0MrAuLp-_tXZDM1kAMI2jMtAeXZK3_VEe2HH9dNyhXxgMTCns6c7lMmCJ_kSIgtooYf" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=manaflow-ai/cmux&type=date&legend=top-left&sealed_token=N5E-Mdh7zIesE2fP9_q8wEZyOg3un2Ki7u61afJnUUu6ZIUEUsrH_dsPrA8CWrw12owIEezjOyhDiXcfIEoSzAlIybOqvxTk-xCpuXbpnFk86SkJzfErObW1u0MrAuLp-_tXZDM1kAMI2jMtAeXZK3_VEe2HH9dNyhXxgMTCns6c7lMmCJ_kSIgtooYf" />
  </picture>
 </a>
 
@@ -247,11 +391,17 @@ cmux **не** восстанавливает состояние живых пр�
 ## Сообщество
 
 - [Discord](https://discord.gg/xsgFEVrWCZ)
+- [WhatsApp](https://chat.whatsapp.com/Fblh7FB58lOI2cx6ccdIqY?mode=gi_t)
 - [GitHub](https://github.com/manaflow-ai/cmux)
 - [X / Twitter](https://twitter.com/manaflowai)
 - [YouTube](https://www.youtube.com/channel/UCAa89_j-TWkrXfk9A3CbASw)
 - [LinkedIn](https://www.linkedin.com/company/manaflow-ai/)
 - [Reddit](https://www.reddit.com/r/cmux/)
+
+<p>
+  <strong>WeChat:</strong> отсканируйте QR-код, чтобы присоединиться к сообществу.<br />
+  <img src="./docs/assets/wechat-community-qr.jpg" alt="QR-код WeChat для присоединения к сообществу cmux" width="240" />
+</p>
 
 ## Издание основателя
 
@@ -268,6 +418,6 @@ cmux бесплатен, с открытым исходным кодом и вс
 
 ## Лицензия
 
-Этот проект лицензирован под GNU Affero General Public License v3.0 или более поздней версии (`AGPL-3.0-or-later`).
+cmux распространяется с открытым исходным кодом по лицензии [GPL-3.0-or-later](LICENSE).
 
-Полный текст см. в файле `LICENSE`.
+Если ваша организация не может соблюдать условия GPL, доступна коммерческая лицензия. Свяжитесь с [founders@manaflow.com](mailto:founders@manaflow.com) для получения подробностей.

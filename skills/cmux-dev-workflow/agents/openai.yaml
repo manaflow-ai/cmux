@@ -1,0 +1,4 @@
+interface:
+  display_name: "cmux Dev Workflow"
+  short_description: "Follow cmux setup, Xcode, and tagged ExtensionKit development rules."
+  default_prompt: "Use this skill when setting up cmux, touching Xcode project files, working with tagged debug builds, or adding sidebar extensions that must coexist with other dev builds."

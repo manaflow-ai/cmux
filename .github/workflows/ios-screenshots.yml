@@ -1,0 +1,223 @@
+name: iOS App Store screenshots
+
+# Captures fastlane screenshots for the public App Store listing (com.cmux.app)
+# on the required device classes — 6.9" iPhone + 13" iPad — in every locale the
+# app is localized in (en-US + ja). The capture runs against a DEBUG build with
+# the CMUX_UITEST_MOCK_DATA hook, so no Apple signing is needed to shoot; only
+# the optional upload-to-ASC step needs the App Store Connect API key.
+#
+# During the CI pause this runs only on explicit dispatch. Upload to App Store
+# Connect additionally requires upload=true.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch or SHA to capture from
+        required: false
+        default: ""
+      languages:
+        description: "Comma-separated App Store locales (app is localized in en-US, ja)"
+        required: false
+        default: "en-US,ja"
+      upload:
+        description: "Upload captured screenshots to the com.cmux.app App Store listing"
+        required: false
+        default: false
+        type: boolean
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  screenshots:
+    # Same lane as the iOS simulator tests: screenshots run inside the Simulator,
+    # not as a foregrounded Mac app, so the Blacksmith foreground limitation does
+    # not apply.
+    runs-on: ${{ vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 60
+    steps:
+      - name: Guard trusted upload ref
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.upload && (inputs.ref != '' || github.ref != 'refs/heads/main') }}
+        run: |
+          echo "::error::Screenshot upload uses App Store Connect secrets and must run from main with no ref override. Run capture-only for arbitrary refs, then upload from main." >&2
+          exit 1
+
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Select Xcode
+        run: |
+          set -euo pipefail
+          if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
+            XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
+          else
+            XCODE_APP="$(find /Applications -maxdepth 1 -type d -name 'Xcode*.app' -print 2>/dev/null | sort | tail -n 1 || true)"
+            [ -n "$XCODE_APP" ] || { echo "No Xcode.app found" >&2; exit 1; }
+            XCODE_DIR="$XCODE_APP/Contents/Developer"
+          fi
+          echo "DEVELOPER_DIR=$XCODE_DIR" >> "$GITHUB_ENV"
+          export DEVELOPER_DIR="$XCODE_DIR"
+          xcodebuild -version
+
+      - name: Install zig
+        run: ./scripts/install-zig-ci.sh
+
+      - name: Ensure iOS simulator runtime
+        run: |
+          set -euo pipefail
+          if xcrun simctl list runtimes available | grep -Eq '\biOS\b'; then exit 0; fi
+          echo "No available iOS simulator runtime; downloading the iOS platform."
+          xcodebuild -downloadPlatform iOS
+          xcrun simctl list runtimes available | grep -Eq '\biOS\b'
+
+      - name: Provision GhosttyKit
+        run: ./scripts/ensure-ghosttykit.sh
+
+      - name: Resolve screenshot devices (6.9" iPhone + 13" iPad)
+        run: |
+          set -euo pipefail
+          # Device model names drift between Xcode versions, so resolve the
+          # required App Store classes at runtime instead of pinning. Pick from
+          # the AVAILABLE SIMULATORS (not device types) so fastlane finds an
+          # existing simulator, and skip RAM-variant duplicates like
+          # "iPad Pro 13-inch (M5) (16GB)" which have no pre-created simulator.
+          python3 - <<'PY' >> "$GITHUB_ENV"
+          import json, re, subprocess
+
+          def simctl(*args):
+              return json.loads(subprocess.check_output(["xcrun", "simctl", "list", *args, "-j"]))
+
+          def vkey(s):
+              return [int(x) for x in re.findall(r"\d+", s or "")] or [0]
+
+          data = simctl("devices", "available")
+          names = sorted({
+              d["name"]
+              for runtime in data.get("devices", {}).values()
+              for d in runtime
+              if d.get("isAvailable", True)
+          })
+
+          def pick(patterns, fallbacks):
+              for pat in patterns:
+                  hits = sorted([n for n in names if re.fullmatch(pat, n)], key=vkey)
+                  if hits:
+                      return hits[-1]
+              for f in fallbacks:
+                  hits = sorted([n for n in names if f(n)], key=vkey)
+                  if hits:
+                      return hits[-1]
+              return None
+
+          # 6.9" iPhone (Pro Max) and 13" iPad (Pro, else Air). "GB" filters out
+          # RAM-variant names that are not instantiated as simulators.
+          iphone = pick([r"iPhone \d+ Pro Max"],
+                        [lambda n: n.startswith("iPhone") and "Pro Max" in n and "GB" not in n,
+                         lambda n: n.startswith("iPhone") and "GB" not in n])
+          ipad = pick([r"iPad Pro 13-inch \(M\d+\)", r"iPad Air 13-inch \(M\d+\)"],
+                      [lambda n: n.startswith("iPad") and "13-inch" in n and "GB" not in n,
+                       lambda n: n.startswith("iPad") and "GB" not in n])
+          if not iphone or not ipad:
+              raise SystemExit("Could not resolve iPhone/iPad from available simulators: " + ", ".join(names))
+          print(f"SNAPSHOT_DEVICES={iphone},{ipad}")
+          PY
+          # $SNAPSHOT_DEVICES is only in $GITHUB_ENV for later steps, not this
+          # shell, so read it back from the file rather than referencing the var
+          # (which would trip `set -u`).
+          grep '^SNAPSHOT_DEVICES=' "$GITHUB_ENV" || { echo "device resolution failed" >&2; exit 1; }
+
+      - name: Ensure fastlane + imagemagick
+        run: |
+          set -euo pipefail
+          # Use the Homebrew fastlane (ships its own Ruby) instead of bundler:
+          # macOS system Ruby is 2.6 but fastlane needs >= 3.0, so `bundle install`
+          # against system Ruby can't resolve. This matches the local dev setup.
+          if ! command -v fastlane >/dev/null 2>&1; then
+            brew install fastlane
+          fi
+          # frameit AND the bezel-less iPad compositor (compose_ipad.py) use
+          # imagemagick. No Pillow / other deps needed.
+          if ! command -v magick >/dev/null 2>&1 && ! command -v convert >/dev/null 2>&1; then
+            brew install imagemagick
+          fi
+          fastlane --version
+
+      - name: Capture screenshots
+        working-directory: ios
+        env:
+          SNAPSHOT_LANGUAGES: ${{ inputs.languages || 'en-US,ja' }}
+          FASTLANE_SKIP_UPDATE_CHECK: "1"
+          FASTLANE_HIDE_CHANGELOG: "1"
+        run: |
+          set -euo pipefail
+          echo "Devices: $SNAPSHOT_DEVICES"
+          echo "Languages: $SNAPSHOT_LANGUAGES"
+          fastlane screenshots
+
+      - name: Stage raw screenshot captures
+        if: ${{ always() }}
+        run: |
+          set -euo pipefail
+          rm -rf ios/fastlane/raw-screenshot-captures
+          mkdir -p ios/fastlane/raw-screenshot-captures
+          # This runs before framing/localization propagation, so it contains
+          # only the untouched simulator captures reviewers need for fidelity.
+          if [ -d ios/fastlane/screenshots ]; then
+            rsync -a --include '*/' --include '*.png' --exclude '*' \
+              ios/fastlane/screenshots/ ios/fastlane/raw-screenshot-captures/
+          else
+            echo "No raw screenshots were produced before capture failed." >&2
+          fi
+
+      - name: Upload raw screenshot captures
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ios-appstore-raw-captures
+          path: ios/fastlane/raw-screenshot-captures
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload screenshots artifact
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ios-appstore-screenshots
+          path: ios/fastlane/screenshots
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Materialize App Store Connect API key
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.upload }}
+        env:
+          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+          ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
+        run: |
+          set -euo pipefail
+          if [ -z "${ASC_API_KEY_ID:-}" ] || [ -z "${ASC_API_ISSUER_ID:-}" ] || [ -z "${ASC_API_KEY_P8_BASE64:-}" ]; then
+            echo "Missing ASC_API_KEY_ID / ASC_API_ISSUER_ID / ASC_API_KEY_P8_BASE64 secrets" >&2
+            exit 1
+          fi
+          KEY_DIR="$HOME/.appstoreconnect/private_keys"
+          mkdir -p "$KEY_DIR"
+          printf '%s' "$ASC_API_KEY_P8_BASE64" | base64 --decode > "$KEY_DIR/AuthKey_${ASC_API_KEY_ID}.p8"
+          chmod 600 "$KEY_DIR/AuthKey_${ASC_API_KEY_ID}.p8"
+          {
+            echo "ASC_API_KEY_ID=$ASC_API_KEY_ID"
+            echo "ASC_API_ISSUER_ID=$ASC_API_ISSUER_ID"
+            echo "ASC_API_KEY_PATH=$KEY_DIR/AuthKey_${ASC_API_KEY_ID}.p8"
+          } >> "$GITHUB_ENV"
+
+      - name: Upload screenshots to App Store Connect
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.upload }}
+        working-directory: ios
+        env:
+          FASTLANE_SKIP_UPDATE_CHECK: "1"
+          FASTLANE_HIDE_CHANGELOG: "1"
+        run: fastlane upload_screenshots

@@ -1,0 +1,639 @@
+import AppKit
+import CmuxTerminalCore
+
+@MainActor
+final class RecoverableMainWindowRoute {
+    let windowId: UUID
+    /// Workspace identities captured while the weak manager is still alive.
+    /// They let owner-deinit cleanup detach remote-tmux mirrors after the
+    /// manager reference has disappeared.
+    let workspaceIds: [UUID]
+    weak var tabManager: TabManager?
+    weak var window: NSWindow?
+    /// Final live-context snapshot. While no replacement context exists, this
+    /// immutable value is the authoritative sidebar state for autosave and
+    /// close history; registration resumes authority from the new live state.
+    let sidebarSnapshot: SessionSidebarSnapshot
+    private(set) var windowDock: DockSplitStore?
+    let order: UInt64
+
+    init(
+        windowId: UUID,
+        tabManager: TabManager,
+        window: NSWindow?,
+        sidebarSnapshot: SessionSidebarSnapshot,
+        windowDock: DockSplitStore? = nil,
+        order: UInt64
+    ) {
+        self.windowId = windowId
+        self.workspaceIds = tabManager.tabs.map(\.id)
+        self.tabManager = tabManager
+        self.window = window
+        self.sidebarSnapshot = sidebarSnapshot
+        self.windowDock = windowDock
+        self.order = order
+    }
+
+    func takeWindowDock() -> DockSplitStore? {
+        defer { windowDock = nil }
+        return windowDock
+    }
+
+    func retireWindowDock() {
+        let dock = takeWindowDock()
+        dock?.retire()
+    }
+}
+
+@MainActor
+final class MainWindowRouteLedger {
+    var routesByWindowId: [UUID: RecoverableMainWindowRoute] = [:]
+    private var nextOrder: UInt64 = 0
+
+    func issueOrder() -> UInt64 {
+        defer { nextOrder &+= 1 }
+        return nextOrder
+    }
+}
+
+@MainActor
+private struct MainWindowRouteSnapshot {
+    let windowId: UUID
+    let tabManager: TabManager
+    let window: NSWindow?
+}
+
+typealias MainWindowSessionPersistenceRoute = (windowId: UUID, tabManager: TabManager, window: NSWindow?, sidebarSnapshot: SessionSidebarSnapshot)
+
+// The retire sweep is the MainWindowRouteRetiring witness: terminal topology
+// changes prompt a coalesced lifecycle audit through the seam instead of the
+// registry reaching up to AppDelegate.shared.
+extension AppDelegate: MainWindowRouteRetiring {}
+
+extension AppDelegate {
+    private func tabManagerCanOwnRecoverableMainWindowRoute(_ manager: TabManager) -> Bool {
+        !manager.isFinalizedForWindowClose
+    }
+
+    func liveRecoverableMainWindow(windowId: UUID, cachedWindow: NSWindow?) -> NSWindow? {
+        let appKitWindows = NSApp.windows
+        guard let cachedWindow,
+              appKitWindows.contains(where: { $0 === cachedWindow }),
+              cachedWindow.isVisible || cachedWindow.isMiniaturized,
+              mainWindowId(from: cachedWindow) == windowId else {
+            return nil
+        }
+        return cachedWindow
+    }
+
+    private func sortedRecoverableMainWindowRoutes() -> [RecoverableMainWindowRoute] {
+        return mainWindowRouteLedger.routesByWindowId.values.sorted { lhs, rhs in
+            if lhs.order != rhs.order {
+                return lhs.order > rhs.order
+            }
+            return lhs.windowId.uuidString < rhs.windowId.uuidString
+        }
+    }
+
+    private func pruneInactiveRecoverableMainWindowRoutes(reason: String) {
+        let inactiveWindowIds = mainWindowRouteLedger.routesByWindowId.compactMap { windowId, route in
+            guard let manager = route.tabManager else { return windowId }
+            return tabManagerCanOwnRecoverableMainWindowRoute(manager) ? nil : windowId
+        }
+        guard !inactiveWindowIds.isEmpty else { return }
+
+        let before = mainWindowRouteLedger.routesByWindowId.count
+        for windowId in inactiveWindowIds {
+            guard let route = mainWindowRouteLedger.routesByWindowId[windowId] else {
+                continue
+            }
+            retireRecoverableMainWindowRouteIfCurrent(
+                route,
+                reason: reason
+            )
+        }
+        let after = mainWindowRouteLedger.routesByWindowId.count
+#if DEBUG
+        if after != before {
+            cmuxDebugLog("recoverableRoute.prune reason=\(reason) removed=\(before - after) remaining=\(after)")
+        }
+#endif
+    }
+
+    private func recoverableMainWindowRouteSnapshot(windowId: UUID) -> MainWindowRouteSnapshot? {
+        guard let route = recoverableMainWindowRoute(windowId: windowId),
+              let manager = route.tabManager,
+              let window = liveRecoverableMainWindow(windowId: route.windowId, cachedWindow: route.window) else {
+            return nil
+        }
+        return MainWindowRouteSnapshot(windowId: route.windowId, tabManager: manager, window: window)
+    }
+
+    private func recoverableMainWindowRouteSnapshots() -> [MainWindowRouteSnapshot] {
+        sortedRecoverableMainWindowRoutes().compactMap { route in
+            guard let manager = route.tabManager,
+                  tabManagerCanOwnRecoverableMainWindowRoute(manager),
+                  let window = liveRecoverableMainWindow(windowId: route.windowId, cachedWindow: route.window) else {
+                return nil
+            }
+            return MainWindowRouteSnapshot(windowId: route.windowId, tabManager: manager, window: window)
+        }
+    }
+
+    private func liveRegisteredMainWindowRouteSnapshots() -> [MainWindowRouteSnapshot] {
+        mainWindowContexts.values.compactMap { context in
+            guard let window = context.window ?? windowForMainWindowId(context.windowId) else { return nil }
+            return MainWindowRouteSnapshot(
+                windowId: context.windowId,
+                tabManager: context.tabManager,
+                window: window
+            )
+        }
+    }
+
+    /// Persistence includes windowless recoverable owners; registered contexts win overlaps.
+    func mainWindowSessionPersistenceRoutes() -> [MainWindowSessionPersistenceRoute] {
+        var seenWindowIds: Set<UUID> = []
+        var seenTabManagers: Set<ObjectIdentifier> = []
+        var routes: [MainWindowSessionPersistenceRoute] = []
+
+        for context in mainWindowContexts.values {
+            let managerId = ObjectIdentifier(context.tabManager)
+            guard !seenWindowIds.contains(context.windowId),
+                  !seenTabManagers.contains(managerId) else {
+                continue
+            }
+            seenWindowIds.insert(context.windowId)
+            seenTabManagers.insert(managerId)
+            routes.append(
+                (
+                    windowId: context.windowId,
+                    tabManager: context.tabManager,
+                    window: context.window ?? windowForMainWindowId(context.windowId),
+                    sidebarSnapshot: sessionSidebarSnapshot(for: context)
+                )
+            )
+        }
+
+        for route in sortedRecoverableMainWindowRoutes() {
+            guard let manager = route.tabManager,
+                  tabManagerCanOwnRecoverableMainWindowRoute(manager) else {
+                continue
+            }
+            let managerId = ObjectIdentifier(manager)
+            guard !seenWindowIds.contains(route.windowId),
+                  !seenTabManagers.contains(managerId) else {
+                continue
+            }
+            seenWindowIds.insert(route.windowId)
+            seenTabManagers.insert(managerId)
+            routes.append(
+                (
+                    windowId: route.windowId,
+                    tabManager: manager,
+                    window: route.window,
+                    sidebarSnapshot: route.sidebarSnapshot
+                )
+            )
+        }
+
+        return routes
+    }
+
+    func retireInactiveRecoverableMainWindowRoutes(reason: String) {
+        pruneInactiveRecoverableMainWindowRoutes(reason: reason)
+    }
+
+    func forgetRecoverableMainWindowRoute(windowId: UUID) {
+        if let route = mainWindowRouteLedger.routesByWindowId[windowId] {
+            retireRecoverableMainWindowRouteIfCurrent(route, reason: "forget")
+#if DEBUG
+            cmuxDebugLog("recoverableRoute.forget windowId=\(String(windowId.uuidString.prefix(8)))")
+#endif
+        }
+    }
+
+    /// Adopts a recoverable route into a newly registered context without
+    /// tearing down the manager's live remote sessions or transferred Dock.
+    /// The caller must take the Dock before adoption; this method only removes
+    /// the temporary route owner registration.
+    func adoptRecoverableMainWindowRoute(windowId: UUID) {
+        guard let route = mainWindowRouteLedger.routesByWindowId[windowId],
+              mainWindowRouteLedger.routesByWindowId[windowId] === route else {
+            return
+        }
+        mainWindowRouteLedger.routesByWindowId.removeValue(forKey: windowId)
+        route.tabManager?.clearRecoverableMainWindowRouteOwnerRegistration(
+            for: route
+        )
+#if DEBUG
+        cmuxDebugLog(
+            "recoverableRoute.adopt windowId=\(String(windowId.uuidString.prefix(8)))"
+        )
+#endif
+    }
+
+    func retireRecoverableMainWindowRouteIfCurrent(
+        _ route: RecoverableMainWindowRoute,
+        reason: String
+    ) {
+        guard mainWindowRouteLedger.routesByWindowId[route.windowId] === route else {
+            return
+        }
+        let workspaceIdsForRemoteTeardown =
+            recoverableRouteWorkspaceIdsForRemoteTeardown(route)
+        mainWindowRouteLedger.routesByWindowId.removeValue(forKey: route.windowId)
+        // The route keeps only a weak manager reference. Detach remote-tmux
+        // mirrors from the captured workspace identities before that manager
+        // can disappear, otherwise the controller-owned SSH connections and
+        // mirror observers can outlive the abandoned window owner.
+        remoteTmuxController.handleWindowWorkspacesClosed(
+            workspaceIds: workspaceIdsForRemoteTeardown
+        )
+        route.tabManager?.clearRecoverableMainWindowRouteOwnerRegistration(
+            for: route
+        )
+        route.retireWindowDock()
+#if DEBUG
+        cmuxDebugLog(
+            "recoverableRoute.retire reason=\(reason) removed=1 remaining=\(mainWindowRouteLedger.routesByWindowId.count)"
+        )
+#endif
+    }
+
+    func rememberRecoverableMainWindowRoute(
+        windowId: UUID,
+        tabManager: TabManager,
+        window: NSWindow?,
+        sidebarSnapshot: SessionSidebarSnapshot,
+        windowDock: DockSplitStore? = nil
+    ) {
+        pruneInactiveRecoverableMainWindowRoutes(reason: "insertion")
+        guard tabManagerCanOwnRecoverableMainWindowRoute(tabManager) else {
+            windowDock?.retire()
+            return
+        }
+        let route = RecoverableMainWindowRoute(
+            windowId: windowId,
+            tabManager: tabManager,
+            window: window,
+            sidebarSnapshot: sidebarSnapshot,
+            windowDock: windowDock,
+            order: mainWindowRouteLedger.issueOrder()
+        )
+        let replacedRoute = mainWindowRouteLedger.routesByWindowId.updateValue(
+            route,
+            forKey: windowId
+        )
+        if let replacedRoute {
+            replacedRoute.tabManager?
+                .clearRecoverableMainWindowRouteOwnerRegistration(
+                    for: replacedRoute
+                )
+            if let replacedDock = replacedRoute.takeWindowDock(),
+               replacedDock !== windowDock {
+                replacedDock.retire()
+            }
+        }
+        tabManager.installRecoverableMainWindowRouteOwnerRegistration(
+            RecoverableMainWindowRouteOwnerRegistration(
+                appDelegate: self,
+                route: route
+            )
+        )
+#if DEBUG
+        cmuxDebugLog("recoverableRoute.remember windowId=\(String(windowId.uuidString.prefix(8)))")
+#endif
+    }
+
+    func recoverableMainWindowRoute(windowId: UUID) -> RecoverableMainWindowRoute? {
+        // Keep the weak manager route alive while SwiftUI/AppKit replaces its
+        // NSWindow. Snapshot-based listing/focus APIs still require a live
+        // window, so this internal route cannot surface a ghost window.
+        guard let route = mainWindowRouteLedger.routesByWindowId[windowId] else {
+            return nil
+        }
+        guard let manager = route.tabManager,
+              tabManagerCanOwnRecoverableMainWindowRoute(manager) else {
+            // Single-route lookups stay O(1). Full-ledger retirement belongs to
+            // insertion and the coalesced lifecycle maintenance sweep.
+            retireRecoverableMainWindowRouteIfCurrent(
+                route,
+                reason: "routeAccess"
+            )
+#if DEBUG
+            cmuxDebugLog("recoverableRoute.prune reason=routeAccess removed=1 remaining=\(mainWindowRouteLedger.routesByWindowId.count)")
+#endif
+            return nil
+        }
+        return route
+    }
+
+    func recoverableMainWindowDocks() -> [DockSplitStore] {
+        pruneInactiveRecoverableMainWindowRoutes(reason: "dockLookup")
+        return sortedRecoverableMainWindowRoutes().compactMap { route in
+            guard let dock = route.windowDock, !dock.isRetired else { return nil }
+            return dock
+        }
+    }
+
+    func recoverableMainWindowIdentity(forExactWindow window: NSWindow) -> (windowId: UUID, tabManager: TabManager)? {
+        guard let route = sortedRecoverableMainWindowRoutes().first(where: { route in
+            guard route.window === window, let manager = route.tabManager else { return false }
+            return tabManagerCanOwnRecoverableMainWindowRoute(manager)
+        }), let manager = route.tabManager else {
+            return nil
+        }
+        return (route.windowId, manager)
+    }
+
+    func ownsMainWindowTabManager(_ tabManager: TabManager) -> Bool {
+        if mainWindowContexts.values.contains(where: { $0.tabManager === tabManager }) {
+            return true
+        }
+        return sortedRecoverableMainWindowRoutes().contains { route in
+            route.tabManager === tabManager
+                && tabManagerCanOwnRecoverableMainWindowRoute(tabManager)
+        }
+    }
+
+    func recoverableMainWindowRoutes() -> [RecoverableMainWindowRoute] {
+        sortedRecoverableMainWindowRoutes().filter { route in
+            guard let manager = route.tabManager,
+                  tabManagerCanOwnRecoverableMainWindowRoute(manager) else {
+                return false
+            }
+            return liveRecoverableMainWindow(
+                windowId: route.windowId,
+                cachedWindow: route.window
+            ) != nil
+        }
+    }
+
+    func listMainWindowSummaries() -> [MainWindowSummary] {
+        var seen: Set<UUID> = []
+        var summaries = liveRegisteredMainWindowRouteSnapshots().map { snapshot in
+            seen.insert(snapshot.windowId)
+            return MainWindowSummary(
+                windowId: snapshot.windowId,
+                isKeyWindow: snapshot.window?.isKeyWindow ?? false,
+                isVisible: snapshot.window?.isVisible ?? false,
+                workspaceCount: snapshot.tabManager.tabs.count,
+                selectedWorkspaceId: snapshot.tabManager.selectedTabId
+            )
+        }
+        for snapshot in recoverableMainWindowRouteSnapshots() where seen.insert(snapshot.windowId).inserted {
+            summaries.append(
+                MainWindowSummary(
+                    windowId: snapshot.windowId,
+                    isKeyWindow: snapshot.window?.isKeyWindow ?? false,
+                    isVisible: snapshot.window?.isVisible ?? false,
+                    workspaceCount: snapshot.tabManager.tabs.count,
+                    selectedWorkspaceId: snapshot.tabManager.selectedTabId
+                )
+            )
+        }
+        return summaries
+    }
+
+    func tabManagerFor(windowId: UUID) -> TabManager? {
+        if let snapshot = liveRegisteredMainWindowRouteSnapshots().first(where: { $0.windowId == windowId }) {
+            return snapshot.tabManager
+        }
+        // A registered context remains the windowId→manager authority even
+        // when its NSWindow is gone (mid-teardown) or absent (windowless test
+        // contexts); otherwise window-scoped routing silently falls back to
+        // another window's manager.
+        if let context = mainWindowContexts.values.first(where: { $0.windowId == windowId }) {
+            return context.tabManager
+        }
+        // The raw ledger preserves lifecycle state while AppKit swaps windows.
+        // Only its live, exact-window snapshot is mutation-routing authority.
+        return recoverableMainWindowRouteSnapshot(windowId: windowId)?.tabManager
+    }
+
+    func windowId(for tabManager: TabManager) -> UUID? {
+        if let windowId = mainWindowContexts.values.first(where: { $0.tabManager === tabManager })?.windowId {
+            return windowId
+        }
+        guard tabManagerCanOwnRecoverableMainWindowRoute(tabManager) else { return nil }
+        return sortedRecoverableMainWindowRoutes()
+            .first(where: { $0.tabManager === tabManager })?
+            .windowId
+    }
+
+    func mainWindowContainingWorkspace(_ workspaceId: UUID) -> NSWindow? {
+        for context in mainWindowContexts.values where context.tabManager.tabs.contains(where: { $0.id == workspaceId }) {
+            if let window = context.window ?? windowForMainWindowId(context.windowId) {
+                return window
+            }
+        }
+        for snapshot in recoverableMainWindowRouteSnapshots() {
+            guard snapshot.tabManager.tabs.contains(where: { $0.id == workspaceId }) else {
+                continue
+            }
+            return snapshot.window
+        }
+        return nil
+    }
+
+    private func scriptableMainWindow(for window: NSWindow) -> ScriptableMainWindowState? {
+        if let context = contextForMainTerminalWindow(window, reindex: false) {
+            return ScriptableMainWindowState(
+                windowId: context.windowId,
+                tabManager: context.tabManager,
+                window: context.window ?? windowForMainWindowId(context.windowId)
+            )
+        }
+
+        // AppKit identifiers and window numbers are lookup hints, not route
+        // authority. A recoverable owner can only route through its exact,
+        // still-live cached window.
+        for snapshot in recoverableMainWindowRouteSnapshots() {
+            guard let routeWindow = snapshot.window,
+                  routeWindow === window else {
+                continue
+            }
+            return ScriptableMainWindowState(
+                windowId: snapshot.windowId,
+                tabManager: snapshot.tabManager,
+                window: routeWindow
+            )
+        }
+        return nil
+    }
+
+    func currentScriptableMainWindow() -> ScriptableMainWindowState? {
+        var seenWindows = Set<ObjectIdentifier>()
+
+        func resolve(_ window: NSWindow?) -> ScriptableMainWindowState? {
+            guard let window else { return nil }
+            guard seenWindows.insert(ObjectIdentifier(window)).inserted else { return nil }
+            return scriptableMainWindow(for: window)
+        }
+
+        if let state = resolve(NSApp.keyWindow) {
+            return state
+        }
+        if let state = resolve(NSApp.mainWindow) {
+            return state
+        }
+        for window in NSApp.orderedWindows {
+            if let state = resolve(window) {
+                return state
+            }
+        }
+        return scriptableMainWindows().first
+    }
+
+    func scriptableMainWindows() -> [ScriptableMainWindowState] {
+        var results: [ScriptableMainWindowState] = []
+        var seen: Set<UUID> = []
+
+        for window in NSApp.orderedWindows {
+            guard let state = scriptableMainWindow(for: window) else { continue }
+            guard seen.insert(state.windowId).inserted else { continue }
+            results.append(state)
+        }
+
+        let remaining = liveRegisteredMainWindowRouteSnapshots()
+            .sorted { $0.windowId.uuidString < $1.windowId.uuidString }
+            .filter { seen.insert($0.windowId).inserted }
+
+        for snapshot in remaining {
+            results.append(
+                ScriptableMainWindowState(
+                    windowId: snapshot.windowId,
+                    tabManager: snapshot.tabManager,
+                    window: snapshot.window
+                )
+            )
+        }
+
+        for snapshot in recoverableMainWindowRouteSnapshots() where seen.insert(snapshot.windowId).inserted {
+            results.append(
+                ScriptableMainWindowState(
+                    windowId: snapshot.windowId,
+                    tabManager: snapshot.tabManager,
+                    window: snapshot.window
+                )
+            )
+        }
+
+        return results
+    }
+
+    func scriptableMainWindow(windowId: UUID) -> ScriptableMainWindowState? {
+        if let context = mainWindowContexts.values.first(where: { $0.windowId == windowId }),
+           let window = context.window ?? windowForMainWindowId(context.windowId) {
+            return ScriptableMainWindowState(
+                windowId: context.windowId,
+                tabManager: context.tabManager,
+                window: window
+            )
+        }
+        guard let snapshot = recoverableMainWindowRouteSnapshot(windowId: windowId) else { return nil }
+        return ScriptableMainWindowState(
+            windowId: snapshot.windowId,
+            tabManager: snapshot.tabManager,
+            window: snapshot.window
+        )
+    }
+
+    /// Filters the route's creation-time identity snapshot against current
+    /// ownership before detaching remote mirrors. Workspaces can move to a new
+    /// manager while the old SwiftUI context is recoverable; those moved IDs
+    /// must not be torn down when the stale route later retires.
+    private func recoverableRouteWorkspaceIdsForRemoteTeardown(
+        _ route: RecoverableMainWindowRoute
+    ) -> [UUID] {
+        return route.workspaceIds.filter { workspaceId in
+            guard let currentOwner = tabManagerFor(tabId: workspaceId) else {
+                // No current owner means the mirror is orphaned; include it
+                // even while the old manager object is still being released.
+                return true
+            }
+            return currentOwner === route.tabManager
+        }
+    }
+
+    func scriptableMainWindowForTab(_ tabId: UUID) -> ScriptableMainWindowState? {
+        if let context = contextContainingTabId(tabId) {
+            guard let window = context.window ?? windowForMainWindowId(context.windowId) else { return nil }
+            return ScriptableMainWindowState(
+                windowId: context.windowId,
+                tabManager: context.tabManager,
+                window: window
+            )
+        }
+        for snapshot in recoverableMainWindowRouteSnapshots() {
+            guard snapshot.tabManager.tabs.contains(where: { $0.id == tabId }) else {
+                continue
+            }
+            return ScriptableMainWindowState(
+                windowId: snapshot.windowId,
+                tabManager: snapshot.tabManager,
+                window: snapshot.window
+            )
+        }
+        return nil
+    }
+
+    func contextContainingTabId(_ tabId: UUID) -> MainWindowContext? {
+        for context in mainWindowContexts.values {
+            if context.tabManager.workspacesById[tabId] != nil {
+                return context
+            }
+        }
+        return nil
+    }
+
+    /// Returns the raw recoverable owner for a tab while AppKit is replacing
+    /// or tearing down its window. Callers that mutate the owner must prefer a
+    /// registered context before consulting this lifecycle route.
+    func recoverableMainWindowRouteContainingTabId(_ tabId: UUID) -> RecoverableMainWindowRoute? {
+        sortedRecoverableMainWindowRoutes().first { route in
+            route.tabManager?.workspacesById[tabId] != nil
+        }
+    }
+
+    /// One-pass `tabId -> workspace title` index across every window context.
+    /// Callers can limit the projection to the workspace ids they render, keeping
+    /// notification lists O(tabs + groups) rather than O(notifications × tabs).
+    /// Window contexts win, then the active `tabManager` fills any missing ids.
+    /// See https://github.com/manaflow-ai/cmux/issues/5794.
+    func tabTitlesByTabId(for requestedTabIds: Set<UUID>? = nil) -> [UUID: String] {
+        var titles: [UUID: String] = [:]
+
+        func appendTitles(from manager: TabManager) {
+            let candidateIds = requestedTabIds ?? Set(manager.tabs.map(\.id))
+            let unresolvedIds = candidateIds.subtracting(titles.keys)
+            titles.merge(manager.resolvedWorkspaceDisplayTitles(for: unresolvedIds)) { current, _ in current }
+        }
+
+        for context in mainWindowContexts.values {
+            appendTitles(from: context.tabManager)
+            if let requestedTabIds, titles.count == requestedTabIds.count { return titles }
+        }
+        if let remainingTitleSource = tabManager {
+            appendTitles(from: remainingTitleSource)
+        }
+        return titles
+    }
+
+    /// Returns the `TabManager` that owns `tabId`, if any.
+    func tabManagerFor(tabId: UUID) -> TabManager? {
+        if let manager = contextContainingTabId(tabId)?.tabManager {
+            return manager
+        }
+        if let manager = recoverableMainWindowRoutes()
+            .compactMap(\.tabManager)
+            .first(where: { $0.workspacesById[tabId] != nil }) {
+            return manager
+        }
+        guard let tabManager, tabManager.workspacesById[tabId] != nil else {
+            return nil
+        }
+        return tabManager
+    }
+}

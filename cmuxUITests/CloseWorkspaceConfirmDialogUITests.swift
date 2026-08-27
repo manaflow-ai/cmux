@@ -7,7 +7,7 @@ final class CloseWorkspaceConfirmDialogUITests: XCTestCase {
     }
 
     func testCmdShiftWShowsCloseWorkspaceConfirmationText() {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         // Force the workspace-close path to require confirmation so we can assert the alert copy.
         app.launchEnvironment["CMUX_UI_TEST_FORCE_CONFIRM_CLOSE_WORKSPACE"] = "1"
         app.launch()
@@ -23,8 +23,8 @@ final class CloseWorkspaceConfirmDialogUITests: XCTestCase {
         // Dismiss without changing state.
         clickCancelOnCloseWorkspaceAlert(app: app)
 
-        XCTAssertFalse(
-            isCloseWorkspaceAlertPresent(app: app),
+        XCTAssertTrue(
+            waitForCloseWorkspaceAlertToDisappear(app: app, timeout: 5.0),
             "Expected close workspace confirmation alert to dismiss after clicking Cancel"
         )
     }
@@ -36,14 +36,23 @@ final class CloseWorkspaceConfirmDialogUITests: XCTestCase {
     }
 
     private func waitForCloseWorkspaceAlert(app: XCUIApplication, timeout: TimeInterval) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if isCloseWorkspaceAlertPresent(app: app) {
-                return true
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-        }
-        return isCloseWorkspaceAlertPresent(app: app)
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                self.isCloseWorkspaceAlertPresent(app: app)
+            },
+            object: NSObject()
+        )
+        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
+    }
+
+    private func waitForCloseWorkspaceAlertToDisappear(app: XCUIApplication, timeout: TimeInterval) -> Bool {
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                !self.isCloseWorkspaceAlertPresent(app: app)
+            },
+            object: NSObject()
+        )
+        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
     }
 
     private func clickCancelOnCloseWorkspaceAlert(app: XCUIApplication) {

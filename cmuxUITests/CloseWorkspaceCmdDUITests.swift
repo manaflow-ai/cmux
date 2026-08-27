@@ -8,7 +8,7 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
     }
 
     func testCmdDConfirmsCloseWhenClosingLastWorkspaceClosesWindow() {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         // Force a confirmation alert when closing the current workspace so we can validate Cmd+D.
         app.launchEnvironment["CMUX_UI_TEST_FORCE_CONFIRM_CLOSE_WORKSPACE"] = "1"
         app.launch()
@@ -27,28 +27,37 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
         )
     }
 
-    func testCmdDConfirmsCloseWhenClosingLastTabClosesWindow() {
-        let app = XCUIApplication()
-        // Closing the last tab should also present a confirmation and accept Cmd+D when it would close the window.
-        app.launchEnvironment["CMUX_UI_TEST_FORCE_CONFIRM_CLOSE_WORKSPACE"] = "1"
+    func testCmdWClosingLastTabKeepsWorkspaceWindowOpen() {
+        let app = XCUIApplication.cmuxTestApplication()
+        let keyequivPath = "/tmp/cmux-ui-test-keyequiv-\(UUID().uuidString).json"
+        try? FileManager.default.removeItem(atPath: keyequivPath)
+        app.launchEnvironment["CMUX_UI_TEST_KEYEQUIV_PATH"] = keyequivPath
         app.launch()
         app.activate()
 
-        // Close current tab (Cmd+W). With a single workspace and a single tab, this will close the window after confirmation.
+        let baseline = loadJSON(atPath: keyequivPath)?["closePanelInvocations"].flatMap(Int.init) ?? 0
         app.typeKey("w", modifierFlags: [.command])
-        XCTAssertTrue(waitForCloseTabAlert(app: app, timeout: 5.0))
+        XCTAssertTrue(
+            waitForKeyequivInt("closePanelInvocations", toBeAtLeast: baseline + 1, atPath: keyequivPath, timeout: 5.0),
+            "Expected Cmd+W to route through the close-current-tab action"
+        )
 
-        // Cmd+D should accept the destructive close and close the window.
-        app.typeKey("d", modifierFlags: [.command])
+        if waitForCloseTabAlert(app: app, timeout: 5.0) {
+            clickCloseOnCloseTabAlert(app: app)
+            XCTAssertFalse(
+                isCloseTabAlertPresent(app: app),
+                "Expected close tab confirmation to dismiss after confirming the close"
+            )
+        }
 
         XCTAssertTrue(
-            waitForNoWindowsOrAppNotRunningForeground(app: app, timeout: 6.0),
-            "Expected Cmd+D to confirm close and close the last window"
+            waitForWindowCount(app: app, atLeast: 1, timeout: 6.0),
+            "Expected Cmd+W on the last tab to keep the workspace window open"
         )
     }
 
     func testCmdNOpensNewWindowWhenNoWindowsOpen() {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchEnvironment["CMUX_UI_TEST_FORCE_CONFIRM_CLOSE_WORKSPACE"] = "1"
         app.launch()
         app.activate()
@@ -76,7 +85,7 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
     func testChildExitInHorizontalSplitClosesOnlyExitedPane() {
         let attempts = 8
         for attempt in 1...attempts {
-            let app = XCUIApplication()
+            let app = XCUIApplication.cmuxTestApplication()
             let dataPath = "/tmp/cmux-ui-test-child-exit-split-\(UUID().uuidString).json"
             try? FileManager.default.removeItem(atPath: dataPath)
 
@@ -114,7 +123,7 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
     }
 
     func testCtrlDFromKeyboardInHorizontalSplitClosesOnlyFocusedPane() {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         let dataPath = "/tmp/cmux-ui-test-child-exit-keyboard-\(UUID().uuidString).json"
         try? FileManager.default.removeItem(atPath: dataPath)
         app.launchEnvironment["CMUX_UI_TEST_CHILD_EXIT_KEYBOARD_SETUP"] = "1"
@@ -169,8 +178,60 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
         }
     }
 
+    func testCtrlDOnOnlyTerminalCancelRespawnsThenQuitExitsApp() {
+        let app = XCUIApplication.cmuxTestApplication()
+        let readyPath = "/tmp/cmux-ui-last-terminal-ready-\(UUID().uuidString)"
+        let recoveredPath = "/tmp/cmux-ui-last-terminal-recovered-\(UUID().uuidString)"
+        try? FileManager.default.removeItem(atPath: readyPath)
+        try? FileManager.default.removeItem(atPath: recoveredPath)
+        defer {
+            try? FileManager.default.removeItem(atPath: readyPath)
+            try? FileManager.default.removeItem(atPath: recoveredPath)
+            if app.state != .notRunning {
+                app.terminate()
+            }
+        }
+
+        app.launch()
+        app.activate()
+
+        XCTAssertTrue(waitForWindowCount(app: app, toBe: 1, timeout: 8.0))
+        let terminal = app.textViews.firstMatch
+        XCTAssertTrue(terminal.waitForExistence(timeout: 8.0), "Expected the sole terminal text area")
+        terminal.click()
+        app.typeText("touch \(readyPath)\n")
+        XCTAssertTrue(waitForFile(atPath: readyPath, timeout: 8.0), "Expected the initial shell to accept input")
+
+        app.typeText("export CMUX_LAST_TERMINAL_TEST_STATE=old; printf 'OLD_SCROLLBACK_MARKER\\n'\n")
+        app.typeKey("d", modifierFlags: [.control])
+
+        XCTAssertTrue(waitForQuitCmuxAlert(app: app, timeout: 8.0))
+        app.buttons["Cancel"].firstMatch.click()
+        XCTAssertTrue(waitForQuitCmuxAlertToDisappear(app: app, timeout: 8.0))
+        XCTAssertTrue(waitForWindowCount(app: app, toBe: 1, timeout: 8.0))
+
+        let replacementTerminal = app.textViews.firstMatch
+        XCTAssertTrue(replacementTerminal.waitForExistence(timeout: 8.0), "Expected a replacement terminal")
+        replacementTerminal.click()
+        app.typeText(
+            "if [ -z \"${CMUX_LAST_TERMINAL_TEST_STATE+x}\" ]; then touch \(recoveredPath); fi\n"
+        )
+        XCTAssertTrue(
+            waitForFile(atPath: recoveredPath, timeout: 8.0),
+            "Expected a fresh focused shell without the exited shell's environment"
+        )
+
+        app.typeKey("d", modifierFlags: [.control])
+        XCTAssertTrue(waitForQuitCmuxAlert(app: app, timeout: 8.0))
+        app.buttons["Quit"].firstMatch.click()
+        XCTAssertTrue(
+            waitForNoWindowsOrAppNotRunningForeground(app: app, timeout: 8.0),
+            "Expected Quit to exit cmux completely"
+        )
+    }
+
     func testCtrlDFromKeyboardInThreePaneLayoutClosesOnlyFocusedPane() {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         let dataPath = "/tmp/cmux-ui-test-child-exit-keyboard-tree-\(UUID().uuidString).json"
         try? FileManager.default.removeItem(atPath: dataPath)
         app.launchEnvironment["CMUX_UI_TEST_CHILD_EXIT_KEYBOARD_SETUP"] = "1"
@@ -229,7 +290,7 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
         // any single bad close routing/focus cycle.
         let attempts = 8
         for attempt in 1...attempts {
-            let app = XCUIApplication()
+            let app = XCUIApplication.cmuxTestApplication()
             let dataPath = "/tmp/cmux-ui-test-child-exit-keyboard-2x2-\(UUID().uuidString).json"
             try? FileManager.default.removeItem(atPath: dataPath)
             app.launchEnvironment["CMUX_UI_TEST_CHILD_EXIT_KEYBOARD_SETUP"] = "1"
@@ -302,7 +363,7 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
     func testCtrlDAfterClosingBottomRowIn2x2KeepsWorkspaceOpen() {
         let attempts = 8
         for attempt in 1...attempts {
-            let app = XCUIApplication()
+            let app = XCUIApplication.cmuxTestApplication()
             let dataPath = "/tmp/cmux-ui-test-child-exit-keyboard-2x2-bottom-\(UUID().uuidString).json"
             try? FileManager.default.removeItem(atPath: dataPath)
             app.launchEnvironment["CMUX_UI_TEST_CHILD_EXIT_KEYBOARD_SETUP"] = "1"
@@ -375,7 +436,7 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
     func testCtrlDFromRealKeyboardAfterClosingRightColumnIn2x2KeepsWorkspaceOpen() {
         let attempts = 8
         for attempt in 1...attempts {
-            let app = XCUIApplication()
+            let app = XCUIApplication.cmuxTestApplication()
             let dataPath = "/tmp/cmux-ui-test-child-exit-keyboard-2x2-realkey-\(UUID().uuidString).json"
             try? FileManager.default.removeItem(atPath: dataPath)
             app.launchEnvironment["CMUX_UI_TEST_CHILD_EXIT_KEYBOARD_SETUP"] = "1"
@@ -455,7 +516,7 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
     func testCtrlDFromRealKeyboardInHorizontalSplitKeepsWindowOpen() {
         let attempts = 12
         for attempt in 1...attempts {
-            let app = XCUIApplication()
+            let app = XCUIApplication.cmuxTestApplication()
             let dataPath = "/tmp/cmux-ui-test-child-exit-keyboard-lr-realkey-\(UUID().uuidString).json"
             try? FileManager.default.removeItem(atPath: dataPath)
             app.launchEnvironment["CMUX_UI_TEST_CHILD_EXIT_KEYBOARD_SETUP"] = "1"
@@ -535,7 +596,7 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
     func testCtrlDEarlyDuringSplitStartupKeepsWindowOpen() {
         let attempts = 12
         for attempt in 1...attempts {
-            let app = XCUIApplication()
+            let app = XCUIApplication.cmuxTestApplication()
             let dataPath = "/tmp/cmux-ui-test-child-exit-keyboard-lr-early-ctrl-\(UUID().uuidString).json"
             try? FileManager.default.removeItem(atPath: dataPath)
             app.launchEnvironment["CMUX_UI_TEST_CHILD_EXIT_KEYBOARD_SETUP"] = "1"
@@ -595,76 +656,151 @@ final class CloseWorkspaceCmdDUITests: XCTestCase {
     }
 
     private func waitForCloseWorkspaceAlert(app: XCUIApplication, timeout: TimeInterval) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if app.dialogs.containing(.staticText, identifier: "Close workspace?").firstMatch.exists { return true }
-            if app.alerts.containing(.staticText, identifier: "Close workspace?").firstMatch.exists { return true }
-            if app.staticTexts["Close workspace?"].exists { return true }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-        }
-        return false
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                app.dialogs.containing(.staticText, identifier: "Close workspace?").firstMatch.exists ||
+                app.alerts.containing(.staticText, identifier: "Close workspace?").firstMatch.exists ||
+                app.staticTexts["Close workspace?"].exists
+            },
+            object: NSObject()
+        )
+        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
+    }
+
+    private func waitForQuitCmuxAlert(app: XCUIApplication, timeout: TimeInterval) -> Bool {
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                app.staticTexts["Quit cmux?"].exists
+            },
+            object: NSObject()
+        )
+        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
+    }
+
+    private func waitForQuitCmuxAlertToDisappear(app: XCUIApplication, timeout: TimeInterval) -> Bool {
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                !app.staticTexts["Quit cmux?"].exists
+            },
+            object: NSObject()
+        )
+        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
+    }
+
+    private func waitForFile(atPath path: String, timeout: TimeInterval) -> Bool {
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                FileManager.default.fileExists(atPath: path)
+            },
+            object: NSObject()
+        )
+        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
     }
 
     private func waitForCloseTabAlert(app: XCUIApplication, timeout: TimeInterval) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if app.dialogs.containing(.staticText, identifier: "Close tab?").firstMatch.exists { return true }
-            if app.alerts.containing(.staticText, identifier: "Close tab?").firstMatch.exists { return true }
-            if app.staticTexts["Close tab?"].exists { return true }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                self.isCloseTabAlertPresent(app: app)
+            },
+            object: NSObject()
+        )
+        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
+    }
+
+    // Must match the defaultValue for dialog.closeTab.title in TabManager.
+    private func isCloseTabAlertPresent(app: XCUIApplication) -> Bool {
+        if app.dialogs.containing(.staticText, identifier: "Close tab?").firstMatch.exists { return true }
+        if app.alerts.containing(.staticText, identifier: "Close tab?").firstMatch.exists { return true }
+        return app.staticTexts["Close tab?"].exists
+    }
+
+    // Must match the defaultValue for dialog.closeTab.title in TabManager.
+    private func clickCloseOnCloseTabAlert(app: XCUIApplication) {
+        let dialog = app.dialogs.containing(.staticText, identifier: "Close tab?").firstMatch
+        if dialog.exists {
+            dialog.buttons["Close"].firstMatch.click()
+            return
         }
-        return false
+
+        let alert = app.alerts.containing(.staticText, identifier: "Close tab?").firstMatch
+        if alert.exists {
+            alert.buttons["Close"].firstMatch.click()
+            return
+        }
+
+        let anyDialog = app.dialogs.firstMatch
+        if anyDialog.exists, anyDialog.buttons["Close"].exists {
+            anyDialog.buttons["Close"].firstMatch.click()
+        }
     }
 
     private func waitForWindowCount(app: XCUIApplication, toBe count: Int, timeout: TimeInterval) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if app.windows.count == count { return true }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-        }
-        return app.windows.count == count
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                app.windows.count == count
+            },
+            object: NSObject()
+        )
+        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
     }
 
     private func waitForWindowCount(app: XCUIApplication, atLeast count: Int, timeout: TimeInterval) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if app.windows.count >= count { return true }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-        }
-        return app.windows.count >= count
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                app.windows.count >= count
+            },
+            object: NSObject()
+        )
+        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
     }
 
     private func waitForNoWindowsOrAppNotRunningForeground(app: XCUIApplication, timeout: TimeInterval) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if app.state != .runningForeground { return true }
-            if app.windows.count == 0 { return true }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-        }
-        return app.state != .runningForeground || app.windows.count == 0
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                app.state != .runningForeground || app.windows.count == 0
+            },
+            object: NSObject()
+        )
+        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
+    }
+
+    private func waitForKeyequivInt(_ key: String, toBeAtLeast expected: Int, atPath path: String, timeout: TimeInterval) -> Bool {
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                let value = self.loadJSON(atPath: path)?[key].flatMap(Int.init) ?? 0
+                return value >= expected
+            },
+            object: NSObject()
+        )
+        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
     }
 
     private func waitForAnyJSON(atPath path: String, timeout: TimeInterval) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if loadJSON(atPath: path) != nil { return true }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-        }
-        return loadJSON(atPath: path) != nil
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                self.loadJSON(atPath: path) != nil
+            },
+            object: NSObject()
+        )
+        return XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed
     }
 
     private func waitForJSONKey(_ key: String, equals expected: String, atPath path: String, timeout: TimeInterval) -> [String: String]? {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if let data = loadJSON(atPath: path), data[key] == expected {
-                return data
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        var matchedData: [String: String]?
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { _, _ in
+                guard let data = self.loadJSON(atPath: path), data[key] == expected else {
+                    return false
+                }
+                matchedData = data
+                return true
+            },
+            object: NSObject()
+        )
+        guard XCTWaiter().wait(for: [expectation], timeout: timeout) == .completed else {
+            return nil
         }
-        if let data = loadJSON(atPath: path), data[key] == expected {
-            return data
-        }
-        return nil
+        return matchedData
     }
 
     private func assertCtrlDPreconditionsBeforeTrigger(

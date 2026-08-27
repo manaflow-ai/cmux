@@ -1,0 +1,16 @@
+[package]
+name = "cmux-pty"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Shared PTY allocation and process spawning for cmux"
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow.workspace = true
+libc.workspace = true
+portable-pty.workspace = true

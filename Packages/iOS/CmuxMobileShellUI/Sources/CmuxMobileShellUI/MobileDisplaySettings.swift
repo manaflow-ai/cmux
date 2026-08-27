@@ -1,0 +1,221 @@
+import CMUXMobileCore
+import CmuxMobileSupport
+import Foundation
+import Observation
+
+/// User-tunable display preferences for the mobile workspace UI, persisted to an
+/// injected ``UserDefaults``.
+///
+/// Constructed once at the app composition root and injected into the SwiftUI
+/// environment (no singleton). Views read it through `@Environment` and bind to
+/// it with `@Bindable`; the `@Observable` conformance drives re-renders when a
+/// preference changes. The backing store is injected so tests pass a scoped
+/// `UserDefaults(suiteName:)` instead of polluting `.standard`.
+///
+/// ```swift
+/// let settings = MobileDisplaySettings(defaults: UserDefaults(suiteName: "test")!)
+/// settings.wrapWorkspaceTitles = true // persisted to the injected defaults
+/// ```
+@MainActor
+@Observable
+public final class MobileDisplaySettings {
+    // UserDefaults is Apple-documented thread-safe; the synchronous read in
+    // `init` and the write-through in `didSet` are safe nonisolated.
+    private nonisolated(unsafe) let defaults: UserDefaults
+    public let haptics: MobileHapticFeedback
+    private static let wrapWorkspaceTitlesKey = "cmux.mobile.wrapWorkspaceTitles"
+    private static let showAltScreenNoticeKey = "cmux.mobile.showAltScreenNotice"
+    private static let showMissingFilesKey = "cmux.mobile.showMissingFiles"
+    private static let terminalFolderTapEnabledKey = "cmux.mobile.terminalFolderTapEnabled"
+    private static let workspacePreviewLineCountKey = "cmux.mobile.workspacePreviewLineCount"
+    private static let unreadIndicatorLeftShiftKey = "cmux.mobile.debug.unreadIndicatorLeftShift.v2"
+    private static let unreadBadgeDiameterKey = "cmux.mobile.debug.unreadBadgeDiameter.v1"
+    #if DEBUG
+    private static let taskComposerShellIconVariantKey = "cmux.mobile.debug.taskComposerShellIconVariant.v1"
+    #endif
+
+    /// The preview line counts the "Preview Lines" setting offers.
+    public static let workspacePreviewLineCountRange = 1...2
+    /// Default preview line count when nothing is stored (iMessage-style two
+    /// lines).
+    public static let defaultWorkspacePreviewLineCount = 2
+    /// Debug slider range for moving the unread dot left, in points.
+    public static let unreadIndicatorLeftShiftRange: ClosedRange<Double> = 0...24
+    /// With the workspace list's 12pt leading row inset, 10pt unread gutter, and
+    /// 11pt unread dot, this places the dot's leading edge 10pt from the screen.
+    public static let defaultUnreadIndicatorLeftShift = 1.5
+    /// Debug slider range for the unread count badge's circle diameter, in
+    /// points.
+    public static let unreadBadgeDiameterRange: ClosedRange<Double> = 8...28
+    /// The shipping badge diameter, picked by dogfood in the Unread Indicator
+    /// lab (the Mac sidebar badge is 16pt; the phone reads better at 20pt).
+    public static let defaultUnreadBadgeDiameter = 20.0
+
+    /// Whether workspace-list row titles wrap onto multiple lines instead of
+    /// truncating to a single line. Defaults to `false` (single-line). Mutating
+    /// this writes through to the injected ``UserDefaults``.
+    public var wrapWorkspaceTitles: Bool {
+        didSet { defaults.set(wrapWorkspaceTitles, forKey: Self.wrapWorkspaceTitlesKey) }
+    }
+
+    /// Whether the alternate-screen sizing notice is shown. Defaults to `true`.
+    /// The notice's "Don't Show Again" action sets this to `false`; mutating
+    /// this writes through to the injected ``UserDefaults``.
+    public var showAltScreenNotice: Bool {
+        didSet { defaults.set(showAltScreenNotice, forKey: Self.showAltScreenNoticeKey) }
+    }
+
+    /// Whether artifact galleries include paths that no longer exist on the
+    /// connected Mac. Defaults to `false`. Mutating this writes through to the
+    /// injected ``UserDefaults``.
+    public var showMissingFiles: Bool {
+        didSet { defaults.set(showMissingFiles, forKey: Self.showMissingFilesKey) }
+    }
+
+    /// Whether tapping a directory path in the terminal opens the folder browser.
+    /// Defaults to `true`. File-path taps remain enabled regardless of this value.
+    /// Mutating this writes through to the injected ``UserDefaults``.
+    public var terminalFolderTapEnabled: Bool {
+        didSet { defaults.set(terminalFolderTapEnabled, forKey: Self.terminalFolderTapEnabledKey) }
+    }
+
+    /// Whether cmux emits app-owned haptic feedback. Defaults to `true`.
+    /// This is the sole observed writer for the persisted preference; haptic
+    /// emitters read the same defaults store through ``haptics``.
+    public var hapticFeedbackEnabled: Bool {
+        didSet {
+            defaults.set(hapticFeedbackEnabled, forKey: MobileHapticFeedback.enabledDefaultsKey)
+        }
+    }
+
+    /// History rows the terminal mirror hydrates when it connects (deeper
+    /// values scroll further back; larger one-time download at connect).
+    /// Defaults to ``MobileTerminalScrollbackPreference/defaultRows``.
+    /// Mutating this clamps to the supported range and writes through to the
+    /// injected ``UserDefaults`` under the shared preference key the shell
+    /// reads at hydration time.
+    public var terminalScrollbackRows: Int {
+        didSet {
+            let clamped = MobileTerminalScrollbackPreference.clamped(terminalScrollbackRows)
+            if clamped != terminalScrollbackRows { terminalScrollbackRows = clamped }
+            defaults.set(clamped, forKey: MobileTerminalScrollbackPreference.defaultsKey)
+        }
+    }
+
+    /// How many lines a workspace row's activity preview shows (1 or 2).
+    /// Defaults to 2. Mutating this clamps to the supported range and writes
+    /// through to the injected ``UserDefaults``.
+    public var workspacePreviewLineCount: Int {
+        didSet {
+            let clamped = Self.clampedWorkspacePreviewLineCount(workspacePreviewLineCount)
+            // Assigning inside didSet does not re-trigger the observer.
+            if clamped != workspacePreviewLineCount { workspacePreviewLineCount = clamped }
+            defaults.set(clamped, forKey: Self.workspacePreviewLineCountKey)
+        }
+    }
+
+    /// DEBUG-only layout tuning value, exposed in Settings > Developer. Positive
+    /// values move the unread indicator left without changing row column widths.
+    public var unreadIndicatorLeftShift: Double {
+        didSet {
+            let clamped = Self.clamped(unreadIndicatorLeftShift, to: Self.unreadIndicatorLeftShiftRange)
+            if clamped != unreadIndicatorLeftShift { unreadIndicatorLeftShift = clamped }
+            defaults.set(clamped, forKey: Self.unreadIndicatorLeftShiftKey)
+        }
+    }
+
+    /// DEBUG-only layout tuning value, exposed in the Unread Indicator lab:
+    /// the count badge's circle diameter. Rows reserve rail spacing from it,
+    /// so growing the circle pushes the rail/text column right instead of
+    /// overlapping it.
+    public var unreadBadgeDiameter: Double {
+        didSet {
+            let clamped = Self.clamped(unreadBadgeDiameter, to: Self.unreadBadgeDiameterRange)
+            if clamped != unreadBadgeDiameter { unreadBadgeDiameter = clamped }
+            defaults.set(clamped, forKey: Self.unreadBadgeDiameterKey)
+        }
+    }
+
+    #if DEBUG
+    /// Persisted selection for the debug-only Shell icon lab.
+    var taskComposerShellIconVariant: TaskComposerShellIconVariant {
+        didSet {
+            defaults.set(
+                taskComposerShellIconVariant.rawValue,
+                forKey: Self.taskComposerShellIconVariantKey
+            )
+        }
+    }
+
+    /// DEBUG-only override forcing the rebuilt keyboard dock path on this
+    /// device (iOS ≤26; legacy is the shipping default), exposed in
+    /// Settings > Developer for keyboard-pinning A/B dogfood. Terminal hosts
+    /// snapshot the flag when they mount, so a change applies after the
+    /// workspace is reopened. Writes through to the shared
+    /// `UserDefaults.cmuxForceRebuildKeyboardDockKey` that
+    /// `GhosttySurfaceHostView` reads.
+    public var forceRebuildKeyboardDock: Bool {
+        didSet {
+            defaults.set(
+                forceRebuildKeyboardDock,
+                forKey: UserDefaults.cmuxForceRebuildKeyboardDockKey
+            )
+        }
+    }
+    #else
+    /// Production builds expose only the shipping Shell icon treatment.
+    var taskComposerShellIconVariant: TaskComposerShellIconVariant { .current }
+    #endif
+
+    /// Creates the display settings, seeding stored values from `defaults`.
+    /// - Parameter defaults: The store backing the persisted preferences.
+    ///     Defaults to `.standard`; tests pass a scoped suite. Stored properties
+    ///     are initialized from `defaults`; absent keys read as their default
+    ///     (single-line titles, enabled folder taps, hidden missing files, two
+    ///     preview lines) without a write.
+    public init(defaults: UserDefaults = .standard) {
+        let haptics = MobileHapticFeedback(defaults: defaults)
+        self.defaults = defaults
+        self.haptics = haptics
+        self.wrapWorkspaceTitles = defaults.bool(forKey: Self.wrapWorkspaceTitlesKey)
+        self.showAltScreenNotice = defaults.object(forKey: Self.showAltScreenNoticeKey) as? Bool ?? true
+        self.showMissingFiles = defaults.bool(forKey: Self.showMissingFilesKey)
+        self.terminalFolderTapEnabled = defaults.object(forKey: Self.terminalFolderTapEnabledKey) as? Bool ?? true
+        self.hapticFeedbackEnabled = haptics.isEnabled
+        self.terminalScrollbackRows = MobileTerminalScrollbackPreference.resolve(from: defaults)
+        let storedPreviewLines = defaults.object(forKey: Self.workspacePreviewLineCountKey) as? Int
+        self.workspacePreviewLineCount = Self.clampedWorkspacePreviewLineCount(
+            storedPreviewLines ?? Self.defaultWorkspacePreviewLineCount
+        )
+        let storedUnreadLeftShift = defaults.object(forKey: Self.unreadIndicatorLeftShiftKey) as? Double
+        self.unreadIndicatorLeftShift = Self.clamped(
+            storedUnreadLeftShift ?? Self.defaultUnreadIndicatorLeftShift,
+            to: Self.unreadIndicatorLeftShiftRange
+        )
+        let storedUnreadBadgeDiameter = defaults.object(forKey: Self.unreadBadgeDiameterKey) as? Double
+        self.unreadBadgeDiameter = Self.clamped(
+            storedUnreadBadgeDiameter ?? Self.defaultUnreadBadgeDiameter,
+            to: Self.unreadBadgeDiameterRange
+        )
+        #if DEBUG
+        self.taskComposerShellIconVariant = defaults.string(
+            forKey: Self.taskComposerShellIconVariantKey
+        ).flatMap(TaskComposerShellIconVariant.init(rawValue:)) ?? .current
+        self.forceRebuildKeyboardDock = defaults.cmuxForceRebuildKeyboardDock
+        #endif
+    }
+
+    /// Clamps a stored or assigned preview line count to the supported range.
+    /// A static member (not a file-scope func) because the package-conventions
+    /// linter forbids free functions in the mobile packages.
+    private static func clampedWorkspacePreviewLineCount(_ count: Int) -> Int {
+        min(
+            max(count, workspacePreviewLineCountRange.lowerBound),
+            workspacePreviewLineCountRange.upperBound
+        )
+    }
+
+    private static func clamped(_ value: Double, to range: ClosedRange<Double>) -> Double {
+        min(max(value, range.lowerBound), range.upperBound)
+    }
+}

@@ -1,0 +1,9 @@
+{
+  "description": "A workspace at the repo cwd with a live Claude agent in its first surface, so composer/dictation/paste flows have something to type into. --id-format uuids makes the captured workspace_id a stable UUID.",
+  "steps": [
+    {
+      "args": ["--id-format", "uuids", "workspace", "create", "--name", "Composer", "--cwd", "${cwd}", "--command", "claude", "--json"],
+      "capture": { "ws": "workspace_id" }
+    }
+  ]
+}

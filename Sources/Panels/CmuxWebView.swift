@@ -1,14 +1,49 @@
 import AppKit
 import Bonsplit
+import CmuxBrowser
 import ObjectiveC
 import UniformTypeIdentifiers
 import WebKit
 
-/// WKWebView tends to consume some Command-key equivalents (e.g. Cmd+N/Cmd+W),
-/// preventing the app menu/SwiftUI Commands from receiving them. Route menu
-/// key equivalents first so app-level shortcuts continue to work when WebKit is
-/// the first responder.
+/// WKWebView can consume app command equivalents before app menu/SwiftUI Commands.
+/// Route app/menu shortcuts first, but allow browser content to try browser-local
+/// Find shortcuts. The configured shortcut stays app-owned so cmux can choose browser
+/// find or right-sidebar file search from the current focus owner.
 final class CmuxWebView: WKWebView {
+    var browserViewportModel: BrowserViewportModel?
+    var onBrowserViewportHierarchyChanged: (() -> Void)?
+
+    /// One-shot app-owned internal navigations (file/data/blob/etc.) that
+    /// must pass the browser URL policy's trusted-load seam. Page callbacks
+    /// never add to this set.
+    private var trustedInternalNavigationURLs: Set<String> = []
+
+    @MainActor
+    func markTrustedInternalNavigation(_ url: URL) {
+        trustedInternalNavigationURLs.insert(url.absoluteString)
+    }
+
+    @MainActor
+    func consumeTrustedInternalNavigation(_ url: URL) -> Bool {
+        trustedInternalNavigationURLs.remove(url.absoluteString) != nil
+    }
+
+    @MainActor
+    func clearTrustedInternalNavigationGrants() {
+        trustedInternalNavigationURLs.removeAll()
+    }
+
+    @MainActor
+    func resetTrustedInternalNavigationState() {
+        clearTrustedInternalNavigationGrants()
+    }
+
+    // WebKit registers web-content edit commands on the view's `undoManager`;
+    // owning one per web view keeps every page's undo stack scoped to this
+    // view's lifetime instead of the window's shared undo manager.
+    // See CmuxWebViewWebContentUndo.swift.
+    let webContentUndoManager = UndoManager()
+
     // Some sites/WebKit paths report middle-click link activations as
     // WKNavigationAction.buttonNumber=4 instead of 2. Track a recent local
     // middle-click so navigation delegates can recover intent reliably.
@@ -16,9 +51,209 @@ final class CmuxWebView: WKWebView {
         let webViewID: ObjectIdentifier
         let uptime: TimeInterval
     }
-
     private static var lastMiddleClickIntent: MiddleClickIntent?
     private static let middleClickIntentMaxAge: TimeInterval = 0.8
+    private static let pasteAsPlainTextFocusMessageHandlerName = "cmuxPasteAsPlainTextFocus"
+    private static let browserFocusModeContextMenuItemIdentifier =
+        NSUserInterfaceItemIdentifier("cmux.browserFocusMode.toggle")
+    private static var pasteAsPlainTextFocusHandlerInstalledKey: UInt8 = 0
+    private static var diffViewerEditableFocusHandlerInstalledKey: UInt8 = 0
+
+    private static let pasteAsPlainTextSharedHelpersScriptSource = """
+    const __cmuxPasteAsPlainTextHelpers = (() => {
+      const existing = window.__cmuxPasteAsPlainTextHelpers;
+      if (existing) return existing;
+
+      const supportedTextInputTypes = new Set([
+        "",
+        "text",
+        "search",
+        "tel",
+        "url",
+        "email",
+        "password",
+        "number",
+        "date",
+        "datetime-local",
+        "month",
+        "time",
+        "week"
+      ]);
+
+      const deepestActiveElement = (root) => {
+        let active = root?.activeElement ?? null;
+        while (active) {
+          const shadowActive = active.shadowRoot?.activeElement ?? null;
+          if (shadowActive && shadowActive !== active) {
+            active = shadowActive;
+            continue;
+          }
+
+          const tagName = typeof active.tagName === "string" ? active.tagName.toUpperCase() : "";
+          if (tagName === "IFRAME") {
+            try {
+              const frameActive = active.contentDocument?.activeElement ?? null;
+              if (frameActive && frameActive !== active) {
+                active = frameActive;
+                continue;
+              }
+            } catch (_) {}
+          }
+
+          break;
+        }
+        return active;
+      };
+
+      const isPlainTextTextControl = (el) => {
+        if (!el || el.disabled || el.readOnly) return false;
+
+        const tagName = typeof el.tagName === "string" ? el.tagName.toUpperCase() : "";
+        if (tagName === "TEXTAREA") return true;
+        if (tagName !== "INPUT") return false;
+
+        const type = typeof el.type === "string" ? el.type.toLowerCase() : "text";
+        return supportedTextInputTypes.has(type);
+      };
+
+      const isFocusedCrossOriginFrameElement = (el) => {
+        const tagName = typeof el?.tagName === "string" ? el.tagName.toUpperCase() : "";
+        if (tagName !== "IFRAME") return false;
+        try {
+          void el.contentDocument;
+          return false;
+        } catch (_) {
+          return true;
+        }
+      };
+
+      const resolvedCandidateElement = (el) => {
+        if (!el) return deepestActiveElement(document);
+
+        const shadowActive = el.shadowRoot?.activeElement ?? null;
+        if (shadowActive && shadowActive !== el) {
+          return deepestActiveElement(el.shadowRoot) ?? shadowActive;
+        }
+
+        const tagName = typeof el.tagName === "string" ? el.tagName.toUpperCase() : "";
+        if (tagName === "IFRAME") {
+          try {
+            return deepestActiveElement(el.contentDocument) ?? el;
+          } catch (_) {}
+        }
+
+        return el;
+      };
+
+      const editableTarget = (el) => {
+        const candidate = resolvedCandidateElement(el);
+        if (!candidate) return null;
+        if (isPlainTextTextControl(candidate)) return candidate;
+        if (isFocusedCrossOriginFrameElement(candidate)) return candidate;
+        if (candidate.isContentEditable) return candidate;
+        return candidate.closest?.('[contenteditable]:not([contenteditable="false"])') ?? null;
+      };
+
+      const helpers = {
+        deepestActiveElement,
+        isPlainTextTextControl,
+        isFocusedCrossOriginFrameElement,
+        resolvedCandidateElement,
+        editableTarget,
+        canPasteAsPlainTextInto(el) {
+          return !!editableTarget(el);
+        }
+      };
+      window.__cmuxPasteAsPlainTextHelpers = helpers;
+      return helpers;
+    })();
+    """
+    static let pasteAsPlainTextFocusTrackingBootstrapScriptSource = """
+    (() => {
+      try {
+        if (window.__cmuxPasteAsPlainTextFocusTrackerInstalled) return true;
+        window.__cmuxPasteAsPlainTextFocusTrackerInstalled = true;
+
+        const handler = (() => {
+          try {
+            return window.webkit?.messageHandlers?.\(pasteAsPlainTextFocusMessageHandlerName) ?? null;
+          } catch (_) {
+            return null;
+          }
+        })();
+
+        \(pasteAsPlainTextSharedHelpersScriptSource)
+
+        const publishState = { lastCanPaste: null };
+
+        const publish = (canPaste) => {
+          if (publishState.lastCanPaste === canPaste) return;
+          publishState.lastCanPaste = canPaste;
+          window.__cmuxPasteAsPlainTextTargetAvailable = canPaste;
+          try {
+            handler?.postMessage({ canPaste });
+          } catch (_) {}
+        };
+
+        window.__cmuxCanPasteAsPlainTextIntoCurrentFocus = () => {
+          return __cmuxPasteAsPlainTextHelpers.canPasteAsPlainTextInto(document.activeElement);
+        };
+
+        const publishForElement = (el) => {
+          publish(__cmuxPasteAsPlainTextHelpers.canPasteAsPlainTextInto(el));
+        };
+
+        document.addEventListener("focusin", (ev) => {
+          publishForElement(ev && ev.target ? ev.target : document.activeElement);
+        }, true);
+        document.addEventListener("focusout", () => {
+          requestAnimationFrame(() => publishForElement(document.activeElement));
+        }, true);
+        document.addEventListener("selectionchange", () => {
+          publishForElement(document.activeElement);
+        }, true);
+        document.addEventListener("input", () => {
+          publishForElement(document.activeElement);
+        }, true);
+        document.addEventListener("change", () => {
+          publishForElement(document.activeElement);
+        }, true);
+        document.addEventListener("mousedown", (ev) => {
+          const target = ev && ev.target ? ev.target : null;
+          if (!__cmuxPasteAsPlainTextHelpers.canPasteAsPlainTextInto(target)) {
+            publish(false);
+          }
+        }, true);
+        window.addEventListener("beforeunload", () => {
+          publish(false);
+        }, true);
+
+        publishForElement(document.activeElement);
+        return true;
+      } catch (_) {
+        return false;
+      }
+    })();
+    """
+    private final class PasteAsPlainTextFocusMessageHandler: NSObject, WKScriptMessageHandler {
+        func userContentController(
+            _ userContentController: WKUserContentController,
+            didReceive message: WKScriptMessage
+        ) {
+            guard let webView = message.webView as? CmuxWebView else {
+                return
+            }
+            guard let body = message.body as? [String: Any],
+                  let canPaste = body["canPaste"] as? Bool else {
+                return
+            }
+            Task { @MainActor [weak webView] in
+                webView?.updatePasteAsPlainTextTargetAvailable(canPaste)
+            }
+        }
+    }
+
+    private static let sharedPasteAsPlainTextFocusMessageHandler = PasteAsPlainTextFocusMessageHandler()
 
     static func hasRecentMiddleClickIntent(for webView: WKWebView) -> Bool {
         guard let webView = webView as? CmuxWebView else { return false }
@@ -40,6 +275,11 @@ final class CmuxWebView: WKWebView {
         )
     }
 
+    override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        onBrowserViewportHierarchyChanged?()
+    }
+
     private final class ContextMenuFallbackBox: NSObject {
         weak var target: AnyObject?
         let action: Selector?
@@ -51,24 +291,218 @@ final class CmuxWebView: WKWebView {
     }
 
     private static var contextMenuFallbackKey: UInt8 = 0
-
+    private static var cmuxDownloadDelegateKey: UInt8 = 0
+    private static let pasteAsPlainTextKeyCode: UInt16 = 9 // V key (hardware position, layout-independent)
     var onContextMenuDownloadStateChanged: ((Bool) -> Void)?
+    var onSessionDownloadEvent: (([String: Any]) -> Void)?
+    /// Called after a page or section screenshot is written to the pasteboard.
+    var onScreenshotCopied: (() -> Void)?
+    private lazy var sessionDownloadSaver = BrowserSessionDownloadSaver(
+        parentWindow: { [weak self] in self?.window },
+        notifyDownloadState: { [weak self] in self?.notifyContextMenuDownloadState($0) },
+        notifyEvent: { [weak self] in self?.notifySessionDownloadEvent($0) },
+        debugLog: { [weak self] in self?.debugContextDownload($0) },
+        runFallback: { [weak self] action, target, sender, traceID, reason in
+            self?.runContextMenuFallback(action: action, target: target, sender: sender, traceID: traceID, reason: reason)
+        }
+    )
+    /// Called when "Open Link in New Tab" context menu is selected.
+    /// Bypasses createWebViewWith so the link opens as a tab, not a popup.
+    var onContextMenuOpenLinkInNewTab: ((URL) -> Void)?
+    /// Called for physical mouse back/forward buttons so BrowserPanel can use
+    /// its restored-session history fallback instead of raw WKWebView history.
+    var onMouseBackButton: (() -> Void)?
+    var onMouseForwardButton: (() -> Void)?
     var contextMenuLinkURLProvider: ((CmuxWebView, NSPoint, @escaping (URL?) -> Void) -> Void)?
     var contextMenuDefaultBrowserOpener: ((URL) -> Bool)?
+    var contextMenuCanMoveTabToNewWorkspace: (() -> Bool)?; var contextMenuMoveTabToNewWorkspace: (() -> Bool)?
+    var cmuxDownloadDelegate: WKDownloadDelegate? {
+        get {
+            objc_getAssociatedObject(self, &Self.cmuxDownloadDelegateKey) as? WKDownloadDelegate
+        }
+        set {
+            objc_setAssociatedObject(
+                self,
+                &Self.cmuxDownloadDelegateKey,
+                newValue,
+                .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+            )
+        }
+    }
     /// Guard against background panes stealing first responder (e.g. page autofocus).
     /// BrowserPanelView updates this as pane focus state changes.
     var allowsFirstResponderAcquisition: Bool = true
     private var pointerFocusAllowanceDepth: Int = 0
+    private var pasteAsPlainTextTargetAvailable = false
+    private var lastPasteAsPlainTextPerformKeyEventTimestamp: TimeInterval?
+    private let diffViewerDocumentState = DiffViewerNavigationDocumentState()
+    private let diffViewerNavigationKeyRouter = ViewerNavigationKeyRouter(actions: [
+        .diffViewerScrollDown, .diffViewerScrollUp,
+        .diffViewerScrollHalfPageDown, .diffViewerScrollHalfPageUp,
+        .diffViewerScrollDownEmacs, .diffViewerScrollUpEmacs,
+        .diffViewerScrollToBottom, .diffViewerScrollToTop,
+        .diffViewerOpenFileSearch, .diffViewerNextFile, .diffViewerPreviousFile,
+    ])
     var allowsFirstResponderAcquisitionEffective: Bool {
         allowsFirstResponderAcquisition || pointerFocusAllowanceDepth > 0
     }
     var debugPointerFocusAllowanceDepth: Int { pointerFocusAllowanceDepth }
 
+    override init(frame: NSRect, configuration: WKWebViewConfiguration) {
+        super.init(frame: frame, configuration: configuration)
+        installPasteAsPlainTextFocusTracking()
+        installScriptedDownloadInterception()
+        installContextMenuLinkCapture()
+        installDiffViewerEditableFocusTracking()
+    }
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        installPasteAsPlainTextFocusTracking()
+        installScriptedDownloadInterception()
+        installContextMenuLinkCapture()
+        installDiffViewerEditableFocusTracking()
+    }
+
+    private func installDiffViewerEditableFocusTracking() {
+        let controller = configuration.userContentController
+        guard objc_getAssociatedObject(
+            controller,
+            &Self.diffViewerEditableFocusHandlerInstalledKey
+        ) == nil else { return }
+        controller.add(
+            DiffViewerEditableFocusMessageHandler.shared,
+            contentWorld: DiffViewerEditableFocusMessageHandler.contentWorld,
+            name: DiffViewerEditableFocusMessageHandler.name
+        )
+        let name = DiffViewerEditableFocusMessageHandler.name
+        controller.addUserScript(WKUserScript(
+            source: """
+            (() => {
+              const handler = window.webkit?.messageHandlers?.['\(name)'];
+              if (!handler) return;
+              const deepestActiveElement = () => {
+                let element = document.activeElement;
+                while (element?.shadowRoot?.activeElement) {
+                  element = element.shadowRoot.activeElement;
+                }
+                return element;
+              };
+              const publish = () => {
+                const viewer = !!document.getElementById('cmux-diff-viewer-config');
+                const element = deepestActiveElement();
+                const editable = viewer && !!element?.closest?.(
+                  "input, textarea, select, [contenteditable]:not([contenteditable='false'])"
+                );
+                const rendererReady = viewer &&
+                  document.documentElement.dataset.cmuxViewerNavigationReady === 'true';
+                handler.postMessage({ viewer, editable, rendererReady });
+              };
+              document.addEventListener('DOMContentLoaded', publish, { once: true });
+              document.addEventListener('focusin', publish, true);
+              document.addEventListener('focusout', () => queueMicrotask(publish), true);
+              document.addEventListener('pointerdown', () => requestAnimationFrame(publish), true);
+              document.addEventListener('cmux-diff-viewer-navigation-readiness-change', publish, true);
+              publish();
+            })();
+            """,
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: true,
+            in: DiffViewerEditableFocusMessageHandler.contentWorld
+        ))
+        objc_setAssociatedObject(
+            controller,
+            &Self.diffViewerEditableFocusHandlerInstalledKey,
+            NSNumber(value: true),
+            .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+        )
+    }
+
+    func diffViewerFocusStateDidChange(viewer: Bool, editable: Bool, rendererReady: Bool) {
+        diffViewerDocumentState.update(viewer: viewer, editable: editable, rendererReady: rendererReady)
+        if !viewer || editable {
+            diffViewerNavigationKeyRouter.reset()
+        }
+    }
+
+    func diffViewerNavigationDidStart(_ navigation: WKNavigation?) {
+        diffViewerDocumentState.navigationDidStart(id: navigation.map(ObjectIdentifier.init))
+        diffViewerNavigationKeyRouter.reset()
+    }
+
+    func diffViewerNavigationDidCommit(_ navigation: WKNavigation?) {
+        diffViewerDocumentState.navigationDidCommit(id: navigation.map(ObjectIdentifier.init))
+    }
+
+    func diffViewerNavigationDidCancel(_ navigation: WKNavigation?) {
+        diffViewerDocumentState.navigationDidCancel(id: navigation.map(ObjectIdentifier.init))
+    }
+
+    private func handleDiffViewerNavigationKey(_ event: NSEvent) -> Bool {
+        guard cmuxOwnsKeyEvent(event),
+              diffViewerDocumentState.canHandleNavigation else {
+            diffViewerNavigationKeyRouter.reset()
+            return false
+        }
+        return diffViewerNavigationKeyRouter.handle(event, isAllowed: { action, event in
+            AppDelegate.shared?.shortcutWhenClauseAllows(action: action, event: event) ?? true
+        }, perform: { [weak self] action in
+            guard let self else { return }
+            let rawAction = action.rawValue.replacingOccurrences(of: "'", with: "\\'")
+            let script = "window.__cmuxPerformDiffViewerNavigationAction?.('\(rawAction)') === true"
+            if action == .diffViewerOpenFileSearch {
+                diffViewerDocumentState.beginEditableFocusTransition()
+            }
+            evaluateJavaScript(script) { [weak self] result, error in
+                guard error != nil || result as? Bool != true else { return }
+                if action == .diffViewerOpenFileSearch {
+                    self?.diffViewerDocumentState.editableFocusTransitionDidFail()
+                }
+                self?.diffViewerDocumentState.rendererDidBecomeUnavailable()
+            }
+        })
+    }
+
+    private func installPasteAsPlainTextFocusTracking() {
+        let userContentController = configuration.userContentController
+        if objc_getAssociatedObject(
+            userContentController,
+            &Self.pasteAsPlainTextFocusHandlerInstalledKey
+        ) != nil {
+            return
+        }
+
+        userContentController.add(
+            Self.sharedPasteAsPlainTextFocusMessageHandler,
+            name: Self.pasteAsPlainTextFocusMessageHandlerName
+        )
+        objc_setAssociatedObject(
+            userContentController,
+            &Self.pasteAsPlainTextFocusHandlerInstalledKey,
+            NSNumber(value: true),
+            .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+        )
+    }
+
+    private func updatePasteAsPlainTextTargetAvailable(_ available: Bool) {
+        guard pasteAsPlainTextTargetAvailable != available else { return }
+        pasteAsPlainTextTargetAvailable = available
+#if DEBUG
+        cmuxDebugLog(
+            "browser.pasteAsPlainText.target " +
+            "web=\(ObjectIdentifier(self)) available=\(available ? 1 : 0)"
+        )
+#endif
+    }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        PaneFirstClickFocusSettings.isEnabled()
+    }
+
     override func becomeFirstResponder() -> Bool {
         guard allowsFirstResponderAcquisitionEffective else {
 #if DEBUG
             let eventType = NSApp.currentEvent.map { String(describing: $0.type) } ?? "nil"
-            dlog(
+            cmuxDebugLog(
                 "browser.focus.blockedBecome web=\(ObjectIdentifier(self)) " +
                 "policy=\(allowsFirstResponderAcquisition ? 1 : 0) " +
                 "pointerDepth=\(pointerFocusAllowanceDepth) eventType=\(eventType)"
@@ -78,11 +512,16 @@ final class CmuxWebView: WKWebView {
         }
         let result = super.becomeFirstResponder()
         if result {
-            NotificationCenter.default.post(name: .browserDidBecomeFirstResponderWebView, object: self)
+            let pointerInitiatedKey = BrowserFirstResponderNotificationUserInfoKey.pointerInitiated
+            NotificationCenter.default.post(
+                name: .browserDidBecomeFirstResponderWebView,
+                object: self,
+                userInfo: [pointerInitiatedKey: pointerFocusAllowanceDepth > 0]
+            )
         }
 #if DEBUG
         let eventType = NSApp.currentEvent.map { String(describing: $0.type) } ?? "nil"
-        dlog(
+        cmuxDebugLog(
             "browser.focus.become web=\(ObjectIdentifier(self)) result=\(result ? 1 : 0) " +
             "policy=\(allowsFirstResponderAcquisition ? 1 : 0) " +
             "pointerDepth=\(pointerFocusAllowanceDepth) eventType=\(eventType)"
@@ -96,7 +535,7 @@ final class CmuxWebView: WKWebView {
     func withPointerFocusAllowance<T>(_ body: () -> T) -> T {
         pointerFocusAllowanceDepth += 1
 #if DEBUG
-        dlog(
+        cmuxDebugLog(
             "browser.focus.pointerAllowance.enter web=\(ObjectIdentifier(self)) " +
             "depth=\(pointerFocusAllowanceDepth)"
         )
@@ -104,13 +543,130 @@ final class CmuxWebView: WKWebView {
         defer {
             pointerFocusAllowanceDepth = max(0, pointerFocusAllowanceDepth - 1)
 #if DEBUG
-            dlog(
+            cmuxDebugLog(
                 "browser.focus.pointerAllowance.exit web=\(ObjectIdentifier(self)) " +
                 "depth=\(pointerFocusAllowanceDepth)"
             )
 #endif
         }
         return body()
+    }
+
+    private static func isPasteAsPlainTextCommandEquivalent(_ event: NSEvent) -> Bool {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let normalizedFlags = flags.subtracting([.numericPad, .function, .capsLock])
+        return event.keyCode == pasteAsPlainTextKeyCode && normalizedFlags == [.command, .shift]
+    }
+
+    private func webKitPasteAsPlainTextFallback(_ sender: Any?) {
+        let selector = NSSelectorFromString("pasteAsPlainText:")
+        guard let method = class_getInstanceMethod(WKWebView.self, selector) else {
+            return
+        }
+
+        typealias PasteAsPlainTextFn = @convention(c) (AnyObject, Selector, Any?) -> Void
+        let implementation = method_getImplementation(method)
+        unsafeBitCast(implementation, to: PasteAsPlainTextFn.self)(self, selector, sender)
+    }
+
+    // Key-equivalent handling is synchronous, so this bounded preflight pumps the main run loop.
+    // Keep callers limited to fast, side-effect-free reads from page-owned state.
+    private func evaluateJavaScriptSynchronously(
+        _ script: String,
+        timeout: TimeInterval = 0.25
+    ) -> (completed: Bool, result: Any?, error: Error?) {
+        var completed = false
+        var result: Any?
+        var error: Error?
+
+        evaluateJavaScript(script) { jsResult, jsError in
+            result = jsResult
+            error = jsError
+            completed = true
+        }
+
+        let deadline = ProcessInfo.processInfo.systemUptime + timeout
+        while !completed {
+            let remaining = deadline - ProcessInfo.processInfo.systemUptime
+            guard remaining > 0 else { break }
+
+            let sliceEnd = Date(timeIntervalSinceNow: min(remaining, 0.01))
+            _ = RunLoop.current.run(mode: .default, before: sliceEnd)
+            if !completed {
+                _ = RunLoop.current.run(mode: .eventTracking, before: sliceEnd)
+            }
+        }
+
+        return (completed, result, error)
+    }
+
+    private func pageCanAcceptPlainTextPaste() -> Bool {
+        let script = """
+        (() => {
+            try {
+                const fn = window.__cmuxCanPasteAsPlainTextIntoCurrentFocus;
+                return typeof fn === 'function' ? !!fn() : false;
+            } catch (_) {
+                return false;
+            }
+        })();
+        """
+
+        let evaluation = evaluateJavaScriptSynchronously(script)
+        let canPaste = evaluation.completed && ((evaluation.result as? Bool) ?? false)
+#if DEBUG
+        let errorDescription = evaluation.completed
+            ? (evaluation.error?.localizedDescription ?? "nil")
+            : "timeout"
+        cmuxDebugLog(
+            "browser.pasteAsPlainText.preflight " +
+            "web=\(ObjectIdentifier(self)) canPaste=\(canPaste ? 1 : 0) " +
+            "error=\(errorDescription)"
+        )
+#endif
+        return canPaste
+    }
+
+    private func shouldSkipRepeatedPasteAsPlainTextPreflight(for event: NSEvent) -> Bool {
+        guard event.timestamp > 0,
+              let lastTimestamp = lastPasteAsPlainTextPerformKeyEventTimestamp else {
+            return false
+        }
+        lastPasteAsPlainTextPerformKeyEventTimestamp = nil
+        return lastTimestamp == event.timestamp
+    }
+
+    @discardableResult
+    private func performPasteAsPlainTextFromPasteboard(_ sender: Any? = nil) -> Bool {
+        guard pasteAsPlainTextTargetAvailable,
+              NSPasteboard.general.string(forType: .string) != nil,
+              pageCanAcceptPlainTextPaste() else {
+            return false
+        }
+
+        webKitPasteAsPlainTextFallback(sender)
+#if DEBUG
+        cmuxDebugLog(
+            "browser.pasteAsPlainText " +
+            "web=\(ObjectIdentifier(self)) routedNative=1"
+        )
+#endif
+        return true
+    }
+
+    @IBAction func pasteAsPlainText(_ sender: Any?) {
+        _ = sender
+        if !performPasteAsPlainTextFromPasteboard(sender) {
+            webKitPasteAsPlainTextFallback(sender)
+        }
+    }
+
+    override func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
+        if item.action == #selector(pasteAsPlainText(_:)) {
+            return pasteAsPlainTextTargetAvailable
+                && NSPasteboard.general.string(forType: .string) != nil
+        }
+        return super.validateUserInterfaceItem(item)
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
@@ -125,46 +681,122 @@ final class CmuxWebView: WKWebView {
                 extra: "handled=\(handled ? 1 : 0)"
             )
         }
+        func finish(_ result: Bool) -> Bool {
+            handled = result
+            return result
+        }
+#else
+        func finish(_ result: Bool) -> Bool { result }
 #endif
-        if event.keyCode == 36 || event.keyCode == 76 {
-            // Always bypass app/menu key-equivalent routing for Return/Enter so WebKit
-            // receives the keyDown path used by form submission handlers.
-            return false
+        if handleDiffViewerNavigationKey(event) {
+            return finish(true)
+        }
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let normalizedFlags = flags.subtracting([.numericPad, .function, .capsLock])
+        if let decision = AppDelegate.shared?.handleBrowserFocusModeKeyEvent(
+            event,
+            webView: self,
+            source: "web.performKeyEquivalent"
+        ), decision != .inactive {
+            switch decision {
+            case .inactive:
+                break
+            case .forwardToWebView:
+                let isReturnKey = event.keyCode == 36 || event.keyCode == 76
+                if (normalizedFlags.isEmpty && event.keyCode == 53) ||
+                    (isReturnKey && !normalizedFlags.contains(.command)) {
+                    forwardKeyDownToWebKit(event)
+                    return finish(true)
+                }
+                let result = super.performKeyEquivalent(with: event)
+                // WebKit declining an undo/redo chord means the page already
+                // saw it and left it unhandled (WebKit resends such keys), so
+                // run the web view's own editing undo/redo before the blanket
+                // focus-mode consume below would swallow it (issue #9677).
+                if !result, performWebContentUndoRedo(for: event) {
+                    return finish(true)
+                }
+                // While focus mode is active, the page gets the shortcut once and cmux/main-menu
+                // fallback must not see unhandled command equivalents.
+                return finish(result || normalizedFlags.contains(.command))
+            case .consume:
+                return finish(true)
+            }
         }
 
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if event.keyCode == 36 || event.keyCode == 76 {
+            return finish(AppDelegate.shared?.handleBrowserSurfaceKeyEquivalent(event) == true)
+        }
+
         // Menu/app shortcut routing is only needed for Command equivalents
         // (New Tab, Close Tab, tab switching, split commands, etc).
         guard flags.contains(.command) else {
+            return finish(super.performKeyEquivalent(with: event))
+        }
+
+        if Self.isPasteAsPlainTextCommandEquivalent(event) {
+            if event.timestamp > 0 {
+                lastPasteAsPlainTextPerformKeyEventTimestamp = event.timestamp
+            } else {
+                lastPasteAsPlainTextPerformKeyEventTimestamp = nil
+            }
+            let result = performPasteAsPlainTextFromPasteboard() || super.performKeyEquivalent(with: event)
+            if result {
+                lastPasteAsPlainTextPerformKeyEventTimestamp = nil
+            }
+            return finish(result)
+        }
+
+        var replayedBrowserDocumentEditingShortcutIntoWebContent = false
+        if shouldRouteBrowserDocumentEditingCommandEquivalentThroughWebContentFirst(
+            event,
+            responder: window?.firstResponder
+        ) {
+            replayedBrowserDocumentEditingShortcutIntoWebContent = true
             let result = super.performKeyEquivalent(with: event)
-#if DEBUG
-            handled = result
-#endif
-            return result
+            if result {
+                return finish(true)
+            }
         }
 
-        // Let the app menu handle key equivalents first (New Tab, Close Tab, tab switching, etc).
+        var replayedBrowserFindShortcutIntoWebContent = false
+        if shouldRouteBrowserFindCommandEquivalentThroughWebContentFirst(
+            event,
+            responder: window?.firstResponder,
+            owningWebView: self
+        ) {
+            replayedBrowserFindShortcutIntoWebContent = true
+            let result = super.performKeyEquivalent(with: event)
+            if result {
+                return finish(true)
+            }
+        }
+
+        if shouldRouteInlineVSCodeCommandPaletteShortcutThroughWebContentFirst(event, pageURL: url) {
+            _ = super.performKeyEquivalent(with: event)
+            return finish(true)
+        }
+        let inspectorOwnsUndoRedo = event.cmuxIsUndoRedoCommandEquivalent && cmuxIsLikelyWebInspectorResponder(window?.firstResponder)
+        if !inspectorOwnsUndoRedo && (event.cmuxIsUndoRedoCommandEquivalent || !shouldRouteCommandEquivalentDirectlyToMainMenu(event)) {
+            return finish(super.performKeyEquivalent(with: event))
+        }
+        if AppDelegate.shared?.handleBrowserSurfaceKeyEquivalentBeforeMainMenu(event) == true {
+            return finish(true)
+        }
+
         if let menu = NSApp.mainMenu, menu.performKeyEquivalent(with: event) {
-#if DEBUG
-            handled = true
-#endif
-            return true
+            return finish(true)
         }
 
-        // Handle app-level shortcuts that are not menu-backed (for example split commands).
-        // Without this, WebKit can consume Cmd-based shortcuts before the app monitor sees them.
-        if AppDelegate.shared?.handleBrowserSurfaceKeyEquivalent(event) == true {
-#if DEBUG
-            handled = true
-#endif
-            return true
+        let result: Bool
+        if replayedBrowserDocumentEditingShortcutIntoWebContent || replayedBrowserFindShortcutIntoWebContent {
+            // A browser-first preflight has already exposed this shortcut to WebKit once.
+            // Avoid a second `super.performKeyEquivalent` replay when menu/app fallback does not claim it.
+            result = false
+        } else {
+            result = super.performKeyEquivalent(with: event)
         }
-
-        let result = super.performKeyEquivalent(with: event)
-#if DEBUG
-        handled = result
-#endif
-        return result
+        return finish(result)
     }
 
     override func keyDown(with event: NSEvent) {
@@ -180,6 +812,75 @@ final class CmuxWebView: WKWebView {
             )
         }
 #endif
+        if event.keyCode == 48, diffViewerDocumentState.documentConfirmed {
+            diffViewerDocumentState.invalidateFocusConfirmation()
+        }
+        if handleDiffViewerNavigationKey(event) {
+#if DEBUG
+            route = "diffViewerNavigation"
+#endif
+            return
+        }
+        if let decision = AppDelegate.shared?.handleBrowserFocusModeKeyEvent(
+            event,
+            webView: self,
+            source: "web.keyDown"
+        ), decision != .inactive {
+            switch decision {
+            case .inactive:
+                break
+            case .forwardToWebView:
+#if DEBUG
+                route = "focusModeWebView"
+#endif
+                forwardKeyDownToWebKit(event)
+                return
+            case .consume:
+#if DEBUG
+                route = "focusModeExit"
+#endif
+                return
+            }
+        }
+
+        // An undo/redo chord reaching keyDown has already been offered to the
+        // page through performKeyEquivalent and declined (WebKit resends
+        // unhandled keys). Perform the web view's own editing undo/redo here;
+        // re-forwarding the chord into WebKit drops it (issue #9677).
+        if performWebContentUndoRedo(for: event) {
+#if DEBUG
+            route = "webContentUndoRedo"
+#endif
+            return
+        }
+
+        if Self.isPasteAsPlainTextCommandEquivalent(event) {
+            if shouldSkipRepeatedPasteAsPlainTextPreflight(for: event) {
+#if DEBUG
+                route = "super"
+#endif
+            } else {
+                let didPaste = performPasteAsPlainTextFromPasteboard()
+#if DEBUG
+                route = didPaste ? "pasteAsPlainText" : "super"
+#endif
+                if didPaste {
+                    return
+                }
+            }
+        }
+
+        // Inline VS Code owns Cmd+Shift+P for its in-page command palette.
+        // If this path reaches keyDown, forward it to WebKit instead of cmux.
+        if event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command),
+           shouldRouteInlineVSCodeCommandPaletteShortcutThroughWebContentFirst(event, pageURL: url) {
+#if DEBUG
+            route = "inlineVSCode"
+#endif
+            forwardKeyDownToWebKit(event)
+            return
+        }
+
         // Some Cmd-based key paths in WebKit don't consistently invoke performKeyEquivalent.
         // Route them through the same app-level shortcut handler as a fallback.
         if event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command),
@@ -190,7 +891,7 @@ final class CmuxWebView: WKWebView {
             return
         }
 
-        super.keyDown(with: event)
+        forwardKeyDownToWebKit(event)
     }
 
     // MARK: - Focus on click
@@ -200,22 +901,73 @@ final class CmuxWebView: WKWebView {
     // NSView (WKWebView), not to sibling SwiftUI overlays. Notify the panel system so
     // bonsplit focus tracks which pane the user clicked in.
     override func mouseDown(with event: NSEvent) {
+        if diffViewerDocumentState.documentConfirmed {
+            diffViewerDocumentState.invalidateFocusConfirmation()
+        }
 #if DEBUG
         let windowNumber = window?.windowNumber ?? -1
         let firstResponderType = window?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
-        dlog(
+        cmuxDebugLog(
             "browser.focus.mouseDown web=\(ObjectIdentifier(self)) " +
             "policy=\(allowsFirstResponderAcquisition ? 1 : 0) " +
             "pointerDepth=\(pointerFocusAllowanceDepth) win=\(windowNumber) fr=\(firstResponderType)"
         )
 #endif
-        NotificationCenter.default.post(name: .webViewDidReceiveClick, object: self)
-        withPointerFocusAllowance {
+        // Ctrl-click opens the context menu like a right-click; scope the
+        // captured link to this click so a previous click's link can't pair
+        // with the menu this click opens.
+        if event.modifierFlags.contains(.control) {
+            contextMenuCapturedLink = nil
+        }
+        performBrowserClickFocusHandoff {
             super.mouseDown(with: event)
         }
     }
 
+    // Each physical right-click starts a fresh capture lifecycle: WebKit
+    // dispatches the DOM contextmenu event (which refills the capture) after
+    // this and before willOpenMenu, so clearing here guarantees the menu can
+    // only ever pair with a link captured by this exact click.
+    override func rightMouseDown(with event: NSEvent) {
+        contextMenuCapturedLink = nil
+        super.rightMouseDown(with: event)
+    }
+
+    private func performBrowserClickFocusHandoff(_ action: () -> Void) {
+        NotificationCenter.default.post(name: .webViewDidReceiveClick, object: self)
+        withPointerFocusAllowance(action)
+    }
+
     // MARK: - Mouse back/forward buttons
+
+    private func handleMouseNavigationButton(_ event: NSEvent) -> Bool {
+        // Button 3 = back, button 4 = forward (multi-button mice like Logitech).
+        // Consume the event so WebKit/page content does not also handle it.
+        switch event.buttonNumber {
+        case 3:
+#if DEBUG
+            cmuxDebugLog("browser.mouse.navigation web=\(ObjectIdentifier(self)) kind=back canGoBack=\(canGoBack ? 1 : 0)")
+#endif
+            if let onMouseBackButton {
+                onMouseBackButton()
+            } else {
+                goBack()
+            }
+            return true
+        case 4:
+#if DEBUG
+            cmuxDebugLog("browser.mouse.navigation web=\(ObjectIdentifier(self)) kind=forward canGoForward=\(canGoForward ? 1 : 0)")
+#endif
+            if let onMouseForwardButton {
+                onMouseForwardButton()
+            } else {
+                goForward()
+            }
+            return true
+        default:
+            return false
+        }
+    }
 
     override func otherMouseDown(with event: NSEvent) {
         if event.buttonNumber == 2 {
@@ -224,28 +976,18 @@ final class CmuxWebView: WKWebView {
 #if DEBUG
         let point = convert(event.locationInWindow, from: nil)
         let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask).rawValue
-        dlog(
+        cmuxDebugLog(
             "browser.mouse.otherDown web=\(ObjectIdentifier(self)) button=\(event.buttonNumber) " +
             "clicks=\(event.clickCount) mods=\(mods) point=(\(Int(point.x)),\(Int(point.y)))"
         )
 #endif
-        // Button 3 = back, button 4 = forward (multi-button mice like Logitech).
-        // Consume the event so WebKit doesn't handle it.
-        switch event.buttonNumber {
-        case 3:
-#if DEBUG
-            dlog("browser.mouse.otherDown.action web=\(ObjectIdentifier(self)) kind=goBack canGoBack=\(canGoBack ? 1 : 0)")
-#endif
-            goBack()
+        if event.buttonNumber == 3 || event.buttonNumber == 4 {
+            performBrowserClickFocusHandoff {
+                _ = window?.makeFirstResponder(self)
+            }
+        }
+        if handleMouseNavigationButton(event) {
             return
-        case 4:
-#if DEBUG
-            dlog("browser.mouse.otherDown.action web=\(ObjectIdentifier(self)) kind=goForward canGoForward=\(canGoForward ? 1 : 0)")
-#endif
-            goForward()
-            return
-        default:
-            break
         }
         super.otherMouseDown(with: event)
     }
@@ -257,50 +999,46 @@ final class CmuxWebView: WKWebView {
 #if DEBUG
         let point = convert(event.locationInWindow, from: nil)
         let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask).rawValue
-        dlog(
+        cmuxDebugLog(
             "browser.mouse.otherUp web=\(ObjectIdentifier(self)) button=\(event.buttonNumber) " +
             "clicks=\(event.clickCount) mods=\(mods) point=(\(Int(point.x)),\(Int(point.y)))"
         )
 #endif
-        super.otherMouseUp(with: event)
-    }
-
-    /// Finds the nearest anchor element at a given view-local point.
-    /// Used as a context-menu download fallback.
-    private func findLinkAtPoint(_ point: NSPoint, completion: @escaping (URL?) -> Void) {
-        let flippedY = bounds.height - point.y
-        let js = """
-        (() => {
-            let el = document.elementFromPoint(\(point.x), \(flippedY));
-            while (el) {
-                if (el.tagName === 'A' && el.href) return el.href;
-                el = el.parentElement;
-            }
-            return '';
-        })();
-        """
-        evaluateJavaScript(js) { result, _ in
-            guard let href = result as? String, !href.isEmpty,
-                  let url = URL(string: href) else {
-                completion(nil)
-                return
-            }
-            completion(url)
+        if event.buttonNumber == 3 || event.buttonNumber == 4 {
+            return
         }
+        super.otherMouseUp(with: event)
     }
 
     // MARK: - Context menu download support
 
     /// The last context-menu point in view coordinates.
     private var lastContextMenuPoint: NSPoint = .zero
+    /// Link reported by the contextmenu capture hook for the most recent
+    /// right-click (`url` is nil when the click was not on a link). The type
+    /// and its lifecycle live in `CmuxWebView+ContextMenuLinkCapture.swift`;
+    /// only the stored property has to live in the class body.
+    var contextMenuCapturedLink: ContextMenuCapturedLink?
+    /// Uptime at which the current context menu opened, used to pair the menu
+    /// with the contextmenu capture report from the same right-click.
+    var lastContextMenuOpenUptime: TimeInterval?
+    /// `NSEvent.timestamp` of the event that opened the current context menu
+    /// (same uptime clock as `ProcessInfo.systemUptime`). The DOM contextmenu
+    /// capture for that menu is always reported after this instant, so a
+    /// capture older than it belongs to a previous click and must not pair
+    /// with this menu, even on menu-open paths that never saw a mouse event.
+    var lastContextMenuOpenEventTimestamp: TimeInterval?
     /// Saved native WebKit action for "Download Image".
     private var fallbackDownloadImageTarget: AnyObject?
     private var fallbackDownloadImageAction: Selector?
+    /// Saved native WebKit action for "Copy Image".
+    private var fallbackCopyImageTarget: AnyObject?
+    private var fallbackCopyImageAction: Selector?
     /// Saved native WebKit action for "Download Linked File".
     private var fallbackDownloadLinkedFileTarget: AnyObject?
     private var fallbackDownloadLinkedFileAction: Selector?
 
-    private static func makeContextDownloadTraceID(prefix: String) -> String {
+    static func makeContextDownloadTraceID(prefix: String) -> String {
 #if DEBUG
         return "\(prefix)-\(UUID().uuidString.prefix(8))"
 #else
@@ -308,11 +1046,116 @@ final class CmuxWebView: WKWebView {
 #endif
     }
 
-    private func debugContextDownload(_ message: @autoclosure () -> String) {
+    func debugContextDownload(_ message: @autoclosure () -> String) {
 #if DEBUG
-        dlog(message())
+        cmuxDebugLog(Self.redactedContextDownloadDebugMessage(message()))
 #endif
     }
+
+    #if DEBUG
+    private static let contextDownloadFieldPattern = try! NSRegularExpression(
+        pattern: "(^| )([A-Za-z][A-Za-z0-9_-]*)=",
+        options: []
+    )
+
+    private static func redactedContextDownloadDebugMessage(_ message: String) -> String {
+        let nsMessage = message as NSString
+        let fullRange = NSRange(location: 0, length: nsMessage.length)
+        let matches = contextDownloadFieldPattern.matches(in: message, range: fullRange)
+        guard !matches.isEmpty else { return message }
+
+        var result = ""
+        var cursor = 0
+        var matchIndex = 0
+
+        while matchIndex < matches.count {
+            let match = matches[matchIndex]
+            let fieldStart = match.range.location
+            if cursor < fieldStart {
+                result += nsMessage.substring(
+                    with: NSRange(location: cursor, length: fieldStart - cursor)
+                )
+            }
+
+            let separatorRange = match.range(at: 1)
+            if separatorRange.length > 0 {
+                result += " "
+            }
+
+            let keyRange = match.range(at: 2)
+            let key = nsMessage.substring(with: keyRange)
+            let valueStart = match.range.location + match.range.length
+            let sensitive = shouldRedactContextDownloadField(key)
+            let valueEnd: Int
+
+            if sensitive && key.lowercased() == "payload" {
+                valueEnd = nsMessage.length
+                matchIndex = matches.count
+            } else {
+                valueEnd = matchIndex + 1 < matches.count
+                    ? matches[matchIndex + 1].range.location
+                    : nsMessage.length
+                matchIndex += 1
+            }
+
+            let valueLength = max(0, valueEnd - valueStart)
+            let value = nsMessage.substring(with: NSRange(location: valueStart, length: valueLength))
+
+            if sensitive {
+                result += "\(key)=\(redactedContextDownloadValue(key: key, value: value))"
+            } else {
+                result += nsMessage.substring(
+                    with: NSRange(location: keyRange.location, length: valueEnd - keyRange.location)
+                )
+            }
+
+            cursor = valueEnd
+        }
+
+        if cursor < nsMessage.length {
+            result += nsMessage.substring(
+                with: NSRange(location: cursor, length: nsMessage.length - cursor)
+            )
+        }
+
+        return result
+    }
+
+    private static func shouldRedactContextDownloadField(_ key: String) -> Bool {
+        let normalized = key.lowercased()
+        return normalized == "referer" ||
+            normalized == "path" ||
+            normalized == "payload" ||
+            normalized.hasSuffix("url")
+    }
+
+    private static func redactedContextDownloadValue(key: String, value: String) -> String {
+        guard value != "nil", !value.isEmpty else { return value }
+
+        if shouldTreatContextDownloadFieldAsURL(key),
+           let url = URL(string: value),
+           let scheme = url.scheme?.lowercased(),
+           !scheme.isEmpty {
+            switch scheme {
+            case "http", "https":
+                return "\(scheme)://\(url.host ?? "unknown")"
+            case "data":
+                return "data:<redacted>"
+            case "file":
+                return "file:<redacted>"
+            default:
+                return "\(scheme):<redacted>"
+            }
+        }
+
+        return "<redacted>"
+    }
+
+    private static func shouldTreatContextDownloadFieldAsURL(_ key: String) -> Bool {
+        let normalized = key.lowercased()
+        return normalized == "referer" || normalized.hasSuffix("url")
+    }
+    #endif
 
     private static func selectorName(_ selector: Selector?) -> String {
         guard let selector else { return "nil" }
@@ -399,7 +1242,7 @@ final class CmuxWebView: WKWebView {
     ) -> String {
         if let suggested = suggestedFilename?.trimmingCharacters(in: .whitespacesAndNewlines),
            !suggested.isEmpty {
-            return suggested
+            return BrowserDownloadFilenameResolver().suggestedFilename(suggestedFilename: suggested, response: nil, sourceURL: URL(fileURLWithPath: "download"), imageType: nil)
         }
         let ext = filenameExtension(forMIMEType: mimeType) ?? "bin"
         let base = (mimeType?.lowercased().hasPrefix("image/") ?? false) ? "image" : "download"
@@ -459,6 +1302,29 @@ final class CmuxWebView: WKWebView {
         return false
     }
 
+    private func isCopyImageMenuItem(_ item: NSMenuItem) -> Bool {
+        let tokens = [
+            Self.normalizedContextMenuToken(item.identifier?.rawValue),
+            Self.normalizedContextMenuToken(item.title),
+            item.action.map { Self.normalizedContextMenuToken(NSStringFromSelector($0)) } ?? "",
+        ]
+
+        for token in tokens where !token.isEmpty {
+            if token.contains("copyimageaddress")
+                || token.contains("copyimageurl")
+                || token.contains("copyimagelocation") {
+                return false
+            }
+            if token == "copyimage"
+                || token.contains("copyimagetoclipboard")
+                || token.contains("copyimage") {
+                return true
+            }
+        }
+
+        return false
+    }
+
     private func isDownloadableScheme(_ url: URL) -> Bool {
         let scheme = url.scheme?.lowercased() ?? ""
         return scheme == "http" || scheme == "https" || scheme == "file"
@@ -473,40 +1339,20 @@ final class CmuxWebView: WKWebView {
         return isDownloadableScheme(url) || isDataURLScheme(url)
     }
 
-    private func isOurDownloadMenuAction(target: AnyObject?, action: Selector?) -> Bool {
+    private func isOurContextMenuAction(target: AnyObject?, action: Selector?) -> Bool {
         guard target === self else { return false }
+        if action == #selector(contextMenuToggleBrowserFocusMode(_:)) {
+            return true
+        }
+        if action == #selector(contextMenuCopyImage(_:)) {
+            return true
+        }
         return action == #selector(contextMenuDownloadImage(_:))
             || action == #selector(contextMenuDownloadLinkedFile(_:))
     }
 
-    private func resolveGoogleRedirectURL(_ url: URL) -> URL? {
-        guard let host = url.host?.lowercased(), host.contains("google.") else { return nil }
-        guard let comps = URLComponents(url: url, resolvingAgainstBaseURL: false),
-              let queryItems = comps.queryItems else { return nil }
-        let map = Dictionary(uniqueKeysWithValues: queryItems.map { ($0.name.lowercased(), $0.value ?? "") })
-        let candidates = ["imgurl", "mediaurl", "url", "q"]
-        for key in candidates {
-            guard let raw = map[key], !raw.isEmpty,
-                  let decoded = raw.removingPercentEncoding ?? raw as String?,
-                  let candidate = URL(string: decoded),
-                  isDownloadableScheme(candidate) else {
-                continue
-            }
-            return candidate
-        }
-        // Some links are wrapped as /url?...
-        if comps.path.lowercased() == "/url" {
-            for key in ["url", "q"] {
-                if let raw = map[key], let candidate = URL(string: raw), isDownloadableScheme(candidate) {
-                    return candidate
-                }
-            }
-        }
-        return nil
-    }
-
     private func normalizedLinkedDownloadURL(_ url: URL) -> URL {
-        resolveGoogleRedirectURL(url) ?? url
+        BrowserDownloadURLNormalizer().normalize(url)
     }
 
     private func isLikelyFaviconURL(_ url: URL) -> Bool {
@@ -549,7 +1395,7 @@ final class CmuxWebView: WKWebView {
     private func captureFallbackForMenuItemIfNeeded(_ item: NSMenuItem) {
         let target = item.target as AnyObject?
         let action = item.action
-        if isOurDownloadMenuAction(target: target, action: action) {
+        if isOurContextMenuAction(target: target, action: action) {
             return
         }
         let box = ContextMenuFallbackBox(target: target, action: action)
@@ -575,11 +1421,11 @@ final class CmuxWebView: WKWebView {
 
     /// Resolve the topmost image URL near a point, accounting for overlay layers.
     private func findImageURLAtPoint(_ point: NSPoint, completion: @escaping (URL?) -> Void) {
-        let flippedY = bounds.height - point.y
+        let cssPoint = cssViewportPoint(for: point)
         let js = """
         (() => {
-            const x = \(point.x);
-            const y = \(flippedY);
+            const x = \(cssPoint.x);
+            const y = \(cssPoint.y);
             const normalize = (raw) => {
                 if (!raw || typeof raw !== 'string') return '';
                 const trimmed = raw.trim();
@@ -705,89 +1551,9 @@ final class CmuxWebView: WKWebView {
         }
     }
 
-    /// Resolve the topmost link URL near a point, accounting for overlay layers.
-    private func findLinkURLAtPoint(_ point: NSPoint, completion: @escaping (URL?) -> Void) {
-        let flippedY = bounds.height - point.y
-        let js = """
-        (() => {
-            const x = \(point.x);
-            const y = \(flippedY);
-            const normalize = (raw) => {
-                if (!raw || typeof raw !== 'string') return '';
-                const trimmed = raw.trim();
-                if (!trimmed) return '';
-                if (trimmed.startsWith('//')) return window.location.protocol + trimmed;
-                return trimmed;
-            };
-            const collectChain = (start) => {
-                const out = [];
-                const seen = new Set();
-                while (start && !seen.has(start)) {
-                    seen.add(start);
-                    out.push(start);
-                    start = start.parentElement;
-                }
-                return out;
-            };
-            const linkFromElement = (el) => {
-                if (!el) return '';
-                const attr = (name) => normalize(el.getAttribute ? el.getAttribute(name) : '');
-                if (el.closest) {
-                    const closestLink = el.closest('a[href],area[href]');
-                    if (closestLink && closestLink.href) return normalize(closestLink.href);
-                }
-                if ((el.tagName === 'A' || el.tagName === 'AREA') && el.href) {
-                    return normalize(el.href);
-                }
-                const attrCandidates = ['href', 'data-href', 'data-url', 'data-link', 'data-link-url'];
-                for (const name of attrCandidates) {
-                    const v = attr(name);
-                    if (v) return v;
-                }
-                if (el.querySelector) {
-                    const nestedLink = el.querySelector('a[href],area[href]');
-                    if (nestedLink && nestedLink.href) return normalize(nestedLink.href);
-                }
-                return '';
-            };
-            const tryNodes = (nodes) => {
-                for (const start of nodes) {
-                    for (const node of collectChain(start)) {
-                        const found = linkFromElement(node);
-                        if (found) return found;
-                    }
-                    if (start && start.shadowRoot && start.shadowRoot.elementFromPoint) {
-                        const inner = start.shadowRoot.elementFromPoint(x, y);
-                        if (inner) {
-                            for (const node of collectChain(inner)) {
-                                const found = linkFromElement(node);
-                                if (found) return found;
-                            }
-                        }
-                    }
-                }
-                return '';
-            };
-            const nodes = document.elementsFromPoint ? document.elementsFromPoint(x, y) : [];
-            const found = tryNodes(nodes);
-            if (found) return found;
-            const single = document.elementFromPoint ? document.elementFromPoint(x, y) : null;
-            return linkFromElement(single) || '';
-        })();
-        """
-        evaluateJavaScript(js) { result, _ in
-            guard let href = result as? String, !href.isEmpty,
-                  let url = URL(string: href) else {
-                completion(nil)
-                return
-            }
-            completion(url)
-        }
-    }
-
     private func debugInspectElementsAtPoint(_ point: NSPoint, traceID: String, kind: String) {
 #if DEBUG
-        let flippedY = bounds.height - point.y
+        let cssPoint = cssViewportPoint(for: point)
         let js = """
         (() => {
             const clip = (value, max = 180) => {
@@ -795,8 +1561,8 @@ final class CmuxWebView: WKWebView {
                 const s = String(value);
                 return s.length > max ? s.slice(0, max) + '…' : s;
             };
-            const x = \(point.x);
-            const y = \(flippedY);
+            const x = \(cssPoint.x);
+            const y = \(cssPoint.y);
             const nodes = document.elementsFromPoint ? document.elementsFromPoint(x, y) : [];
             const entries = [];
             const limit = Math.min(nodes.length, 8);
@@ -828,25 +1594,33 @@ final class CmuxWebView: WKWebView {
 #endif
     }
 
-    private func resolveContextMenuLinkURL(at point: NSPoint, completion: @escaping (URL?) -> Void) {
-        if let contextMenuLinkURLProvider {
-            contextMenuLinkURLProvider(self, point, completion)
+    private func appendBrowserFocusModeContextMenuItem(to menu: NSMenu) {
+        let state = AppDelegate.shared?.browserFocusModeContextMenuState(for: self) ?? (isActive: false, canToggle: false)
+        guard state.isActive || state.canToggle else { return }
+
+        let title = state.isActive
+            ? String(localized: "browser.focusMode.context.exit", defaultValue: "Exit Browser Focus Mode")
+            : String(localized: "browser.focusMode.context.enter", defaultValue: "Enter Browser Focus Mode")
+        if let item = menu.items.first(where: { $0.identifier == Self.browserFocusModeContextMenuItemIdentifier }) {
+            item.title = title
+            item.target = self
+            item.action = #selector(contextMenuToggleBrowserFocusMode(_:))
+            item.state = state.isActive ? NSControl.StateValue.on : NSControl.StateValue.off
             return
         }
-        findLinkURLAtPoint(point, completion: completion)
-    }
 
-    private func canOpenInDefaultBrowser(_ url: URL) -> Bool {
-        let scheme = url.scheme?.lowercased() ?? ""
-        return scheme == "http" || scheme == "https"
-    }
-
-    private func openContextMenuLinkInDefaultBrowser(_ url: URL) {
-        if let contextMenuDefaultBrowserOpener {
-            _ = contextMenuDefaultBrowserOpener(url)
-            return
+        if menu.items.last?.isSeparatorItem == false {
+            menu.addItem(.separator())
         }
-        _ = NSWorkspace.shared.open(url)
+        let item = NSMenuItem(
+            title: title,
+            action: #selector(contextMenuToggleBrowserFocusMode(_:)),
+            keyEquivalent: ""
+        )
+        item.identifier = Self.browserFocusModeContextMenuItemIdentifier
+        item.target = self
+        item.state = state.isActive ? NSControl.StateValue.on : NSControl.StateValue.off
+        menu.addItem(item)
     }
 
     private func runContextMenuFallback(
@@ -864,9 +1638,7 @@ final class CmuxWebView: WKWebView {
             return
         }
         // Guard against accidental self-recursion if fallback gets overwritten.
-        if target === self,
-           action == #selector(contextMenuDownloadImage(_:))
-            || action == #selector(contextMenuDownloadLinkedFile(_:)) {
+        if isOurContextMenuAction(target: target, action: action) {
             debugContextDownload(
                 "browser.ctxdl.fallback trace=\(trace) reason=\(reason ?? "none") skipped=recursive action=\(Self.selectorName(action))"
             )
@@ -882,13 +1654,47 @@ final class CmuxWebView: WKWebView {
         if Thread.isMainThread {
             onContextMenuDownloadStateChanged?(downloading)
         } else {
-            DispatchQueue.main.async { [weak self] in
+            Task { @MainActor [weak self] in
                 self?.onContextMenuDownloadStateChanged?(downloading)
             }
         }
     }
 
-    private func downloadURLViaSession(
+    private func notifySessionDownloadEvent(_ event: [String: Any]) {
+        if Thread.isMainThread {
+            onSessionDownloadEvent?(event)
+        } else {
+            Task { @MainActor [weak self] in
+                self?.onSessionDownloadEvent?(event)
+            }
+        }
+    }
+
+    private func finishSessionDownload(
+        data: Data,
+        saveName: String,
+        sourceURL: URL?,
+        traceID: String,
+        logCategory: String,
+        sender: Any?,
+        fallbackAction: Selector?,
+        fallbackTarget: AnyObject?,
+        failureFallbackReason: String?
+    ) {
+        sessionDownloadSaver.finish(
+            data: data,
+            saveName: saveName,
+            sourceURL: sourceURL,
+            traceID: traceID,
+            logCategory: logCategory,
+            sender: sender,
+            fallbackAction: fallbackAction,
+            fallbackTarget: fallbackTarget,
+            failureFallbackReason: failureFallbackReason
+        )
+    }
+
+    func downloadURLViaSession(
         _ url: URL,
         suggestedFilename: String?,
         sender: Any?,
@@ -941,39 +1747,17 @@ final class CmuxWebView: WKWebView {
                     "browser.ctxdl.data trace=\(traceID) stage=parseSuccess mime=\(parsed.mimeType ?? "nil") bytes=\(parsed.data.count)"
                 )
 
-                let savePanel = NSSavePanel()
-                savePanel.nameFieldStringValue = saveName
-                savePanel.canCreateDirectories = true
-                savePanel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
-                self.notifyContextMenuDownloadState(false)
-                self.debugContextDownload(
-                    "browser.ctxdl.data trace=\(traceID) stage=savePrompt shown=1 defaultName=\(saveName)"
+                self.finishSessionDownload(
+                    data: parsed.data,
+                    saveName: saveName,
+                    sourceURL: url,
+                    traceID: traceID,
+                    logCategory: "data",
+                    sender: sender,
+                    fallbackAction: fallbackAction,
+                    fallbackTarget: fallbackTarget,
+                    failureFallbackReason: "data_save_write_error"
                 )
-                savePanel.begin { result in
-                    guard result == .OK, let destURL = savePanel.url else {
-                        self.debugContextDownload(
-                            "browser.ctxdl.data trace=\(traceID) stage=savePrompt result=cancel"
-                        )
-                        return
-                    }
-                    do {
-                        try parsed.data.write(to: destURL, options: .atomic)
-                        self.debugContextDownload(
-                            "browser.ctxdl.data trace=\(traceID) stage=saveSuccess path=\(destURL.path)"
-                        )
-                    } catch {
-                        self.debugContextDownload(
-                            "browser.ctxdl.data trace=\(traceID) stage=saveFailure error=\(error.localizedDescription)"
-                        )
-                        self.runContextMenuFallback(
-                            action: fallbackAction,
-                            target: fallbackTarget,
-                            sender: sender,
-                            traceID: traceID,
-                            reason: "data_save_write_error"
-                        )
-                    }
-                }
             }
             return
         }
@@ -983,37 +1767,21 @@ final class CmuxWebView: WKWebView {
                 do {
                     let data = try Data(contentsOf: url)
                     self.debugContextDownload(
-                        "browser.ctxdl.file trace=\(traceID) stage=readSuccess bytes=\(data.count) path=\(url.path)"
+                        "browser.ctxdl.file trace=\(traceID) stage=readSuccess bytes=\(data.count) path=<redacted>"
                     )
                     let filename = suggestedFilename?.trimmingCharacters(in: .whitespacesAndNewlines)
                     let saveName = (filename?.isEmpty == false ? filename! : url.lastPathComponent.isEmpty ? "download" : url.lastPathComponent)
-                    let savePanel = NSSavePanel()
-                    savePanel.nameFieldStringValue = saveName
-                    savePanel.canCreateDirectories = true
-                    savePanel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
-                    // Download is already complete; we're now waiting for user save choice.
-                    self.notifyContextMenuDownloadState(false)
-                    self.debugContextDownload(
-                        "browser.ctxdl.file trace=\(traceID) stage=savePrompt shown=1 defaultName=\(saveName)"
+                    self.finishSessionDownload(
+                        data: data,
+                        saveName: saveName,
+                        sourceURL: url,
+                        traceID: traceID,
+                        logCategory: "file",
+                        sender: sender,
+                        fallbackAction: fallbackAction,
+                        fallbackTarget: fallbackTarget,
+                        failureFallbackReason: nil
                     )
-                    savePanel.begin { result in
-                        guard result == .OK, let destURL = savePanel.url else {
-                            self.debugContextDownload(
-                                "browser.ctxdl.file trace=\(traceID) stage=savePrompt result=cancel"
-                            )
-                            return
-                        }
-                        do {
-                            try data.write(to: destURL, options: .atomic)
-                            self.debugContextDownload(
-                                "browser.ctxdl.file trace=\(traceID) stage=saveSuccess path=\(destURL.path)"
-                            )
-                        } catch {
-                            self.debugContextDownload(
-                                "browser.ctxdl.file trace=\(traceID) stage=saveFailure error=\(error.localizedDescription)"
-                            )
-                        }
-                    }
                 } catch {
                     self.notifyContextMenuDownloadState(false)
                     self.debugContextDownload(
@@ -1035,7 +1803,7 @@ final class CmuxWebView: WKWebView {
         cookieStore.getAllCookies { cookies in
             var request = URLRequest(url: url)
             request.httpMethod = "GET"
-            let cookieHeaders = HTTPCookie.requestHeaderFields(with: cookies)
+            let cookieHeaders = HTTPCookie.requestHeaderFields(with: Self.cookiesForDownloadRequest(cookies, url: url))
             for (key, value) in cookieHeaders {
                 request.setValue(value, forHTTPHeaderField: key)
             }
@@ -1071,48 +1839,26 @@ final class CmuxWebView: WKWebView {
                     let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
                     let mime = response?.mimeType ?? "nil"
                     let expectedLength = response?.expectedContentLength ?? -1
-                    self.debugContextDownload(
-                        "browser.ctxdl.response trace=\(traceID) stage=success hasResponse=1 status=\(statusCode) mime=\(mime) bytes=\(data.count) expected=\(expectedLength)"
-                    )
-                    let filenameCandidate = suggestedFilename
-                        ?? response?.suggestedFilename
-                        ?? url.lastPathComponent
-                    let saveName = filenameCandidate.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "download" : filenameCandidate
-
-                    let savePanel = NSSavePanel()
-                    savePanel.nameFieldStringValue = saveName
-                    savePanel.canCreateDirectories = true
-                    savePanel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
-                    // Download is already complete; we're now waiting for user save choice.
-                    self.notifyContextMenuDownloadState(false)
-                    self.debugContextDownload(
-                        "browser.ctxdl.response trace=\(traceID) stage=savePrompt shown=1 defaultName=\(saveName)"
-                    )
-                    savePanel.begin { result in
-                        guard result == .OK, let destURL = savePanel.url else {
-                            self.debugContextDownload(
-                                "browser.ctxdl.response trace=\(traceID) stage=savePrompt result=cancel"
-                            )
-                            return
-                        }
-                        do {
-                            try data.write(to: destURL, options: .atomic)
-                            self.debugContextDownload(
-                                "browser.ctxdl.response trace=\(traceID) stage=saveSuccess path=\(destURL.path)"
-                            )
-                        } catch {
-                            self.debugContextDownload(
-                                "browser.ctxdl.response trace=\(traceID) stage=saveFailure error=\(error.localizedDescription)"
-                            )
-                            self.runContextMenuFallback(
-                                action: fallbackAction,
-                                target: fallbackTarget,
-                                sender: sender,
-                                traceID: traceID,
-                                reason: "save_write_error"
-                            )
-                        }
+                    self.debugContextDownload("browser.ctxdl.response trace=\(traceID) stage=success hasResponse=1 status=\(statusCode) mime=\(mime) bytes=\(data.count) expected=\(expectedLength)")
+                    let filenameResolver = BrowserDownloadFilenameResolver()
+                    if case .reject = filenameResolver.httpStatusDecision(for: response) {
+                        self.notifyContextMenuDownloadState(false)
+                        self.runContextMenuFallback(action: fallbackAction, target: fallbackTarget, sender: sender, traceID: traceID, reason: "http_status")
+                        return
                     }
+                    let saveName = filenameResolver.suggestedFilename(suggestedFilename: suggestedFilename, response: response, sourceURL: url, imageData: data)
+
+                    self.finishSessionDownload(
+                        data: data,
+                        saveName: saveName,
+                        sourceURL: url,
+                        traceID: traceID,
+                        logCategory: "response",
+                        sender: sender,
+                        fallbackAction: fallbackAction,
+                        fallbackTarget: fallbackTarget,
+                        failureFallbackReason: "save_write_error"
+                    )
                 }
             }.resume()
         }
@@ -1136,6 +1882,196 @@ final class CmuxWebView: WKWebView {
         )
     }
 
+    private func inferredImageMIMEType(from url: URL) -> String? {
+        guard !url.pathExtension.isEmpty,
+              let type = UTType(filenameExtension: url.pathExtension),
+              type.conforms(to: .image) else {
+            return nil
+        }
+        return type.preferredMIMEType
+    }
+
+    private func resolveContextMenuCopyImageSourceURL(
+        at point: NSPoint,
+        completion: @escaping (URL?) -> Void
+    ) {
+        findImageURLAtPoint(point) { [weak self] imageURL in
+            guard let self else { return completion(nil) }
+
+            if let imageURL {
+                let normalized = self.normalizedLinkedDownloadURL(imageURL)
+                if self.isDownloadSupportedScheme(normalized) {
+                    completion(normalized)
+                    return
+                }
+            }
+
+            self.findLinkURLAtPoint(point) { fallbackLinkURL in
+                guard let fallbackLinkURL else {
+                    completion(nil)
+                    return
+                }
+
+                let normalized = self.normalizedLinkedDownloadURL(fallbackLinkURL)
+                guard self.isDownloadSupportedScheme(normalized),
+                      self.isLikelyImageURL(normalized) else {
+                    completion(nil)
+                    return
+                }
+
+                completion(normalized)
+            }
+        }
+    }
+
+    private func fetchContextMenuImageCopyPayload(
+        from sourceURL: URL,
+        traceID: String,
+        completion: @escaping (BrowserImageCopyPasteboardPayload?) -> Void
+    ) {
+        let scheme = sourceURL.scheme?.lowercased() ?? ""
+        debugContextDownload(
+            "browser.ctxcopy.fetch trace=\(traceID) stage=start scheme=\(scheme) url=\(sourceURL.absoluteString)"
+        )
+
+        if scheme == "data" {
+            guard let parsed = Self.parseDataURL(sourceURL), !parsed.data.isEmpty else {
+                debugContextDownload(
+                    "browser.ctxcopy.fetch trace=\(traceID) stage=dataParseFailure"
+                )
+                completion(nil)
+                return
+            }
+            debugContextDownload(
+                "browser.ctxcopy.fetch trace=\(traceID) stage=dataParseSuccess mime=\(parsed.mimeType ?? "nil") bytes=\(parsed.data.count)"
+            )
+            completion(
+                BrowserImageCopyPasteboardPayload(
+                    imageData: parsed.data,
+                    mimeType: parsed.mimeType,
+                    sourceURL: nil
+                )
+            )
+            return
+        }
+
+        if scheme == "file" {
+            DispatchQueue.global(qos: .userInitiated).async {
+                let data = try? Data(contentsOf: sourceURL)
+                DispatchQueue.main.async {
+                    guard let data, !data.isEmpty else {
+                        self.debugContextDownload(
+                            "browser.ctxcopy.fetch trace=\(traceID) stage=fileReadFailure path=\(sourceURL.path)"
+                        )
+                        completion(nil)
+                        return
+                    }
+
+                    self.debugContextDownload(
+                        "browser.ctxcopy.fetch trace=\(traceID) stage=fileReadSuccess bytes=\(data.count) path=\(sourceURL.path)"
+                    )
+                    completion(
+                        BrowserImageCopyPasteboardPayload(
+                            imageData: data,
+                            mimeType: self.inferredImageMIMEType(from: sourceURL),
+                            sourceURL: nil
+                        )
+                    )
+                }
+            }
+            return
+        }
+
+        guard scheme == "http" || scheme == "https" else {
+            debugContextDownload(
+                "browser.ctxcopy.fetch trace=\(traceID) stage=unsupportedScheme url=\(sourceURL.absoluteString)"
+            )
+            completion(nil)
+            return
+        }
+
+        let cookieStore = configuration.websiteDataStore.httpCookieStore
+        cookieStore.getAllCookies { cookies in
+            var request = URLRequest(url: sourceURL)
+            request.httpMethod = "GET"
+            let cookieHeaders = HTTPCookie.requestHeaderFields(with: cookies)
+            for (key, value) in cookieHeaders {
+                request.setValue(value, forHTTPHeaderField: key)
+            }
+            if let referer = self.url?.absoluteString, !referer.isEmpty {
+                request.setValue(referer, forHTTPHeaderField: "Referer")
+            }
+            if let ua = self.customUserAgent, !ua.isEmpty {
+                request.setValue(ua, forHTTPHeaderField: "User-Agent")
+            }
+
+            self.debugContextDownload(
+                "browser.ctxcopy.fetch trace=\(traceID) stage=dispatch cookies=\(cookies.count) referer=\(request.value(forHTTPHeaderField: "Referer") ?? "nil") uaSet=\(request.value(forHTTPHeaderField: "User-Agent") == nil ? 0 : 1)"
+            )
+
+            URLSession.shared.dataTask(with: request) { data, response, error in
+                DispatchQueue.main.async {
+                    guard let data, !data.isEmpty, error == nil else {
+                        self.debugContextDownload(
+                            "browser.ctxcopy.fetch trace=\(traceID) stage=networkFailure status=\((response as? HTTPURLResponse)?.statusCode ?? -1) mime=\(response?.mimeType ?? "nil") error=\(error?.localizedDescription ?? "unknown")"
+                        )
+                        completion(nil)
+                        return
+                    }
+
+                    let resolvedURL = response?.url.flatMap {
+                        let scheme = $0.scheme?.lowercased() ?? ""
+                        return (scheme == "http" || scheme == "https") ? $0 : nil
+                    } ?? sourceURL
+                    let mimeType = response?.mimeType ?? self.inferredImageMIMEType(from: resolvedURL)
+                    self.debugContextDownload(
+                        "browser.ctxcopy.fetch trace=\(traceID) stage=networkSuccess status=\((response as? HTTPURLResponse)?.statusCode ?? -1) mime=\(mimeType ?? "nil") bytes=\(data.count)"
+                    )
+                    completion(
+                        BrowserImageCopyPasteboardPayload(
+                            imageData: data,
+                            mimeType: mimeType,
+                            sourceURL: resolvedURL
+                        )
+                    )
+                }
+            }.resume()
+        }
+    }
+
+    private func writeContextMenuImageCopyPayload(
+        _ payload: BrowserImageCopyPasteboardPayload,
+        expectedPasteboardChangeCount: Int,
+        traceID: String
+    ) async -> (wrote: Bool, shouldFallback: Bool) {
+        let pasteboard = NSPasteboard.general
+        let items = BrowserImageCopyPasteboardBuilder.makePasteboardItems(from: payload)
+        guard !items.isEmpty else {
+            debugContextDownload(
+                "browser.ctxcopy.write trace=\(traceID) stage=buildFailure mime=\(payload.mimeType ?? "nil") url=\(payload.sourceURL?.absoluteString ?? "nil") bytes=\(payload.imageData.count)"
+            )
+            return (false, true)
+        }
+
+        let result = await GhosttyApp.terminalPasteboard
+            .replaceContentsAndWait(
+                of: pasteboard,
+                with: items,
+                expectedChangeCount: expectedPasteboardChangeCount
+            )
+        if result.status == .conditionNotMet {
+            debugContextDownload(
+                "browser.ctxcopy.write trace=\(traceID) stage=skipPasteboardRace expected=\(expectedPasteboardChangeCount) actual=\(pasteboard.changeCount)"
+            )
+            return (false, false)
+        }
+        let wrote = result.didWrite
+        debugContextDownload(
+            "browser.ctxcopy.write trace=\(traceID) stage=finish wrote=\(wrote ? 1 : 0) itemCount=\(items.count) types=\(items.map { $0.types.map(\.rawValue).joined(separator: ",") }.joined(separator: "|"))"
+        )
+        return (wrote, !wrote)
+    }
+
     // MARK: - Drag-and-drop passthrough
 
     // WKWebView inherently calls registerForDraggedTypes with public.text (and others).
@@ -1154,9 +2090,37 @@ final class CmuxWebView: WKWebView {
         NSPasteboard.PasteboardType("com.cmux.sidebar-tab-reorder"),
     ]
 
-    static func shouldRejectInternalPaneDrag(_ pasteboardTypes: [NSPasteboard.PasteboardType]?) -> Bool {
-        DragOverlayRoutingPolicy.hasBonsplitTabTransfer(pasteboardTypes)
-            || DragOverlayRoutingPolicy.hasSidebarTabReorder(pasteboardTypes)
+    /// A custom drag UTI is only a hint: AppKit keeps it after a session ends.
+    /// Resolve both internal capabilities through their live main-actor owners
+    /// before preventing WebKit from receiving an ordinary external drag.
+    private static func hasLiveInternalPaneDrag(in pasteboard: NSPasteboard) -> Bool {
+        MainActor.assumeIsolated {
+            let types = pasteboard.types
+            let hasLiveTabTransfer = types?.contains(
+                DragOverlayRoutingPolicy.bonsplitTabTransferType
+            ) == true && AppDelegate.shared?.liveTabDragCapabilityResolver.resolve(
+                from: pasteboard
+            ) != nil
+            let hasLiveSidebarDrag: Bool = {
+                guard types?.contains(DragOverlayRoutingPolicy.sidebarTabReorderType) == true else {
+                    return false
+                }
+                return SidebarTabDragPayload.hasLiveSession(
+                    in: pasteboard,
+                    currentSessionId: AppDelegate.shared?.sidebarWorkspaceDragRegistry.currentSessionId
+                )
+            }()
+            return hasLiveTabTransfer || hasLiveSidebarDrag
+        }
+    }
+
+    static func shouldRejectInternalPaneDrag(
+        _ pasteboardTypes: [NSPasteboard.PasteboardType]?,
+        hasLiveTabTransfer: Bool = false,
+        hasLiveSidebarDrag: Bool = false
+    ) -> Bool {
+        (DragOverlayRoutingPolicy.hasBonsplitTabTransfer(pasteboardTypes) && hasLiveTabTransfer)
+            || (DragOverlayRoutingPolicy.hasSidebarTabReorder(pasteboardTypes) && hasLiveSidebarDrag)
     }
 
     override func registerForDraggedTypes(_ newTypes: [NSPasteboard.PasteboardType]) {
@@ -1167,23 +2131,38 @@ final class CmuxWebView: WKWebView {
     }
 
     override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        guard !Self.shouldRejectInternalPaneDrag(sender.draggingPasteboard.types) else { return [] }
+        guard !Self.hasLiveInternalPaneDrag(in: sender.draggingPasteboard) else { return [] }
         return super.draggingEntered(sender)
     }
 
     override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        guard !Self.shouldRejectInternalPaneDrag(sender.draggingPasteboard.types) else { return [] }
+        guard !Self.hasLiveInternalPaneDrag(in: sender.draggingPasteboard) else { return [] }
         return super.draggingUpdated(sender)
     }
 
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
-        guard !Self.shouldRejectInternalPaneDrag(sender.draggingPasteboard.types) else { return false }
+        guard !Self.hasLiveInternalPaneDrag(in: sender.draggingPasteboard) else { return false }
         return super.performDragOperation(sender)
+    }
+
+    override func prepareForDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        guard !Self.hasLiveInternalPaneDrag(in: sender.draggingPasteboard) else { return false }
+        return super.prepareForDragOperation(sender)
+    }
+
+    override func concludeDragOperation(_ sender: (any NSDraggingInfo)?) {
+        if let pasteboard = sender?.draggingPasteboard,
+           Self.hasLiveInternalPaneDrag(in: pasteboard) {
+            return
+        }
+        super.concludeDragOperation(sender)
     }
 
     override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
         super.willOpenMenu(menu, with: event)
         lastContextMenuPoint = convert(event.locationInWindow, from: nil)
+        lastContextMenuOpenUptime = ProcessInfo.processInfo.systemUptime
+        lastContextMenuOpenEventTimestamp = event.timestamp
         debugContextDownload(
             "browser.ctxdl.menu open itemCount=\(menu.items.count) point=(\(Int(lastContextMenuPoint.x)),\(Int(lastContextMenuPoint.y)))"
         )
@@ -1204,12 +2183,15 @@ final class CmuxWebView: WKWebView {
                 openLinkInsertionIndex = index + 1
             }
 
-            // Rename "Open Link in New Window" to "Open Link in New Tab".
-            // The UIDelegate's createWebViewWith already handles the action
-            // by opening the link as a new surface in the same pane.
+            // Retarget "Open Link in New Window" to open as a tab, not a popup.
+            // Without this, WebKit's default action calls createWebViewWith with
+            // navigationType .other, which our classifier would treat as a scripted
+            // popup request.
             if item.identifier?.rawValue == "WKMenuItemIdentifierOpenLinkInNewWindow"
                 || item.title.contains("Open Link in New Window") {
                 item.title = String(localized: "browser.contextMenu.openLinkInNewTab", defaultValue: "Open Link in New Tab")
+                item.target = self
+                item.action = #selector(contextMenuOpenLinkInNewTab(_:))
             }
 
             if isDownloadImageMenuItem(item) {
@@ -1221,12 +2203,28 @@ final class CmuxWebView: WKWebView {
                 if let box = objc_getAssociatedObject(item, &Self.contextMenuFallbackKey) as? ContextMenuFallbackBox {
                     fallbackDownloadImageTarget = box.target
                     fallbackDownloadImageAction = box.action
-                } else if !isOurDownloadMenuAction(target: item.target as AnyObject?, action: item.action) {
+                } else if !isOurContextMenuAction(target: item.target as AnyObject?, action: item.action) {
                     fallbackDownloadImageTarget = item.target as AnyObject?
                     fallbackDownloadImageAction = item.action
                 }
                 item.target = self
                 item.action = #selector(contextMenuDownloadImage(_:))
+            }
+
+            if isCopyImageMenuItem(item) {
+                debugContextDownload(
+                    "browser.ctxcopy.menu hook kind=image index=\(index) id=\(item.identifier?.rawValue ?? "nil") title=\(item.title) action=\(Self.selectorName(item.action))"
+                )
+                captureFallbackForMenuItemIfNeeded(item)
+                if let box = objc_getAssociatedObject(item, &Self.contextMenuFallbackKey) as? ContextMenuFallbackBox {
+                    fallbackCopyImageTarget = box.target
+                    fallbackCopyImageAction = box.action
+                } else if !isOurContextMenuAction(target: item.target as AnyObject?, action: item.action) {
+                    fallbackCopyImageTarget = item.target as AnyObject?
+                    fallbackCopyImageAction = item.action
+                }
+                item.target = self
+                item.action = #selector(contextMenuCopyImage(_:))
             }
 
             if isDownloadLinkedFileMenuItem(item) {
@@ -1238,7 +2236,7 @@ final class CmuxWebView: WKWebView {
                 if let box = objc_getAssociatedObject(item, &Self.contextMenuFallbackKey) as? ContextMenuFallbackBox {
                     fallbackDownloadLinkedFileTarget = box.target
                     fallbackDownloadLinkedFileAction = box.action
-                } else if !isOurDownloadMenuAction(target: item.target as AnyObject?, action: item.action) {
+                } else if !isOurContextMenuAction(target: item.target as AnyObject?, action: item.action) {
                     fallbackDownloadLinkedFileTarget = item.target as AnyObject?
                     fallbackDownloadLinkedFileAction = item.action
                 }
@@ -1256,6 +2254,16 @@ final class CmuxWebView: WKWebView {
             item.target = self
             menu.insertItem(item, at: min(openLinkInsertionIndex, menu.items.count))
         }
+        appendScreenshotContextMenuItems(to: menu)
+        appendMoveTabToNewWorkspaceContextMenuItem(to: menu)
+        appendBrowserFocusModeContextMenuItem(to: menu)
+    }
+
+    @objc private func contextMenuToggleBrowserFocusMode(_ sender: Any?) {
+        _ = sender
+        if AppDelegate.shared?.toggleBrowserFocusModeFromContextMenu(for: self) != true {
+            NSSound.beep()
+        }
     }
 
     @objc private func contextMenuOpenLinkInDefaultBrowser(_ sender: Any?) {
@@ -1264,6 +2272,94 @@ final class CmuxWebView: WKWebView {
         resolveContextMenuLinkURL(at: point) { [weak self] url in
             guard let self, let url, self.canOpenInDefaultBrowser(url) else { return }
             self.openContextMenuLinkInDefaultBrowser(url)
+        }
+    }
+
+    @objc private func contextMenuOpenLinkInNewTab(_ sender: Any?) {
+        let point = lastContextMenuPoint
+        resolveContextMenuLinkURL(at: point) { [weak self] url in
+            guard let self, let url else { return }
+            self.onContextMenuOpenLinkInNewTab?(url)
+        }
+    }
+
+    @objc private func contextMenuCopyImage(_ sender: Any?) {
+        let traceID = Self.makeContextDownloadTraceID(prefix: "cpy")
+        let point = lastContextMenuPoint
+        let pasteboardChangeCount = NSPasteboard.general.changeCount
+        debugContextDownload(
+            "browser.ctxcopy.click trace=\(traceID) point=(\(Int(point.x)),\(Int(point.y)))"
+        )
+
+        let fallback = fallbackFromSender(
+            sender,
+            defaultAction: fallbackCopyImageAction,
+            defaultTarget: fallbackCopyImageTarget
+        )
+        debugContextDownload(
+            "browser.ctxcopy.click trace=\(traceID) fallback action=\(Self.selectorName(fallback.action)) target=\(String(describing: fallback.target))"
+        )
+
+        resolveContextMenuCopyImageSourceURL(at: point) { [weak self] sourceURL in
+            guard let self else { return }
+            guard let sourceURL else {
+                self.debugContextDownload(
+                    "browser.ctxcopy.resolve trace=\(traceID) stage=noSourceURL"
+                )
+                self.debugInspectElementsAtPoint(point, traceID: traceID, kind: "copy")
+                self.runContextMenuFallback(
+                    action: fallback.action,
+                    target: fallback.target,
+                    sender: sender,
+                    traceID: traceID,
+                    reason: "no_copy_image_url"
+                )
+                return
+            }
+
+            self.debugContextDownload(
+                "browser.ctxcopy.resolve trace=\(traceID) stage=resolved url=\(sourceURL.absoluteString)"
+            )
+            self.fetchContextMenuImageCopyPayload(from: sourceURL, traceID: traceID) { payload in
+                guard let payload else {
+                    self.debugContextDownload(
+                        "browser.ctxcopy.resolve trace=\(traceID) stage=noPayload"
+                    )
+                    self.runContextMenuFallback(
+                        action: fallback.action,
+                        target: fallback.target,
+                        sender: sender,
+                        traceID: traceID,
+                        reason: "copy_image_fetch_failed"
+                    )
+                    return
+                }
+
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    let writeResult = await self
+                        .writeContextMenuImageCopyPayload(
+                            payload,
+                            expectedPasteboardChangeCount:
+                                pasteboardChangeCount,
+                            traceID: traceID
+                        )
+                    if writeResult.wrote {
+                        return
+                    }
+                    if !writeResult.shouldFallback {
+                        return
+                    }
+
+                    self.runContextMenuFallback(
+                        action: fallback.action,
+                        target: fallback.target,
+                        sender: sender,
+                        traceID: traceID,
+                        reason: "copy_image_write_failed"
+                    )
+                }
+            }
         }
     }
 
@@ -1381,7 +2477,7 @@ final class CmuxWebView: WKWebView {
                     return
                 }
 
-                if let linkURL {
+                if linkURL != nil {
                     self.debugInspectElementsAtPoint(point, traceID: traceID, kind: "image")
                     self.runContextMenuFallback(
                         action: fallback.action,
@@ -1419,7 +2515,10 @@ final class CmuxWebView: WKWebView {
         debugContextDownload(
             "browser.ctxdl.click trace=\(traceID) fallback action=\(Self.selectorName(fallback.action)) target=\(String(describing: fallback.target))"
         )
-        findLinkURLAtPoint(point) { [weak self] url in
+        // Shared link resolution with the Open Link actions: prefer the link
+        // captured at contextmenu time (correct under page zoom and inside
+        // iframes), coordinate hit test only as fallback.
+        resolveContextMenuLinkURL(at: point) { [weak self] url in
             guard let self else { return }
             self.debugContextDownload(
                 "browser.ctxdl.resolve trace=\(traceID) kind=linked linkURL=\(url?.absoluteString ?? "nil")"
@@ -1447,15 +2546,18 @@ final class CmuxWebView: WKWebView {
                     "browser.ctxdl.resolve trace=\(traceID) kind=linked fallbackImageURL=\(imageURL?.absoluteString ?? "nil")"
                 )
                 var dataImageURL: URL?
-                if let imageURL, self.isDownloadableScheme(imageURL) {
-                    self.startContextMenuDownload(
-                        imageURL,
-                        sender: sender,
-                        fallbackAction: fallback.action,
-                        fallbackTarget: fallback.target,
-                        traceID: traceID
-                    )
-                    return
+                if let imageURL {
+                    let normalizedImageURL = self.normalizedLinkedDownloadURL(imageURL)
+                    if self.isDownloadableScheme(normalizedImageURL) {
+                        self.startContextMenuDownload(
+                            normalizedImageURL,
+                            sender: sender,
+                            fallbackAction: fallback.action,
+                            fallbackTarget: fallback.target,
+                            traceID: traceID
+                        )
+                        return
+                    }
                 }
                 if let imageURL, self.isDataURLScheme(imageURL) {
                     dataImageURL = imageURL

@@ -1,0 +1,147 @@
+import CoreGraphics
+import Foundation
+import Testing
+
+@testable import CMUXMobileCore
+
+@Suite struct CmxPairingQRBitmapTests {
+    private let oneRoutePayload = "cmux-ios://attach?v=2&r=100.64.0.5:52341"
+    private let twoRoutePayload =
+        "cmux-ios://attach?v=2&r=lawrences-mac.tail1234.ts.net:52341&r=100.64.0.5:52341"
+    private let irohPayload =
+        "cmux-ios-dev://attach?v=3&i=\(String(repeating: "c", count: 64))"
+
+    /// The full 4-module quiet zone is part of the bitmap itself, so it
+    /// scales with the code and cannot be cropped away by view layout. Also
+    /// pins the assumption that the Core Image generator's own margin is
+    /// exactly 1 module: were it wider or narrower, the module arithmetic
+    /// in `moduleCount(of:)` would stop matching a legal QR version and
+    /// `moduleCountMatchesAVersionAtOrBelowSix` would fail.
+    @Test func bakesFullQuietZoneIntoBitmap() throws {
+        let image = try #require(CmxPairingQRBitmap().makeImage(payload: oneRoutePayload))
+        #expect(image.width == image.height)
+
+        let pixels = try grayLevels(of: image)
+        let quiet = CmxPairingQRBitmap.quietZoneModules
+        #expect(image.width > quiet * 2)
+        for y in 0..<image.height {
+            for x in 0..<image.width {
+                let inQuietZone =
+                    x < quiet || y < quiet
+                    || x >= image.width - quiet || y >= image.height - quiet
+                if inQuietZone {
+                    #expect(
+                        pixels[y * image.width + x] > 245,
+                        "expected white quiet zone at (\(x), \(y))"
+                    )
+                }
+            }
+        }
+    }
+
+    /// Every pixel is pure black or pure white: full scanning contrast,
+    /// independent of app theme, and no interpolation gray (the bitmap is
+    /// generated at module resolution, never resampled).
+    @Test func rendersPureBlackOnPureWhiteOnly() throws {
+        let image = try #require(CmxPairingQRBitmap().makeImage(payload: oneRoutePayload))
+        let pixels = try grayLevels(of: image)
+        #expect(pixels.contains { $0 < 10 }, "expected black modules")
+        #expect(pixels.contains { $0 > 245 }, "expected white background")
+        let grayCount = pixels.count { $0 >= 10 && $0 <= 245 }
+        #expect(grayCount == 0, "expected no mid-gray pixels, found \(grayCount)")
+    }
+
+    /// At ECC M the representative pairing payloads stay at QR version 6 or
+    /// lower (41 modules), so each module still renders large in the pairing
+    /// window. Version v has 17 + 4v modules per side; a side count that
+    /// breaks that arithmetic means the margin assumption in the renderer is
+    /// wrong.
+    @Test func moduleCountMatchesAVersionAtOrBelowSix() throws {
+        for payload in [oneRoutePayload, twoRoutePayload, irohPayload] {
+            let image = try #require(CmxPairingQRBitmap().makeImage(payload: payload))
+            let modules = image.width - CmxPairingQRBitmap.quietZoneModules * 2
+            #expect((modules - 17) % 4 == 0, "\(modules) modules is not a QR version")
+            #expect(modules >= 21)
+            #expect(modules <= 41, "payload should stay at version <= 6, got \(modules) modules")
+        }
+    }
+
+    /// The pairing window's real Tailscale compatibility payload also carries
+    /// the `ub` account binding (an opaque user id, in practice a UUID) and
+    /// the `pc` compatibility level. Built through the real encoder with the
+    /// longest realistic inputs (tagged dev scheme, IPv4 + IPv6 routes) so
+    /// this tracks whatever the encoder actually emits: it may exceed
+    /// version 6, but stays at or below version 8 (49 modules), where
+    /// modules still render large on screen. The full-key JSON payload this
+    /// replaced rendered version 23 (109 modules).
+    @Test func realCompatibilityPayloadStaysAtOrBelowVersionEight() throws {
+        let ticket = try CmxAttachTicket(
+            workspaceID: "",
+            terminalID: nil,
+            macDeviceID: "mac-device-uuid",
+            macDisplayName: "Lawrence's Mac",
+            macUserEmail: nil,
+            macUserID: "8b7e6a2f-1234-4c5d-9e8f-0a1b2c3d4e5f",
+            macPairingCompatibilityVersion: CmxMobileDefaults.pairingCompatibilityVersion,
+            macAppVersion: "0.65.0",
+            macAppBuild: "42",
+            routes: [
+                try CmxAttachRoute(
+                    id: "tailscale",
+                    kind: .tailscale,
+                    endpoint: .hostPort(host: "100.101.102.103", port: 52341),
+                    priority: 10
+                ),
+                try CmxAttachRoute(
+                    id: "tailscale_2",
+                    kind: .tailscale,
+                    endpoint: .hostPort(host: "fd7a:115c:a1e0::1234:5678", port: 52341),
+                    priority: 20
+                ),
+            ],
+            expiresAt: Date().addingTimeInterval(600),
+            authToken: "minted-but-never-in-the-qr"
+        )
+        let payload = try #require(CmxPairingQRCode().encode(
+            ticket,
+            routeDisclosureMode: .legacyPrivateNetworkCompatibility,
+            pairingURLScheme: try #require(
+                CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.ios.longtag")
+            )
+        ))
+        let image = try #require(CmxPairingQRBitmap().makeImage(payload: payload))
+        let modules = image.width - CmxPairingQRBitmap.quietZoneModules * 2
+        #expect((modules - 17) % 4 == 0, "\(modules) modules is not a QR version")
+        #expect(
+            modules <= 49,
+            "account-bound compat payload should stay at version <= 8, got \(modules) modules"
+        )
+    }
+
+    /// Renders `image` into an sRGB bitmap and reduces each pixel to its red
+    /// channel; the QR is grayscale, so one channel carries the module value.
+    private func grayLevels(of image: CGImage) throws -> [UInt8] {
+        let width = image.width
+        let height = image.height
+        var rgba = [UInt8](repeating: 0, count: width * height * 4)
+        let colorSpace = try #require(CGColorSpace(name: CGColorSpace.sRGB))
+        try rgba.withUnsafeMutableBytes { buffer in
+            let context = try #require(
+                CGContext(
+                    data: buffer.baseAddress,
+                    width: width,
+                    height: height,
+                    bitsPerComponent: 8,
+                    bytesPerRow: width * 4,
+                    space: colorSpace,
+                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+                )
+            )
+            context.draw(
+                image,
+                in: CGRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height))
+            )
+        }
+        return stride(from: 0, to: rgba.count, by: 4).map { rgba[$0] }
+    }
+}

@@ -1,0 +1,9 @@
+# Test-determinism gate allowlist (grandfathered legacy debt).
+# Format: relpath<TAB>rule<TAB>short reason
+# A finding whose (path, rule) appears here is suppressed.
+# Remove a line once the underlying test is determinized.
+Packages/iOS/CmuxMobileRPC/Tests/CmuxMobileRPCTests/MobileCoreRPCTransportDrainTests.swift	sleep-then-assert	temporary outage debt owned by #8931; remove when determinized
+Packages/iOS/CmuxMobileShellUI/Tests/CmuxMobileShellUITests/OnboardingMacDiscoveryKeepAliveTests.swift	sleep-then-assert	temporary outage debt owned by #9163; remove when determinized
+cmuxTests/WorkspaceForkConversationContextMenuTests.swift	assert-on-duration	grandfathered
+cmuxTests/WorkspaceForkConversationContextMenuTests.swift	sleep-then-assert	grandfathered
+tests/test_ci_sparkle_build_monotonic.sh	live-network-host	release pretag guard intentionally probes the published appcast and soft-passes offline

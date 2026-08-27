@@ -1,0 +1,1804 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "chat.artifact.failure.account_mismatch.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "This device and the Mac are signed in to different cmux accounts." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このデバイスとMacは異なるcmuxアカウントにサインインしています。" } }
+      }
+    },
+    "chat.artifact.failure.account_mismatch.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Account mismatch" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "アカウントが一致しません" } }
+      }
+    },
+    "chat.artifact.failure.authentication_expired.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Reconnect to the Mac to refresh authentication, then try again." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Macに再接続して認証を更新してから、もう一度お試しください。" } }
+      }
+    },
+    "chat.artifact.failure.authentication_expired.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Pairing expired" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ペアリングの有効期限が切れました" } }
+      }
+    },
+    "chat.artifact.failure.authorization.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "This device isn't authorized to read files from the Mac. Pair it again." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このデバイスにはMac上のファイルを読み取る権限がありません。もう一度ペアリングしてください。" } }
+      }
+    },
+    "chat.artifact.failure.authorization.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Connection not authorized" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "接続が承認されていません" } }
+      }
+    },
+    "chat.artifact.failure.corrupt_media.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The file type is supported, but its media data couldn't be decoded." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "対応しているファイル形式ですが、メディアデータをデコードできませんでした。" } }
+      }
+    },
+    "chat.artifact.failure.corrupt_media.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "File is damaged" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ファイルが破損しています" } }
+      }
+    },
+    "chat.artifact.failure.file_changed.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The file changed while it was loading. Try again to load the latest version." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "読み込み中にファイルが変更されました。最新の内容を読み込むには、もう一度お試しください。" } }
+      }
+    },
+    "chat.artifact.failure.file_changed.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "File changed" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ファイルが変更されました" } }
+      }
+    },
+    "chat.artifact.failure.forbidden.workspace_message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "This file is no longer part of the workspace changes." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このファイルはワークスペースの変更に含まれなくなりました。" } }
+      }
+    },
+    "chat.artifact.failure.invalid_request.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The file request was invalid. Update cmux on both devices." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ファイルリクエストが無効です。両方のデバイスでcmuxをアップデートしてください。" } }
+      }
+    },
+    "chat.artifact.failure.invalid_request.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Invalid file request" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "無効なファイルリクエスト" } }
+      }
+    },
+    "chat.artifact.failure.invalid_response.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The Mac sent inconsistent file data. Try again, then update cmux if it continues." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Macから整合性のないファイルデータが送信されました。もう一度試し、続く場合はcmuxをアップデートしてください。" } }
+      }
+    },
+    "chat.artifact.failure.invalid_response.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Invalid file response" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "無効なファイル応答" } }
+      }
+    },
+    "chat.artifact.failure.local_storage.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The file arrived, but cmux couldn't create or read its temporary file on this device. Try again." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ファイルは届きましたが、このデバイスで一時ファイルを作成または読み取りできませんでした。もう一度お試しください。" } }
+      }
+    },
+    "chat.artifact.failure.local_storage.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Local storage unavailable" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ローカルストレージを利用できません" } }
+      }
+    },
+    "chat.artifact.failure.not_directory.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "This path is a file, not a folder." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このパスはフォルダではなくファイルです。" } }
+      }
+    },
+    "chat.artifact.failure.not_directory.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Not a folder" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フォルダではありません" } }
+      }
+    },
+    "chat.artifact.failure.not_regular_file.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "This path is a folder or special filesystem item, so its bytes can't be previewed." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このパスはフォルダまたは特殊なファイルシステム項目のため、内容をプレビューできません。" } }
+      }
+    },
+    "chat.artifact.failure.not_regular_file.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Not a regular file" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "通常のファイルではありません" } }
+      }
+    },
+    "chat.artifact.failure.not_repository.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The workspace folder is no longer a Git repository." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ワークスペースのフォルダはGitリポジトリではなくなりました。" } }
+      }
+    },
+    "chat.artifact.failure.not_repository.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Repository unavailable" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リポジトリを利用できません" } }
+      }
+    },
+    "chat.artifact.failure.permission.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "cmux found the file, but the Mac doesn't allow cmux to read it. Check the file's permissions." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ファイルは見つかりましたが、Macでcmuxに読み取りが許可されていません。ファイルのアクセス権を確認してください。" } }
+      }
+    },
+    "chat.artifact.failure.permission.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Permission denied" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "アクセス権がありません" } }
+      }
+    },
+    "chat.artifact.failure.preview_failed.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The file was read, but cmux couldn't create its preview. Try again." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ファイルは読み取れましたが、プレビューを作成できませんでした。もう一度お試しください。" } }
+      }
+    },
+    "chat.artifact.failure.preview_failed.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Couldn't create preview" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "プレビューを作成できません" } }
+      }
+    },
+    "chat.artifact.failure.read_failed.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The Mac found the file but couldn't read its metadata or contents. Try again." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Macでファイルは見つかりましたが、メタデータまたは内容を読み取れませんでした。もう一度お試しください。" } }
+      }
+    },
+    "chat.artifact.failure.read_failed.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Couldn't read file" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ファイルを読み取れません" } }
+      }
+    },
+    "chat.artifact.failure.reconnecting.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "A connection attempt is already in progress. Try again in a moment." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "接続を試行中です。しばらくしてからもう一度お試しください。" } }
+      }
+    },
+    "chat.artifact.failure.reconnecting.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Reconnecting to Mac" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Macに再接続中" } }
+      }
+    },
+    "chat.artifact.failure.restart.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Connection cleanup is stuck. Restart cmux on this device, reconnect, and try again." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "接続のクリーンアップが停止しています。このデバイスでcmuxを再起動し、再接続してからもう一度お試しください。" } }
+      }
+    },
+    "chat.artifact.failure.restart.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Restart required" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "再起動が必要です" } }
+      }
+    },
+    "chat.artifact.failure.secure_connection.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "This route can't securely transfer Mac files. Reconnect using a paired secure route." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "この経路ではMacのファイルを安全に転送できません。ペアリング済みの安全な経路で再接続してください。" } }
+      }
+    },
+    "chat.artifact.failure.secure_connection.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Secure connection required" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "安全な接続が必要です" } }
+      }
+    },
+    "chat.artifact.failure.service_unavailable.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "File transfer is temporarily unavailable on the Mac. Try again." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Macでファイル転送を一時的に利用できません。もう一度お試しください。" } }
+      }
+    },
+    "chat.artifact.failure.service_unavailable.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "File service unavailable" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ファイルサービスを利用できません" } }
+      }
+    },
+    "chat.artifact.failure.session_unavailable.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The session exists, but its file history couldn't be read on the Mac." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "セッションは存在しますが、Macでファイル履歴を読み取れませんでした。" } }
+      }
+    },
+    "chat.artifact.failure.session_unavailable.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Session unavailable" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "セッションを利用できません" } }
+      }
+    },
+    "chat.artifact.failure.storage_full.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Free some storage on this device, then try again." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このデバイスの空き容量を増やしてから、もう一度お試しください。" } }
+      }
+    },
+    "chat.artifact.failure.storage_full.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "iPhone storage full" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "iPhoneのストレージがいっぱいです" } }
+      }
+    },
+    "chat.artifact.failure.terminal_missing.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The terminal that authorized this file is no longer available." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このファイルを承認したターミナルは利用できなくなりました。" } }
+      }
+    },
+    "chat.artifact.failure.terminal_missing.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Terminal not found" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ターミナルが見つかりません" } }
+      }
+    },
+    "chat.artifact.failure.timeout.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The file request didn't complete in time. Try again." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ファイルリクエストが時間内に完了しませんでした。もう一度お試しください。" } }
+      }
+    },
+    "chat.artifact.failure.timeout.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Request timed out" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リクエストがタイムアウトしました" } }
+      }
+    },
+    "chat.artifact.failure.transfer_interrupted.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The file transfer stopped before all bytes arrived. Try again." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "すべてのデータが届く前にファイル転送が停止しました。もう一度お試しください。" } }
+      }
+    },
+    "chat.artifact.failure.transfer_interrupted.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Transfer interrupted" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "転送が中断されました" } }
+      }
+    },
+    "chat.artifact.failure.unknown.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The Mac reported an error this app doesn't recognize. Update cmux on both devices." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Macがこのアプリで認識できないエラーを返しました。両方のデバイスでcmuxをアップデートしてください。" } }
+      }
+    },
+    "chat.artifact.failure.unknown.message_with_code": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The Mac reported an error this app doesn't recognize (%@). Update cmux on both devices." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Macがこのアプリで認識できないエラーを返しました（%@）。両方のデバイスでcmuxをアップデートしてください。" } }
+      }
+    },
+    "chat.artifact.failure.unknown.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Unrecognized error" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "認識できないエラー" } }
+      }
+    },
+    "chat.artifact.failure.unsupported.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "This Mac doesn't support file previews. Update cmux on the Mac." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このMacはファイルプレビューに対応していません。Macのcmuxをアップデートしてください。" } }
+      }
+    },
+    "chat.artifact.failure.unsupported.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "File previews unavailable" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ファイルプレビューを利用できません" } }
+      }
+    },
+    "chat.artifact.failure.workspace_missing.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The workspace for this file is no longer available." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このファイルのワークスペースは利用できなくなりました。" } }
+      }
+    },
+    "chat.artifact.failure.workspace_missing.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Workspace not found" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ワークスペースが見つかりません" } }
+      }
+    },
+    "chat.artifact.accessibility.large_text_truncated": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only the beginning of this large document is exposed to assistive technologies."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この大きな書類では、先頭部分のみが支援技術に公開されます。"
+          }
+        }
+      }
+    },
+    "chat.artifact.action_failed.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check the connection to your Mac and try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macへの接続を確認して、もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "chat.artifact.action_failed.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't complete action"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "操作を完了できませんでした"
+          }
+        }
+      }
+    },
+    "chat.artifact.browse_folder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browse folder"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォルダを表示"
+          }
+        }
+      }
+    },
+    "chat.artifact.copy_contents": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy contents"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "内容をコピー"
+          }
+        }
+      }
+    },
+    "chat.artifact.copy_image": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy image"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画像をコピー"
+          }
+        }
+      }
+    },
+    "chat.artifact.copy_path": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy path"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パスをコピー"
+          }
+        }
+      }
+    },
+    "chat.artifact.disconnected.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This phone isn't connected to the Mac right now. Reconnect, then retry."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このiPhoneは現在Macに接続されていません。再接続してからもう一度お試しください。"
+          }
+        }
+      }
+    },
+    "chat.artifact.disconnected.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not connected"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未接続"
+          }
+        }
+      }
+    },
+    "chat.artifact.done": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Done"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完了"
+          }
+        }
+      }
+    },
+    "chat.artifact.failed.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Something went wrong loading this file."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このファイルの読み込み中に問題が発生しました。"
+          }
+        }
+      }
+    },
+    "chat.artifact.failed.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't load file"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルを読み込めませんでした"
+          }
+        }
+      }
+    },
+    "chat.artifact.file_actions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "File actions"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイル操作"
+          }
+        }
+      }
+    },
+    "chat.artifact.file_missing.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The file is no longer available on your Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのファイルはMac上で利用できなくなりました。"
+          }
+        }
+      }
+    },
+    "chat.artifact.file_missing.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "File not found"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルが見つかりません"
+          }
+        }
+      }
+    },
+    "chat.artifact.folder.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No items"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "項目がありません"
+          }
+        }
+      }
+    },
+    "chat.artifact.folder.load_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't load this folder"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このフォルダを読み込めませんでした"
+          }
+        }
+      }
+    },
+    "chat.artifact.folder.showing_first_500": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Showing first 500 items"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最初の 500 項目を表示しています"
+          }
+        }
+      }
+    },
+    "chat.artifact.forbidden.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This file was not referenced by the conversation."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このファイルは会話で参照されていません。"
+          }
+        }
+      }
+    },
+    "chat.artifact.forbidden.panel_message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This file isn't displayed by the selected panel."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このファイルは選択したパネルに表示されていません。"
+          }
+        }
+      }
+    },
+    "chat.artifact.forbidden.terminal_message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This file isn't visible in the current terminal view."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このファイルは現在のターミナル画面に表示されていません。"
+          }
+        }
+      }
+    },
+    "chat.artifact.forbidden.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preview unavailable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレビューできません"
+          }
+        }
+      }
+    },
+    "chat.artifact.highlighting.off": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Highlighting off"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ハイライトはオフ"
+          }
+        }
+      }
+    },
+    "chat.artifact.highlighting.off.explanation": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This file is %@. Syntax highlighting is off above %@ to keep scrolling smooth."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このファイルは%@です。スクロールを滑らかに保つため、%@を超えるファイルでは構文ハイライトがオフになります。"
+          }
+        }
+      }
+    },
+    "chat.artifact.jump.bottom": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bottom"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下端"
+          }
+        }
+      }
+    },
+    "chat.artifact.jump.end": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "End"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "末尾"
+          }
+        }
+      }
+    },
+    "chat.artifact.jump.latest": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Latest"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最新"
+          }
+        }
+      }
+    },
+    "chat.artifact.jump.top": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Top"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "先頭"
+          }
+        }
+      }
+    },
+    "chat.artifact.line.close": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close go to line"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "行へ移動を閉じる"
+          }
+        }
+      }
+    },
+    "chat.artifact.line.go": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Go"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移動"
+          }
+        }
+      }
+    },
+    "chat.artifact.line.goto": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Go to line"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "行へ移動"
+          }
+        }
+      }
+    },
+    "chat.artifact.line.numbers": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Line numbers"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "行番号"
+          }
+        }
+      }
+    },
+    "chat.artifact.line.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Line number"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "行番号"
+          }
+        }
+      }
+    },
+    "chat.artifact.load_failed.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The file couldn’t be loaded. Try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルを読み込めませんでした。もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "chat.artifact.load_failed.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t load file"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルを読み込めません"
+          }
+        }
+      }
+    },
+    "chat.artifact.loading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loading preview"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレビューを読み込み中"
+          }
+        }
+      }
+    },
+    "chat.artifact.mac_unreachable.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check the connection to your Mac and try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macとの接続を確認して、もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "chat.artifact.mac_unreachable.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac unreachable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macに接続できません"
+          }
+        }
+      }
+    },
+    "chat.artifact.session_missing.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The chat session for this file is no longer available."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このファイルのチャットセッションは利用できなくなりました。"
+          }
+        }
+      }
+    },
+    "chat.artifact.session_missing.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Session not found"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッションが見つかりません"
+          }
+        }
+      }
+    },
+    "chat.artifact.markdown.raw": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Raw"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ソース"
+          }
+        }
+      }
+    },
+    "chat.artifact.markdown.rendered": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rendered"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレビュー"
+          }
+        }
+      }
+    },
+    "chat.artifact.markdown.view": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Markdown view"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Markdown表示"
+          }
+        }
+      }
+    },
+    "chat.artifact.not_found.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This file's source is no longer available on your Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このファイルのソースはMac上で利用できなくなりました。"
+          }
+        }
+      }
+    },
+    "chat.artifact.not_found.panel_message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That file panel is no longer open on your Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのファイルパネルはMac上で開かれていません。"
+          }
+        }
+      }
+    },
+    "chat.artifact.not_found.panel_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Panel closed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パネルは閉じられました"
+          }
+        }
+      }
+    },
+    "chat.artifact.not_found.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Source unavailable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ソースを利用できません"
+          }
+        }
+      }
+    },
+    "chat.artifact.ok": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK"
+          }
+        }
+      }
+    },
+    "chat.artifact.preview_unavailable.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This file can't be previewed."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このファイルはプレビューできません。"
+          }
+        }
+      }
+    },
+    "chat.artifact.preview_unavailable.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preview unavailable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレビューできません"
+          }
+        }
+      }
+    },
+    "chat.artifact.reconnecting.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This phone's connection to the Mac dropped and is coming back. Retry in a moment."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このiPhoneとMacの接続が切断され、再接続中です。しばらくしてからもう一度お試しください。"
+          }
+        }
+      }
+    },
+    "chat.artifact.reconnecting.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reconnecting…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再接続中…"
+          }
+        }
+      }
+    },
+    "chat.artifact.retry": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retry"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再試行"
+          }
+        }
+      }
+    },
+    "chat.artifact.save_to_files": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save to Files"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「ファイル」に保存"
+          }
+        }
+      }
+    },
+    "chat.artifact.search.close": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close search"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "検索を閉じる"
+          }
+        }
+      }
+    },
+    "chat.artifact.search.next": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next match"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次の一致"
+          }
+        }
+      }
+    },
+    "chat.artifact.search.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Find in file"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイル内を検索"
+          }
+        }
+      }
+    },
+    "chat.artifact.search.previous": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Previous match"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "前の一致"
+          }
+        }
+      }
+    },
+    "chat.artifact.search.still_loading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Still loading"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "読み込み中"
+          }
+        }
+      }
+    },
+    "chat.artifact.search.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "検索"
+          }
+        }
+      }
+    },
+    "chat.artifact.share": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Share"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "共有"
+          }
+        }
+      }
+    },
+    "chat.artifact.text_options": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Text options"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テキストオプション"
+          }
+        }
+      }
+    },
+    "chat.artifact.too_large.limit_message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This preview is limited to %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このプレビューの上限は%@です。"
+          }
+        }
+      }
+    },
+    "chat.artifact.too_large.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This file is %@; previews are limited to %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このファイルのサイズは%@です。プレビューの上限は%@です。"
+          }
+        }
+      }
+    },
+    "chat.artifact.too_large.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "File too large to preview"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルが大きすぎてプレビューできません"
+          }
+        }
+      }
+    },
+    "chat.artifact.unavailable.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "File transfer is temporarily unavailable on your Mac. Try again shortly."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macのファイル転送は一時的に利用できません。しばらくしてからもう一度お試しください。"
+          }
+        }
+      }
+    },
+    "chat.artifact.unavailable.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transfer unavailable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "転送を利用できません"
+          }
+        }
+      }
+    },
+    "chat.artifact.unsupported.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The connected Mac's cmux version can't preview this file."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続中のMacのcmuxバージョンではこのファイルをプレビューできません。"
+          }
+        }
+      }
+    },
+    "chat.artifact.unsupported.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update cmux on your Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macのcmuxをアップデートしてください"
+          }
+        }
+      }
+    },
+    "chat.artifact.view_file": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "View file"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルを表示"
+          }
+        }
+      }
+    },
+    "chat.artifact.viewer.actions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Viewer actions"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ビューア操作"
+          }
+        }
+      }
+    },
+    "chat.artifact.wrap": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Word wrap"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "行を折り返す"
+          }
+        }
+      }
+    },
+    "chat.row.collapse.hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Double tap to collapse"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ダブルタップで折りたたむ"
+          }
+        }
+      }
+    },
+    "chat.row.collapsed.accessibility": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Collapsed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "折りたたみ済み"
+          }
+        }
+      }
+    },
+    "chat.row.expand.hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Double tap to expand"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ダブルタップで展開"
+          }
+        }
+      }
+    },
+    "chat.row.expanded.accessibility": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Expanded"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "展開済み"
+          }
+        }
+      }
+    },
+    "chat.terminal.collapse.action": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show less output"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "出力を折りたたむ"
+          }
+        }
+      }
+    },
+    "chat.terminal.expand.action": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show all output"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべての出力を表示"
+          }
+        }
+      }
+    },
+    "chat.tool.truncated": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⋯ truncated"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⋯ 省略"
+          }
+        }
+      }
+    },
+    "markdown.web.remoteImageBlocked": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Remote image blocked" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リモート画像をブロックしました" } }
+      }
+    },
+    "markdown.web.remoteImageConsentMessage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "cmux will not contact this image URL until you load this image." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "この画像を読み込むまで、cmux はこの画像 URL に接続しません。" } }
+      }
+    },
+    "markdown.web.remoteImageCopied": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Copied" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "コピーしました" } }
+      }
+    },
+    "markdown.web.remoteImageCopyURL": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Copy image URL" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "画像 URL をコピー" } }
+      }
+    },
+    "markdown.web.remoteImageHTTPSOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Only HTTPS remote images can be loaded in the viewer." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ビューアー内で読み込めるのは HTTPS のリモート画像のみです。" } }
+      }
+    },
+    "markdown.web.remoteImageLoadImage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Load this image" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "この画像を読み込む" } }
+      }
+    },
+    "markdown.web.remoteImageLoading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Loading" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "読み込み中" } }
+      }
+    },
+    "markdown.web.remoteImageNotAllowed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "This remote image URL cannot be loaded in the viewer." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このリモート画像 URL はビューアー内で読み込めません。" } }
+      }
+    },
+    "markdown.web.remoteImageOpenURL": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Open image URL" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "画像 URL を開く" } }
+      }
+    },
+    "markdown.web.remoteImageURL": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Image URL: {url}" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "画像 URL: {url}" } }
+      }
+    },
+    "markdown.web.rendererInitFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Markdown renderer failed to initialize. Showing raw source." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Markdownレンダラーの初期化に失敗しました。元のテキストを表示しています。" } }
+      }
+    }
+  },
+  "version": "1.0"
+}

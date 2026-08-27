@@ -1,0 +1,153 @@
+// Pure, dependency-free helpers for building APNs requests. Kept separate from
+// the http2/crypto sender so they can be unit-tested in isolation.
+
+export type ApnsEnvironment = "sandbox" | "production";
+
+export const APNS_HOSTS: Record<ApnsEnvironment, string> = {
+  sandbox: "api.sandbox.push.apple.com",
+  production: "api.push.apple.com",
+};
+
+/** APNs host for a stored token's environment (defaults to production). */
+export function apnsHostForEnvironment(environment: string): string | null {
+  if (environment === "sandbox") return APNS_HOSTS.sandbox;
+  if (environment === "production") return APNS_HOSTS.production;
+  return null;
+}
+
+export interface ApnsNotificationInput {
+  /**
+   * `notify` (default) is the visible terminal-banner mirror; `dismiss` is the
+   * banner-less Mac→iOS dismiss-sync push (`content-available` + badge +
+   * `cmux.dismissedIds`) fanned out to every registered device.
+   */
+  readonly kind?: "notify" | "dismiss";
+  readonly title: string;
+  readonly subtitle?: string | null;
+  readonly body: string;
+  /** Inline-reply affordance requested by the Mac notification. */
+  readonly replyShape?: "none" | "text";
+  readonly workspaceId?: string | null;
+  readonly surfaceId?: string | null;
+  /** Whether a tap may resolve the surface outside `workspaceId`. */
+  readonly retargetsToLiveSurfaceOwner?: boolean;
+  readonly macDeviceId?: string | null;
+  /** The cmux app-instance tag paired with `macDeviceId`. */
+  readonly macInstanceTag?: string | null;
+  /**
+   * Stable Mac-side notification id. Surfaced in the payload as
+   * `cmux.notificationId` so an iOS swipe-dismiss can tell the Mac which
+   * notification was cleared. The sender derives an exact-Mac-instance-scoped
+   * `apns-collapse-id` from this id when the owner identity is available.
+   */
+  readonly notificationId?: string | null;
+  /** Opaque logical-source-event id used for safe diagnostics and retries. */
+  readonly correlationId?: string | null;
+  /** Absolute APNs expiry in Unix seconds. */
+  readonly expirationEpochSeconds?: number | null;
+  /** The dismissed notification ids carried by a `dismiss` push. */
+  readonly dismissedIds?: readonly string[];
+  /**
+   * Authoritative unread count computed by the Mac at send time; emitted as
+   * `aps.badge` so the icon badge is always SET to the absolute total (never
+   * incremented locally) and drift self-heals. `null`/absent leaves the badge
+   * untouched.
+   */
+  readonly badgeCount?: number | null;
+  /** When true, replace real terminal text with generic APNs localization keys. */
+  readonly hideContent?: boolean;
+}
+
+/**
+ * Base APNs `aps.category` for non-replyable cmux terminal pushes. iOS
+ * registers this and the reply category with `customDismissAction` so a
+ * swipe/clear delivers `UNNotificationDismissActionIdentifier` to the app.
+ * Keep both identifiers in sync with iOS.
+ */
+export const CMUX_APNS_CATEGORY = "cmux.terminal";
+
+/** APNs category for terminal pushes that accept an inline text reply. */
+export const CMUX_APNS_REPLY_CATEGORY = "cmux.terminal.reply";
+
+/**
+ * Build the APNs JSON payload. Adds the workspace/surface ids, live-owner
+ * retargeting provenance, Mac id, and notification id under `cmux` so a tap
+ * can deep-link without crossing a confined workspace boundary and a swipe can
+ * be dismiss-synced. Also selects the plain or inline-reply dismiss-action
+ * category and marks the alert time-sensitive (the app holds that entitlement).
+ */
+export function buildApnsPayload(input: ApnsNotificationInput): Record<string, unknown> {
+  if (input.kind === "dismiss") return buildDismissPayload(input);
+  const hidden = input.hideContent === true;
+  const title = input.title.trim() || "cmux";
+  const body = input.body;
+  const subtitle = hidden ? undefined : input.subtitle?.trim() || undefined;
+
+  const alert: Record<string, string> = hidden
+    ? {
+        "title-loc-key": "push.generic.title",
+        "loc-key": "push.generic.body",
+      }
+    : { title };
+  if (!hidden && subtitle) alert.subtitle = subtitle;
+  if (!hidden && body) alert.body = body;
+
+  const aps: Record<string, unknown> = {
+    alert,
+    sound: "default",
+    "interruption-level": "time-sensitive",
+    category: input.replyShape === "text" ? CMUX_APNS_REPLY_CATEGORY : CMUX_APNS_CATEGORY,
+  };
+  if (typeof input.badgeCount === "number") aps.badge = input.badgeCount;
+
+  const cmux: Record<string, string | boolean> = {};
+  if (input.workspaceId) cmux.workspaceId = input.workspaceId;
+  if (input.surfaceId) cmux.surfaceId = input.surfaceId;
+  if (typeof input.retargetsToLiveSurfaceOwner === "boolean") {
+    cmux.retargetsToLiveSurfaceOwner = input.retargetsToLiveSurfaceOwner;
+  }
+  if (input.macDeviceId) cmux.macDeviceId = input.macDeviceId;
+  if (input.macInstanceTag) cmux.macInstanceTag = input.macInstanceTag;
+  if (input.notificationId) cmux.notificationId = input.notificationId;
+  if (input.correlationId) cmux.correlationId = input.correlationId;
+
+  return Object.keys(cmux).length > 0 ? { aps, cmux } : { aps };
+}
+
+/**
+ * The Mac→iOS dismiss-sync push: no alert/sound/category (nothing visible),
+ * `aps.badge` set to the authoritative unread total (applied by the system even
+ * when iOS declines to wake the app), and `content-available: 1` so iOS wakes
+ * the app — within its strictly budgeted background-push allowance — to remove
+ * the dismissed delivered banners listed under `cmux.dismissedIds`.
+ *
+ * Deliberately sent as push-type `alert` with priority 5 (see sender): per
+ * Apple's push-type taxonomy a badge update is user-facing, so this is not a
+ * `background` push, and a `background` push may not carry `badge` at all.
+ */
+function buildDismissPayload(input: ApnsNotificationInput): Record<string, unknown> {
+  const aps: Record<string, unknown> = { "content-available": 1 };
+  if (typeof input.badgeCount === "number") aps.badge = input.badgeCount;
+  const cmux: Record<string, unknown> = {
+    dismissedIds: [...(input.dismissedIds ?? [])],
+  };
+  if (input.macDeviceId) cmux.macDeviceId = input.macDeviceId;
+  if (input.macInstanceTag) cmux.macInstanceTag = input.macInstanceTag;
+  if (input.correlationId) cmux.correlationId = input.correlationId;
+  return { aps, cmux };
+}
+
+/**
+ * Whether an APNs response means the token is permanently invalid and should be
+ * deleted. 410 (Unregistered, with a timestamp) and the `BadDeviceToken` /
+ * `DeviceTokenNotForTopic` / `Unregistered` reasons are terminal; transient
+ * failures (timeouts, 5xx, connection errors with status 0) are not pruned.
+ */
+export function shouldPruneToken(status: number, reason: string | undefined): boolean {
+  if (status === 410) return true;
+  if (reason === "Unregistered") return true;
+  if (status === 400 && (reason === "BadDeviceToken" || reason === "DeviceTokenNotForTopic")) {
+    return true;
+  }
+  return false;
+}

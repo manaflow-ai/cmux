@@ -1,0 +1,767 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat >&2 <<'USAGE'
+Usage: start-cmux-profiling [--pid <pid> | --channel <stable|nightly|staging|dev> [--tag <tag>]]
+                            [--duration <seconds>] [--out <dir>] [--template <name>...]
+                            [--list-targets] [--open-output] [--no-submit]
+
+Capture a short Instruments bundle for a live cmux process. The default capture
+runs the useful general-purpose templates for support diagnostics:
+Time Profiler, SwiftUI, Allocations, and System Trace.
+
+Target selection:
+  --pid <pid>        Profile exactly this process. Best when more than one cmux is running.
+  --channel <name>   Select stable, nightly, staging, or dev by bundle identifier.
+  --tag <tag>        Narrow dev/nightly/staging selection to a tagged build.
+  --list-targets     Print discovered cmux processes and exit.
+
+If no target selector is passed, the script profiles the only discovered cmux
+process. If several are running, it prints them and asks for --pid.
+
+After a successful capture, the script opens a separate submission helper that
+creates a founders email draft with the profile archive attached. Use
+--no-submit to skip that helper.
+USAGE
+}
+
+duration="15"
+out_dir=""
+target_pid=""
+target_channel=""
+target_tag=""
+list_targets="false"
+open_output="false"
+submit_profile="true"
+dry_run="false"
+test_ps_file="${CMUX_PROFILE_TEST_PS_FILE:-}"
+plist_buddy="${CMUX_PROFILE_PLIST_BUDDY:-/usr/libexec/PlistBuddy}"
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+templates=()
+using_default_templates="true"
+
+default_templates=(
+  "Time Profiler"
+  "SwiftUI"
+  "Allocations"
+  "System Trace"
+)
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --pid)
+      if [ "$#" -lt 2 ] || [[ "${2:-}" == --* ]]; then
+        echo "start-cmux-profiling: --pid requires a value" >&2
+        usage
+        exit 2
+      fi
+      target_pid="$2"
+      shift 2
+      ;;
+    --channel)
+      if [ "$#" -lt 2 ] || [[ "${2:-}" == --* ]]; then
+        echo "start-cmux-profiling: --channel requires a value" >&2
+        usage
+        exit 2
+      fi
+      target_channel="$2"
+      shift 2
+      ;;
+    --tag)
+      if [ "$#" -lt 2 ] || [[ "${2:-}" == --* ]]; then
+        echo "start-cmux-profiling: --tag requires a value" >&2
+        usage
+        exit 2
+      fi
+      target_tag="$2"
+      shift 2
+      ;;
+    --duration)
+      if [ "$#" -lt 2 ] || [[ "${2:-}" == --* ]]; then
+        echo "start-cmux-profiling: --duration requires a value" >&2
+        usage
+        exit 2
+      fi
+      duration="$2"
+      shift 2
+      ;;
+    --out)
+      if [ "$#" -lt 2 ] || [[ "${2:-}" == --* ]]; then
+        echo "start-cmux-profiling: --out requires a value" >&2
+        usage
+        exit 2
+      fi
+      out_dir="$2"
+      shift 2
+      ;;
+    --template)
+      if [ "$#" -lt 2 ] || [[ "${2:-}" == --* ]]; then
+        echo "start-cmux-profiling: --template requires a value" >&2
+        usage
+        exit 2
+      fi
+      if [ "$using_default_templates" = "true" ]; then
+        templates=()
+        using_default_templates="false"
+      fi
+      templates+=("$2")
+      shift 2
+      ;;
+    --list-targets)
+      list_targets="true"
+      shift
+      ;;
+    --open-output)
+      open_output="true"
+      shift
+      ;;
+    --no-submit)
+      submit_profile="false"
+      shift
+      ;;
+    --dry-run)
+      dry_run="true"
+      shift
+      ;;
+    --test-ps-file)
+      if [ "$#" -lt 2 ] || [[ "${2:-}" == --* ]]; then
+        echo "start-cmux-profiling: --test-ps-file requires a value" >&2
+        usage
+        exit 2
+      fi
+      test_ps_file="$2"
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "start-cmux-profiling: unknown option: $1" >&2
+      usage
+      exit 2
+      ;;
+  esac
+done
+
+if [ "$using_default_templates" = "true" ]; then
+  templates=("${default_templates[@]}")
+fi
+
+if ! [[ "$duration" =~ ^[0-9]+$ ]] || [ "$duration" -lt 1 ]; then
+  echo "start-cmux-profiling: --duration must be a positive integer number of seconds" >&2
+  exit 2
+fi
+
+case "$target_channel" in
+  ""|stable|nightly|staging|dev)
+    ;;
+  *)
+    echo "start-cmux-profiling: --channel must be stable, nightly, staging, or dev" >&2
+    exit 2
+    ;;
+esac
+
+sanitize_bundle() {
+  local raw="$1"
+  local cleaned
+  cleaned="$(printf '%s' "$raw" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/./g; s/^\.+//; s/\.+$//; s/\.+/./g')"
+  if [ -z "$cleaned" ]; then
+    cleaned="agent"
+  fi
+  printf '%s' "$cleaned"
+}
+
+sanitize_path() {
+  local raw="$1"
+  printf '%s' "$raw" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//; s/-+/-/g'
+}
+
+redact_path() {
+  local raw="$1"
+  if [ -n "${HOME:-}" ] && [[ "$raw" == "$HOME"* ]]; then
+    printf '~%s' "${raw#"$HOME"}"
+  else
+    printf '%s' "$raw"
+  fi
+}
+
+plist_value() {
+  local plist="$1"
+  local key="$2"
+  if [ -f "$plist" ] && [ -x "$plist_buddy" ]; then
+    "$plist_buddy" -c "Print :${key}" "$plist" 2>/dev/null || true
+  fi
+}
+
+sysctl_value() {
+  local key="$1"
+  /usr/sbin/sysctl -n "$key" 2>/dev/null || sysctl -n "$key" 2>/dev/null || true
+}
+
+human_bytes() {
+  local bytes="$1"
+  awk -v bytes="$bytes" 'BEGIN {
+    split("B KiB MiB GiB TiB", units)
+    value = bytes + 0
+    unit = 1
+    while (value >= 1024 && unit < 5) {
+      value = value / 1024
+      unit++
+    }
+    printf "%.1f %s", value, units[unit]
+  }'
+}
+
+os_summary() {
+  if command -v sw_vers >/dev/null 2>&1; then
+    local product version build
+    product="$(sw_vers -productName 2>/dev/null || true)"
+    version="$(sw_vers -productVersion 2>/dev/null || true)"
+    build="$(sw_vers -buildVersion 2>/dev/null || true)"
+    printf '%s %s' "${product:-macOS}" "${version:-unknown}"
+    [ -n "$build" ] && printf ' (%s)' "$build"
+    printf '\n'
+  else
+    uname -srm 2>/dev/null || printf 'unknown\n'
+  fi
+}
+
+keyboard_summary() {
+  local defaults_bin="${CMUX_PROFILE_DEFAULTS:-/usr/bin/defaults}"
+  [ -x "$defaults_bin" ] || return 0
+
+  local raw layout source_id
+  raw="$("$defaults_bin" read com.apple.HIToolbox AppleSelectedInputSources 2>/dev/null || true)"
+  layout="$(printf '%s\n' "$raw" | sed -n -E 's/.*"?KeyboardLayout Name"? = "?([^";]+)"?;.*/\1/p' | head -n 1)"
+  source_id="$(printf '%s\n' "$raw" | sed -n -E 's/.*"?InputSourceID"? = "?([^";]+)"?;.*/\1/p' | head -n 1)"
+
+  if [ -n "$layout" ]; then
+    printf '%s\n' "$layout"
+  elif [ -n "$source_id" ]; then
+    printf '%s\n' "$source_id"
+  fi
+}
+
+run_output_with_timeout() {
+  local timeout_seconds="$1"
+  shift
+  local output_file="${TMPDIR:-/tmp}/cmux-profile-probe.$$.$RANDOM"
+  local child_pid elapsed
+
+  "$@" > "$output_file" 2>/dev/null &
+  child_pid="$!"
+  elapsed=0
+
+  while kill -0 "$child_pid" >/dev/null 2>&1; do
+    if [ "$elapsed" -ge "$timeout_seconds" ]; then
+      kill "$child_pid" >/dev/null 2>&1 || true
+      sleep 1
+      kill -9 "$child_pid" >/dev/null 2>&1 || true
+      wait "$child_pid" >/dev/null 2>&1 || true
+      rm -f "$output_file"
+      return 124
+    fi
+    sleep 1
+    elapsed=$((elapsed + 1))
+  done
+
+  if wait "$child_pid"; then
+    cat "$output_file"
+    rm -f "$output_file"
+    return 0
+  fi
+
+  rm -f "$output_file"
+  return 1
+}
+
+display_summary() {
+  local system_profiler_bin="${CMUX_PROFILE_SYSTEM_PROFILER:-/usr/sbin/system_profiler}"
+  local timeout_seconds="${CMUX_PROFILE_SYSTEM_PROFILER_TIMEOUT_SECONDS:-5}"
+  [ -x "$system_profiler_bin" ] || return 0
+  run_output_with_timeout "$timeout_seconds" "$system_profiler_bin" SPDisplaysDataType -detailLevel mini |
+    awk '
+      /^[[:space:]]*Resolution:/ {
+        line = $0
+        gsub(/^[[:space:]]+/, "", line)
+        if (seen != "") {
+          seen = seen "; " line
+        } else {
+          seen = line
+        }
+      }
+      END {
+        if (seen != "") {
+          print seen
+        }
+      }
+    '
+}
+
+write_system_info() {
+  local info_path="$out_dir/system-info.txt"
+  local os_text model cpu_brand physical_cpus logical_cpus memory_bytes memory_text arch translated keyboard_text display_text
+  os_text="$(os_summary)"
+  model="$(sysctl_value hw.model)"
+  cpu_brand="$(sysctl_value machdep.cpu.brand_string)"
+  physical_cpus="$(sysctl_value hw.physicalcpu)"
+  logical_cpus="$(sysctl_value hw.logicalcpu)"
+  memory_bytes="$(sysctl_value hw.memsize)"
+  memory_text=""
+  if [[ "${memory_bytes:-}" =~ ^[0-9]+$ ]]; then
+    memory_text="$(human_bytes "$memory_bytes")"
+  fi
+  arch="$(uname -m 2>/dev/null || true)"
+  translated="$(sysctl_value sysctl.proc_translated)"
+  keyboard_text="$(keyboard_summary)"
+  display_text="$(display_summary || true)"
+
+  {
+    echo "# cmux Profile System Info"
+    echo
+    echo "Collected: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    echo
+    echo "Operating System:"
+    echo "- OS: ${os_text:-unknown}"
+    echo "- Kernel: $(uname -srm 2>/dev/null || printf 'unknown')"
+    echo "- Architecture: ${arch:-unknown}"
+    [ -n "$translated" ] && echo "- Running under Rosetta: $translated"
+    echo "- Locale: ${LANG:-unknown}"
+    echo "- Time Zone: $(date +%Z%z 2>/dev/null || printf 'unknown')"
+    echo
+    echo "Hardware:"
+    echo "- Mac model: ${model:-unknown}"
+    echo "- CPU: ${cpu_brand:-unknown}"
+    echo "- Physical CPU cores: ${physical_cpus:-unknown}"
+    echo "- Logical CPU cores: ${logical_cpus:-unknown}"
+    echo "- RAM: ${memory_text:-unknown}"
+    echo
+    echo "Keyboard and Input:"
+    echo "- Current keyboard/input source: ${keyboard_text:-unknown}"
+    local defaults_bin="${CMUX_PROFILE_DEFAULTS:-/usr/bin/defaults}"
+    if [ -x "$defaults_bin" ]; then
+      "$defaults_bin" read com.apple.HIToolbox AppleSelectedInputSources 2>/dev/null |
+        awk '
+          /InputSourceKind|KeyboardLayout Name|KeyboardLayout ID|Bundle ID|InputSourceID|Input Mode/ {
+            line = $0
+            gsub(/^[[:space:]]+/, "", line)
+            print "- " line
+          }
+        ' || true
+    fi
+    echo
+    echo "Displays and GPU:"
+    echo "- Display summary: ${display_text:-unknown}"
+    local system_profiler_bin="${CMUX_PROFILE_SYSTEM_PROFILER:-/usr/sbin/system_profiler}"
+    if [ -x "$system_profiler_bin" ]; then
+      run_output_with_timeout "${CMUX_PROFILE_SYSTEM_PROFILER_TIMEOUT_SECONDS:-5}" "$system_profiler_bin" SPDisplaysDataType -detailLevel mini |
+        awk '
+          /^[[:space:]]*(Chipset Model|Type|Bus|VRAM|Vendor|Device ID|Metal Support|Resolution|UI Looks like|Main Display|Retina|Online):/ {
+            line = $0
+            gsub(/^[[:space:]]+/, "", line)
+            print "- " line
+          }
+        ' || true
+    fi
+    echo
+    echo "Developer Tools:"
+    if command -v xcodebuild >/dev/null 2>&1; then
+      run_output_with_timeout "${CMUX_PROFILE_TOOL_VERSION_TIMEOUT_SECONDS:-5}" xcodebuild -version | sed 's/^/- /' || true
+    else
+      echo "- xcodebuild: unavailable"
+    fi
+    if command -v xcrun >/dev/null 2>&1; then
+      run_output_with_timeout "${CMUX_PROFILE_TOOL_VERSION_TIMEOUT_SECONDS:-5}" xcrun xctrace version | sed 's/^/- /' || true
+    else
+      echo "- xctrace: unavailable"
+    fi
+    echo
+    echo "Target App:"
+    echo "- Name: $display_name"
+    echo "- PID: $pid"
+    echo "- Channel: $channel"
+    echo "- Bundle ID: ${bundle_id:-unknown}"
+    echo "- App: $(redact_path "${app_path:-unknown}")"
+    if [ -n "$app_path" ] && [ -f "$app_path/Contents/Info.plist" ]; then
+      echo "- Version: $(plist_value "$app_path/Contents/Info.plist" CFBundleShortVersionString || true)"
+      echo "- Build: $(plist_value "$app_path/Contents/Info.plist" CFBundleVersion || true)"
+    fi
+    if [ -n "$app_path" ] && [ -f "$app_path/Contents/MacOS/cmux" ]; then
+      echo "- Executable: $(file -b "$app_path/Contents/MacOS/cmux" 2>/dev/null || printf 'unknown')"
+    fi
+    echo
+    echo "Privacy:"
+    echo "- Excludes serial numbers, hardware UUIDs, hostnames, IP addresses, Wi-Fi details, usernames, and installed-app inventories."
+  } > "$info_path"
+}
+
+system_info_value() {
+  local label="$1"
+  local info_path="$out_dir/system-info.txt"
+  [ -f "$info_path" ] || return 0
+  awk -v label="$label" '
+    index($0, "- " label ": ") == 1 {
+      print substr($0, length(label) + 5)
+      exit
+    }
+  ' "$info_path"
+}
+
+channel_for_bundle() {
+  local bundle_id="$1"
+  case "$bundle_id" in
+    com.cmuxterm.app)
+      printf 'stable'
+      ;;
+    com.cmuxterm.app.nightly|com.cmuxterm.app.nightly.*)
+      printf 'nightly'
+      ;;
+    com.cmuxterm.app.staging|com.cmuxterm.app.staging.*)
+      printf 'staging'
+      ;;
+    com.cmuxterm.app.debug|com.cmuxterm.app.debug.*)
+      printf 'dev'
+      ;;
+    *)
+      printf 'unknown'
+      ;;
+  esac
+}
+
+process_rows() {
+  if [ -n "$test_ps_file" ]; then
+    cat "$test_ps_file"
+  else
+    ps -axo pid=,args=
+  fi
+}
+
+pids=()
+apps=()
+bundles=()
+names=()
+channels=()
+
+discover_targets() {
+  local pid args executable app_path plist bundle_id display_name channel
+  while read -r pid args; do
+    [[ "${pid:-}" =~ ^[0-9]+$ ]] || continue
+    [[ "${args:-}" =~ (/.*cmux[^/]*\.app/Contents/MacOS/cmux)([[:space:]]|$) ]] || continue
+    executable="${BASH_REMATCH[1]}"
+    app_path="${executable%/Contents/MacOS/cmux}"
+    plist="${app_path}/Contents/Info.plist"
+    bundle_id="$(plist_value "$plist" "CFBundleIdentifier")"
+    display_name="$(plist_value "$plist" "CFBundleDisplayName")"
+    if [ -z "$display_name" ]; then
+      display_name="$(plist_value "$plist" "CFBundleName")"
+    fi
+    if [ -z "$display_name" ]; then
+      display_name="$(basename "$app_path" .app)"
+    fi
+    channel="$(channel_for_bundle "$bundle_id")"
+    pids+=("$pid")
+    apps+=("$app_path")
+    bundles+=("$bundle_id")
+    names+=("$display_name")
+    channels+=("$channel")
+  done < <(process_rows)
+}
+
+print_targets() {
+  if [ "${#pids[@]}" -eq 0 ]; then
+    echo "No running cmux app processes found."
+    return
+  fi
+
+  local i
+  for (( i = 0; i < ${#pids[@]}; i++ )); do
+    printf 'pid=%s channel=%s bundle=%s name=%s app=%s\n' \
+      "${pids[$i]}" "${channels[$i]}" "${bundles[$i]:-unknown}" "${names[$i]}" "${apps[$i]}"
+  done
+}
+
+tag_matches() {
+  local bundle_id="$1"
+  local display_name="$2"
+  local app_path="$3"
+  local tag="$4"
+  [ -z "$tag" ] && return 0
+
+  local bundle_tag path_tag app_base
+  bundle_tag="$(sanitize_bundle "$tag")"
+  path_tag="$(sanitize_path "$tag")"
+  app_base="$(basename "$app_path" .app)"
+
+  case "$bundle_id" in
+    *."$bundle_tag")
+      return 0
+      ;;
+  esac
+  [ "$display_name" = "cmux DEV ${path_tag}" ] && return 0
+  [ "$display_name" = "cmux NIGHTLY ${path_tag}" ] && return 0
+  [ "$display_name" = "cmux STAGING ${path_tag}" ] && return 0
+  [ "$app_base" = "cmux DEV ${path_tag}" ] && return 0
+  [ "$app_base" = "cmux NIGHTLY ${path_tag}" ] && return 0
+  [ "$app_base" = "cmux STAGING ${path_tag}" ] && return 0
+  return 1
+}
+
+selected_indexes=()
+
+select_targets() {
+  selected_indexes=()
+  local i
+  for (( i = 0; i < ${#pids[@]}; i++ )); do
+    if [ -n "$target_pid" ] && [ "${pids[$i]}" != "$target_pid" ]; then
+      continue
+    fi
+    if [ -n "$target_channel" ] && [ "${channels[$i]}" != "$target_channel" ]; then
+      continue
+    fi
+    if ! tag_matches "${bundles[$i]}" "${names[$i]}" "${apps[$i]}" "$target_tag"; then
+      continue
+    fi
+    selected_indexes+=("$i")
+  done
+}
+
+discover_targets
+
+if [ "$list_targets" = "true" ]; then
+  print_targets
+  exit 0
+fi
+
+if [ -n "$target_pid" ] && ! [[ "$target_pid" =~ ^[0-9]+$ ]]; then
+  echo "start-cmux-profiling: --pid must be numeric" >&2
+  exit 2
+fi
+
+select_targets
+
+if [ "${#selected_indexes[@]}" -eq 0 ]; then
+  if [ -n "$target_pid" ] && [ -z "$test_ps_file" ] && ps -p "$target_pid" >/dev/null 2>&1; then
+    pids=("$target_pid")
+    apps=("")
+    bundles=("")
+    names=("pid ${target_pid}")
+    channels=("unknown")
+    selected_indexes=(0)
+  else
+    echo "start-cmux-profiling: no cmux process matched the selector" >&2
+    print_targets >&2
+    exit 1
+  fi
+fi
+
+if [ -z "$target_pid" ] && [ -z "$target_channel" ] && [ -z "$target_tag" ] && [ "${#pids[@]}" -gt 1 ]; then
+  echo "start-cmux-profiling: multiple cmux processes are running. Re-run with --pid." >&2
+  print_targets >&2
+  exit 1
+fi
+
+if [ "${#selected_indexes[@]}" -gt 1 ]; then
+  echo "start-cmux-profiling: selector matched multiple cmux processes. Re-run with --pid." >&2
+  print_targets >&2
+  exit 1
+fi
+
+selected="${selected_indexes[0]}"
+pid="${pids[$selected]}"
+app_path="${apps[$selected]}"
+bundle_id="${bundles[$selected]}"
+display_name="${names[$selected]}"
+channel="${channels[$selected]}"
+
+if [ -z "$test_ps_file" ] && ! ps -p "$pid" >/dev/null 2>&1; then
+  echo "start-cmux-profiling: selected pid is no longer running: $pid" >&2
+  exit 1
+fi
+
+safe_name() {
+  sanitize_path "$1"
+}
+
+if [ -z "$out_dir" ]; then
+  profile_root="${HOME}/Desktop/cmux-profiles"
+  if [ ! -d "${HOME}/Desktop" ]; then
+    profile_root="${TMPDIR:-/tmp}/cmux-profiles"
+  fi
+  out_dir="${profile_root}/cmux-profile-${pid}-$(date +%Y%m%d-%H%M%S)"
+fi
+
+if [ "$dry_run" = "true" ]; then
+  echo "Target: pid=$pid channel=$channel bundle=${bundle_id:-unknown} name=$display_name app=${app_path:-unknown}"
+  for template in "${templates[@]}"; do
+    trace_name="$(safe_name "$template")"
+    echo "xcrun xctrace record --template \"$template\" --attach \"$pid\" --time-limit ${duration}s --output \"$out_dir/${trace_name}.trace\""
+  done
+  echo "Output: $out_dir"
+  exit 0
+fi
+
+mkdir -p "$out_dir"
+write_system_info
+
+write_manifest() {
+  cat > "$out_dir/summary.md" <<EOF
+# cmux Profiling Capture
+
+Target:
+- PID: $pid
+- Channel: $channel
+- Bundle ID: ${bundle_id:-unknown}
+- Name: $display_name
+- App: $(redact_path "${app_path:-unknown}")
+
+Capture:
+- Duration per template: ${duration}s
+- Templates: ${templates[*]}
+- Started: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+System:
+- OS: $(system_info_value "OS")
+- Mac model: $(system_info_value "Mac model")
+- CPU: $(system_info_value "CPU")
+- RAM: $(system_info_value "RAM")
+- Keyboard/input source: $(system_info_value "Current keyboard/input source")
+- Displays: $(system_info_value "Display summary")
+- More details: system-info.txt
+
+Notes:
+- Time Profiler is the primary CPU stack trace.
+- SwiftUI captures body/update churn.
+- Allocations captures memory growth and allocation stacks.
+- System Trace captures scheduler, hangs, and thread-state context.
+- Leaks is intentionally not part of the default support capture because it is heavier and can pause a large busy process.
+EOF
+}
+
+write_manifest
+
+if [ "$open_output" = "true" ] && command -v open >/dev/null 2>&1; then
+  open "$out_dir" >/dev/null 2>&1 || true
+fi
+
+if ! command -v xcrun >/dev/null 2>&1 || ! xcrun -f xctrace >/dev/null 2>&1; then
+  echo "start-cmux-profiling: xcrun xctrace was not found. Install Xcode or Xcode command line tools." >&2
+  exit 1
+fi
+
+wait_with_timeout() {
+  local child_pid="$1"
+  local timeout_seconds="$2"
+  local log_file="$3"
+  local elapsed=0
+
+  while kill -0 "$child_pid" >/dev/null 2>&1; do
+    if [ "$elapsed" -ge "$timeout_seconds" ]; then
+      echo "Timed out after ${timeout_seconds}s; terminating pid ${child_pid}" >> "$log_file"
+      kill "$child_pid" >/dev/null 2>&1 || true
+      sleep 1
+      kill -9 "$child_pid" >/dev/null 2>&1 || true
+      wait "$child_pid" >/dev/null 2>&1 || true
+      return 124
+    fi
+    sleep 1
+    elapsed=$((elapsed + 1))
+  done
+
+  wait "$child_pid"
+}
+
+run_and_log() {
+  local timeout_seconds="$1"
+  local log_file="$2"
+  shift 2
+  {
+    printf '$'
+    printf ' %q' "$@"
+    printf '\n'
+  } > "$log_file" 2>&1
+  "$@" >> "$log_file" 2>&1 &
+  wait_with_timeout "$!" "$timeout_seconds" "$log_file"
+}
+
+export_toc() {
+  local trace_path="$1"
+  local toc_path="$2"
+  local log_file="$3"
+  local timeout_seconds="${CMUX_PROFILE_TOC_TIMEOUT_SECONDS:-30}"
+
+  {
+    printf '$'
+    printf ' %q' xcrun xctrace export --input "$trace_path" --toc
+    printf '\n'
+  } > "$log_file"
+
+  xcrun xctrace export --input "$trace_path" --toc > "$toc_path" 2>> "$log_file" &
+  if ! wait_with_timeout "$!" "$timeout_seconds" "$log_file"; then
+    [ -s "$toc_path" ] || rm -f "$toc_path"
+    return 1
+  fi
+}
+
+successful_traces=0
+failed_traces=0
+
+for template in "${templates[@]}"; do
+  trace_name="$(safe_name "$template")"
+  trace_path="$out_dir/${trace_name}.trace"
+  log_path="$out_dir/${trace_name}.log"
+  record_timeout=$((duration + 90))
+
+  if run_and_log "$record_timeout" "$log_path" \
+    xcrun xctrace record \
+      --template "$template" \
+      --attach "$pid" \
+      --time-limit "${duration}s" \
+      --output "$trace_path"; then
+    if [ -e "$trace_path" ]; then
+      successful_traces=$((successful_traces + 1))
+      export_toc "$trace_path" "$out_dir/${trace_name}-toc.xml" "$out_dir/${trace_name}-toc.log" || true
+    else
+      failed_traces=$((failed_traces + 1))
+      echo "start-cmux-profiling: template did not produce a trace: $template. See $log_path" >&2
+    fi
+  else
+    failed_traces=$((failed_traces + 1))
+    echo "start-cmux-profiling: template failed: $template. See $log_path" >&2
+  fi
+done
+
+if [ "$successful_traces" -eq 0 ]; then
+  cat >> "$out_dir/summary.md" <<EOF
+
+Failed: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+Successful traces: 0
+Failed templates: $failed_traces
+EOF
+  echo "start-cmux-profiling: all profiling templates failed; capture not submitted. Output: $out_dir" >&2
+  exit 1
+fi
+
+cat >> "$out_dir/summary.md" <<EOF
+
+Completed: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+Successful traces: $successful_traces
+Failed templates: $failed_traces
+EOF
+
+if [ "$submit_profile" = "true" ]; then
+  submitter="${script_dir}/submit-cmux-profile"
+  if [ -x "$submitter" ]; then
+    "$submitter" \
+      --profile "$out_dir" \
+      --target-name "$display_name" \
+      --target-pid "$pid" \
+      --channel "$channel" \
+      --bundle-id "${bundle_id:-unknown}" >/dev/null 2>&1 &
+  else
+    echo "start-cmux-profiling: submission helper not found: $submitter" >&2
+  fi
+fi
+
+printf 'cmux profiling capture written to %s\n' "$out_dir"

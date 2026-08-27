@@ -1,35 +1,20 @@
 # Command Reference (cmux Browser)
 
-This maps common `agent-browser` usage to `cmux browser` usage.
+## agent-browser equivalents
 
-## Direct Equivalents
+`agent-browser <verb>` maps to `cmux browser <surface> <verb>` for `goto`/`navigate`, `click`, `fill`, `type`, `select`, `get text`, `get url`, `get title`. `agent-browser snapshot -i` is `cmux browser <surface> snapshot --interactive`. `agent-browser open <url>` is `cmux browser open <url>` (no surface, since it creates one).
 
-- `agent-browser open <url>` -> `cmux browser open <url>`
-- `agent-browser goto|navigate <url>` -> `cmux browser <surface> goto|navigate <url>`
-- `agent-browser snapshot -i` -> `cmux browser <surface> snapshot --interactive`
-- `agent-browser click <ref>` -> `cmux browser <surface> click <ref>`
-- `agent-browser fill <ref> <text>` -> `cmux browser <surface> fill <ref> <text>`
-- `agent-browser type <ref> <text>` -> `cmux browser <surface> type <ref> <text>`
-- `agent-browser select <ref> <value>` -> `cmux browser <surface> select <ref> <value>`
-- `agent-browser get text <ref>` -> `cmux browser <surface> get text <ref-or-selector>`
-- `agent-browser get url` -> `cmux browser <surface> get url`
-- `agent-browser get title` -> `cmux browser <surface> get title`
-
-## Core Command Groups
-
-### Navigation
+## Navigation
 
 ```bash
-cmux browser open <url>                        # opens in caller's workspace (uses CMUX_WORKSPACE_ID)
-cmux browser open <url> --workspace <id|ref>   # opens in a specific workspace
+cmux browser open <url>                        # caller's workspace, via CMUX_WORKSPACE_ID
+cmux browser open <url> --workspace <id|ref>
 cmux browser <surface> goto <url>
 cmux browser <surface> back|forward|reload
 cmux browser <surface> get url|title
 ```
 
-> **Workspace context:** `browser open` targets the workspace of the terminal where the command is run (via `CMUX_WORKSPACE_ID`), even if a different workspace is currently focused. Use `--workspace` to override.
-
-### Snapshot and Inspection
+## Snapshot and inspection
 
 ```bash
 cmux browser <surface> snapshot --interactive
@@ -44,19 +29,21 @@ cmux browser <surface> get styles "#submit" --property color
 cmux browser <surface> eval '<js>'
 ```
 
-### Interaction
+## Interaction
 
 ```bash
 cmux browser <surface> click|dblclick|hover|focus <selector-or-ref>
 cmux browser <surface> fill <selector-or-ref> [text]   # empty text clears
 cmux browser <surface> type <selector-or-ref> <text>
-cmux browser <surface> press|keydown|keyup <key>
+cmux browser <surface> press|key|keydown|keyup [--key <key> | <key>]
 cmux browser <surface> select <selector-or-ref> <value>
 cmux browser <surface> check|uncheck <selector-or-ref>
 cmux browser <surface> scroll [--selector <css>] [--dx <n>] [--dy <n>]
 ```
 
-### Wait
+Keyboard names follow Playwright/W3C conventions (`Enter`, `Tab`, `Escape`, `ArrowLeft`, `Space`). `Space`, `Spacebar`, and `space` all emit DOM key `" "` with code `"Space"`; use `--key ' '` to pass the raw DOM key.
+
+## Wait
 
 ```bash
 cmux browser <surface> wait --selector "#ready" --timeout-ms 10000
@@ -66,18 +53,24 @@ cmux browser <surface> wait --load-state complete --timeout-ms 15000
 cmux browser <surface> wait --function "document.readyState === 'complete'" --timeout-ms 10000
 ```
 
-### Session/State
+## Design mode
+
+```bash
+cmux browser design-mode enable|status|disable --surface <surface> [--json]
+```
+
+Design mode lets a user select page elements and copy their DOM, style, URL, and screenshot context for pasting into an agent. CLI enable/disable never moves application focus or copies context automatically.
+
+## Session, state, diagnostics
 
 ```bash
 cmux browser <surface> cookies get|set|clear ...
+cmux browser <surface> cookies clear --url https://app.example.com/
+cmux browser <surface> cookies clear --domain app.example.com
+cmux browser <surface> cookies clear --all
 cmux browser <surface> storage local|session get|set|clear ...
 cmux browser <surface> tab list|new|switch|close ...
 cmux browser <surface> state save|load <path>
-```
-
-### Diagnostics
-
-```bash
 cmux browser <surface> console list|clear
 cmux browser <surface> errors list|clear
 cmux browser <surface> highlight <selector>
@@ -85,24 +78,29 @@ cmux browser <surface> screenshot
 cmux browser <surface> download wait --timeout-ms 10000
 ```
 
-## Agent Reliability Tips
+`cookies clear` requires an explicit scope (`--url`, `--domain`, `--name`,
+`--path`, another cookie filter, or `--all`). URL scope follows cookie
+domain/path, secure, and expiration matching for the requested URL. JSON
+responses include the number of removed cookies as `cleared`.
 
-- Use `--snapshot-after` on mutating actions to return a fresh post-action snapshot.
-- Re-snapshot after navigation, modal open/close, or major DOM changes.
-- Prefer short handles in outputs by default (`surface:N`, `pane:N`, `workspace:N`, `window:N`).
-- Use `--id-format both` only when a UUID must be logged/exported.
+## Agent reliability
 
-## Known WKWebView Gaps (`not_supported`)
+Use `--snapshot-after` on mutating actions to get a fresh post-action snapshot. Re-snapshot after navigation, modal open/close, or major DOM changes. Prefer short handles in output; use `--id-format both` only when a UUID must be logged or exported.
 
-- `browser.viewport.set`
-- `browser.geolocation.set`
-- `browser.offline.set`
-- `browser.trace.start|stop`
-- `browser.network.route|unroute|requests`
-- `browser.screencast.start|stop`
-- `browser.input_mouse|input_keyboard|input_touch`
+## Viewport emulation
 
-See also:
-- [snapshot-refs.md](snapshot-refs.md)
-- [authentication.md](authentication.md)
-- [session-management.md](session-management.md)
+```bash
+cmux browser surface:7 viewport 1280 720
+cmux browser surface:7 screenshot --out /tmp/desktop.png
+cmux browser surface:7 viewport reset
+```
+
+Dimensions are limited to 1..4096 CSS pixels. cmux changes `window.innerWidth`/`window.innerHeight` and aspect-fits the page inside the existing pane; it does not resize the pane, move other surfaces, or change focus. The JSON result includes logical and displayed dimensions, scale, presentation mode, and whether the pane was resized. Screenshot PNG dimensions are exact CSS pixels on Retina and non-Retina displays.
+
+Error cases: an unsupported viewport/page-zoom combination leaves the viewport unchanged and returns `invalid_params` with `reason: viewport_zoom_render_geometry_too_large` plus `maximum_page_zoom`. An attached browser inspector returns `invalid_state` with `reason: attached_browser_inspector`; close or detach it first. Opening or redocking an attached inspector while emulation is active resets the viewport to native sizing.
+
+## Known WKWebView gaps (`not_supported`)
+
+`browser.geolocation.set`, `browser.offline.set`, `browser.trace.start|stop`, `browser.network.route|unroute|requests`, `browser.screencast.start|stop`, `browser.input_mouse|input_keyboard|input_touch`.
+
+See also [snapshot-refs.md](snapshot-refs.md), [authentication.md](authentication.md), [session-management.md](session-management.md).

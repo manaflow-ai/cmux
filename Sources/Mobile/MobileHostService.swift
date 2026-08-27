@@ -1,0 +1,3224 @@
+import CMUXMobileCore
+import CmuxAuthRuntime
+import CmuxGit
+import CmuxIrohTransport
+import CmuxMobileTransport
+import CmuxSettings
+import CmuxTerminalCore
+import CryptoKit
+import Foundation
+@preconcurrency import Network
+import OSLog
+import StackAuth
+import os
+
+private let mobileHostLog = Logger(subsystem: "dev.cmux", category: "mobile-host")
+
+extension Notification.Name {
+    static let mobileHostEventSubscriptionsDidChange = Notification.Name(
+        "cmux.mobileHostEventSubscriptionsDidChange"
+    )
+
+    /// Posted whenever the mobile pairing host's observable status changes:
+    /// the listener binds or stops, the bound port changes, or the active
+    /// connection count changes. The Settings host adapter bridges this to an
+    /// `AsyncStream` so the Mobile settings section can show the live bound
+    /// port and connection count without polling.
+    static let mobileHostStatusDidChange = Notification.Name(
+        "cmux.mobileHostStatusDidChange"
+    )
+}
+
+private enum MobileHostEventSubscriptionTracker {
+    private static let lock = NSLock()
+    private nonisolated(unsafe) static var topicCounts: [String: Int] = [:]
+
+    static func hasSubscribers(topic: String) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return (topicCounts[topic] ?? 0) > 0
+    }
+
+    static func replace(previousTopics: Set<String>?, nextTopics: Set<String>?) {
+        let changedTopics = updateCounts(previousTopics: previousTopics, nextTopics: nextTopics)
+        guard !changedTopics.isEmpty else { return }
+        NotificationCenter.default.post(
+            name: .mobileHostEventSubscriptionsDidChange,
+            object: nil,
+            userInfo: ["topics": Array(changedTopics).sorted()]
+        )
+    }
+
+    private static func updateCounts(previousTopics: Set<String>?, nextTopics: Set<String>?) -> Set<String> {
+        lock.lock()
+        defer { lock.unlock() }
+
+        var changedTopics = Set<String>()
+        let allTopics = Set(previousTopics ?? []).union(nextTopics ?? [])
+        let before = Dictionary(uniqueKeysWithValues: allTopics.map { ($0, topicCounts[$0] ?? 0) })
+
+        for topic in previousTopics ?? [] {
+            let nextCount = max(0, (topicCounts[topic] ?? 0) - 1)
+            if nextCount == 0 {
+                topicCounts.removeValue(forKey: topic)
+            } else {
+                topicCounts[topic] = nextCount
+            }
+        }
+        for topic in nextTopics ?? [] {
+            topicCounts[topic] = (topicCounts[topic] ?? 0) + 1
+        }
+
+        for topic in allTopics {
+            let wasActive = (before[topic] ?? 0) > 0
+            let isActive = (topicCounts[topic] ?? 0) > 0
+            if wasActive != isActive {
+                changedTopics.insert(topic)
+            }
+        }
+        return changedTopics
+    }
+
+    static func reset() {
+        lock.lock()
+        topicCounts.removeAll()
+        lock.unlock()
+        NotificationCenter.default.post(
+            name: .mobileHostEventSubscriptionsDidChange,
+            object: nil,
+            userInfo: ["topics": []]
+        )
+    }
+
+    #if DEBUG
+    static func resetForTesting() {
+        reset()
+    }
+    #endif
+}
+
+/// The sibling Mac dev tags this Mac grants to its paired development phones.
+///
+/// A DEV iPhone build pairs only with its exact-tag Mac by default. This grant
+/// set — edited with `cmux mobile compatible-tags` against this Mac's debug
+/// socket — is advertised in authenticated host status and pushed live over
+/// `mobile.compatible_tags.changed`, so the phone can also discover the listed
+/// sibling Mac tags without a rebuild or re-pair. The tagged debug bundle id
+/// isolates `UserDefaults` per Mac tag, so one fixed key is per-tag already.
+enum MobileCompatibleMacTags {
+    static let defaultsKey = "CMUXMobileCompatibleMacTags"
+    /// Mirrors the phone-side allowlist bound (`MobileMacTagAllowlist`).
+    static let maximumTagCount = 32
+    /// Release lanes are never grantable to a development phone.
+    private static let reservedTags: Set<String> = [
+        "default", "nightly", "rc", "staging",
+    ]
+
+    /// The granted tags, sorted for stable payloads and CLI output.
+    nonisolated static func tags(in defaults: UserDefaults = .standard) -> [String] {
+        sanitized(defaults.stringArray(forKey: defaultsKey) ?? []).sorted()
+    }
+
+    /// Replaces the grant set and returns the sanitized result actually stored.
+    nonisolated static func set(
+        _ tags: [String],
+        in defaults: UserDefaults = .standard
+    ) -> [String] {
+        let sanitizedTags = sanitized(tags).sorted()
+        defaults.set(sanitizedTags, forKey: defaultsKey)
+        return sanitizedTags
+    }
+
+    /// Normalized rejects from the last `sanitized` pass, so the CLI can tell
+    /// the caller which requested tags were refused instead of silently
+    /// dropping them.
+    nonisolated static func rejectedTags(from tags: [String]) -> [String] {
+        var rejected: [String] = []
+        for tag in tags {
+            let normalized = tag.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            guard !normalized.isEmpty else { continue }
+            if reservedTags.contains(normalized) { rejected.append(normalized) }
+        }
+        return rejected.sorted()
+    }
+
+    private nonisolated static func sanitized(_ tags: [String]) -> Set<String> {
+        var sanitized: Set<String> = []
+        for tag in tags {
+            let normalized = tag.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            guard !normalized.isEmpty, !reservedTags.contains(normalized) else { continue }
+            sanitized.insert(normalized)
+            if sanitized.count == maximumTagCount { break }
+        }
+        return sanitized
+    }
+}
+
+enum MobileHostRequestActivity {
+    private static let lock = NSLock()
+    private nonisolated(unsafe) static var activeRequestCount = 0
+    private nonisolated(unsafe) static var activeConnectionCount = 0
+    private nonisolated(unsafe) static var lastActivityUptime: TimeInterval = 0
+
+    static var hasActiveRequest: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return activeRequestCount > 0
+    }
+
+    static func hasRecentActivity(within interval: TimeInterval) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard activeRequestCount == 0 else { return true }
+        guard lastActivityUptime > 0 else { return false }
+        return ProcessInfo.processInfo.systemUptime - lastActivityUptime < interval
+    }
+
+    static func quietDelay(for interval: TimeInterval) -> TimeInterval {
+        lock.lock()
+        defer { lock.unlock() }
+        guard activeRequestCount == 0 else { return interval }
+        guard lastActivityUptime > 0 else { return 0 }
+        let elapsed = ProcessInfo.processInfo.systemUptime - lastActivityUptime
+        return max(0, interval - elapsed)
+    }
+
+    static func beginConnection() {
+        lock.lock()
+        activeConnectionCount += 1
+        lock.unlock()
+    }
+
+    static func endConnection() {
+        lock.lock()
+        activeConnectionCount = max(0, activeConnectionCount - 1)
+        lock.unlock()
+    }
+
+    static func beginRequest() {
+        lock.lock()
+        lastActivityUptime = ProcessInfo.processInfo.systemUptime
+        activeRequestCount += 1
+        lock.unlock()
+    }
+
+    static func endRequest() {
+        lock.lock()
+        activeRequestCount = max(0, activeRequestCount - 1)
+        lastActivityUptime = ProcessInfo.processInfo.systemUptime
+        lock.unlock()
+    }
+
+    #if DEBUG
+    static func resetForTesting() {
+        lock.lock()
+        activeRequestCount = 0
+        activeConnectionCount = 0
+        lastActivityUptime = 0
+        lock.unlock()
+    }
+    #endif
+}
+
+struct MobileHostServiceStatus {
+    let isRunning: Bool
+    let port: Int?
+    /// The preferred port from settings the listener tried to bind.
+    let configuredPort: Int
+    /// True when the listener is running on an OS-assigned ephemeral port
+    /// because the configured port could not be bound.
+    let usesEphemeralFallback: Bool
+    let routes: [CmxAttachRoute]
+    let activeConnectionCount: Int
+    let lastErrorDescription: String?
+
+    var payload: [String: Any] {
+        let now = Date()
+        return [
+            "is_running": isRunning,
+            "port": port ?? NSNull(),
+            "configured_port": configuredPort,
+            "uses_ephemeral_fallback": usesEphemeralFallback,
+            "routes": routes.mobileHostJSONObjects(for: .authenticated, at: now),
+            "active_connection_count": activeConnectionCount,
+            "last_error": lastErrorDescription ?? NSNull()
+        ]
+    }
+}
+
+/// What ``MobileHostService/syncToSettings()`` should do to reconcile
+/// the live listener with the current settings. A pure value so the
+/// restart-on-port-change logic is unit-testable without a real `NWListener`.
+enum MobileHostSyncDecision: Equatable {
+    case noop
+    case start
+    case stop
+    case restart
+}
+
+/// Separates account-authenticated Iroh availability from the opt-in legacy
+/// TCP listener used by Tailscale and other private-network clients.
+struct MobileHostStartupPlan: Equatable {
+    let activatesIroh: Bool
+    let startsLegacyListener: Bool
+}
+
+/// Outcome of an explicit "Apply port" request from settings. A pure value so
+/// ``MobileHostService/portApplyDecision(enabled:currentBoundPort:requestedPort:isAvailable:)``
+/// is unit-testable without binding a real `NWListener`.
+enum MobileHostPortApplyOutcome: Equatable {
+    /// The port was accepted; the listener is (or will be) bound to it.
+    case applied(Int)
+    /// The port is in use by another process; the running listener was left untouched.
+    case portInUse
+    /// Pairing is off, so the port was saved and will bind when pairing is enabled.
+    case savedWhileDisabled
+    /// The requested port was outside the valid `1...65535` range.
+    case invalid
+}
+
+@MainActor
+final class MobileHostService {
+    static let shared = MobileHostService()
+    nonisolated private static let maximumActiveConnectionCount = 10
+    /// Process-lifetime owner for the repository-root summary TTL cache.
+    let workspaceChangesService = WorkspaceChangesService()
+
+    nonisolated private static let terminalThemeRevisionEpoch = UUID().uuidString
+    /// The single shape every public `mobile.host.status` reply uses (the
+    /// public-status cache, the network status gate, and
+    /// `TerminalController`'s no-private-metadata branch), so the fields
+    /// cannot drift. Identity-free status carries no routes: a caller already
+    /// reached the Mac to ask for status, while route discovery belongs to the
+    /// authenticated registry. The Mac's account and cryptographic identities
+    /// are never on this unauthenticated surface.
+    nonisolated static func publicStatusPayload(routes: [CmxAttachRoute], now: Date = Date()) -> [String: Any] {
+        // The Mac's resolved terminal theme is caller-independent, so it rides
+        // the public payload (identity merges on top). `GhosttyConfig.loadForCmux()`
+        // resolves named Ghostty themes, Ghostty's built-in defaults or cmux's
+        // managed fresh-config defaults, and explicit color settings into a complete
+        // effective palette; the phone applies it so its embedded terminal
+        // renders with the Mac's colors instead of the built-in Monokai default.
+        let theme = TerminalTheme(ghosttyConfig: GhosttyConfig.loadForCmux())
+        return [
+            "routes": routes.mobileHostJSONObjects(for: .publicStatus, at: now),
+            "terminal_fidelity": "render_grid",
+            "capabilities": mobileHostCapabilities,
+            "theme": theme.mobileHostJSONObject,
+        ]
+    }
+    /// `publicStatusPayload` plus the Mac's identity, for a caller that has
+    /// proven same-account Stack ownership. The pairing QR no longer carries
+    /// the display name or the device id, so this reply is where a freshly
+    /// paired phone learns what to call this Mac, which paired-Mac record owns
+    /// the connection, and which app instance owns its routes.
+    nonisolated static func identityStatusPayload(
+        routes: [CmxAttachRoute],
+        additionalCapabilities: Set<String> = [],
+        phonePushDefaults: UserDefaults = .standard,
+        phonePushAdmission: PhonePushAdmission = .unknown,
+        phonePushQueuePersistenceStatus: PhonePushQueuePersistenceStatus =
+            .unknown,
+        phonePushAPIBaseURL: URL = AuthEnvironment.vmAPIBaseURL,
+        now: Date = Date()
+    ) -> [String: Any] {
+        var payload = publicStatusPayload(routes: [], now: now)
+        payload["routes"] = routes.mobileHostJSONObjects(for: .authenticated, at: now)
+        payload["capabilities"] = applyingDebugCapabilitySuppressions(
+            mobileHostCapabilities
+                + additionalCapabilities
+                    .union([
+                        phonePushStatusCapability,
+                        phonePushSettingsCapability,
+                        phonePushTestCapability,
+                    ])
+                    .sorted()
+        )
+        payload["terminal_theme_revision_epoch"] = terminalThemeRevisionEpoch
+        payload["mac_device_id"] = MobileHostIdentity.deviceID()
+        payload["mac_instance_tag"] = MobileHostIdentity.instanceTag()
+        if let clientNamespace = CmxIrohMacBundleNamespace(
+            bundleIdentifier: Bundle.main.bundleIdentifier
+        )?.rawValue {
+            payload["mac_client_namespace"] = clientNamespace
+        }
+        // The sibling-tag grant set for development phones. Only this Mac's
+        // exact-tag phone adopts it (the phone ignores the field from any
+        // other reporter), so advertising it unconditionally is safe.
+        payload["mac_compatible_mac_tags"] = MobileCompatibleMacTags.tags(
+            in: phonePushDefaults
+        )
+        payload["phone_push"] = [
+            "forwarding_enabled": PhonePushConfiguration.forwardingEnabled(
+                in: phonePushDefaults
+            ),
+            "mode": PhoneForwardingMode.fromDefaults(phonePushDefaults).rawValue,
+            "admission": phonePushAdmission.rawValue,
+            "queue_persistence": phonePushQueuePersistenceStatus.rawValue,
+            "hide_content": phonePushDefaults.bool(
+                forKey: PhonePushSettings.hideContentKey
+            ),
+            "api_origin": canonicalPhonePushAPIBaseURL(phonePushAPIBaseURL),
+            // Reaching this payload means `verifiedStackCaller` already proved
+            // the presented token belongs to the Mac's current Stack account.
+            "account_scope": "verified_same_account",
+        ]
+        if let displayName = MobileHostIdentity.instanceDisplayName() {
+            payload["mac_display_name"] = displayName
+        }
+        let build = MobileHostBuildIdentity.current()
+        if let appVersion = build.appVersion {
+            payload["mac_app_version"] = appVersion
+        }
+        if let appBuild = build.appBuild {
+            payload["mac_app_build"] = appBuild
+        }
+        return payload
+    }
+
+    nonisolated private static func canonicalPhonePushAPIBaseURL(_ url: URL) -> String {
+        var value = url.absoluteString
+        while value.hasSuffix("/") {
+            value.removeLast()
+        }
+        return value
+    }
+
+    /// The `mobile.host.status` reply for a network caller.
+    ///
+    /// Status is the one unauthenticated verb (a phone probes reachability
+    /// before it has anything to present), so a tokenless request gets the
+    /// cached identity-free payload without touching the main actor or the
+    /// Stack verifier — the DoS posture of the public probe is unchanged, and
+    /// an arbitrary process that can reach the port receives no private route
+    /// hints or account identity. A request that does present the owner's
+    /// same-account Stack token (the iOS client attaches it to status
+    /// whenever it has one) is verified and answered with the Mac's identity,
+    /// which is what a freshly QR-paired phone needs to key its paired-Mac
+    /// record. A token that fails verification degrades to the identity-free
+    /// payload rather than an error: reachability stays observable, and the
+    /// authorized verbs that follow surface the auth failure properly.
+    /// Verification goes through the same gate as the authorized verbs
+    /// (``verifiedStackCaller(for:)``), so a DEBUG dev-token client that can
+    /// list workspaces also sees identity.
+    ///
+    /// Because status is unauthenticated, the network verifications a
+    /// token-bearing status request can trigger are bounded: an
+    /// already-verified token answers from the verifier's cache, and
+    /// cache-miss lookups are capped by
+    /// ``MobileHostStatusVerificationLimiter`` (over the cap the reply
+    /// degrades to identity-free and the phone's identity-recovery retry
+    /// picks it up later). A flood of unique garbage tokens therefore cannot
+    /// queue unbounded Stack lookups behind this verb.
+    nonisolated static func networkStatusResult(for request: MobileHostRPCRequest) async -> MobileHostRPCResult {
+        let trimmedToken = request.auth?.stackAccessToken?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmedToken?.isEmpty == false else {
+            return MobileHostPublicStatusCache.result(includeIdentity: false)
+        }
+        let verified = await MobileHostService.shared.verifiedStackCaller(for: request)
+        if !verified {
+            mobileHostLog.error("mobile host status identity withheld: stack verification failed")
+        }
+        guard verified else {
+            return MobileHostPublicStatusCache.result(includeIdentity: false)
+        }
+        let phonePushStatus = await MainActor.run {
+            (
+                PhonePushClient.shared.currentAdmission(),
+                PhonePushClient.shared.queuePersistenceStatus
+            )
+        }
+        return MobileHostPublicStatusCache.result(
+            includeIdentity: true,
+            phonePushAdmission: phonePushStatus.0,
+            phonePushQueuePersistenceStatus: phonePushStatus.1
+        )
+    }
+
+    private let callbackQueue = DispatchQueue(label: "dev.cmux.mobile.host-listener")
+    private let routeResolver = MobileRouteResolver()
+    private let ticketStore = MobileAttachTicketStore()
+    private var listener: NWListener?
+    private var listenerGeneration = UUID()
+    private var listenerUsesEphemeralFallback = false
+    private var listenerPort: Int?
+    /// The preferred port the active start-sequence targeted (regardless of an
+    /// ephemeral fallback). Used to decide whether a settings change needs a
+    /// restart. `nil` while stopped.
+    private var appliedPreferredPort: Int?
+    private var activeConnections: [UUID: MobileHostConnection] = [:]
+    private var clientIDsByConnectionID: [UUID: Set<String>] = [:]
+    private var lastErrorDescription: String?
+    /// Whether the managed-policy teardown already ran, so the frequent
+    /// `syncToSettings()` calls (every `UserDefaults` change) do not repeat
+    /// the full `stop()` while the policy stays enforced.
+    private var remoteControlPolicyStopApplied = false
+    /// Watches for network path changes while the listener is bound, so the
+    /// advertised route set (and the team device registry that
+    /// ``DeviceRegistryClient`` mirrors it into) refreshes when the Mac moves
+    /// networks or Tailscale flips, not only when the listener restarts.
+    /// `nil` while stopped.
+    private var pathMonitor: MobileHostNetworkPathMonitor?
+    /// Injected once via `configure(auth:)` at app startup, before the
+    /// listener starts accepting connections.
+    private var auth: AuthCoordinator?
+    private var readinessWaiters: [CheckedContinuation<MobileHostServiceStatus, Never>] = []
+    private var readinessTimeoutTask: Task<Void, Never>?
+    let mobileBrowserStreamCoordinator = MobileBrowserStreamCoordinator()
+    let mobileSimulatorStreamCoordinator = MobileSimulatorStreamCoordinator()
+    #if DEBUG
+    private var debugAcceptedStackAuthToken: String?
+    #endif
+
+    private init() {}
+
+    /// Inject the auth dependency. Call once at the composition root.
+    /// Exactly one iroh host runtime owns the app's broker binding slot:
+    /// the irx rebuild when its DEBUG flag is on, the legacy runtime
+    /// otherwise. Running both would reincarnate the binding in a loop.
+    func configure(auth: AuthCoordinator) {
+        self.auth = auth
+        if MobileHostIrxRuntime.isEnabled {
+            MobileHostIrxRuntime.shared.configure(auth: auth)
+        } else {
+            MobileHostIrohRuntime.shared.configure(auth: auth)
+        }
+    }
+
+    func updateIrohRoute(
+        identity: CmxIrohPeerIdentity?,
+        pathHints: [CmxIrohPathHint] = []
+    ) {
+        MobileHostPublicStatusCache.update(
+            irohIdentity: identity,
+            pathHints: pathHints
+        )
+    }
+
+    func updateIrohBinding(_ binding: CmxIrohBrokerBindingMetadata) {
+        MobileHostPublicStatusCache.update(irohBinding: binding)
+    }
+
+    func closeIrohConnections(bindingID: String) {
+        for connection in MobileHostConnectionRegistry.shared.removeIrohConnections(
+            bindingID: bindingID
+        ) {
+            Task { await connection.close(reason: "iroh binding deactivated") }
+        }
+    }
+
+    func closeAllIrohConnections() {
+        for connection in MobileHostConnectionRegistry.shared.removeAllIrohConnections() {
+            Task { await connection.close(reason: "iroh endpoint deactivated") }
+        }
+    }
+
+    /// The signed-in local user's id, awaiting launch session restore first so
+    /// pairing checks can't race it. `nil` when signed out (or before the auth
+    /// graph is configured), which the authorization policy rejects.
+    func currentAuthenticatedLocalUserID() async -> String? {
+        guard let auth else { return nil }
+        await auth.awaitBootstrapped()
+        guard auth.isAuthenticated else { return nil }
+        return auth.currentUser?.id
+    }
+
+    /// This Mac's authenticated Stack email, or `nil` when signed out or before
+    /// the auth graph is configured.
+    ///
+    /// The mobile data plane only accepts same-account connections, so the
+    /// caller is this Mac's own Stack account. The privileged agent feedback
+    /// sink (`dogfood.feedback.submit`) checks this email's domain at the trust
+    /// boundary, so a crafted RPC from a non-privileged account is rejected
+    /// regardless of which route the phone UI chose.
+    func currentAuthenticatedLocalUserEmail() async -> String? {
+        guard let auth else { return nil }
+        await auth.awaitBootstrapped()
+        guard auth.isAuthenticated else { return nil }
+        return auth.currentUser?.primaryEmail
+    }
+
+    /// Fan out a server-pushed event to every connection subscribed to `topic`.
+    /// Safe to call from any actor/queue.
+    nonisolated func emitEvent(topic: String, payload: [String: Any]) {
+        Self.emitEvent(topic: topic, payload: payload)
+    }
+
+    /// Static form for callers already on non-main queues or Sendable
+    /// notification closures. This path only touches the connection registry,
+    /// not actor-isolated listener state.
+    ///
+    /// The event is encoded exactly once and admitted synchronously into each
+    /// connection's bounded queue. No per-connection task or payload copy
+    /// outlives this call, so emission cost stays O(connections) and pinned
+    /// memory stays O(queue capacity) no matter how far producers run ahead of
+    /// a slow, paused, or half-dead subscriber (issue #8842).
+    nonisolated static func emitEvent(topic: String, payload: [String: Any]) {
+        guard MobileHostEventSubscriptionTracker.hasSubscribers(topic: topic) else {
+            return
+        }
+        guard let frame = encodedEventFrame(topic: topic, payload: payload) else {
+            mobileHostLog.error(
+                "mobile host dropped unencodable event topic=\(topic, privacy: .public)"
+            )
+            return
+        }
+        deliverEventFrame(
+            frame,
+            topic: topic,
+            coalesceKey: eventCoalesceKey(topic: topic, payload: payload),
+            isFullRenderGridFrame: topic == MobileHostEventTopicPolicy.renderGridTopic
+                && payload["full"] as? Bool == true
+        )
+    }
+
+    /// Render-grid fast path: frames arrive already JSON-encoded, so the event
+    /// envelope is spliced around them without parsing the grid into a
+    /// dictionary and re-serializing it — this is the hottest producer in the
+    /// app (issue #8842). Each connection receives the anchor variant it
+    /// negotiated at subscribe time (viewport = v1 Mac-scroll mirror, screen =
+    /// v2 active-area anchor for local scrollback), admitted through the same
+    /// synchronous bounded queues as every other event.
+    nonisolated static func emitRenderGridEvent(
+        framesByAnchor: [MobileTerminalRenderGridFrame.Anchor: (payloadJSON: Data, isFullFrame: Bool)],
+        surfaceID: String,
+        stateSeq: UInt64
+    ) {
+        let topic = MobileHostEventTopicPolicy.renderGridTopic
+        guard !framesByAnchor.isEmpty,
+              MobileHostEventSubscriptionTracker.hasSubscribers(topic: topic) else {
+            return
+        }
+        var encodedByAnchor: [MobileTerminalRenderGridFrame.Anchor: (frame: Data, isFullRenderGridFrame: Bool)] = [:]
+        for (anchor, item) in framesByAnchor {
+            var envelope = Data(#"{"kind":"event","topic":"terminal.render_grid","payload":"#.utf8)
+            envelope.append(item.payloadJSON)
+            envelope.append(UInt8(ascii: "}"))
+            guard let frame = try? MobileSyncFrameCodec.encodeFrame(envelope) else {
+                mobileHostLog.error("mobile host dropped oversized render-grid event")
+                continue
+            }
+            encodedByAnchor[anchor] = (frame, item.isFullFrame)
+        }
+        guard !encodedByAnchor.isEmpty else { return }
+        deliverEventFrames(topic: topic, coalesceKey: surfaceID, stateSeq: stateSeq) { connection in
+            encodedByAnchor[
+                MobileTerminalRenderGridAnchorRegistry.shared.anchor(connectionID: connection.connectionID)
+            ]
+        }
+    }
+
+    /// Encodes the shared event envelope once for every connection. Returns
+    /// `nil` for payloads that cannot be serialized or frames over the wire
+    /// limit; such an event is undeliverable to every connection, so the
+    /// caller drops it instead of punishing any peer.
+    nonisolated static func encodedEventFrame(
+        topic: String,
+        payload: [String: Any]
+    ) -> Data? {
+        let envelope: [String: Any] = [
+            "kind": "event",
+            "topic": topic,
+            "payload": payload,
+        ]
+        guard let encoded = try? JSONSerialization.data(withJSONObject: envelope) else {
+            return nil
+        }
+        return try? MobileSyncFrameCodec.encodeFrame(encoded)
+    }
+
+    /// The per-surface key bounded queues coalesce render-grid and byte events
+    /// on. `nil` for topics without per-surface recovery semantics.
+    nonisolated static func eventCoalesceKey(topic: String, payload: [String: Any]) -> String? {
+        switch topic {
+        case MobileHostEventTopicPolicy.renderGridTopic, "terminal.bytes":
+            return payload["surface_id"] as? String
+        case MobileHostEventTopicPolicy.simulatorFrameTopic:
+            return payload["panel_id"] as? String
+        default:
+            return nil
+        }
+    }
+
+    /// Fans one encoded event frame out to every registered connection through
+    /// synchronous bounded admission.
+    nonisolated private static func deliverEventFrame(
+        _ frame: Data,
+        topic: String,
+        coalesceKey: String?,
+        isFullRenderGridFrame: Bool
+    ) {
+        deliverEventFrames(topic: topic, coalesceKey: coalesceKey, stateSeq: nil) { _ in
+            (frame, isFullRenderGridFrame)
+        }
+    }
+
+    /// Fans encoded event frames out to every registered connection through
+    /// synchronous bounded admission, then acts on the admission outcomes:
+    /// starts at most one drain per connection, closes connections whose
+    /// non-droppable events overflowed, and requests full-frame resyncs for
+    /// surfaces whose queued render-grid frames were shed. `frameFor` picks
+    /// each connection's frame variant; `nil` skips that connection.
+    nonisolated private static func deliverEventFrames(
+        topic: String,
+        coalesceKey: String?,
+        stateSeq: UInt64?,
+        frameFor: (MobileHostConnection) -> (frame: Data, isFullRenderGridFrame: Bool)?
+    ) {
+        let connections = MobileHostConnectionRegistry.shared.snapshot()
+        guard !connections.isEmpty else { return }
+        #if DEBUG
+        cmuxDebugLog("mobile.emit topic=\(topic) connections=\(connections.count)")
+        #endif
+        var resyncSurfaceIDs = Set<String>()
+        for connection in connections {
+            guard let item = frameFor(connection) else { continue }
+            let result = connection.enqueueEventFrame(
+                item.frame,
+                topic: topic,
+                coalesceKey: coalesceKey,
+                isFullRenderGridFrame: item.isFullRenderGridFrame,
+                stateSeq: stateSeq
+            )
+            #if DEBUG
+            if let stateSeq,
+               let surfaceID = coalesceKey,
+               result.admitted,
+               let depth = result.depthAfterEnqueue {
+                HostLatencyTrace.stamp(
+                    "host.enq",
+                    "s=\(surfaceID.prefix(8).lowercased()) " +
+                        "conn=\(connection.connectionID.uuidString.prefix(8).lowercased()) " +
+                        "seq=\(stateSeq) depth=\(depth)"
+                )
+            }
+            #endif
+            if !result.simulatorFrameShedPanelIDs.isEmpty {
+                MobileSimulatorDiagnostics.recordFrameQueueShed(
+                    panelIDStrings: result.simulatorFrameShedPanelIDs,
+                    shedByteCount: result.shedByteCount
+                )
+            }
+            resyncSurfaceIDs.formUnion(result.renderGridResyncSurfaceIDs)
+            if result.startDrain {
+                Task { await connection.drainQueuedEvents() }
+            }
+            if result.shouldClose {
+                Task {
+                    await connection.close(
+                        reason: "event queue exceeded bounded capacity",
+                        exit: CmxIrohAdmittedConnectionExit(
+                            lifecycle: .controlWriteFailed,
+                            failure: .sendQueueOverflow
+                        )
+                    )
+                }
+            }
+        }
+        if !resyncSurfaceIDs.isEmpty {
+            MobileTerminalRenderObserver.requestRenderGridFullResync(
+                surfaceIDStrings: resyncSurfaceIDs
+            )
+        }
+    }
+
+    nonisolated static func hasEventSubscribers(topic: String) -> Bool {
+        MobileHostEventSubscriptionTracker.hasSubscribers(topic: topic)
+    }
+
+    /// User-default key for the opt-in Mac-side iOS pairing listener.
+    nonisolated static let listeningEnabledDefaultsKey = SettingCatalog().mobile.iOSPairingHost.userDefaultsKey
+
+    /// Key written by released builds before the setting moved into the
+    /// canonical settings catalog. Read only as a migration fallback.
+    nonisolated private static let legacyListeningEnabledDefaultsKey = "cmuxMobilePairingHostEnabled"
+
+    /// Whether the mobile pairing host should bind a network listener at all.
+    ///
+    /// An explicit current or legacy preference always wins. Without one,
+    /// dev and nightly builds preserve their historical listener default so an
+    /// older iOS app can still reach an updated Mac over Tailscale. Stable
+    /// remains opt-in so macOS does not ask every user for Local Network
+    /// permission.
+    nonisolated static var isListeningEnabled: Bool {
+        isListeningEnabled(defaults: .standard)
+    }
+
+    #if DEBUG
+    nonisolated private static var isRunningUnderXCTest: Bool {
+        let environment = ProcessInfo.processInfo.environment
+        return environment["XCTestConfigurationFilePath"] != nil
+            || environment["XCTestBundlePath"] != nil
+            || environment["XCTestSessionIdentifier"] != nil
+            || environment["XCInjectBundle"] != nil
+            || environment["XCInjectBundleInto"] != nil
+            || environment["DYLD_INSERT_LIBRARIES"]?.contains("libXCTest") == true
+    }
+    #endif
+
+    nonisolated static func isListeningEnabled(defaults: UserDefaults) -> Bool {
+        isListeningEnabled(defaults: defaults, buildFlavor: .current)
+    }
+
+    nonisolated static func isListeningEnabled(
+        defaults: UserDefaults,
+        buildFlavor: BuildFlavor
+    ) -> Bool {
+        if let override = defaults.object(forKey: listeningEnabledDefaultsKey) as? Bool {
+            return override
+        }
+        if let legacyOverride = defaults.object(forKey: legacyListeningEnabledDefaultsKey) as? Bool {
+            return legacyOverride
+        }
+        return buildFlavor != .stable
+    }
+
+    /// User-default key for the preferred iOS pairing listener port.
+    nonisolated static let portDefaultsKey = SettingCatalog().mobile.iOSPairingPort.userDefaultsKey
+
+    /// The preferred port read from settings. Both iOS listeners try to bind
+    /// it: the legacy TCP pairing listener here and the Iroh endpoint's UDP
+    /// socket (`MobileHostIrohRuntime` passes it as the endpoint bind
+    /// preference).
+    ///
+    /// Falls back to the catalog default (which mirrors
+    /// `CmxMobileDefaults.defaultHostPort`) when unset or outside the valid
+    /// `1...65535` range. Each listener still falls back independently to an
+    /// OS-assigned ephemeral port if this port is unavailable at bind time.
+    nonisolated static func configuredPort(defaults: UserDefaults = .standard) -> Int {
+        let fallback = SettingCatalog().mobile.iOSPairingPort.defaultValue
+        guard let raw = defaults.object(forKey: portDefaultsKey) as? Int else {
+            return fallback
+        }
+        return (1...65535).contains(raw) ? raw : fallback
+    }
+
+    /// The port a settings change should reconcile the *running* listener to, or
+    /// `nil` when the stored value is present but out of range.
+    ///
+    /// Distinguished from ``configuredPort(defaults:)`` so an invalid value the
+    /// user is still editing (the field shows a warning) does not tear down a
+    /// running listener and silently rebind it to the default port. Returns the
+    /// catalog default when unset, the override when valid, and `nil` when the
+    /// stored value is out of range.
+    nonisolated static func resolvedDesiredPort(defaults: UserDefaults = .standard) -> Int? {
+        guard let raw = defaults.object(forKey: portDefaultsKey) as? Int else {
+            return SettingCatalog().mobile.iOSPairingPort.defaultValue
+        }
+        return (1...65535).contains(raw) ? raw : nil
+    }
+
+    /// Pure reconciliation between the desired settings and the live listener
+    /// state. Factored out so the restart-on-port-change decision is unit
+    /// testable without binding a real `NWListener`.
+    ///
+    /// - Parameters:
+    ///   - enabled: Whether the iOS pairing host is enabled in settings.
+    ///   - listenerRunning: Whether a listener is currently bound.
+    ///   - desiredPort: The preferred port from settings (``configuredPort(defaults:)``).
+    ///   - appliedPort: The preferred port the running listener targeted, or
+    ///     `nil` when stopped.
+    /// - Returns: The action ``syncToSettings()`` should take.
+    nonisolated static func syncDecision(
+        enabled: Bool,
+        listenerRunning: Bool,
+        desiredPort: Int,
+        appliedPort: Int?
+    ) -> MobileHostSyncDecision {
+        guard enabled else { return listenerRunning ? .stop : .noop }
+        guard listenerRunning else { return .start }
+        if appliedPort != desiredPort { return .restart }
+        return .noop
+    }
+
+    /// Iroh is an account-authenticated transport and starts for every signed-in
+    /// Mac. The legacy listener remains opt-in so existing Tailscale and private
+    /// network users keep their route without making it a prerequisite for Iroh.
+    /// An MDM-managed remote-control disable overrides both: no transport may
+    /// host while the policy is enforced.
+    nonisolated static func startupPlan(
+        remoteControlDisabledByPolicy: Bool,
+        legacyListenerEnabled: Bool,
+        legacyListenerRunning: Bool
+    ) -> MobileHostStartupPlan {
+        guard !remoteControlDisabledByPolicy else {
+            return MobileHostStartupPlan(
+                activatesIroh: false,
+                startsLegacyListener: false
+            )
+        }
+        return MobileHostStartupPlan(
+            activatesIroh: true,
+            startsLegacyListener: legacyListenerEnabled && !legacyListenerRunning
+        )
+    }
+
+    /// Pure pre-bind classification for an explicit "Apply port" request. Returns
+    /// the outcome for the cases that need no bind attempt, or `nil` when a real
+    /// bind must be tried (pairing on, valid port, different from the bound one).
+    /// Factored out so the decision is unit-testable without a real `NWListener`.
+    ///
+    /// - Parameters:
+    ///   - enabled: Whether iOS pairing is enabled in settings.
+    ///   - currentBoundPort: The port the listener is currently bound to, or `nil`.
+    ///   - requestedPort: The port the user asked to apply.
+    nonisolated static func portApplyPreBindOutcome(
+        enabled: Bool,
+        currentBoundPort: Int?,
+        requestedPort: Int
+    ) -> MobileHostPortApplyOutcome? {
+        guard (1...65535).contains(requestedPort) else { return .invalid }
+        guard enabled else { return .savedWhileDisabled }
+        if currentBoundPort == requestedPort { return .applied(requestedPort) }
+        return nil
+    }
+
+    /// Whether `error` means the address/port cannot be bound (in use, not
+    /// available, or permission denied) versus a transient waiting reason.
+    nonisolated static func isAddressUnavailable(_ error: NWError) -> Bool {
+        if case let .posix(code) = error {
+            return code == .EADDRINUSE || code == .EADDRNOTAVAIL || code == .EACCES
+        }
+        return false
+    }
+
+    /// Applies an explicitly-requested pairing port.
+    ///
+    /// Make-before-break: when a running listener must move to a different port, a
+    /// candidate listener is bound on that port *first*; only if it actually binds
+    /// is the old listener torn down and the candidate adopted. So an in-use port
+    /// leaves the running listener and its connections untouched (no probe →
+    /// rebind gap that could drop connections). Operates on `UserDefaults.standard`
+    /// since it persists to and rebinds the live singleton listener.
+    func applyConfiguredPort(_ port: Int) async -> MobileHostPortApplyOutcome {
+        let defaults = UserDefaults.standard
+        // Under a managed remote-control disable no listener may bind:
+        // classify as "saved while disabled" so the preference persists but
+        // no socket opens and no routes publish while the policy is enforced.
+        if let preBind = Self.portApplyPreBindOutcome(
+            enabled: Self.isListeningEnabled(defaults: defaults)
+                && MobileRemoteControlPolicy.isEnabled,
+            currentBoundPort: listenerPort,
+            requestedPort: port
+        ) {
+            switch preBind {
+            case .invalid, .portInUse:
+                break
+            case .savedWhileDisabled, .applied:
+                defaults.set(port, forKey: Self.portDefaultsKey)
+            }
+            return preBind
+        }
+        // A real bind is required (pairing on, valid port, different from bound).
+        guard let endpointPort = NWEndpoint.Port(rawValue: UInt16(port)) else { return .invalid }
+        guard let candidate = await bindReadyCandidate(on: endpointPort, generation: UUID()) else {
+            return .portInUse
+        }
+        adoptCandidateListener(candidate.listener, generation: candidate.generation, port: port)
+        defaults.set(port, forKey: Self.portDefaultsKey)
+        return .applied(port)
+    }
+
+    /// Binds a candidate `NWListener` on `endpointPort` while the current listener
+    /// keeps running, returning it (with `generation`) once it reaches `.ready`,
+    /// or `nil` when the port is unavailable. A bounded, cancellable deadline
+    /// guarantees the call can't hang; on timeout/failure the candidate is torn
+    /// down and `nil` returned, leaving the live listener untouched.
+    private func bindReadyCandidate(on endpointPort: NWEndpoint.Port, generation: UUID) async -> (listener: NWListener, generation: UUID)? {
+        let tcpOptions = NWProtocolTCP.Options()
+        tcpOptions.noDelay = true
+        let candidate: NWListener
+        do {
+            candidate = try NWListener(using: NWParameters(tls: nil, tcp: tcpOptions), on: endpointPort)
+        } catch {
+            return nil
+        }
+        let queue = callbackQueue
+        let didBind: Bool = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+            // One-shot resume guard + deadline holder (lock carve-out): the state
+            // handler and the timeout race to resume the continuation exactly once.
+            let resumed = OSAllocatedUnfairLock(initialState: false)
+            let timeoutHolder = OSAllocatedUnfairLock<Task<Void, Never>?>(initialState: nil)
+            let finish: @Sendable (Bool) -> Void = { ready in
+                let alreadyResumed = resumed.withLock { state -> Bool in
+                    if state { return true }
+                    state = true
+                    return false
+                }
+                guard !alreadyResumed else { return }
+                timeoutHolder.withLock { task in
+                    task?.cancel()
+                    task = nil
+                }
+                continuation.resume(returning: ready)
+            }
+            candidate.stateUpdateHandler = { state in
+                switch state {
+                case .ready:
+                    finish(true)
+                case .failed, .cancelled:
+                    finish(false)
+                case let .waiting(error):
+                    if Self.isAddressUnavailable(error) { finish(false) }
+                default:
+                    break
+                }
+            }
+            // NWListener needs a newConnectionHandler set before `start()` or it
+            // never reaches `.ready`; wiring the real accept path (with this
+            // generation) also means no connection is dropped once it's adopted.
+            candidate.newConnectionHandler = { connection in
+                Self.acceptConnectionOffMain(connection, generation: generation)
+            }
+            candidate.start(queue: queue)
+            // Bounded, cancellable safety deadline (check-timeout carve-out) so an
+            // unclassified/stuck listener state can never hang the Apply flow.
+            let timeout = Task {
+                try? await Task.sleep(for: .seconds(2))
+                finish(false)
+            }
+            timeoutHolder.withLock { $0 = timeout }
+        }
+        guard didBind else {
+            candidate.stateUpdateHandler = nil
+            candidate.newConnectionHandler = nil
+            candidate.cancel()
+            return nil
+        }
+        return (candidate, generation)
+    }
+
+    /// Cuts over to a freshly-bound `candidate`: tears down the old listener and
+    /// its connections (they reconnect on the new port), then adopts the candidate
+    /// as the live listener, routes future state changes through the normal
+    /// handler, and republishes routes.
+    private func adoptCandidateListener(_ candidate: NWListener, generation: UUID, port: Int) {
+        listener?.stateUpdateHandler = nil
+        listener?.newConnectionHandler = nil
+        listener?.cancel()
+        for connection in activeConnections.values {
+            Task { await connection.close(reason: "pairing port changed") }
+        }
+        for connection in MobileHostConnectionRegistry.shared.removeStackBearerConnections() {
+            Task { await connection.close(reason: "pairing port changed") }
+        }
+        activeConnections.removeAll()
+
+        listener = candidate
+        listenerGeneration = generation
+        listenerUsesEphemeralFallback = false
+        listenerPort = port
+        appliedPreferredPort = port
+        lastErrorDescription = nil
+        // The candidate is already `.ready`; route only *future* states normally.
+        candidate.stateUpdateHandler = { state in
+            Task { @MainActor in
+                MobileHostService.shared.handleListenerState(state, generation: generation)
+            }
+        }
+        routeResolver.refreshTailscaleRoutes(onResolvedHosts: { [weak self] hosts in
+            Task { @MainActor [weak self] in
+                self?.updatePublicStatusRoutes(port: port, generation: generation, tailscaleHosts: hosts)
+            }
+        })
+        MobileHostPublicStatusCache.update(routes: routeResolver.routes(port: port).routes)
+        startNetworkPathMonitorIfNeeded()
+        drainReadinessWaiters()
+    }
+
+    func start() {
+        let plan = Self.startupPlan(
+            remoteControlDisabledByPolicy: MobileRemoteControlPolicy.isDisabled,
+            legacyListenerEnabled: Self.isListeningEnabled,
+            legacyListenerRunning: listener != nil
+        )
+        if MobileRemoteControlPolicy.isDisabled {
+            mobileHostLog.info("mobile host disabled by managed policy; not starting")
+        }
+        guard plan.startsLegacyListener else {
+            #if DEBUG
+            if Self.canPublishRoutesWithoutListenerForXCTest(defaults: .standard) {
+                publishRoutesWithoutListenerForXCTest()
+            }
+            #endif
+            if listener == nil {
+                mobileHostLog.info("legacy mobile host listener disabled; starting Iroh only")
+            }
+            if plan.activatesIroh {
+                MobileHostIrohRuntime.shared.setDesiredActive(true)
+            }
+            return
+        }
+
+        CmxIrohTCPFirstActivation.start(
+            startTCP: { startListener(usePreferredPort: true) },
+            scheduleIroh: { MobileHostIrohRuntime.shared.setDesiredActive(true) }
+        )
+    }
+
+    #if DEBUG
+    nonisolated private static func canPublishRoutesWithoutListenerForXCTest(defaults: UserDefaults) -> Bool {
+        guard isRunningUnderXCTest else { return false }
+        return defaults.object(forKey: listeningEnabledDefaultsKey) == nil
+            && defaults.object(forKey: legacyListeningEnabledDefaultsKey) == nil
+    }
+
+    private func publishRoutesWithoutListenerForXCTest() {
+        guard listener == nil else { return }
+        let port = Self.configuredPort()
+        listenerGeneration = UUID()
+        listenerUsesEphemeralFallback = false
+        listenerPort = port
+        appliedPreferredPort = port
+        lastErrorDescription = nil
+        MobileHostPublicStatusCache.update(routes: routeResolver.routes(port: port).routes)
+        mobileHostLog.info("mobile host listener disabled; publishing XCTest routes without binding")
+    }
+    #endif
+
+    private func startListener(usePreferredPort: Bool) {
+        let desiredPort = Self.configuredPort()
+        appliedPreferredPort = desiredPort
+        do {
+            let tcpOptions = NWProtocolTCP.Options()
+            tcpOptions.noDelay = true
+            let parameters = NWParameters(tls: nil, tcp: tcpOptions)
+            let nextListener = try makeListener(
+                parameters: parameters,
+                usePreferredPort: usePreferredPort,
+                port: desiredPort
+            )
+            let generation = UUID()
+            listenerGeneration = generation
+            nextListener.stateUpdateHandler = { state in
+                Task { @MainActor in
+                    MobileHostService.shared.handleListenerState(state, generation: generation)
+                }
+            }
+            nextListener.newConnectionHandler = { connection in
+                Self.acceptConnectionOffMain(connection, generation: generation)
+            }
+            listener = nextListener
+            listenerUsesEphemeralFallback = !usePreferredPort
+            listenerPort = nil
+            nextListener.start(queue: callbackQueue)
+            startNetworkPathMonitorIfNeeded()
+        } catch {
+            if usePreferredPort {
+                mobileHostLog.info("mobile host preferred port unavailable before listener start, falling back to an ephemeral port")
+                startListener(usePreferredPort: false)
+                return
+            }
+            lastErrorDescription = String(describing: error)
+            mobileHostLog.error("mobile host listener failed to start: \(String(describing: error), privacy: .public)")
+            // No listener was registered, so no state callback will fire to drain
+            // readiness waiters; resolve them now instead of waiting for the deadline.
+            drainReadinessWaiters()
+        }
+    }
+
+    private func makeListener(
+        parameters: NWParameters,
+        usePreferredPort: Bool,
+        port: Int
+    ) throws -> NWListener {
+        if usePreferredPort,
+           let rawPort = UInt16(exactly: port),
+           let endpointPort = NWEndpoint.Port(rawValue: rawPort) {
+            return try NWListener(using: parameters, on: endpointPort)
+        }
+        return try NWListener(using: parameters, on: .any)
+    }
+
+    func stop() {
+        MobileHostIrohRuntime.shared.setDesiredActive(false)
+        stopLegacyListener(reason: "service stopped")
+        for connection in MobileHostConnectionRegistry.shared.removeAll() {
+            Task { await connection.close(reason: "service stopped") }
+        }
+        MobileHostEventSubscriptionTracker.reset()
+        MobileHostPublicStatusCache.removeAll()
+        TerminalController.shared.clearAllMobileViewportReports(reason: "mobile.host.stopped")
+        drainReadinessWaiters()
+    }
+
+    private func stopLegacyListener(reason: String) {
+        stopNetworkPathMonitor()
+        listenerGeneration = UUID()
+        listenerUsesEphemeralFallback = false
+        listener?.stateUpdateHandler = nil
+        listener?.newConnectionHandler = nil
+        listener?.cancel()
+        listener = nil
+        listenerPort = nil
+        appliedPreferredPort = nil
+        for connection in activeConnections.values {
+            Task { await connection.close(reason: reason) }
+        }
+        for connection in MobileHostConnectionRegistry.shared.removeStackBearerConnections() {
+            Task { await connection.close(reason: reason) }
+        }
+        activeConnections.removeAll()
+        MobileHostPublicStatusCache.update(routes: [])
+    }
+
+    func statusSnapshot() -> MobileHostServiceStatus {
+        makeStatus(routes: MobileHostPublicStatusCache.snapshot())
+    }
+
+    /// Emits the current ``MobileHostServiceStatus`` immediately, then a fresh
+    /// snapshot every time the listener or active-connection set changes (driven by
+    /// `.mobileHostStatusDidChange`). The in-app pairing window consumes this to flip
+    /// from "waiting" to "connected" the instant a phone attaches; it is the same
+    /// signal that backs the Mobile settings connection count. The stream ends when
+    /// the consumer cancels its task.
+    func statusUpdates() -> AsyncStream<MobileHostServiceStatus> {
+        AsyncStream { continuation in
+            // Bridge the notification through a Sendable `Void` signal so the
+            // non-Sendable `Notification` never crosses into the MainActor drain.
+            // Mirrors `HostSettingsActions.mobilePairingStatusUpdates()`.
+            let (signals, signalContinuation) = AsyncStream<Void>.makeStream(
+                bufferingPolicy: .bufferingNewest(1)
+            )
+            let observer = MobileHostStatusObserverToken(
+                NotificationCenter.default.addObserver(
+                    forName: .mobileHostStatusDidChange,
+                    object: nil,
+                    queue: nil
+                ) { _ in
+                    signalContinuation.yield(())
+                }
+            )
+            let drainTask = Task { @MainActor in
+                continuation.yield(MobileHostService.shared.statusSnapshot())
+                for await _ in signals {
+                    if Task.isCancelled { break }
+                    continuation.yield(MobileHostService.shared.statusSnapshot())
+                }
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in
+                drainTask.cancel()
+                signalContinuation.finish()
+                observer.remove()
+            }
+        }
+    }
+
+    /// Starts the pairing listener (if enabled and not already bound) and
+    /// resolves once it can mint attach tickets, so the in-app pairing window
+    /// can render a QR code without polling the listener state machine.
+    ///
+    /// Resolves immediately when the listener is already ready, or when pairing
+    /// is disabled (the caller then renders an "off" state). Otherwise it awaits
+    /// the next listener-state transition (`ready`, terminal `failed`, or
+    /// `cancelled`) via a continuation, with a bounded safety deadline so the UI
+    /// never hangs on a listener that never settles.
+    func ensureListeningAndReady() async -> MobileHostServiceStatus {
+        start()
+        if listener == nil || listenerPort != nil {
+            return statusSnapshot()
+        }
+        return await withCheckedContinuation { continuation in
+            readinessWaiters.append(continuation)
+            if readinessTimeoutTask == nil {
+                // Bounded, cancellable deadline: a local NWListener normally
+                // reaches `.ready` within milliseconds; this only guards a
+                // never-settling listener. Cancelled on the normal drain path.
+                readinessTimeoutTask = Task { @MainActor [weak self] in
+                    try? await ContinuousClock().sleep(for: .seconds(6))
+                    guard let self, !Task.isCancelled else { return }
+                    self.drainReadinessWaiters()
+                }
+            }
+        }
+    }
+
+    /// Resumes every pending ``ensureListeningAndReady()`` caller with the
+    /// current status and clears the bounded readiness deadline.
+    private func drainReadinessWaiters() {
+        readinessTimeoutTask?.cancel()
+        readinessTimeoutTask = nil
+        guard !readinessWaiters.isEmpty else { return }
+        let snapshot = statusSnapshot()
+        let waiters = readinessWaiters
+        readinessWaiters.removeAll()
+        for waiter in waiters {
+            waiter.resume(returning: snapshot)
+        }
+    }
+
+    private func makeStatus(routes: [CmxAttachRoute]) -> MobileHostServiceStatus {
+        let isRunning = (listener != nil && listenerPort != nil)
+            || MobileHostPublicStatusCache.hasIrohRoute()
+        return MobileHostServiceStatus(
+            isRunning: isRunning,
+            port: listenerPort,
+            configuredPort: Self.configuredPort(),
+            // The actual bind outcome, not a recomputation from current defaults:
+            // editing the preferred port before a restart must not flip this.
+            usesEphemeralFallback: isRunning && listenerUsesEphemeralFallback,
+            routes: routes,
+            activeConnectionCount: MobileHostConnectionRegistry.shared.count,
+            lastErrorDescription: lastErrorDescription
+        )
+    }
+
+    /// Reconcile the live listener with current settings (enable/disable and
+    /// preferred-port changes). Safe to call on any settings change: it no-ops
+    /// unless the enabled state or the configured port actually changed, so an
+    /// unrelated `UserDefaults` write does not drop active iOS connections.
+    ///
+    /// Reads `UserDefaults.standard` because the live singleton listener binds
+    /// against the app's real store; `start`/`restart` do the same, so there is
+    /// no caller-supplied store to honor here.
+    func syncToSettings() {
+        // An MDM-managed remote-control disable overrides every transport:
+        // tear down the Iroh runtime, the legacy listener, and every live
+        // connection, and refuse to re-arm until the policy is lifted.
+        guard MobileRemoteControlPolicy.isEnabled else {
+            if !remoteControlPolicyStopApplied {
+                remoteControlPolicyStopApplied = true
+                mobileHostLog.info("remote control disabled by managed policy; stopping mobile host")
+                stop()
+            }
+            return
+        }
+        remoteControlPolicyStopApplied = false
+        let defaults = UserDefaults.standard
+        // Settings control only the legacy TCP/Tailscale listener. Account-
+        // authenticated Iroh stays available for signed-in Macs.
+        MobileHostIrohRuntime.shared.setDesiredActive(true)
+        // An invalid stored port (`resolvedDesiredPort == nil`, e.g. mid-edit)
+        // must not restart a running listener. Treat it as "no change" by
+        // reusing the applied port; a fresh start still binds the default via
+        // `configuredPort()`.
+        let desiredPort = Self.resolvedDesiredPort(defaults: defaults)
+            ?? appliedPreferredPort
+            ?? Self.configuredPort(defaults: defaults)
+        switch Self.syncDecision(
+            enabled: Self.isListeningEnabled(defaults: defaults),
+            listenerRunning: listener != nil,
+            desiredPort: desiredPort,
+            appliedPort: appliedPreferredPort
+        ) {
+        case .noop:
+            break
+        case .start:
+            start()
+        case .stop:
+            stopLegacyListener(reason: "legacy pairing listener disabled")
+        case .restart:
+            restart()
+        }
+    }
+
+    private func restart() {
+        stopLegacyListener(reason: "pairing port changed")
+        start()
+    }
+
+    nonisolated private static func acceptConnectionOffMain(
+        _ connection: NWConnection,
+        generation: UUID
+    ) {
+        Task.detached(priority: .userInitiated) {
+            let canAccept = await MobileHostService.shared.canAcceptConnection(generation: generation)
+            guard canAccept else {
+                mobileHostLog.info("mobile host rejected stale listener connection")
+                connection.cancel()
+                return
+            }
+
+            #if !DEBUG
+            // Release builds never advertise a loopback route (the 127.0.0.1
+            // `debugLoopback` route is DEBUG-only, see `MobileRouteResolver`), so a
+            // legitimate phone always reaches the Mac over the Tailscale interface.
+            // A connection arriving on loopback in release can only be a local
+            // process (or a browser that somehow framed the binary protocol), never
+            // the real client, so refuse it outright. DEBUG keeps loopback so the
+            // iOS Simulator (which reaches the Mac via 127.0.0.1) can still pair.
+            if Self.isLoopbackConnection(connection) {
+                mobileHostLog.error("mobile host rejected loopback connection in release build")
+                connection.cancel()
+                return
+            }
+            #endif
+
+            let transport = CmxNetworkByteTransport(acceptedConnection: connection)
+            await Self.acceptTransport(
+                transport,
+                authorization: .legacyPrivateNetworkListener,
+                isCurrent: {
+                    await MobileHostService.shared.canAcceptConnection(
+                        generation: generation
+                    )
+                }
+            )
+        }
+    }
+
+    @discardableResult
+    nonisolated static func acceptTransport(
+        _ transport: any CmxByteTransport,
+        authorization: MobileHostConnectionAuthorizationContext,
+        artifactTransfers: MobileHostIrohArtifactTransferRegistry? = nil,
+        independentEventWriter: (any MobileHostIndependentEventWriting)? = nil,
+        promoteUsableSession: @escaping @Sendable () async -> Bool = { true },
+        remoteControlDisabledByPolicy: @escaping @Sendable () -> Bool = {
+            MobileRemoteControlPolicy.isDisabled
+        },
+        isCurrent: @escaping @Sendable () async -> Bool
+    ) async -> CmxIrohAdmittedConnectionExit {
+        let expectedExit = CmxIrohAdmittedConnectionExit(
+            lifecycle: .explicitlyInvalidated,
+            failure: .none
+        )
+        // Universal admission funnel for every transport (Iroh and the legacy
+        // TCP listener): refuse here too, so races and already-open listeners
+        // cannot admit a connection while the managed policy is enforced.
+        guard !remoteControlDisabledByPolicy() else {
+            mobileHostLog.info("mobile host refused transport: remote control disabled by managed policy")
+            await transport.close()
+            return expectedExit
+        }
+        MobileHostRequestActivity.beginConnection()
+        guard await isCurrent() else {
+            mobileHostLog.info("mobile host rejected stale transport")
+            await transport.close()
+            MobileHostRequestActivity.endConnection()
+            return expectedExit
+        }
+
+        let id = UUID()
+        let session = MobileHostConnection(
+            id: id,
+            transport: transport,
+            independentEventWriter: independentEventWriter,
+            authorizeRequest: { request in
+                await Self.connectionAuthorizationError(
+                    for: request,
+                    authorization: authorization,
+                    stackAuthorization: { request in
+                        await MobileHostService.shared.authorizationError(for: request)
+                    }
+                )
+            },
+            onAuthorizedRequest: { request in
+                guard let clientID = Self.clientID(from: request.params) else {
+                    return
+                }
+                await MobileHostService.shared.recordClientID(clientID, for: id)
+            },
+            onUsableSession: {
+                guard await promoteUsableSession() else { return false }
+                await Self.retireSupersededIrohConnections(
+                    newestConnectionID: id
+                )
+                return true
+            },
+            handleRequest: { request in
+                if request.method == "mobile.host.status" {
+                    return await Self.connectionStatusResult(
+                        for: request,
+                        authorization: authorization,
+                        supportsArtifactLane: artifactTransfers != nil,
+                        stackStatus: { request in
+                            await MobileHostService.networkStatusResult(for: request)
+                        }
+                    )
+                }
+                let result = await TerminalController.shared.mobileHostHandleRPC(
+                    request,
+                    executionContext: MobileHostRPCExecutionContext(
+                        connectionID: id,
+                        authorization: authorization,
+                        artifactTransfers: artifactTransfers
+                    )
+                )
+                await MobileHostService.shared.recordCreatedResourcesIfNeeded(
+                    request: request,
+                    result: result
+                )
+                return result
+            },
+            onClose: { id in
+                await MobileHostService.shared.mobileBrowserStreamCoordinator.connectionClosed(id)
+                await MobileHostService.shared.mobileSimulatorStreamCoordinator.connectionClosed(id)
+                MobileHostConnectionRegistry.shared.remove(id: id)
+                await MobileHostService.shared.removeConnection(id: id)
+            },
+            requestSimulatorFrameReplay: { connectionID, panelIDs in
+                await MobileHostService.shared.mobileSimulatorStreamCoordinator.requestFrameReplay(
+                    connectionID: connectionID,
+                    panelIDStrings: panelIDs
+                )
+            }
+        )
+        guard await isCurrent() else {
+            await transport.close()
+            MobileHostRequestActivity.endConnection()
+            return expectedExit
+        }
+        guard MobileHostConnectionRegistry.shared.insert(
+            session,
+            id: id,
+            authorization: authorization,
+            limit: Self.maximumActiveConnectionCount
+        ) else {
+            mobileHostLog.error(
+                "mobile host rejected connection because an active connection quota was reached"
+            )
+            await transport.close()
+            MobileHostRequestActivity.endConnection()
+            return expectedExit
+        }
+        return await session.run()
+    }
+
+    nonisolated static func connectionAuthorizationError(
+        for request: MobileHostRPCRequest,
+        authorization: MobileHostConnectionAuthorizationContext,
+        stackAuthorization: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?
+    ) async -> MobileHostRPCResult? {
+        switch authorization {
+        case .stackBearer:
+            guard requiresAuthorization(method: request.method) else { return nil }
+            return await stackAuthorization(request)
+        case .irohAdmission:
+            return nil
+        }
+    }
+
+    nonisolated static func connectionStatusResult(
+        for request: MobileHostRPCRequest,
+        authorization: MobileHostConnectionAuthorizationContext,
+        supportsArtifactLane: Bool = false,
+        stackStatus: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult
+    ) async -> MobileHostRPCResult {
+        switch authorization {
+        case .stackBearer:
+            return await stackStatus(request)
+        case .irohAdmission:
+            let phonePushStatus = await MainActor.run {
+                (
+                    PhonePushClient.shared.currentAdmission(),
+                    PhonePushClient.shared.queuePersistenceStatus
+                )
+            }
+            return MobileHostPublicStatusCache.result(
+                includeIdentity: true,
+                additionalCapabilities: supportsArtifactLane
+                    ? Set([irohArtifactLaneCapability])
+                    : Set(),
+                phonePushAdmission: phonePushStatus.0,
+                phonePushQueuePersistenceStatus: phonePushStatus.1
+            )
+        }
+    }
+
+    private func canAcceptConnection(generation: UUID) -> Bool {
+        listener != nil && generation == listenerGeneration
+    }
+
+    func createAttachTicket(
+        workspaceID: String,
+        terminalID: String?,
+        ttl: TimeInterval,
+        routeID: String? = nil,
+        routeKind: String? = nil,
+        routeDisclosureMode: CmxPairingRouteDisclosureMode = .legacyPrivateNetworkCompatibility,
+        target: MobileAttachTarget? = nil,
+        pairingURLScheme: CmxPairingURLScheme? =
+            CmxPairingURLSchemeResolver().resolved
+    ) async throws -> [String: Any] {
+        let routes = MobileHostPublicStatusCache.snapshot()
+        let filteredRoutes = try Self.filteredRoutes(
+            routes,
+            routeID: routeID,
+            routeKind: routeKind
+        )
+        let selectedRoutes = try target.selectRoutes(from: filteredRoutes)
+        let ticket = try ticketStore.createTicket(
+            workspaceID: workspaceID,
+            terminalID: terminalID,
+            routes: selectedRoutes,
+            ttl: ttl,
+            macUserEmail: await currentAuthenticatedLocalUserEmail(),
+            macUserID: await currentAuthenticatedLocalUserID(),
+            macPairingCompatibilityVersion: CmxMobileDefaults.pairingCompatibilityVersion,
+            macAppVersion: MobileHostBuildIdentity.current().appVersion,
+            macAppBuild: MobileHostBuildIdentity.current().appBuild
+        )
+        return try ticketStore.payload(
+            for: ticket,
+            routeDisclosureMode: routeDisclosureMode,
+            target: target,
+            pairingURLScheme: pairingURLScheme
+        )
+    }
+
+    private static func filteredRoutes(
+        _ routes: [CmxAttachRoute],
+        routeID: String?,
+        routeKind: String?
+    ) throws -> [CmxAttachRoute] {
+        let normalizedRouteID = routeID?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedRouteKind = routeKind?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let hasRouteID = normalizedRouteID?.isEmpty == false
+        let hasRouteKind = normalizedRouteKind?.isEmpty == false
+        guard hasRouteID || hasRouteKind else {
+            return routes
+        }
+
+        let filtered = routes.filter { route in
+            if hasRouteID, route.id != normalizedRouteID {
+                return false
+            }
+            if hasRouteKind, route.kind.rawValue != normalizedRouteKind {
+                return false
+            }
+            return true
+        }
+        guard !filtered.isEmpty else {
+            throw MobileAttachTicketStoreError.routeUnavailable
+        }
+        return filtered
+    }
+
+    /// Whether an incoming connection's remote peer is on the loopback interface.
+    ///
+    /// Used to refuse local connections in release builds, where no legitimate
+    /// client ever connects via `127.0.0.1`/`::1`.
+    nonisolated static func isLoopbackConnection(_ connection: NWConnection) -> Bool {
+        isLoopbackEndpoint(connection.endpoint) || isLoopbackEndpoint(connection.currentPath?.remoteEndpoint)
+    }
+
+    nonisolated static func isLoopbackEndpoint(_ endpoint: NWEndpoint?) -> Bool {
+        guard case let .hostPort(host, _)? = endpoint else { return false }
+        switch host {
+        case let .ipv4(address):
+            // 127.0.0.0/8
+            return address.rawValue.first == 127
+        case let .ipv6(address):
+            let bytes = Array(address.rawValue)
+            guard bytes.count == 16 else { return false }
+            // ::1
+            let isV6Loopback = bytes[0..<15].allSatisfy { $0 == 0 } && bytes[15] == 1
+            // IPv4-mapped loopback ::ffff:127.0.0.0/8
+            let isV4MappedLoopback = bytes[0..<10].allSatisfy { $0 == 0 }
+                && bytes[10] == 0xff && bytes[11] == 0xff && bytes[12] == 127
+            return isV6Loopback || isV4MappedLoopback
+        case let .name(name, _):
+            let lowered = name.lowercased()
+            return lowered == "localhost" || lowered.hasSuffix(".localhost")
+        @unknown default:
+            return false
+        }
+    }
+
+    private func removeConnection(id: UUID) {
+        MobileHostConnectionRegistry.shared.remove(id: id)
+        activeConnections.removeValue(forKey: id)
+        // Drop this connection's sticky viewport reports so a disconnected
+        // device stops pinning the shared grid (and its macOS viewport border
+        // clears) even though it never sent an explicit clear.
+        let clientIDs = clientIDsByConnectionID[id] ?? []
+        clientIDsByConnectionID.removeValue(forKey: id)
+        if !clientIDs.isEmpty {
+            TerminalController.shared.clearMobileViewportReports(
+                clientIDs: clientIDs,
+                reason: "mobile.connection.closed"
+            )
+        }
+        MobileHostRequestActivity.endConnection()
+    }
+
+    /// The registry is lock-protected and connection close is actor-isolated,
+    /// so Iroh handoff never needs to queue behind unrelated AppKit work on the
+    /// main actor. This path runs only after the replacement has delivered its
+    /// workspace list and usable event-subscription responses.
+    nonisolated private static func retireSupersededIrohConnections(
+        newestConnectionID: UUID
+    ) async {
+        let superseded = MobileHostConnectionRegistry.shared
+            .removeOlderIrohConnectionsIfNewest(id: newestConnectionID)
+        for connection in superseded {
+            await connection.close(reason: "superseded by newer authenticated iroh session")
+        }
+    }
+
+    private func recordClientID(_ clientID: String, for connectionID: UUID) {
+        var clientIDs = clientIDsByConnectionID[connectionID] ?? []
+        clientIDs.insert(clientID)
+        clientIDsByConnectionID[connectionID] = clientIDs
+    }
+
+    private nonisolated static func clientID(from params: [String: Any]) -> String? {
+        let trimmed = (params["client_id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed?.isEmpty == false ? trimmed : nil
+    }
+
+    func debugAuthorizationError(for request: MobileHostRPCRequest) async -> MobileHostRPCResult? {
+        await authorizationError(for: request)
+    }
+
+    /// Whether `request`'s Stack token passes the DEBUG dev-token policy.
+    /// Always `false` in release builds. Shared by the authorization gate and
+    /// the status identity gate so a dev-token client is treated identically
+    /// on both.
+    private func devStackTokenAuthorized(_ request: MobileHostRPCRequest) -> Bool {
+        #if DEBUG
+        if let stackAccessToken = request.auth?.stackAccessToken {
+            return MobileHostDevStackAuthPolicy.authorize(
+                providedToken: stackAccessToken,
+                acceptedToken: debugAcceptedStackAuthToken
+            )
+        }
+        #endif
+        return false
+    }
+
+    /// Whether `request` presents credentials that pass the same Stack gate
+    /// as the authorized verbs (including the DEBUG dev-token policy),
+    /// independent of whether the method itself requires authorization. The
+    /// status path uses this to decide if the caller may see the Mac's
+    /// identity.
+    ///
+    /// Unlike ``authorizationError(for:)`` (whose verbs are authorized, so a
+    /// caller burning a network verification is at least failing auth), this
+    /// gate is reachable from the UNAUTHENTICATED status verb. It therefore
+    /// answers from the verifier's cache when it can, and caps concurrent
+    /// cache-miss network lookups: saturated means "withhold identity now",
+    /// never an unbounded queue of attacker-minted token verifications. The
+    /// legitimate client recovers via its identity-recovery retry once its
+    /// token is cache-verified by the authorized verbs that follow connect.
+    func verifiedStackCaller(for request: MobileHostRPCRequest) async -> Bool {
+        if devStackTokenAuthorized(request) {
+            return true
+        }
+        if let cachedVerdict = await MobileHostStackAuthVerifier.shared.cachedVerdict(auth: request.auth) {
+            return cachedVerdict
+        }
+        guard await MobileHostStatusVerificationLimiter.shared.acquire() else {
+            mobileHostLog.error("mobile host status identity withheld: verification limiter saturated")
+            return false
+        }
+        let verified: Bool
+        do {
+            try await Self.verifyStackAuthOffMainActor(auth: request.auth)
+            verified = true
+        } catch {
+            verified = false
+        }
+        // Non-throwing actor call: runs even if this task was cancelled
+        // mid-verification, so a slot can never leak.
+        await MobileHostStatusVerificationLimiter.shared.release()
+        return verified
+    }
+
+    private func authorizationError(for request: MobileHostRPCRequest) async -> MobileHostRPCResult? {
+        guard Self.requiresAuthorization(method: request.method) else {
+            return nil
+        }
+        // Stack auth is the SOLE authorization gate for the mobile data plane.
+        // The attach ticket is route-discovery and workspace-selection only; it
+        // never authorizes on its own. Every operation must present the Mac
+        // owner's same-account Stack access token. Consequences: a leaked or
+        // photographed QR is useless without the owner's signed-in account, and
+        // pairing is bound to "who is signed in on this Mac" rather than a stored
+        // ticket, so it survives Mac restarts and ticket expiry.
+        if devStackTokenAuthorized(request) {
+            return ticketAuthorizationResultIfNeeded(for: request)
+        }
+        do {
+            try await Self.verifyStackAuthOffMainActor(auth: request.auth)
+            return ticketAuthorizationResultIfNeeded(for: request)
+        } catch MobileHostAuthorizationError.accountMismatch {
+            // The presented Stack token is valid but belongs to a different
+            // account than the one signed in on this Mac. Surface a distinct code
+            // so the client can drive a re-authentication flow into the right
+            // account rather than showing a generic failure.
+            mobileHostLog.error("mobile host authorization rejected: account mismatch method=\(request.method, privacy: .public)")
+            return .failure(MobileHostRPCError(
+                code: "account_mismatch",
+                message: "Sign in with the account that owns this Mac to continue."
+            ))
+        } catch {
+            mobileHostLog.error("mobile host authorization failed method=\(request.method, privacy: .public) error=\(String(describing: error), privacy: .public)")
+            return .failure(MobileHostRPCError(
+                code: "unauthorized",
+                message: "Mobile sync authorization failed."
+            ))
+        }
+    }
+
+    private func ticketAuthorizationResultIfNeeded(for request: MobileHostRPCRequest) -> MobileHostRPCResult? {
+        // The Stack same-account gate already authorized this request; an
+        // attach ticket only narrows scope while it is current (a workspace-
+        // pinned ticket must not mutate Mac-wide state). A missing, unknown,
+        // or expired token therefore leaves the account gate as the sole
+        // authority, including Mac-scoped mutations, so paired phones keep
+        // move/group affordances after the pairing ticket's TTL elapses.
+        // Advertised to clients as `workspace.mutations.account_auth.v1`.
+        guard let attachToken = request.auth?.attachToken?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !attachToken.isEmpty,
+              let authorization = ticketStore.validAuthorization(authToken: attachToken) else {
+            return nil
+        }
+        if let error = Self.ticketAuthorizationError(authorization: authorization, request: request) { return .failure(error) }
+        return nil
+    }
+
+    private nonisolated static func verifyStackAuthOffMainActor(auth: MobileHostRPCAuth?) async throws {
+        try await Task.detached(priority: .utility) {
+            try await MobileHostStackAuthVerifier.shared.verify(auth: auth)
+        }.value
+    }
+
+    private func recordCreatedResourcesIfNeeded(
+        request: MobileHostRPCRequest,
+        result: MobileHostRPCResult
+    ) {
+        guard let attachToken = request.auth?.attachToken else { return }
+        guard case let .ok(payload) = result,
+              let object = payload as? [String: Any] else { return }
+
+        switch request.method {
+        case "workspace.create":
+            ticketStore.recordCreatedResources(
+                authToken: attachToken,
+                workspaceID: object["created_workspace_id"] as? String,
+                terminalID: nil
+            )
+        case "mobile.terminal.create", "terminal.create":
+            ticketStore.recordCreatedResources(
+                authToken: attachToken,
+                workspaceID: nil,
+                terminalID: object["created_terminal_id"] as? String
+            )
+        default:
+            break
+        }
+    }
+
+    nonisolated private static func requiresAuthorization(method: String) -> Bool {
+        switch method {
+        // Only the unauthenticated host probe is exempt. `mobile.attach_ticket.create`
+        // mints a bearer credential, so it MUST be authorized: a network caller has no
+        // attach token yet, so it is routed through the same-account Stack Auth token
+        // (the iOS client always sends it for this method). Leaving it exempt would let
+        // any process that can speak the wire protocol self-issue a working ticket and
+        // take over the terminal. The on-Mac QR pairing mints tickets through the local
+        // automation socket (`TerminalController`), not this network path, so it is
+        // unaffected.
+        case "mobile.host.status":
+            return false
+        default:
+            return true
+        }
+    }
+
+    private func handleListenerState(_ state: NWListener.State, generation: UUID) {
+        guard generation == listenerGeneration else {
+            return
+        }
+
+        switch state {
+        case .ready:
+            listenerPort = listener?.port.map { Int($0.rawValue) }
+            lastErrorDescription = nil
+            if let listenerPort {
+                routeResolver.refreshTailscaleRoutes(onResolvedHosts: { [weak self] hosts in
+                    Task { @MainActor [weak self] in
+                        self?.updatePublicStatusRoutes(
+                            port: listenerPort,
+                            generation: generation,
+                            tailscaleHosts: hosts
+                        )
+                    }
+                })
+                MobileHostPublicStatusCache.update(routes: routeResolver.routes(port: listenerPort).routes)
+            } else {
+                MobileHostPublicStatusCache.update(routes: [])
+            }
+            mobileHostLog.info("mobile host listener ready on port \(self.listenerPort ?? 0)")
+            drainReadinessWaiters()
+        case let .failed(error):
+            handleListenerBindFailure(error: error, context: "failed after start")
+        case .cancelled:
+            listenerGeneration = UUID()
+            listener = nil
+            listenerUsesEphemeralFallback = false
+            listenerPort = nil
+            MobileHostPublicStatusCache.update(routes: [])
+            drainReadinessWaiters()
+        case let .waiting(error):
+            // A preferred-port bind blocked by another listener surfaces as
+            // `.waiting(.posix(.EADDRINUSE))` rather than `.failed`, and NWListener
+            // would otherwise wait forever; treat address-unavailable the same as
+            // a failure so the ephemeral fallback (and bound-port warning) fire.
+            if Self.isAddressUnavailable(error) {
+                handleListenerBindFailure(error: error, context: "in use (waiting)")
+            } else {
+                listenerPort = nil
+                MobileHostPublicStatusCache.update(routes: [])
+            }
+        case .setup:
+            listenerPort = nil
+            MobileHostPublicStatusCache.update(routes: [])
+        @unknown default:
+            break
+        }
+    }
+
+    /// Tears down a listener that could not bind its preferred port and, unless
+    /// it was already on the ephemeral fallback, retries on an OS-assigned port.
+    /// Shared by the `.failed` and `.waiting(addressUnavailable)` paths.
+    private func handleListenerBindFailure(error: NWError, context: String) {
+        lastErrorDescription = String(describing: error)
+        MobileHostPublicStatusCache.update(routes: [])
+        let shouldRetryWithEphemeralPort = !listenerUsesEphemeralFallback
+        listener?.stateUpdateHandler = nil
+        listener?.newConnectionHandler = nil
+        listener?.cancel()
+        listenerGeneration = UUID()
+        listener = nil
+        listenerUsesEphemeralFallback = false
+        listenerPort = nil
+        if shouldRetryWithEphemeralPort {
+            mobileHostLog.info("mobile host preferred port \(context, privacy: .public), falling back to an ephemeral port")
+            startListener(usePreferredPort: false)
+        } else {
+            mobileHostLog.error("mobile host listener bind failed on ephemeral port: \(String(describing: error), privacy: .public)")
+            // No retry left: unblock any readiness waiters (the retry path drains
+            // them when the ephemeral listener reaches `.ready`).
+            drainReadinessWaiters()
+        }
+    }
+
+    private func updatePublicStatusRoutes(
+        port: Int,
+        generation: UUID,
+        tailscaleHosts: [String]
+    ) {
+        guard generation == listenerGeneration, listenerPort == port else {
+            return
+        }
+        MobileHostPublicStatusCache.update(
+            routes: routeResolver.routes(port: port, tailscaleHosts: tailscaleHosts).routes
+        )
+    }
+
+    // MARK: - Network path monitoring
+
+    /// Begin republishing routes on network path changes (observation and
+    /// dedup live in ``MobileHostNetworkPathMonitor``). Idempotent; runs for
+    /// the lifetime of the listener and is stopped by ``stop()``.
+    private func startNetworkPathMonitorIfNeeded() {
+        guard pathMonitor == nil else { return }
+        let monitor = MobileHostNetworkPathMonitor { [weak self] in
+            self?.handleNetworkPathChange()
+        }
+        monitor.start(queue: callbackQueue)
+        pathMonitor = monitor
+    }
+
+    private func stopNetworkPathMonitor() {
+        pathMonitor?.cancel()
+        pathMonitor = nil
+    }
+
+    private func handleNetworkPathChange() {
+        MobileHostIrohRuntime.shared.retryIfNeeded()
+        // The cached Tailscale hosts (and any in-flight resolution) may describe
+        // the previous network; drop them on EVERY path observation so no later
+        // refresh can be satisfied from, or raced by, old-path state. This must
+        // happen before the no-port early return: the monitor's first
+        // observation can land mid-bind, advancing its dedup baseline, and the
+        // `.ready` publish that follows would otherwise be free to reuse a
+        // TTL-fresh cache from the previous network with no further path
+        // callback coming to correct it.
+        routeResolver.invalidateResolvedTailscaleHostCache()
+        guard let port = listenerPort else {
+            // Mid-bind (no port yet): the `.ready` handler publishes against the
+            // current path when the bind completes, and the invalidation above
+            // guarantees it resolves freshly.
+            return
+        }
+        let generation = listenerGeneration
+        // Same two-phase publish as the listener-ready handler: immediate routes
+        // from interface scan now, DNS-resolved hosts when they land.
+        routeResolver.refreshTailscaleRoutes(onResolvedHosts: { [weak self] hosts in
+            Task { @MainActor [weak self] in
+                self?.updatePublicStatusRoutes(port: port, generation: generation, tailscaleHosts: hosts)
+            }
+        })
+        MobileHostPublicStatusCache.update(routes: routeResolver.routes(port: port).routes)
+    }
+}
+
+
+#if DEBUG
+extension MobileHostService {
+    func debugStopLegacyListenerForTesting() {
+        stopLegacyListener(reason: "test legacy listener restart")
+    }
+
+    func debugResetMobileLifecycleStateForTesting() {
+        listenerGeneration = UUID()
+        listenerUsesEphemeralFallback = false
+        listenerPort = nil
+        activeConnections.removeAll()
+        clientIDsByConnectionID.removeAll()
+        MobileHostRequestActivity.resetForTesting()
+        MobileHostEventSubscriptionTracker.resetForTesting()
+    }
+
+    func debugRecordClientIDForTesting(_ clientID: String, connectionID: UUID) {
+        recordClientID(clientID, for: connectionID)
+    }
+
+    func debugRemoveConnectionForTesting(id: UUID) {
+        removeConnection(id: id)
+    }
+
+    func debugTrackedClientIDsForTesting(connectionID: UUID) -> Set<String>? {
+        clientIDsByConnectionID[connectionID]
+    }
+
+    func debugSetListenerStateForTesting(
+        generation: UUID,
+        usesEphemeralFallback: Bool,
+        port: Int?
+    ) {
+        listenerGeneration = generation
+        listenerUsesEphemeralFallback = usesEphemeralFallback
+        listenerPort = port
+    }
+
+    func debugHandleListenerStateForTesting(_ state: NWListener.State, generation: UUID) {
+        handleListenerState(state, generation: generation)
+    }
+
+    func debugListenerGenerationForTesting() -> UUID {
+        listenerGeneration
+    }
+
+    func debugListenerPortForTesting() -> Int? {
+        listenerPort
+    }
+
+    func debugListenerUsesEphemeralFallbackForTesting() -> Bool {
+        listenerUsesEphemeralFallback
+    }
+
+    func debugConfigureAcceptedStackAuthTokenForTesting(_ token: String?) {
+        debugAcceptedStackAuthToken = MobileHostDevStackAuthPolicy.normalizedToken(token)
+    }
+
+    func debugAcceptedStackAuthTokenForTesting() -> String? {
+        debugAcceptedStackAuthToken
+    }
+
+    nonisolated static func debugHasEventSubscribersForTesting(topic: String) -> Bool {
+        MobileHostEventSubscriptionTracker.hasSubscribers(topic: topic)
+    }
+
+    nonisolated static func debugResetEventSubscriptionsForTesting() {
+        MobileHostEventSubscriptionTracker.resetForTesting()
+    }
+}
+#endif
+
+actor MobileHostConnection {
+    private static let maximumReceiveBufferByteCount = MobileSyncFrameCodec.defaultMaximumFrameByteCount + MobileSyncFrameCodec.headerByteCount
+    private static let defaultFirstFrameTimeoutNanoseconds: UInt64 = 15 * 1_000_000_000
+    private static let defaultIdleTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000
+    /// Bounded deadline for one control-lane event write. A peer that accepted
+    /// the connection but stopped reading (TCP zero-window, QUIC flow-control
+    /// stall) would otherwise pin the drain — and with it this connection's
+    /// queue, transport, and tasks — indefinitely (issue #8842).
+    private static let defaultEventSendStallTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000
+
+    private struct EventSubscription: Sendable {
+        let topics: Set<String>
+        let transport: MobileHostEventTransport
+        let clientID: String?
+    }
+
+    private struct ResponseTask: Sendable {
+        let frameByteCount: Int
+        let task: Task<Void, Never>
+    }
+
+    private enum UsableSessionReadinessContribution: Sendable {
+        case workspaceList(count: Int)
+        case eventSubscription(
+            streamID: String,
+            clientID: String,
+            transport: String
+        )
+    }
+
+    private struct PreparedResponse: Sendable {
+        let data: Data
+        let readinessContribution: UsableSessionReadinessContribution?
+    }
+
+    private struct UsableEventSubscription: Sendable {
+        let streamID: String
+        let clientID: String
+        let transport: String
+    }
+
+    private let id: UUID
+
+    /// Stable identity for cross-registry lookups (anchor preferences).
+    nonisolated var connectionID: UUID { id }
+    private let transport: any CmxByteTransport
+    private let writer: MobileHostSerializedTransportWriter
+    private let independentEventWriter: (any MobileHostIndependentEventWriting)?
+    private let firstFrameTimeoutNanoseconds: UInt64
+    private let idleTimeoutNanoseconds: UInt64
+    private let authorizeRequest: @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?
+    private let onAuthorizedRequest: @Sendable (MobileHostRPCRequest) async -> Void
+    private let onUsableSession: @Sendable () async -> Bool
+    private let handleRequest: @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult
+    private let onClose: @Sendable (UUID) async -> Void
+    private let requestSimulatorFrameReplay: @Sendable (UUID, Set<String>) async -> Void
+    private let responseWorkQuota = MobileHostRPCWorkQuota()
+    /// Bounded pre-write mailbox with synchronous admission from the event
+    /// fan-out. Nonisolated so ``MobileHostService/emitEvent(topic:payload:)``
+    /// admits events without scheduling any per-event actor work.
+    nonisolated let eventQueue: MobileHostConnectionEventQueue
+    private let eventSendStallTimeoutNanoseconds: UInt64
+    /// Invalidates the pending event-send stall deadline: bumped when a send
+    /// starts and again when it settles, so a deadline armed for send N can
+    /// never close the connection after N completed.
+    private var eventSendGeneration: UInt64 = 0
+    private var receiveBuffer = Data()
+    private var firstFrameTimeoutTask: Task<Void, Never>?
+    private var idleTimeoutTask: Task<Void, Never>?
+    private var responseTasks: [UUID: ResponseTask] = [:]
+    /// PTY-writing requests are ordered PER SURFACE: ordering is only a
+    /// property of one terminal, and a connection-wide FIFO would let one
+    /// surface's slow request (a large paste_image) block typing on another.
+    private var orderedRequestQueuesBySurfaceKey: [String: MobileHostOrderedRequestQueue] = [:]
+    private var orderedRequestWorkerTasksBySurfaceKey: [String: Task<Void, Never>] = [:]
+    private var orderedRequestRunningFrameByteCountsBySurfaceKey: [String: Int] = [:]
+    private var receiveTask: Task<Void, Never>?
+    private var independentEventRevision: UInt64 = 0
+    private var independentEventNegotiationInProgress = false
+    private var didDecodeFirstFrame = false
+    private var isClosed = false
+    private var exit = CmxIrohAdmittedConnectionExit(
+        lifecycle: .explicitlyInvalidated,
+        failure: .none
+    )
+    /// stream_id → topics and their negotiated event delivery path.
+    /// Populated by `mobile.events.subscribe`; cleared on close.
+    private var subscriptions: [String: EventSubscription] = [:]
+    private var usableWorkspaceCount: Int?
+    private var usableEventSubscription: UsableEventSubscription?
+    private var didPublishUsableSession = false
+
+    init(
+        id: UUID,
+        connection: NWConnection,
+        eventQueue: MobileHostConnectionEventQueue = MobileHostConnectionEventQueue(),
+        firstFrameTimeoutNanoseconds: UInt64 = MobileHostConnection.defaultFirstFrameTimeoutNanoseconds,
+        idleTimeoutNanoseconds: UInt64 = MobileHostConnection.defaultIdleTimeoutNanoseconds,
+        eventSendStallTimeoutNanoseconds: UInt64 = MobileHostConnection.defaultEventSendStallTimeoutNanoseconds,
+        independentEventWriter: (any MobileHostIndependentEventWriting)? = nil,
+        authorizeRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?,
+        onAuthorizedRequest: @escaping @Sendable (MobileHostRPCRequest) async -> Void,
+        onUsableSession: @escaping @Sendable () async -> Bool = { true },
+        handleRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult,
+        onClose: @escaping @Sendable (UUID) async -> Void,
+        requestSimulatorFrameReplay: @escaping @Sendable (UUID, Set<String>) async -> Void = { _, _ in }
+    ) {
+        let transport = CmxNetworkByteTransport(acceptedConnection: connection)
+        self.id = id
+        self.transport = transport
+        self.writer = MobileHostSerializedTransportWriter(transport: transport)
+        self.independentEventWriter = independentEventWriter
+        self.firstFrameTimeoutNanoseconds = firstFrameTimeoutNanoseconds
+        self.idleTimeoutNanoseconds = idleTimeoutNanoseconds
+        self.eventSendStallTimeoutNanoseconds = eventSendStallTimeoutNanoseconds
+        self.authorizeRequest = authorizeRequest
+        self.onAuthorizedRequest = onAuthorizedRequest
+        self.onUsableSession = onUsableSession
+        self.handleRequest = handleRequest
+        self.onClose = onClose
+        self.requestSimulatorFrameReplay = requestSimulatorFrameReplay
+        self.eventQueue = eventQueue
+    }
+
+    init(
+        id: UUID,
+        transport: any CmxByteTransport,
+        eventQueue: MobileHostConnectionEventQueue = MobileHostConnectionEventQueue(),
+        firstFrameTimeoutNanoseconds: UInt64 = MobileHostConnection.defaultFirstFrameTimeoutNanoseconds,
+        idleTimeoutNanoseconds: UInt64 = MobileHostConnection.defaultIdleTimeoutNanoseconds,
+        eventSendStallTimeoutNanoseconds: UInt64 = MobileHostConnection.defaultEventSendStallTimeoutNanoseconds,
+        independentEventWriter: (any MobileHostIndependentEventWriting)? = nil,
+        authorizeRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?,
+        onAuthorizedRequest: @escaping @Sendable (MobileHostRPCRequest) async -> Void,
+        onUsableSession: @escaping @Sendable () async -> Bool = { true },
+        handleRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult,
+        onClose: @escaping @Sendable (UUID) async -> Void,
+        requestSimulatorFrameReplay: @escaping @Sendable (UUID, Set<String>) async -> Void = { _, _ in }
+    ) {
+        self.id = id
+        self.transport = transport
+        self.writer = MobileHostSerializedTransportWriter(transport: transport)
+        self.independentEventWriter = independentEventWriter
+        self.firstFrameTimeoutNanoseconds = firstFrameTimeoutNanoseconds
+        self.idleTimeoutNanoseconds = idleTimeoutNanoseconds
+        self.eventSendStallTimeoutNanoseconds = eventSendStallTimeoutNanoseconds
+        self.authorizeRequest = authorizeRequest
+        self.onAuthorizedRequest = onAuthorizedRequest
+        self.onUsableSession = onUsableSession
+        self.handleRequest = handleRequest
+        self.onClose = onClose
+        self.requestSimulatorFrameReplay = requestSimulatorFrameReplay
+        self.eventQueue = eventQueue
+    }
+
+    /// Runs the receive loop for the complete transport lifetime.
+    ///
+    /// The caller retains connection ownership until this method returns. This
+    /// matters for Iroh, whose sibling application-lane task closes the shared
+    /// QUIC session when either side of the task group finishes.
+    func run() async -> CmxIrohAdmittedConnectionExit {
+        guard receiveTask == nil, !isClosed else { return exit }
+        startFirstFrameTimeout()
+        let transport = transport
+        let connectionID = id
+        let task = Task { [weak self] in
+            do {
+                try await transport.connect()
+                mobileHostLog.debug(
+                    "mobile host connection ready \(connectionID.uuidString, privacy: .public)"
+                )
+                while !Task.isCancelled {
+                    guard let data = try await transport.receive() else {
+                        await self?.close(
+                            reason: "remote closed",
+                            exit: CmxIrohAdmittedConnectionExit(
+                                lifecycle: .remoteClosed,
+                                failure: .connectionClosed
+                            )
+                        )
+                        return
+                    }
+                    await self?.handleReceive(data: data)
+                }
+            } catch is CancellationError {
+                await self?.close(reason: "cancelled")
+            } catch {
+                await self?.close(
+                    reason: String(describing: error),
+                    exit: CmxIrohAdmittedConnectionExit(
+                        lifecycle: .controlReadFailed,
+                        failure: DiagnosticFailureKind.classify(error)
+                    )
+                )
+            }
+        }
+        receiveTask = task
+        await withTaskCancellationHandler(
+            operation: {
+                await task.value
+            },
+            onCancel: {
+                task.cancel()
+            }
+        )
+        return exit
+    }
+
+    func close(
+        reason: String,
+        exit: CmxIrohAdmittedConnectionExit = CmxIrohAdmittedConnectionExit(
+            lifecycle: .explicitlyInvalidated,
+            failure: .none
+        )
+    ) async {
+        guard !isClosed else {
+            return
+        }
+        isClosed = true
+        self.exit = exit
+        firstFrameTimeoutTask?.cancel()
+        firstFrameTimeoutTask = nil
+        idleTimeoutTask?.cancel()
+        idleTimeoutTask = nil
+        receiveTask?.cancel()
+        receiveTask = nil
+        // Rejects all future admissions and releases every queued payload; the
+        // drain loop observes the closed queue and exits on its own.
+        eventQueue.close()
+        let tasks = responseTasks.values.map(\.task)
+        responseTasks.removeAll()
+        for task in tasks {
+            task.cancel()
+        }
+        for (_, workerTask) in orderedRequestWorkerTasksBySurfaceKey {
+            workerTask.cancel()
+        }
+        orderedRequestWorkerTasksBySurfaceKey.removeAll()
+        orderedRequestQueuesBySurfaceKey.removeAll()
+        orderedRequestRunningFrameByteCountsBySurfaceKey.removeAll()
+        let previousSubscriptions = Array(subscriptions.values)
+        subscriptions.removeAll()
+        for subscription in previousSubscriptions where !subscription.topics.isEmpty {
+            MobileHostEventSubscriptionTracker.replace(
+                previousTopics: subscription.topics,
+                nextTopics: nil
+            )
+        }
+        MobileTerminalRenderGridAnchorRegistry.shared.remove(connectionID: id)
+        mobileHostLog.info("mobile host connection closed \(self.id.uuidString, privacy: .public): \(reason, privacy: .public)")
+        await independentEventWriter?.close()
+        await transport.close()
+        await onClose(id)
+    }
+
+    private func handleReceive(data: Data) async {
+        if !data.isEmpty {
+            idleTimeoutTask?.cancel()
+            idleTimeoutTask = nil
+            guard receiveBuffer.count + data.count <= Self.maximumReceiveBufferByteCount else {
+                _ = await sendResponse(
+                    MobileHostRPCEnvelope.error(
+                        id: nil,
+                        code: "frame_decode_error",
+                        message: "Invalid frame"
+                    )
+                )
+                await close(
+                    reason: "receive buffer exceeded frame limit",
+                    exit: CmxIrohAdmittedConnectionExit(
+                        lifecycle: .controlReadFailed,
+                        failure: .protocolViolation
+                    )
+                )
+                return
+            }
+            receiveBuffer.append(data)
+            do {
+                let frames = try MobileSyncFrameCodec.decodeFrames(
+                    from: &receiveBuffer,
+                    maximumDecodedFrameCount: responseWorkQuota
+                        .maximumConcurrentRequestCount
+                )
+                if !frames.isEmpty {
+                    didDecodeFirstFrame = true
+                    firstFrameTimeoutTask?.cancel()
+                    firstFrameTimeoutTask = nil
+                }
+                for frame in frames {
+                    guard !isClosed else {
+                        return
+                    }
+                    guard startResponseTask(for: frame) else {
+                        await close(
+                            reason: "rpc work capacity exceeded",
+                            exit: CmxIrohAdmittedConnectionExit(
+                                lifecycle: .controlReadFailed,
+                                failure: .protocolViolation
+                            )
+                        )
+                        return
+                    }
+                }
+                guard !isClosed else {
+                    return
+                }
+                startIdleTimeout()
+            } catch {
+                _ = await sendResponse(
+                    MobileHostRPCEnvelope.error(
+                        id: nil,
+                        code: "frame_decode_error",
+                        message: "Invalid frame"
+                    )
+                )
+                await close(
+                    reason: "frame decode error",
+                    exit: CmxIrohAdmittedConnectionExit(
+                        lifecycle: .controlReadFailed,
+                        failure: .protocolViolation
+                    )
+                )
+                return
+            }
+        }
+    }
+
+    private func startResponseTask(for frame: Data) -> Bool {
+        guard !isClosed else {
+            return false
+        }
+        let decodedRequest = MobileHostRPCEnvelope.decodeRequest(frame)
+        var activeFrameByteCounts = responseTasks.values.map(\.frameByteCount)
+        for (_, queue) in orderedRequestQueuesBySurfaceKey {
+            activeFrameByteCounts.append(contentsOf: queue.frameByteCounts)
+        }
+        activeFrameByteCounts.append(
+            contentsOf: orderedRequestRunningFrameByteCountsBySurfaceKey.values
+        )
+        guard responseWorkQuota.allowsAdmission(
+            frameByteCount: frame.count,
+            activeFrameByteCounts: activeFrameByteCounts
+        ) else { return false }
+        if case let .success(request) = decodedRequest,
+           request.isOrderedTerminalInput {
+            let surfaceKey = request.orderedInputSurfaceKey
+            orderedRequestQueuesBySurfaceKey[surfaceKey, default: MobileHostOrderedRequestQueue()]
+                .enqueue(MobileHostOrderedRequest(
+                    frameByteCount: frame.count,
+                    decodedRequest: decodedRequest
+                ))
+            startOrderedRequestWorkerIfNeeded(surfaceKey: surfaceKey)
+            return true
+        }
+        let taskID = UUID()
+        let task = Task { [weak self] in
+            await self?.respond(to: decodedRequest)
+            await self?.finishResponseTask(taskID)
+        }
+        responseTasks[taskID] = ResponseTask(
+            frameByteCount: frame.count,
+            task: task
+        )
+        return true
+    }
+
+    private func startOrderedRequestWorkerIfNeeded(surfaceKey: String) {
+        guard orderedRequestWorkerTasksBySurfaceKey[surfaceKey] == nil else { return }
+        orderedRequestWorkerTasksBySurfaceKey[surfaceKey] = Task { [weak self] in
+            await self?.drainOrderedRequests(surfaceKey: surfaceKey)
+        }
+    }
+
+    private func drainOrderedRequests(surfaceKey: String) async {
+        while !Task.isCancelled, !isClosed,
+              let request = orderedRequestQueuesBySurfaceKey[surfaceKey]?.dequeue() {
+            orderedRequestRunningFrameByteCountsBySurfaceKey[surfaceKey] = request.frameByteCount
+            // Serialize authorization + application only. The response write
+            // goes to a tracked concurrent task: a peer that stops reading
+            // stalls the serialized transport writer (issue #8842), and an
+            // inline await here would freeze every later terminal input behind
+            // that stall. Stalled response tasks stay in `responseTasks`, so
+            // their accumulated bytes eventually fail quota admission and
+            // close the connection instead of pinning it forever.
+            switch request.decodedRequest {
+            case let .success(decoded):
+                if let response = await successResponsePayload(for: decoded) {
+                    startResponseSendTask(response)
+                }
+            case .failure:
+                // Decode failures are never enqueued ordered; keep the
+                // defensive path identical to the concurrent one.
+                await respond(to: request.decodedRequest)
+            }
+            orderedRequestRunningFrameByteCountsBySurfaceKey[surfaceKey] = nil
+        }
+        orderedRequestRunningFrameByteCountsBySurfaceKey[surfaceKey] = nil
+        orderedRequestWorkerTasksBySurfaceKey[surfaceKey] = nil
+        if orderedRequestQueuesBySurfaceKey[surfaceKey]?.isEmpty == false, !isClosed {
+            startOrderedRequestWorkerIfNeeded(surfaceKey: surfaceKey)
+        } else {
+            orderedRequestQueuesBySurfaceKey[surfaceKey] = nil
+            if !hasActiveResponseWork {
+                startIdleTimeout()
+            }
+        }
+    }
+
+    private func startResponseSendTask(_ response: PreparedResponse) {
+        guard !isClosed else { return }
+        let taskID = UUID()
+        let task = Task { [weak self] in
+            guard let self else { return }
+            if await self.sendResponse(response.data) {
+                await self.recordReadinessContribution(
+                    response.readinessContribution
+                )
+            }
+            await self.finishResponseTask(taskID)
+        }
+        responseTasks[taskID] = ResponseTask(
+            frameByteCount: response.data.count,
+            task: task
+        )
+    }
+
+    private var hasActiveResponseWork: Bool {
+        !responseTasks.isEmpty
+            || !orderedRequestWorkerTasksBySurfaceKey.isEmpty
+            || !orderedRequestRunningFrameByteCountsBySurfaceKey.isEmpty
+            || orderedRequestQueuesBySurfaceKey.values.contains { !$0.isEmpty }
+    }
+
+    private func finishResponseTask(_ taskID: UUID) {
+        responseTasks[taskID] = nil
+        if !hasActiveResponseWork {
+            startIdleTimeout()
+        }
+    }
+
+    private func startFirstFrameTimeout() {
+        guard firstFrameTimeoutNanoseconds > 0 else {
+            return
+        }
+        firstFrameTimeoutTask?.cancel()
+        let timeoutNanoseconds = firstFrameTimeoutNanoseconds
+        firstFrameTimeoutTask = Task { [weak self] in
+            do {
+                try await Task.sleep(nanoseconds: timeoutNanoseconds)
+                await self?.closeIfWaitingForFirstFrame()
+            } catch {}
+        }
+    }
+
+    private func closeIfWaitingForFirstFrame() async {
+        guard !didDecodeFirstFrame else {
+            return
+        }
+        await close(
+            reason: "first frame timed out",
+            exit: CmxIrohAdmittedConnectionExit(
+                lifecycle: .controlReadFailed,
+                failure: .timedOut
+            )
+        )
+    }
+
+    private func startIdleTimeout() {
+        guard idleTimeoutNanoseconds > 0,
+              didDecodeFirstFrame,
+              !isClosed,
+              subscriptions.isEmpty,
+              !hasActiveResponseWork else {
+            return
+        }
+        idleTimeoutTask?.cancel()
+        let timeoutNanoseconds = idleTimeoutNanoseconds
+        idleTimeoutTask = Task { [weak self] in
+            do {
+                try await Task.sleep(nanoseconds: timeoutNanoseconds)
+                await self?.closeIfIdleAfterFrame()
+            } catch {}
+        }
+    }
+
+    private func closeIfIdleAfterFrame() async {
+        guard didDecodeFirstFrame, subscriptions.isEmpty, !hasActiveResponseWork else {
+            return
+        }
+        await close(
+            reason: "idle after frame timed out",
+            exit: CmxIrohAdmittedConnectionExit(
+                lifecycle: .controlReadFailed,
+                failure: .timedOut
+            )
+        )
+    }
+
+    private func respond(
+        to decodedRequest: Result<MobileHostRPCRequest, MobileHostRPCError>
+    ) async {
+        guard !isClosed, !Task.isCancelled else {
+            return
+        }
+        switch decodedRequest {
+        case let .success(request):
+            guard let response = await successResponsePayload(for: request) else {
+                return
+            }
+            if await sendResponse(response.data) {
+                await recordReadinessContribution(response.readinessContribution)
+            }
+        case let .failure(error):
+            guard !isClosed, !Task.isCancelled else {
+                return
+            }
+            _ = await sendResponse(MobileHostRPCEnvelope.encodeResponse(id: nil, result: .failure(error)))
+            await close(
+                reason: "invalid rpc envelope",
+                exit: CmxIrohAdmittedConnectionExit(
+                    lifecycle: .controlReadFailed,
+                    failure: .protocolViolation
+                )
+            )
+        }
+    }
+
+    /// Authorizes and applies one decoded request, returning its encoded
+    /// response envelope, or `nil` when the connection closed or the task was
+    /// cancelled before a response could be produced.
+    private func successResponsePayload(
+        for request: MobileHostRPCRequest
+    ) async -> PreparedResponse? {
+        guard !isClosed, !Task.isCancelled else {
+            return nil
+        }
+        let tracksInteractiveActivity = Self.isInteractiveMobileRequest(request.method)
+        if tracksInteractiveActivity {
+            MobileHostRequestActivity.beginRequest()
+        }
+        defer {
+            if tracksInteractiveActivity {
+                MobileHostRequestActivity.endRequest()
+            }
+        }
+        if let error = await authorizeRequest(request) {
+            guard !isClosed, !Task.isCancelled else {
+                return nil
+            }
+            return PreparedResponse(
+                data: MobileHostRPCEnvelope.encodeResponse(
+                    id: request.id,
+                    result: error
+                ),
+                readinessContribution: nil
+            )
+        }
+        guard !isClosed, !Task.isCancelled else {
+            return nil
+        }
+        await onAuthorizedRequest(request)
+        guard !isClosed, !Task.isCancelled else {
+            return nil
+        }
+        if let intercepted = await handleSubscriptionRPC(request) {
+            return PreparedResponse(
+                data: MobileHostRPCEnvelope.encodeResponse(
+                    id: request.id,
+                    result: intercepted
+                ),
+                readinessContribution: Self.readinessContribution(
+                    for: request,
+                    result: intercepted
+                )
+            )
+        }
+        let result = await handleRequest(request)
+        guard !isClosed, !Task.isCancelled else {
+            return nil
+        }
+        return PreparedResponse(
+            data: MobileHostRPCEnvelope.encodeResponse(
+                id: request.id,
+                result: result
+            ),
+            readinessContribution: Self.readinessContribution(
+                for: request,
+                result: result
+            )
+        )
+    }
+
+    private func handleSubscriptionRPC(_ request: MobileHostRPCRequest) async -> MobileHostRPCResult? {
+        switch request.method {
+        case "mobile.events.probe":
+            let streamID = request.params["stream_id"] as? String ?? ""
+            guard !streamID.isEmpty else {
+                return .failure(
+                    MobileHostRPCError(
+                        code: "invalid_params",
+                        message: "stream_id is required"
+                    )
+                )
+            }
+            let subscription = subscriptions[streamID]
+            return .ok([
+                "stream_id": streamID,
+                "subscribed": subscription != nil,
+                "event_transport":
+                    subscription?.transport.rawValue
+                    ?? MobileHostEventTransport.control.rawValue,
+            ])
+        case "mobile.events.subscribe":
+            let streamID = (request.params["stream_id"] as? String) ?? UUID().uuidString
+            let topicsArray = (request.params["topics"] as? [String]) ?? []
+            let topics = Set(topicsArray.filter { !$0.isEmpty })
+            guard !topics.isEmpty else {
+                return .failure(MobileHostRPCError(code: "invalid_params", message: "topics is required"))
+            }
+            // Report whether this stream id was already registered BEFORE the
+            // idempotent replace. The phone's render-grid liveness probe
+            // re-asserts its subscription on prolonged silence; `false` tells
+            // it the registration had been lost (events emitted in the gap
+            // were never delivered), so it requests a catch-up replay instead
+            // of trusting delta continuity.
+            let existingSubscription = subscriptions[streamID]
+            let alreadySubscribed = existingSubscription != nil
+            let requestedTransport = request.params["event_transport"] as? String
+            let selectedTransport: MobileHostEventTransport
+            if let existingSubscription {
+                // An idempotent subscribe proves the authenticated control
+                // connection and registration. Keep its negotiated lane only
+                // while the client still advertises an active reader. Never
+                // re-probe or re-upgrade here: actual event delivery owns lane
+                // failure detection and atomically falls back to control.
+                if requestedTransport == MobileHostEventTransport.irohServerEvents.rawValue {
+                    selectedTransport = existingSubscription.transport
+                } else {
+                    selectedTransport = .control
+                }
+            } else if requestedTransport == MobileHostEventTransport.irohServerEvents.rawValue,
+                      await prepareIndependentEventWriter() {
+                selectedTransport = .irohServerEvents
+            } else {
+                selectedTransport = .control
+            }
+            await subscribe(
+                streamID: streamID,
+                topics: topics,
+                transport: selectedTransport,
+                clientID: request.params["client_id"] as? String
+            )
+            if topics.contains("terminal.render_grid") {
+                // Anchor negotiation: "screen" clients own their local
+                // viewport/scrollback and receive active-area-anchored frames;
+                // everything else keeps the v1 viewport-mirror contract.
+                let anchor: MobileTerminalRenderGridFrame.Anchor =
+                    (request.params["render_grid_anchor"] as? String)
+                        == MobileTerminalRenderGridFrame.Anchor.screen.rawValue
+                    ? .screen
+                    : .viewport
+                MobileTerminalRenderGridAnchorRegistry.shared.set(anchor, connectionID: id)
+            }
+            #if DEBUG
+            cmuxDebugLog("mobile.subscribe streamID=\(streamID) topics=\(topics.sorted()) existing=\(alreadySubscribed) connID=\(self.id.uuidString)")
+            #endif
+            return .ok([
+                "stream_id": streamID,
+                "topics": Array(topics).sorted(),
+                "already_subscribed": alreadySubscribed,
+                "event_transport": selectedTransport.rawValue,
+            ])
+        case "mobile.events.unsubscribe":
+            let streamID = request.params["stream_id"] as? String ?? ""
+            let removed = await unsubscribe(streamID: streamID)
+            return .ok([
+                "stream_id": streamID,
+                "removed": removed,
+            ])
+        default:
+            return nil
+        }
+    }
+
+    private static func readinessContribution(
+        for request: MobileHostRPCRequest,
+        result: MobileHostRPCResult
+    ) -> UsableSessionReadinessContribution? {
+        guard case let .ok(payload) = result,
+              let object = payload as? [String: Any] else {
+            return nil
+        }
+        if request.method == "workspace.list"
+            || request.method == "mobile.workspace.list" {
+            let workspaceCount = (object["workspaces"] as? [Any])?.count ?? 0
+            return .workspaceList(count: workspaceCount)
+        }
+        guard request.method == "mobile.events.subscribe",
+              let topicsArray = request.params["topics"] as? [String] else {
+            return nil
+        }
+        let topics = Set(topicsArray)
+        let includesWorkspaceState =
+            topics.contains("workspace.updated")
+            && topics.contains("mobile.sync.delta")
+        let includesTerminalOutput =
+            topics.contains("terminal.render_grid")
+            || topics.contains("terminal.bytes")
+        guard includesWorkspaceState,
+              includesTerminalOutput,
+              let streamID = object["stream_id"] as? String,
+              !streamID.isEmpty,
+              let clientID = request.params["client_id"] as? String,
+              !clientID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              let transport = object["event_transport"] as? String,
+              !transport.isEmpty else {
+            return nil
+        }
+        return .eventSubscription(
+            streamID: streamID,
+            clientID: clientID,
+            transport: transport
+        )
+    }
+
+    private func recordReadinessContribution(
+        _ contribution: UsableSessionReadinessContribution?
+    ) async {
+        guard let contribution, !isClosed else { return }
+        switch contribution {
+        case .workspaceList(let count):
+            usableWorkspaceCount = count > 0 ? count : nil
+        case .eventSubscription(let streamID, let clientID, let transport):
+            let candidate = UsableEventSubscription(
+                streamID: streamID,
+                clientID: clientID,
+                transport: transport
+            )
+            usableEventSubscription = isLive(candidate) ? candidate : nil
+        }
+        await publishUsableSessionIfReady()
+    }
+
+    private func publishUsableSessionIfReady() async {
+        guard let workspaceCount = usableWorkspaceCount,
+              let subscription = usableEventSubscription,
+              isLive(subscription),
+              !didPublishUsableSession,
+              !isClosed else {
+            return
+        }
+        guard await onUsableSession(), !isClosed else { return }
+        didPublishUsableSession = true
+        CmuxEventBus.shared.publish(
+            name: "mobile.rpc.ready",
+            category: "mobile",
+            source: "mobile.host",
+            payload: [
+                "connection_id": id.uuidString,
+                "workspace_count": workspaceCount,
+                "stream_id": subscription.streamID,
+                "client_id": subscription.clientID,
+                "transport": subscription.transport,
+            ]
+        )
+    }
+
+    private static func isInteractiveMobileRequest(_ method: String) -> Bool {
+        switch method {
+        case "mobile.host.status", "mobile.terminal.replay", "terminal.replay",
+             // Subscription management is plumbing, not user interaction: the
+             // phone's render-grid liveness watchdog re-asserts its
+             // subscription on every silence window (~9s when idle), and
+             // counting that as interactive activity starves host work gated
+             // on mobile quiet (e.g. TabManager background git/PR refresh).
+             "mobile.events.subscribe", "mobile.events.unsubscribe",
+             "mobile.events.probe":
+            return false
+        default:
+            return true
+        }
+    }
+
+    /// Add a subscription for this connection. Idempotent per stream_id.
+    func subscribe(
+        streamID: String,
+        topics: Set<String>,
+        transport: MobileHostEventTransport = .control,
+        clientID: String? = nil
+    ) async {
+        let previousTopics = subscriptions[streamID]?.topics
+        subscriptions[streamID] = EventSubscription(
+            topics: topics,
+            transport: transport,
+            clientID: clientID
+        )
+        if let usableEventSubscription,
+           usableEventSubscription.streamID == streamID,
+           !isLive(usableEventSubscription) {
+            self.usableEventSubscription = nil
+        }
+        eventQueue.updateSubscribedTopics(currentSubscribedTopics())
+        MobileHostEventSubscriptionTracker.replace(
+            previousTopics: previousTopics,
+            nextTopics: topics
+        )
+        idleTimeoutTask?.cancel()
+        idleTimeoutTask = nil
+        if currentSubscribedTopics().contains(MobileHostEventTopicPolicy.simulatorFrameTopic) {
+            await dispatchPendingSimulatorFrameReplay()
+        }
+    }
+
+    /// Remove a subscription by id. Returns true if it existed.
+    @discardableResult
+    func unsubscribe(streamID: String) async -> Bool {
+        let previousSubscription = subscriptions.removeValue(forKey: streamID)
+        let removed = previousSubscription != nil
+        if usableEventSubscription?.streamID == streamID {
+            usableEventSubscription = nil
+        }
+        eventQueue.updateSubscribedTopics(currentSubscribedTopics())
+        if let previousSubscription {
+            MobileHostEventSubscriptionTracker.replace(
+                previousTopics: previousSubscription.topics,
+                nextTopics: nil
+            )
+        }
+        if !subscriptions.values.contains(where: {
+            $0.transport == .irohServerEvents
+        }) {
+            await resetIndependentEventWriter()
+        }
+        if subscriptions.isEmpty {
+            startIdleTimeout()
+        }
+        return removed
+    }
+
+    /// Check whether this connection has any subscriber registered for `topic`.
+    func isSubscribed(to topic: String) -> Bool {
+        for (_, subscription) in subscriptions
+        where subscription.topics.contains(topic) {
+            return true
+        }
+        return false
+    }
+
+    /// The union of every stream's topics, mirrored into the event queue so
+    /// fan-out admission can check subscription without an actor hop.
+    private func currentSubscribedTopics() -> Set<String> {
+        subscriptions.values.reduce(into: Set<String>()) { $0.formUnion($1.topics) }
+    }
+
+    /// Encodes and enqueues one server-pushed event for this connection
+    /// through the same bounded synchronous admission as the fan-out path
+    /// (``MobileHostService/emitEvent(topic:payload:)``). Returns whether the
+    /// event was admitted.
+    @discardableResult
+    func sendEvent(topic: String, payload: [String: Any]) async -> Bool {
+        guard !isClosed else {
+            #if DEBUG
+            cmuxDebugLog("mobile.send skip: closed topic=\(topic) connID=\(self.id.uuidString)")
+            #endif
+            return false
+        }
+        guard let frame = MobileHostService.encodedEventFrame(topic: topic, payload: payload) else {
+            // An unencodable or over-limit event is undeliverable to every
+            // connection: a host-side producer fault, not this peer's.
+            mobileHostLog.error(
+                "mobile host dropped unencodable event topic=\(topic, privacy: .public)"
+            )
+            return false
+        }
+        let result = eventQueue.enqueue(
+            topic: topic,
+            coalesceKey: MobileHostService.eventCoalesceKey(topic: topic, payload: payload),
+            isFullRenderGridFrame: topic == MobileHostEventTopicPolicy.renderGridTopic
+                && payload["full"] as? Bool == true,
+            stateSeq: nil,
+            frame: frame
+        )
+        if !result.renderGridResyncSurfaceIDs.isEmpty {
+            MobileTerminalRenderObserver.requestRenderGridFullResync(
+                surfaceIDStrings: result.renderGridResyncSurfaceIDs
+            )
+        }
+        if !result.simulatorFrameShedPanelIDs.isEmpty {
+            MobileSimulatorDiagnostics.recordFrameQueueShed(
+                panelIDStrings: result.simulatorFrameShedPanelIDs,
+                shedByteCount: result.shedByteCount
+            )
+        }
+        if result.startDrain {
+            Task { await self.drainQueuedEvents() }
+        }
+        if result.shouldClose {
+            // The bounded queue fills when the control stream stops draining
+            // (e.g. the peer's network path died mid-write) while terminal
+            // events keep arriving. The peer violated nothing; field host
+            // rings (2026-07-23 WiFi path flap) showed this close mislabeled
+            // protocolViolation seconds after admission.
+            await close(
+                reason: "event queue exceeded bounded capacity",
+                exit: CmxIrohAdmittedConnectionExit(
+                    lifecycle: .controlWriteFailed,
+                    failure: .sendQueueOverflow
+                )
+            )
+        }
+        return result.admitted
+    }
+
+    /// Synchronous bounded admission from the fan-out path. Never blocks and
+    /// never schedules per-event work; the caller acts on the returned
+    /// outcome (drain start, overflow close, render-grid resync).
+    nonisolated func enqueueEventFrame(
+        _ frame: Data,
+        topic: String,
+        coalesceKey: String?,
+        isFullRenderGridFrame: Bool,
+        stateSeq: UInt64?
+    ) -> MobileHostEventEnqueueResult {
+        eventQueue.enqueue(
+            topic: topic,
+            coalesceKey: coalesceKey,
+            isFullRenderGridFrame: isFullRenderGridFrame,
+            stateSeq: stateSeq,
+            frame: frame
+        )
+    }
+
+    private func prepareIndependentEventWriter() async -> Bool {
+        guard let independentEventWriter else { return false }
+        if independentEventNegotiationInProgress {
+            // Concurrent crafted/new subscriptions fall back to control. An
+            // idempotent subscription already on the independent lane can keep
+            // it; any in-flight failure will still downgrade every subscription.
+            return subscriptions.values.contains {
+                $0.transport == .irohServerEvents
+            }
+        }
+        independentEventNegotiationInProgress = true
+        defer {
+            independentEventNegotiationInProgress = false
+            if eventQueue.claimDrain() {
+                Task { await self.drainQueuedEvents() }
+            }
+        }
+        let probePayload = Data(#"{"kind":"event_stream_probe"}"#.utf8)
+        guard let probeFrame = try? MobileSyncFrameCodec.encodeFrame(probePayload) else {
+            return false
+        }
+        // One reset/reopen retry handles a stale lane after suspension without
+        // advertising independent delivery until a framed write succeeds.
+        for _ in 0..<2 {
+            let revision = independentEventRevision
+            if await independentEventWriter.probe(probeFrame) {
+                guard independentEventRevision == revision else {
+                    return false
+                }
+                return true
+            }
+            await resetIndependentEventWriter()
+        }
+        downgradeIndependentSubscriptionsToControl()
+        return false
+    }
+
+    /// Single-writer drain loop: at most one instance runs per connection
+    /// (enforced by the queue's drain claim), pulling from the bounded queue
+    /// and writing to the negotiated lane. Exits when the queue is empty, the
+    /// connection closes, lane negotiation pauses delivery, or a delivery
+    /// fails or stalls (which closes the connection).
+    func drainQueuedEvents() async {
+        while true {
+            if isClosed || independentEventNegotiationInProgress {
+                eventQueue.abandonDrain()
+                return
+            }
+            guard let event = eventQueue.dequeue() else {
+                if eventQueue.finishDrain() { continue }
+                return
+            }
+            guard eventQueue.isSubscribed(topic: event.topic) else { continue }
+            #if DEBUG
+            let latencyWriteStart = event.stateSeq == nil ? nil : HostLatencyTrace.captureTime()
+            #endif
+            guard await deliverQueuedEvent(event) else {
+                eventQueue.abandonDrain()
+                return
+            }
+            #if DEBUG
+            if let stateSeq = event.stateSeq,
+               let surfaceID = event.coalesceKey {
+                HostLatencyTrace.stampElapsed(
+                    "host.write",
+                    since: latencyWriteStart
+                ) {
+                    "s=\(surfaceID.prefix(8).lowercased()) " +
+                        "conn=\(id.uuidString.prefix(8).lowercased()) " +
+                        "seq=\(stateSeq) us=\($0)"
+                }
+            }
+            #endif
+            let resyncSurfaceIDs = eventQueue.takeResyncAfterDrainRequests()
+            if !resyncSurfaceIDs.isEmpty {
+                MobileTerminalRenderObserver.requestRenderGridFullResync(
+                    surfaceIDStrings: resyncSurfaceIDs
+                )
+            }
+            await dispatchPendingSimulatorFrameReplay()
+        }
+    }
+
+    /// Dispatches replay debt only while this connection still owns a frame
+    /// subscription. Actor reentrancy can run unsubscribe during the awaited
+    /// producer callback, so debt is restored unless ownership survives it.
+    private func dispatchPendingSimulatorFrameReplay() async {
+        let topic = MobileHostEventTopicPolicy.simulatorFrameTopic
+        let panelIDs = eventQueue.takeSimulatorFrameReplayAfterDrainRequests()
+        guard !panelIDs.isEmpty else { return }
+        guard isSubscribed(to: topic) else {
+            eventQueue.requeueSimulatorFrameReplayAfterDrainRequests(panelIDs)
+            return
+        }
+        await requestSimulatorFrameReplay(id, panelIDs)
+        if !isSubscribed(to: topic) {
+            eventQueue.requeueSimulatorFrameReplayAfterDrainRequests(panelIDs)
+        }
+    }
+
+    private func deliverQueuedEvent(_ event: MobileHostConnectionEventQueue.QueuedEvent) async -> Bool {
+        let prefersIndependent = subscriptions.values.contains {
+            $0.transport == .irohServerEvents && $0.topics.contains(event.topic)
+        }
+        if prefersIndependent, let independentEventWriter {
+            do {
+                try await independentEventWriter.send(event.frame)
+                return true
+            } catch {
+                independentEventRevision &+= 1
+                downgradeIndependentSubscriptionsToControl()
+                await independentEventWriter.reset()
+                // Deliver the event that exposed the dead/backpressured lane on
+                // control immediately. Subsequent events also use control.
+                return await sendEventControlFrame(event.frame)
+            }
+        }
+        return await sendEventControlFrame(event.frame)
+    }
+
+    /// Writes one event frame on the control lane under the bounded stall
+    /// deadline. On a stall the connection is closed — `transport.close()`
+    /// resolves the pending write — converting a half-dead subscriber into
+    /// deterministic teardown instead of a forever-pinned drain.
+    private func sendEventControlFrame(_ frame: Data) async -> Bool {
+        guard !isClosed else { return false }
+        let timeoutNanoseconds = eventSendStallTimeoutNanoseconds
+        guard timeoutNanoseconds > 0 else {
+            return await sendControlFrame(frame)
+        }
+        eventSendGeneration &+= 1
+        let generation = eventSendGeneration
+        let deadlineTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: timeoutNanoseconds)
+            guard !Task.isCancelled else { return }
+            await self?.closeIfEventSendStillInFlight(generation: generation)
+        }
+        let delivered = await sendControlFrame(frame)
+        eventSendGeneration &+= 1
+        deadlineTask.cancel()
+        return delivered && !isClosed
+    }
+
+    private func closeIfEventSendStillInFlight(generation: UInt64) async {
+        guard eventSendGeneration == generation, !isClosed else { return }
+        await close(
+            reason: "event send stalled past the bounded deadline",
+            exit: CmxIrohAdmittedConnectionExit(
+                lifecycle: .controlWriteFailed,
+                failure: .timedOut
+            )
+        )
+    }
+
+    private func downgradeIndependentSubscriptionsToControl() {
+        for (streamID, subscription) in subscriptions
+        where subscription.transport == .irohServerEvents {
+            subscriptions[streamID] = EventSubscription(
+                topics: subscription.topics,
+                transport: .control,
+                clientID: subscription.clientID
+            )
+        }
+        if let usableEventSubscription,
+           !isLive(usableEventSubscription) {
+            self.usableEventSubscription = nil
+        }
+    }
+
+    private func isLive(_ subscription: UsableEventSubscription) -> Bool {
+        guard let current = subscriptions[subscription.streamID],
+              current.clientID == subscription.clientID,
+              current.transport.rawValue == subscription.transport else {
+            return false
+        }
+        return current.topics.contains("workspace.updated")
+            && current.topics.contains("mobile.sync.delta")
+            && (current.topics.contains("terminal.render_grid")
+                || current.topics.contains("terminal.bytes"))
+    }
+
+    private func resetIndependentEventWriter() async {
+        independentEventRevision &+= 1
+        await independentEventWriter?.reset()
+    }
+
+    private func sendResponse(_ response: Data) async -> Bool {
+        guard !isClosed else {
+            return false
+        }
+        let frame: Data
+        do {
+            frame = try MobileSyncFrameCodec.encodeFrame(response)
+        } catch {
+            // MobileSyncFrameCodec.encodeFrame only throws frameTooLarge: a
+            // local wire-limit violation, so protocolViolation is honest here.
+            await close(
+                reason: "response frame encode failed",
+                exit: CmxIrohAdmittedConnectionExit(
+                    lifecycle: .controlWriteFailed,
+                    failure: .protocolViolation
+                )
+            )
+            return false
+        }
+
+        return await sendControlFrame(frame)
+    }
+
+    private func sendControlFrame(_ frame: Data) async -> Bool {
+        guard !isClosed else { return false }
+        do {
+            try await writer.send(frame)
+            return true
+        } catch {
+            await close(
+                reason: String(describing: error),
+                exit: CmxIrohAdmittedConnectionExit(
+                    lifecycle: .controlWriteFailed,
+                    failure: DiagnosticFailureKind.classify(error)
+                )
+            )
+            return false
+        }
+    }
+}
+
+#if DEBUG
+extension MobileHostConnection {
+    func debugStartFirstFrameTimeoutForTesting() {
+        startFirstFrameTimeout()
+    }
+
+    func debugStartIdleTimeoutAfterFrameForTesting() {
+        didDecodeFirstFrame = true
+        startIdleTimeout()
+    }
+
+    func debugHandleReceiveDataForTesting(_ data: Data) async {
+        await handleReceive(data: data)
+    }
+
+    func debugHandleSubscriptionRPCForTesting(
+        _ request: MobileHostRPCRequest
+    ) async -> MobileHostRPCResult? {
+        await handleSubscriptionRPC(request)
+    }
+
+    func debugEventTransportForTesting(
+        streamID: String
+    ) -> MobileHostEventTransport? {
+        subscriptions[streamID]?.transport
+    }
+
+    func debugQueuedEventCountForTesting() -> Int {
+        eventQueue.count
+    }
+}
+#endif

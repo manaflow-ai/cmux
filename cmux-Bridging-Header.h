@@ -1,1 +1,2 @@
-#import "ghostty.h"
+@import GhosttyKit;
+#import "Sources/TerminationWatchdogAtomic.h"

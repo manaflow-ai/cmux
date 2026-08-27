@@ -1,0 +1,217 @@
+public import CMUXMobileCore
+public import Foundation
+
+/// A lightweight, `Sendable` snapshot of a remote workspace shown in the mobile shell.
+///
+/// This is a pure value model: it carries the workspace identity, display name, and
+/// the ordered list of its terminals. It is decoupled from any connection, RPC, or
+/// rendering concern so that both the domain coordinators and the SwiftUI layer can
+/// consume the same immutable shape.
+public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
+    /// A stable, string-backed identifier for a ``MobileWorkspacePreview``.
+    public struct ID: RawRepresentable, Hashable, Codable, Sendable, ExpressibleByStringLiteral {
+        /// The underlying workspace identifier string.
+        public var rawValue: String
+
+        /// Creates an identifier from its raw string value.
+        /// - Parameter rawValue: The backing workspace identifier.
+        public init(rawValue: String) {
+            self.rawValue = rawValue
+        }
+
+        /// Creates an identifier from a string literal.
+        /// - Parameter value: The backing workspace identifier.
+        public init(stringLiteral value: String) {
+            self.rawValue = value
+        }
+    }
+
+    /// The workspace's stable row identifier.
+    ///
+    /// In a single-Mac list this is the Mac-local workspace id. In the aggregated
+    /// multi-Mac list it may be scoped by the owning Mac so two Macs can expose
+    /// the same local workspace id without colliding in SwiftUI navigation.
+    public var id: ID
+    /// The Mac-local workspace identifier to send back over RPC.
+    ///
+    /// Aggregated rows can use a Mac-scoped ``id`` for UI identity while keeping
+    /// this original id for Mac requests. `nil` means ``id`` is already the
+    /// remote id.
+    public var remoteWorkspaceID: ID?
+    /// The stable device id of the Mac this workspace belongs to. Carried so the
+    /// aggregated multi-Mac workspace list can group and filter by machine, and
+    /// so opening a workspace attaches the right Mac. `nil` when connected to a
+    /// Mac old enough not to report it, or before the owning Mac is known.
+    public var macDeviceID: String?
+    /// The owning Mac's user-facing display name, stamped during aggregation for
+    /// per-Mac labels such as the workspace-list picker. `nil` when the Mac has
+    /// not reported a name yet.
+    public var macDisplayName: String?
+    /// The Mac window that owns this workspace, when reported by the paired Mac.
+    public var windowID: String?
+    /// The workspace's user-facing display name.
+    public var name: String
+    /// The workspace's custom description, when one was set on the Mac.
+    /// Kept separate from ``previewText`` so durable workspace context and live
+    /// terminal activity can render together instead of replacing each other.
+    public var customDescription: String?
+    /// True when ``customDescription`` is only the mobile-safe prefix of a
+    /// longer Mac-authored durable description.
+    public var customDescriptionIsTruncated: Bool
+    /// The workspace's custom `#RRGGBB` accent color, when one was set on the Mac.
+    /// This is workspace identity and must not be confused with
+    /// ``machineCustomColor``, which colors the owning Mac's avatar.
+    public var customColorHex: String?
+    /// The workspace's last reported current directory on its owning Mac.
+    public var currentDirectory: String?
+    /// Whether the workspace is pinned on the Mac. Pinned workspaces sort to the
+    /// top of the mobile list.
+    public var isPinned: Bool
+    /// The id of the group this workspace belongs to, if any. `nil` for ungrouped
+    /// workspaces. Used to fold contiguous same-group workspaces under their
+    /// group header, mirroring the Mac sidebar.
+    public var groupID: MobileWorkspaceGroupPreview.ID?
+    /// A one-line, plain-text preview of the workspace's most recent activity
+    /// (latest notification body/title), shown under the row like an iMessage
+    /// preview. `nil` when there is no activity to preview.
+    public var previewText: String?
+    /// When the preview's activity happened, for the row's relative time. `nil`
+    /// when there is no preview.
+    public var previewAt: Date?
+    /// When the workspace last had activity. The Mac stamps this on every
+    /// workspace (latest notification, falling back to the workspace's
+    /// creation/connect time), so every row can show a relative time even with
+    /// no preview. `nil` only when connected to a Mac old enough not to emit it.
+    public var lastActivityAt: Date?
+    /// Whether the workspace has unread activity on the Mac (mirrors the Mac
+    /// sidebar's workspace unread badge). Drives the iMessage-style unread dot.
+    /// `false` when connected to a Mac old enough not to emit it.
+    public var hasUnread: Bool
+    /// The exact unread count behind ``hasUnread`` (the number the Mac sidebar
+    /// badge shows). `nil` when connected to a Mac old enough not to emit it;
+    /// the indicator then falls back to the plain dot.
+    public var unreadCount: Int?
+    /// The terminals contained in the workspace, in display order.
+    public var terminals: [MobileTerminalPreview]
+    /// Every Mac-rendered surface, in the Mac workspace's spatial order.
+    public var surfaces: [MobileSurfacePreview]
+    /// The Simulator panes contained in the workspace, in display order.
+    public var simulators: [MobileSimulatorPanelDescriptor]
+    /// The owning Mac's DISTINCT color index in the aggregated list, stamped by
+    /// ``MobileWorkspaceAggregation/derivedWorkspaces`` so same-Mac workspaces
+    /// share one avatar color and different Macs are guaranteed distinct. `nil`
+    /// outside the aggregated list (the avatar then falls back to a hash of the
+    /// id). Not part of the Mac's reported data, so it has a default and is set by
+    /// derivation, not the decoders.
+    public var machineColorIndex: Int? = nil
+    /// The app-instance tag of the Mac pairing that reported this row
+    /// ("default", "nightly", a dev tag), stamped from the connection's pairing
+    /// during ingest/derivation, never decoded from the wire. `nil` for rows
+    /// from a legacy untagged pairing or outside a per-Mac derivation.
+    public var macInstanceTag: String? = nil
+    /// The owning Mac's user color override ("palette:<n>" or "#RRGGBB"), stamped
+    /// during aggregation so the workspace avatar matches the computer's color.
+    /// `nil` = use ``machineColorIndex`` (the automatic color).
+    public var machineCustomColor: String? = nil
+    /// The owning Mac's user icon override (SF Symbol name or emoji), stamped
+    /// during aggregation. `nil` = the automatic icon.
+    public var machineCustomIcon: String? = nil
+    /// The owning Mac's connection status, stamped during aggregation so rows
+    /// from offline secondary Macs can render unavailable while the foreground
+    /// Mac remains connected. `nil` outside an aggregated/per-Mac derivation.
+    public var macConnectionStatus: MobileMacConnectionStatus? = nil
+    /// Workspace actions supported by the Mac that owns this row.
+    public var actionCapabilities: MobileWorkspaceActionCapabilities = .none
+
+    /// The workspace id to use in RPC params.
+    public var rpcWorkspaceID: ID {
+        remoteWorkspaceID ?? id
+    }
+
+    /// Creates a workspace preview.
+    /// - Parameters:
+    ///   - id: The workspace's stable identifier.
+    ///   - windowID: The owning Mac window identifier, when known.
+    ///   - name: The workspace's user-facing display name.
+    ///   - isPinned: Whether the workspace is pinned on the Mac. Defaults to `false`.
+    ///   - groupID: The group this workspace belongs to, if any. Defaults to `nil`.
+    ///   - previewText: One-line preview of the latest activity. Defaults to `nil`.
+    ///   - previewAt: When the preview's activity happened. Defaults to `nil`.
+    ///   - lastActivityAt: When the workspace last had activity. Defaults to `nil`.
+    ///   - hasUnread: Whether the workspace has unread activity. Defaults to `false`.
+    ///   - terminals: The terminals contained in the workspace, in display order.
+    ///   - surfaces: Every Mac-rendered surface, in spatial order.
+    public init(
+        id: ID,
+        macDeviceID: String? = nil,
+        macDisplayName: String? = nil,
+        windowID: String? = nil,
+        name: String,
+        customDescription: String? = nil,
+        customDescriptionIsTruncated: Bool = false,
+        customColorHex: String? = nil,
+        currentDirectory: String? = nil,
+        isPinned: Bool = false,
+        groupID: MobileWorkspaceGroupPreview.ID? = nil,
+        previewText: String? = nil,
+        previewAt: Date? = nil,
+        lastActivityAt: Date? = nil,
+        hasUnread: Bool = false,
+        unreadCount: Int? = nil,
+        terminals: [MobileTerminalPreview],
+        surfaces: [MobileSurfacePreview] = [],
+        simulators: [MobileSimulatorPanelDescriptor] = []
+    ) {
+        self.id = id
+        self.remoteWorkspaceID = nil
+        self.macDeviceID = macDeviceID
+        self.macDisplayName = macDisplayName
+        self.windowID = windowID
+        self.name = name
+        self.customDescription = customDescription
+        self.customDescriptionIsTruncated = customDescriptionIsTruncated
+        self.customColorHex = customColorHex
+        self.currentDirectory = currentDirectory
+        self.isPinned = isPinned
+        self.groupID = groupID
+        self.previewText = previewText
+        self.previewAt = previewAt
+        self.lastActivityAt = lastActivityAt
+        self.hasUnread = hasUnread
+        self.unreadCount = unreadCount
+        self.terminals = terminals
+        self.surfaces = surfaces
+        self.simulators = simulators
+    }
+}
+
+extension MobileWorkspacePreview {
+    /// The non-terminal surface the owning Mac currently has focused, when it
+    /// reports one. This is separate from the terminal fallback because an
+    /// explicitly selected terminal on iOS must remain authoritative.
+    public var focusedNonTerminalSurface: MobileSurfacePreview? {
+        surfaces.first { !$0.kind.isTerminal && $0.isFocused }
+    }
+
+    /// The non-terminal Mac surface to present, honoring the picker selection.
+    ///
+    /// Terminal-kinded rows are never a Mac-surface selection (terminals have
+    /// their own selection axis), so this is the one lookup every call site
+    /// must share rather than re-filtering `surfaces` inline.
+    ///
+    /// With no explicit selection (or a stale one whose surface no longer
+    /// exists) and no terminals to stream (for example a workspace whose only
+    /// pane is a todo panel), this falls back to the first non-terminal
+    /// surface: the detail view would otherwise render an empty terminal
+    /// background.
+    public func selectedMacSurface(id: MobileSurfacePreview.ID?) -> MobileSurfacePreview? {
+        guard let id else { return defaultMacSurface }
+        return surfaces.first { $0.id == id && !$0.kind.isTerminal } ?? defaultMacSurface
+    }
+
+    private var defaultMacSurface: MobileSurfacePreview? {
+        guard terminals.isEmpty else { return nil }
+        return surfaces.first { !$0.kind.isTerminal && $0.isFocused }
+            ?? surfaces.first { !$0.kind.isTerminal }
+    }
+}

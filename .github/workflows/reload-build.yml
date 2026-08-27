@@ -1,0 +1,860 @@
+name: reload-build
+
+# Dispatchable tagged dev-build for the cloud reload scripts' Blacksmith builder.
+#
+# scripts/reload-cloud.sh --builder blacksmith and scripts/reload-cloud-ios.sh
+# --builder blacksmith (in the cmuxterm-hq control repo) dispatch this workflow
+# against an ephemeral branch holding the caller's working tree, then download the
+# produced artifact and install it locally. This is the Blacksmith alternative to
+# SSH-leasing a fleet Mac. It is workflow_dispatch ONLY: nothing here runs on push
+# or pull_request, so it never adds to the heavy CI fan-out.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Dev build tag (becomes cmux DEV <tag> / dev.cmux.ios.<tag>)
+        required: true
+        type: string
+      ref:
+        description: Source ref to build (branch or SHA). Defaults to the dispatch ref.
+        required: false
+        default: ""
+        type: string
+      platform:
+        description: Which artifact to build
+        required: false
+        default: macos
+        type: choice
+        options:
+          - macos
+          - ios
+      runner:
+        description: >-
+          macOS runner label to build on. Blacksmith (blacksmith-6vcpu-macos-26),
+          our self-hosted fleet (cmux-macos-26 / cmux-aws-macos-15), warp, or depot.
+          This is the dev-build offload path (reload-cloud), not required CI, so
+          targeting the fleet for a build is intentional.
+        required: false
+        default: blacksmith-6vcpu-macos-26
+        type: string
+      nonce:
+        description: Opaque marker echoed into run-name so the dispatcher can find this run.
+        required: false
+        default: ""
+        type: string
+
+# Surface tag/platform/nonce in the run title so the dispatcher can match its run
+# by the nonce it passed (gh workflow run does not return a run id).
+run-name: "reload-build ${{ inputs.tag }} ${{ inputs.platform }} ${{ inputs.nonce }}"
+
+permissions:
+  contents: read
+
+concurrency:
+  # One in-flight build per tag+platform; a newer dispatch supersedes an older one.
+  group: reload-build-${{ inputs.tag }}-${{ inputs.platform }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 60
+    env:
+      # The ghostty CLI helper zig build is skipped; GhosttyKit comes prebuilt.
+      CMUX_SKIP_ZIG_BUILD: "1"
+      # A degraded cache must lose to a cold build instead of stalling this
+      # latency-sensitive lane for actions/cache's ten-minute default.
+      SEGMENT_DOWNLOAD_TIMEOUT_MINS: "2"
+      SWIFT_BACKTRACE: "interactive=no,timeout=0s,symbolicate=off,color=no"
+    steps:
+      - name: Checkout source ref
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+          submodules: recursive
+
+      - name: Start timer
+        id: t0
+        run: echo "epoch=$(date +%s)" >> "$GITHUB_OUTPUT"
+
+      - name: Select Xcode
+        run: |
+          set -euo pipefail
+          ./scripts/select-ci-xcode.sh
+
+      - name: Prepare macOS cache metadata
+        if: ${{ inputs.platform == 'macos' }}
+        id: cache_meta
+        env:
+          SOURCE_REF: ${{ inputs.ref || github.ref_name }}
+        run: |
+          set -euo pipefail
+          xcode_version="$(xcodebuild -version | awk 'NR == 1 { print $2 }')"
+          xcode_build="$(xcodebuild -version | awk 'NR == 2 { print $3 }')"
+          xcode_key="$(printf 'xcode-%s-%s' "$xcode_version" "$xcode_build" | tr -c 'A-Za-z0-9._-' '-')"
+
+          branch_name="${SOURCE_REF#refs/heads/}"
+          branch_name="${branch_name#refs/tags/}"
+          if [ -z "$branch_name" ]; then
+            branch_name="$(git branch --show-current)"
+          fi
+          if [ -z "$branch_name" ]; then
+            branch_name="detached"
+          fi
+          branch_slug="$(printf '%s' "$branch_name" | tr -c 'A-Za-z0-9._-' '-' | sed 's/-\{2,\}/-/g; s/^-//; s/-$//')"
+          branch_digest="$(printf '%s' "$branch_name" | shasum -a 256 | awk '{ print substr($1, 1, 12) }')"
+          if [ "$branch_name" = "main" ]; then
+            branch_key="main"
+          else
+            branch_key="${branch_slug:0:48}-${branch_digest}"
+          fi
+          # Xcode's SourcePackages workspace state and DerivedData build
+          # database contain absolute checkout paths. Keep exact-state caches
+          # tied to the path contract; a different runner workspace must cold
+          # resolve/build instead of consuming stale absolute paths.
+          workspace_digest="$(printf '%s' "$GITHUB_WORKSPACE" | shasum -a 256 | awk '{ print substr($1, 1, 12) }')"
+          workspace_key="workspace-${workspace_digest}"
+          runner_os="$(printf '%s' "$(uname -s)" | tr -c 'A-Za-z0-9._-' '-')"
+          runner_os_version="$(sw_vers -productVersion 2>/dev/null || uname -r)"
+          runner_os_version="$(printf '%s' "$runner_os_version" | tr -c 'A-Za-z0-9._-' '-')"
+          runner_arch="$(printf '%s' "$(uname -m)" | tr -c 'A-Za-z0-9._-' '-')"
+          runner_key="${runner_os}-${runner_os_version}-${runner_arch}"
+
+          resolved_file="cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
+          source_sha="$(git rev-parse HEAD)"
+          # Cache entries are immutable. A run-scoped save key plus a stable
+          # source prefix lets a cold retry publish a newer repaired entry.
+          cache_run_key="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          spm_prefix="reload-build-macos-spm-v2-${xcode_key}-${workspace_key}-"
+          # DerivedData contains ONLY_ACTIVE_ARCH products and object files;
+          # never restore those across OS/architecture changes.
+          derived_prefix="reload-build-macos-deriveddata-v3-${xcode_key}-${runner_key}-${workspace_key}-"
+          if [ -f "$resolved_file" ]; then
+            resolved_hash="$(shasum -a 256 "$resolved_file" | awk '{ print $1 }')"
+            spm_cache_enabled=true
+            spm_key_base="${spm_prefix}${resolved_hash}"
+            spm_key="${spm_key_base}-run-${cache_run_key}"
+            spm_source_prefix="${spm_key_base}-run-"
+          else
+            echo "::warning::$resolved_file absent in source ref; disabling the SPM cache"
+            spm_cache_enabled=false
+            spm_key_base=""
+            spm_key=""
+            spm_source_prefix=""
+          fi
+          derived_data_key_base="${derived_prefix}${branch_key}-${source_sha}"
+
+          {
+            echo "xcode_key=$xcode_key"
+            echo "branch_key=$branch_key"
+            echo "workspace_key=$workspace_key"
+            echo "runner_key=$runner_key"
+            echo "source_sha=$source_sha"
+            echo "spm_cache_enabled=$spm_cache_enabled"
+            echo "spm_prefix=$spm_prefix"
+            echo "spm_key_base=$spm_key_base"
+            echo "spm_key=$spm_key"
+            echo "spm_source_prefix=$spm_source_prefix"
+            echo "derived_data_key_base=$derived_data_key_base"
+            echo "derived_data_key=${derived_data_key_base}-run-${cache_run_key}"
+            echo "derived_data_source_prefix=${derived_data_key_base}-run-"
+            echo "derived_data_branch_prefix=${derived_prefix}${branch_key}-"
+            echo "derived_data_main_prefix=${derived_prefix}main-"
+          } >> "$GITHUB_OUTPUT"
+
+      # The verified prebuilt is the happy path for both platforms. Zig is
+      # installed only after this attempt fails, immediately before the local
+      # ensure-ghosttykit.sh fallback that needs it.
+      - name: Download prebuilt GhosttyKit
+        id: ghosttykit_prebuilt
+        run: |
+          set -euo pipefail
+          start=$(date +%s)
+          # Keep a transient release outage from consuming the whole 60-minute
+          # job before the Zig-backed fallback gets a chance to run. The script
+          # still owns checksum/archive validation and preserves its normal
+          # defaults for local and fleet callers.
+          if GHOSTTYKIT_DOWNLOAD_RETRIES=2 \
+            GHOSTTYKIT_DOWNLOAD_RETRY_DELAY=5 \
+            GHOSTTYKIT_DOWNLOAD_MAX_TIME=60 \
+            ./scripts/download-prebuilt-ghosttykit.sh; then
+            available=true
+          else
+            available=false
+            echo "::warning::Prebuilt GhosttyKit download failed; enabling the Zig-backed fallback"
+          fi
+          end=$(date +%s)
+          echo "available=$available" >> "$GITHUB_OUTPUT"
+          echo "seconds=$(( end - start ))" >> "$GITHUB_OUTPUT"
+
+      - name: Install zig for GhosttyKit fallback
+        if: ${{ steps.ghosttykit_prebuilt.outputs.available != 'true' }}
+        id: zig_fallback
+        run: |
+          set -euo pipefail
+          start=$(date +%s)
+          ./scripts/install-zig-ci.sh
+          end=$(date +%s)
+          seconds="$(awk -v start="$start" -v end="$end" 'BEGIN { print end - start }')"
+          echo "seconds=$seconds" >> "$GITHUB_OUTPUT"
+
+      - name: Build fallback GhosttyKit
+        if: ${{ steps.ghosttykit_prebuilt.outputs.available != 'true' }}
+        id: ghosttykit_fallback
+        env:
+          # The bounded download step already proved the prebuilt path failed;
+          # do not let ensure-ghosttykit retry that URL with its long defaults.
+          CMUX_GHOSTTYKIT_NO_PREBUILT: "1"
+        run: |
+          set -euo pipefail
+          start=$(date +%s)
+          ./scripts/ensure-ghosttykit.sh
+          end=$(date +%s)
+          echo "seconds=$(( end - start ))" >> "$GITHUB_OUTPUT"
+
+      - name: Verify provisioned GhosttyKit
+        run: test -d GhosttyKit.xcframework
+
+      - name: Start SPM cache restore timer
+        if: ${{ inputs.platform == 'macos' && steps.cache_meta.outputs.spm_cache_enabled == 'true' }}
+        id: spm_restore_start
+        run: echo "epoch=$(date +%s)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore SPM SourcePackages cache
+        if: ${{ inputs.platform == 'macos' && steps.cache_meta.outputs.spm_cache_enabled == 'true' }}
+        id: restore_spm
+        continue-on-error: true
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: .ci-source-packages
+          key: ${{ steps.cache_meta.outputs.spm_key }}
+          restore-keys: ${{ steps.cache_meta.outputs.spm_source_prefix }}
+
+      - name: Finish SPM cache restore
+        if: ${{ always() && inputs.platform == 'macos' }}
+        id: spm_restore
+        env:
+          CACHE_ENABLED: ${{ steps.cache_meta.outputs.spm_cache_enabled }}
+          CACHE_SOURCE_PREFIX: ${{ steps.cache_meta.outputs.spm_source_prefix }}
+          START_EPOCH: ${{ steps.spm_restore_start.outputs.epoch }}
+          CACHE_OUTCOME: ${{ steps.restore_spm.outcome }}
+          CACHE_HIT: ${{ steps.restore_spm.outputs.cache-hit }}
+          CACHE_MATCHED_KEY: ${{ steps.restore_spm.outputs.cache-matched-key }}
+        run: |
+          set -euo pipefail
+          now=$(date +%s)
+          start=${START_EPOCH:-0}
+          if ! [[ "$start" =~ ^[0-9]+$ ]] || [ "$start" -eq 0 ]; then
+            start=$now
+          fi
+          cache_hit=${CACHE_HIT:-false}
+          matched_key=${CACHE_MATCHED_KEY:-}
+          exact_hit=false
+          if [ "${CACHE_ENABLED:-false}" != "true" ]; then
+            status=disabled_missing_resolved
+            rm -rf "$GITHUB_WORKSPACE/.ci-source-packages"
+          elif [ "${CACHE_OUTCOME:-failure}" != "success" ]; then
+            status=restore_error
+            rm -rf "$GITHUB_WORKSPACE/.ci-source-packages"
+          elif [ "$cache_hit" = "true" ] || { [ -n "${CACHE_SOURCE_PREFIX:-}" ] && [[ "$matched_key" == "$CACHE_SOURCE_PREFIX"* ]]; }; then
+            status=exact_hit
+            exact_hit=true
+          elif [ -n "$matched_key" ]; then
+            status=fallback_hit
+          else
+            status=miss
+          fi
+          mkdir -p "$GITHUB_WORKSPACE/.ci-source-packages"
+          {
+            echo "seconds=$(( now - start ))"
+            echo "status=$status"
+            echo "exact_hit=$exact_hit"
+            echo "matched_key=$matched_key"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Sanitize restored SPM cache
+        if: ${{ inputs.platform == 'macos' }}
+        id: spm_sanitize
+        env:
+          CACHE_ENABLED: ${{ steps.cache_meta.outputs.spm_cache_enabled }}
+          CACHE_STATUS: ${{ steps.spm_restore.outputs.status }}
+        run: |
+          set -euo pipefail
+          status=${CACHE_STATUS:-restore_error}
+          discarded=false
+          sanitizer=scripts/ci/sanitize-xcode-source-packages-cache.py
+          if [ "${CACHE_ENABLED:-false}" != "true" ]; then
+            status=disabled_missing_resolved
+          elif [ "$status" = "exact_hit" ]; then
+            # The exact key is tied to Package.resolved, Xcode, source SHA, and
+            # the fixed Blacksmith checkout path. Preserve its workspace state
+            # so Xcode can reuse the resolved package graph; a bad state still
+            # trips the guarded cold retry below.
+            echo "preserving exact-hit SourcePackages workspace state"
+          elif [ ! -f "$sanitizer" ]; then
+            echo "::warning::$sanitizer absent in source ref; discarding the restored SPM cache"
+            status=sanitize_error
+            discarded=true
+          elif ! python3 "$sanitizer" .ci-source-packages; then
+            echo "::warning::SPM cache sanitize failed; discarding it and building cold"
+            status=sanitize_error
+            discarded=true
+          fi
+          if [ "$discarded" = "true" ]; then
+            rm -rf "$GITHUB_WORKSPACE/.ci-source-packages"
+            mkdir -p "$GITHUB_WORKSPACE/.ci-source-packages"
+          fi
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          echo "discarded=$discarded" >> "$GITHUB_OUTPUT"
+
+      - name: Start DerivedData cache restore timer
+        if: ${{ inputs.platform == 'macos' }}
+        id: derived_data_restore_start
+        run: echo "epoch=$(date +%s)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore DerivedData cache
+        if: ${{ inputs.platform == 'macos' }}
+        id: restore_derived_data
+        continue-on-error: true
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          # Keep the build database, compiler outputs, and Debug products that
+          # Xcode needs for a true incremental build. Archives, indexes, logs,
+          # SourcePackages, and every non-Debug product remain excluded.
+          path: |
+            .ci-reload-derived-data/Build/Intermediates.noindex
+            .ci-reload-derived-data/Build/Products/Debug
+            .ci-reload-derived-data/ModuleCache.noindex
+            .ci-reload-derived-data/SDKStatCaches.noindex
+          key: ${{ steps.cache_meta.outputs.derived_data_key }}
+          restore-keys: |
+            ${{ steps.cache_meta.outputs.derived_data_source_prefix }}
+            ${{ steps.cache_meta.outputs.derived_data_branch_prefix }}
+            ${{ steps.cache_meta.outputs.derived_data_main_prefix }}
+
+      - name: Finish DerivedData cache restore
+        if: ${{ always() && inputs.platform == 'macos' }}
+        id: derived_data_restore
+        env:
+          CACHE_SOURCE_PREFIX: ${{ steps.cache_meta.outputs.derived_data_source_prefix }}
+          START_EPOCH: ${{ steps.derived_data_restore_start.outputs.epoch }}
+          CACHE_OUTCOME: ${{ steps.restore_derived_data.outcome }}
+          CACHE_HIT: ${{ steps.restore_derived_data.outputs.cache-hit }}
+          CACHE_MATCHED_KEY: ${{ steps.restore_derived_data.outputs.cache-matched-key }}
+        run: |
+          set -euo pipefail
+          now=$(date +%s)
+          start=${START_EPOCH:-0}
+          if ! [[ "$start" =~ ^[0-9]+$ ]] || [ "$start" -eq 0 ]; then
+            start=$now
+          fi
+          cache_hit=${CACHE_HIT:-false}
+          matched_key=${CACHE_MATCHED_KEY:-}
+          exact_hit=false
+          if [ "${CACHE_OUTCOME:-failure}" != "success" ]; then
+            status=restore_error
+            rm -rf "$GITHUB_WORKSPACE/.ci-reload-derived-data"
+          elif [ "$cache_hit" = "true" ] || { [ -n "${CACHE_SOURCE_PREFIX:-}" ] && [[ "$matched_key" == "$CACHE_SOURCE_PREFIX"* ]]; }; then
+            status=exact_hit
+            exact_hit=true
+          elif [ -n "$matched_key" ]; then
+            status=fallback_hit
+          else
+            status=miss
+          fi
+          mkdir -p "$GITHUB_WORKSPACE/.ci-reload-derived-data"
+          {
+            echo "seconds=$(( now - start ))"
+            echo "status=$status"
+            echo "exact_hit=$exact_hit"
+            echo "matched_key=$matched_key"
+          } >> "$GITHUB_OUTPUT"
+
+      # actions/checkout gives every tracked source a fresh mtime, newer than
+      # restored compiler outputs. Xcode then recompiles an exact cache hit as
+      # if it were cold. Derive a stable, pre-2020 mtime from each Git blob id:
+      # unchanged files stay unchanged across runs, while changed blobs receive
+      # a different file signature and are still invalidated correctly.
+      - name: Normalize tracked source mtimes for Xcode
+        if: ${{ inputs.platform == 'macos' }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          import subprocess
+
+          # 2001-01-01 plus at most fifteen years keeps source mtimes safely
+          # behind newly generated outputs while preserving nanosecond entropy.
+          base_seconds = 978_307_200
+          span_seconds = 15 * 365 * 24 * 60 * 60
+          records = subprocess.check_output(
+              ["git", "ls-files", "--recurse-submodules", "--stage", "-z"]
+          ).split(b"\0")
+          normalized = 0
+          for record in records:
+              if not record:
+                  continue
+              metadata, raw_path = record.split(b"\t", 1)
+              mode, object_id, stage = metadata.split()
+              if mode == b"160000" or stage != b"0":
+                  continue
+              path = os.fsdecode(raw_path)
+              if not os.path.lexists(path):
+                  continue
+              digest = object_id.decode("ascii")
+              seconds = base_seconds + int(digest[:12], 16) % span_seconds
+              nanoseconds = int(digest[12:20], 16) % 1_000_000_000
+              mtime_ns = seconds * 1_000_000_000 + nanoseconds
+              os.utime(path, ns=(mtime_ns, mtime_ns), follow_symlinks=False)
+              normalized += 1
+          print(f"normalized {normalized} Git-tracked source mtimes")
+          PY
+
+      - name: Mark deps-ready
+        id: t1
+        run: echo "epoch=$(date +%s)" >> "$GITHUB_OUTPUT"
+
+      # --- macOS: build the tagged dev app via the same reload.sh the fleet uses ---
+      - name: Build tagged macOS app
+        if: ${{ inputs.platform == 'macos' }}
+        id: build_macos
+        env:
+          BUILD_TAG: ${{ inputs.tag }}
+          CMUX_GHOSTTYKIT_PREPROVISIONED: "1"
+          CMUX_SOURCE_PACKAGES_DIR: ${{ github.workspace }}/.ci-source-packages
+          SPM_CACHE_STATUS: ${{ steps.spm_sanitize.outputs.status }}
+          DERIVED_DATA_CACHE_STATUS: ${{ steps.derived_data_restore.outputs.status }}
+        run: |
+          set -euo pipefail
+          # Per-run log path: /tmp/reload.log collides across tenants on the
+          # multi-tenant self-hosted fleet Macs (tee: Permission denied).
+          log="$RUNNER_TEMP/reload.log"
+          derived_data="$GITHUB_WORKSPACE/.ci-reload-derived-data"
+          echo "cache_retry=false" >> "$GITHUB_OUTPUT"
+
+          run_reload() {
+            if [ "$SPM_CACHE_STATUS" = "exact_hit" ]; then
+              # The exact Package.resolved/state pair is safe to reuse. If it
+              # is stale or corrupt, the caller clears both caches and changes
+              # this marker before retrying from a normal cold resolve.
+              export CMUX_DISABLE_AUTOMATIC_PACKAGE_RESOLUTION=1
+            else
+              export CMUX_DISABLE_AUTOMATIC_PACKAGE_RESOLUTION=0
+            fi
+            ./scripts/reload.sh \
+              --tag "$BUILD_TAG" \
+              --derived-data "$derived_data" \
+              --swift-frontend-workaround
+          }
+
+          set +e
+          run_reload 2>&1 | tee "$log"
+          build_status=${PIPESTATUS[0]}
+          set -e
+
+          # A successfully restored but stale/corrupt cache must cost at most
+          # one failed attempt: clear both cache roots and retry once from cold.
+          if [ "$build_status" -ne 0 ] && {
+            [ "$SPM_CACHE_STATUS" = "exact_hit" ] ||
+            [ "$SPM_CACHE_STATUS" = "fallback_hit" ] ||
+            [ "$DERIVED_DATA_CACHE_STATUS" = "exact_hit" ] ||
+            [ "$DERIVED_DATA_CACHE_STATUS" = "fallback_hit" ];
+          }; then
+            echo "::warning::Cached macOS build failed; clearing SPM and DerivedData caches and retrying cold"
+            rm -rf "$CMUX_SOURCE_PACKAGES_DIR" "$derived_data"
+            mkdir -p "$CMUX_SOURCE_PACKAGES_DIR" "$derived_data"
+            SPM_CACHE_STATUS=miss
+            DERIVED_DATA_CACHE_STATUS=miss
+            : > "$log"
+            set +e
+            run_reload 2>&1 | tee "$log"
+            build_status=${PIPESTATUS[0]}
+            set -e
+            echo "cache_retry=true" >> "$GITHUB_OUTPUT"
+          fi
+          if [ "$build_status" -ne 0 ]; then
+            exit "$build_status"
+          fi
+
+          app_path="$(awk '/^App path:/{getline; sub(/^  /,""); print; exit}' "$log")"
+          [ -n "$app_path" ] && [ -d "$app_path" ] || { echo "could not locate built app" >&2; exit 1; }
+          echo "app_path=$app_path" >> "$GITHUB_OUTPUT"
+          mkdir -p artifact
+          ( cd "$(dirname "$app_path")" && ditto -c -k --sequesterRsrc --keepParent "$(basename "$app_path")" "$GITHUB_WORKSPACE/artifact/app.zip" )
+
+      # iOS links the CmuxIrohFFI xcframework (gitignored, built from the Rust
+      # crate under Native/cmux-iroh). The macOS path builds it via
+      # reload.sh -> ensure-cmux-iroh.sh; the iOS archive below runs xcodebuild
+      # directly, so provision it here or SwiftPM fails with "local binary target
+      # 'CmuxIrohFFIBinary' ... does not contain a binary artifact". Guarded so
+      # source refs that predate the crate are a no-op (scripts come from
+      # inputs.ref, not this workflow's ref). install-rust-ci.sh is idempotent.
+      - name: Provision cmux-iroh FFI (iOS)
+        if: ${{ inputs.platform == 'ios' }}
+        run: |
+          set -euo pipefail
+          if [ -f scripts/ensure-cmux-iroh.sh ]; then
+            export PATH="$HOME/.cargo/bin:$PATH"
+            [ -f scripts/install-rust-ci.sh ] && ./scripts/install-rust-ci.sh
+            export PATH="$HOME/.cargo/bin:$PATH"
+            ./scripts/ensure-cmux-iroh.sh
+          else
+            echo "scripts/ensure-cmux-iroh.sh absent in source ref; skipping iroh FFI provisioning"
+          fi
+
+      # --- iOS: build an UNSIGNED debug archive (signed locally by the caller) ---
+      - name: Build unsigned iOS archive
+        if: ${{ inputs.platform == 'ios' }}
+        id: build_ios
+        env:
+          BUILD_TAG: ${{ inputs.tag }}
+          CMUX_XCODEBUILD_NONINTERACTIVE_HEARTBEAT_SECONDS: "60"
+        run: |
+          set -euo pipefail
+          slug="$(printf '%s' "$BUILD_TAG" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9-' '-' | sed 's/-\{2,\}/-/g; s/^-//; s/-$//')"
+          bundle_id="dev.cmux.ios.$slug"
+          display_name="cmux DEV $BUILD_TAG"
+          # This archive is installed on a physical device. Its localhost is
+          # the phone, not the tagged Mac or runner, so Debug device builds use
+          # staging unless the dispatcher supplies an explicit reachable URL.
+          api_base_url="${CMUX_IOS_API_BASE_URL:-${CMUX_DEV_API_BASE_URL:-https://cmux-staging.vercel.app}}"
+          iroh_broker_base_url="${CMUX_IOS_IROH_BROKER_BASE_URL:-${CMUX_IROH_BROKER_BASE_URL:-https://cmux-staging.vercel.app}}"
+
+          # Match ios/scripts/reload.sh --swift-frontend-workaround. Optimized
+          # Debug builds need this Xcode 26 codegen path disabled on every lane.
+          # shellcheck disable=SC2016 # Xcode expands $(inherited), not this shell.
+          swift_workaround_args=(
+            SWIFT_ENABLE_BATCH_MODE=NO
+            DEBUG_INFORMATION_FORMAT=
+            GCC_GENERATE_DEBUGGING_SYMBOLS=NO
+            'OTHER_SWIFT_FLAGS=$(inherited) -Xllvm -aarch64-enable-global-isel-at-O=-1'
+          )
+
+          # Register the iOS platform if the runner only has macOS provisioned.
+          ios_ready() { xcrun simctl runtime list 2>/dev/null | grep -qiE "iOS [0-9].*\(Ready\)"; }
+          if ! ios_ready; then
+            echo "iOS platform not registered; installing via downloadPlatform iOS"
+            xcodebuild -downloadPlatform iOS 2>&1 | tr '\r' '\n' | grep -ivE 'Preparing to download|registering download' | tail -8 || true
+            ios_ready || { echo "iOS platform still not registered; archive would fail" >&2; exit 1; }
+          fi
+
+          test -d GhosttyKit.xcframework
+          out="$GITHUB_WORKSPACE/build"
+          mkdir -p "$out"
+          archive="$out/cmux-ios-$slug.xcarchive"
+          rm -rf "$archive"
+          scripts/ci/xcodebuild_noninteractive.py xcodebuild archive \
+            -workspace ios/cmux.xcworkspace \
+            -scheme cmux-ios \
+            -configuration Debug \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$archive" \
+            -derivedDataPath "$RUNNER_TEMP/cmux-ios-dd" \
+            PRODUCT_BUNDLE_IDENTIFIER="$bundle_id" \
+            PRODUCT_DISPLAY_NAME="$display_name" \
+            CMUX_GIT_SHA="$(git rev-parse --short HEAD)" \
+            CMUX_DEV_TAG="$BUILD_TAG" \
+            CMUX_API_BASE_URL="$api_base_url" \
+            CMUX_IROH_BROKER_BASE_URL="$iroh_broker_base_url" \
+            EXCLUDED_SOURCE_FILE_NAMES=Info.plist \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            SWIFT_OPTIMIZATION_LEVEL=-O \
+            SWIFT_COMPILATION_MODE=wholemodule \
+            GCC_OPTIMIZATION_LEVEL=s \
+            "${swift_workaround_args[@]}"
+          [ -d "$archive" ] || { echo "archive not produced: $archive" >&2; exit 1; }
+
+          # Keep Blacksmith device reloads equivalent to the fleet path: one
+          # build supplies both the unsigned phone archive and the exact same
+          # source revision for an isolated Simulator verification.
+          # The prebuilt GhosttyKit simulator slice is arm64-only.
+          scripts/ci/xcodebuild_noninteractive.py xcodebuild build \
+            -workspace ios/cmux.xcworkspace \
+            -scheme cmux-ios \
+            -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/cmux-ios-dd" \
+            ARCHS=arm64 \
+            ONLY_ACTIVE_ARCH=YES \
+            PRODUCT_BUNDLE_IDENTIFIER="$bundle_id" \
+            PRODUCT_DISPLAY_NAME="$display_name" \
+            CMUX_GIT_SHA="$(git rev-parse --short HEAD)" \
+            CMUX_DEV_TAG="$BUILD_TAG" \
+            CMUX_API_BASE_URL="$api_base_url" \
+            CMUX_IROH_BROKER_BASE_URL="$iroh_broker_base_url" \
+            EXCLUDED_SOURCE_FILE_NAMES=Info.plist \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            SWIFT_OPTIMIZATION_LEVEL=-O \
+            SWIFT_COMPILATION_MODE=wholemodule \
+            GCC_OPTIMIZATION_LEVEL=s \
+            "${swift_workaround_args[@]}"
+          sim_app="$RUNNER_TEMP/cmux-ios-dd/Build/Products/Debug-iphonesimulator/cmux.app"
+          [ -d "$sim_app" ] || { echo "simulator app not produced: $sim_app" >&2; exit 1; }
+
+          mkdir -p artifact
+          pkg="$out/cmux-ios-$slug-pkg"
+          rm -rf "$pkg"
+          mkdir -p "$pkg/simulator"
+          mv "$archive" "$pkg/"
+          ditto "$sim_app" "$pkg/simulator/cmux.app"
+          ditto -c -k "$pkg" "$GITHUB_WORKSPACE/artifact/archive.zip"
+
+      - name: Mark build-ready
+        id: t2
+        run: echo "epoch=$(date +%s)" >> "$GITHUB_OUTPUT"
+
+      - name: Trim tag-specific products before DerivedData cache save
+        if: ${{ success() && inputs.platform == 'macos' }}
+        run: |
+          set -euo pipefail
+          products="$GITHUB_WORKSPACE/.ci-reload-derived-data/Build/Products/Debug"
+          [ -d "$products" ] || exit 0
+          # reload.sh stages the requested tagged app beside the stable base
+          # product. Keep only the base product in the cache; otherwise every
+          # tag accumulates another app bundle under the branch/SHA key.
+          for product in "$products"/cmux\ DEV\ *.app "$products"/.cmux\ DEV\ *.reload-*.app; do
+            [ -d "$product" ] || continue
+            [ "$(basename "$product")" = "cmux DEV.app" ] || rm -rf -- "$product"
+          done
+
+      - name: Start SPM cache save timer
+        if: ${{ success() && inputs.platform == 'macos' && steps.cache_meta.outputs.spm_cache_enabled == 'true' && (steps.spm_restore.outputs.exact_hit != 'true' || steps.spm_sanitize.outputs.discarded == 'true' || steps.build_macos.outputs.cache_retry == 'true') }}
+        id: spm_save_start
+        run: echo "epoch=$(date +%s)" >> "$GITHUB_OUTPUT"
+
+      - name: Save SPM SourcePackages cache
+        if: ${{ success() && inputs.platform == 'macos' && steps.cache_meta.outputs.spm_cache_enabled == 'true' && (steps.spm_restore.outputs.exact_hit != 'true' || steps.spm_sanitize.outputs.discarded == 'true' || steps.build_macos.outputs.cache_retry == 'true') }}
+        id: save_spm
+        continue-on-error: true
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: .ci-source-packages
+          key: ${{ steps.cache_meta.outputs.spm_key }}
+
+      - name: Finish SPM cache save
+        if: ${{ always() && inputs.platform == 'macos' }}
+        id: spm_save
+        env:
+          CACHE_ENABLED: ${{ steps.cache_meta.outputs.spm_cache_enabled }}
+          START_EPOCH: ${{ steps.spm_save_start.outputs.epoch }}
+          SAVE_OUTCOME: ${{ steps.save_spm.outcome }}
+          RESTORE_EXACT_HIT: ${{ steps.spm_restore.outputs.exact_hit }}
+        run: |
+          set -euo pipefail
+          now=$(date +%s)
+          start=${START_EPOCH:-0}
+          if [[ "$start" =~ ^[0-9]+$ ]] && [ "$start" -gt 0 ]; then
+            seconds=$(( now - start ))
+          else
+            seconds=0
+          fi
+          case "${SAVE_OUTCOME:-skipped}" in
+            success) status=saved ;;
+            failure) status=save_error ;;
+            *)
+              if [ "${CACHE_ENABLED:-false}" != "true" ]; then
+                status=skipped_disabled
+              elif [ "${RESTORE_EXACT_HIT:-false}" = "true" ]; then
+                status=skipped_exact_hit
+              else
+                status=skipped
+              fi
+              ;;
+          esac
+          echo "seconds=$seconds" >> "$GITHUB_OUTPUT"
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+
+      - name: Start DerivedData cache save timer
+        if: ${{ success() && inputs.platform == 'macos' && (steps.derived_data_restore.outputs.exact_hit != 'true' || steps.build_macos.outputs.cache_retry == 'true') }}
+        id: derived_data_save_start
+        run: echo "epoch=$(date +%s)" >> "$GITHUB_OUTPUT"
+
+      - name: Save DerivedData cache
+        if: ${{ success() && inputs.platform == 'macos' && (steps.derived_data_restore.outputs.exact_hit != 'true' || steps.build_macos.outputs.cache_retry == 'true') }}
+        id: save_derived_data
+        continue-on-error: true
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          # Match the bounded restore set; only Debug products are included.
+          path: |
+            .ci-reload-derived-data/Build/Intermediates.noindex
+            .ci-reload-derived-data/Build/Products/Debug
+            .ci-reload-derived-data/ModuleCache.noindex
+            .ci-reload-derived-data/SDKStatCaches.noindex
+          key: ${{ steps.cache_meta.outputs.derived_data_key }}
+
+      - name: Finish DerivedData cache save
+        if: ${{ always() && inputs.platform == 'macos' }}
+        id: derived_data_save
+        env:
+          START_EPOCH: ${{ steps.derived_data_save_start.outputs.epoch }}
+          SAVE_OUTCOME: ${{ steps.save_derived_data.outcome }}
+          RESTORE_EXACT_HIT: ${{ steps.derived_data_restore.outputs.exact_hit }}
+        run: |
+          set -euo pipefail
+          now=$(date +%s)
+          start=${START_EPOCH:-0}
+          if [[ "$start" =~ ^[0-9]+$ ]] && [ "$start" -gt 0 ]; then
+            seconds=$(( now - start ))
+          else
+            seconds=0
+          fi
+          case "${SAVE_OUTCOME:-skipped}" in
+            success) status=saved ;;
+            failure) status=save_error ;;
+            *)
+              if [ "${RESTORE_EXACT_HIT:-false}" = "true" ]; then
+                status=skipped_exact_hit
+              else
+                status=skipped
+              fi
+              ;;
+          esac
+          echo "seconds=$seconds" >> "$GITHUB_OUTPUT"
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+
+      - name: Write timings.json
+        if: ${{ always() }}
+        env:
+          TIMING_TAG: ${{ inputs.tag }}
+          TIMING_PLATFORM: ${{ inputs.platform }}
+          TIMING_RUNNER: ${{ inputs.runner }}
+          TIMING_REF: ${{ inputs.ref || github.ref }}
+          TIMING_T0: ${{ steps.t0.outputs.epoch || '0' }}
+          TIMING_T1: ${{ steps.t1.outputs.epoch || '0' }}
+          TIMING_T2: ${{ steps.t2.outputs.epoch || '0' }}
+          GHOSTTYKIT_PREBUILT: ${{ steps.ghosttykit_prebuilt.outputs.available || 'false' }}
+          GHOSTTYKIT_DOWNLOAD_SECONDS: ${{ steps.ghosttykit_prebuilt.outputs.seconds || '0' }}
+          ZIG_INSTALL_SECONDS: ${{ steps.zig_fallback.outputs.seconds || '0' }}
+          GHOSTTYKIT_FALLBACK_SECONDS: ${{ steps.ghosttykit_fallback.outputs.seconds || '0' }}
+          CACHE_XCODE_KEY: ${{ steps.cache_meta.outputs.xcode_key }}
+          CACHE_BRANCH_KEY: ${{ steps.cache_meta.outputs.branch_key }}
+          CACHE_WORKSPACE_KEY: ${{ steps.cache_meta.outputs.workspace_key }}
+          CACHE_RUNNER_KEY: ${{ steps.cache_meta.outputs.runner_key }}
+          SPM_CACHE_PRIMARY_KEY: ${{ steps.cache_meta.outputs.spm_key }}
+          SPM_CACHE_STATUS: ${{ steps.spm_sanitize.outputs.status || 'not_applicable' }}
+          SPM_CACHE_EXACT_HIT: ${{ steps.spm_sanitize.outputs.status == 'exact_hit' }}
+          SPM_CACHE_MATCHED_KEY: ${{ steps.spm_restore.outputs.matched_key }}
+          SPM_CACHE_RESTORE_OUTCOME: ${{ steps.restore_spm.outcome || 'not_applicable' }}
+          SPM_CACHE_RESTORE_SECONDS: ${{ steps.spm_restore.outputs.seconds || '0' }}
+          SPM_CACHE_SAVE_STATUS: ${{ steps.spm_save.outputs.status || 'not_applicable' }}
+          SPM_CACHE_SAVE_SECONDS: ${{ steps.spm_save.outputs.seconds || '0' }}
+          DERIVED_DATA_CACHE_PRIMARY_KEY: ${{ steps.cache_meta.outputs.derived_data_key }}
+          DERIVED_DATA_CACHE_STATUS: ${{ steps.derived_data_restore.outputs.status || 'not_applicable' }}
+          DERIVED_DATA_CACHE_EXACT_HIT: ${{ steps.derived_data_restore.outputs.exact_hit || 'false' }}
+          DERIVED_DATA_CACHE_MATCHED_KEY: ${{ steps.derived_data_restore.outputs.matched_key }}
+          DERIVED_DATA_CACHE_RESTORE_OUTCOME: ${{ steps.restore_derived_data.outcome || 'not_applicable' }}
+          DERIVED_DATA_CACHE_RESTORE_SECONDS: ${{ steps.derived_data_restore.outputs.seconds || '0' }}
+          DERIVED_DATA_CACHE_SAVE_STATUS: ${{ steps.derived_data_save.outputs.status || 'not_applicable' }}
+          DERIVED_DATA_CACHE_SAVE_SECONDS: ${{ steps.derived_data_save.outputs.seconds || '0' }}
+          CACHE_COLD_RETRY: ${{ steps.build_macos.outputs.cache_retry || 'false' }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifact
+          now=$(date +%s)
+          export TIMING_NOW=$now
+          python3 - <<'PY' > artifact/timings.json
+          import json
+          import os
+          import sys
+
+          def integer(name: str) -> int:
+              try:
+                  return int(os.environ.get(name, "0"))
+              except ValueError:
+                  return 0
+
+          def boolean(name: str) -> bool:
+              return os.environ.get(name, "false").lower() == "true"
+
+          t0 = integer("TIMING_T0")
+          t1 = integer("TIMING_T1")
+          t2 = integer("TIMING_T2")
+          now = integer("TIMING_NOW")
+          timing_clock_valid = t0 > 0
+          spm_status = os.environ["SPM_CACHE_STATUS"]
+          derived_status = os.environ["DERIVED_DATA_CACHE_STATUS"]
+          payload = {
+              "tag": os.environ["TIMING_TAG"],
+              "platform": os.environ["TIMING_PLATFORM"],
+              "runner": os.environ["TIMING_RUNNER"],
+              "ref": os.environ["TIMING_REF"],
+              "deps_seconds": t1 - t0 if timing_clock_valid and t1 > t0 else 0,
+              "build_seconds": t2 - t1 if timing_clock_valid and t1 > t0 and t2 > t1 else 0,
+              "post_checkout_total_seconds": now - t0 if timing_clock_valid and now > t0 else 0,
+              "ghosttykit_prebuilt": boolean("GHOSTTYKIT_PREBUILT"),
+              "ghosttykit_download_seconds": integer("GHOSTTYKIT_DOWNLOAD_SECONDS"),
+              "zig_install_seconds": integer("ZIG_INSTALL_SECONDS"),
+              "ghosttykit_fallback_seconds": integer("GHOSTTYKIT_FALLBACK_SECONDS"),
+              "cache_xcode_key": os.environ.get("CACHE_XCODE_KEY", ""),
+              "cache_branch_key": os.environ.get("CACHE_BRANCH_KEY", ""),
+              "cache_workspace_key": os.environ.get("CACHE_WORKSPACE_KEY", ""),
+              "cache_runner_key": os.environ.get("CACHE_RUNNER_KEY", ""),
+              "spm_cache_primary_key": os.environ.get("SPM_CACHE_PRIMARY_KEY", ""),
+              "spm_cache_status": spm_status,
+              "spm_cache_hit": spm_status in {"exact_hit", "fallback_hit"},
+              "spm_cache_exact_hit": boolean("SPM_CACHE_EXACT_HIT"),
+              "spm_cache_matched_key": os.environ.get("SPM_CACHE_MATCHED_KEY", ""),
+              "spm_cache_restore_outcome": os.environ["SPM_CACHE_RESTORE_OUTCOME"],
+              "spm_cache_restore_seconds": integer("SPM_CACHE_RESTORE_SECONDS"),
+              "spm_cache_save_status": os.environ["SPM_CACHE_SAVE_STATUS"],
+              "spm_cache_save_seconds": integer("SPM_CACHE_SAVE_SECONDS"),
+              "derived_data_cache_primary_key": os.environ.get("DERIVED_DATA_CACHE_PRIMARY_KEY", ""),
+              "derived_data_cache_status": derived_status,
+              "derived_data_cache_hit": derived_status in {"exact_hit", "fallback_hit"},
+              "derived_data_cache_exact_hit": boolean("DERIVED_DATA_CACHE_EXACT_HIT"),
+              "derived_data_cache_matched_key": os.environ.get("DERIVED_DATA_CACHE_MATCHED_KEY", ""),
+              "derived_data_cache_restore_outcome": os.environ["DERIVED_DATA_CACHE_RESTORE_OUTCOME"],
+              "derived_data_cache_restore_seconds": integer("DERIVED_DATA_CACHE_RESTORE_SECONDS"),
+              "derived_data_cache_save_status": os.environ["DERIVED_DATA_CACHE_SAVE_STATUS"],
+              "derived_data_cache_save_seconds": integer("DERIVED_DATA_CACHE_SAVE_SECONDS"),
+              "cache_cold_retry": boolean("CACHE_COLD_RETRY"),
+          }
+          json.dump(payload, fp=sys.stdout, indent=2, sort_keys=True)
+          print()
+          PY
+          t0=${TIMING_T0:-0}
+          t1=${TIMING_T1:-0}
+          t2=${TIMING_T2:-0}
+          if (( t0 > 0 && t1 > t0 )); then
+            deps_seconds=$(( t1 - t0 ))
+          else
+            deps_seconds=0
+          fi
+          if (( t0 > 0 && t1 > t0 && t2 > t1 )); then
+            build_seconds=$(( t2 - t1 ))
+          else
+            build_seconds=0
+          fi
+          if (( t0 > 0 && now > t0 )); then
+            total_seconds=$(( now - t0 ))
+          else
+            total_seconds=0
+          fi
+          {
+            echo "### reload-build timings"
+            echo ""
+            echo "- runner: \`$TIMING_RUNNER\`"
+            echo "- platform: \`$TIMING_PLATFORM\`"
+            echo "- deps: ${deps_seconds}s"
+            echo "- build: ${build_seconds}s"
+            echo "- SPM cache: ${SPM_CACHE_STATUS} (restore ${SPM_CACHE_RESTORE_SECONDS}s, save ${SPM_CACHE_SAVE_SECONDS}s / ${SPM_CACHE_SAVE_STATUS})"
+            echo "- DerivedData cache: ${DERIVED_DATA_CACHE_STATUS} (restore ${DERIVED_DATA_CACHE_RESTORE_SECONDS}s, save ${DERIVED_DATA_CACHE_SAVE_SECONDS}s / ${DERIVED_DATA_CACHE_SAVE_STATUS})"
+            echo "- cache-triggered cold retry: ${CACHE_COLD_RETRY}"
+            echo "- GhosttyKit prebuilt: ${GHOSTTYKIT_PREBUILT} (download ${GHOSTTYKIT_DOWNLOAD_SECONDS}s, Zig fallback ${ZIG_INSTALL_SECONDS}s)"
+            echo "- post-checkout total: ${total_seconds}s"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload artifact
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: reload-${{ inputs.tag }}-${{ inputs.platform }}
+          path: artifact/
+          retention-days: 1
+          if-no-files-found: error

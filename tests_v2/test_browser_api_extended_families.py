@@ -3,6 +3,7 @@
 
 import base64
 import http.server
+import json
 import os
 import socketserver
 import sys
@@ -16,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from cmux import cmux, cmuxError
 
 
-SOCKET_PATH = os.environ.get("CMUX_SOCKET", "/tmp/cmux-debug.sock")
+SOCKET_PATH = os.environ.get("CMUX_SOCKET_PATH", "/tmp/cmux-debug.sock")
 
 
 def _must(cond: bool, msg: str) -> None:
@@ -33,6 +34,15 @@ def _expect_error_contains(label: str, fn, needle: str) -> None:
             return
         raise cmuxError(f"{label}: expected error containing {needle!r}, got: {text}")
     raise cmuxError(f"{label}: expected error containing {needle!r}, but call succeeded")
+
+
+def _wait_for(pred, timeout_s: float = 6.0, step_s: float = 0.05) -> None:
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        if pred():
+            return
+        time.sleep(step_s)
+    raise cmuxError("Timed out waiting for condition")
 
 
 def _wait_selector(c: cmux, surface_id: str, selector: str, timeout_s: float = 6.0) -> None:
@@ -250,6 +260,10 @@ def main() -> int:
             t.start()
             dl = c._call("browser.download.wait", {"surface_id": sid, "path": download_path, "timeout_ms": 5000}) or {}
             _must(bool(dl.get("downloaded")) is True, f"Expected download wait success: {dl}")
+            try:
+                os.unlink(download_path)
+            except Exception:
+                pass
 
             c._call(
                 "browser.cookies.set",
@@ -263,7 +277,51 @@ def main() -> int:
             got_cookie = c._call("browser.cookies.get", {"surface_id": sid, "name": "cmux_cookie"}) or {}
             cookies = got_cookie.get("cookies") or []
             _must(any(str(row.get("name")) == "cmux_cookie" for row in cookies), f"Expected cmux_cookie in cookies.get: {got_cookie}")
+
+            http_only_name = "cmux_cookie_http_only"
+            c._call(
+                "browser.cookies.set",
+                {
+                    "surface_id": sid,
+                    "name": http_only_name,
+                    "value": "secret_cookie_value",
+                    "url": index_url,
+                    "httpOnly": True,
+                },
+            )
+            got_http_only = c._call("browser.cookies.get", {"surface_id": sid, "name": http_only_name}) or {}
+            http_only_rows = got_http_only.get("cookies") or []
+            http_only_row = next(
+                (row for row in http_only_rows if str(row.get("name")) == http_only_name),
+                None,
+            )
+            _must(http_only_row is not None, f"Expected HttpOnly cookie in cookies.get: {got_http_only}")
+            _must(bool(http_only_row.get("httpOnly")) is True, f"Expected httpOnly=true in cookies.get: {got_http_only}")
+            _must(bool(http_only_row.get("hostOnly")) is True, f"Expected hostOnly=true in cookies.get: {got_http_only}")
+            filtered_http_only = c._call(
+                "browser.cookies.get",
+                {"surface_id": sid, "httpOnly": True},
+            ) or {}
+            filtered_names = {str(row.get("name")) for row in (filtered_http_only.get("cookies") or [])}
+            _must(http_only_name in filtered_names, f"Expected httpOnly filter to retain cookie: {filtered_http_only}")
+            filtered_non_http_only = c._call(
+                "browser.cookies.get",
+                {"surface_id": sid, "httpOnly": False},
+            ) or {}
+            non_http_only_names = {str(row.get("name")) for row in (filtered_non_http_only.get("cookies") or [])}
+            _must("cmux_cookie" in non_http_only_names, f"Expected non-HttpOnly cookie in filter=false result: {filtered_non_http_only}")
+            _must(http_only_name not in non_http_only_names, f"Expected httpOnly filter=false to exclude cookie: {filtered_non_http_only}")
+            document_cookie = c._call(
+                "browser.eval",
+                {"surface_id": sid, "script": "document.cookie"},
+            ) or {}
+            _must(
+                http_only_name not in str(document_cookie.get("value") or ""),
+                f"HttpOnly cookie leaked to document.cookie: {document_cookie}",
+            )
+
             c._call("browser.cookies.clear", {"surface_id": sid, "name": "cmux_cookie"})
+            c._call("browser.cookies.clear", {"surface_id": sid, "name": http_only_name})
             got_after_clear = c._call("browser.cookies.get", {"surface_id": sid, "name": "cmux_cookie"}) or {}
             _must(len(got_after_clear.get("cookies") or []) == 0, f"Expected cookie cleared: {got_after_clear}")
 
@@ -306,7 +364,17 @@ def main() -> int:
             _wait_selector(c, sid, "#action-btn", timeout_s=7.0)
             c._call("browser.console.list", {"surface_id": sid})
             c._call("browser.addscript", {"surface_id": sid, "script": "window.emitConsoleAndError();"})
-            time.sleep(0.35)
+
+            def _console_ready() -> bool:
+                entries = c._call("browser.console.list", {"surface_id": sid}) or {}
+                return int(entries.get("count") or 0) >= 1
+
+            def _errors_ready() -> bool:
+                entries = c._call("browser.errors.list", {"surface_id": sid}) or {}
+                return int(entries.get("count") or 0) >= 1
+
+            _wait_for(_console_ready, timeout_s=7.0)
+            _wait_for(_errors_ready, timeout_s=7.0)
             console_entries = c._call("browser.console.list", {"surface_id": sid}) or {}
             errors_entries = c._call("browser.errors.list", {"surface_id": sid}) or {}
             _must(int(console_entries.get("count") or 0) >= 1, f"Expected console entries: {console_entries}")
@@ -319,11 +387,105 @@ def main() -> int:
 
             state_path = tempfile.NamedTemporaryFile(delete=False, prefix="cmux-state-", suffix=".json").name
             c._call("browser.storage.set", {"surface_id": sid, "type": "local", "key": "persist", "value": "yes"})
+            state_cookie_name = "cmux_state_host_only"
+            other_state_cookie_name = "cmux_state_other_host"
+            domain_state_cookie_name = "cmux_state_domain"
+            c._call(
+                "browser.cookies.set",
+                {
+                    "surface_id": sid,
+                    "name": state_cookie_name,
+                    "value": "state-secret",
+                    "url": index_url,
+                    "httpOnly": True,
+                },
+            )
+            c._call(
+                "browser.cookies.set",
+                {
+                    "surface_id": sid,
+                    "name": other_state_cookie_name,
+                    "value": "other-state-secret",
+                    "url": index_url.replace("127.0.0.1", "localhost"),
+                    "httpOnly": True,
+                },
+            )
+            c._call(
+                "browser.cookies.set",
+                {
+                    "surface_id": sid,
+                    "name": domain_state_cookie_name,
+                    "value": "domain-state-secret",
+                    "url": "https://example.test/",
+                    "domain": ".example.test",
+                    "secure": True,
+                    "httpOnly": True,
+                },
+            )
             c._call("browser.state.save", {"surface_id": sid, "path": state_path})
+            state_snapshot = json.loads(Path(state_path).read_text(encoding="utf-8"))
+            saved_state_rows = state_snapshot.get("cookies") or []
+            saved_state_names = {str(row.get("name")) for row in saved_state_rows}
+            _must(
+                {state_cookie_name, other_state_cookie_name, domain_state_cookie_name} <= saved_state_names,
+                f"Expected both host-only cookies in state snapshot: {state_snapshot}",
+            )
+            for saved_row in saved_state_rows:
+                if str(saved_row.get("name")) in {state_cookie_name, other_state_cookie_name}:
+                    _must(bool(saved_row.get("hostOnly")) is True, f"Expected hostOnly state row: {saved_row}")
+                if str(saved_row.get("name")) == domain_state_cookie_name:
+                    _must(bool(saved_row.get("hostOnly")) is False, f"Expected domain-scoped state row: {saved_row}")
             c._call("browser.storage.set", {"surface_id": sid, "type": "local", "key": "persist", "value": "no"})
+            c._call("browser.cookies.clear", {"surface_id": sid, "name": state_cookie_name})
+            c._call("browser.cookies.clear", {"surface_id": sid, "name": other_state_cookie_name})
+            c._call("browser.cookies.clear", {"surface_id": sid, "name": domain_state_cookie_name})
             c._call("browser.state.load", {"surface_id": sid, "path": state_path})
             persisted = c._call("browser.storage.get", {"surface_id": sid, "type": "local", "key": "persist"}) or {}
             _must(str(persisted.get("value") or "") == "yes", f"Expected state.load to restore storage key: {persisted}")
+            restored_state_cookie = c._call(
+                "browser.cookies.get", {"surface_id": sid, "name": state_cookie_name}
+            ) or {}
+            restored_state_rows = restored_state_cookie.get("cookies") or []
+            restored_state_row = next(
+                (row for row in restored_state_rows if str(row.get("name")) == state_cookie_name),
+                None,
+            )
+            _must(restored_state_row is not None, f"Expected state.load to restore cookie: {restored_state_cookie}")
+            _must(bool(restored_state_row.get("hostOnly")) is True, f"Expected restored hostOnly cookie: {restored_state_cookie}")
+            _must(bool(restored_state_row.get("httpOnly")) is True, f"Expected restored HttpOnly cookie: {restored_state_cookie}")
+            restored_other_cookie = c._call(
+                "browser.cookies.get", {"surface_id": sid, "name": other_state_cookie_name}
+            ) or {}
+            restored_other_rows = restored_other_cookie.get("cookies") or []
+            restored_other_row = next(
+                (row for row in restored_other_rows if str(row.get("name")) == other_state_cookie_name),
+                None,
+            )
+            _must(restored_other_row is not None, f"Expected second state cookie: {restored_other_cookie}")
+            _must(bool(restored_other_row.get("hostOnly")) is True, f"Expected second hostOnly cookie: {restored_other_cookie}")
+            _must(
+                "localhost" in str(restored_other_row.get("domain") or "").lower(),
+                f"Expected second cookie to retain localhost scope: {restored_other_cookie}",
+            )
+            restored_domain_cookie = c._call(
+                "browser.cookies.get", {"surface_id": sid, "name": domain_state_cookie_name}
+            ) or {}
+            restored_domain_rows = restored_domain_cookie.get("cookies") or []
+            restored_domain_row = next(
+                (row for row in restored_domain_rows if str(row.get("name")) == domain_state_cookie_name),
+                None,
+            )
+            _must(restored_domain_row is not None, f"Expected domain-scoped state cookie: {restored_domain_cookie}")
+            _must(bool(restored_domain_row.get("hostOnly")) is False, f"Expected domain scope after restore: {restored_domain_cookie}")
+            _must(bool(restored_domain_row.get("httpOnly")) is True, f"Expected domain HttpOnly after restore: {restored_domain_cookie}")
+            _must(
+                str(restored_domain_row.get("domain") or "").lstrip(".").lower() == "example.test",
+                f"Expected domain cookie to retain example.test scope: {restored_domain_cookie}",
+            )
+            try:
+                os.unlink(state_path)
+            except Exception:
+                pass
 
     print("PASS: extended browser parity families are green")
     return 0

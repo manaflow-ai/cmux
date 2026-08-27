@@ -55,6 +55,33 @@ def _wait_focused_index(client: cmux, index: int, timeout: float = 4.0) -> bool:
     return False
 
 
+def _wait_focused(
+    client: cmux,
+    *,
+    surface_id: Optional[str] = None,
+    index: Optional[int] = None,
+    timeout: float = 5.0,
+) -> Optional[SurfaceTuple]:
+    """Poll list_surfaces until the focused surface matches the expected id and/or
+    index, then return it. Returns the last-seen focused surface (or None) on timeout
+    so callers can produce a precise failure message.
+
+    The post-close focus reselection is applied asynchronously, so we poll the real
+    signal (the focused surface) instead of sleeping a fixed amount and reading once.
+    """
+    start = time.time()
+    focused: Optional[SurfaceTuple] = None
+    while time.time() - start < timeout:
+        focused = _focused(client.list_surfaces())
+        if focused is not None:
+            if (surface_id is None or focused[1] == surface_id) and (
+                index is None or focused[0] == index
+            ):
+                return focused
+        time.sleep(0.05)
+    return focused
+
+
 def _ensure_surfaces(client: cmux, count: int) -> None:
     surfaces = client.list_surfaces()
     while len(surfaces) < count:
@@ -88,10 +115,10 @@ def test_close_middle_keeps_index(client: cmux) -> TestResult:
         expected_next_id = before[2][1]
 
         client.close_surface()  # closes focused surface
-        time.sleep(0.25)
 
-        after = client.list_surfaces()
-        focused = _focused(after)
+        # Focus reselection after close is asynchronous; poll for the expected
+        # focused surface (id moved into the closed slot, index stays 1).
+        focused = _wait_focused(client, surface_id=expected_next_id, index=1, timeout=5.0)
         if focused is None:
             result.failure("No focused surface after close")
             return result
@@ -129,10 +156,10 @@ def test_close_last_selects_previous(client: cmux) -> TestResult:
             return result
 
         client.close_surface()
-        time.sleep(0.25)
 
-        after = client.list_surfaces()
-        focused = _focused(after)
+        # Focus reselection after close is asynchronous; poll for the previous
+        # surface to become focused instead of sleeping a fixed amount.
+        focused = _wait_focused(client, surface_id=expected_prev_id, timeout=5.0)
         if focused is None:
             result.failure("No focused surface after close")
             return result

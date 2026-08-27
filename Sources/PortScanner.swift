@@ -1,3 +1,6 @@
+import CmuxCore
+import CmuxFoundation
+import Darwin
 import Foundation
 
 /// Batched port scanner that replaces per-shell `ps + lsof` scanning.
@@ -10,56 +13,143 @@ import Foundation
 /// 1. `kick()` adds panel to `pendingKicks` set
 /// 2. If no burst is active, starts a 200ms coalesce timer
 /// 3. Coalesce fires → snapshots pending set → starts burst of 6 scans
-/// 4. New kicks during burst merge into the active burst
-/// 5. After last scan, if new kicks arrived, start a new coalesce cycle
+/// 4. New kicks during a burst require three later scan attempts
+/// 5. After the last scan, start a follow-up burst if the active burst did not
+///    have three attempts left for the most recent kick
 final class PortScanner: @unchecked Sendable {
     static let shared = PortScanner()
 
-    /// Callback delivers `(workspaceId, panelId, ports)` on main thread.
-    var onPortsUpdated: ((_ workspaceId: UUID, _ panelId: UUID, _ ports: [Int]) -> Void)?
+    let commandRunner: any CommandRunning
 
+    /// Callback delivers `(workspaceId, panelId, ports)` on the main actor.
+    @MainActor var onPortsUpdated: (@MainActor (_ workspaceId: UUID, _ panelId: UUID, _ ports: [Int]) -> Void)?
+    /// Callback delivers workspace-scoped ports owned by tracked agents.
+    @MainActor var onAgentPortsUpdated: (@MainActor (_ workspaceId: UUID, _ ports: [Int]) -> Bool)?
     // MARK: - State (all guarded by `queue`)
 
-    private let queue = DispatchQueue(label: "com.cmux.port-scanner", qos: .utility)
+    let queue = DispatchQueue(label: "com.cmux.port-scanner", qos: .utility)
+    let processIdentityProvider: @Sendable (pid_t) -> AgentPIDProcessIdentity?
+    let processPresenceProvider: @Sendable (pid_t) -> PIDPresence
+    @MainActor let ttySessionIdentityProvider: @MainActor @Sendable (String) -> TerminalTTYSessionIdentity?
 
-    /// TTY name per (workspace, panel).
     private var ttyNames: [PanelKey: String] = [:]
+    private var panelRevisionByKey: [PanelKey: UInt64] = [:]
 
-    /// Panels that requested a scan since the last coalesce snapshot.
+    var agentRevisionByWorkspace: [UUID: UInt64] = [:]
+    private var agentTrackingState = AgentPortTrackingState()
+    var scanCoordination = PortScanCoordination()
+
+    var trackedAgentWorkspaces: Set<UUID> = []
+    var agentPublicationHistory = AgentPortPublicationHistory()
+    /// Stable publication state shared by every best-effort local scan path.
+    private var panelPortSnapshot = PortScanSnapshotReconciler<PanelKey>(
+        missingPortRetentionLimit: PortScanner.panelMissingPortRetentionLimit
+    )
+    var agentPortSnapshot = PortScanSnapshotReconciler<UUID>()
+    /// Last known listener identities for each published panel port. These
+    /// identities let a later scan retire a port even when an unrelated PID
+    /// makes the enclosing process-tree scan incomplete.
+    private var panelPortOwnersByKey: [PanelKey: [Int: Set<AgentPIDProcessIdentity>]] = [:]
+    /// Last known listener identities for each published agent port.
+    var agentPortOwnersByWorkspace: [UUID: [Int: Set<AgentPIDProcessIdentity>]] = [:]
+    var agentSnapshotReplacementState = AgentPortSnapshotReplacementState()
+    var forceAgentResultWorkspaces: Set<UUID> = []
+    private var trackedAgentScanningPaused = false
+    let publicationState = PortScanPublicationState()
+    var publicationBuffer = PortScanPublicationBuffer()
+
     private var pendingKicks: Set<PanelKey> = []
+
+    /// Scan attempts still owed to the most recent kick. This keeps scheduling
+    /// coupled to the panel reconciler's complete-miss retention policy.
+    private var scansRemainingForPendingKicks = 0
 
     /// Whether a burst sequence is currently running.
     private var burstActive = false
 
-    /// Coalesce timer (200ms after first kick).
     private var coalesceTimer: DispatchSourceTimer?
 
-    /// Burst scan offsets in seconds from the start of the burst.
+    /// Periodic timer for agent-owned process trees that aren't attached to a TTY.
+    private var agentScanTimer: DispatchSourceTimer?
+
     /// Each scan fires at this absolute offset; the recursive scheduler
     /// converts to relative delays between consecutive scans.
     private static let burstOffsets: [Double] = [0.5, 1.5, 3, 5, 7.5, 10]
+    private static let panelMissingPortRetentionLimit = 2
+    private static let minimumScansPerKick = panelMissingPortRetentionLimit + 1
+    private static let agentRescanInterval: TimeInterval = 2
 
     // MARK: - Public API
 
-    struct PanelKey: Hashable {
-        let workspaceId: UUID
-        let panelId: UUID
+    init(
+        commandRunner: any CommandRunning = CommandRunner(),
+        processIdentityProvider: @escaping @Sendable (pid_t) -> AgentPIDProcessIdentity? = {
+            AgentPIDProcessIdentity(pid: $0)
+        },
+        processPresenceProvider: @escaping @Sendable (pid_t) -> PIDPresence = {
+            PIDPresence.current(pid: $0)
+        },
+        ttySessionIdentityProvider: @escaping @MainActor @Sendable (String) -> TerminalTTYSessionIdentity? = {
+            TerminalTTYSessionIdentity(ttyName: $0)
+        }
+    ) {
+        self.commandRunner = commandRunner
+        self.processIdentityProvider = processIdentityProvider
+        self.processPresenceProvider = processPresenceProvider
+        self.ttySessionIdentityProvider = ttySessionIdentityProvider
     }
 
+    /// Registers or replaces a panel's TTY lifecycle and clears its prior port ownership.
+    @MainActor
     func registerTTY(workspaceId: UUID, panelId: UUID, ttyName: String) {
+        let key = PanelKey(workspaceId: workspaceId, panelId: panelId)
+        guard let revision = publicationState.replacePanelLifecycle(
+            key: key,
+            ttyName: ttyName,
+            sessionIdentity: ttySessionIdentityProvider(ttyName)
+        ) else {
+            return
+        }
+        let scanTTYName = Self.canonicalTTYName(ttyName)
         queue.async { [self] in
-            let key = PanelKey(workspaceId: workspaceId, panelId: panelId)
-            guard ttyNames[key] != ttyName else { return }
-            ttyNames[key] = ttyName
+            let previousTTY = ttyNames[key]
+            panelPortSnapshot.remove(keys: [key])
+            panelPortOwnersByKey.removeValue(forKey: key)
+            ttyNames[key] = scanTTYName
+            panelRevisionByKey[key] = revision
+            if previousTTY != nil {
+                enqueuePanelPublication([
+                    PanelPortScanPublication(key: key, ports: [], revision: revision)
+                ])
+            }
         }
     }
 
+    /// Stops tracking a panel and removes its published ports and owner evidence.
+    @MainActor
     func unregisterPanel(workspaceId: UUID, panelId: UUID) {
+        let key = PanelKey(workspaceId: workspaceId, panelId: panelId)
+        publicationState.invalidatePanelLifecycle(for: key)
         queue.async { [self] in
-            let key = PanelKey(workspaceId: workspaceId, panelId: panelId)
             ttyNames.removeValue(forKey: key)
+            panelRevisionByKey.removeValue(forKey: key)
             pendingKicks.remove(key)
+            if pendingKicks.isEmpty {
+                scansRemainingForPendingKicks = 0
+            }
+            panelPortSnapshot.remove(keys: [key])
+            panelPortOwnersByKey.removeValue(forKey: key)
         }
+    }
+
+    @MainActor
+    func freshReportedTTYName(workspaceId: UUID, panelId: UUID) -> String? {
+        let key = PanelKey(workspaceId: workspaceId, panelId: panelId)
+        guard let ttyName = publicationState.registeredPanelTTYName(for: key),
+              let sessionIdentity = ttySessionIdentityProvider(ttyName) else {
+            return nil
+        }
+        return publicationState.currentPanelTTYName(for: key, sessionIdentity: sessionIdentity)
     }
 
     func kick(workspaceId: UUID, panelId: UUID) {
@@ -67,18 +157,57 @@ final class PortScanner: @unchecked Sendable {
             let key = PanelKey(workspaceId: workspaceId, panelId: panelId)
             guard ttyNames[key] != nil else { return }
             pendingKicks.insert(key)
+            scansRemainingForPendingKicks = Self.minimumScansPerKick
 
             if !burstActive {
                 startCoalesce()
             }
-            // If burst is active, the next scan iteration will pick up the new kick.
+            // If a burst is active, its later scans pay down this count. A
+            // follow-up burst starts when too few scans remained.
+        }
+    }
+    @MainActor
+    func refreshAgentPorts(workspaceId: UUID, agentRoots: Set<AgentPortRootIdentity>) {
+        let normalizedRoots = Set(agentRoots.filter { $0.pid > 0 })
+        let agentRevision = publicationState.replaceAgentLifecycle(
+            workspaceId: workspaceId,
+            roots: normalizedRoots
+        )
+        queue.async { [self] in
+            refreshAgentPortsLocked(workspaceId: workspaceId, agentRoots: normalizedRoots, revision: agentRevision)
+        }
+    }
+
+    /// Stops tracking an agent workspace and clears its published ports and owner evidence.
+    @MainActor
+    func unregisterAgentWorkspace(workspaceId: UUID) {
+        _ = publicationState.invalidateAgentLifecycle(for: workspaceId)
+        queue.async { [self] in
+            agentRevisionByWorkspace.removeValue(forKey: workspaceId)
+            _ = agentTrackingState.replaceRoots([], workspaceId: workspaceId)
+            trackedAgentWorkspaces.remove(workspaceId)
+            agentPortSnapshot.remove(keys: [workspaceId])
+            agentPortOwnersByWorkspace.removeValue(forKey: workspaceId)
+            agentSnapshotReplacementState.cancel(workspaceId: workspaceId)
+            forceAgentResultWorkspaces.remove(workspaceId)
+            agentPublicationHistory.remove(workspaceId: workspaceId)
+            scanCoordination.removeAgentWorkspaces([workspaceId])
+            publicationBuffer.removeAgentWorkspace(workspaceId)
+            updateAgentScanTimerLocked()
+        }
+    }
+
+    func setTrackedAgentScanningPaused(_ paused: Bool) {
+        queue.async { [self] in
+            guard trackedAgentScanningPaused != paused else { return }
+            trackedAgentScanningPaused = paused
+            updateAgentScanTimerLocked()
         }
     }
 
     // MARK: - Coalesce + Burst
 
     private func startCoalesce() {
-        // Already on `queue`.
         coalesceTimer?.cancel()
         let timer = DispatchSource.makeTimerSource(queue: queue)
         timer.schedule(deadline: .now() + 0.2)
@@ -90,7 +219,6 @@ final class PortScanner: @unchecked Sendable {
     }
 
     private func coalesceTimerFired() {
-        // Already on `queue`.
         coalesceTimer?.cancel()
         coalesceTimer = nil
 
@@ -125,139 +253,630 @@ final class PortScanner: @unchecked Sendable {
         // Already on `queue`. Snapshot which panels to scan and their TTYs.
         // We scan all registered panels, not just pending ones, since ports can
         // appear/disappear on any panel.
-        let snapshot = ttyNames
+        let panelSnapshot = ttyNames
 
-        guard !snapshot.isEmpty else {
+        guard !panelSnapshot.isEmpty else {
             pendingKicks.removeAll()
+            scansRemainingForPendingKicks = 0
             return
         }
 
-        // Clear pending kicks — they're accounted for in this scan.
-        pendingKicks.removeAll()
+        guard scanCoordination.beginPanelScan() else { return }
+
+        if scansRemainingForPendingKicks > 0 {
+            scansRemainingForPendingKicks -= 1
+            if scansRemainingForPendingKicks == 0 {
+                pendingKicks.removeAll()
+            }
+        }
+
+        let workspaceIds = Set(panelSnapshot.keys.map(\.workspaceId))
+        let panelRevisions = panelSnapshot.keys.reduce(into: [PanelKey: UInt64]()) { result, key in
+            result[key] = panelRevisionByKey[key]
+        }
+        let agentRevisions = agentRevisionSnapshot(for: workspaceIds)
+        let agentRootsByWorkspace = agentTrackingState.roots(for: workspaceIds)
+        let requestID = scanCoordination.makeRequestID()
+        Task { [weak self] in
+            guard let self else { return }
+            await self.finishScan(
+                panelSnapshot: panelSnapshot,
+                panelRevisions: panelRevisions,
+                agentRootsByWorkspace: agentRootsByWorkspace,
+                agentRevisions: agentRevisions,
+                requestID: requestID
+            )
+        }
+    }
+
+    /// Completes one coalesced scan and assembles panel and agent ownership evidence.
+    private func finishScan(
+        panelSnapshot: [PanelKey: String],
+        panelRevisions: [PanelKey: UInt64],
+        agentRootsByWorkspace: [UUID: Set<AgentPortRootIdentity>],
+        agentRevisions: [UUID: UInt64],
+        requestID: UInt64
+    ) async {
+        let workspaceIds = Set(panelSnapshot.keys.map(\.workspaceId))
 
         // Build TTY set (deduplicated).
-        let uniqueTTYs = Set(snapshot.values)
+        let uniqueTTYs = Set(panelSnapshot.values)
         let ttyList = uniqueTTYs.joined(separator: ",")
 
         // 1. ps -t tty1,tty2,... -o pid=,tty=
-        let pidToTTY = runPS(ttyList: ttyList)
-        guard !pidToTTY.isEmpty else {
-            // No processes on any TTY — clear ports for all panels.
-            let results = snapshot.map { ($0.key, [Int]()) }
-            deliverResults(results)
+        async let agentProcessScanTask = expandAgentProcessTree(
+            agentRootsByWorkspace: agentRootsByWorkspace
+        )
+        let psScan = ttyList.isEmpty
+            ? (values: [Int: String](), completeness: PortScanCompleteness.complete)
+            : await runPS(ttyList: ttyList)
+        let agentProcessScan = await agentProcessScanTask
+        let pidToTTY = psScan.values
+        let capturedPanelPIDs = capturePIDIdentities(Set(pidToTTY.keys))
+        let capturedAgentPIDs = captureAgentPIDIdentities(
+            ownershipByPID: agentProcessScan.values,
+            workspaceIds: workspaceIds
+        )
+        let agentOwnershipBeforeLsof = capturedAgentPIDs.ownershipByPID
+        let agentCompletenessBeforeLsof = combineAgentCompleteness(
+            agentProcessScan.completenessByWorkspace,
+            capturedAgentPIDs.completenessByWorkspace,
+            workspaceIds: workspaceIds
+        )
+
+        let allPids = Set(capturedPanelPIDs.identitiesByPID.keys).union(agentOwnershipBeforeLsof.keys)
+        guard !allPids.isEmpty else {
+            let panelResults = panelSnapshot.map { ($0.key, [Int]()) }
+            let panelLsofEvidence = PortLsofScanResult(
+                values: [:],
+                globallyComplete: true,
+                incompletePIDs: capturedPanelPIDs.incompletePIDs
+            )
+            let agentLsofEvidence = PortLsofScanResult(
+                values: [:],
+                globallyComplete: true,
+                incompletePIDs: capturedAgentPIDs.incompletePIDs
+            )
+            let panelCompletenessByKey = Self.panelCompletenessByKey(
+                panelTTYs: panelSnapshot,
+                pidToTTY: pidToTTY,
+                psCompleteness: psScan.completeness,
+                lsofScan: panelLsofEvidence
+            )
+            queue.async { [weak self] in
+                self?.completePanelScan(
+                    panelResults,
+                    panelTTYs: panelSnapshot,
+                    panelRevisions: panelRevisions,
+                    workspaceIds: workspaceIds,
+                    agentPortsByWorkspace: [:],
+                    panelPortOwnersByKey: [:],
+                    panelProcessIdentitiesByKey: [:],
+                    agentPortOwnersByWorkspace: [:],
+                    agentProcessIdentitiesByWorkspace: [:],
+                    agentRevisions: agentRevisions,
+                    panelCompletenessByKey: panelCompletenessByKey,
+                    panelProcessScopeCompletenessByKey: panelCompletenessByKey,
+                    agentCompletenessByWorkspace: agentCompletenessBeforeLsof,
+                    agentProcessScopeCompletenessByWorkspace: agentCompletenessBeforeLsof,
+                    panelLsofEvidence: panelLsofEvidence,
+                    agentLsofEvidence: agentLsofEvidence,
+                    inspectedPIDs: [],
+                    requestID: requestID
+                )
+            }
             return
         }
 
         // 2. lsof -nP -a -p <all_pids> -iTCP -sTCP:LISTEN -F pn
-        let allPids = pidToTTY.keys.sorted().map(String.init).joined(separator: ",")
-        let pidToPorts = runLsof(pidsCsv: allPids)
+        let pidsCsv = allPids.sorted().map(String.init).joined(separator: ",")
+        let lsofScan = await runLsof(pidsCsv: pidsCsv)
+        let pidToPorts = lsofScan.values
+        async let finalizedAgentPIDTask = finalizeAgentPIDOwnership(
+            rootsByWorkspace: agentRootsByWorkspace,
+            capturedOwnershipByPID: agentOwnershipBeforeLsof,
+            capturedIdentitiesByPID: capturedAgentPIDs.identitiesByPID,
+            workspaceIds: workspaceIds
+        )
+        let refreshedPanelProcessScan = capturedPanelPIDs.identitiesByPID.isEmpty
+            ? (values: [Int: String](), completeness: PortScanCompleteness.complete)
+            : await runPS(ttyList: ttyList)
+        let revalidatedPanelPIDs = revalidatePanelPIDOwnership(
+            capturedPIDToTTY: pidToTTY,
+            capturedIdentitiesByPID: capturedPanelPIDs.identitiesByPID,
+            refreshedPIDToTTY: refreshedPanelProcessScan.values
+        )
+        let validPIDToTTY = revalidatedPanelPIDs.values
+        let finalizedAgentPIDs = await finalizedAgentPIDTask
+        let agentOwnershipByPID = finalizedAgentPIDs.ownershipByPID
 
         // 3. Join: PID→TTY + PID→ports → TTY→ports
         var portsByTTY: [String: Set<Int>] = [:]
+        var panelPortOwnersByKey: [PanelKey: [Int: Set<AgentPIDProcessIdentity>]] = [:]
+        let panelKeysByTTY = panelSnapshot.reduce(into: [String: [PanelKey]]()) { result, entry in
+            result[entry.value, default: []].append(entry.key)
+        }
+        var panelProcessIdentitiesByKey: [PanelKey: Set<AgentPIDProcessIdentity>] = [:]
+        for (pid, tty) in validPIDToTTY {
+            guard let identity = capturedPanelPIDs.identitiesByPID[pid] else { continue }
+            for key in panelKeysByTTY[tty] ?? [] {
+                panelProcessIdentitiesByKey[key, default: []].insert(identity)
+            }
+        }
         for (pid, ports) in pidToPorts {
-            guard let tty = pidToTTY[pid] else { continue }
+            guard let tty = validPIDToTTY[pid] else { continue }
             portsByTTY[tty, default: []].formUnion(ports)
+            guard let identity = capturedPanelPIDs.identitiesByPID[pid] else { continue }
+            for key in panelKeysByTTY[tty] ?? [] {
+                for port in ports {
+                    panelPortOwnersByKey[key, default: [:]][port, default: []].insert(identity)
+                }
+            }
+        }
+
+        var agentPortsByWorkspace: [UUID: Set<Int>] = [:]
+        var agentPortOwnersByWorkspace: [UUID: [Int: Set<AgentPIDProcessIdentity>]] = [:]
+        var agentProcessIdentitiesByWorkspace: [UUID: Set<AgentPIDProcessIdentity>] = [:]
+        for (pid, ownership) in agentOwnershipByPID {
+            guard let identity = capturedAgentPIDs.identitiesByPID[pid] else { continue }
+            for workspaceId in ownership {
+                agentProcessIdentitiesByWorkspace[workspaceId, default: []].insert(identity)
+            }
+        }
+        for (pid, ports) in pidToPorts {
+            guard let ownership = agentOwnershipByPID[pid] else { continue }
+            for workspaceId in ownership {
+                agentPortsByWorkspace[workspaceId, default: []].formUnion(ports)
+                guard let identity = capturedAgentPIDs.identitiesByPID[pid] else { continue }
+                for port in ports {
+                    agentPortOwnersByWorkspace[workspaceId, default: [:]][port, default: []]
+                        .insert(identity)
+                }
+            }
         }
 
         // 4. Map to per-panel port lists.
         var results: [(PanelKey, [Int])] = []
-        for (key, tty) in snapshot {
+        for (key, tty) in panelSnapshot {
             let ports = portsByTTY[tty].map { Array($0).sorted() } ?? []
             results.append((key, ports))
         }
+        let panelResults = results
+        let agentPortsSnapshot = agentPortsByWorkspace
+        let lsofAgentCompleteness = agentLsofCompleteness(
+            ownershipByPID: agentOwnershipByPID,
+            lsofScan: lsofScan,
+            workspaceIds: workspaceIds
+        )
+        let agentProcessScopeCompletenessByWorkspace = combineAgentCompleteness(
+            agentCompletenessBeforeLsof,
+            finalizedAgentPIDs.completenessByWorkspace,
+            workspaceIds: workspaceIds
+        )
+        let agentCompletenessByWorkspace = combineAgentCompleteness(
+            agentProcessScopeCompletenessByWorkspace,
+            lsofAgentCompleteness,
+            workspaceIds: workspaceIds
+        )
+        let panelProcessScopeEvidence = PortLsofScanResult(
+            values: [:],
+            globallyComplete: true,
+            incompletePIDs: capturedPanelPIDs.incompletePIDs
+                .union(revalidatedPanelPIDs.incompletePIDs)
+        )
+        let panelLsofEvidence = PortLsofScanResult(
+            values: lsofScan.values,
+            globallyComplete: lsofScan.globallyComplete,
+            incompletePIDs: lsofScan.incompletePIDs
+                .union(capturedPanelPIDs.incompletePIDs)
+                .union(revalidatedPanelPIDs.incompletePIDs)
+        )
+        let panelProcessScopeCompletenessByKey = Self.panelCompletenessByKey(
+            panelTTYs: panelSnapshot,
+            pidToTTY: pidToTTY,
+            psCompleteness: Self.combinedCompleteness(
+                psScan.completeness,
+                refreshedPanelProcessScan.completeness
+            ),
+            lsofScan: panelProcessScopeEvidence
+        )
+        let panelCompletenessByKey = Self.panelCompletenessByKey(
+            panelTTYs: panelSnapshot,
+            pidToTTY: pidToTTY,
+            psCompleteness: Self.combinedCompleteness(
+                psScan.completeness,
+                refreshedPanelProcessScan.completeness
+            ),
+            lsofScan: panelLsofEvidence
+        )
 
-        deliverResults(results)
-    }
-
-    private func deliverResults(_ results: [(PanelKey, [Int])]) {
-        guard let callback = onPortsUpdated else { return }
-        DispatchQueue.main.async {
-            for (key, ports) in results {
-                callback(key.workspaceId, key.panelId, ports)
-            }
+        queue.async { [weak self] in
+            self?.completePanelScan(
+                panelResults,
+                panelTTYs: panelSnapshot,
+                panelRevisions: panelRevisions,
+                workspaceIds: workspaceIds,
+                agentPortsByWorkspace: agentPortsSnapshot,
+                panelPortOwnersByKey: panelPortOwnersByKey,
+                panelProcessIdentitiesByKey: panelProcessIdentitiesByKey,
+                agentPortOwnersByWorkspace: agentPortOwnersByWorkspace,
+                agentProcessIdentitiesByWorkspace: agentProcessIdentitiesByWorkspace,
+                agentRevisions: agentRevisions,
+                panelCompletenessByKey: panelCompletenessByKey,
+                panelProcessScopeCompletenessByKey: panelProcessScopeCompletenessByKey,
+                agentCompletenessByWorkspace: agentCompletenessByWorkspace,
+                agentProcessScopeCompletenessByWorkspace: agentProcessScopeCompletenessByWorkspace,
+                panelLsofEvidence: panelLsofEvidence,
+                agentLsofEvidence: lsofScan,
+                inspectedPIDs: allPids,
+                requestID: requestID
+            )
         }
     }
 
-    // MARK: - Process helpers
-
-    private func runPS(ttyList: String) -> [Int: String] {
-        // `ps -t tty1,tty2,... -o pid=,tty=` — targeted scan, much cheaper than -ax.
-        let process = Process()
-        let pipe = Pipe()
-        process.executableURL = URL(fileURLWithPath: "/bin/ps")
-        process.arguments = ["-t", ttyList, "-o", "pid=,tty="]
-        process.standardOutput = pipe
-        process.standardError = FileHandle.nullDevice
-
-        do {
-            try process.run()
-        } catch {
-            return [:]
+    /// Applies a completed panel scan on the scanner queue and starts any pending scan.
+    private func completePanelScan(
+        _ panelResults: [(PanelKey, [Int])],
+        panelTTYs: [PanelKey: String],
+        panelRevisions: [PanelKey: UInt64],
+        workspaceIds: Set<UUID>,
+        agentPortsByWorkspace: [UUID: Set<Int>],
+        panelPortOwnersByKey: [PanelKey: [Int: Set<AgentPIDProcessIdentity>]],
+        panelProcessIdentitiesByKey: [PanelKey: Set<AgentPIDProcessIdentity>],
+        agentPortOwnersByWorkspace: [UUID: [Int: Set<AgentPIDProcessIdentity>]],
+        agentProcessIdentitiesByWorkspace: [UUID: Set<AgentPIDProcessIdentity>],
+        agentRevisions: [UUID: UInt64],
+        panelCompletenessByKey: [PanelKey: PortScanCompleteness],
+        panelProcessScopeCompletenessByKey: [PanelKey: PortScanCompleteness],
+        agentCompletenessByWorkspace: [UUID: PortScanCompleteness],
+        agentProcessScopeCompletenessByWorkspace: [UUID: PortScanCompleteness],
+        panelLsofEvidence: PortLsofScanResult,
+        agentLsofEvidence: PortLsofScanResult?,
+        inspectedPIDs: Set<Int>,
+        requestID: UInt64
+    ) {
+        let hasPendingScan = scanCoordination.finishPanelScan()
+        deliverResults(
+            panelResults,
+            panelTTYs: panelTTYs,
+            panelRevisions: panelRevisions,
+            workspaceIds: workspaceIds,
+            agentPortsByWorkspace: agentPortsByWorkspace,
+            panelPortOwnersByKey: panelPortOwnersByKey,
+            panelProcessIdentitiesByKey: panelProcessIdentitiesByKey,
+            agentPortOwnersByWorkspace: agentPortOwnersByWorkspace,
+            agentProcessIdentitiesByWorkspace: agentProcessIdentitiesByWorkspace,
+            agentRevisions: agentRevisions,
+            panelCompletenessByKey: panelCompletenessByKey,
+            panelProcessScopeCompletenessByKey: panelProcessScopeCompletenessByKey,
+            agentCompletenessByWorkspace: agentCompletenessByWorkspace,
+            agentProcessScopeCompletenessByWorkspace: agentProcessScopeCompletenessByWorkspace,
+            panelLsofEvidence: panelLsofEvidence,
+            agentLsofEvidence: agentLsofEvidence,
+            inspectedPIDs: inspectedPIDs,
+            requestID: requestID
+        )
+        if hasPendingScan {
+            runScan()
         }
-
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-
-        guard let output = String(data: data, encoding: .utf8) else { return [:] }
-
-        var mapping: [Int: String] = [:]
-        for line in output.split(separator: "\n") {
-            let parts = line.split(whereSeparator: \.isWhitespace)
-            guard parts.count >= 2,
-                  let pid = Int(parts[0]) else { continue }
-            mapping[pid] = String(parts[1])
-        }
-        return mapping
     }
 
-    private func runLsof(pidsCsv: String) -> [Int: Set<Int>] {
-        // `lsof -nP -a -p <pids> -iTCP -sTCP:LISTEN -F pn`
-        let process = Process()
-        let pipe = Pipe()
-        process.executableURL = URL(fileURLWithPath: "/usr/sbin/lsof")
-        process.arguments = ["-nP", "-a", "-p", pidsCsv, "-iTCP", "-sTCP:LISTEN", "-Fpn"]
-        process.standardOutput = pipe
-        process.standardError = FileHandle.nullDevice
+    /// Updates agent tracking state while already confined to the scanner queue.
+    private func refreshAgentPortsLocked(
+        workspaceId: UUID,
+        agentRoots: Set<AgentPortRootIdentity>,
+        revision: UInt64
+    ) {
+        agentRevisionByWorkspace[workspaceId] = revision
+        if agentTrackingState.replaceRoots(agentRoots, workspaceId: workspaceId),
+           !agentRoots.isEmpty {
+            agentSnapshotReplacementState.begin(workspaceId: workspaceId)
+        }
+        if agentRoots.isEmpty {
+            trackedAgentWorkspaces.remove(workspaceId)
+            agentSnapshotReplacementState.cancel(workspaceId: workspaceId)
+            agentPortSnapshot.remove(keys: [workspaceId])
+            agentPortOwnersByWorkspace.removeValue(forKey: workspaceId)
+            scanCoordination.removeAgentWorkspaces([workspaceId])
+            updateAgentScanTimerLocked()
+            forceAgentResultWorkspaces.insert(workspaceId)
+            deliverAgentResults(
+                workspaceIds: [workspaceId],
+                agentPortsByWorkspace: [:],
+                observedOwnersByWorkspace: [:],
+                currentProcessIdentitiesByWorkspace: [:],
+                agentRevisions: [workspaceId: revision],
+                completenessByWorkspace: [workspaceId: .complete],
+                processScopeCompletenessByWorkspace: [workspaceId: .complete],
+                lsofScan: nil,
+                inspectedPIDs: [],
+                requestID: scanCoordination.makeRequestID()
+            )
+            return
+        }
+        trackedAgentWorkspaces.insert(workspaceId)
+        updateAgentScanTimerLocked()
+        forceAgentResultWorkspaces.insert(workspaceId)
 
-        do {
-            try process.run()
-        } catch {
-            return [:]
+        scanAgentPorts(
+            workspaceIds: [workspaceId],
+            agentRootsByWorkspace: [workspaceId: agentRoots],
+            agentRevisions: [workspaceId: revision]
+        )
+    }
+
+    private func updateAgentScanTimerLocked() {
+        guard !trackedAgentScanningPaused, !trackedAgentWorkspaces.isEmpty else {
+            agentScanTimer?.cancel()
+            agentScanTimer = nil
+            return
+        }
+        guard agentScanTimer == nil else { return }
+
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        timer.schedule(
+            deadline: .now() + Self.agentRescanInterval,
+            repeating: Self.agentRescanInterval
+        )
+        timer.setEventHandler { [weak self] in
+            self?.runTrackedAgentScan()
+        }
+        agentScanTimer = timer
+        timer.resume()
+    }
+
+    private func runTrackedAgentScan() {
+        let workspaceIds = trackedAgentWorkspaces
+        guard !workspaceIds.isEmpty else {
+            updateAgentScanTimerLocked()
+            return
         }
 
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
+        let agentRevisions = agentRevisionSnapshot(for: workspaceIds)
+        let request = AgentPortScanRequest(
+            workspaceIds: workspaceIds,
+            rootInput: AgentPortScanRootInput(
+                rootsByWorkspace: agentTrackingState.roots(for: workspaceIds)
+            ),
+            agentRevisions: agentRevisions,
+            requestID: scanCoordination.makeRequestID()
+        )
+        if let requestToStart = scanCoordination.enqueueAgentScan(request) {
+            startAgentScan(requestToStart)
+        }
+    }
 
-        guard let output = String(data: data, encoding: .utf8) else { return [:] }
+    private func scanAgentPorts(
+        workspaceIds: Set<UUID>,
+        agentRootsByWorkspace: [UUID: Set<AgentPortRootIdentity>],
+        agentRevisions: [UUID: UInt64]
+    ) {
+        guard !workspaceIds.isEmpty else { return }
+        let request = AgentPortScanRequest(
+            workspaceIds: workspaceIds,
+            rootInput: AgentPortScanRootInput(rootsByWorkspace: agentRootsByWorkspace),
+            agentRevisions: agentRevisions,
+            requestID: scanCoordination.makeRequestID()
+        )
+        if let requestToStart = scanCoordination.enqueueAgentScan(request) {
+            startAgentScan(requestToStart)
+        }
+    }
 
-        // Parse lsof -F output: lines starting with 'p' = PID, 'n' = name (host:port).
-        var result: [Int: Set<Int>] = [:]
-        var currentPid: Int?
-        for line in output.split(separator: "\n") {
-            guard let first = line.first else { continue }
-            switch first {
-            case "p":
-                currentPid = Int(line.dropFirst())
-            case "n":
-                guard let pid = currentPid else { continue }
-                var name = String(line.dropFirst())
-                // Strip remote endpoint if present.
-                if let arrowIdx = name.range(of: "->") {
-                    name = String(name[..<arrowIdx.lowerBound])
+    private func startAgentScan(_ request: AgentPortScanRequest) {
+        startAgentProcessScan(request)
+    }
+    /// Scans an agent process tree, resolves listener owners, and queues its result.
+    private func startAgentProcessScan(_ request: AgentPortScanRequest) {
+        let agentRootsByWorkspace = request.rootInput.rootsByWorkspace
+        Task { [weak self] in
+            guard let self else { return }
+            let agentProcessScan = await self.expandAgentProcessTree(
+                agentRootsByWorkspace: agentRootsByWorkspace
+            )
+            let capturedAgentPIDs = self.captureAgentPIDIdentities(
+                ownershipByPID: agentProcessScan.values,
+                workspaceIds: request.workspaceIds
+            )
+            let agentCompletenessBeforeLsof = self.combineAgentCompleteness(
+                agentProcessScan.completenessByWorkspace,
+                capturedAgentPIDs.completenessByWorkspace,
+                workspaceIds: request.workspaceIds
+            )
+            guard !capturedAgentPIDs.ownershipByPID.isEmpty else {
+                let lsofEvidence = PortLsofScanResult(
+                    values: [:],
+                    globallyComplete: true,
+                    incompletePIDs: capturedAgentPIDs.incompletePIDs
+                )
+                self.queue.async { [weak self] in
+                    self?.completeAgentScan(
+                        request,
+                        agentPortsByWorkspace: [:],
+                        observedOwnersByWorkspace: [:],
+                        currentProcessIdentitiesByWorkspace: [:],
+                        completenessByWorkspace: agentCompletenessBeforeLsof,
+                        processScopeCompletenessByWorkspace: agentCompletenessBeforeLsof,
+                        lsofScan: lsofEvidence,
+                        inspectedPIDs: []
+                    )
                 }
-                // Port is after the last colon.
-                if let colonIdx = name.lastIndex(of: ":") {
-                    let portStr = name[name.index(after: colonIdx)...]
-                    // Strip anything non-numeric.
-                    let cleaned = portStr.prefix(while: \.isNumber)
-                    if let port = Int(cleaned), port > 0, port <= 65535 {
-                        result[pid, default: []].insert(port)
+                return
+            }
+
+            let pidsCsv = capturedAgentPIDs.ownershipByPID.keys
+                .sorted()
+                .map(String.init)
+                .joined(separator: ",")
+            let lsofScan = await self.runLsof(pidsCsv: pidsCsv)
+            let pidToPorts = lsofScan.values
+            let finalizedAgentPIDs = await self.finalizeAgentPIDOwnership(
+                rootsByWorkspace: agentRootsByWorkspace,
+                capturedOwnershipByPID: capturedAgentPIDs.ownershipByPID,
+                capturedIdentitiesByPID: capturedAgentPIDs.identitiesByPID,
+                workspaceIds: request.workspaceIds
+            )
+            let agentOwnershipByPID = finalizedAgentPIDs.ownershipByPID
+            var agentPortsByWorkspace: [UUID: Set<Int>] = [:]
+            var agentPortOwnersByWorkspace: [UUID: [Int: Set<AgentPIDProcessIdentity>]] = [:]
+            var agentProcessIdentitiesByWorkspace: [UUID: Set<AgentPIDProcessIdentity>] = [:]
+            for (pid, ownership) in agentOwnershipByPID {
+                guard let identity = capturedAgentPIDs.identitiesByPID[pid] else { continue }
+                for workspaceId in ownership {
+                    agentProcessIdentitiesByWorkspace[workspaceId, default: []].insert(identity)
+                }
+            }
+            for (pid, ports) in pidToPorts {
+                guard let ownership = agentOwnershipByPID[pid] else { continue }
+                for targetWorkspaceId in ownership {
+                    agentPortsByWorkspace[targetWorkspaceId, default: []].formUnion(ports)
+                    guard let identity = capturedAgentPIDs.identitiesByPID[pid] else { continue }
+                    for port in ports {
+                        agentPortOwnersByWorkspace[targetWorkspaceId, default: [:]][port, default: []]
+                            .insert(identity)
                     }
                 }
-            default:
-                break
+            }
+            let agentPortsSnapshot = agentPortsByWorkspace
+            let agentPortOwnersSnapshot = agentPortOwnersByWorkspace
+            let lsofCompletenessByWorkspace = self.agentLsofCompleteness(
+                ownershipByPID: agentOwnershipByPID,
+                lsofScan: lsofScan,
+                workspaceIds: request.workspaceIds
+            )
+            let processScopeCompletenessByWorkspace = self.combineAgentCompleteness(
+                agentCompletenessBeforeLsof,
+                finalizedAgentPIDs.completenessByWorkspace,
+                workspaceIds: request.workspaceIds
+            )
+            let completenessByWorkspace = self.combineAgentCompleteness(
+                processScopeCompletenessByWorkspace,
+                lsofCompletenessByWorkspace,
+                workspaceIds: request.workspaceIds
+            )
+
+            self.queue.async { [weak self] in
+                self?.completeAgentScan(
+                    request,
+                    agentPortsByWorkspace: agentPortsSnapshot,
+                    observedOwnersByWorkspace: agentPortOwnersSnapshot,
+                    currentProcessIdentitiesByWorkspace: agentProcessIdentitiesByWorkspace,
+                    completenessByWorkspace: completenessByWorkspace,
+                    processScopeCompletenessByWorkspace: processScopeCompletenessByWorkspace,
+                    lsofScan: lsofScan,
+                    inspectedPIDs: Set(capturedAgentPIDs.ownershipByPID.keys)
+                )
             }
         }
-        return result
     }
+
+    /// Applies an agent scan result and starts the next queued agent request if needed.
+    private func completeAgentScan(
+        _ request: AgentPortScanRequest,
+        agentPortsByWorkspace: [UUID: Set<Int>],
+        observedOwnersByWorkspace: [UUID: [Int: Set<AgentPIDProcessIdentity>]],
+        currentProcessIdentitiesByWorkspace: [UUID: Set<AgentPIDProcessIdentity>],
+        completenessByWorkspace: [UUID: PortScanCompleteness],
+        processScopeCompletenessByWorkspace: [UUID: PortScanCompleteness],
+        lsofScan: PortLsofScanResult?,
+        inspectedPIDs: Set<Int>
+    ) {
+        let pendingRequest = scanCoordination.finishAgentScan()
+        deliverAgentResults(
+            workspaceIds: request.workspaceIds,
+            agentPortsByWorkspace: agentPortsByWorkspace,
+            observedOwnersByWorkspace: observedOwnersByWorkspace,
+            currentProcessIdentitiesByWorkspace: currentProcessIdentitiesByWorkspace,
+            agentRevisions: request.agentRevisions,
+            completenessByWorkspace: completenessByWorkspace,
+            processScopeCompletenessByWorkspace: processScopeCompletenessByWorkspace,
+            lsofScan: lsofScan,
+            inspectedPIDs: inspectedPIDs,
+            requestID: request.requestID
+        )
+        if let pendingRequest {
+            startAgentScan(pendingRequest)
+        }
+    }
+
+    /// Reconciles panel and agent results through their shared publication paths.
+    private func deliverResults(
+        _ panelResults: [(PanelKey, [Int])],
+        panelTTYs: [PanelKey: String],
+        panelRevisions: [PanelKey: UInt64],
+        workspaceIds: Set<UUID>,
+        agentPortsByWorkspace: [UUID: Set<Int>],
+        panelPortOwnersByKey: [PanelKey: [Int: Set<AgentPIDProcessIdentity>]],
+        panelProcessIdentitiesByKey: [PanelKey: Set<AgentPIDProcessIdentity>],
+        agentPortOwnersByWorkspace: [UUID: [Int: Set<AgentPIDProcessIdentity>]],
+        agentProcessIdentitiesByWorkspace: [UUID: Set<AgentPIDProcessIdentity>],
+        agentRevisions: [UUID: UInt64],
+        panelCompletenessByKey: [PanelKey: PortScanCompleteness],
+        panelProcessScopeCompletenessByKey: [PanelKey: PortScanCompleteness],
+        agentCompletenessByWorkspace: [UUID: PortScanCompleteness],
+        agentProcessScopeCompletenessByWorkspace: [UUID: PortScanCompleteness],
+        panelLsofEvidence: PortLsofScanResult,
+        agentLsofEvidence: PortLsofScanResult?,
+        inspectedPIDs: Set<Int>,
+        requestID: UInt64
+    ) {
+        if scanCoordination.shouldApplyPanelResult(requestID: requestID) {
+            let scannedPorts = Dictionary(uniqueKeysWithValues: panelResults.filter { key, _ in
+                ttyNames[key] == panelTTYs[key]
+                    && panelRevisionByKey[key] == panelRevisions[key]
+            })
+            let trackedKeys = Set(ttyNames.keys)
+            let panelCompletenessByPort = missingPortCompletenessByKey(
+                previousOwnersByKey: self.panelPortOwnersByKey,
+                observedOwnersByKey: panelPortOwnersByKey,
+                currentProcessIdentitiesByKey: panelProcessIdentitiesByKey,
+                processScopeCompletenessByKey: panelProcessScopeCompletenessByKey,
+                scannedKeys: Set(scannedPorts.keys),
+                lsofScan: panelLsofEvidence,
+                inspectedPIDs: inspectedPIDs
+            )
+            let stableSnapshot = panelPortSnapshot.reconcile(
+                scannedPorts: scannedPorts,
+                scannedKeys: Set(scannedPorts.keys),
+                trackedKeys: trackedKeys,
+                completenessByKey: panelCompletenessByKey,
+                completenessByPort: panelCompletenessByPort
+            )
+            Self.updatePortOwners(
+                &self.panelPortOwnersByKey,
+                observedOwnersByKey: panelPortOwnersByKey,
+                scannedKeys: Set(scannedPorts.keys),
+                trackedKeys: trackedKeys,
+                publishedSnapshot: stableSnapshot
+            )
+            let publications = scannedPorts.keys.compactMap { key -> PanelPortScanPublication? in
+                guard let revision = panelRevisions[key] else { return nil }
+                return PanelPortScanPublication(
+                    key: key,
+                    ports: stableSnapshot[key] ?? [],
+                    revision: revision
+                )
+            }
+            enqueuePanelPublication(publications)
+        }
+        deliverAgentResults(
+            workspaceIds: workspaceIds,
+            agentPortsByWorkspace: agentPortsByWorkspace,
+            observedOwnersByWorkspace: agentPortOwnersByWorkspace,
+            currentProcessIdentitiesByWorkspace: agentProcessIdentitiesByWorkspace,
+            agentRevisions: agentRevisions,
+            completenessByWorkspace: agentCompletenessByWorkspace,
+            processScopeCompletenessByWorkspace: agentProcessScopeCompletenessByWorkspace,
+            lsofScan: agentLsofEvidence,
+            inspectedPIDs: inspectedPIDs,
+            requestID: requestID
+        )
+    }
+
+    private func agentRevisionSnapshot(for workspaceIds: Set<UUID>) -> [UUID: UInt64] {
+        workspaceIds.reduce(into: [UUID: UInt64]()) { partial, workspaceId in
+            partial[workspaceId] = agentRevisionByWorkspace[workspaceId, default: 0]
+        }
+    }
+
 }

@@ -1,80 +1,108 @@
+import CmuxFoundation
 import Bonsplit
 import SwiftUI
 
 struct NotificationsPage: View {
+    let isFocused: Bool
+    let isVisibleInUI: Bool
+
     @EnvironmentObject var notificationStore: TerminalNotificationStore
     @EnvironmentObject var tabManager: TabManager
-    @Binding var selection: SidebarSelection
     @FocusState private var focusedNotificationId: UUID?
-    @AppStorage(KeyboardShortcutSettings.Action.jumpToUnread.defaultsKey) private var jumpToUnreadShortcutData = Data()
+    @State private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
+    @State private var phonePushConfigurationState =
+        PhonePushClient.shared.configurationState
+
+    private var phonePushConfiguration: PhonePushConfiguration {
+        phonePushConfigurationState.configuration
+    }
 
     var body: some View {
         VStack(spacing: 0) {
             header
             Divider()
+            phoneForwardingRow
+            Divider()
 
-            if notificationStore.notifications.isEmpty {
+            if !notificationStore.notificationMenuSnapshot.hasNotifications {
                 emptyState
+            } else if notificationStore.notifications.isEmpty {
+                workspaceUnreadIndicatorState
             } else {
-                ScrollView {
-                    LazyVStack(spacing: 8) {
-                        ForEach(notificationStore.notifications) { notification in
-                            NotificationRow(
-                                notification: notification,
-                                tabTitle: tabTitle(for: notification.tabId),
-                                onOpen: {
-                                    // SwiftUI action closures are not guaranteed to run on the main actor.
-                                    // Ensure window focus + tab selection happens on the main thread.
-                                    DispatchQueue.main.async {
-                                        _ = AppDelegate.shared?.openNotification(
-                                            tabId: notification.tabId,
-                                            surfaceId: notification.surfaceId,
-                                            notificationId: notification.id
-                                        )
-                                        selection = .tabs
-                                    }
-                                },
-                                onClear: {
-                                    notificationStore.remove(id: notification.id)
-                                },
-                                focusedNotificationId: $focusedNotificationId
-                            )
-                        }
-                    }
-                    .padding(16)
-                }
+                notificationsList
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .windowBackgroundColor))
         .onAppear(perform: setInitialFocus)
-        .onChange(of: notificationStore.notifications.first?.id) { _ in
+        .onChange(of: notificationStore.notifications.first?.id) {
+            setInitialFocus()
+        }
+        .onChange(of: isFocused) {
+            setInitialFocus()
+        }
+        .onChange(of: isVisibleInUI) {
             setInitialFocus()
         }
     }
 
+    private var notificationsList: some View {
+        // Build one tabId -> title index per render instead of an O(tabs) lookup
+        // for every notification row. Constructing the ForEach then costs
+        // O(rows + tabs) rather than O(rows × tabs), which matters when many
+        // notifications accumulate (issue #5794).
+        let tabTitles = AppDelegate.shared?.tabTitlesByTabId() ?? [:]
+        return ScrollView {
+            LazyVStack(spacing: 8) {
+                ForEach(notificationStore.notifications) { notification in
+                    NotificationRow(
+                        notification: notification,
+                        tabTitle: tabTitle(for: notification.tabId, in: tabTitles),
+                        isFocused: focusedNotificationId == notification.id,
+                        onOpen: {
+                            // SwiftUI action closures aren't guaranteed to be main-actor
+                            // isolated; hop to the main actor for window focus + tab selection.
+                            Task { @MainActor in
+                                _ = AppDelegate.shared?.openTerminalNotification(notification)
+                            }
+                        },
+                        onClear: {
+                            notificationStore.remove(id: notification.id)
+                        },
+                        focusedNotificationId: $focusedNotificationId
+                    )
+                    // Each NotificationRow renders heavily-modified nested stacks.
+                    // Equatable + .equatable() lets a NotificationStore publish that
+                    // touches one notification skip body re-evaluation for the other
+                    // rows, instead of re-laying out the whole LazyVStack on every
+                    // publish (issue #5794, same class as #2586 / #5752).
+                    .equatable()
+                }
+            }
+            .padding(16)
+        }
+    }
+
     private func setInitialFocus() {
-        // Only set focus when the notifications page is visible
-        // to avoid stealing focus from the terminal when notifications arrive
-        guard selection == .notifications else { return }
-        guard let firstId = notificationStore.notifications.first?.id else {
+        // Background-mounted pane tabs must not claim focus when their feed changes.
+        guard isFocused,
+              isVisibleInUI,
+              let firstId = notificationStore.notifications.first?.id else {
             focusedNotificationId = nil
             return
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-            focusedNotificationId = firstId
-        }
+        focusedNotificationId = firstId
     }
 
     private var header: some View {
         HStack {
             Text(String(localized: "notifications.title", defaultValue: "Notifications"))
-                .font(.title2)
+                .cmuxFont(.title2)
                 .fontWeight(.semibold)
 
             Spacer()
 
-            if !notificationStore.notifications.isEmpty {
+            if notificationStore.notificationMenuSnapshot.hasNotifications {
                 jumpToUnreadButton
 
                 Button(String(localized: "notifications.clearAll", defaultValue: "Clear All")) {
@@ -87,16 +115,112 @@ struct NotificationsPage: View {
         .padding(.vertical, 12)
     }
 
+    private var phoneForwardingRow: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Toggle(isOn: forwardToPhoneBinding) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(String(localized: "notifications.forwardToPhone.title", defaultValue: "Forward notifications to my iPhone"))
+                    Text(String(localized: "notifications.forwardToPhone.subtitle", defaultValue: "Send local agent notifications to cmux on your iPhone. Enabled by default; turn this off to stop this Mac from forwarding them."))
+                        .cmuxFont(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+            .accessibilityIdentifier("notificationsPage.forwardToPhone")
+            if phonePushConfiguration.forwardingEnabled {
+                VStack(alignment: .leading, spacing: 4) {
+                    Picker(
+                        String(localized: "notifications.forwardToPhone.mode.label", defaultValue: "When to send"),
+                        selection: forwardToPhoneModeBinding
+                    ) {
+                        Text(String(localized: "notifications.forwardToPhone.mode.onlyWhenAway", defaultValue: "Only when away from this Mac"))
+                            .tag(PhoneForwardingMode.onlyWhenAway.rawValue)
+                        Text(String(localized: "notifications.forwardToPhone.mode.always", defaultValue: "Always"))
+                            .tag(PhoneForwardingMode.always.rawValue)
+                    }
+                    .pickerStyle(.menu)
+                    .fixedSize()
+                    .cmuxFont(.caption)
+                    if phonePushConfiguration.mode == .onlyWhenAway {
+                        Text(awayModeExplanation)
+                            .cmuxFont(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .padding(.leading, 20)
+                Toggle(isOn: hidePhoneNotificationContentBinding) {
+                    Text(String(localized: "notifications.forwardToPhone.hideContent", defaultValue: "Hide content (send a generic message instead of the terminal text)"))
+                        .cmuxFont(.caption)
+                }
+                .padding(.leading, 20)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+    }
+
+    private var forwardToPhoneBinding: Binding<Bool> {
+        Binding(
+            get: { phonePushConfiguration.forwardingEnabled },
+            set: { enabled in
+                PhonePushClient.shared.updateSettings(
+                    forwardingEnabled: enabled
+                )
+            }
+        )
+    }
+
+    private var forwardToPhoneModeBinding: Binding<String> {
+        Binding(
+            get: { phonePushConfiguration.mode.rawValue },
+            set: { rawValue in
+                guard let mode = PhoneForwardingMode(rawValue: rawValue) else {
+                    return
+                }
+                PhonePushClient.shared.updateSettings(
+                    mode: mode
+                )
+            }
+        )
+    }
+
+    private var hidePhoneNotificationContentBinding: Binding<Bool> {
+        Binding(
+            get: { phonePushConfiguration.hideContent },
+            set: { hideContent in
+                PhonePushClient.shared.updateSettings(
+                    hideContent: hideContent
+                )
+            }
+        )
+    }
+
+    private var awayModeExplanation: String {
+        let format = String(
+            localized: "notifications.forwardToPhone.mode.subtitle",
+            defaultValue: "Away means the screen is locked or asleep, the screensaver is running, or there has been no keyboard or mouse input for %lld minutes."
+        )
+        return String(format: format, Int64(MacPresenceMonitor.recentHardwareInputThreshold / 60))
+    }
+
     private var emptyState: some View {
         VStack(spacing: 8) {
-            Image(systemName: "bell.slash")
-                .font(.system(size: 32))
+            CmuxSystemSymbolImage(magnified: "bell.slash", pointSize: 32)
                 .foregroundColor(.secondary)
             Text(String(localized: "notifications.empty.title", defaultValue: "No notifications yet"))
-                .font(.headline)
+                .cmuxFont(.headline)
             Text(String(localized: "notifications.empty.description", defaultValue: "Desktop notifications will appear here for quick review."))
-                .font(.subheadline)
+                .cmuxFont(.subheadline)
                 .foregroundColor(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var workspaceUnreadIndicatorState: some View {
+        VStack(spacing: 8) {
+            CmuxSystemSymbolImage(magnified: "bell.badge", pointSize: 32)
+                .foregroundColor(.secondary)
+            Text(notificationStore.notificationMenuSnapshot.stateHintTitle)
+                .cmuxFont(.headline)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -132,26 +256,16 @@ struct NotificationsPage: View {
     }
 
     private var jumpToUnreadShortcut: StoredShortcut {
-        decodeShortcut(
-            from: jumpToUnreadShortcutData,
-            fallback: KeyboardShortcutSettings.Action.jumpToUnread.defaultShortcut
-        )
+        let _ = keyboardShortcutSettingsObserver.revision
+        return KeyboardShortcutSettings.shortcut(for: .jumpToUnread)
+    }
+
+    private func tabTitle(for tabId: UUID, in tabTitles: [UUID: String]) -> String? {
+        tabTitles[tabId] ?? tabManager.tabs.first(where: { $0.id == tabId })?.title
     }
 
     private var hasUnreadNotifications: Bool {
-        notificationStore.notifications.contains(where: { !$0.isRead })
-    }
-
-    private func decodeShortcut(from data: Data, fallback: StoredShortcut) -> StoredShortcut {
-        guard !data.isEmpty,
-              let shortcut = try? JSONDecoder().decode(StoredShortcut.self, from: data) else {
-            return fallback
-        }
-        return shortcut
-    }
-
-    private func tabTitle(for tabId: UUID) -> String? {
-        AppDelegate.shared?.tabTitle(for: tabId) ?? tabManager.tabs.first(where: { $0.id == tabId })?.title
+        notificationStore.notificationMenuSnapshot.hasUnreadNotifications
     }
 }
 
@@ -170,7 +284,7 @@ struct ShortcutAnnotation: View {
 
     private var badge: some View {
         Text(text)
-            .font(.system(size: 10, weight: .semibold, design: .rounded))
+            .cmuxFont(size: 10, weight: .semibold, design: .rounded)
             .foregroundStyle(.primary)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
@@ -181,9 +295,23 @@ struct ShortcutAnnotation: View {
     }
 }
 
-private struct NotificationRow: View {
+struct NotificationRow: View, Equatable {
+    // Closures and the focus binding are recreated by the parent on every render
+    // and excluded from ==. Equality compares only the value snapshot the row
+    // actually renders, so `.equatable()` can suppress body re-evaluation for
+    // rows whose snapshot is unchanged (snapshot-boundary rule, CLAUDE.md /
+    // issue #2586). `isFocused` is passed in (rather than read from the binding
+    // inside the row) precisely so it participates in equality — otherwise a
+    // focus change would leave the default-action shortcut on a stale row.
+    nonisolated static func == (lhs: NotificationRow, rhs: NotificationRow) -> Bool {
+        lhs.notification == rhs.notification &&
+            lhs.tabTitle == rhs.tabTitle &&
+            lhs.isFocused == rhs.isFocused
+    }
+
     let notification: TerminalNotification
     let tabTitle: String?
+    let isFocused: Bool
     let onOpen: () -> Void
     let onClear: () -> Void
     let focusedNotificationId: FocusState<UUID?>.Binding
@@ -204,24 +332,24 @@ private struct NotificationRow: View {
                     VStack(alignment: .leading, spacing: 6) {
                         HStack {
                             Text(notification.title)
-                                .font(.headline)
+                                .cmuxFont(.headline)
                                 .foregroundColor(.primary)
                             Spacer()
                             Text(notification.createdAt.formatted(date: .omitted, time: .shortened))
-                                .font(.caption)
+                                .cmuxFont(.caption)
                                 .foregroundColor(.secondary)
                         }
 
                         if !notification.body.isEmpty {
                             Text(notification.body)
-                                .font(.subheadline)
+                                .cmuxFont(.subheadline)
                                 .foregroundColor(.secondary)
                                 .lineLimit(3)
                         }
 
                         if let tabTitle {
                             Text(tabTitle)
-                                .font(.caption)
+                                .cmuxFont(.caption)
                                 .foregroundColor(.secondary)
                         }
                     }
@@ -236,13 +364,17 @@ private struct NotificationRow: View {
             .accessibilityIdentifier("NotificationRow.\(notification.id.uuidString)")
             .focusable()
             .focused(focusedNotificationId, equals: notification.id)
-            .modifier(DefaultActionModifier(isActive: focusedNotificationId.wrappedValue == notification.id))
+            .modifier(DefaultActionModifier(isActive: isFocused))
 
             Button(action: onClear) {
-                Image(systemName: "xmark.circle.fill")
+                CmuxSystemSymbolImage(systemName: "xmark.circle.fill", pointSize: 14)
                     .foregroundColor(.secondary)
             }
             .buttonStyle(.plain)
+            // CmuxSystemSymbolImage renders an AppKit NSImage with no accessibility
+            // description, so the icon-only button needs an explicit label (the prior
+            // SwiftUI system-symbol path used to supply one implicitly).
+            .accessibilityLabel(String(localized: "notifications.row.clear", defaultValue: "Clear notification"))
         }
         .padding(12)
         .background(

@@ -5,7 +5,7 @@ set -euo pipefail
 # It is intentionally guarded so we don't accidentally kill the host user's cmux instances.
 if [ "$(id -un)" != "cmux" ]; then
   echo "ERROR: This script is intended to be run on the cmux-vm (user: cmux)." >&2
-  echo "Run via: ssh cmux-vm 'cd /Users/cmux/GhosttyTabs && ./scripts/run-tests-v1.sh'" >&2
+  echo "Run via: ssh cmux-vm 'cd /Users/cmux/cmux && ./scripts/run-tests-v1.sh'" >&2
   exit 2
 fi
 
@@ -21,7 +21,7 @@ echo "== build =="
 # module file ... was built".
 rm -rf "$DERIVED_DATA_PATH/Build/Intermediates.noindex/SwiftExplicitPrecompiledModules" || true
 xcodebuild \
-  -project GhosttyTabs.xcodeproj \
+  -project cmux.xcodeproj \
   -scheme cmux \
   -configuration Debug \
   -destination "platform=macOS" \
@@ -68,7 +68,6 @@ launch_and_wait() {
     exit 1
   fi
   export CMUX_SOCKET_PATH="$SOCK"
-  export CMUX_SOCKET="$SOCK"
 
   # Ensure LaunchServices has a visible/main window attached for rendering checks.
   CMUX_TAG="$RUN_TAG" open "$APP" >/dev/null 2>&1 || true

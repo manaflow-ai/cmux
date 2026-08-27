@@ -28,7 +28,7 @@ final class UpdatePillUITests: XCTestCase {
     func testUpdatePillShowsForAvailableUpdate() {
         let systemSettings = XCUIApplication(bundleIdentifier: "com.apple.systempreferences")
         systemSettings.terminate()
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_UPDATE_STATE"] = "available"
         app.launchEnvironment["CMUX_UI_TEST_UPDATE_VERSION"] = "9.9.9"
@@ -44,12 +44,54 @@ final class UpdatePillUITests: XCTestCase {
         attachElementDebug(name: "update-available-pill", element: pill)
     }
 
+    func testDetectedBackgroundUpdateShowsPillWithoutManualCheck() {
+        let systemSettings = XCUIApplication(bundleIdentifier: "com.apple.systempreferences")
+        systemSettings.terminate()
+        let app = XCUIApplication.cmuxTestApplication()
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_DETECTED_UPDATE_VERSION"] = "9.9.9"
+        launchAndActivate(app)
+
+        let pill = pillButton(app: app, expectedLabel: "Update Available: 9.9.9")
+        XCTAssertTrue(pill.waitForExistence(timeout: 6.0))
+        XCTAssertEqual(pill.label, "Update Available: 9.9.9")
+        assertVisibleSize(pill)
+        attachScreenshot(name: "background-detected-update-available")
+    }
+
+    func testDetectedBackgroundUpdateFirstClickOpensPopover() {
+        let systemSettings = XCUIApplication(bundleIdentifier: "com.apple.systempreferences")
+        systemSettings.terminate()
+
+        let app = XCUIApplication.cmuxTestApplication()
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_DETECTED_UPDATE_VERSION"] = "9.9.9"
+        app.launchEnvironment["CMUX_UI_TEST_FEED_URL"] = "https://cmux.test/appcast.xml"
+        app.launchEnvironment["CMUX_UI_TEST_FEED_MODE"] = "none"
+        launchAndActivate(app)
+
+        let pill = pillButton(app: app, expectedLabel: "Update Available: 9.9.9")
+        XCTAssertTrue(pill.waitForExistence(timeout: 6.0))
+        assertVisibleSize(pill)
+
+        pill.click()
+
+        XCTAssertTrue(
+            app.staticTexts["Update Available"].waitForExistence(timeout: 8.0),
+            "Expected the first click on a background-detected update pill to open the popover"
+        )
+        XCTAssertTrue(
+            app.buttons["Install and Relaunch"].waitForExistence(timeout: 2.0),
+            "Expected cached update info to show the install action without running a new update check"
+        )
+    }
+
     func testUpdatePillShowsForNoUpdateThenDismisses() {
         let systemSettings = XCUIApplication(bundleIdentifier: "com.apple.systempreferences")
         systemSettings.terminate()
         let timingPath = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-ui-test-timing-\(UUID().uuidString).json")
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_UPDATE_STATE"] = "notFound"
         app.launchEnvironment["CMUX_UI_TEST_TIMING_PATH"] = timingPath.path
@@ -124,11 +166,53 @@ final class UpdatePillUITests: XCTestCase {
         assertVisibleSize(noUpdatePill)
     }
 
+    func testBackgroundDetectedUpdateKeepsOnlyBottomUpdatePill() {
+        let systemSettings = XCUIApplication(bundleIdentifier: "com.apple.systempreferences")
+        systemSettings.terminate()
+        let app = XCUIApplication.cmuxTestApplication()
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_DETECTED_UPDATE_VERSION"] = "9.9.9"
+        app.launchEnvironment["CMUX_UI_TEST_UPDATE_STATE"] = "available"
+        app.launchEnvironment["CMUX_UI_TEST_UPDATE_VERSION"] = "9.9.9"
+        launchAndActivate(app)
+
+        let pill = pillButton(app: app, expectedLabel: "Update Available: 9.9.9")
+        XCTAssertTrue(pill.waitForExistence(timeout: 6.0))
+        assertVisibleSize(pill)
+        XCTAssertFalse(app.otherElements["SidebarUpdateBanner"].exists)
+        XCTAssertFalse(app.buttons["SidebarUpdateBannerAction"].exists)
+    }
+
+    /// Regression for https://github.com/manaflow-ai/cmux/issues/9262: running "Attempt Update"
+    /// from the command palette while no update is available must report the normal up-to-date
+    /// result, not the red "Update Didn't Start / check your internet connection" error.
+    ///
+    /// A DEV build short-circuits its manual check to `.notFound`, which is the same terminal a
+    /// release build reaches when the feed publishes nothing newer, so this exercises the real
+    /// palette entry point end to end without a mock feed.
+    func testAttemptUpdateWithNoUpdateAvailableDoesNotShowError() {
+        let systemSettings = XCUIApplication(bundleIdentifier: "com.apple.systempreferences")
+        systemSettings.terminate()
+        let app = XCUIApplication.cmuxTestApplication()
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        launchAndActivate(app)
+        XCTAssertTrue(waitForWindowCount(atLeast: 1, app: app, timeout: 6.0))
+
+        app.typeKey("p", modifierFlags: [.command, .shift])
+        app.typeText("Attempt Update")
+        app.typeKey(.return, modifierFlags: [])
+
+        let upToDatePill = pillButton(app: app, expectedLabel: "No Updates Available")
+        XCTAssertTrue(upToDatePill.waitForExistence(timeout: 10.0))
+        attachScreenshot(name: "attempt-update-no-update")
+        XCTAssertFalse(pillButton(app: app, expectedLabel: "Update Didn’t Start").exists)
+    }
+
     func testNoSparklePermissionDialogIsShown() {
         let systemSettings = XCUIApplication(bundleIdentifier: "com.apple.systempreferences")
         systemSettings.terminate()
 
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         // Make Sparkle re-request permission on startup, but we should auto-handle it with no UI.
         app.launchEnvironment["CMUX_UI_TEST_RESET_SPARKLE_PERMISSION"] = "1"
         launchAndActivate(app)
@@ -139,6 +223,90 @@ final class UpdatePillUITests: XCTestCase {
         XCTAssertFalse(app.staticTexts["Check for updates automatically?"].waitForExistence(timeout: 2.0))
         XCTAssertFalse(app.buttons["Don't Check"].exists)
         XCTAssertFalse(app.buttons["Check Automatically"].exists)
+    }
+
+    func testUpdatePillShowsDownloadingState() {
+        let systemSettings = XCUIApplication(bundleIdentifier: "com.apple.systempreferences")
+        systemSettings.terminate()
+        let app = XCUIApplication.cmuxTestApplication()
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_UPDATE_STATE"] = "downloading"
+        launchAndActivate(app)
+
+        let pill = pillButton(app: app, expectedLabel: "Downloading: 50%")
+        XCTAssertTrue(pill.waitForExistence(timeout: 6.0))
+        XCTAssertEqual(pill.label, "Downloading: 50%")
+        assertVisibleSize(pill)
+        attachScreenshot(name: "update-downloading")
+    }
+
+    func testUpdatePillShowsExtractingState() {
+        let systemSettings = XCUIApplication(bundleIdentifier: "com.apple.systempreferences")
+        systemSettings.terminate()
+        let app = XCUIApplication.cmuxTestApplication()
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_UPDATE_STATE"] = "extracting"
+        launchAndActivate(app)
+
+        let pill = pillButton(app: app, expectedLabel: "Preparing: 50%")
+        XCTAssertTrue(pill.waitForExistence(timeout: 6.0))
+        XCTAssertEqual(pill.label, "Preparing: 50%")
+        assertVisibleSize(pill)
+        attachScreenshot(name: "update-extracting")
+    }
+
+    func testUpdatePillShowsInstallingStateAndRestartPopover() {
+        let systemSettings = XCUIApplication(bundleIdentifier: "com.apple.systempreferences")
+        systemSettings.terminate()
+        let app = XCUIApplication.cmuxTestApplication()
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_UPDATE_STATE"] = "installing"
+        launchAndActivate(app)
+
+        let pill = pillButton(app: app, expectedLabel: "Installing…")
+        XCTAssertTrue(pill.waitForExistence(timeout: 6.0))
+        XCTAssertEqual(pill.label, "Installing…")
+        assertVisibleSize(pill)
+        attachScreenshot(name: "update-installing")
+
+        pill.click()
+        XCTAssertTrue(
+            app.buttons["Restart Now"].waitForExistence(timeout: 8.0),
+            "Expected the installing popover to offer Restart Now"
+        )
+        XCTAssertTrue(app.buttons["Restart Later"].waitForExistence(timeout: 2.0), "Expected a Restart Later button")
+    }
+
+    func testUpdatePillShowsErrorStateWithRetryAndDetails() {
+        let systemSettings = XCUIApplication(bundleIdentifier: "com.apple.systempreferences")
+        systemSettings.terminate()
+        let app = XCUIApplication.cmuxTestApplication()
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_UPDATE_STATE"] = "error"
+        launchAndActivate(app)
+
+        // A generic update error surfaces the "Update Failed" pill title.
+        let pill = pillButton(app: app, expectedLabel: "Update Failed")
+        XCTAssertTrue(pill.waitForExistence(timeout: 6.0))
+        XCTAssertEqual(pill.label, "Update Failed")
+        assertVisibleSize(pill)
+        attachScreenshot(name: "update-error")
+        attachElementDebug(name: "update-error-pill", element: pill)
+
+        pill.click()
+
+        XCTAssertTrue(
+            app.staticTexts["Update Failed"].waitForExistence(timeout: 8.0),
+            "Expected the error popover title to appear"
+        )
+        XCTAssertTrue(
+            app.buttons["Retry"].waitForExistence(timeout: 2.0),
+            "Expected a Retry button in the error popover"
+        )
+        XCTAssertTrue(
+            app.buttons["Copy Details"].waitForExistence(timeout: 2.0),
+            "Expected a Copy Details button in the error popover"
+        )
     }
 
     private func pillButton(app: XCUIApplication, expectedLabel: String) -> XCUIElement {
@@ -199,7 +367,7 @@ final class UpdatePillUITests: XCTestCase {
         timingPath: URL? = nil,
         extraEnvironment: [String: String] = [:]
     ) -> XCUIApplication {
-        let app = XCUIApplication()
+        let app = XCUIApplication.cmuxTestApplication()
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_FEED_URL"] = "https://cmux.test/appcast.xml"
         app.launchEnvironment["CMUX_UI_TEST_FEED_MODE"] = mode
@@ -246,12 +414,13 @@ final class TitlebarShortcutHintsUITests: XCTestCase {
     }
 
     func testTitlebarShortcutHintsAlignWithoutShiftingControls() {
-        let baselineApp = launchApp(alwaysShowHints: false)
+        let (baselineApp, baselineDataPath) = launchApp()
         XCTAssertTrue(waitForWindowCount(atLeast: 1, app: baselineApp, timeout: 8.0))
+        XCTAssertTrue(waitForBonsplitSetupReady(atPath: baselineDataPath, timeout: 8.0))
 
-        let baselineToggle = baselineApp.buttons["titlebarControl.toggleSidebar"]
-        let baselineNotifications = baselineApp.buttons["titlebarControl.showNotifications"]
-        let baselineNewTab = baselineApp.buttons["titlebarControl.newTab"]
+        let baselineToggle = element(in: baselineApp, identifier: "titlebarControl.toggleSidebar")
+        let baselineNotifications = element(in: baselineApp, identifier: "titlebarControl.showNotifications")
+        let baselineNewTab = element(in: baselineApp, identifier: "titlebarControl.newTab")
 
         XCTAssertTrue(waitForElementVisible(baselineToggle, timeout: 6.0))
         XCTAssertTrue(waitForElementVisible(baselineNotifications, timeout: 6.0))
@@ -263,20 +432,21 @@ final class TitlebarShortcutHintsUITests: XCTestCase {
 
         baselineApp.terminate()
 
-        let hintedApp = launchApp(alwaysShowHints: true)
+        let (hintedApp, hintedDataPath) = launchApp(alwaysShowShortcutHints: true)
         XCTAssertTrue(waitForWindowCount(atLeast: 1, app: hintedApp, timeout: 8.0))
+        XCTAssertTrue(waitForBonsplitSetupReady(atPath: hintedDataPath, timeout: 8.0))
 
-        let hintedToggle = hintedApp.buttons["titlebarControl.toggleSidebar"]
-        let hintedNotifications = hintedApp.buttons["titlebarControl.showNotifications"]
-        let hintedNewTab = hintedApp.buttons["titlebarControl.newTab"]
+        let hintedToggle = element(in: hintedApp, identifier: "titlebarControl.toggleSidebar")
+        let hintedNotifications = element(in: hintedApp, identifier: "titlebarControl.showNotifications")
+        let hintedNewTab = element(in: hintedApp, identifier: "titlebarControl.newTab")
 
         XCTAssertTrue(waitForElementVisible(hintedToggle, timeout: 6.0))
         XCTAssertTrue(waitForElementVisible(hintedNotifications, timeout: 6.0))
         XCTAssertTrue(waitForElementVisible(hintedNewTab, timeout: 6.0))
 
-        let sidebarHint = hintedApp.staticTexts["titlebarShortcutHint.toggleSidebar"]
-        let notificationsHint = hintedApp.staticTexts["titlebarShortcutHint.showNotifications"]
-        let newTabHint = hintedApp.staticTexts["titlebarShortcutHint.newTab"]
+        let sidebarHint = element(in: hintedApp, identifier: "titlebarShortcutHint.toggleSidebar")
+        let notificationsHint = element(in: hintedApp, identifier: "titlebarShortcutHint.showNotifications")
+        let newTabHint = element(in: hintedApp, identifier: "titlebarShortcutHint.newTab")
 
         XCTAssertTrue(waitForElementVisible(sidebarHint, timeout: 6.0))
         XCTAssertTrue(waitForElementVisible(notificationsHint, timeout: 6.0))
@@ -296,25 +466,29 @@ final class TitlebarShortcutHintsUITests: XCTestCase {
 
         XCTAssertEqual(sidebarHintFrame.minY, notificationsHintFrame.minY, accuracy: 1.0)
         XCTAssertEqual(notificationsHintFrame.minY, newTabHintFrame.minY, accuracy: 1.0)
+        XCTAssertEqual(sidebarHintFrame.midX, hintedToggleFrame.midX, accuracy: 1.0)
+        XCTAssertEqual(notificationsHintFrame.midX, hintedNotificationsFrame.midX, accuracy: 1.0)
+        XCTAssertEqual(newTabHintFrame.midX, hintedNewTabFrame.midX, accuracy: 1.0)
         // Keep the sidebar hint lane to the right of the sidebar icon so it cannot clip into the traffic-light backdrop.
         XCTAssertGreaterThanOrEqual(sidebarHintFrame.minX, hintedToggleFrame.minX - 4.0)
-
-        let sortedHintFrames = [sidebarHintFrame, notificationsHintFrame, newTabHintFrame]
-            .sorted { $0.minX < $1.minX }
-        for index in 1..<sortedHintFrames.count {
-            let previousFrame = sortedHintFrames[index - 1]
-            let currentFrame = sortedHintFrames[index]
-            XCTAssertGreaterThanOrEqual(currentFrame.minX - previousFrame.maxX, 2.0)
-        }
     }
 
-    private func launchApp(alwaysShowHints: Bool) -> XCUIApplication {
-        let app = XCUIApplication()
+    private func launchApp(alwaysShowShortcutHints: Bool = false) -> (XCUIApplication, String) {
+        let app = XCUIApplication.cmuxTestApplication()
+        let dataPath = "/tmp/cmux-ui-test-titlebar-shortcut-hints-\(UUID().uuidString).json"
+        try? FileManager.default.removeItem(atPath: dataPath)
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
-        app.launchArguments += ["-shortcutHintAlwaysShow", alwaysShowHints ? "YES" : "NO"]
-        app.launchArguments += ["-shortcutHintTitlebarXOffset", "4"]
-        app.launchArguments += ["-shortcutHintTitlebarYOffset", "0"]
-        app.launch()
+        app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_SETUP"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH"] = dataPath
+        if alwaysShowShortcutHints {
+            app.launchEnvironment["CMUX_UI_TEST_SHORTCUT_HINTS_ALWAYS_SHOW"] = "1"
+        }
+        app.launchArguments += ["-workspacePresentationMode", "standard"]
+        let options = XCTExpectedFailure.Options()
+        options.isStrict = false
+        XCTExpectFailure("App activation may fail on headless CI runners", options: options) {
+            app.launch()
+        }
 
         _ = pollUntil(timeout: 2.0) {
             guard app.state != .runningForeground else {
@@ -324,13 +498,31 @@ final class TitlebarShortcutHintsUITests: XCTestCase {
             return app.state == .runningForeground
         }
 
-        return app
+        return (app, dataPath)
+    }
+
+    private func element(in app: XCUIApplication, identifier: String) -> XCUIElement {
+        app.descendants(matching: .any).matching(identifier: identifier).firstMatch
     }
 
     private func waitForWindowCount(atLeast count: Int, app: XCUIApplication, timeout: TimeInterval) -> Bool {
         pollUntil(timeout: timeout) {
             app.windows.count >= count
         }
+    }
+
+    private func waitForBonsplitSetupReady(atPath path: String, timeout: TimeInterval) -> Bool {
+        pollUntil(timeout: timeout) {
+            loadBonsplitSetupData(atPath: path)?["ready"] == "1"
+        }
+    }
+
+    private func loadBonsplitSetupData(atPath path: String) -> [String: String]? {
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
+            return nil
+        }
+        return object
     }
 
     private func waitForElementVisible(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
