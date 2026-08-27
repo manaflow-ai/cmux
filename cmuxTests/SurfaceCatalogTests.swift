@@ -54,7 +54,9 @@ final class SurfaceCatalogTests: XCTestCase {
         func materialize(_ resource: SurfaceResource, at destination: SurfaceDestination, focus: Bool) async throws -> SurfaceProjection {
             materialized.append((resource.id, destination))
             await materializeGate?.block()
-            return SurfaceProjection(resource: resource.id, workspaceID: destination.workspaceID, panelID: nextPanel)
+            let panelID = nextPanel
+            nextPanel = UUID()
+            return SurfaceProjection(resource: resource.id, workspaceID: destination.workspaceID, panelID: panelID)
         }
 
         func createTerminal(command: [String]?, cwd: String?, name: String?, remoteWorkspaceID: String?) async throws -> SurfaceResource {
