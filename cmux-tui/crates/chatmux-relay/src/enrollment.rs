@@ -19,8 +19,8 @@ use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde_json::Value;
-use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
+use time::format_description::well_known::Rfc3339;
 use url::{Host, Url};
 
 use crate::config::{Config, ManagedEvents, ManagedIdentity};
