@@ -14,6 +14,16 @@ enabled = true
 name = "TEAM_PRESENCE"
 class_name = "TeamPresence"
 
+# Account control plane (see wrangler.toml). Dev deploys usually also want
+# CMUX_WEB_BASE_URL pointed at a dev/preview web deployment.
+[[durable_objects.bindings]]
+name = "ACCOUNT_CONTROL_PLANE"
+class_name = "AccountControlPlane"
+
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["TeamPresence"]
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["AccountControlPlane"]
