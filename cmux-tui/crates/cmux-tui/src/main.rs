@@ -17,6 +17,7 @@ mod config;
 mod host_colors;
 mod keys;
 mod layout_undo;
+mod local_owner;
 mod localization;
 mod machine;
 #[cfg(unix)]
@@ -1823,6 +1824,22 @@ fn run_server(
             None,
         );
     }
+    // Plain interactive launches do not host the session themselves: a
+    // detached headless owner is started (or reused) so every `cmux` for the
+    // same session is an equal client and the session survives any client
+    // detaching. Modes whose owner must live in this process (ephemeral
+    // state, provider authority, WebSocket/remote serving) keep hosting
+    // in-process below, as does `server.detached_owner = false`.
+    if detached_owner_launch_applicable(
+        &args,
+        &config,
+        &ws_addr,
+        &ws_token,
+        provider_workspace_authority.is_some() || provider_management_listener.is_some(),
+        interactive_stdio_is_terminal(),
+    ) {
+        return start_detached_owner_session(args, config, socket_path);
+    }
 
     #[cfg(unix)]
     let (remote_relays, remote_direct_websocket, remote_workspace_http) = if args.remote {
@@ -2205,6 +2222,72 @@ fn session_client_mode(config: &config::Config) -> SessionClientMode {
     } else {
         SessionClientMode::Plain
     }
+}
+
+fn interactive_stdio_is_terminal() -> bool {
+    io::stdin().is_terminal() && io::stdout().is_terminal()
+}
+
+/// True when a plain interactive launch should connect through a detached
+/// session owner instead of hosting the mux inside this TUI process.
+///
+/// `provider_owned` covers the modes whose mux must live in this process
+/// (provider workspace authority from the environment or a management
+/// listener). Ephemeral state is in-memory and dies with its process by
+/// contract, so it is never delegated to an owner. Non-terminal stdio keeps
+/// the legacy path: the TUI cannot start there, and spawning an owner first
+/// would leak it when the client then fails.
+fn detached_owner_launch_applicable(
+    args: &Args,
+    config: &config::Config,
+    ws_addr: &Option<String>,
+    ws_token: &Option<String>,
+    provider_owned: bool,
+    stdio_is_terminal: bool,
+) -> bool {
+    args.should_attach_existing(ws_addr, ws_token)
+        && config.server.detached_owner
+        && !args.ephemeral
+        && !args.agent_browser_provider
+        && !provider_owned
+        && stdio_is_terminal
+}
+
+fn start_detached_owner_session(
+    args: Args,
+    config: config::Config,
+    socket_path: PathBuf,
+) -> anyhow::Result<()> {
+    let messages = &localization::catalog().local_server;
+    let spec = local_owner::OwnerSpec {
+        session: args.session.clone(),
+        socket: socket_path.clone(),
+        socket_is_derived: args.socket.is_none(),
+        state: args.state.clone(),
+        term: args.term.clone(),
+    };
+    let deadline = std::time::Instant::now() + local_owner::ENSURE_DEADLINE;
+    if let Err(error) = local_owner::ensure_owner(&spec, Some(&args.session), deadline) {
+        match error {
+            local_owner::EnsureError::Spawn(_error) => {
+                anyhow::bail!("{}", messages.owner_spawn_failed())
+            }
+            local_owner::EnsureError::NotReady => anyhow::bail!("{}", messages.owner_not_ready),
+            local_owner::EnsureError::WrongOwner => anyhow::bail!("{}", messages.wrong_owner),
+            local_owner::EnsureError::DifferentSession => {
+                anyhow::bail!("{}", messages.different_session)
+            }
+            local_owner::EnsureError::InvalidIdentity => {
+                anyhow::bail!("{}", messages.invalid_identity)
+            }
+            local_owner::EnsureError::UnsupportedProtocol => {
+                anyhow::bail!("{}", messages.unsupported_protocol)
+            }
+        }
+    }
+    let remote = RemoteSession::connect(&socket_path)
+        .context("connect the interactive client to its detached session owner")?;
+    run_connected_session_client(socket_path, args.session, config, Session::Remote(remote), None)
 }
 
 fn run_connected_session_client(
@@ -2637,6 +2720,68 @@ mod tests {
 
     fn args(values: &[&str]) -> Args {
         parse_args_result(values.iter().map(|value| value.to_string())).unwrap()
+    }
+
+    #[test]
+    fn plain_interactive_launch_uses_a_detached_owner() {
+        let config = config::Config::default();
+        assert!(config.server.detached_owner);
+        assert!(detached_owner_launch_applicable(&args(&[]), &config, &None, &None, false, true));
+        assert!(detached_owner_launch_applicable(
+            &args(&["--session", "agents", "--state", "/tmp/state"]),
+            &config,
+            &None,
+            &None,
+            false,
+            true
+        ));
+    }
+
+    #[test]
+    fn in_process_hosting_is_kept_where_the_owner_must_live_here() {
+        let config = config::Config::default();
+        // Modes excluded by should_attach_existing.
+        assert!(!detached_owner_launch_applicable(
+            &args(&["--headless"]),
+            &config,
+            &None,
+            &None,
+            false,
+            true
+        ));
+        assert!(!detached_owner_launch_applicable(
+            &args(&[]),
+            &config,
+            &Some("127.0.0.1:7681".to_string()),
+            &None,
+            false,
+            true
+        ));
+        // Ephemeral state is in-memory and dies with its process.
+        assert!(!detached_owner_launch_applicable(
+            &args(&["--ephemeral"]),
+            &config,
+            &None,
+            &None,
+            false,
+            true
+        ));
+        // Provider-owned muxes stay in this process.
+        assert!(!detached_owner_launch_applicable(&args(&[]), &config, &None, &None, true, true));
+        // Without terminal stdio the TUI cannot start; spawning an owner
+        // first would leak it.
+        assert!(!detached_owner_launch_applicable(&args(&[]), &config, &None, &None, false, false));
+        // Explicit opt-out restores the founding-TUI host.
+        let mut opted_out = config;
+        opted_out.server.detached_owner = false;
+        assert!(!detached_owner_launch_applicable(
+            &args(&[]),
+            &opted_out,
+            &None,
+            &None,
+            false,
+            true
+        ));
     }
 
     #[test]

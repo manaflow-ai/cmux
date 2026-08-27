@@ -1671,6 +1671,9 @@ fn print_admin_response(action: &str, response: AdminResponse, json: bool) -> an
     Ok(())
 }
 
+/// Advertised by `remote-probe --json` so a control plane can choose routes the client can use.
+pub const PROBE_CAPABILITIES: &[&str] = &["direct-ws-user-agent"];
+
 fn run_probe(args: &[String]) -> anyhow::Result<()> {
     let value = serde_json::json!({
         "app": "cmux-tui",
@@ -1681,6 +1684,10 @@ fn run_probe(args: &[String]) -> anyhow::Result<()> {
         "remote_protocol": REMOTE_PROTOCOL_VERSION,
         "os": std::env::consts::OS,
         "arch": std::env::consts::ARCH,
+        // Client-side transport capabilities a control plane can key routing on.
+        // `direct-ws-user-agent`: direct WebSocket dials carry a User-Agent, which
+        // hosted ingress on branded machine domains requires.
+        "capabilities": PROBE_CAPABILITIES,
     });
     if args.iter().any(|argument| argument == "--json") {
         println!("{}", serde_json::to_string(&value)?);
@@ -2456,6 +2463,11 @@ fn expand_home(path: String) -> anyhow::Result<PathBuf> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn probe_capabilities_include_direct_ws_user_agent() {
+        assert!(super::PROBE_CAPABILITIES.contains(&"direct-ws-user-agent"));
+    }
+
     use super::*;
 
     fn seed_legacy_authorization_state(state_dir: &Path) {

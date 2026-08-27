@@ -5,12 +5,17 @@
  * renamed at their edge — so instead the raw tokened preview URL stops being
  * user-visible at all. `openUrl` for a port open points at
  * `/vm/desktop/<machine>?cmux_token=…` on our origin; that page validates the
- * upstream host and frames the noVNC page with the token internal to the
- * iframe src. The wrapper also knows the token's expiry, so a lapsed pane
- * shows an honest "reopen from cmux" screen instead of a silent white one.
+ * upstream host and token, then sends the pane to the noVNC page top-level with
+ * the gateway's own parameter. It must be a top-level navigation, not an iframe:
+ * the gateway answers the tokened request with a `bl_preview_token` cookie that
+ * every later asset, and the websockify upgrade, must carry, and WebKit refuses
+ * third-party cookies inside a cross-site frame — an iframed desktop rendered as
+ * unstyled noVNC HTML with a dead Connect button. The wrapper also knows the
+ * token's expiry, so a lapsed pane shows an honest "reopen from cmux" screen
+ * instead of a silent white one.
  */
 
-/** Hosts the wrapper will agree to frame: Blaxel previews, branded or not. */
+/** Hosts the wrapper will agree to send a pane to: Blaxel previews, branded or not. */
 const ALLOWED_UPSTREAM_SUFFIXES = [".vm.cmux.sh", ".preview.bl.run"] as const;
 
 export function isAllowedDesktopUpstreamHost(host: string | null | undefined): boolean {
@@ -58,10 +63,10 @@ export function desktopWrapperUrl(input: {
 }
 
 /**
- * The iframe src the wrapper page renders: the upstream noVNC page with the
+ * Where the wrapper page sends the pane: the upstream noVNC page with the
  * gateway's own token parameter plus the forwarded display options.
  */
-export function desktopIframeUrl(input: {
+export function desktopUpstreamUrl(input: {
   readonly host: string;
   readonly token: string;
   readonly params: Readonly<Record<string, string | string[] | undefined>>;
