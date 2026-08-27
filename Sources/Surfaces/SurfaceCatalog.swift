@@ -462,14 +462,9 @@ final class SurfaceCatalog {
             $0.resource == projection.resource && $0.panelID == projection.panelID
         }
         let preserved = provider.discardMaterialization(current ?? projection)
-        guard !preserved else {
-            guard providers[projection.resource.machine] === provider else { return }
-            if current == nil {
-                record(projection)
-            }
-            return
-        }
-        guard let current else { return }
+        // A completed operation owns only the projection it recorded. If that projection was
+        // removed before cleanup, a preserving provider must not resurrect the closed pane.
+        guard let current, !preserved else { return }
         projections.remove(current)
         notifyChange()
     }
@@ -477,8 +472,10 @@ final class SurfaceCatalog {
     /// Cleans up a provider result that arrived after its catalog operation was retired. A
     /// preserving provider moved an existing pane, so its late result must remain represented.
     private func cleanupMaterialization(_ projection: SurfaceProjection, from provider: any SurfaceProvider) {
-        guard provider.discardMaterialization(projection),
+        let preserved = provider.discardMaterialization(projection)
+        guard preserved,
               providers[projection.resource.machine] === provider,
+              resources[projection.resource] != nil,
               !projections.contains(where: {
                   $0.resource == projection.resource && $0.panelID == projection.panelID
               }) else { return }
