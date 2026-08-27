@@ -310,6 +310,13 @@ struct SurfaceCatalogTests {
         }
         let catalog = SurfaceCatalog(materializationClock: clock)
         let provider = FakeProvider(machine: .cloud("vivid-newt"))
+        let (discarded, discardedContinuation) = AsyncStream<SurfaceProjection>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        provider.onDiscard = { projection in
+            discardedContinuation.yield(projection)
+            discardedContinuation.finish()
+        }
         catalog.register(provider)
         let term = terminal(.cloud("vivid-newt"), "term_1")
         catalog.replaceResources([term], on: .cloud("vivid-newt"))
@@ -324,7 +331,7 @@ struct SurfaceCatalogTests {
         project = nil
 
         _ = try await awaitFirst(cleanupStarted)
-        await Task.yield()
+        _ = try await awaitFirst(discarded)
         #expect(catalog.projections.isEmpty)
         #expect(provider.discarded.count == 1)
     }
