@@ -305,7 +305,7 @@ public struct BrowserURLAllowlistPolicy: Equatable, Sendable {
     public func allowsTrustedInternalURL(_ url: URL) -> Bool {
         guard isActive else { return true }
         guard let scheme = url.scheme?.lowercased() else { return false }
-        if scheme == "file" { return Self.isLocalFileURL(url) }
+        if scheme == "file" { return isLocalFileURL(url) }
         return Self.trustedInternalSchemes.contains(scheme) || allows(url)
     }
 
@@ -314,7 +314,7 @@ public struct BrowserURLAllowlistPolicy: Equatable, Sendable {
         return values.compactMap { BrowserURLAllowlistPattern($0) }.filter { seen.insert($0).inserted }
     }
 
-    private static func isLocalFileURL(_ url: URL) -> Bool {
+    private func isLocalFileURL(_ url: URL) -> Bool {
         guard url.isFileURL,
               url.path.hasPrefix("/"),
               url.user == nil,
