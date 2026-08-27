@@ -10,6 +10,38 @@ internal import CmuxCEFShim
 /// `sendDevToolsMessage`.
 @MainActor
 public final class CEFBrowser {
+    /// Chromium's requested destination for a popup or special-tab action.
+    /// Values mirror CEF's ``cef_window_open_disposition_t`` constants while
+    /// keeping the CEF headers out of Swift callers.
+    public enum PopupDisposition: Int, Sendable {
+        /// Chromium could not classify the requested destination.
+        case unknown = 0
+        /// Reuse the current tab.
+        case currentTab = 1
+        /// Reuse or activate a singleton tab.
+        case singletonTab = 2
+        /// Create a foreground tab.
+        case newForegroundTab = 3
+        /// Create a background tab.
+        case newBackgroundTab = 4
+        /// Create a popup window.
+        case newPopup = 5
+        /// Create a separate window.
+        case newWindow = 6
+        /// Save the destination to disk.
+        case saveToDisk = 7
+        /// Create an off-the-record window.
+        case offTheRecord = 8
+        /// Ignore the action.
+        case ignoreAction = 9
+        /// Activate an existing matching tab.
+        case switchToTab = 10
+        /// Create a picture-in-picture window.
+        case newPictureInPicture = 11
+        /// Create a split-view destination when supported by CEF.
+        case newSplitView = 12
+    }
+
     /// Navigation and lifecycle signals, delivered on the main actor.
     public enum Event: Sendable {
         /// The browser exists; its NSWindow is available via `nsWindow`.
@@ -38,7 +70,9 @@ public final class CEFBrowser {
     private var closeWaiters: [UUID: CheckedContinuation<Bool, Never>] = [:]
     private var closeTimeoutTasks: [UUID: Task<Void, Never>] = [:]
     private var selfRetain: Unmanaged<CEFBrowser>?
-    private var shouldBlockNavigation: ((URL) -> Bool)?
+    private var shouldBlockNavigation: ((URL, Bool, Bool, URL?) -> Bool)?
+    private var onBeforePopup: ((URL, PopupDisposition, Bool, URL?) -> Void)?
+    private var onOpenURLFromTab: ((URL, PopupDisposition, Bool, URL?) -> Void)?
 
     deinit {
         for task in closeTimeoutTasks.values { task.cancel() }
@@ -50,15 +84,25 @@ public final class CEFBrowser {
     ///   - url: Initial navigation target.
     ///   - cachePath: Profile storage directory below CEF's root cache path,
     ///     or `nil` for the shared global context.
+    ///   - shouldBlockNavigation: Main-frame policy callback. It receives the
+    ///     destination, gesture/redirect metadata, and the initiating URL.
+    ///   - onBeforePopup: Callback for popup creation requests. Native CEF
+    ///     popup creation is always canceled after this callback returns.
+    ///   - onOpenURLFromTab: Callback for special tab dispositions such as
+    ///     middle-click. Native CEF navigation is always canceled afterward.
     /// - Returns: The browser, or `nil` when CEF is unavailable.
     public static func create(
         url: URL,
         cachePath: String?,
-        shouldBlockNavigation: ((URL) -> Bool)? = nil
+        shouldBlockNavigation: ((URL, Bool, Bool, URL?) -> Bool)? = nil,
+        onBeforePopup: ((URL, PopupDisposition, Bool, URL?) -> Void)? = nil,
+        onOpenURLFromTab: ((URL, PopupDisposition, Bool, URL?) -> Void)? = nil
     ) -> CEFBrowser? {
         guard CEFRuntime.isInitialized else { return nil }
         let browser = CEFBrowser()
         browser.shouldBlockNavigation = shouldBlockNavigation
+        browser.onBeforePopup = onBeforePopup
+        browser.onOpenURLFromTab = onOpenURLFromTab
         let context = Unmanaged.passRetained(browser)
         browser.selfRetain = context
 
@@ -88,12 +132,46 @@ public final class CEFBrowser {
                 browser.publish(.rendererCrashed)
             }
         }
-        callbacks.should_block_navigation = { context, rawURL in
+        callbacks.should_block_navigation = { context, rawURL, userGesture, isRedirect, rawSourceURL in
             let browser = unmanagedBrowser(context)
             guard let rawURL,
                   let url = URL(string: String(cString: rawURL)) else { return 1 }
+            let sourceURL = rawSourceURL.flatMap { URL(string: String(cString: $0)) }
             return MainActor.assumeIsolated {
-                browser.shouldBlockNavigation?(url) == true ? 1 : 0
+                browser.shouldBlockNavigation?(
+                    url,
+                    userGesture != 0,
+                    isRedirect != 0,
+                    sourceURL
+                ) == true ? 1 : 0
+            }
+        }
+        callbacks.on_before_popup = { context, rawURL, targetDisposition, userGesture, rawSourceURL in
+            let browser = unmanagedBrowser(context)
+            guard let rawURL,
+                  let url = URL(string: String(cString: rawURL)) else { return }
+            let sourceURL = rawSourceURL.flatMap { URL(string: String(cString: $0)) }
+            MainActor.assumeIsolated {
+                browser.onBeforePopup?(
+                    url,
+                    PopupDisposition(rawValue: Int(targetDisposition)) ?? .unknown,
+                    userGesture != 0,
+                    sourceURL
+                )
+            }
+        }
+        callbacks.on_open_url_from_tab = { context, rawURL, targetDisposition, userGesture, rawSourceURL in
+            let browser = unmanagedBrowser(context)
+            guard let rawURL,
+                  let url = URL(string: String(cString: rawURL)) else { return }
+            let sourceURL = rawSourceURL.flatMap { URL(string: String(cString: $0)) }
+            MainActor.assumeIsolated {
+                browser.onOpenURLFromTab?(
+                    url,
+                    PopupDisposition(rawValue: Int(targetDisposition)) ?? .unknown,
+                    userGesture != 0,
+                    sourceURL
+                )
             }
         }
         callbacks.on_title_changed = { context, title in

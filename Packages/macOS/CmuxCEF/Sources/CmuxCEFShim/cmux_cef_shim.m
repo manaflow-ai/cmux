@@ -289,16 +289,25 @@ static int CEF_CALLBACK life_span_on_before_popup(
     cef_window_info_t *window_info, cef_client_t **client,
     cef_browser_settings_t *settings, cef_dictionary_value_t **extra_info,
     int *no_javascript_access) {
+  struct cmux_cef_browser *wrapper = life_span_wrapper(self);
   // cmux owns browser tabs and windows.  Letting CEF create its default popup
   // would produce an unmanaged top-level window whose requests bypass the
   // pane's navigation policy and whose browser identity is never tracked.
-  (void)self;
   (void)browser;
   (void)frame;
   (void)popup_id;
-  (void)target_url;
+  if (wrapper->callbacks.on_before_popup) {
+    char *utf8 = copy_utf8(target_url);
+    cef_string_userfree_t source = frame && frame->get_url ? frame->get_url(frame) : NULL;
+    char *source_utf8 = copy_utf8(source);
+    if (source) cef_string_userfree_free(source);
+    wrapper->callbacks.on_before_popup(
+        wrapper->callbacks.context, utf8, (int)target_disposition, user_gesture,
+        source_utf8);
+    free(source_utf8);
+    free(utf8);
+  }
   (void)target_frame_name;
-  (void)target_disposition;
   (void)user_gesture;
   (void)popup_features;
   (void)window_info;
@@ -306,6 +315,8 @@ static int CEF_CALLBACK life_span_on_before_popup(
   (void)settings;
   (void)extra_info;
   (void)no_javascript_access;
+  // Native CEF popups are always canceled. The callback above has already
+  // routed the URL into cmux's managed-tab policy when one is available.
   return 1;
 }
 
@@ -427,10 +438,38 @@ static int CEF_CALLBACK request_on_before_browse(
   cef_string_userfree_t url = request->get_url(request);
   char *utf8 = copy_utf8(url);
   cef_string_userfree_free(url);
+  cef_string_userfree_t source = frame->get_url ? frame->get_url(frame) : NULL;
+  char *source_utf8 = copy_utf8(source);
+  if (source) cef_string_userfree_free(source);
   int blocked = wrapper->callbacks.should_block_navigation(
-      wrapper->callbacks.context, utf8);
+      wrapper->callbacks.context, utf8, user_gesture, is_redirect, source_utf8);
+  free(source_utf8);
   free(utf8);
   return blocked ? 1 : 0;
+}
+
+static int CEF_CALLBACK request_on_open_urlfrom_tab(
+    cef_request_handler_t *self, cef_browser_t *browser, cef_frame_t *frame,
+    const cef_string_t *target_url,
+    cef_window_open_disposition_t target_disposition, int user_gesture) {
+  struct cmux_cef_browser *wrapper = request_wrapper(self);
+  if (wrapper->browser != browser || !frame || !frame->is_main(frame)) {
+    return 1;
+  }
+  if (wrapper->callbacks.on_open_url_from_tab) {
+    char *utf8 = copy_utf8(target_url);
+    cef_string_userfree_t source = frame->get_url ? frame->get_url(frame) : NULL;
+    char *source_utf8 = copy_utf8(source);
+    if (source) cef_string_userfree_free(source);
+    wrapper->callbacks.on_open_url_from_tab(
+        wrapper->callbacks.context, utf8, (int)target_disposition, user_gesture,
+        source_utf8);
+    free(source_utf8);
+    free(utf8);
+  }
+  // cmux owns all browser tabs. Never let CEF fall back to an unmanaged
+  // current-tab navigation when no host callback is installed.
+  return 1;
 }
 
 // MARK: - DevTools
@@ -819,6 +858,7 @@ cmux_cef_browser_t *cmux_cef_browser_create(
 
   request_init_base(wrapper, &wrapper->request.base, sizeof(wrapper->request));
   wrapper->request.on_before_browse = request_on_before_browse;
+  wrapper->request.on_open_urlfrom_tab = request_on_open_urlfrom_tab;
   wrapper->request.on_render_process_terminated =
       request_on_render_process_terminated;
 

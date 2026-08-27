@@ -23,7 +23,7 @@ struct CEFRuntimeTests {
 
     @Test("Profile data service removes only an idle injected path")
     @MainActor
-    func profileDataServiceUsesInjectedDependencies() throws {
+    func profileDataServiceUsesInjectedDependencies() async throws {
         let fileManager = FileManager.default
         let directory = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-cef-profile-\(UUID().uuidString)", isDirectory: true)
@@ -35,7 +35,7 @@ struct CEFRuntimeTests {
             runtimeIsInitialized: { false },
             profileCacheIsIdle: { _ in true }
         )
-        #expect(service.removeIfIdle(at: directory.path))
+        #expect(await service.removeIfIdle(at: directory.path))
         #expect(!fileManager.fileExists(atPath: directory.path))
     }
 }

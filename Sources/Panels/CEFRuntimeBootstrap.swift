@@ -91,7 +91,7 @@ enum CEFRuntimeBootstrap {
         }
 
         let profileURL = URL(fileURLWithPath: profileCachePath(for: profileID), isDirectory: true)
-        _ = CEFRuntimeProfileDataService().removeIfIdle(at: profileURL.path)
+        _ = await CEFRuntimeProfileDataService().removeIfIdle(at: profileURL.path)
     }
 
     /// Initializes CEF on first use.

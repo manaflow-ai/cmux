@@ -169,18 +169,38 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
         let cachePath = isDefaultProfile
             ? nil
             : CEFRuntimeBootstrap.profileCachePath(for: profileID)
-        let shouldBlockNavigation: ((URL) -> Bool)? = navigationPolicy.map { policy in
-            { url in
+        let shouldBlockNavigation: ((URL, Bool, Bool, URL?) -> Bool)? = navigationPolicy.map { policy in
+            { url, isUserInitiated, isRedirect, sourceURL in
                 policy(BrowserEngineNavigationRequest(
                     request: URLRequest(url: url),
-                    disposition: .currentTab
+                    disposition: .currentTab,
+                    isUserInitiated: isUserInitiated,
+                    sourceURL: sourceURL,
+                    isRedirect: isRedirect
                 )) == .cancel
+            }
+        }
+        let popupNavigation: ((URL, CEFBrowser.PopupDisposition, Bool, URL?) -> Void)? = navigationPolicy.map { policy in
+            { url, targetDisposition, userGesture, sourceURL in
+                let disposition: BrowserEngineNavigationDisposition = switch targetDisposition {
+                case .currentTab, .singletonTab, .switchToTab: .currentTab
+                default: .newTab
+                }
+                _ = policy(BrowserEngineNavigationRequest(
+                    request: URLRequest(url: url),
+                    disposition: disposition,
+                    isUserInitiated: userGesture,
+                    sourceURL: sourceURL,
+                    isPopupNavigation: true
+                ))
             }
         }
         guard let browser = CEFBrowser.create(
             url: URL(string: "about:blank")!,
             cachePath: cachePath,
-            shouldBlockNavigation: shouldBlockNavigation
+            shouldBlockNavigation: shouldBlockNavigation,
+            onBeforePopup: popupNavigation,
+            onOpenURLFromTab: popupNavigation
         ) else {
             remoteDebuggingEndpoint = nil
             throw CDPError.notConnected
@@ -606,9 +626,15 @@ final class CEFBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
 
     private static func matches(url: URL?, target: URL) -> Bool {
         guard let url else { return false }
-        return url.absoluteString == target.absoluteString ||
-            (url.scheme == target.scheme && url.host == target.host &&
-             url.path == target.path && url.query == target.query)
+        if url.absoluteString == target.absoluteString { return true }
+        return url.scheme?.caseInsensitiveCompare(target.scheme ?? "") == .orderedSame &&
+            url.host?.caseInsensitiveCompare(target.host ?? "") == .orderedSame &&
+            url.port == target.port &&
+            url.user == target.user &&
+            url.password == target.password &&
+            url.path == target.path &&
+            url.query == target.query &&
+            url.fragment == target.fragment
     }
 
     // MARK: - Event handling

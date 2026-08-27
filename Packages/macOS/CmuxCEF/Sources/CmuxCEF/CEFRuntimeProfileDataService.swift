@@ -5,9 +5,9 @@ internal import CmuxCEFShim
 /// context registry confirms that no live browser uses it.
 @MainActor
 public final class CEFRuntimeProfileDataService {
-    private let fileManager: FileManager
     private let runtimeIsInitialized: () -> Bool
     private let profileCacheIsIdle: (String) -> Bool
+    private let deletionWorker: CEFRuntimeProfileDataDeletionWorker
 
     /// Creates a profile-data service using the live CEF registry.
     ///
@@ -29,32 +29,34 @@ public final class CEFRuntimeProfileDataService {
         runtimeIsInitialized: @escaping () -> Bool,
         profileCacheIsIdle: @escaping (String) -> Bool
     ) {
-        self.fileManager = fileManager
         self.runtimeIsInitialized = runtimeIsInitialized
         self.profileCacheIsIdle = profileCacheIsIdle
+        deletionWorker = CEFRuntimeProfileDataDeletionWorker(
+            fileManager: CEFRuntimeSendableFileManager(value: fileManager)
+        )
     }
 
     /// Removes `cachePath` when it is safe to do so in the current process.
     ///
-    /// The check and removal are intentionally synchronous on the CEF UI thread:
-    /// no browser can be created between them, and the shared CEF root is never
-    /// removed by this API.
+    /// The idle check runs synchronously on the CEF UI thread. Once the check
+    /// succeeds, recursive removal is awaited on a serialized utility worker
+    /// so filesystem latency never blocks the main actor. The shared CEF root
+    /// is never removed by this API.
     ///
     /// - Parameter cachePath: A named profile cache path below CEF's root.
     /// - Returns: `true` when the path was removed or did not exist; `false`
     ///   when a live request context still owns it.
     @discardableResult
-    public func removeIfIdle(at cachePath: String) -> Bool {
+    public func removeIfIdle(at cachePath: String) async -> Bool {
         guard !runtimeIsInitialized() || profileCacheIsIdle(cachePath) else {
             return false
         }
-        do {
-            try fileManager.removeItem(atPath: cachePath)
-            return true
-        } catch CocoaError.fileNoSuchFile {
-            return true
-        } catch {
-            return false
-        }
+        let worker = deletionWorker
+        // The task is awaited before this lifecycle operation returns, so the
+        // utility-priority filesystem work remains bounded by the caller and
+        // cannot outlive the profile-deletion request as an unowned task.
+        return await Task.detached(priority: .utility) {
+            await worker.removeIfExists(atPath: cachePath)
+        }.value
     }
 }

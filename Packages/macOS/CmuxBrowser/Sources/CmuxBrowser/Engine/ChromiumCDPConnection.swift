@@ -59,6 +59,11 @@ actor ChromiumCDPConnection {
     private var sendTasks: [Int: Task<Void, Never>] = [:]
     private var timeoutTasks: [Int: Task<Void, Never>] = [:]
     private var eventQueue: [CDPEvent] = []
+    /// Fetch pauses are a flow-control boundary: Chromium cannot make any
+    /// progress until each request is continued or failed. Keep them in a
+    /// separate non-droppable FIFO so a burst of ordinary events can never
+    /// evict a paused request from the bounded notification queue.
+    private var pausedRequestQueue: [CDPEvent] = []
     private var eventWaiter: CheckedContinuation<CDPEvent?, Never>?
     private var eventResyncQueued = false
     private var frameContinuations: [UUID: FrameContinuation] = [:]
@@ -242,6 +247,7 @@ actor ChromiumCDPConnection {
             receiverTask = nil
             activeTargetSessionID = nil
             eventQueue.removeAll()
+            pausedRequestQueue.removeAll()
             eventResyncQueued = false
             eventWaiter?.resume(returning: nil)
             eventWaiter = nil
@@ -270,6 +276,9 @@ actor ChromiumCDPConnection {
     }
 
     private func nextEvent() async -> CDPEvent? {
+        if !pausedRequestQueue.isEmpty {
+            return pausedRequestQueue.removeFirst()
+        }
         if !eventQueue.isEmpty {
             let event = eventQueue.removeFirst()
             if event.method == Self.resyncEventMethod {
@@ -290,19 +299,16 @@ actor ChromiumCDPConnection {
             return
         }
 
+        if event.method == "Fetch.requestPaused" {
+            // Never apply the bounded notification eviction policy to a
+            // paused request. The interceptor will eventually resume/fail this
+            // exact event, after which the next request can be delivered.
+            pausedRequestQueue.append(event)
+            return
+        }
+
         guard eventQueue.count < Self.eventBufferCapacity else {
             if Self.priorityEventMethods.contains(event.method) {
-                if event.method == "Fetch.requestPaused" {
-                    // A paused request cannot make progress until this exact
-                    // event is resumed or failed. Never drop it at the bounded
-                    // queue boundary; evict the oldest queued event instead.
-                    let evictIndex = eventQueue.firstIndex(where: {
-                        $0.method != Self.resyncEventMethod
-                    }) ?? 0
-                    eventQueue.remove(at: evictIndex)
-                    eventQueue.append(event)
-                    return
-                }
                 var evictedNormalEvent = false
                 if let evictIndex = eventQueue.firstIndex(where: {
                     !Self.priorityEventMethods.contains($0.method) &&
@@ -462,6 +468,7 @@ actor ChromiumCDPConnection {
         isClosed = true
         activeTargetSessionID = nil
         eventQueue.removeAll()
+        pausedRequestQueue.removeAll()
         eventResyncQueued = false
         eventWaiter?.resume(returning: nil)
         eventWaiter = nil

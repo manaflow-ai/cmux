@@ -69,6 +69,7 @@ final class BrowserPaneEngineController {
                     storageID: storageID,
                     remoteDebuggingPort: remoteDebuggingPort,
                     environment: chromiumRuntimeEnvironment,
+                    documentScripts: initialDocumentScripts,
                     startPrerequisite: startPrerequisite,
                     navigationPolicyHandler: chromiumNavigationPolicy
                 )

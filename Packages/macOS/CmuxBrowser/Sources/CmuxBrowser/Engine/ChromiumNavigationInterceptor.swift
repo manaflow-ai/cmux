@@ -70,7 +70,10 @@ actor ChromiumNavigationInterceptor {
 
         let policyRequest = BrowserEngineNavigationRequest(
             request: request,
-            disposition: .currentTab
+            disposition: .currentTab,
+            isUserInitiated: Self.hasUserGesture(in: event.params),
+            sourceURL: Self.initiatorURL(in: event.params),
+            isRedirect: Self.isRedirect(in: event.params)
         )
         let decision = await policyHandler?(policyRequest) ?? .allow
         switch decision {
@@ -153,6 +156,31 @@ actor ChromiumNavigationInterceptor {
             request.httpBody = Data(postData.utf8)
         }
         return request
+    }
+
+    private static func hasUserGesture(in value: CDPValue?) -> Bool {
+        guard case .object(let object) = value else { return false }
+        if case .bool(true)? = object["hasUserGesture"] { return true }
+        if case .object(let request)? = object["request"],
+           case .bool(true)? = request["hasUserGesture"] {
+            return true
+        }
+        return false
+    }
+
+    private static func initiatorURL(in value: CDPValue?) -> URL? {
+        guard case .object(let object) = value,
+              case .object(let initiator)? = object["initiator"],
+              let rawURL = initiator["url"]?.stringValue else {
+            return nil
+        }
+        return URL(string: rawURL)
+    }
+
+    private static func isRedirect(in value: CDPValue?) -> Bool {
+        guard case .object(let object) = value else { return false }
+        if case .bool(true)? = object["isRedirect"] { return true }
+        return false
     }
 
     private func continueRequest(

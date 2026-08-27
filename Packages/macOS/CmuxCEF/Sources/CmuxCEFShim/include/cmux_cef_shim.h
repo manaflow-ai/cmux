@@ -30,7 +30,23 @@ typedef struct {
   /// The renderer process terminated unexpectedly; the pane should recover.
   void (*on_renderer_crashed)(void *context);
   /// Returns 1 to cancel a main-frame navigation before any request is sent.
-  int (*should_block_navigation)(void *context, const char *url);
+  /// `source_url` is the initiating frame URL when CEF can provide it.
+  int (*should_block_navigation)(void *context, const char *url,
+                                 int user_gesture, int is_redirect,
+                                 const char *source_url);
+  /// Notifies cmux about a renderer popup. The shim always cancels the native
+  /// popup; cmux decides whether to create a managed browser tab. The
+  /// disposition values are the CEF_WOD_* constants from cef_types.h.
+  void (*on_before_popup)(void *context, const char *url,
+                          int target_disposition, int user_gesture,
+                          const char *source_url);
+  /// Notifies cmux about a special link disposition (middle-click,
+  /// Cmd/Ctrl-click, or another request surfaced through OnOpenURLFromTab).
+  /// The shim always cancels the unmanaged navigation after delivering this
+  /// callback when one is installed.
+  void (*on_open_url_from_tab)(void *context, const char *url,
+                               int target_disposition, int user_gesture,
+                               const char *source_url);
   void (*on_title_changed)(void *context, const char *title);
   void (*on_address_changed)(void *context, const char *url);
   void (*on_loading_state_changed)(void *context, int is_loading,

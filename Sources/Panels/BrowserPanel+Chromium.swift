@@ -14,10 +14,10 @@ extension BrowserPanel {
         isURLAllowlistActive: Bool = false,
         initialURL: URL? = nil
     ) -> BrowserEngineKind {
-        // CEF and the streamed child do not yet expose a request-interception
-        // seam for page-initiated redirects/links. A configured URL allowlist
-        // is therefore a security boundary: fail closed to WebKit, whose
-        // navigation delegate enforces it for every request.
+        // Chromium adapters enforce the top-level navigation policy, but the
+        // URL allowlist also covers WebKit's response/subframe delegate paths.
+        // Keep allowlisted and trusted internal surfaces on WebKit until the
+        // Chromium engines expose equivalent whole-document coverage.
         let isTrustedCmuxScheme = initialURL?.scheme?.lowercased() == "cmux-diff-viewer"
         return requested == .chromium && (isRemoteWorkspace || isURLAllowlistActive || isTrustedCmuxScheme)
             ? .webkit
@@ -41,6 +41,13 @@ extension BrowserPanel {
         )
         guard effective == .webkit else { return }
 
+        // Preserve the user's render intent before hiding the child. The pane
+        // may be off-screen when the policy changes; its visibility callback
+        // will consume this intent after the isolation barrier completes.
+        if shouldRenderWebView {
+            chromiumIsolationRestoreIntent = true
+            chromiumIsolationRestoreURL = currentURL
+        }
         chromiumIsolationPending = true
         automationNavigationCoordinator.cancelExternalNavigation()
         automationNavigationCoordinator.invalidate()
@@ -77,9 +84,7 @@ extension BrowserPanel {
             self.chromiumIsolationTask = nil
             self.refreshWebViewLifecycleState()
             self.refreshNavigationAvailability()
-            if self.isWebViewVisibleInUI {
-                self.restoreDeferredChromiumIfNeeded(reason: "isolation_complete")
-            }
+            self.restoreDeferredChromiumIfNeeded(reason: "isolation_complete")
         }
     }
 
@@ -119,6 +124,90 @@ extension BrowserPanel {
         case .currentTab: .currentTab
         case .newTab: .newTab
         }
+
+        // Keep app-owned auth callbacks on the same narrow, fail-closed path
+        // used by WebKit. Chromium supplies user-gesture/redirect metadata for
+        // CEF requests; the streamed interceptor leaves those values false,
+        // so an untrusted callback can never reach LaunchServices.
+        let authCallbackPolicy = BrowserAuthCallbackNavigationPolicy(
+            trustedSourcePageOrigin: AuthEnvironment.appSessionHandoffOrigin,
+            callbackScheme: AuthEnvironment.callbackScheme
+        )
+        let sourceURL = navigation.sourceURL ?? currentURL
+        let trustedSourceOrigin = BrowserWebAuthnSecurityOrigin(
+            url: AuthEnvironment.appSessionHandoffOrigin
+        )?.serializedString
+        let sourceOriginMatches = sourceURL.flatMap {
+            BrowserWebAuthnSecurityOrigin(url: $0)?.serializedString
+        } == trustedSourceOrigin
+        let authDisposition = authCallbackPolicy.disposition(
+            for: url,
+            targetFrameIsMainFrame: true,
+            isLinkActivated: navigation.isUserInitiated && !navigation.isRedirect,
+            sourceOriginMatches: sourceOriginMatches
+        )
+        if authDisposition != .passThrough {
+            authCallbackPolicy.consume(
+                disposition: authDisposition,
+                callbackURL: url,
+                sourcePageURL: sourceURL,
+                cancelNavigation: { [weak self] in
+                    self?.navigationDelegate?.clearAttemptedRequest(discardPendingBypasses: true)
+                },
+                reportTerminalCancellation: {},
+                deliver: authCallbackPolicy.deliverAuthCallbackInApp,
+                completion: { [weak self] delivered, returnURL in
+                    guard let self else { return }
+                    BrowserAuthCallbackNavigationPolicy.finishDelivery(
+                        delivered: delivered,
+                        returnURL: returnURL,
+                        in: self.webView,
+                        prepareReturnRequest: { _ in },
+                        presentAlert: { [weak self] alert, webView, completion, cancel in
+                            guard let self else {
+                                cancel()
+                                return
+                            }
+                            _ = self.presentBrowserAlert(
+                                alert,
+                                in: webView,
+                                completion: completion,
+                                cancel: cancel
+                            )
+                        },
+                        loadRequest: { [weak self] request, _ in
+                            guard let targetURL = request.url else { return }
+                            self?.navigateChromium(to: targetURL)
+                        }
+                    )
+                }
+            )
+            return .cancel
+        }
+
+        // An explicit same-origin app-link is consumed before the generic
+        // external-scheme handler, matching BrowserNavigationDelegate.
+        if navigation.isUserInitiated,
+           let appLink = BrowserAppLinkOpenRequest(
+               url: url,
+               webOrigin: AuthEnvironment.appSessionHandoffOrigin
+           ),
+           openAppLinkInBrowserSplit?(appLink.destinationURL) == true {
+            return .cancel
+        }
+
+        // Preserve the explicit trusted app-web intent that asks cmux to hand
+        // a link to the system browser. This is separate from generic
+        // non-web schemes handled below and mirrors BrowserNavigationDelegate.
+        if navigation.isUserInitiated,
+           BrowserExternalNavigationPolicy(
+               trustedOrigin: AuthEnvironment.appWebOrigin
+           ).shouldOpenInSystemBrowser(url, sourceURL: sourceURL) {
+            navigationDelegate?.clearAttemptedRequest(discardPendingBypasses: true)
+            _ = NSWorkspace.shared.open(url)
+            return .cancel
+        }
+
         if shouldBlockInsecureHTTPNavigation(to: url) {
             presentInsecureHTTPAlert(
                 for: navigation.request,
@@ -131,8 +220,47 @@ extension BrowserPanel {
             navigationDelegate?.blockURLAllowlistNavigation(url, in: webView)
             return .cancel
         }
-        if navigation.disposition == .newTab {
-            openLinkInNewTab(request: navigation.request)
+
+        if browserShouldRouteExternalNavigation(url) {
+            navigationDelegate?.clearAttemptedRequest(discardPendingBypasses: true)
+            _ = browserHandleExternalNavigation(
+                url,
+                source: "chromium",
+                webView: webView,
+                loadFallbackRequest: { [weak self] request in
+                    guard let self, let fallbackURL = request.url else { return }
+                    if navigation.disposition == .newTab {
+                        self.openLinkInNewTab(request: request)
+                    } else {
+                        self.navigateChromium(to: fallbackURL)
+                    }
+                },
+                presentAlert: { [weak self] alert, webView, completion, cancel in
+                    guard let self else {
+                        cancel()
+                        return
+                    }
+                    _ = self.presentBrowserAlert(
+                        alert,
+                        in: webView,
+                        completion: completion,
+                        cancel: cancel
+                    )
+                }
+            )
+            return .cancel
+        }
+
+        // CEF cancels every native popup/special-disposition request. Perform
+        // the allowed current-tab or managed-new-tab action explicitly before
+        // returning; ordinary document requests still use `.allow` below.
+        if navigation.isPopupNavigation {
+            switch navigation.disposition {
+            case .currentTab:
+                navigateChromium(to: url)
+            case .newTab:
+                openLinkInNewTab(request: navigation.request)
+            }
             return .cancel
         }
         return .allow
@@ -308,6 +436,10 @@ extension BrowserPanel {
     /// engine is restarted so an old CEF child cannot race profile teardown.
     func restoreDeferredChromiumIfNeeded(reason: String) {
         guard isChromiumBacked, !isClosingWebViewLifecycle else { return }
+        if chromiumIsolationRestoreIntent {
+            restoreChromiumAfterIsolationIfNeeded(reason: reason)
+            guard !chromiumIsolationRestoreIntent else { return }
+        }
         if let discardTask = chromiumMemoryDiscardTask {
             guard isWebViewVisibleInUI, chromiumMemoryDiscardRestoreTask == nil else { return }
             chromiumMemoryDiscardRestoreTask = Task { @MainActor [weak self, discardTask] in
@@ -331,6 +463,38 @@ extension BrowserPanel {
 
         hiddenWebViewDiscardManager.clearDiscardState(reason: "chromium.\(reason)")
         shouldRenderWebView = true
+        startChromiumIfNeeded(initialURL: restoreURL)
+    }
+
+    /// Restores a Chromium child that was stopped for a temporary isolation
+    /// policy. Hidden panes retain the intent until their next reveal.
+    private func restoreChromiumAfterIsolationIfNeeded(reason: String) {
+        if shouldRenderWebView {
+            chromiumIsolationRestoreIntent = false
+            chromiumIsolationRestoreURL = nil
+            return
+        }
+        guard chromiumIsolationRestoreIntent,
+              !chromiumIsolationPending,
+              chromiumMemoryDiscardTask == nil,
+              isWebViewVisibleInUI,
+              !shouldRenderWebView,
+              Self.effectiveBrowserEngine(
+                  requested: .chromium,
+                  isRemoteWorkspace: isRemoteWorkspace,
+                  isURLAllowlistActive: BrowserURLAllowlistPolicy(defaults: .standard).isActive
+              ) == .chromium else { return }
+
+        let restoreURL = chromiumIsolationRestoreURL ?? currentURL
+        chromiumIsolationRestoreIntent = false
+        chromiumIsolationRestoreURL = nil
+        shouldRenderWebView = true
+#if DEBUG
+        cmuxDebugLog(
+            "browser.chromium.isolation.restore panel=\(id.uuidString.prefix(5)) " +
+            "reason=\(reason)"
+        )
+#endif
         startChromiumIfNeeded(initialURL: restoreURL)
     }
 
@@ -577,6 +741,9 @@ extension BrowserPanel {
             return false
         }
 
+        chromiumIsolationRestoreIntent = false
+        chromiumIsolationRestoreURL = nil
+
         let wasRenderable = shouldRenderWebView
         let restoreURL = currentURL
         let shouldRestoreURL = wasRenderable &&
@@ -604,6 +771,8 @@ extension BrowserPanel {
 
     func navigateChromium(to url: URL) {
         guard isChromiumBacked, !chromiumIsolationPending else { return }
+        chromiumIsolationRestoreIntent = false
+        chromiumIsolationRestoreURL = nil
         shouldRenderWebView = true
         startChromiumIfNeeded()
         Task { @MainActor [weak self] in

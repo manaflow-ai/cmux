@@ -2364,6 +2364,11 @@ final class BrowserPanel: Panel, ObservableObject {
     var chromiumMemoryDiscardRestoreTask: Task<Void, Never>?
     var chromiumCloseTask: Task<Bool, Never>?
     var chromiumIsolationPending = false
+    /// Render intent retained while Chromium is stopped for a temporary
+    /// workspace/allowlist isolation policy. This is distinct from memory
+    /// discard state so a hidden pane can be restored when policy permits it.
+    var chromiumIsolationRestoreIntent = false
+    var chromiumIsolationRestoreURL: URL?
     var lastRecordedChromiumNavigationRevision: UInt64?
     private(set) var navigationDelegate: BrowserNavigationDelegate?
     private var uiDelegate: BrowserUIDelegate?
@@ -2684,6 +2689,8 @@ final class BrowserPanel: Panel, ObservableObject {
         cancelHiddenWebViewDiscard()
         chromiumMemoryDiscardRestoreTask?.cancel()
         chromiumMemoryDiscardRestoreTask = nil
+        chromiumIsolationRestoreIntent = false
+        chromiumIsolationRestoreURL = nil
         webViewLifecycleState = .newTab; pendingDiscardRestoreNavigation = nil; currentDiscardRestoreAttemptID = nil
         if resetVisibility {
             webViewLastVisibleAt = nil
@@ -4330,6 +4337,7 @@ final class BrowserPanel: Panel, ObservableObject {
             )
         }
         enforceChromiumIsolationIfNeeded(reason: "workspace_reattach")
+        restoreDeferredChromiumIfNeeded(reason: "workspace_reattach")
         resumePendingRemoteNavigationIfNeeded()
     }
 
@@ -5176,6 +5184,8 @@ final class BrowserPanel: Panel, ObservableObject {
         cancelHiddenWebViewDiscard()
         chromiumMemoryDiscardRestoreTask?.cancel()
         chromiumMemoryDiscardRestoreTask = nil
+        chromiumIsolationRestoreIntent = false
+        chromiumIsolationRestoreURL = nil
         isClosingWebViewLifecycle = true
         automationNavigationCoordinator.invalidate()
         navigationDelegate?.cancelPendingAuthenticationPrompts()
@@ -5242,7 +5252,12 @@ final class BrowserPanel: Panel, ObservableObject {
     /// document could otherwise remain visible under a newly stricter policy.
     func enforceURLAllowlistPolicy() {
         enforceChromiumIsolationIfNeeded(reason: "url_allowlist_changed")
-        if !isChromiumBacked {
+        if isChromiumBacked {
+            // A policy relaxation may happen while this pane is hidden. The
+            // Chromium extension retains the render intent and starts the
+            // child on the next visible mount (or immediately when visible).
+            restoreDeferredChromiumIfNeeded(reason: "url_allowlist_changed")
+        } else {
             navigationDelegate?.enforceURLAllowlistPolicy(
                 in: webView,
                 displayURL: Self.remoteProxyDisplayURL(for: webView.url)
@@ -5664,6 +5679,8 @@ final class BrowserPanel: Panel, ObservableObject {
             return nil
         }
         if isChromiumBacked {
+            chromiumIsolationRestoreIntent = false
+            chromiumIsolationRestoreURL = nil
             cancelHiddenWebViewDiscard()
             if !preserveRestoredSessionHistory {
                 abandonRestoredSessionHistoryIfNeeded()
@@ -6149,6 +6166,7 @@ extension BrowserPanel {
         preferredDeveloperToolsVisible ||
         hasRecoverableWebContentTermination ||
         pendingWebContentRecoveryURL != nil ||
+        chromiumIsolationRestoreIntent ||
         webView.cmuxBrowserViewportAttachmentSuperview != nil
     }
 
@@ -6216,6 +6234,8 @@ extension BrowserPanel {
 
         pageTitle = ""
         currentURL = nil
+        chromiumIsolationRestoreIntent = false
+        chromiumIsolationRestoreURL = nil
         renderedPDFDocumentURL = nil
         hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(nil)
         faviconPNGData = nil

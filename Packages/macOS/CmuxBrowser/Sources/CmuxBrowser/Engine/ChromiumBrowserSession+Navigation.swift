@@ -467,8 +467,15 @@ extension ChromiumBrowserSession {
 
     static func matches(url: URL?, target: URL) -> Bool {
         guard let url else { return false }
-        return url.absoluteString == target.absoluteString ||
-            (url.scheme == target.scheme && url.host == target.host && url.path == target.path && url.query == target.query)
+        if url.absoluteString == target.absoluteString { return true }
+        return url.scheme?.caseInsensitiveCompare(target.scheme ?? "") == .orderedSame &&
+            url.host?.caseInsensitiveCompare(target.host ?? "") == .orderedSame &&
+            url.port == target.port &&
+            url.user == target.user &&
+            url.password == target.password &&
+            url.path == target.path &&
+            url.query == target.query &&
+            url.fragment == target.fragment
     }
 
     private static func mainFrame(from params: CDPValue?) -> [String: CDPValue]? {
