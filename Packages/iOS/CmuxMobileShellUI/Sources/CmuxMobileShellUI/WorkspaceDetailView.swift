@@ -49,7 +49,7 @@ struct WorkspaceDetailView: View {
     @Environment(BrowserSurfaceStore.self) var browserStore
     @Environment(BrowserStreamStore.self) var browserStreamStore
     @Environment(MobileSimulatorStreamStore.self) var simulatorStreamStore
-    @Environment(MobileDisplaySettings.self) private var displaySettings
+    @Environment(MobileDisplaySettings.self) var displaySettings
     @Environment(ToastCenter.self) private var toasts
     @Environment(\.mobileChildPresentationProvider) private var childPresentationProvider
     @Environment(\.terminalFilesChipEnabled) var isTerminalFilesChipEnabled
@@ -190,7 +190,8 @@ struct WorkspaceDetailView: View {
             // terminal surface, which has no system scroll view.
             .mobilePinnedNavigationBar()
             .trackBarPresence(barPresence)
-            .toolbar { workspaceDetailToolbar }
+            .toolbar(.hidden, for: .navigationBar)
+            .safeAreaInset(edge: .top, spacing: 0) { workspaceOwnedTopBar }
             .task(id: workspace.rpcWorkspaceID.rawValue) {
                 await store.refreshMobileBrowserPanels(workspaceID: workspace.rpcWorkspaceID.rawValue)
                 syncSimulatorStreamPanels()
@@ -285,7 +286,7 @@ struct WorkspaceDetailView: View {
     }
 
     #if os(iOS)
-    private var altScreenNoticeIsVisible: Bool {
+    var altScreenNoticeIsVisible: Bool {
         guard let selectedTerminalID else { return false }
         return store.isAlternateScreen(surfaceID: selectedTerminalID)
             && displaySettings.showAltScreenNotice
@@ -411,6 +412,10 @@ struct WorkspaceDetailView: View {
     }
 
     private var workspaceTitleToolbarMenu: some View {
+        workspaceTitleMenu(usesNaturalWidth: false)
+    }
+
+    func workspaceTitleMenu(usesNaturalWidth: Bool) -> some View {
         let measuredWidths = structuralTrailingItemKeys.compactMap { trailingToolbarItemWidths[$0] }
         // Reconnect lives in the title menu now that no pill covers the
         // terminal; reauthentication keeps its own blocking banner.
@@ -439,6 +444,7 @@ struct WorkspaceDetailView: View {
         )
         return WorkspaceTitleMenu(
             value: value,
+            usesNaturalWidth: usesNaturalWidth,
             menuContent: {
                 WorkspaceTitleMenuContent(
                     workspaceName: value.workspaceName,
@@ -746,7 +752,7 @@ struct WorkspaceDetailView: View {
     #if os(iOS)
     /// Leading back-button island; iOS 26 supplies toolbar glass.
     @ViewBuilder
-    private var workspaceBackToolbarButton: some View {
+    var workspaceBackToolbarButton: some View {
         if let backButtonConfiguration {
             WorkspaceBackButton(
                 unreadCount: backButtonConfiguration.unreadCount,
