@@ -47,8 +47,9 @@ public final class MobileDisplaySettings {
     /// Debug slider range for the unread count badge's circle diameter, in
     /// points.
     public static let unreadBadgeDiameterRange: ClosedRange<Double> = 8...28
-    /// The Mac sidebar badge's 16pt side, the shipping badge size.
-    public static let defaultUnreadBadgeDiameter = 16.0
+    /// The shipping badge diameter, picked by dogfood in the Unread Indicator
+    /// lab (the Mac sidebar badge is 16pt; the phone reads better at 20pt).
+    public static let defaultUnreadBadgeDiameter = 20.0
 
     /// Whether workspace-list row titles wrap onto multiple lines instead of
     /// truncating to a single line. Defaults to `false` (single-line). Mutating

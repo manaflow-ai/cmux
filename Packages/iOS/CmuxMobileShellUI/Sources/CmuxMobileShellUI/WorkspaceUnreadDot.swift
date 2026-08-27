@@ -20,13 +20,6 @@ struct WorkspaceUnreadDot: View {
     /// or nothing. All overflow goes toward the rail, which `WorkspaceRow`'s
     /// layout math reserves via `badgeDiameter`.
     static let gutterWidth: CGFloat = 10
-    /// Default diameter of the count badge, matching the Mac sidebar badge's
-    /// 16pt side. Fixed like the Mac's: multi-digit counts scale their text
-    /// down rather than widening the circle, so columns never shift. The
-    /// Unread Indicator lab can override it per-launch through the debug
-    /// `diameter` value.
-    static let badgeDiameter: CGFloat = 16
-
     let unread: MobileWorkspaceUnreadState
     var leftShift: Double = MobileDisplaySettings.defaultUnreadIndicatorLeftShift
     var diameter: Double = MobileDisplaySettings.defaultUnreadBadgeDiameter
