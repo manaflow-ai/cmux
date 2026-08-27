@@ -56,7 +56,7 @@ use crate::browser_input::{
 };
 use crate::config::{
     Action, ChromeTheme, Config, ScrollbarPosition, SidebarColumn, SidebarColumnKind,
-    SidebarResourceKind, SidebarView, SidebarViewScope, SidebarViewSpec,
+    SidebarLayoutNode, SidebarResourceKind, SidebarView, SidebarViewScope, SidebarViewSpec,
 };
 use crate::keys;
 use crate::localization;
@@ -114,6 +114,27 @@ struct ProjectionFocusKey {
 enum ProjectionSurfaceChange {
     Agent,
     Title,
+}
+
+/// The part of the sidebar configuration that changes the meaning of cached
+/// projection rows. Keep this identity separate from the full config so a
+/// profile switch cannot reuse rows for a view with the same id but a new
+/// level or action definition.
+#[derive(Clone, PartialEq, Eq)]
+struct SidebarProjectionSpec {
+    profile_id: String,
+    views: Vec<SidebarViewSpec>,
+    layout: Vec<SidebarLayoutNode>,
+}
+
+impl SidebarProjectionSpec {
+    fn from_config(config: &Config) -> Self {
+        Self {
+            profile_id: config.sidebar.active_profile.clone(),
+            views: config.sidebar.views.clone(),
+            layout: config.sidebar.layout.clone(),
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -10396,6 +10417,31 @@ impl App {
         self.projection_paint_pending = false;
     }
 
+    fn invalidate_projection_rows_if_sidebar_spec_changed(
+        &mut self,
+        previous: SidebarProjectionSpec,
+    ) {
+        if previous != SidebarProjectionSpec::from_config(&self.config) {
+            self.invalidate_projection_rows_cache();
+        }
+    }
+
+    /// Replace the active profile's projection specification and invalidate
+    /// snapshots in one place. View ids are profile-local, so a reused id may
+    /// describe a different resource tree after the replacement.
+    fn replace_sidebar_projection(
+        &mut self,
+        profile_id: String,
+        views: Vec<SidebarViewSpec>,
+        layout: Vec<SidebarLayoutNode>,
+    ) {
+        let previous = SidebarProjectionSpec::from_config(&self.config);
+        self.config.sidebar.active_profile = profile_id;
+        self.config.sidebar.views = views;
+        self.config.sidebar.layout = layout;
+        self.invalidate_projection_rows_if_sidebar_spec_changed(previous);
+    }
+
     /// Drop only snapshots that depend on the changed surface. The event
     /// stream can deliver several updates before the next frame, so return
     /// whether this surface needs to schedule the first paint boundary.
@@ -14217,6 +14263,7 @@ impl App {
         {
             self.config_reload_applications += 1;
         }
+        let previous_projection = SidebarProjectionSpec::from_config(&self.config);
         let focused_projection_id = match self.focus {
             FocusTarget::ProjectionRail(index) => {
                 self.config.sidebar.views.get(index).map(|view| view.id.clone())
@@ -14235,7 +14282,7 @@ impl App {
         self.session.apply_config(config.clone());
         self.sidebar_view = config.sidebar.view;
         self.config = config;
-        self.invalidate_projection_rows_cache();
+        self.invalidate_projection_rows_if_sidebar_spec_changed(previous_projection);
         let mut valid_view_ids =
             self.config.sidebar.views.iter().map(|view| view.id.clone()).collect::<HashSet<_>>();
         self.projection_rails.retain(|id, _| valid_view_ids.contains(id));
@@ -23397,9 +23444,7 @@ impl App {
     fn activate_sidebar_profile(&mut self, index: usize) {
         let Some(profile) = self.config.sidebar.profiles.get(index).cloned() else { return };
         let focused_view = self.focused_sidebar_view_id();
-        self.config.sidebar.active_profile = profile.id;
-        self.config.sidebar.views = profile.views;
-        self.config.sidebar.layout = profile.layout;
+        self.replace_sidebar_projection(profile.id, profile.views, profile.layout);
         self.config.sidebar.columns = self
             .config
             .sidebar
@@ -27002,6 +27047,75 @@ mod tests {
         app.activate_sidebar_profile(0);
         app.sync_layout((120, 20));
         assert!(app.sidebar_layout.tabs.is_none());
+    }
+
+    #[test]
+    fn profile_switch_rebuilds_projection_when_view_id_is_reused() {
+        let (mux, surface) = test_mux("sidebar-profile-projection-cache-test", None);
+        mux.report_agent(
+            surface.id,
+            AgentState::Working,
+            AgentSource::Hook,
+            Some("agent-session".into()),
+        )
+        .unwrap();
+
+        let tabs_view = SidebarViewSpec {
+            id: "shared-view".into(),
+            levels: vec![SidebarResourceKind::Tabs],
+            actions: Vec::new(),
+            actions_position: crate::config::ActionsPosition::Bottom,
+            width: 30,
+            max_width: 0,
+            collapse_priority: 30,
+            scope: crate::config::SidebarViewScope::Workspace,
+        };
+        let agents_view = SidebarViewSpec {
+            id: "shared-view".into(),
+            levels: vec![SidebarResourceKind::Agents],
+            actions: vec![crate::config::SidebarActionSpec::plain(Action::NewWorkspace)],
+            actions_position: crate::config::ActionsPosition::Bottom,
+            width: 30,
+            max_width: 0,
+            collapse_priority: 30,
+            scope: crate::config::SidebarViewScope::Workspace,
+        };
+        let tabs_profile = SidebarProfileSpec {
+            id: "tabs".into(),
+            name: "Tabs".into(),
+            layout: crate::config::sidebar_layout_of_columns(std::slice::from_ref(&tabs_view)),
+            views: vec![tabs_view],
+        };
+        let agents_profile = SidebarProfileSpec {
+            id: "agents".into(),
+            name: "Agents".into(),
+            layout: crate::config::sidebar_layout_of_columns(std::slice::from_ref(&agents_view)),
+            views: vec![agents_view],
+        };
+
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.config.sidebar.columns.clear();
+        app.config.sidebar.profiles = vec![tabs_profile.clone(), agents_profile.clone()];
+        app.config.sidebar.active_profile = tabs_profile.id.clone();
+        app.config.sidebar.views = tabs_profile.views.clone();
+        app.config.sidebar.layout = tabs_profile.layout.clone();
+        app.config.sidebar.views_explicit = true;
+        app.replace_tree(app.session.tree());
+
+        let tabs_rows = app.projection_rows(0);
+        assert!(tabs_rows.iter().any(|row| row.resource == SidebarResourceKind::Tabs));
+
+        app.activate_sidebar_profile(1);
+
+        let agent_rows = app.projection_rows(0);
+        assert!(agent_rows.iter().any(|row| row.resource == SidebarResourceKind::Agents));
+        assert!(
+            app.sidebar_action_rows(0)
+                .iter()
+                .any(|row| row.target == SidebarActionTarget::CreateWorkspace(None))
+        );
+
+        mux.close_surface(surface.id).unwrap();
     }
 
     #[test]
