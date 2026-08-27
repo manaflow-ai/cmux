@@ -598,4 +598,44 @@ import CmuxGit
         #expect(service.workspaceGitMetadataCreationWatcherProbeKeysByTargetPath[targetPath] == nil)
         #expect(service.workspaceGitMetadataCreationWatchTargetsByAncestor[fixture.root.path] == nil)
     }
+
+    @Test(.timeLimit(.minutes(1)))
+    func incompleteCreationWatchRegistrationClearsRepositoryLink() async throws {
+        let fixture = try SidebarGitLargeRepositoryFixture(entryCount: 1)
+        let targetPath = "/private/var/cmux-unwatched-\(UUID().uuidString)/future.inc"
+        let host = RecordingSidebarGitHost()
+        let (workspaceId, panelId) = host.addWorkspace(panelDirectory: fixture.root.path)
+        let key = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
+        host.updatePanelRepositoryLink(
+            workspaceId: workspaceId,
+            panelId: panelId,
+            remoteName: "origin",
+            displayName: "owner/repo",
+            url: URL(string: "https://github.com/owner/repo")!
+        )
+        let descriptorReader = GatedWatchDescriptorReader()
+        let projectionEvents = host.projectionEvents()
+        let service = makeService(
+            host: host,
+            descriptorReader: descriptorReader
+        )
+        service.workspaceGitTrackedDirectoryByKey[key] = fixture.root.path
+        service.updateWorkspaceGitMetadataWatcher(for: key, directory: fixture.root.path)
+        #expect(await descriptorReader.nextRequestedDirectory() == fixture.root.path)
+        await descriptorReader.resumeNext(with: descriptor(
+            repositoryRoot: fixture.root.path,
+            identity: "incomplete-registration",
+            creationWatchPaths: [targetPath],
+            creationWatchAllowedRoots: [fixture.root.path]
+        ))
+        var projectionIterator = projectionEvents.makeAsyncIterator()
+        var sawClear = false
+        while !sawClear, let event = await projectionIterator.next() {
+            sawClear = event == .clearRepositoryLink(workspaceId, panelId)
+        }
+        #expect(sawClear)
+        #expect(service.workspaceGitMetadataCreationWatchRegistrationIncompleteKeys.contains(key))
+        #expect(host.panelRepositoryLink(workspaceId: workspaceId, panelId: panelId) == nil)
+        service.stopWorkspaceGitMetadataWatcher(for: key)
+    }
 }
