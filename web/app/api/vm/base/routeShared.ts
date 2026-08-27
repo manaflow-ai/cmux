@@ -1,6 +1,6 @@
 import type { AuthedUser } from "../../../../services/vms/auth";
 import { assertVmCreateEnabled } from "../../../../services/vms/config";
-import { defaultProviderId, type ProviderId } from "../../../../services/vms/drivers";
+import { defaultProviderId, isProviderId, type ProviderId } from "../../../../services/vms/drivers";
 import {
   isVmBillingTeamResolutionError,
   isVmProGateBlocked,
@@ -16,6 +16,7 @@ import {
 } from "../../../../services/vms/errors";
 import {
   imageUsesBakedFreestyleSignedAdmin,
+  inferVmProviderForImage,
   resolveVmImage,
 } from "../../../../services/vms/images/resolver";
 import {
@@ -68,7 +69,9 @@ export async function runBaseRoute(input: {
     return vmRequiresProResponse();
   }
 
-  const provider = parsed.body.provider ?? defaultProviderId();
+  // Same provider inference as POST /api/vm: an explicit manifest image
+  // names its own provider even when the deployment default disagrees.
+  const provider = parsed.body.provider ?? inferVmProviderForImage(parsed.body.image) ?? defaultProviderId();
   let imageSelection;
   try {
     assertVmCreateEnabled(provider);
@@ -94,6 +97,12 @@ export async function runBaseRoute(input: {
         action: described.action,
         reason: "Cloud VM image configuration is unavailable.",
         details: described.details,
+        diagnostics: {
+          provider,
+          image: err.image,
+          envVar: err.envVar,
+          configReason: err.reason,
+        },
         phase: "create",
         retryable: true,
       });
@@ -266,7 +275,7 @@ async function parseBaseRequest(
     };
   }
   const provider = typeof candidate.provider === "string" ? candidate.provider.trim() : undefined;
-  if (provider && provider !== "e2b" && provider !== "freestyle" && provider !== "daytona" && provider !== "blaxel") {
+  if (provider && !isProviderId(provider)) {
     return {
       ok: false,
       response: vmErrorResponse({

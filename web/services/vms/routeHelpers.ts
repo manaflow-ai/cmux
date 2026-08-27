@@ -17,12 +17,20 @@ import {
   isVmAccountDeletionInProgressError,
   isVmAttachTransportUnsupportedError,
   isVmCreateDisabledError,
+  isVmCreateCreditsInsufficientError,
+  isVmCreateFailedError,
+  isVmCreateInProgressError,
   isVmDatabaseError,
+  isVmFreeAccessExpiredError,
+  isVmLimitExceededError,
+  isVmNotFoundError,
   isVmProviderOperationError,
+  isVmSnapshotNotFoundError,
   vmWorkflowErrorCause,
 } from "./errors";
 import { recordSpanTiming } from "./timings";
 import { authProviderErrorResponse } from "./authErrors";
+import { reportVmErrorResponse, VM_ERROR_CODE_HEADER } from "./observability";
 
 /** Bearer + refresh token pair the mac app stashes in keychain. */
 export type StackBearer = { accessToken: string; refreshToken: string };
@@ -132,6 +140,13 @@ export type VmErrorResponseInput = {
   readonly reason?: string;
   readonly extra?: Record<string, unknown>;
   readonly details?: Record<string, unknown>;
+  /**
+   * Operator-facing context (provider, image id, env var) for Sentry only.
+   * NEVER serialized into the response: VM error payloads deliberately hide
+   * implementation details from callers (see expectNoCloudVmImplementationLeaks
+   * in tests/vm-route-auth.test.ts).
+   */
+  readonly diagnostics?: Record<string, unknown>;
   readonly phase?: VmLifecyclePhase;
   readonly retryable?: boolean;
   readonly retryAfterSeconds?: number;
@@ -186,6 +201,15 @@ export function vmErrorResponse(input: VmErrorResponseInput): Response {
   if (retryAfterSeconds !== undefined) {
     headers["retry-after"] = String(retryAfterSeconds);
   }
+  // Every VM error flows through here, so this is the one place operator-fault
+  // errors reach Sentry and the one place the machine-readable code is exposed
+  // for response finalizers. Reporting never changes the response.
+  headers[VM_ERROR_CODE_HEADER] = input.error;
+  try {
+    reportVmErrorResponse(input);
+  } catch {
+    // Reporting must never change the caller's control flow.
+  }
   return new Response(JSON.stringify(payload), {
     status: input.status,
     headers: { "content-type": "application/json", ...headers },
@@ -220,6 +244,15 @@ export function notFoundVm(vmId: string): Response {
     action: "Run `cmux vm ls` to see available Cloud VMs. If the VM stopped while idle, start a new one with `cmux vm new`.",
     details: { vmId },
   });
+}
+
+/** Translate resource-scoped workflow failures shared by VM endpoint routes. */
+export function vmResourceErrorResponse(err: unknown, vmId: string): Response | null {
+  if (isVmFreeAccessExpiredError(err)) {
+    return vmFreeAccessExpiredResponse({ vmId, windowDays: err.windowDays });
+  }
+  if (isVmNotFoundError(err)) return notFoundVm(vmId);
+  return null;
 }
 
 export type VmRouteAccountScope =
@@ -320,6 +353,68 @@ export function vmActiveLimitExceededResponse(input: {
     details: { limit: input.limit, upgradeRequired: true },
     ...(input.phase ? { phase: input.phase } : {}),
   });
+}
+
+export type VmCreateLikeOperation = "fork" | "restore";
+
+/**
+ * Translate the provisioning failures shared by fork and restore routes.
+ * Operation-specific retry guidance stays at the route boundary, while the response
+ * shape and billing errors remain centralized here.
+ */
+export function vmCreateLikeErrorResponse(
+  err: unknown,
+  input: {
+    readonly operation: VmCreateLikeOperation;
+    readonly planId: string;
+    readonly retryAction: string;
+  },
+): Response | null {
+  if (isVmCreateInProgressError(err)) {
+    return vmErrorResponse({
+      error: "vm_create_in_progress",
+      status: 409,
+      message: "A Cloud VM create is already running for this request.",
+      action: `Wait for the first ${input.operation} to finish, then retry the same command.`,
+      details: { idempotencyKeySet: !!err.idempotencyKey },
+    });
+  }
+  if (isVmCreateFailedError(err)) {
+    return vmErrorResponse({
+      error: "vm_create_failed",
+      status: 500,
+      message: `The Cloud VM ${input.operation} create attempt failed.`,
+      action: `Retry with a fresh ${input.operation}. If it fails again, copy the details and contact support.`,
+      details: { idempotencyKeySet: !!err.idempotencyKey },
+    });
+  }
+  if (isVmLimitExceededError(err)) {
+    return vmActiveLimitExceededResponse({
+      limit: err.limit,
+      planId: input.planId,
+      retryAction: input.retryAction,
+    });
+  }
+  if (input.operation === "restore" && isVmSnapshotNotFoundError(err)) {
+    return vmErrorResponse({
+      error: "vm_snapshot_not_found",
+      status: 404,
+      message: "Cloud VM snapshot was not found for this account.",
+      action: "Create a snapshot from one of this team's Cloud VMs, then retry restore with that snapshot id.",
+      details: { snapshotId: err.snapshotId },
+    });
+  }
+  if (isVmCreateCreditsInsufficientError(err)) {
+    return vmErrorResponse({
+      error: "vm_create_credits_insufficient",
+      status: 402,
+      message: "This team has no Cloud VM create credits left.",
+      action: "Upgrade the team's plan or ask an admin to add Cloud VM create credits, then retry.",
+      extra: { amount: err.amount },
+      details: { amount: err.amount },
+    });
+  }
+  return null;
 }
 
 export function vmWorkflowErrorResponse(err: unknown): Response | null {

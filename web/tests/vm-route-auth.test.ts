@@ -35,6 +35,7 @@ const VM_ENV_KEYS = [
   "CMUX_VM_PLAN_PRO_MAX_MEMORY_MB",
   "CMUX_VM_PLAN_PRO_DEFAULT_MEMORY_MB",
   "CMUX_VM_REQUIRE_PRO",
+  "CMUX_VM_DEFAULT_PROVIDER",
   "VERCEL",
   "VERCEL_ENV",
 ] as const;
@@ -1931,6 +1932,67 @@ describe("VM REST auth", () => {
     expect(createVm).toHaveBeenCalledWith(expect.objectContaining({
       image: "sh-6ch5p9k23xrcx24056n8",
       imageVersion: "freestyle-rpclease-20260502a",
+    }));
+  });
+
+  test("explicit manifest image resolves its own provider when the deployment default disagrees", async () => {
+    // Regression for the 2026-08-26 outage: the CLI sends Blaxel image ids with
+    // no provider override, and prod still had CMUX_VM_DEFAULT_PROVIDER=freestyle,
+    // so the image was looked up under freestyle and every create 503ed.
+    process.env.VERCEL = "1";
+    process.env.VERCEL_ENV = "preview";
+    process.env.CMUX_VM_DEFAULT_PROVIDER = "freestyle";
+    process.env.FREESTYLE_SANDBOX_SNAPSHOT = "sh-6ch5p9k23xrcx24056n8";
+    getUser.mockResolvedValue(authedStackUser());
+    runVmWorkflow.mockResolvedValue({
+      providerVmId: "provider-vm-blaxel",
+      provider: "blaxel",
+      image: "blaxel/xfce-vnc:latest",
+      imageVersion: "blaxel-bootstrap-20260820a",
+      createdAt: 1_777_000_000_000,
+    });
+
+    const response = await POST(
+      new Request("https://cmux.test/api/vm", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+        body: JSON.stringify({ image: "blaxel/xfce-vnc:latest" }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(createVm).toHaveBeenCalledWith(expect.objectContaining({
+      provider: "blaxel",
+      image: "blaxel/xfce-vnc:latest",
+      imageVersion: "blaxel-bootstrap-20260820a",
+    }));
+  });
+
+  test("the shell-only base image the CLI sends for `vm new --base` is manifest-listed", async () => {
+    process.env.VERCEL = "1";
+    process.env.VERCEL_ENV = "preview";
+    process.env.CMUX_VM_DEFAULT_PROVIDER = "freestyle";
+    getUser.mockResolvedValue(authedStackUser());
+    runVmWorkflow.mockResolvedValue({
+      providerVmId: "provider-vm-blaxel-base",
+      provider: "blaxel",
+      image: "blaxel/base-image:latest",
+      imageVersion: "blaxel-base-bootstrap-20260824a",
+      createdAt: 1_777_000_000_000,
+    });
+
+    const response = await POST(
+      new Request("https://cmux.test/api/vm", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+        body: JSON.stringify({ image: "blaxel/base-image:latest" }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(createVm).toHaveBeenCalledWith(expect.objectContaining({
+      provider: "blaxel",
+      image: "blaxel/base-image:latest",
     }));
   });
 });

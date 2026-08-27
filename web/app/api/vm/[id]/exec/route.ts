@@ -1,13 +1,11 @@
 import {
   jsonResponse,
-  notFoundVm,
-  vmFreeAccessExpiredResponse,
   resolveVmRouteAccountScope,
+  vmResourceErrorResponse,
   vmErrorResponse,
   withAuthedVmApiRoute,
 } from "../../../../../services/vms/routeHelpers";
 import { setSpanAttributes } from "../../../../../services/telemetry";
-import { isVmFreeAccessExpiredError, isVmNotFoundError } from "../../../../../services/vms/errors";
 import { execVm, runVmWorkflow } from "../../../../../services/vms/workflows";
 
 
@@ -81,10 +79,8 @@ export async function POST(
         setSpanAttributes(span, { "cmux.exec.exit_code": result.exitCode });
         return jsonResponse(result);
       } catch (err) {
-        if (isVmFreeAccessExpiredError(err)) {
-          return vmFreeAccessExpiredResponse({ vmId: id, windowDays: err.windowDays });
-        }
-        if (isVmNotFoundError(err)) return notFoundVm(id);
+        const response = vmResourceErrorResponse(err, id);
+        if (response) return response;
         throw err;
       }
     },

@@ -1,12 +1,10 @@
 import {
   jsonResponse,
-  notFoundVm,
-  vmFreeAccessExpiredResponse,
   resolveVmRouteAccountScope,
+  vmResourceErrorResponse,
   withAuthedVmApiRoute,
 } from "../../../../../services/vms/routeHelpers";
 import { setSpanAttributes } from "../../../../../services/telemetry";
-import { isVmFreeAccessExpiredError, isVmNotFoundError } from "../../../../../services/vms/errors";
 import { openSshEndpoint, runVmWorkflow } from "../../../../../services/vms/workflows";
 
 
@@ -47,10 +45,8 @@ export async function POST(
         setSpanAttributes(span, { "cmux.ssh.credential_kind": endpoint.credential.kind });
         return jsonResponse(endpoint);
       } catch (err) {
-        if (isVmFreeAccessExpiredError(err)) {
-          return vmFreeAccessExpiredResponse({ vmId: id, windowDays: err.windowDays });
-        }
-        if (isVmNotFoundError(err)) return notFoundVm(id);
+        const response = vmResourceErrorResponse(err, id);
+        if (response) return response;
         throw err;
       }
     },

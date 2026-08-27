@@ -181,6 +181,18 @@
       "builderScriptVersion": "bootstrap-on-create",
       "validationStatus": "passed",
       "notes": "Stock Blaxel xfce + TigerVNC/noVNC image (a machine comes with its screen; `cmux vm new --base` picks blaxel/base-image:latest explicitly). No cmuxd-remote: at create time the sandbox installs the pinned cmux-tui build from the artifacts manifest onto its persistent home volume and the supervisor runs `cmux-tui server start --remote-ws 0.0.0.0:1337`, so no baked template is required. Validated cmux-remote attach (route + enrollment), exec, private preview URL + minted preview token, and standby/wake process preservation in us-pdx-1."
+    },
+    {
+      "provider": "blaxel",
+      "version": "blaxel-base-bootstrap-20260824a",
+      "imageId": "blaxel/base-image:latest",
+      "envVar": "BLAXEL_SANDBOX_IMAGE",
+      "defaultForLocalDev": false,
+      "cmuxdRemoteCommit": "none-cmux-tui",
+      "builtAt": "2026-08-24T23:07:01.000Z",
+      "builderScriptVersion": "bootstrap-on-create",
+      "validationStatus": "passed",
+      "notes": "Stock Blaxel Alpine shell image, no desktop; `cmux vm new --base` and `vm run` pool provisioning send this id explicitly. Nothing is baked: the driver bootstraps every image at create time, installing the pinned cmux-tui build onto the persistent home volume (the installer adds curl via apk first, since the stock image ships without it). Validated live in #10478 in us-pdx-1: create + bootstrap, cmux-remote attach (route + enrollment), exec, and standby/wake process preservation. Listed so deployed runtimes accept the id the CLI sends; it was missing from the manifest between #10478 and this entry, so `vm new --base` failed closed in production."
     }
   ]
 }

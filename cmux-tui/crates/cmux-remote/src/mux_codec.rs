@@ -3,25 +3,38 @@ use std::fmt;
 use std::io;
 
 use bytes::{BufMut, Bytes, BytesMut};
-use cmux_remote_protocol::{Lane, MAX_FRAME_PAYLOAD, REMOTE_SESSION_MESSAGE_MAX_BYTES};
+use cmux_remote_protocol::{
+    Lane, MAX_FRAME_PAYLOAD, REMOTE_CLIENT_MESSAGE_MAX_BYTES, REMOTE_SESSION_MESSAGE_MAX_BYTES,
+};
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncReadExt};
 
 const MAGIC: [u8; 4] = *b"CMXL";
 const HEADER_BYTES: usize = 4 + 8 + 4 + 4;
 const CHUNK_BYTES: usize = MAX_FRAME_PAYLOAD - HEADER_BYTES;
 // The local mux transport appends a newline after each serialized message.
-pub(crate) const MAX_MUX_LINE_BYTES: usize = REMOTE_SESSION_MESSAGE_MAX_BYTES + 1;
+// Keep the delimiter outside each directional payload budget. The shorter
+// alias is retained for upload callers and existing tests.
+pub(crate) const MAX_MUX_UPLOAD_LINE_BYTES: usize = REMOTE_CLIENT_MESSAGE_MAX_BYTES + 1;
+pub(crate) const MAX_MUX_DOWNLOAD_LINE_BYTES: usize = REMOTE_SESSION_MESSAGE_MAX_BYTES + 1;
+pub(crate) const MAX_MUX_LINE_BYTES: usize = MAX_MUX_UPLOAD_LINE_BYTES;
 const MAX_IN_FLIGHT_LINES: usize = 256;
-const MAX_IN_FLIGHT_BYTES: usize = MAX_MUX_LINE_BYTES * 2;
+const MAX_IN_FLIGHT_BYTES: usize = MAX_MUX_DOWNLOAD_LINE_BYTES * 2;
+
+/// Return the serialized payload size for one JSONL message. A trailing LF is
+/// framing and is not part of the directional payload budget. EOF-terminated
+/// lines are valid on the relay path, so they must be measured as-is.
+pub(crate) fn mux_line_payload_len(line: &[u8]) -> usize {
+    line.strip_suffix(b"\n").map_or(line.len(), |payload| payload.len())
+}
 
 pub(crate) async fn read_bounded_line<R>(reader: &mut R, line: &mut Vec<u8>) -> io::Result<usize>
 where
     R: AsyncBufRead + Unpin,
 {
-    read_bounded_line_with_limit(reader, line, MAX_MUX_LINE_BYTES).await
+    read_bounded_line_with_limit(reader, line, MAX_MUX_UPLOAD_LINE_BYTES).await
 }
 
-async fn read_bounded_line_with_limit<R>(
+pub(crate) async fn read_bounded_line_with_limit<R>(
     reader: &mut R,
     line: &mut Vec<u8>,
     maximum: usize,
@@ -37,7 +50,15 @@ where
 }
 
 pub(crate) fn encode_line(message: u64, line: &[u8]) -> Result<Vec<Bytes>, MuxCodecError> {
-    if line.len() > MAX_MUX_LINE_BYTES {
+    encode_line_with_limit(message, line, MAX_MUX_UPLOAD_LINE_BYTES)
+}
+
+pub(crate) fn encode_line_with_limit(
+    message: u64,
+    line: &[u8],
+    maximum: usize,
+) -> Result<Vec<Bytes>, MuxCodecError> {
+    if mux_line_payload_len(line) > maximum.saturating_sub(1) {
         return Err(MuxCodecError::LineTooLarge(line.len()));
     }
     let parts = line.len().max(1).div_ceil(CHUNK_BYTES);
@@ -63,10 +84,22 @@ fn encode_part(message: u64, part: u32, parts: u32, payload: &[u8]) -> Bytes {
     encoded.freeze()
 }
 
-#[derive(Default)]
 pub(crate) struct MuxLineAssembler<R = ()> {
     lines: HashMap<u64, PartialLine<R>>,
     bytes: usize,
+    maximum: usize,
+}
+
+impl<R> Default for MuxLineAssembler<R> {
+    fn default() -> Self {
+        Self::with_maximum(MAX_MUX_DOWNLOAD_LINE_BYTES)
+    }
+}
+
+impl<R> MuxLineAssembler<R> {
+    pub(crate) fn with_maximum(maximum: usize) -> Self {
+        Self { lines: HashMap::new(), bytes: 0, maximum }
+    }
 }
 
 struct PartialLine<R> {
@@ -117,8 +150,7 @@ impl<R> MuxLineAssembler<R> {
         let message = u64::from_be_bytes(packet[4..12].try_into().unwrap());
         let part = u32::from_be_bytes(packet[12..16].try_into().unwrap());
         let parts = u32::from_be_bytes(packet[16..20].try_into().unwrap());
-        if parts == 0 || part >= parts || parts as usize > MAX_MUX_LINE_BYTES.div_ceil(CHUNK_BYTES)
-        {
+        if parts == 0 || part >= parts || parts as usize > self.maximum.div_ceil(CHUNK_BYTES) {
             return Err(MuxCodecError::InvalidPacket);
         }
         if !self.lines.contains_key(&message) {
@@ -144,7 +176,7 @@ impl<R> MuxLineAssembler<R> {
             return Err(MuxCodecError::InvalidPacket);
         }
         let payload = packet.slice(HEADER_BYTES..);
-        if line.bytes.saturating_add(payload.len()) > MAX_MUX_LINE_BYTES
+        if line.bytes.saturating_add(payload.len()) > self.maximum
             || self.bytes.saturating_add(payload.len()) > MAX_IN_FLIGHT_BYTES
         {
             return Err(MuxCodecError::LineTooLarge(line.bytes.saturating_add(payload.len())));
@@ -163,11 +195,11 @@ impl<R> MuxLineAssembler<R> {
         for part in line.parts {
             joined.extend_from_slice(&part.expect("all parts received"));
         }
-        Ok(Some(AssembledMuxLine {
-            lane: line.lane,
-            payload: joined.freeze(),
-            _retained: line.retained,
-        }))
+        let payload = joined.freeze();
+        if mux_line_payload_len(&payload) > self.maximum.saturating_sub(1) {
+            return Err(MuxCodecError::LineTooLarge(payload.len()));
+        }
+        Ok(Some(AssembledMuxLine { lane: line.lane, payload, _retained: line.retained }))
     }
 }
 
@@ -223,5 +255,64 @@ mod tests {
             complete = assembler.push(Lane::Bulk, part).unwrap().or(complete);
         }
         assert_eq!(complete.unwrap().1, large);
+    }
+
+    #[test]
+    fn relay_line_limit_accepts_the_unix_payload_maximum() {
+        let mut line = vec![b'x'; REMOTE_CLIENT_MESSAGE_MAX_BYTES];
+        line.push(b'\n');
+        let packets = encode_line(1, &line).expect("the supported maximum must be encodable");
+        assert!(!packets.is_empty());
+    }
+
+    #[test]
+    fn relay_line_limit_rejects_eof_line_one_byte_over_payload_limit() {
+        let line = vec![b'x'; REMOTE_CLIENT_MESSAGE_MAX_BYTES + 1];
+        assert!(matches!(
+            encode_line(1, &line),
+            Err(MuxCodecError::LineTooLarge(size)) if size == REMOTE_CLIENT_MESSAGE_MAX_BYTES + 1
+        ));
+    }
+
+    #[test]
+    fn relay_download_accepts_a_line_above_the_upload_limit() {
+        let line = vec![b'x'; REMOTE_CLIENT_MESSAGE_MAX_BYTES + 1];
+        let packets =
+            encode_line_with_limit(1, &line, MAX_MUX_DOWNLOAD_LINE_BYTES).expect("egress line");
+        let mut assembler = MuxLineAssembler::with_maximum(MAX_MUX_DOWNLOAD_LINE_BYTES);
+        let mut assembled = None;
+        for packet in packets {
+            assembled = assembler.push(Lane::Bulk, packet).unwrap().or(assembled);
+        }
+        assert_eq!(assembled.expect("complete egress line").1, line.as_slice());
+    }
+
+    #[test]
+    fn relay_upload_assembler_rejects_an_eof_line_over_its_payload_limit() {
+        let line = b"12345";
+        let packets = encode_line_with_limit(1, line, 6).expect("test egress line");
+        let mut assembler = MuxLineAssembler::with_maximum(5);
+        let mut result = None;
+        for packet in packets {
+            result = Some(assembler.push(Lane::Bulk, packet));
+        }
+        assert!(matches!(
+            result,
+            Some(Err(MuxCodecError::LineTooLarge(size))) if size == line.len()
+        ));
+    }
+
+    #[test]
+    fn relay_download_limit_keeps_server_egress_budget() {
+        assert_eq!(MAX_MUX_DOWNLOAD_LINE_BYTES - 1, REMOTE_SESSION_MESSAGE_MAX_BYTES);
+        assert!(MAX_MUX_DOWNLOAD_LINE_BYTES > MAX_MUX_UPLOAD_LINE_BYTES);
+        let line = vec![b'x'; 32];
+        let packets = encode_line_with_limit(1, &line, MAX_MUX_DOWNLOAD_LINE_BYTES).unwrap();
+        let mut assembler = MuxLineAssembler::with_maximum(MAX_MUX_DOWNLOAD_LINE_BYTES);
+        let mut assembled = None;
+        for packet in packets {
+            assembled = assembler.push(Lane::Bulk, packet).unwrap().or(assembled);
+        }
+        assert_eq!(assembled.unwrap().1, line);
     }
 }

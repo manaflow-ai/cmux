@@ -18,7 +18,7 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 
 use futures_util::{SinkExt as _, StreamExt as _};
@@ -51,6 +51,12 @@ use crate::wire::{
 const MAX_OUTBOUND_FRAMES: usize = 256;
 const MAX_WATCH_OUTBOUND_FRAMES: usize = 64;
 const MAX_OUTBOUND_BYTES: usize = 8 << 20;
+// Keep a small byte reserve outside the lossy watch/event budget. Watch
+// failures must still reach the client when watch frames consume all shared
+// bytes, so the client can re-open the stream instead of retaining a silent
+// watch ID.
+const MAX_CRITICAL_RESERVED_BYTES: usize = 64 << 10;
+const MAX_WATCH_BYTES: usize = MAX_OUTBOUND_BYTES - MAX_CRITICAL_RESERVED_BYTES;
 const MAX_PTY_INGRESS_FRAMES: usize = 64;
 // Keep room for the workspace fs_write 2 MiB payload plus its JSON envelope.
 const MAX_INBOUND_FRAME_BYTES: usize = 4 << 20;
@@ -90,7 +96,16 @@ struct AuthSnapshot {
 
 pub(crate) struct OutboundFrame {
     pub(crate) text: String,
+    pub(crate) live: Option<Arc<AtomicBool>>,
+    pub(crate) ack: Option<tokio::sync::oneshot::Sender<()>>,
     _bytes: OwnedSemaphorePermit,
+    _watch_bytes: Option<OwnedSemaphorePermit>,
+}
+
+impl OutboundFrame {
+    pub(crate) fn is_live(&self) -> bool {
+        self.live.as_ref().is_none_or(|live| live.load(Ordering::Acquire))
+    }
 }
 
 async fn send_socket_message<S>(
@@ -129,7 +144,8 @@ pub(crate) struct OutboundSink {
     critical: mpsc::Sender<OutboundFrame>,
     watch: mpsc::Sender<OutboundFrame>,
     bytes: Arc<Semaphore>,
-    critical_overflow: Arc<std::sync::atomic::AtomicBool>,
+    watch_bytes: Arc<Semaphore>,
+    critical_overflow: Arc<AtomicBool>,
 }
 
 impl OutboundSink {
@@ -142,7 +158,8 @@ impl OutboundSink {
                 critical,
                 watch,
                 bytes: Arc::new(Semaphore::new(MAX_OUTBOUND_BYTES)),
-                critical_overflow: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                watch_bytes: Arc::new(Semaphore::new(MAX_WATCH_BYTES)),
+                critical_overflow: Arc::new(AtomicBool::new(false)),
             },
             critical_rx,
             watch_rx,
@@ -159,14 +176,39 @@ impl OutboundSink {
     }
 
     pub(crate) async fn critical_text(&self, text: String) -> Result<(), ()> {
+        // Keep relay-loop callers nonblocking. Waiting for a writer
+        // acknowledgement here can deadlock because the loop also owns the
+        // outbound consumer. Token-aware producers use the explicit ack path.
+        self.critical_text_with_token_ack(text, None, None).await
+    }
+
+    pub(crate) async fn critical_text_with_token(
+        &self,
+        text: String,
+        live: Option<Arc<AtomicBool>>,
+    ) -> Result<(), ()> {
+        let (ack_tx, ack_rx) = tokio::sync::oneshot::channel();
+        self.critical_text_with_token_ack(text, live, Some(ack_tx)).await?;
+        ack_rx.await.map_err(|_| ())
+    }
+
+    pub(crate) async fn critical_text_with_token_ack(
+        &self,
+        text: String,
+        live: Option<Arc<AtomicBool>>,
+        ack: Option<tokio::sync::oneshot::Sender<()>>,
+    ) -> Result<(), ()> {
         let bytes = u32::try_from(text.len()).map_err(|_| ())?;
         if bytes as usize > MAX_OUTBOUND_BYTES {
             self.critical_overflow.store(true, Ordering::Release);
             return Err(());
         }
         let permit = Arc::clone(&self.bytes).acquire_many_owned(bytes).await.map_err(|_| ())?;
-        let result =
-            self.critical.send(OutboundFrame { text, _bytes: permit }).await.map_err(|_| ());
+        let result = self
+            .critical
+            .send(OutboundFrame { text, live, ack, _bytes: permit, _watch_bytes: None })
+            .await
+            .map_err(|_| ());
         if result.is_err() {
             self.critical_overflow.store(true, Ordering::Release);
         }
@@ -186,7 +228,15 @@ impl OutboundSink {
                 return Err(());
             }
             let permit = Arc::clone(&self.bytes).try_acquire_many_owned(bytes).map_err(|_| ())?;
-            self.critical.try_send(OutboundFrame { text, _bytes: permit }).map_err(|_| ())
+            self.critical
+                .try_send(OutboundFrame {
+                    text,
+                    live: None,
+                    ack: None,
+                    _bytes: permit,
+                    _watch_bytes: None,
+                })
+                .map_err(|_| ())
         })();
         if result.is_err() {
             self.critical_overflow.store(true, Ordering::Release);
@@ -195,13 +245,29 @@ impl OutboundSink {
     }
 
     pub(crate) fn try_critical_text(&self, text: String) -> Result<(), ()> {
+        self.try_critical_text_with_token(text, None)
+    }
+
+    pub(crate) fn try_critical_text_with_token(
+        &self,
+        text: String,
+        live: Option<Arc<AtomicBool>>,
+    ) -> Result<(), ()> {
         let result = (|| {
             let bytes = u32::try_from(text.len()).map_err(|_| ())?;
             if bytes as usize > MAX_OUTBOUND_BYTES {
                 return Err(());
             }
             let permit = Arc::clone(&self.bytes).try_acquire_many_owned(bytes).map_err(|_| ())?;
-            self.critical.try_send(OutboundFrame { text, _bytes: permit }).map_err(|_| ())
+            self.critical
+                .try_send(OutboundFrame {
+                    text,
+                    live,
+                    ack: None,
+                    _bytes: permit,
+                    _watch_bytes: None,
+                })
+                .map_err(|_| ())
         })();
         if result.is_err() {
             self.critical_overflow.store(true, Ordering::Release);
@@ -214,9 +280,30 @@ impl OutboundSink {
     }
 
     pub(crate) fn try_watch_text(&self, text: String) -> Result<(), ()> {
+        self.try_watch_text_with_token(text, None)
+    }
+
+    pub(crate) fn try_watch_text_with_token(
+        &self,
+        text: String,
+        live: Option<Arc<AtomicBool>>,
+    ) -> Result<(), ()> {
         let bytes = u32::try_from(text.len()).map_err(|_| ())?;
+        if bytes as usize > MAX_WATCH_BYTES {
+            return Err(());
+        }
         let permit = Arc::clone(&self.bytes).try_acquire_many_owned(bytes).map_err(|_| ())?;
-        self.watch.try_send(OutboundFrame { text, _bytes: permit }).map_err(|_| ())
+        let watch_permit =
+            Arc::clone(&self.watch_bytes).try_acquire_many_owned(bytes).map_err(|_| ())?;
+        self.watch
+            .try_send(OutboundFrame {
+                text,
+                live,
+                ack: None,
+                _bytes: permit,
+                _watch_bytes: Some(watch_permit),
+            })
+            .map_err(|_| ())
     }
 }
 
@@ -641,6 +728,12 @@ async fn relay_session(
                 }
             }
             Wake::Outbound(is_critical, Some(frame)) => {
+                if !frame.is_live() {
+                    if let Some(ack) = frame.ack {
+                        let _ = ack.send(());
+                    }
+                    continue;
+                }
                 if is_critical {
                     critical_burst += 1;
                 } else {
@@ -652,6 +745,9 @@ async fn relay_session(
                 pending.fetch_sub(size.min(pending.load(Ordering::SeqCst)), Ordering::SeqCst);
                 if sent.is_err() {
                     break Ok(connected);
+                }
+                if let Some(ack) = frame.ack {
+                    let _ = ack.send(());
                 }
             }
             Wake::Outbound(_, None) => {
@@ -1040,6 +1136,14 @@ async fn relay_session(
         }
     };
 
+    // Workspace requests own Git children. Give them a cooperative
+    // cancellation window so each request can kill its process group and
+    // await the direct child before the socket connection is dropped.
+    if !workspace.shutdown().await {
+        eprintln!("Workspace request shutdown exceeded its bounded cleanup window.");
+    }
+    drop(workspace);
+
     // Handlers are owned by this socket. Cancel them before returning so a
     // dropped connection cannot leave work sending into a dead session. A
     // handler may be inside a non-cooperative provider call, so retain a hard
@@ -1174,5 +1278,32 @@ mod cancellation_tests {
         assert!(shutdown_connection_tasks(&mut tasks, &cancellation).await);
         assert!(cancellation.is_cancelled());
         assert!(tasks.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod outbound_frame_tests {
+    use super::OutboundSink;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    #[tokio::test]
+    async fn token_frames_are_marked_stale_before_socket_delivery() {
+        let (sink, mut critical, _) = OutboundSink::channels();
+        let live = Arc::new(AtomicBool::new(false));
+        let (ack_tx, ack_rx) = tokio::sync::oneshot::channel();
+        sink.critical_text_with_token_ack(
+            "stale".to_owned(),
+            Some(Arc::clone(&live)),
+            Some(ack_tx),
+        )
+        .await
+        .expect("queue frame");
+        let frame = critical.recv().await.expect("queued frame");
+        assert!(!frame.is_live());
+        live.store(true, Ordering::Release);
+        assert!(frame.is_live());
+        frame.ack.expect("ack sender").send(()).expect("ack receiver");
+        ack_rx.await.expect("ack");
     }
 }

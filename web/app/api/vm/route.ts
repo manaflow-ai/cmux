@@ -8,6 +8,7 @@ import {
 } from "../../../services/vms/auth";
 import {
   defaultProviderId,
+  isProviderId,
   type ProviderId,
 } from "../../../services/vms/drivers";
 import { assertVmCreateEnabled } from "../../../services/vms/config";
@@ -30,6 +31,7 @@ import {
 } from "../../../services/vms/entitlements";
 import {
   imageUsesBakedFreestyleSignedAdmin,
+  inferVmProviderForImage,
   resolveVmImage,
 } from "../../../services/vms/images/resolver";
 import {
@@ -51,6 +53,7 @@ import {
   vmActiveLimitExceededResponse,
   vmRequiresProResponse,
 } from "../../../services/vms/routeHelpers";
+import { captureVmProvisionOutcome } from "../../../services/vms/observability";
 import {
   createVm,
   listUserVms,
@@ -161,7 +164,10 @@ export async function POST(request: Request): Promise<Response> {
     async ({ user: initialUser, span, authDurationMs, routeStartedAtMs, setResponseFinalizer }) => {
       const timing = new VmTimingRecorder(span, "create", { startedAt: routeStartedAtMs });
       timing.record("auth", authDurationMs);
-      setResponseFinalizer((response) => timing.finish({ status: response.status }));
+      setResponseFinalizer((response) => {
+        timing.finish({ status: response.status });
+        captureVmProvisionOutcome({ userId: initialUser.id, operation: "create", response });
+      });
       let user: AuthedUser = initialUser;
       {
         // Runtime-validate the payload before we call a paid provider. An invalid `provider`
@@ -229,7 +235,7 @@ export async function POST(request: Request): Promise<Response> {
               details: { field: "provider" },
             });
           }
-          if (candidate.provider !== "e2b" && candidate.provider !== "freestyle" && candidate.provider !== "daytona" && candidate.provider !== "blaxel") {
+          if (!isProviderId(candidate.provider)) {
             return vmErrorResponse({
               error: "vm_invalid_provider",
               status: 400,
@@ -285,7 +291,10 @@ export async function POST(request: Request): Promise<Response> {
           provider: candidate.provider as ProviderId | undefined,
           billingTeamId: typeof bodyBillingTeamId === "string" ? bodyBillingTeamId.trim() : undefined,
         };
-        const provider = body.provider ?? defaultProviderId();
+        // An explicit manifest image names its own provider: the CLI sends
+        // provider-specific image ids without a provider field, and the
+        // deployment default must not reroute them under the wrong provider.
+        const provider = body.provider ?? inferVmProviderForImage(body.image) ?? defaultProviderId();
         let imageSelection;
         try {
           assertVmCreateEnabled(provider);
@@ -309,6 +318,12 @@ export async function POST(request: Request): Promise<Response> {
               action: described.action,
               reason: "Cloud VM image configuration is unavailable.",
               details: described.details,
+              diagnostics: {
+                provider,
+                image: err.image,
+                envVar: err.envVar,
+                configReason: err.reason,
+              },
             });
           }
           throw err;
