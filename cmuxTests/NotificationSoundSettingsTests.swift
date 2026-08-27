@@ -709,6 +709,42 @@ import CmuxSettings
         #expect(options.contains { $0.id == "MyAgent" && $0.displayName == "My Agent" })
     }
 
+    @Test("the sound matrix caps large Vault registries")
+    func notificationSoundAgentLoaderCapsRegistryRows() async throws {
+        let fileManager = FileManager.default
+        let home = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-sound-agent-registry-bound-\(UUID().uuidString)", isDirectory: true)
+        let configDirectory = home
+            .appendingPathComponent(".config", isDirectory: true)
+            .appendingPathComponent("cmux", isDirectory: true)
+        try fileManager.createDirectory(at: configDirectory, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: home) }
+
+        let registrations = (0..<(NotificationSoundOverrides.maximumAgentCount + 64)).map { index in
+            """
+            {
+              "id": "bound-agent-\(index)",
+              "name": "Bound Agent \(index)",
+              "detect": { "processName": "bound-agent-\(index)" },
+              "sessionIdSource": { "type": "argvOption", "argvOption": "--session" },
+              "resumeCommand": "bound-agent --session {{sessionId}}"
+            }
+            """
+        }.joined(separator: ",")
+        let config = "{\"vault\":{\"agents\":[\(registrations)]}}"
+        try config.write(
+            to: configDirectory.appendingPathComponent("cmux.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let options = await NotificationSoundAgentRegistryLoader().load(
+            homeDirectory: home.path
+        )
+        #expect(options.count <= NotificationSoundOverrides.maximumAgentCount)
+        #expect(options.contains { $0.id == "claude" })
+    }
+
     @Test func customSoundPruningLeavesUserFilesWithReservedPrefix() throws {
         let fileManager = FileManager.default
         let staging = fileManager.temporaryDirectory

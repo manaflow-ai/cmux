@@ -62,6 +62,31 @@ struct NotificationSoundOverridesTests {
         #expect(NotificationSoundOverrides(jsonString: raw) == nil)
     }
 
+    @Test("new agent rows are rejected once the matrix is full")
+    func setRejectsAgentBeyondBound() throws {
+        let ping = try #require(NotificationSoundOverride(sound: "Ping"))
+        let initialStorage = (0..<NotificationSoundOverrides.maximumAgentCount).reduce(
+            into: [String: [NotificationSoundAlertType: NotificationSoundOverride]]()
+        ) { result, index in
+            result["agent\(index)"] = [.turnDone: ping]
+        }
+        var overrides = NotificationSoundOverrides(storage: initialStorage)
+
+        overrides.set(ping, forAgentID: "overflow", alertType: .turnDone)
+        #expect(overrides.agentIDs.count == NotificationSoundOverrides.maximumAgentCount)
+        #expect(overrides.override(forAgentID: "overflow", alertType: .turnDone) == nil)
+        overrides.set(ping, forAgentID: "agent0", alertType: .needsInput)
+        #expect(overrides.override(forAgentID: "agent0", alertType: .needsInput) == ping)
+    }
+
+    @Test("string decoding checks UTF-8 size before accepting a matrix")
+    func oversizedJSONStringFailsBeforeDecode() {
+        let oversized = String(repeating: "x", count: NotificationSoundOverrides.maximumJSONBytes)
+        let raw = "{\"claude\":{\"turnDone\":{\"sound\":\"custom_file\",\"customSoundFilePath\":\"\(oversized)\"}}}"
+        #expect(raw.utf8.count > NotificationSoundOverrides.maximumJSONBytes)
+        #expect(NotificationSoundOverrides(jsonString: raw) == nil)
+    }
+
     @Test("settings-file objects are bounded before serialization")
     func oversizedJSONObjectIsRejectedBeforeEncoding() {
         let object: [String: Any] = [
