@@ -952,8 +952,11 @@ fn run_forward(args: &[String]) -> anyhow::Result<()> {
         let forward =
             LocalPortForward::bind(connected.runtime.multiplexer().clone(), route, listen).await?;
         println!("{}", forward.webview_url(&scheme)?);
-        while !crate::shutdown_requested() && !connected.runtime.is_finished() {
-            tokio::time::sleep(Duration::from_millis(100)).await;
+        let mut finished = connected.runtime.subscribe_finished();
+        while !crate::shutdown_requested() && !*finished.borrow() {
+            if finished.changed().await.is_err() {
+                break;
+            }
         }
         forward.shutdown().await;
         let _ = client.request(WorkspaceRequest::CloseRoute { route }).await;
