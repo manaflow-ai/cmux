@@ -16446,7 +16446,8 @@ impl App {
     }
 
     fn visible_pty_input_action(&self, before: Option<VisiblePtyInputState>) -> RenderAction {
-        let Some(before) = before else { return RenderAction::None };
+        let status_action = self.painted_status_message_action();
+        let Some(before) = before else { return status_action };
         let selection = self.selection.filter(|selection| selection.surface == before.surface);
         let action = if selection != before.selection
             || self.surface_scroll_offset(before.surface) != before.scroll_offset
@@ -16455,7 +16456,7 @@ impl App {
         } else {
             RenderAction::None
         };
-        action.merge(self.painted_status_message_action())
+        action.merge(status_action)
     }
 
     pub(crate) fn reset_rendered_status_message(&mut self) {
@@ -36210,6 +36211,40 @@ mod tests {
         let unchanged = app.handle(AppEvent::Input(Event::Paste("more".to_string()))).unwrap();
         assert_eq!(unchanged, RenderAction::None, "paste with no visible mutation needs no draw");
         assert!(app.pty_input.shutdown(Duration::from_secs(1)));
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn visible_state_keyboard_requests_draw_after_status_clear_for_browser_surface() {
+        let mux = Mux::new("visible-state-browser-status-test", SurfaceOptions::default());
+        let surface = mux.new_browser_tab("about:blank".to_string(), None, Some((40, 8))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_visible = false;
+        app.replace_tree(app.session.tree());
+
+        let mut terminal = Terminal::new(TestBackend::new(40, 12)).unwrap();
+        app.status_message = Some("old failure".to_string());
+        app.render_action(&mut terminal, RenderAction::Draw).unwrap();
+        assert_eq!(
+            app.rendered_status_message.as_ref().map(|message| message.text.as_str()),
+            Some("old failure"),
+            "the setup frame must retain the semantic status message"
+        );
+
+        let action = app.handle_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)).unwrap();
+
+        assert_eq!(
+            action,
+            RenderAction::Draw,
+            "a browser key that clears a painted status still needs a new frame"
+        );
+        assert!(app.status_message.is_none());
+        app.render_action(&mut terminal, action).unwrap();
+        assert!(
+            app.rendered_status_message.is_none(),
+            "the input frame must remove the semantic status message"
+        );
+
         mux.close_surface(surface.id).unwrap();
     }
 
