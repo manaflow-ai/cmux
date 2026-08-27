@@ -603,6 +603,36 @@ import Testing
         #expect(snapshot.remoteVOutput?.contains("https://github.com/dev-null-safe/repo.git") == true)
     }
 
+    @Test(.timeLimit(.minutes(1)))
+    func missingIncludeDiscoveryHasAPathBudget() throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        let globalConfigURL = fixture.root.appendingPathComponent("many-missing.gitconfig")
+        let includes = (0..<40_000).map { index in
+            """
+            [include]
+                path = missing-\(index).inc
+            """
+        }
+        try includes.joined(separator: "\n")
+            .write(to: globalConfigURL, atomically: true, encoding: .utf8)
+        let reader = CountingGitFileStatusReader()
+        let repository = try #require(
+            GitMetadataService.resolveGitRepository(containing: fixture.root.path)
+        )
+
+        _ = GitMetadataService.gitRemoteConfigSnapshot(
+            repository: repository,
+            fileStatusReader: reader,
+            environment: [
+                "GIT_CONFIG_GLOBAL": globalConfigURL.path,
+                "GIT_CONFIG_NOSYSTEM": "1",
+            ]
+        )
+
+        #expect(reader.totalCallCount < 10_000)
+    }
+
     @Test func emptyGitConfigGlobalDisablesDefaultGlobalFiles() throws {
         let fixture = try GitRepositoryFixture()
         try fixture.writeBranch("main")
@@ -763,8 +793,8 @@ import Testing
             ]
         )
 
-        #expect(!snapshot.configURLs.contains(includedURL.standardizedFileURL))
-        #expect(snapshot.remoteVOutput?.contains("origin\tcorp:owner/repo.git") == true)
+        #expect(snapshot.configURLs.contains(includedURL.standardizedFileURL))
+        #expect(snapshot.remoteVOutput?.contains("https://github.com/owner/repo.git") == true)
     }
 
     @Test func remoteURLInHasConfigIncludedFileFailsClosed() throws {

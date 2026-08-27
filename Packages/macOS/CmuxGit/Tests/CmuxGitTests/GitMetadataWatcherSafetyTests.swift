@@ -198,6 +198,38 @@ private final class RecordingGitDirtyStatusReader: GitDirtyStatusReading, @unche
         #expect(!descriptor.watchedPaths.contains(globalConfigURL.deletingLastPathComponent().path))
     }
 
+    @Test func missingExternalConfigDoesNotBecomeARecursiveHomeWatch() throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let parent = home.appendingPathComponent(
+            ".cmuxgit-watch-parent-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: parent) }
+        let missingPath = parent.appendingPathComponent("future.inc")
+        let globalConfigURL = fixture.root.appendingPathComponent("global.gitconfig")
+        try """
+        [include]
+            path = \(missingPath.path)
+        """.write(to: globalConfigURL, atomically: true, encoding: .utf8)
+
+        let descriptor = try #require(
+            GitMetadataService.workspaceGitMetadataWatchDescriptor(
+                for: fixture.root.path,
+                environment: [
+                    "GIT_CONFIG_GLOBAL": globalConfigURL.path,
+                    "GIT_CONFIG_NOSYSTEM": "1",
+                    "HOME": home.path,
+                ]
+            )
+        )
+
+        #expect(!descriptor.watchedPaths.contains(parent.path))
+        #expect(descriptor.creationWatchPaths.contains(missingPath.path))
+    }
+
     @Test func symlinkedConfigWatchesResolvedTarget() async throws {
         let fixture = try GitRepositoryFixture()
         try fixture.writeBranch("main")
