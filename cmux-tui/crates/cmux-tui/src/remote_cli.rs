@@ -31,6 +31,7 @@ use cmux_remote::provider::{
     RelayCredentialSource, SshProvider, SshProviderConfig, SupportedClientAuthModes,
     sanitized_route,
 };
+use cmux_remote::secure_directory::{DirectoryAccess, ensure_secure_directory};
 use cmux_remote::ssh_bootstrap::{BUILD_IDENTITY, DISTRIBUTION_VERSION, NPM_BOOTSTRAP_VERSION};
 use cmux_remote_protocol::{
     LanePolicy, REMOTE_PROTOCOL_VERSION, RoutePolicy, SessionId, WorkspaceRequest,
@@ -2306,7 +2307,9 @@ fn open_private_daemon_file(path: &Path, append: bool) -> io::Result<fs::File> {
         .append(append)
         .truncate(false)
         .mode(0o600)
-        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
+        // Opening a hostile FIFO must return so its type can be rejected
+        // below, rather than waiting for a peer that never arrives.
+        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK);
     let file = options.open(path)?;
     let metadata = file.metadata()?;
     if !metadata.is_file() {
@@ -2336,7 +2339,9 @@ fn open_private_daemon_file(path: &Path, append: bool) -> io::Result<fs::File> {
 }
 
 fn lock_daemon_start(session_state: &Path) -> anyhow::Result<fs::File> {
-    fs::create_dir_all(session_state)?;
+    ensure_secure_directory(session_state, DirectoryAccess::OwnerControlled).with_context(
+        || format!("could not prepare secure daemon state directory {}", session_state.display()),
+    )?;
     let lock_path = session_state.join("start.lock");
     let lock = open_private_daemon_file(&lock_path, false)
         .with_context(|| format!("could not open daemon start lock {}", lock_path.display()))?;
