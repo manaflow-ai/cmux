@@ -9,8 +9,8 @@ struct SurfaceProjectionMaterialization {
     var abandonmentDeadlineTask: Task<Void, Never>?
     var abandoned = false
     var waiters: [UUID: (reused: Bool, continuation: CheckedContinuation<Result, Error>)]
-    /// Set once the provider task has completed. The operation remains in the catalog until all
-    /// resumed callers acknowledge or cancel their result.
+    /// Set once the provider task has completed. The operation remains in the catalog until a
+    /// resumed caller claims the result, all callers cancel, or bounded retention expires.
     var completedProjection: SurfaceProjection?
     var completionOwnsProjection = false
     var pendingAcknowledgements: Set<UUID> = []

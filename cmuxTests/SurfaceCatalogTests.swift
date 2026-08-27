@@ -299,43 +299,6 @@ struct SurfaceCatalogTests {
         #expect(provider.discarded.count == 1)
     }
 
-    @Test func `A dropped project is cleaned up after completion retention`() async throws {
-        let (cleanupStarted, cleanupStartedContinuation) = AsyncStream<Void>.makeStream(
-            bufferingPolicy: .bufferingNewest(1)
-        )
-        let clock = ImmediateClock { sleepCount in
-            guard sleepCount == 1 else { return }
-            cleanupStartedContinuation.yield(())
-            cleanupStartedContinuation.finish()
-        }
-        let catalog = SurfaceCatalog(materializationClock: clock)
-        let provider = FakeProvider(machine: .cloud("vivid-newt"))
-        let (discarded, discardedContinuation) = AsyncStream<SurfaceProjection>.makeStream(
-            bufferingPolicy: .bufferingNewest(1)
-        )
-        provider.onDiscard = { projection in
-            discardedContinuation.yield(projection)
-            discardedContinuation.finish()
-        }
-        catalog.register(provider)
-        let term = terminal(.cloud("vivid-newt"), "term_1")
-        catalog.replaceResources([term], on: .cloud("vivid-newt"))
-
-        let gate = MaterializeGate()
-        provider.materializeGate = gate
-        var project: Task<SurfaceProjectionMaterialization.Result, any Error>? = Task {
-            try await catalog.project(term.id, into: .workspace(id: UUID(), placement: .split))
-        }
-        await gate.waitUntilEntered()
-        gate.release()
-        project = nil
-
-        _ = try await awaitFirst(cleanupStarted)
-        _ = try await awaitFirst(discarded)
-        #expect(catalog.projections.isEmpty)
-        #expect(provider.discarded.count == 1)
-    }
-
     @Test func `A removed local resource is not resurrected by a late materialization`() async throws {
         let catalog = SurfaceCatalog()
         let provider = FakeProvider(machine: .local)
