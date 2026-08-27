@@ -1207,7 +1207,7 @@ mod tests {
 
     #[test]
     fn saturated_watch_queue_reports_a_terminal_error() {
-        let (sink, mut critical, _) = OutboundSink::channels();
+        let (sink, mut critical, _watch) = OutboundSink::channels();
         let mut filled = 0;
         while filled < 1024 && sink.try_watch_text("{}".to_owned()).is_ok() {
             filled += 1;
