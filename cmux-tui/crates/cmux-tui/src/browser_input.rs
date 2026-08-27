@@ -958,7 +958,7 @@ fn dispatch_surface_event(
         if event.event.kind.is_control()
             && let Err(error) = result
         {
-            on_control_failure(format!("browser command failed: {error}"));
+            on_control_failure(error.to_string());
         }
         return;
     };
