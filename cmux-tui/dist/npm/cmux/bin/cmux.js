@@ -59,6 +59,11 @@ const CACHE_LOCK_WAIT_MAX_MS = 2_000;
 // publishing its owner file. Reclaim only an ownerless lock that has been
 // quiet for long enough that the creator cannot still be in that window.
 const CACHE_LOCK_EMPTY_MAX_AGE_MS = 5 * 60 * 1000;
+// Legacy owner records contain only a PID. If the PID is reused before a
+// start identity can be read, bound the outage instead of treating that PID
+// as live forever. New records carry a start identity and do not use this
+// fallback while that identity remains available.
+const CACHE_LOCK_OWNER_MAX_AGE_MS = 10 * 60 * 1000;
 // Leases are published by renaming a fully initialized temporary directory.
 // Keep the same bounded recovery window for legacy or interrupted leases.
 const CACHE_LEASE_EMPTY_MAX_AGE_MS = 5 * 60 * 1000;
@@ -592,10 +597,14 @@ function newCacheLockOwner() {
   const token = `${process.pid}-${Date.now().toString(36)}-${crypto
     .randomBytes(16)
     .toString("hex")}`;
+  const startIdentity = processStartIdentity(process.pid);
+  const createdAt = Date.now();
   return {
     pid: process.pid,
     token,
-    raw: `${process.pid}\n${token}\n`,
+    startIdentity,
+    createdAt,
+    raw: `${process.pid}\n${token}\n${startIdentity || "-"}\n${createdAt}\n`,
   };
 }
 
@@ -605,7 +614,15 @@ function parseCacheLockOwner(raw) {
   const pid = Number.parseInt(lines[0], 10);
   const token = lines[1];
   if (!Number.isInteger(pid) || pid <= 0 || !token) return null;
-  return { pid, token, raw };
+  const startIdentity = lines[2] && lines[2] !== "-" ? lines[2] : null;
+  const createdAt = Number(lines[3]);
+  return {
+    pid,
+    token,
+    startIdentity,
+    createdAt: Number.isFinite(createdAt) ? createdAt : null,
+    raw,
+  };
 }
 
 function readCacheLockOwnerAt(ownerPath) {
@@ -621,6 +638,59 @@ function readCacheLockOwner(lockPath = cacheLockPath()) {
   return readCacheLockOwnerAt(cacheLockOwnerPath(lockPath));
 }
 
+let selfProcessStartIdentity;
+let selfProcessStartIdentityResolved = false;
+
+// Return a short, non-sensitive identity for a process start. Linux exposes a
+// monotonic start tick in /proc; macOS and other Unix hosts provide `ps`'s
+// start timestamp. Windows has no stable dependency-free query, so callers
+// use the bounded owner-age fallback there.
+function processStartIdentity(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return null;
+  if (pid === process.pid && selfProcessStartIdentityResolved) {
+    return selfProcessStartIdentity;
+  }
+  let identity = null;
+  if (process.platform !== "win32") {
+    try {
+      const stat = fs.readFileSync(`/proc/${pid}/stat`, "utf8");
+      const close = stat.lastIndexOf(") ");
+      if (close !== -1) {
+        const fields = stat.slice(close + 2).trim().split(/\s+/);
+        const startTick = fields[19];
+        if (/^\d+$/.test(startTick || "")) identity = `proc:${startTick}`;
+      }
+    } catch {}
+    if (!identity) {
+      for (const psPath of ["/bin/ps", "/usr/bin/ps"]) {
+        try {
+          if (!fs.existsSync(psPath)) continue;
+          const result = spawnSync(psPath, ["-p", String(pid), "-o", "lstart="], {
+            encoding: "utf8",
+            timeout: 1_000,
+            maxBuffer: 4 * 1024,
+            windowsHide: true,
+          });
+          const started = String(result.stdout || "").trim();
+          if (result.status === 0 && started) {
+            identity = `ps:${crypto
+              .createHash("sha256")
+              .update(started)
+              .digest("hex")
+              .slice(0, 32)}`;
+            break;
+          }
+        } catch {}
+      }
+    }
+  }
+  if (pid === process.pid) {
+    selfProcessStartIdentity = identity;
+    selfProcessStartIdentityResolved = true;
+  }
+  return identity;
+}
+
 function processIsAlive(pid) {
   try {
     process.kill(pid, 0);
@@ -628,6 +698,34 @@ function processIsAlive(pid) {
   } catch (error) {
     return !error || error.code !== "ESRCH";
   }
+}
+
+// Return true when the owner is the same process, false when the PID is dead
+// or has been reused, and null when the host cannot expose a start identity.
+function cacheLockOwnerIsCurrent(owner) {
+  if (!owner || !processIsAlive(owner.pid)) return false;
+  if (!owner.startIdentity) return null;
+  const current = processStartIdentity(owner.pid);
+  if (!current) return null;
+  return current === owner.startIdentity;
+}
+
+function cacheLockOwnerIsStale(owner, lockPath = cacheLockPath()) {
+  const ownerCreatedAt = owner && Number(owner.createdAt);
+  let createdAt = Number.isFinite(ownerCreatedAt) ? ownerCreatedAt : null;
+  if (!createdAt) {
+    try {
+      createdAt = fs.statSync(cacheLockOwnerPath(lockPath)).mtimeMs;
+    } catch {
+      try {
+        createdAt = fs.statSync(lockPath).mtimeMs;
+      } catch {
+        return false;
+      }
+    }
+  }
+  const age = Date.now() - createdAt;
+  return Number.isFinite(age) && age >= CACHE_LOCK_OWNER_MAX_AGE_MS;
 }
 
 // A pending owner file is written before it is atomically renamed to `owner`.
@@ -656,7 +754,7 @@ function emptyCacheLockCanBeReclaimed(lockPath = cacheLockPath()) {
       return false;
     }
     const pending = readCacheLockOwnerAt(path.join(lockPath, entry.name));
-    if (pending && processIsAlive(pending.pid)) return false;
+    if (pending && cacheLockOwnerIsCurrent(pending) !== false) return false;
   }
   return true;
 }
@@ -756,7 +854,9 @@ function tryAcquireCacheLock(lockPath = cacheLockPath()) {
 
     const current = readCacheLockOwner(lockPath);
     if (current) {
-      if (processIsAlive(current.pid)) return null;
+      const ownership = cacheLockOwnerIsCurrent(current);
+      if (ownership === true) return null;
+      if (ownership === null && !cacheLockOwnerIsStale(current, lockPath)) return null;
       if (!removeCacheLockIfOwned(current, false, lockPath)) return null;
       continue;
     }
