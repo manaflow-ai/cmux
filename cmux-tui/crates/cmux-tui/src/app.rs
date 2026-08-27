@@ -7073,7 +7073,9 @@ pub struct App {
     projection_rows_revision: u64,
     /// Projection surfaces seen by the most recent rendered snapshots. These
     /// sets cover caches evicted by the bounded LRU, so an update still wakes
-    /// a visible rail even when its snapshot is not retained.
+    /// a visible rail even when its snapshot is not retained. They are pruned
+    /// against the current tab locations after every cache/index update, so a
+    /// retired surface cannot accumulate or trigger future fanout.
     projection_agent_surfaces: HashSet<SurfaceId>,
     projection_title_surfaces: HashSet<SurfaceId>,
     /// Coalesce surface updates until the next successful rendered frame.
@@ -10371,6 +10373,7 @@ impl App {
             self.projection_title_surfaces.extend(cache.title_surfaces.iter().copied());
             let rows = cache.rows.clone();
             self.projection_rows_cache.push_front(cache);
+            self.prune_projection_surface_indexes();
             rows
         } else {
             let agents = if spec.includes(SidebarResourceKind::Agents) {
@@ -10414,6 +10417,7 @@ impl App {
                 rows: rows.clone(),
             });
             self.projection_rows_cache.truncate(MAX_PROJECTION_ROWS_CACHE_ENTRIES);
+            self.prune_projection_surface_indexes();
             rows
         };
         self.projection_rail_state_mut(index).reconcile_selection(&rows);
@@ -10426,6 +10430,16 @@ impl App {
         self.projection_agent_surfaces.clear();
         self.projection_title_surfaces.clear();
         self.projection_paint_pending = false;
+    }
+
+    fn prune_projection_surface_indexes(&mut self) {
+        let live_surfaces = &self.tab_locations;
+        for cache in &mut self.projection_rows_cache {
+            cache.agent_surfaces.retain(|surface| live_surfaces.contains_key(surface));
+            cache.title_surfaces.retain(|surface| live_surfaces.contains_key(surface));
+        }
+        self.projection_agent_surfaces.retain(|surface| live_surfaces.contains_key(surface));
+        self.projection_title_surfaces.retain(|surface| live_surfaces.contains_key(surface));
     }
 
     fn invalidate_projection_rows_if_sidebar_spec_changed(
@@ -10461,6 +10475,7 @@ impl App {
         surface: SurfaceId,
         change: ProjectionSurfaceChange,
     ) -> bool {
+        self.prune_projection_surface_indexes();
         let was_affected = self.projection_rows_cache.iter().any(|cache| match change {
             ProjectionSurfaceChange::Agent => cache.agent_surfaces.contains(&surface),
             ProjectionSurfaceChange::Title => cache.title_surfaces.contains(&surface),
@@ -10490,6 +10505,18 @@ impl App {
 
     fn clear_pending_projection_paint(&mut self) {
         self.projection_paint_pending = false;
+    }
+
+    fn invalidate_projection_rows_for_surfaces(
+        &mut self,
+        surfaces: impl IntoIterator<Item = SurfaceId>,
+        change: ProjectionSurfaceChange,
+    ) -> bool {
+        let mut paint_requested = false;
+        for surface in surfaces {
+            paint_requested |= self.invalidate_projection_rows_for_surface(surface, change);
+        }
+        paint_requested
     }
 
     pub(crate) fn sidebar_action_rows(&self, index: usize) -> Vec<SidebarActionRow> {
@@ -13374,7 +13401,7 @@ impl App {
         RenderAction::Draw
     }
 
-    fn apply_mux_titles(&mut self) -> HashSet<SurfaceId> {
+    fn apply_mux_titles(&mut self) -> (bool, bool) {
         let titles = self.mux_titles.take_dirty();
         let changed = self.apply_mux_title_snapshot(titles);
         let changed_any = !changed.is_empty();
@@ -13385,7 +13412,11 @@ impl App {
 
     fn reapply_mux_titles(&mut self) -> (bool, bool) {
         let titles = self.mux_titles.snapshot();
-        !self.apply_mux_title_snapshot(titles).is_empty()
+        let changed = self.apply_mux_title_snapshot(titles);
+        let changed_any = !changed.is_empty();
+        let projection_paint_requested =
+            self.invalidate_projection_rows_for_surfaces(changed, ProjectionSurfaceChange::Title);
+        (changed_any, projection_paint_requested)
     }
 
     fn apply_mux_title_snapshot(
@@ -13598,6 +13629,7 @@ impl App {
             }
         }
         self.rebuild_tab_locations();
+        self.prune_projection_surface_indexes();
     }
 
     fn apply_session_completions_through(&mut self, authoritative_generation: u64) -> bool {
@@ -15435,15 +15467,7 @@ impl App {
             AppEvent::HostInputReady => Ok(RenderAction::None),
             AppEvent::GraphicsWriterReady => Ok(self.apply_graphics_completion()),
             AppEvent::MuxTitlesReady => {
-                let changed = self.apply_mux_titles();
-                let changed_any = !changed.is_empty();
-                let mut projection_paint_requested = false;
-                for surface in changed {
-                    projection_paint_requested |= self.invalidate_projection_rows_for_surface(
-                        surface,
-                        ProjectionSurfaceChange::Title,
-                    );
-                }
+                let (changed_any, projection_paint_requested) = self.apply_mux_titles();
                 Ok(
                     if changed_any
                         && (projection_paint_requested || self.schedule_projection_paint())
@@ -43094,6 +43118,35 @@ mod tests {
     }
 
     #[test]
+    fn projection_surface_indexes_drop_retired_surfaces() {
+        let (mux, surface) = test_mux("projection-surface-index-prune-test", None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.config.sidebar.columns.clear();
+        app.config.sidebar.views = vec![SidebarViewSpec {
+            id: "agents".into(),
+            levels: vec![SidebarResourceKind::Agents],
+            actions: Vec::new(),
+            actions_position: crate::config::ActionsPosition::Bottom,
+            width: 40,
+            max_width: 0,
+            collapse_priority: 30,
+            scope: crate::config::SidebarViewScope::Workspace,
+        }];
+        app.config.sidebar.views_explicit = true;
+        app.replace_tree(app.session.tree());
+        app.projection_rows(0);
+
+        assert!(app.projection_agent_surfaces.contains(&surface.id));
+        app.handle(AppEvent::Mux(MuxEvent::SurfaceExited(surface.id))).unwrap();
+        assert!(!app.projection_agent_surfaces.contains(&surface.id));
+
+        // A retained cache entry may still be hit before the authoritative
+        // topology refresh. It must not reintroduce the retired id.
+        app.projection_rows(0);
+        assert!(!app.projection_agent_surfaces.contains(&surface.id));
+    }
+
+    #[test]
     fn projection_title_wake_paints_after_invalidating_cached_rows() {
         let (mux, surface) = test_mux("projection-title-paint-test", None);
         let mut app = test_app(Session::Local(mux.clone()));
@@ -43125,6 +43178,44 @@ mod tests {
                 .map(|tab| tab.title.as_str()),
             Some("renamed")
         );
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn reapply_mux_titles_invalidates_cached_projection_rows() {
+        let (mux, surface) = test_mux("projection-title-reapply-cache-test", None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.config.sidebar.columns.clear();
+        app.config.sidebar.views = vec![SidebarViewSpec {
+            id: "tabs".into(),
+            levels: vec![SidebarResourceKind::Tabs],
+            actions: Vec::new(),
+            actions_position: crate::config::ActionsPosition::Bottom,
+            width: 40,
+            max_width: 0,
+            collapse_priority: 30,
+            scope: crate::config::SidebarViewScope::Workspace,
+        }];
+        app.config.sidebar.views_explicit = true;
+        app.replace_tree(app.session.tree());
+        app.projection_rows(0);
+        assert_eq!(app.projection_rows_cache.len(), 1);
+
+        assert!(app.mux_titles.push(surface.id, "reapplied"));
+        let (changed, projection_paint_requested) = app.reapply_mux_titles();
+        assert!(changed);
+        assert!(projection_paint_requested);
+        assert!(app.projection_rows_cache.is_empty());
+
+        let rows = app.projection_rows(0);
+        assert!(rows.iter().any(|row| {
+            matches!(
+                row.target,
+                crate::sidebar_projection::ProjectionTarget::Surface { surface: id, .. }
+                    if id == surface.id
+            ) && row.name == "reapplied"
+        }));
 
         mux.close_surface(surface.id).unwrap();
     }
