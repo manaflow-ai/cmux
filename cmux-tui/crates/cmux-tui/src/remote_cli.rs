@@ -955,7 +955,6 @@ fn run_forward(args: &[String]) -> anyhow::Result<()> {
         let mut finished = connected.runtime.subscribe_finished();
         let mut wait_error = None;
         if !crate::shutdown_requested() && !*finished.borrow() {
-            #[cfg(unix)]
             tokio::select! {
                 biased;
                 shutdown = crate::wait_for_shutdown_signal_async() => {
@@ -964,10 +963,6 @@ fn run_forward(args: &[String]) -> anyhow::Result<()> {
                     }
                 }
                 _ = finished.changed() => {}
-            }
-            #[cfg(not(unix))]
-            {
-                let _ = finished.changed().await;
             }
         }
         forward.shutdown().await;

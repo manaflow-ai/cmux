@@ -237,6 +237,16 @@ pub(crate) async fn wait_for_shutdown_signal_async() -> io::Result<()> {
     }
 }
 
+#[cfg(not(unix))]
+pub(crate) async fn wait_for_shutdown_signal_async() -> io::Result<()> {
+    if shutdown_requested() {
+        return Ok(());
+    }
+    tokio::signal::ctrl_c().await?;
+    SHUTDOWN_REQUESTED.store(true, Ordering::Release);
+    Ok(())
+}
+
 // No POSIX signals on Windows; Ctrl-C arrives as console input and the
 // TUI's normal quit path handles shutdown.
 #[cfg(not(unix))]
