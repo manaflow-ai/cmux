@@ -152,7 +152,7 @@ struct ProjectionRowsCache {
     agent_surfaces: HashSet<SurfaceId>,
     /// Surfaces whose title can affect a visible row in this snapshot.
     title_surfaces: HashSet<SurfaceId>,
-    rows: Vec<ProjectionRow>,
+    rows: Arc<[ProjectionRow]>,
 }
 
 fn projection_focus_key(tree: &TreeView) -> ProjectionFocusKey {
@@ -7097,8 +7097,9 @@ pub struct App {
     machine_sidebar_width_override: Option<u16>,
     tabs_sidebar_width_override: Option<u16>,
     projection_sidebar_width_overrides: HashMap<String, u16>,
-    /// Session-local divider drags inside sidebar split groups, keyed by
-    /// group id: each child's share of the group, in child order.
+    /// Session-local divider drags inside sidebar split groups for the active
+    /// profile. A profile switch clears these values so a reused group id
+    /// cannot apply another profile's geometry.
     sidebar_split_fractions: HashMap<String, Vec<f32>>,
     /// Session-local visibility overrides, keyed by profile and stable view id.
     hidden_sidebar_views: HashMap<String, HashSet<String>>,
@@ -10342,9 +10343,9 @@ impl App {
         self.focus == FocusTarget::ProjectionRail(index)
     }
 
-    pub(crate) fn projection_rows(&mut self, index: usize) -> Vec<ProjectionRow> {
+    pub(crate) fn projection_rows(&mut self, index: usize) -> Arc<[ProjectionRow]> {
         let Some(spec) = self.config.sidebar.views.get(index).cloned() else {
-            return Vec::new();
+            return Arc::<[ProjectionRow]>::from(Vec::new());
         };
         let collapsed = self
             .projection_rails
@@ -10373,7 +10374,6 @@ impl App {
             self.projection_title_surfaces.extend(cache.title_surfaces.iter().copied());
             let rows = cache.rows.clone();
             self.projection_rows_cache.push_front(cache);
-            self.prune_projection_surface_indexes();
             rows
         } else {
             let agents = if spec.includes(SidebarResourceKind::Agents) {
@@ -10403,6 +10403,7 @@ impl App {
             );
             let (agent_surfaces, title_surfaces) =
                 projection_cache_dependencies(&spec, &self.tree, &rows, selected_workspace);
+            let rows: Arc<[ProjectionRow]> = Arc::from(rows);
             self.projection_agent_surfaces.extend(agent_surfaces.iter().copied());
             self.projection_title_surfaces.extend(title_surfaces.iter().copied());
             self.projection_rows_cache.push_front(ProjectionRowsCache {
@@ -10417,7 +10418,6 @@ impl App {
                 rows: rows.clone(),
             });
             self.projection_rows_cache.truncate(MAX_PROJECTION_ROWS_CACHE_ENTRIES);
-            self.prune_projection_surface_indexes();
             rows
         };
         self.projection_rail_state_mut(index).reconcile_selection(&rows);
@@ -10461,9 +10461,13 @@ impl App {
         layout: Vec<SidebarLayoutNode>,
     ) {
         let previous = SidebarProjectionSpec::from_config(&self.config);
+        let profile_changed = self.config.sidebar.active_profile != profile_id;
         self.config.sidebar.active_profile = profile_id;
         self.config.sidebar.views = views;
         self.config.sidebar.layout = layout;
+        if profile_changed {
+            self.sidebar_split_fractions.clear();
+        }
         self.invalidate_projection_rows_if_sidebar_spec_changed(previous);
     }
 
@@ -10475,7 +10479,6 @@ impl App {
         surface: SurfaceId,
         change: ProjectionSurfaceChange,
     ) -> bool {
-        self.prune_projection_surface_indexes();
         let was_affected = self.projection_rows_cache.iter().any(|cache| match change {
             ProjectionSurfaceChange::Agent => cache.agent_surfaces.contains(&surface),
             ProjectionSurfaceChange::Title => cache.title_surfaces.contains(&surface),
@@ -13629,7 +13632,6 @@ impl App {
             }
         }
         self.rebuild_tab_locations();
-        self.prune_projection_surface_indexes();
     }
 
     fn apply_session_completions_through(&mut self, authoritative_generation: u64) -> bool {
@@ -14319,6 +14321,7 @@ impl App {
             self.config_reload_applications += 1;
         }
         let previous_projection = SidebarProjectionSpec::from_config(&self.config);
+        let previous_profile = self.config.sidebar.active_profile.clone();
         let focused_projection_id = match self.focus {
             FocusTarget::ProjectionRail(index) => {
                 self.config.sidebar.views.get(index).map(|view| view.id.clone())
@@ -14337,6 +14340,9 @@ impl App {
         self.session.apply_config(config.clone());
         self.sidebar_view = config.sidebar.view;
         self.config = config;
+        if previous_profile != self.config.sidebar.active_profile {
+            self.sidebar_split_fractions.clear();
+        }
         self.invalidate_projection_rows_if_sidebar_spec_changed(previous_projection);
         let mut valid_view_ids =
             self.config.sidebar.views.iter().map(|view| view.id.clone()).collect::<HashSet<_>>();
@@ -27203,6 +27209,41 @@ mod tests {
         );
 
         mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn profile_switch_does_not_reuse_split_fractions_for_a_reused_group() {
+        let mux = Mux::new("sidebar-profile-split-fractions-test", SurfaceOptions::default());
+        let mut first = split_sidebar_config();
+        let mut second_layout = first.sidebar.layout.clone();
+        if let Some(crate::config::SidebarLayoutNode::Split(split)) = second_layout.first_mut() {
+            split.weights = vec![3, 1];
+        }
+        let first_profile = SidebarProfileSpec {
+            id: "first".into(),
+            name: "First".into(),
+            views: first.sidebar.views.clone(),
+            layout: first.sidebar.layout.clone(),
+        };
+        let second_profile = SidebarProfileSpec {
+            id: "second".into(),
+            name: "Second".into(),
+            views: first.sidebar.views.clone(),
+            layout: second_layout,
+        };
+        first.sidebar.profiles = vec![first_profile.clone(), second_profile];
+        first.sidebar.active_profile = first_profile.id.clone();
+
+        let mut app = test_app(Session::Local(mux));
+        app.config = first;
+        app.sidebar_split_fractions.insert("left".into(), vec![0.8, 0.2]);
+        app.sync_layout((120, 31));
+        assert_eq!(app.sidebar_layout.ordered[0].rect.height, 24);
+
+        app.activate_sidebar_profile(1);
+        assert!(app.sidebar_split_fractions.is_empty());
+        app.sync_layout((120, 31));
+        assert_eq!(app.sidebar_layout.ordered[0].rect.height, 23);
     }
 
     #[test]
@@ -43178,6 +43219,31 @@ mod tests {
                 .map(|tab| tab.title.as_str()),
             Some("renamed")
         );
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn projection_cache_hit_reuses_a_shared_rows_snapshot() {
+        let (mux, surface) = test_mux("projection-shared-rows-cache-test", None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.config.sidebar.columns.clear();
+        app.config.sidebar.views = vec![SidebarViewSpec {
+            id: "tabs".into(),
+            levels: vec![SidebarResourceKind::Tabs],
+            actions: Vec::new(),
+            actions_position: crate::config::ActionsPosition::Bottom,
+            width: 40,
+            max_width: 0,
+            collapse_priority: 30,
+            scope: crate::config::SidebarViewScope::Workspace,
+        }];
+        app.config.sidebar.views_explicit = true;
+        app.replace_tree(app.session.tree());
+
+        let first = app.projection_rows(0);
+        let second = app.projection_rows(0);
+        assert!(Arc::ptr_eq(&first, &second));
 
         mux.close_surface(surface.id).unwrap();
     }
