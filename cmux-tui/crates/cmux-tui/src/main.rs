@@ -1390,9 +1390,11 @@ fn normalize_remote_resource_args(raw_args: &mut Vec<String>) -> Result<(), Stri
                 leading.extend(raw_args[index..].iter().take(2).cloned());
                 index += 2;
             }
-            value if value.starts_with("--socket=")
-                || value.starts_with("--session=")
-                || value.starts_with("--machine=") => {
+            value
+                if value.starts_with("--socket=")
+                    || value.starts_with("--session=")
+                    || value.starts_with("--machine=") =>
+            {
                 leading.push(raw_args[index].clone());
                 index += 1;
             }
@@ -1420,9 +1422,13 @@ fn normalize_remote_resource_args(raw_args: &mut Vec<String>) -> Result<(), Stri
             match raw_args[action_index].as_str() {
                 "--socket" | "--session" | "--machine" => action_index += 2,
                 "--json" | "--jsonl" | "--quiet" => action_index += 1,
-                value if value.starts_with("--socket=")
-                    || value.starts_with("--session=")
-                    || value.starts_with("--machine=") => action_index += 1,
+                value
+                    if value.starts_with("--socket=")
+                        || value.starts_with("--session=")
+                        || value.starts_with("--machine=") =>
+                {
+                    action_index += 1
+                }
                 _ => break,
             }
         }
@@ -2923,18 +2929,14 @@ mod tests {
         normalize_remote_resource_args(&mut json_connect).unwrap();
         assert_eq!(json_connect, ["connect", "--json"]);
 
-        let mut session_stop = ["--session", "dev", "remote-stop"]
-            .map(str::to_string)
-            .to_vec();
+        let mut session_stop = ["--session", "dev", "remote-stop"].map(str::to_string).to_vec();
         normalize_remote_resource_args(&mut session_stop).unwrap();
         assert_eq!(session_stop, ["remote-stop", "--session", "dev"]);
     }
 
     #[test]
     fn remote_normalization_handles_inline_globals_and_unknown_actions() {
-        let mut inline_nested = ["--session=dev", "remote", "connect"]
-            .map(str::to_string)
-            .to_vec();
+        let mut inline_nested = ["--session=dev", "remote", "connect"].map(str::to_string).to_vec();
         normalize_remote_resource_args(&mut inline_nested).unwrap();
         assert_eq!(inline_nested, ["connect", "--session=dev"]);
 
