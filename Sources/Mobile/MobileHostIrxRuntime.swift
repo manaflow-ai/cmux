@@ -378,7 +378,8 @@ final class MobileHostIrxRuntime {
             artifactTransfers: artifactRegistry,
             independentEventWriter: eventWriter,
             isCurrent: { [weak self] in
-                await MainActor.run { self?.generationToken == token }
+                let runtime = self
+                return await MainActor.run { runtime?.generationToken == token }
             }
         )
         journal.record(

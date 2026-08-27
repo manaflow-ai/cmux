@@ -1,6 +1,10 @@
 import Bonsplit
 import XCTest
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+#elseif canImport(cmux)
 @testable import cmux
+#endif
 
 /// This Mac's panes as surface resources: one resource per terminal/browser pane, exactly
 /// one projection, moving with the pane and ending when the pane closes.

@@ -369,7 +369,8 @@ final class MachinesPanelViewModel: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.scheduleCatalogRead()
+            // Delivered on the main queue (`queue: .main`), which is the main actor.
+            MainActor.assumeIsolated { self?.scheduleCatalogRead() }
         }
     }
 
