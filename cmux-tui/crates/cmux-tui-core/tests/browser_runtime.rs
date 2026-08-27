@@ -1537,7 +1537,7 @@ fn browser_capture_scale_applies_to_metrics_screencast_and_input() {
             let frame_seq = surface.browser_frame_seq()?;
             (frame.seq == frame_seq).then_some((frame, frame_seq))
         },
-        test_duration(Duration::from_secs(10)),
+        Duration::from_secs(10),
     )
     .expect("browser produced a pointer-authoritative frame");
     assert_eq!(frame.data_b64, "c2NhbGU=");
