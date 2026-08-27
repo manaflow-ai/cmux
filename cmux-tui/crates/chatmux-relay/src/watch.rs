@@ -182,12 +182,21 @@ fn watch_error_frame(
     .unwrap_or_else(|_| String::new())
 }
 
-/// Best-effort terminal response for a watch that cannot enqueue another
-/// lossy event. The critical lane lets the client re-open the stream instead
-/// of retaining a permanently silent watch ID.
-fn report_watch_failure(watch_id: &str, outbound: &OutboundSink) {
+/// Terminal response for a watch that cannot enqueue another lossy event. The
+/// critical lane lets the client re-open the stream instead of retaining a
+/// permanently silent watch ID.
+async fn report_watch_failure(
+    watch_id: &str,
+    outbound: &OutboundSink,
+    cancellation: &CancellationToken,
+    live: &Arc<AtomicBool>,
+) {
     let text = watch_error_frame(watch_id, wire::WorkspaceErrorCode::Failed, None);
-    let _ = outbound.try_critical_text(text);
+    tokio::select! {
+        biased;
+        _ = cancellation.cancelled() => {}
+        _ = outbound.critical_text_with_token(text, Some(Arc::clone(live))) => {}
+    }
 }
 
 impl WatchRegistry {
@@ -727,13 +736,10 @@ async fn run_watch(
                 // latching overflow would wake this loop immediately and
                 // spin forever while producing no observable frame. The
                 // event is explicitly lost, so terminate this watch task.
-                // Tell the client why its stream ended. The critical lane is
-                // independent of the lossy watch queue, so this best-effort
-                // response remains available when only event delivery is
-                // saturated. It intentionally has no lifecycle token: the
-                // runner retires its token immediately after this branch and
-                // would otherwise suppress the terminal error itself.
-                report_watch_failure(watch_id, outbound);
+                // Tell the client why its stream ended. Watch frames cannot
+                // consume the critical byte reserve, so this response remains
+                // available when event delivery is saturated.
+                report_watch_failure(watch_id, outbound, &cancellation, &live).await;
                 break 'watch;
             }
         }
@@ -1239,21 +1245,30 @@ mod tests {
         assert!(value["message"].is_null(), "internal failure copy stays out of the wire frame");
     }
 
-    #[test]
-    fn saturated_watch_queue_reports_a_terminal_error() {
+    #[tokio::test]
+    async fn saturated_watch_bytes_reports_a_terminal_error() {
         let (sink, mut critical, _watch) = OutboundSink::channels();
+        let payload = "x".repeat(2 << 20);
         let mut filled = 0;
-        while filled < 1024 && sink.try_watch_text("{}".to_owned()).is_ok() {
+        while filled < 8 && sink.try_watch_text(payload.clone()).is_ok() {
             filled += 1;
         }
-        assert!(filled > 0, "watch queue must expose a finite capacity");
-        report_watch_failure("saturated", &sink);
-        let frame = critical.try_recv().expect("terminal error frame");
+        assert!(filled >= 3, "watch bytes must admit multiple frames");
+        assert!(filled < 8, "watch bytes must stop before global bytes are exhausted");
+        let cancellation = CancellationToken::new();
+        let live = Arc::new(AtomicBool::new(true));
+        let mut report = Box::pin(report_watch_failure("saturated", &sink, &cancellation, &live));
+        let frame = tokio::select! {
+            frame = critical.recv() => frame.expect("terminal error frame"),
+            _ = &mut report => panic!("terminal report returned before delivery ack"),
+        };
         let value: Value = serde_json::from_str(&frame.text).expect("error json");
         assert_eq!(value["type"], "fs_watch_error");
         assert_eq!(value["watchId"], "saturated");
         assert_eq!(value["code"], "failed");
         assert!(value["message"].is_null(), "terminal copy is localized by the client");
+        frame.ack.expect("terminal delivery ack").send(()).expect("ack receiver");
+        report.await;
     }
 
     #[cfg(unix)]

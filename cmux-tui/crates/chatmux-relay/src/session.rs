@@ -51,6 +51,12 @@ use crate::wire::{
 const MAX_OUTBOUND_FRAMES: usize = 256;
 const MAX_WATCH_OUTBOUND_FRAMES: usize = 64;
 const MAX_OUTBOUND_BYTES: usize = 8 << 20;
+// Keep a small byte reserve outside the lossy watch/event budget. Watch
+// failures must still reach the client when watch frames consume all shared
+// bytes, so the client can re-open the stream instead of retaining a silent
+// watch ID.
+const MAX_CRITICAL_RESERVED_BYTES: usize = 64 << 10;
+const MAX_WATCH_BYTES: usize = MAX_OUTBOUND_BYTES - MAX_CRITICAL_RESERVED_BYTES;
 const MAX_PTY_INGRESS_FRAMES: usize = 64;
 // Keep room for the workspace fs_write 2 MiB payload plus its JSON envelope.
 const MAX_INBOUND_FRAME_BYTES: usize = 4 << 20;
@@ -93,6 +99,7 @@ pub(crate) struct OutboundFrame {
     pub(crate) live: Option<Arc<AtomicBool>>,
     pub(crate) ack: Option<tokio::sync::oneshot::Sender<()>>,
     _bytes: OwnedSemaphorePermit,
+    _watch_bytes: Option<OwnedSemaphorePermit>,
 }
 
 impl OutboundFrame {
@@ -137,6 +144,7 @@ pub(crate) struct OutboundSink {
     critical: mpsc::Sender<OutboundFrame>,
     watch: mpsc::Sender<OutboundFrame>,
     bytes: Arc<Semaphore>,
+    watch_bytes: Arc<Semaphore>,
     critical_overflow: Arc<AtomicBool>,
 }
 
@@ -150,6 +158,7 @@ impl OutboundSink {
                 critical,
                 watch,
                 bytes: Arc::new(Semaphore::new(MAX_OUTBOUND_BYTES)),
+                watch_bytes: Arc::new(Semaphore::new(MAX_WATCH_BYTES)),
                 critical_overflow: Arc::new(AtomicBool::new(false)),
             },
             critical_rx,
@@ -197,7 +206,7 @@ impl OutboundSink {
         let permit = Arc::clone(&self.bytes).acquire_many_owned(bytes).await.map_err(|_| ())?;
         let result = self
             .critical
-            .send(OutboundFrame { text, live, ack, _bytes: permit })
+            .send(OutboundFrame { text, live, ack, _bytes: permit, _watch_bytes: None })
             .await
             .map_err(|_| ());
         if result.is_err() {
@@ -220,7 +229,13 @@ impl OutboundSink {
             }
             let permit = Arc::clone(&self.bytes).try_acquire_many_owned(bytes).map_err(|_| ())?;
             self.critical
-                .try_send(OutboundFrame { text, live: None, ack: None, _bytes: permit })
+                .try_send(OutboundFrame {
+                    text,
+                    live: None,
+                    ack: None,
+                    _bytes: permit,
+                    _watch_bytes: None,
+                })
                 .map_err(|_| ())
         })();
         if result.is_err() {
@@ -245,7 +260,13 @@ impl OutboundSink {
             }
             let permit = Arc::clone(&self.bytes).try_acquire_many_owned(bytes).map_err(|_| ())?;
             self.critical
-                .try_send(OutboundFrame { text, live, ack: None, _bytes: permit })
+                .try_send(OutboundFrame {
+                    text,
+                    live,
+                    ack: None,
+                    _bytes: permit,
+                    _watch_bytes: None,
+                })
                 .map_err(|_| ())
         })();
         if result.is_err() {
@@ -268,8 +289,21 @@ impl OutboundSink {
         live: Option<Arc<AtomicBool>>,
     ) -> Result<(), ()> {
         let bytes = u32::try_from(text.len()).map_err(|_| ())?;
+        if bytes as usize > MAX_WATCH_BYTES {
+            return Err(());
+        }
         let permit = Arc::clone(&self.bytes).try_acquire_many_owned(bytes).map_err(|_| ())?;
-        self.watch.try_send(OutboundFrame { text, live, ack: None, _bytes: permit }).map_err(|_| ())
+        let watch_permit =
+            Arc::clone(&self.watch_bytes).try_acquire_many_owned(bytes).map_err(|_| ())?;
+        self.watch
+            .try_send(OutboundFrame {
+                text,
+                live,
+                ack: None,
+                _bytes: permit,
+                _watch_bytes: Some(watch_permit),
+            })
+            .map_err(|_| ())
     }
 }
 

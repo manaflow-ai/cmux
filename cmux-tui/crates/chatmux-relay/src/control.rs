@@ -52,6 +52,7 @@ mod unix {
     use tokio::net::unix::{OwnedReadHalf, OwnedWriteHalf};
     use tokio::sync::mpsc::{self, Receiver, Sender};
     use tokio::sync::{Mutex as AsyncMutex, Notify, oneshot};
+    use tokio_util::sync::CancellationToken;
 
     struct OutboundLine {
         bytes: Vec<u8>,
@@ -68,9 +69,11 @@ mod unix {
         deliberate: AtomicBool,
         paused: AtomicBool,
         resume_notify: Notify,
-        closed_notify: Notify,
+        closed_token: CancellationToken,
         #[cfg(test)]
         read_done: Notify,
+        #[cfg(test)]
+        read_waiting: Mutex<Option<oneshot::Sender<()>>>,
     }
 
     impl Shared {
@@ -80,10 +83,10 @@ mod unix {
             }
             // Resolve every pending request with "no reply".
             self.pending.lock().expect("control pending lock").clear();
-            // Both the writer and a paused reader wait on this state. Use a
-            // broadcast wakeup so either task can observe closure without
-            // consuming the other's permit.
-            self.closed_notify.notify_waiters();
+            // Both the writer and a paused reader wait on this state. A
+            // cancellation token retains the closed state, so an end racing
+            // waiter registration cannot leave either task asleep.
+            self.closed_token.cancel();
             if !self.deliberate.load(Ordering::SeqCst)
                 && let Some(handler) =
                     self.close_handler.lock().expect("control close lock").as_ref()
@@ -131,9 +134,11 @@ mod unix {
             deliberate: AtomicBool::new(false),
             paused: AtomicBool::new(false),
             resume_notify: Notify::new(),
-            closed_notify: Notify::new(),
+            closed_token: CancellationToken::new(),
             #[cfg(test)]
             read_done: Notify::new(),
+            #[cfg(test)]
+            read_waiting: Mutex::new(None),
         });
         // Keep one async writer for every connection. The queue makes the
         // synchronous `send` API safe without spawning one task per input;
@@ -166,7 +171,7 @@ mod unix {
         shared: Arc<Shared>,
     ) {
         loop {
-            let closed = shared.closed_notify.notified();
+            let closed = shared.closed_token.cancelled();
             if shared.closed.load(Ordering::SeqCst) {
                 break;
             }
@@ -215,7 +220,13 @@ mod unix {
             // the reader asleep after the wakeup.
             loop {
                 let resumed = shared.resume_notify.notified();
-                let closed = shared.closed_notify.notified();
+                let closed = shared.closed_token.cancelled();
+                #[cfg(test)]
+                if let Some(waiting) =
+                    shared.read_waiting.lock().expect("control read waiter lock").take()
+                {
+                    let _ = waiting.send(());
+                }
                 if shared.closed.load(Ordering::SeqCst) {
                     break 'read_loop;
                 }
@@ -271,6 +282,13 @@ mod unix {
         #[cfg(test)]
         pub(crate) async fn wait_reader_done(&self) {
             self.shared.read_done.notified().await;
+        }
+
+        #[cfg(test)]
+        pub(crate) fn arm_reader_waiting(&self) -> oneshot::Receiver<()> {
+            let (sender, receiver) = oneshot::channel();
+            *self.shared.read_waiting.lock().expect("control read waiter lock") = Some(sender);
+            receiver
         }
 
         fn encode_line(id: u64, cmd: &str, params: Value) -> Vec<u8> {
@@ -395,10 +413,13 @@ mod tests {
         let _ = std::fs::remove_file(&socket_path);
         let listener = UnixListener::bind(&socket_path).expect("bind control close test socket");
         let (accepted_tx, accepted_rx) = oneshot::channel();
+        let (paused_tx, paused_rx) = oneshot::channel();
         let server = tokio::spawn(async move {
             let (stream, _) = listener.accept().await.expect("accept control close test socket");
-            let (mut read_half, _) = stream.into_split();
+            let (mut read_half, mut write_half) = stream.into_split();
             accepted_tx.send(()).expect("tell client that socket is accepted");
+            paused_rx.await.expect("wait for client pause");
+            write_half.write_all(b"{}\n").await.expect("wake paused reader");
             let mut bytes = Vec::new();
             read_half.read_to_end(&mut bytes).await.expect("read client close");
         });
@@ -409,9 +430,11 @@ mod tests {
         accepted_rx.await.expect("wait for control close test server");
         control.pause();
 
-        // Register before end() so notify_waiters cannot race with the
-        // assertion. Yielding lets both the waiter and paused reader poll,
-        // without introducing a time-based synchronization.
+        // Register both waiters before end() so the test deterministically
+        // exercises the paused-reader branch and the close wakeup.
+        let read_waiting = control.arm_reader_waiting();
+        paused_tx.send(()).expect("tell server that reader is paused");
+        read_waiting.await.expect("paused reader entered wait");
         let waiter_control = Arc::clone(&control);
         let reader_done = tokio::spawn(async move { waiter_control.wait_reader_done().await });
         tokio::task::yield_now().await;
