@@ -14,8 +14,8 @@ import OSLog
 final class MobileHostIrxRuntime {
     static let shared = MobileHostIrxRuntime()
 
-    static let enabledDefaultsKey = "cmux.irx.enabled"
-    static let forceRelayDefaultsKey = "cmux.irx.force-relay"
+    nonisolated static let enabledDefaultsKey = "cmux.irx.enabled"
+    nonisolated static let forceRelayDefaultsKey = "cmux.irx.force-relay"
 
     /// irx is the PRIMARY transport: on by default in every configuration.
     /// An explicit `false` in defaults (the remote revert switch writes it)
@@ -333,7 +333,8 @@ final class MobileHostIrxRuntime {
                             trust: trust,
                             brokerClient: brokerClient,
                             isCurrent: { [weak self] in
-                                await MainActor.run { self?.generationToken == token }
+                                let runtime = self
+                                return await MainActor.run { runtime?.generationToken == token }
                             },
                             journal: journal
                         )
@@ -402,7 +403,8 @@ final class MobileHostIrxRuntime {
             artifactTransfers: artifactRegistry,
             independentEventWriter: eventWriter,
             isCurrent: { [weak self] in
-                await MainActor.run { self?.generationToken == token }
+                let runtime = self
+                return await MainActor.run { runtime?.generationToken == token }
             }
         )
         journal.record(
