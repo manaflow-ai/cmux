@@ -323,6 +323,39 @@ private struct FixedGitFilesystemLocalityReader: GitFilesystemLocalityReading {
         #expect(snapshot.remoteVOutput?.contains("https://first.example/owner/repo.git") == true)
     }
 
+    @Test func repositoryLocalExternalIncludeIsNotGlobalDependency() throws {
+        let fixture = try GitRepositoryFixture()
+        try fixture.writeBranch("main")
+        let externalConfigURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmuxgit-local-external-(UUID().uuidString).inc")
+        try """
+        [remote "local"]
+            url = https://github.com/local-only/repo.git
+        """.write(to: externalConfigURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: externalConfigURL) }
+        try """
+        [include]
+            path = (externalConfigURL.path)
+        """.write(
+            to: fixture.gitDirectory.appendingPathComponent("config"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let repository = try #require(
+            GitMetadataService.resolveGitRepository(containing: fixture.root.path)
+        )
+        let snapshot = GitMetadataService.gitRemoteConfigSnapshot(
+            repository: repository,
+            environment: [
+                "GIT_CONFIG_GLOBAL": "/dev/null",
+                "GIT_CONFIG_NOSYSTEM": "1",
+            ]
+        )
+
+        #expect(snapshot.configURLs.contains(externalConfigURL.standardizedFileURL))
+        #expect(!snapshot.globalConfigURLs.contains(externalConfigURL.standardizedFileURL))
+    }
+
     @Test func repositoryLinkCacheInvalidatesWhenOnBranchIncludeChanges() async throws {
         let fixture = try GitRepositoryFixture()
         try fixture.writeBranch("main", commit: String(repeating: "a", count: 40))
