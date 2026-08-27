@@ -281,7 +281,12 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             case .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .portsGroup, .browsersGroup:
                 toggle(node)
             case .workspace(let machine, let workspace, _):
-                nodeActions.openGroup(machine, node.dragGroup ?? SurfaceResourceGroup(title: workspace.name, resources: []), .split, workspace.id)
+                // D9: open never creates. `openGroup` starts a terminal when the
+                // group is empty, so an empty workspace row opens nothing here —
+                // its "+" and menu own creation.
+                if let group = node.dragGroup, !group.isEmpty {
+                    nodeActions.openGroup(machine, group, .split, workspace.id)
+                }
             case .localWorkspace(let row):
                 nodeActions.selectLocalWorkspace(row.workspaceID)
             case .terminal(let row):
