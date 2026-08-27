@@ -75,15 +75,16 @@ func isTokenExpired(_ accessToken: String?) -> Bool {
 
 /// Check if token should NOT be refreshed (is "fresh enough").
 /// Returns TRUE if token expires in > 20 seconds AND was issued < 75 seconds ago.
-func isTokenFreshEnough(_ accessToken: String?) -> Bool {
+/// `now` is injected for deterministic tests; production callers use the
+/// default wall clock.
+func isTokenFreshEnough(_ accessToken: String?, now: Date = Date()) -> Bool {
     guard let token = accessToken,
           let payload = decodeJWTPayload(token) else {
         return false  // Can't decode, should refresh
     }
-    
-    let expiresInMoreThan20s = payload.expiresInMillis > 20_000
-    let issuedLessThan75sAgo = payload.issuedMillisAgo < 75_000
-    
+    let nowMillis = now.timeIntervalSince1970 * 1000
+    let expiresInMoreThan20s = payload.exp.map { ($0 * 1000) - nowMillis > 20_000 } ?? true
+    let issuedLessThan75sAgo = payload.iat.map { nowMillis - ($0 * 1000) < 75_000 } ?? true
     return expiresInMoreThan20s && issuedLessThan75sAgo
 }
 
