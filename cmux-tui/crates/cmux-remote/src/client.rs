@@ -12,7 +12,7 @@ use crate::service::{ServiceMultiplexer, ServiceStream};
 use crate::services::MessageStream;
 
 type PendingResponse = Result<RpcResponse, String>;
-type PendingRequests = Arc<Mutex<HashMap<RequestId, oneshot::Sender<PendingResponse>>>>;
+type RequestRegistry = Arc<Mutex<WorkspaceRequestRegistry>>;
 const DROPPED_CANCELLATION_QUEUE: usize = 128;
 const MAX_IGNORED_RESPONSES: usize = 4096;
 
@@ -28,9 +28,16 @@ pub struct WorkspaceClient {
 
 struct WorkspaceRpcChannel {
     messages: Arc<MessageStream>,
-    pending: PendingRequests,
-    ignored: Arc<Mutex<IgnoredResponses>>,
+    requests: RequestRegistry,
     shutdown: watch::Sender<bool>,
+}
+
+#[derive(Default)]
+struct WorkspaceRequestRegistry {
+    // Live and retired IDs share one lock so cancellation cannot expose a
+    // response-routing gap between removing a pending request and retiring it.
+    pending: HashMap<RequestId, oneshot::Sender<PendingResponse>>,
+    ignored: IgnoredResponses,
 }
 
 #[derive(Default)]
@@ -84,11 +91,8 @@ impl WorkspaceClient {
             connect_rpc_channel(multiplexer.clone(), RpcTrafficClass::Cancellation),
             connect_rpc_channel(multiplexer.clone(), RpcTrafficClass::Bulk),
         )?;
-        let dropped_cancellations = cancellation_worker(
-            cancellation.messages.clone(),
-            cancellation.pending.clone(),
-            cancellation.ignored.clone(),
-        );
+        let dropped_cancellations =
+            cancellation_worker(cancellation.messages.clone(), cancellation.requests.clone());
         Ok(Arc::new(Self {
             multiplexer,
             process_input,
@@ -167,13 +171,12 @@ impl WorkspaceClient {
         let encoded = serde_json::to_vec(&RpcRequest { id, timeout_ms, request })
             .map_err(|error| RpcError::new("protocol", error.to_string()))?;
         let (sender, receiver) = oneshot::channel();
-        pending_requests(&channel.pending).insert(id, sender);
+        request_registry(&channel.requests).pending.insert(id, sender);
         let mut pending = PendingWorkspaceRequest {
             id,
             receiver: Some(receiver),
             deadline,
-            pending: channel.pending.clone(),
-            ignored: channel.ignored.clone(),
+            requests: channel.requests.clone(),
             cancellable,
             dropped_cancellations: self.dropped_cancellations.clone(),
             origin_shutdown: channel.shutdown.clone(),
@@ -275,8 +278,7 @@ pub struct PendingWorkspaceRequest {
     id: RequestId,
     receiver: Option<oneshot::Receiver<PendingResponse>>,
     deadline: Option<tokio::time::Instant>,
-    pending: PendingRequests,
-    ignored: Arc<Mutex<IgnoredResponses>>,
+    requests: RequestRegistry,
     cancellable: bool,
     dropped_cancellations: mpsc::Sender<DroppedWorkspaceRequest>,
     origin_shutdown: watch::Sender<bool>,
@@ -308,7 +310,7 @@ impl PendingWorkspaceRequest {
 
     fn disarm(&mut self) {
         if self.armed {
-            pending_requests(&self.pending).remove(&self.id);
+            request_registry(&self.requests).pending.remove(&self.id);
             self.armed = false;
         }
     }
@@ -320,11 +322,17 @@ impl Drop for PendingWorkspaceRequest {
             return;
         }
         self.armed = false;
-        if pending_requests(&self.pending).remove(&self.id).is_none() || !self.cancellable {
-            ignored_responses(&self.ignored).insert(self.id);
+        let was_pending = {
+            let mut requests = request_registry(&self.requests);
+            let was_pending = requests.pending.remove(&self.id).is_some();
+            if was_pending {
+                requests.ignored.insert(self.id);
+            }
+            was_pending
+        };
+        if !was_pending || !self.cancellable {
             return;
         }
-        ignored_responses(&self.ignored).insert(self.id);
         let dropped = DroppedWorkspaceRequest {
             target: self.id,
             origin_shutdown: self.origin_shutdown.clone(),
@@ -371,16 +379,11 @@ async fn connect_rpc_channel(
         .map_err(transport_error)?;
     await_opened(&stream, rpc_lane(class)).await?;
     let messages = Arc::new(MessageStream::with_lane(Arc::new(stream), rpc_lane(class)));
-    let pending = Arc::new(Mutex::new(HashMap::new()));
-    let ignored = Arc::new(Mutex::new(IgnoredResponses::default()));
+    let requests = Arc::new(Mutex::new(WorkspaceRequestRegistry::default()));
     let (shutdown, mut shutdown_rx) = watch::channel(false);
     let failure_shutdown = shutdown.clone();
-    let channel = WorkspaceRpcChannel {
-        messages: messages.clone(),
-        pending: pending.clone(),
-        ignored: ignored.clone(),
-        shutdown,
-    };
+    let channel =
+        WorkspaceRpcChannel { messages: messages.clone(), requests: requests.clone(), shutdown };
     tokio::spawn(async move {
         let failure = loop {
             let received = tokio::select! {
@@ -402,45 +405,37 @@ async fn connect_rpc_channel(
                 Ok(response) => response,
                 Err(error) => break error.to_string(),
             };
-            if let Err(error) = route_response(response, &pending, &ignored) {
+            if let Err(error) = route_response(response, &requests) {
                 failure_shutdown.send_replace(true);
                 break error;
             }
         };
         let _ = messages.close().await;
-        for (_, sender) in pending_requests(&pending).drain() {
+        for (_, sender) in request_registry(&requests).pending.drain() {
             let _ = sender.send(Err(failure.clone()));
         }
     });
     Ok(channel)
 }
 
-fn pending_requests(
-    pending: &PendingRequests,
-) -> std::sync::MutexGuard<'_, HashMap<RequestId, oneshot::Sender<PendingResponse>>> {
-    pending.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+fn request_registry(
+    requests: &RequestRegistry,
+) -> std::sync::MutexGuard<'_, WorkspaceRequestRegistry> {
+    requests.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
-fn ignored_responses(
-    ignored: &Arc<Mutex<IgnoredResponses>>,
-) -> std::sync::MutexGuard<'_, IgnoredResponses> {
-    ignored.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
-}
-
-fn route_response(
-    response: RpcResponse,
-    pending: &PendingRequests,
-    ignored: &Arc<Mutex<IgnoredResponses>>,
-) -> Result<(), String> {
+fn route_response(response: RpcResponse, requests: &RequestRegistry) -> Result<(), String> {
     // A response without a live request indicates a peer that lost protocol
     // state. Retired IDs are the bounded exception for cancellation and
     // callers that timed out or were dropped while their response was in
     // flight.
-    if let Some(sender) = pending_requests(pending).remove(&response.id) {
+    let mut requests = request_registry(requests);
+    if let Some(sender) = requests.pending.remove(&response.id) {
+        drop(requests);
         let _ = sender.send(Ok(response));
         return Ok(());
     }
-    if ignored_responses(ignored).remove(&response.id) {
+    if requests.ignored.remove(&response.id) {
         return Ok(());
     }
     Err(format!("workspace RPC response has unknown request id {}", response.id))
@@ -448,8 +443,7 @@ fn route_response(
 
 fn cancellation_worker(
     messages: Arc<MessageStream>,
-    pending: PendingRequests,
-    ignored: Arc<Mutex<IgnoredResponses>>,
+    requests: RequestRegistry,
 ) -> mpsc::Sender<DroppedWorkspaceRequest> {
     let (sender, mut receiver) =
         mpsc::channel::<DroppedWorkspaceRequest>(DROPPED_CANCELLATION_QUEUE);
@@ -467,9 +461,9 @@ fn cancellation_worker(
                     continue;
                 }
             };
-            ignored_responses(&ignored).insert(request.id);
+            request_registry(&requests).ignored.insert(request.id);
             if messages.send(&encoded).await.is_err() {
-                ignored_responses(&ignored).remove(&request.id);
+                request_registry(&requests).ignored.remove(&request.id);
                 dropped.origin_shutdown.send_replace(true);
                 while let Ok(queued) = receiver.try_recv() {
                     queued.origin_shutdown.send_replace(true);
@@ -678,22 +672,20 @@ mod tests {
 
     #[tokio::test]
     async fn unknown_response_fails_pending_request() {
-        let pending = Arc::new(Mutex::new(HashMap::new()));
-        let ignored = Arc::new(Mutex::new(IgnoredResponses::default()));
+        let requests = Arc::new(Mutex::new(WorkspaceRequestRegistry::default()));
         let (sender, receiver) = oneshot::channel();
         let expected = RequestId::from_u128(1);
-        pending_requests(&pending).insert(expected, sender);
+        request_registry(&requests).pending.insert(expected, sender);
 
         let failure = route_response(
             RpcResponse {
                 id: RequestId::from_u128(2),
                 result: Err(RpcError::new("server", "unexpected")),
             },
-            &pending,
-            &ignored,
+            &requests,
         )
         .expect_err("an unknown response ID must fail the channel");
-        for (_, sender) in pending_requests(&pending).drain() {
+        for (_, sender) in request_registry(&requests).pending.drain() {
             let _ = sender.send(Err(failure.clone()));
         }
 
@@ -702,16 +694,14 @@ mod tests {
 
     #[tokio::test]
     async fn known_response_is_delivered_to_pending_request() {
-        let pending = Arc::new(Mutex::new(HashMap::new()));
-        let ignored = Arc::new(Mutex::new(IgnoredResponses::default()));
+        let requests = Arc::new(Mutex::new(WorkspaceRequestRegistry::default()));
         let (sender, receiver) = oneshot::channel();
         let id = RequestId::from_u128(1);
-        pending_requests(&pending).insert(id, sender);
+        request_registry(&requests).pending.insert(id, sender);
 
         route_response(
             RpcResponse { id, result: Err(RpcError::new("server", "expected")) },
-            &pending,
-            &ignored,
+            &requests,
         )
         .expect("a pending response should be delivered");
 
@@ -721,17 +711,65 @@ mod tests {
 
     #[test]
     fn ignored_response_is_consumed_without_failing_channel() {
-        let pending = Arc::new(Mutex::new(HashMap::new()));
-        let ignored = Arc::new(Mutex::new(IgnoredResponses::default()));
+        let requests = Arc::new(Mutex::new(WorkspaceRequestRegistry::default()));
         let id = RequestId::from_u128(1);
-        ignored_responses(&ignored).insert(id);
+        request_registry(&requests).ignored.insert(id);
 
-        route_response(
-            RpcResponse { id, result: Err(RpcError::new("server", "late")) },
-            &pending,
-            &ignored,
-        )
-        .expect("a retired response should be consumed");
-        assert!(!ignored_responses(&ignored).remove(&id));
+        route_response(RpcResponse { id, result: Err(RpcError::new("server", "late")) }, &requests)
+            .expect("a retired response should be consumed");
+        assert!(!request_registry(&requests).ignored.remove(&id));
+    }
+
+    #[test]
+    fn response_racing_with_request_drop_is_delivered_or_ignored_atomically() {
+        for sequence in 0..128_u128 {
+            let requests = Arc::new(Mutex::new(WorkspaceRequestRegistry::default()));
+            let id = RequestId::from_u128(sequence + 1);
+            let (response_sender, response_receiver) = oneshot::channel();
+            request_registry(&requests).pending.insert(id, response_sender);
+            let (dropped_cancellations, mut cancellation_receiver) = mpsc::channel(1);
+            let (origin_shutdown, _shutdown_receiver) = watch::channel(false);
+            let pending_request = PendingWorkspaceRequest {
+                id,
+                receiver: Some(response_receiver),
+                deadline: None,
+                requests: requests.clone(),
+                cancellable: true,
+                dropped_cancellations,
+                origin_shutdown,
+                armed: true,
+            };
+            let start = Arc::new(std::sync::Barrier::new(3));
+
+            let routed = std::thread::scope(|scope| {
+                let route_start = start.clone();
+                let route_requests = requests.clone();
+                let route_thread = scope.spawn(move || {
+                    route_start.wait();
+                    route_response(
+                        RpcResponse { id, result: Err(RpcError::new("server", "race")) },
+                        &route_requests,
+                    )
+                });
+                let drop_start = start.clone();
+                let drop_thread = scope.spawn(move || {
+                    drop_start.wait();
+                    drop(pending_request);
+                });
+                start.wait();
+                let routed = route_thread.join().expect("response thread must not panic");
+                drop_thread.join().expect("drop thread must not panic");
+                routed
+            });
+
+            routed.expect("a response racing with drop must not look unknown");
+            assert!(request_registry(&requests).pending.is_empty());
+            assert!(!request_registry(&requests).ignored.remove(&id));
+            match cancellation_receiver.try_recv() {
+                Ok(dropped) => assert_eq!(dropped.target, id),
+                Err(mpsc::error::TryRecvError::Empty | mpsc::error::TryRecvError::Disconnected) => {
+                }
+            }
+        }
     }
 }
