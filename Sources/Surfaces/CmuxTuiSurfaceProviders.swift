@@ -212,7 +212,10 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         } catch {
             let status = await links.status(machineID: machineID)
             linkState = status?.state ?? .error
-            linkError = status?.error ?? error.localizedDescription
+            linkError = status?.error ?? CloudMachineLink.errorText(error)
+            #if DEBUG
+            cmuxDebugLog("cloud.provider.refreshFailed machine=\(machineID) state=\(linkState) error=\(String(reflecting: error))")
+            #endif
         }
         info = Self.info(from: summary, linkState: linkState, linkError: linkError, stats: await stats)
         catalog.replaceResources(resources, on: machine, info: info)

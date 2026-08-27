@@ -42,6 +42,21 @@ actor CloudMachineLink {
 
     private(set) var state: SurfaceLinkState = .connecting
     private(set) var lastError: String?
+
+    /// Human-readable text for a link failure. Typed cmux errors describe
+    /// themselves (`VMClientError` is `CustomStringConvertible`, the link and
+    /// manager errors are `LocalizedError`); only foreign errors fall back to
+    /// Foundation's "The operation couldn't be completed. (… error 1.)".
+    nonisolated static func errorText(_ error: Error) -> String {
+        if let localized = error as? LocalizedError, let text = localized.errorDescription, !text.isEmpty {
+            return text
+        }
+        if let described = error as? CustomStringConvertible {
+            let text = described.description
+            if !text.isEmpty { return text }
+        }
+        return error.localizedDescription
+    }
     private(set) var connected: Connected?
 
     // Foundation `Process` and its pipes are actor-isolated state; every callback hops
@@ -104,7 +119,7 @@ actor CloudMachineLink {
             try process.run()
         } catch {
             state = .error
-            lastError = error.localizedDescription
+            lastError = Self.errorText(error)
             removeInviteFile()
             throw LinkError.spawnFailed(error.localizedDescription)
         }
