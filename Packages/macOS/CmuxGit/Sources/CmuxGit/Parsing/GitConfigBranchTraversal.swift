@@ -64,13 +64,15 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
     func watchPathResult() -> WatchPathResult {
         let result = traverse()
         var metadataSentinelPaths = Array(
-            Set(result.missingConfigPaths)
+            Set(result.missingConfigPaths + result.deferredConfigPaths)
                 .sorted()
                 .prefix(Self.maximumIncludedFileCount)
         )
-        let metadataSentinelParentPaths = Array(Set(result.missingConfigParentPaths))
+        let metadataSentinelParentPaths = Array(
+            Set(result.missingConfigParentPaths + result.deferredConfigParentPaths)
             .sorted()
             .prefix(Self.maximumIncludedFileCount)
+        )
         let worktreeConfigURL = URL(fileURLWithPath: repository.gitDirectory)
             .appendingPathComponent("config.worktree")
             .standardizedFileURL
@@ -104,6 +106,7 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
             : []) + Array(metadataSentinelParentPaths)
         let metadataCandidates = result.configURLs.map { $0.standardizedFileURL.path }
             + result.referenceStoragePaths
+            + result.deferredConfigPaths
         let paths = rootWatchPaths
             + Array(metadataSentinelParentPaths)
             + metadataCandidates
@@ -143,6 +146,8 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
         objectFormatSHA256: Bool?,
         missingConfigPaths: [String],
         missingConfigParentPaths: [String],
+        deferredConfigPaths: [String],
+        deferredConfigParentPaths: [String],
         isComplete: Bool
     ) {
         var state = GitConfigTraversalState(budget: GitConfigTraversalBudget(
@@ -178,6 +183,8 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
             isComplete ? state.objectFormatSHA256 : nil,
             state.missingConfigPaths,
             state.missingConfigParentPaths,
+            state.deferredConfigPaths,
+            state.deferredConfigParentPaths,
             isComplete
         )
     }
@@ -244,14 +251,24 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
             guard !state.seenConfigPaths.contains(includeURL.standardizedFileURL.path) else {
                 continue
             }
-            guard state.budget.canReservePath() else { return }
+            guard state.budget.canReservePath() else {
+                if includeConditionalPathsForWatch {
+                    state.recordDeferredIncludePath(includeURL, repository: repository)
+                }
+                return
+            }
             if includeConditionalPathsForWatch {
                 switch configReader.read(at: includeURL, maximumByteCount: 1, deadline: deadline) {
                 case .contents, .oversized:
                     break
                 case .missing:
                     guard state.budget.reservePath() else { return }
-                    if let parent = existingRepositoryConfigParent(for: includeURL) {
+                    if let parent = state.existingRepositoryConfigParent(
+                        for: includeURL,
+                        repository: repository,
+                        configReader: configReader,
+                        deadline: deadline
+                    ) {
                         state.missingConfigPaths.append(includeURL.standardizedFileURL.path)
                         state.missingConfigParentPaths.append(parent)
                     } else {
@@ -303,29 +320,6 @@ nonisolated struct GitConfigBranchTraversal: Sendable {
             storageName: storageName,
             path: path
         ))
-    }
-
-    /// Finds a local repository-owned parent for a missing optional include.
-    private func existingRepositoryConfigParent(for url: URL) -> String? {
-        let parent = url.standardizedFileURL.deletingLastPathComponent()
-        let roots = [repository.gitDirectory, repository.commonDirectory, repository.workTreeRoot]
-            .map { URL(fileURLWithPath: $0).standardizedFileURL.path }
-        var current = parent
-        for _ in 0..<16 {
-            let path = current.path
-            guard roots.contains(where: { root in
-                path == root || path.hasPrefix(root.hasSuffix("/") ? root : root + "/")
-            }) else {
-                return nil
-            }
-            if configReader.isLocalDirectory(at: current, deadline: deadline) {
-                return path
-            }
-            let next = current.deletingLastPathComponent()
-            if next.path == current.path { break }
-            current = next
-        }
-        return nil
     }
 
     /// Synthesizes `git remote -v` fetch lines from reachable config files.

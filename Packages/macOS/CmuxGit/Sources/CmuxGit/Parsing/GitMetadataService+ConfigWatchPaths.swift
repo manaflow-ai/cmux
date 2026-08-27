@@ -417,22 +417,28 @@ extension GitMetadataService {
     /// a cooperative executor thread.
     nonisolated func watchDescriptorBlocking(
         for directory: String,
+        repository: ResolvedGitRepository,
         safetyConfiguration: GitMetadataSafetyConfiguration,
         watchInputs: GitMetadataWatchInputs
     ) async -> GitWorkspaceMetadataWatchDescriptor? {
-        let cancellationSignal = WorkspaceChangesCancellationSignal(deadline: watchInputs.deadline)
+        let now = DispatchTime.now()
+        let descriptorDeadline = watchInputs.deadline > now
+            ? watchInputs.deadline
+            : now + max(1, safetyConfiguration.gitStatusWallTime)
+        let cancellationSignal = WorkspaceChangesCancellationSignal(deadline: descriptorDeadline)
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
                 Self.blockingStatusQueue.async {
                     let descriptor = cancellationSignal.withCurrentBinding {
                         Self.workspaceGitMetadataWatchDescriptor(
                             for: directory,
+                            resolvedRepository: repository,
                             safetyConfiguration: safetyConfiguration,
                             configPathsByRepository: watchInputs.configPathsByRepository,
                             watchOnlyPathsByRepository: watchInputs.watchOnlyPathsByRepository,
                             metadataSentinelPathsByRepository: watchInputs.metadataSentinelPathsByRepository,
                             indexSnapshotsByRepository: watchInputs.indexSnapshotsByRepository,
-                            deadline: watchInputs.deadline
+                            deadline: descriptorDeadline
                         )
                     }
                     continuation.resume(returning: descriptor)

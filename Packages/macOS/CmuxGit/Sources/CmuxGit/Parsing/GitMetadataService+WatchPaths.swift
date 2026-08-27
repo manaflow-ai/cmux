@@ -22,13 +22,15 @@ extension GitMetadataService {
     nonisolated static func workspaceGitMetadataWatchDescriptor(
         for directory: String,
         safetyConfiguration: GitMetadataSafetyConfiguration = GitMetadataSafetyConfiguration(),
+        resolvedRepository: ResolvedGitRepository? = nil,
         configPathsByRepository: [String: [String]]? = nil,
         watchOnlyPathsByRepository: [String: [String]]? = nil,
         metadataSentinelPathsByRepository: [String: [String]]? = nil,
         indexSnapshotsByRepository: [String: GitIndexSnapshot]? = nil,
         deadline: DispatchTime? = nil
     ) -> GitWorkspaceMetadataWatchDescriptor? {
-        guard let repository = resolveGitRepository(containing: directory, deadline: deadline) else {
+        guard let repository = resolvedRepository
+            ?? resolveGitRepository(containing: directory, deadline: deadline) else {
             return nil
         }
 

@@ -19,14 +19,18 @@ nonisolated struct GitReferenceRunnerSelector: Sendable {
         probesReferenceFormat: Bool = true
     ) {
         let resolver = SystemGitExecutableResolver(environment: environment)
-        let executableURLs = resolver.referenceExecutableURLs()
+        let executableURLs = probesReferenceFormat
+            ? resolver.referenceExecutableURLs()
+            : resolver.executableURLs()
         self.runners = executableURLs.enumerated().map { index, executableURL in
             SystemWorkspaceChangesGitRunner(
                 executableURL: executableURL,
                 environment: environment,
                 boundedCommandWallTimeLimit: wallTimeLimit,
                 isolateRepositoryConfig: isolateRepositoryConfig,
-                fallbackExecutableURLs: Array(executableURLs.dropFirst(index + 1))
+                fallbackExecutableURLs: probesReferenceFormat
+                    ? Array(executableURLs.dropFirst(index + 1))
+                    : []
             ) as any WorkspaceChangesGitRunning
         }
         self.probesReferenceFormat = probesReferenceFormat

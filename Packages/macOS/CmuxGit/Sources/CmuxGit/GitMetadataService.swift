@@ -209,6 +209,7 @@ public struct GitMetadataService: Sendable {
             )
             guard let descriptor = await watchDescriptorBlocking(
                 for: directory,
+                repository: repository,
                 safetyConfiguration: safetyConfiguration,
                 watchInputs: watchInputs
             ) else {
