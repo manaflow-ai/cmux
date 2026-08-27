@@ -62,10 +62,16 @@ public final class GhosttySurfaceHostView: UIView {
     /// dock.bottom == keyboardLayoutGuide.top; the seat authority everywhere
     /// the guide is trustworthy (pixel-locked to the keyboard's own spring).
     private var guideDockConstraint: NSLayoutConstraint?
-    /// renderWrapper.bottom <= dock.top + chrome + blank (the content cap).
+    /// renderWrapper.bottom <= dock.top + chrome + blank + reveal (the
+    /// content cap).
     private var presentationContentCapConstraint: NSLayoutConstraint!
     /// The blank measurement currently baked into the content cap.
     private var appliedBlankBelowContent: CGFloat = 0
+    /// The scroll-top reveal currently baked into the content cap: how far
+    /// the pixel-scroll axis has slid the render back down past
+    /// scrollback-top so the keyboard-up presentation's clipped top rows are
+    /// visible. Follows the gesture through the display-link refresh.
+    private var appliedScrollTopReveal: CGFloat = 0
     /// True while a notification-driven keyboard leg is animating. Layout and
     /// display-link paths must not retarget the constant the leg owns.
     private var keyboardTransitionActive = false
@@ -388,6 +394,14 @@ public final class GhosttySurfaceHostView: UIView {
             height: targetHeight,
             isVisible: targetIsVisible
         )
+        // Every keyboard leg drops the scroll-top reveal: it was granted
+        // against the OLD keyboard's clipped-top budget, and holding it
+        // across a raise would cover the newest rows without the user ever
+        // scrolling away from them. The cap reseat below lands in the same
+        // solve (and animation transaction) as the dock motion, so the
+        // wrapper travels once, not twice.
+        surfaceView.clearHostedScrollTopReveal()
+        syncPresentationCaps()
         #if DEBUG
         maximumTerminalDockPresentationGap = 0
         #endif
@@ -429,19 +443,23 @@ public final class GhosttySurfaceHostView: UIView {
         }
     }
 
-    /// Keeps the content cap seated on the CURRENT chrome band and blank
-    /// measurement: `wrapper.bottom <= dock.top + chrome + blank`. Both terms
-    /// are keyboard-independent, so the cap never changes during a keyboard
-    /// leg — the wrapper's target always comes out of the same layout solve
-    /// (and animation transaction) that moves the dock.
+    /// Keeps the content cap seated on the CURRENT chrome band, blank
+    /// measurement, and scroll-top reveal:
+    /// `wrapper.bottom <= dock.top + chrome + blank + reveal`. All terms are
+    /// keyboard-independent (a keyboard leg clears the reveal before it
+    /// animates), so the cap never changes during a keyboard leg — the
+    /// wrapper's target always comes out of the same layout solve (and
+    /// animation transaction) that moves the dock.
     private func syncPresentationCaps() {
         let blank = surfaceView.hostedBlankBelowContent ?? 0
+        let reveal = surfaceView.hostedScrollTopReveal
         appliedBlankBelowContent = blank
-        let constant = surfaceView.hostedBottomChromeReservation + blank
+        appliedScrollTopReveal = reveal
+        let constant = surfaceView.hostedBottomChromeReservation + blank + reveal
         guard abs(presentationContentCapConstraint.constant - constant) > 0.25 else { return }
         MobileDebugLog.anchormux(
             "kb.reseat capC=\(Int(presentationContentCapConstraint.constant))->\(Int(constant)) "
-            + "blank=\(Int(blank)) kb=\(Int(surfaceView.hostedKeyboardHeight))"
+            + "blank=\(Int(blank)) reveal=\(Int(reveal)) kb=\(Int(surfaceView.hostedKeyboardHeight))"
         )
         presentationContentCapConstraint.constant = constant
     }
@@ -449,18 +467,33 @@ public final class GhosttySurfaceHostView: UIView {
     /// Content follow while a keyboard is up: content written under the
     /// keyboard consumes the blank band, so the content cap tightens and the
     /// render slides just enough to keep the content bottom above the
-    /// composer bar (and relaxes after a `clear`). Driven by the surface's
-    /// display link; a no-op within half a point, and only ever an animation
-    /// when the measurement actually changed.
+    /// composer bar (and relaxes after a `clear`); and the pixel-scroll axis
+    /// grants or consumes the scroll-top reveal, sliding the render so the
+    /// clipped top rows track the gesture. Driven by the surface's display
+    /// link; a no-op within half a point. Measurement changes ease over
+    /// 0.2s; while a scroll gesture (or its deceleration) owns the axis the
+    /// retarget is UNANIMATED so the render tracks the finger frame-locked,
+    /// exactly like the grid scroll it continues.
     func refreshKeyboardAbsorptionIfNeeded() {
         guard !keyboardTransitionActive,
               surfaceView.hostedKeyboardHeight > 0 else { return }
         let blank = surfaceView.hostedBlankBelowContent ?? 0
-        guard abs(blank - appliedBlankBelowContent) > 0.5 else { return }
+        let reveal = surfaceView.hostedScrollTopReveal
+        guard abs(blank - appliedBlankBelowContent) > 0.5
+                || abs(reveal - appliedScrollTopReveal) > 0.5 else { return }
         appliedBlankBelowContent = blank
-        let constant = surfaceView.hostedBottomChromeReservation + blank
+        appliedScrollTopReveal = reveal
+        let constant = surfaceView.hostedBottomChromeReservation + blank + reveal
+        if surfaceView.scrollInteractionActive {
+            UIView.performWithoutAnimation {
+                self.presentationContentCapConstraint.constant = constant
+                self.layoutIfNeeded()
+            }
+            return
+        }
         MobileDebugLog.anchormux(
-            "kb.follow capC->\(Int(constant)) blank=\(Int(blank)) kb=\(Int(surfaceView.hostedKeyboardHeight))"
+            "kb.follow capC->\(Int(constant)) blank=\(Int(blank)) reveal=\(Int(reveal)) "
+            + "kb=\(Int(surfaceView.hostedKeyboardHeight))"
         )
         UIView.animate(
             withDuration: 0.2,
@@ -544,8 +577,10 @@ public final class GhosttySurfaceHostView: UIView {
     var debugUsesNotificationKeyboardDock: Bool { hostOwnsDockSeat }
     var debugSeatTrustsOnlyWillFrames: Bool { seatTrustsOnlyWillFrames }
     /// The expected render-to-dock seam for the CURRENT state: how much of
-    /// the live intrusion the blank band absorbs. Mirrors what the inequality
-    /// system produces, for the probe's gap == slack contract.
+    /// the live intrusion the blank band absorbs, plus the scroll-top reveal
+    /// the pixel-scroll axis has granted (both legitimately detach the
+    /// render bottom from the dock top). Mirrors what the inequality system
+    /// produces, for the probe's gap == slack contract.
     var debugKeyboardAbsorptionSlack: CGFloat {
         let inset = resolvedBottomSafeAreaInset
         let intrusion = max(
@@ -558,7 +593,7 @@ public final class GhosttySurfaceHostView: UIView {
         return TerminalLetterboxGeometry.keyboardAbsorptionSlack(
             blankBelowContent: appliedBlankBelowContent,
             intrusion: intrusion
-        )
+        ) + appliedScrollTopReveal
     }
     var debugTerminalDockPresentationGap: CGFloat {
         terminalDockPresentationGap
