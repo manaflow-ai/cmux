@@ -41991,11 +41991,7 @@ mod tests {
             app.tree.active_workspace = 1;
             app.sidebar_workspace_selection = 1;
             app.workspace_rail_scroll = 9;
-            app.workspace_preview = Some(WorkspacePreview {
-                origin,
-                target,
-                origin_scroll: 3,
-            });
+            app.workspace_preview = Some(WorkspacePreview { origin, target, origin_scroll: 3 });
             app.focus = focus;
 
             app.handle_key(KeyEvent::new(key, KeyModifiers::NONE)).unwrap();
@@ -42039,11 +42035,7 @@ mod tests {
         app.tree.active_workspace = 1;
         app.sidebar_workspace_selection = 1;
         app.workspace_rail_scroll = 8;
-        app.workspace_preview = Some(WorkspacePreview {
-            origin,
-            target,
-            origin_scroll: 2,
-        });
+        app.workspace_preview = Some(WorkspacePreview { origin, target, origin_scroll: 2 });
         app.focus = FocusTarget::TabsRail;
         app.hidden_sidebar_views
             .entry(app.config.sidebar.active_profile.clone())
@@ -42089,11 +42081,7 @@ mod tests {
         app.tree.active_workspace = 1;
         app.sidebar_workspace_selection = 1;
         app.workspace_rail_scroll = 7;
-        app.workspace_preview = Some(WorkspacePreview {
-            origin,
-            target,
-            origin_scroll: 1,
-        });
+        app.workspace_preview = Some(WorkspacePreview { origin, target, origin_scroll: 1 });
         app.focus = FocusTarget::TabsRail;
 
         app.set_sidebar_view_visible(1, false);
@@ -42135,11 +42123,7 @@ mod tests {
         app.tree.active_workspace = 1;
         app.sidebar_workspace_selection = 1;
         app.workspace_rail_selection = WorkspaceRailSelection::Workspace;
-        app.workspace_preview = Some(WorkspacePreview {
-            origin,
-            target,
-            origin_scroll: 0,
-        });
+        app.workspace_preview = Some(WorkspacePreview { origin, target, origin_scroll: 0 });
         app.focus = FocusTarget::TabsRail;
 
         let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
@@ -42191,11 +42175,7 @@ mod tests {
         app.tree.active_workspace = 1;
         app.sidebar_workspace_selection = 1;
         app.workspace_rail_scroll = 6;
-        app.workspace_preview = Some(WorkspacePreview {
-            origin,
-            target,
-            origin_scroll: 0,
-        });
+        app.workspace_preview = Some(WorkspacePreview { origin, target, origin_scroll: 0 });
         app.focus = FocusTarget::TabsRail;
 
         app.activate_sidebar_profile(1);
@@ -42209,7 +42189,8 @@ mod tests {
 
     #[test]
     fn reloading_config_without_focused_projection_cancels_workspace_preview() {
-        let mux = Mux::new("workspace-preview-config-reload-cancel-test", SurfaceOptions::default());
+        let mux =
+            Mux::new("workspace-preview-config-reload-cancel-test", SurfaceOptions::default());
         mux.new_workspace(Some("Alpha".into()), Some((80, 24))).unwrap();
         mux.new_workspace(Some("Beta".into()), Some((80, 24))).unwrap();
         let mut app = test_app(Session::Local(mux));
@@ -42229,11 +42210,7 @@ mod tests {
         app.tree.active_workspace = 1;
         app.sidebar_workspace_selection = 1;
         app.workspace_rail_scroll = 5;
-        app.workspace_preview = Some(WorkspacePreview {
-            origin,
-            target,
-            origin_scroll: 0,
-        });
+        app.workspace_preview = Some(WorkspacePreview { origin, target, origin_scroll: 0 });
         app.focus = FocusTarget::ProjectionRail(0);
 
         let path = std::env::temp_dir().join(format!(
@@ -42241,8 +42218,11 @@ mod tests {
             std::process::id(),
             std::thread::current().name().unwrap_or("test")
         ));
-        std::fs::write(&path, r#"{"sidebar":{"views":[{"id":"workspaces","levels":["workspaces"]}]}}"#)
-            .unwrap();
+        std::fs::write(
+            &path,
+            r#"{"sidebar":{"views":[{"id":"workspaces","levels":["workspaces"]}]}}"#,
+        )
+        .unwrap();
         let old_config = std::env::var_os("CMUX_TUI_CONFIG");
         let old_mux_config = std::env::var_os("CMUX_MUX_CONFIG");
         // SAFETY: this test restores both config environment variables before returning.
