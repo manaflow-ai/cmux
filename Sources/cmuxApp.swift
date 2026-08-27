@@ -98,6 +98,11 @@ struct cmuxApp: App {
             // of its own, which this initializer must not resolve to.
             return .stroke(CmuxSettings.ShortcutStroke(key: String(digit), control: true))
         }
+        // Stored-property initializers above this init body (the
+        // KeyboardShortcutSettingsObserver.shared @State member) already built
+        // matcher snapshots against the builtin table; the standard change
+        // notification rebuilds them against the provider.
+        NotificationCenter.default.post(name: KeyboardShortcutSettings.didChangeNotification, object: nil)
 
         // Gather settings package dependencies once. The runtime itself
         // is assigned after the saved language override below, because
