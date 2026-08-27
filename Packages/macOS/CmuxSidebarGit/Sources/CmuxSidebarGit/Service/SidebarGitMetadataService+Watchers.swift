@@ -370,16 +370,33 @@ extension SidebarGitMetadataService {
     }
 
     private func ensureWorkspaceGitMetadataCreationWatcher(for ancestor: String) {
-        guard workspaceGitMetadataCreationWatchersByAncestor[ancestor] == nil else { return }
+        guard workspaceGitMetadataCreationWatchersByAncestor[ancestor] == nil,
+              workspaceGitMetadataCreationWatcherTasksByAncestor[ancestor] == nil else {
+            return
+        }
+        // FileWatcher resolves ancestors and opens descriptors only when start()
+        // runs on its actor, keeping this main-actor registration non-blocking.
         let watcher = FileWatcher(
             path: ancestor,
             throttle: .milliseconds(250),
             allowsFilesystemRootAncestor: false,
-            fileManager: creationWatchFileManager
+            fileManager: creationWatchFileManager,
+            startsAsynchronously: true
         )
         workspaceGitMetadataCreationWatchersByAncestor[ancestor] = watcher
         let events = watcher.events
         workspaceGitMetadataCreationWatcherTasksByAncestor[ancestor] = Task { @MainActor [weak self] in
+            guard !Task.isCancelled else {
+                await watcher.stop()
+                return
+            }
+            await watcher.start()
+            guard !Task.isCancelled,
+                  let self,
+                  self.workspaceGitMetadataCreationWatchTargetsByAncestor[ancestor]?.isEmpty == false else {
+                await watcher.stop()
+                return
+            }
             for await _ in events {
                 guard let self else { break }
                 let targets = Array(
@@ -454,6 +471,7 @@ extension SidebarGitMetadataService {
                     )
                 }
             }
+            await watcher.stop()
         }
     }
 

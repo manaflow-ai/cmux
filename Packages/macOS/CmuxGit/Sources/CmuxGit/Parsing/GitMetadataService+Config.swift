@@ -41,17 +41,24 @@ extension GitMetadataService {
         var hasConfigMatchOperationCount = 0
         let commonConfigPaths: Set<String>
         let fileStatusReader: any GitFileStatusReading
+        let filesystemLocalityReader: any GitFilesystemLocalityReading
 
         init(
             fileStatusReader: any GitFileStatusReading,
-            commonConfigURL: URL
+            commonConfigURL: URL,
+            filesystemLocalityReader: any GitFilesystemLocalityReading
         ) {
             self.fileStatusReader = fileStatusReader
+            self.filesystemLocalityReader = filesystemLocalityReader
             let standardized = commonConfigURL.standardizedFileURL
-            self.commonConfigPaths = Set([
-                standardized.path,
-                standardized.resolvingSymlinksInPath().path
-            ])
+            var commonPaths = Set([standardized.path])
+            if filesystemLocalityReader.isLocal(path: standardized.path) {
+                let resolved = standardized.resolvingSymlinksInPath().standardizedFileURL.path
+                if filesystemLocalityReader.isLocal(path: resolved) {
+                    commonPaths.insert(resolved)
+                }
+            }
+            self.commonConfigPaths = commonPaths
         }
 
         mutating func recordFallback(_ url: URL) {
@@ -63,9 +70,21 @@ extension GitMetadataService {
 
         mutating func read(_ url: URL) -> String? {
             guard !exceeded else { return nil }
+            let standardizedURL = url.standardizedFileURL
+            guard standardizedURL.path == "/dev/null"
+                    || filesystemLocalityReader.isLocal(path: standardizedURL.path) else {
+                exceeded = true
+                recordFallback(url)
+                return nil
+            }
             let readURL = url.resolvingSymlinksInPath()
             guard readURL.standardizedFileURL.path != "/dev/null" else {
                 return ""
+            }
+            guard filesystemLocalityReader.isLocal(path: readURL.standardizedFileURL.path) else {
+                exceeded = true
+                recordFallback(url)
+                return nil
             }
             let dependencyPaths = Set([
                 url.standardizedFileURL.path,
@@ -74,43 +93,37 @@ extension GitMetadataService {
             let statusesBefore = dependencyPaths.reduce(into: [String: GitFileStatus?]()) { result, path in
                 result.updateValue(fileStatusReader.status(atPath: path), forKey: path)
             }
-            guard FileManager.default.fileExists(atPath: url.path) else {
-                guard missingPathCount < Self.maximumMissingPathCount else {
-                    exceeded = true
-                    recordFallback(url)
-                    return nil
-                }
-                missingPathCount += 1
-                for (path, fileStatus) in statusesBefore {
-                    configStatuses.updateValue(fileStatus, forKey: path)
-                }
-                return nil
-            }
-            guard fileCount < Self.maximumFileCount,
-                  let attributes = try? FileManager.default.attributesOfItem(atPath: readURL.path),
-                  let type = attributes[.type] as? FileAttributeType,
-                  type == .typeRegular,
-                  let size = attributes[.size] as? NSNumber,
-                  size.int64Value >= 0,
-                  size.int64Value <= Int64(Self.maximumByteCount - byteCount) else {
+            guard fileCount < Self.maximumFileCount else {
                 exceeded = true
                 recordFallback(url)
                 return nil
             }
             let descriptor = Darwin.open(readURL.path, O_RDONLY | O_CLOEXEC | O_NONBLOCK)
             guard descriptor >= 0 else {
+                let openError = errno
                 for (path, fileStatus) in statusesBefore {
                     configStatuses.updateValue(fileStatus, forKey: path)
                 }
-                exceeded = true
-                recordFallback(url)
+                if openError == ENOENT || openError == ENOTDIR {
+                    guard missingPathCount < Self.maximumMissingPathCount else {
+                        exceeded = true
+                        recordFallback(url)
+                        return nil
+                    }
+                    missingPathCount += 1
+                } else {
+                    exceeded = true
+                    recordFallback(url)
+                }
                 return nil
             }
             defer { Darwin.close(descriptor) }
 
             var status = stat()
             guard Darwin.fstat(descriptor, &status) == 0,
-                  (status.st_mode & S_IFMT) == S_IFREG else {
+                  (status.st_mode & S_IFMT) == S_IFREG,
+                  status.st_size >= 0,
+                  status.st_size <= Int64(Self.maximumByteCount - byteCount) else {
                 exceeded = true
                 recordFallback(url)
                 return nil
@@ -356,6 +369,8 @@ extension GitMetadataService {
         repository: ResolvedGitRepository,
         safetyConfiguration: GitMetadataSafetyConfiguration = GitMetadataSafetyConfiguration(),
         fileStatusReader: any GitFileStatusReading = SystemGitFileStatusReader(),
+        filesystemLocalityReader: any GitFilesystemLocalityReading =
+            SystemGitFilesystemLocalityReader(),
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> GitRemoteConfigSnapshot {
         var lines: [String] = []
@@ -396,7 +411,8 @@ extension GitMetadataService {
         }
         var discoveryBudget = GitConfigTraversalBudget(
             fileStatusReader: fileStatusReader,
-            commonConfigURL: commonConfigURL
+            commonConfigURL: commonConfigURL,
+            filesystemLocalityReader: filesystemLocalityReader
         )
         var discoverySeenConfigPaths: Set<String> = []
         for configURL in rootConfigURLs {
@@ -424,7 +440,8 @@ extension GitMetadataService {
         let discoveredRemoteURLs = discoveryBudget.discoveredRemoteURLs
         var budget = GitConfigTraversalBudget(
             fileStatusReader: fileStatusReader,
-            commonConfigURL: commonConfigURL
+            commonConfigURL: commonConfigURL,
+            filesystemLocalityReader: filesystemLocalityReader
         )
         budget.discoveredRemoteURLs = discoveredRemoteURLs
         for configURL in rootConfigURLs {
