@@ -4,6 +4,13 @@ import Testing
 @testable import CmuxFoundation
 
 @Suite struct FileWatcherTests {
+    @Test func pathResolverReportsTheCurrentUsersHome() {
+        #expect(
+            FileWatchPathResolver(fileManager: .default).homeDirectoryPath
+                == FileManager.default.homeDirectoryForCurrentUser.path
+        )
+    }
+
     @Test func pathResolverCanRejectFilesystemRootAncestor() {
         let missingPath = "/cmux-file-watcher-\(UUID().uuidString)/future/file.txt"
         let resolver = FileWatchPathResolver(fileManager: .default)
