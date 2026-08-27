@@ -953,9 +953,11 @@ fn run_forward(args: &[String]) -> anyhow::Result<()> {
             LocalPortForward::bind(connected.runtime.multiplexer().clone(), route, listen).await?;
         println!("{}", forward.webview_url(&scheme)?);
         let mut finished = connected.runtime.subscribe_finished();
-        while !crate::shutdown_requested() && !*finished.borrow() {
-            if finished.changed().await.is_err() {
-                break;
+        if !crate::shutdown_requested() && !*finished.borrow() {
+            tokio::select! {
+                biased;
+                _ = crate::wait_for_shutdown_signal_async() => {}
+                _ = finished.changed() => {}
             }
         }
         forward.shutdown().await;

@@ -63,7 +63,7 @@ use std::ffi::OsString;
 use std::io::{self, BufRead, BufReader, IsTerminal, Read, Write};
 use std::net::Shutdown;
 #[cfg(unix)]
-use std::os::fd::AsRawFd;
+use std::os::fd::{AsRawFd, FromRawFd};
 #[cfg(unix)]
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
@@ -189,6 +189,44 @@ pub(crate) fn wait_for_shutdown_signal() {
             continue;
         }
         return;
+    }
+}
+
+#[cfg(unix)]
+pub(crate) async fn wait_for_shutdown_signal_async() {
+    if shutdown_requested() {
+        return;
+    }
+    let reader = SIGNAL_WAKE_READER.load(Ordering::Acquire);
+    if reader < 0 {
+        return;
+    }
+    let duplicate = unsafe { libc::dup(reader) };
+    if duplicate < 0 {
+        return;
+    }
+    let stream = unsafe { UnixStream::from_raw_fd(duplicate) };
+    if stream.set_nonblocking(true).is_err() {
+        return;
+    }
+    let stream = match tokio::net::UnixStream::from_std(stream) {
+        Ok(stream) => stream,
+        Err(_) => return,
+    };
+    loop {
+        if shutdown_requested() {
+            return;
+        }
+        let ready = match stream.readable().await {
+            Ok(ready) => ready,
+            Err(_) => return,
+        };
+        let mut byte = [0_u8; 1];
+        match ready.try_read(&mut byte) {
+            Ok(_) => return,
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => continue,
+            Err(_) => return,
+        }
     }
 }
 
