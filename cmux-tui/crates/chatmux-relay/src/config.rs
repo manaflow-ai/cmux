@@ -127,7 +127,13 @@ fn read_config(path: &Path) -> std::io::Result<Vec<u8>> {
     let mut options = OpenOptions::new();
     options.read(true);
     #[cfg(unix)]
-    options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
+    {
+        // A malicious replacement with a FIFO must not make startup wait for
+        // a writer before the descriptor can be validated as a regular file.
+        // O_NONBLOCK makes read-only FIFO opens return immediately; regular
+        // files continue to use normal blocking reads.
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK);
+    }
     let file = options.open(path)?;
     let metadata = file.metadata()?;
     if !metadata.is_file() {
@@ -345,6 +351,32 @@ mod tests {
         symlink(&target, &path).unwrap();
         assert!(load_config(&path).is_none());
         assert!(load_config_checked(&path).is_err());
+        std::fs::remove_dir_all(path.parent().unwrap()).ok();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn fifo_config_is_rejected_without_blocking() {
+        use std::ffi::CString;
+        use std::os::unix::ffi::OsStrExt as _;
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        let path = scratch("fifo/config.json");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let c_path = CString::new(path.as_os_str().as_bytes()).unwrap();
+        assert_eq!(unsafe { libc::mkfifo(c_path.as_ptr(), 0o600) }, 0);
+
+        let (sender, receiver) = mpsc::channel();
+        let worker_path = path.clone();
+        std::thread::spawn(move || {
+            sender.send(load_config_checked(&worker_path)).unwrap();
+        });
+        let result = receiver
+            .recv_timeout(Duration::from_secs(1))
+            .expect("FIFO config validation must not block");
+        assert!(result.is_err(), "FIFO must be rejected as non-regular");
+
         std::fs::remove_dir_all(path.parent().unwrap()).ok();
     }
 
