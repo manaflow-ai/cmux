@@ -72,7 +72,7 @@ Actions use the same stable IDs and execution path as keyboard commands, includi
 
 A top-level entry can also be a split group instead of a view: `{"id": "left", "split": "vertical", "panes": [ ... ]}` stacks its panes top to bottom in one column, `"split": "horizontal"` places them side by side, and groups nest up to three levels. Each pane is a view (same schema) or another split, with an optional `weight` (default `1`) setting its share. The divider between stacked panes drags with the mouse; from a rail's first or last row, `Up`/`Down` (or `k`/`j`) moves focus into the stacked neighbor. A split column keeps one width: the group's `width`, `max_width`, and `collapse_priority` default to the largest among its panes, and a width drag on any of its rails resizes the whole column.
 
-Flat one-level `tabs` and `agents` views accept `"scope": "all"`. An `all`-scoped view sweeps every workspace instead of following the highlighted one; agents then order chronologically by their last status change, newest first, keep `done` agents visible, and show their workspace name when the agent has no session title. This is how a status board like *workspaces on top, all agents below* is built:
+Flat one-level `tabs` and `agents` views accept `"scope": "all"`. An `all`-scoped view sweeps every workspace instead of following the highlighted one; agents hide `unknown` records, order chronologically by their last status change, newest first, keep `done` agents visible, and show their workspace name when the agent has no session title. This is how a status board like *workspaces on top, all agents below* is built:
 
 ```json
 "sidebar": {
