@@ -40,6 +40,16 @@ struct WorkspaceRequestRegistry {
     ignored: IgnoredResponses,
 }
 
+impl WorkspaceRequestRegistry {
+    fn retire(&mut self, id: RequestId) -> bool {
+        let was_pending = self.pending.remove(&id).is_some();
+        if was_pending {
+            self.ignored.insert(id);
+        }
+        was_pending
+    }
+}
+
 #[derive(Default)]
 struct IgnoredResponses {
     ids: HashSet<RequestId>,
@@ -314,7 +324,7 @@ impl PendingWorkspaceRequest {
 
     fn disarm(&mut self) {
         if self.armed {
-            request_registry(&self.requests).pending.remove(&self.id);
+            request_registry(&self.requests).retire(self.id);
             self.armed = false;
         }
     }
@@ -326,14 +336,7 @@ impl Drop for PendingWorkspaceRequest {
             return;
         }
         self.armed = false;
-        let was_pending = {
-            let mut requests = request_registry(&self.requests);
-            let was_pending = requests.pending.remove(&self.id).is_some();
-            if was_pending {
-                requests.ignored.insert(self.id);
-            }
-            was_pending
-        };
+        let was_pending = request_registry(&self.requests).retire(self.id);
         if !was_pending || !self.cancellable {
             return;
         }
@@ -453,8 +456,9 @@ fn cancellation_worker(
         mpsc::channel::<DroppedWorkspaceRequest>(DROPPED_CANCELLATION_QUEUE);
     tokio::spawn(async move {
         while let Some(dropped) = receiver.recv().await {
+            let cancel_id = RequestId::from_uuid(uuid::Uuid::new_v4());
             let request = RpcRequest {
-                id: RequestId::from_uuid(uuid::Uuid::new_v4()),
+                id: cancel_id,
                 timeout_ms: None,
                 request: WorkspaceRequest::CancelRequest { request: dropped.target },
             };
@@ -465,9 +469,9 @@ fn cancellation_worker(
                     continue;
                 }
             };
-            request_registry(&requests).ignored.insert(request.id);
+            request_registry(&requests).ignored.insert(cancel_id);
             if messages.send(&encoded).await.is_err() {
-                request_registry(&requests).ignored.remove(&request.id);
+                request_registry(&requests).ignored.remove(&cancel_id);
                 dropped.origin_shutdown.send_replace(true);
                 while let Ok(queued) = receiver.try_recv() {
                     queued.origin_shutdown.send_replace(true);
