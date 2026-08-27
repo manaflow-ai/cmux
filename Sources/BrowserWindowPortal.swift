@@ -1315,7 +1315,10 @@ final class WindowBrowserSlotView: NSView {
 
     func setPaneDropContext(_ context: BrowserPaneDropContext?) {
         paneDropTargetView.dropContext = context
-        isRightSidebarDockSlot = context.map { AppDelegate.shared?.dockForPane($0.paneId) != nil } ?? false
+        // The pane context is the authoritative ownership snapshot. Resolving
+        // through AppDelegate here raced Dock creation/split callbacks and
+        // permanently classified a Dock browser as a main-area slot.
+        isRightSidebarDockSlot = context?.isDockHosted == true
     }
 
     var currentPaneDropContext: BrowserPaneDropContext? {

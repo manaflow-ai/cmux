@@ -1576,7 +1576,8 @@ final class WindowBrowserHostViewTests: XCTestCase {
         dockSlot.setPaneDropContext(BrowserPaneDropContext(
             workspaceId: dock.workspaceId,
             panelId: UUID(),
-            paneId: dockPane
+            paneId: dockPane,
+            isDockHosted: true
         ))
         dock.ownedPaneIds = indexedPaneIds
 
@@ -1600,6 +1601,28 @@ final class WindowBrowserHostViewTests: XCTestCase {
                 dragPasteboard: pasteboard
             ),
             "A browser pane immediately left of the Dock must pass the Dock divider through to the SwiftUI resizer"
+        )
+
+        let mainContentPoint = NSPoint(x: slotWidth - 32, y: host.bounds.midY)
+        XCTAssertTrue(
+            host.performHitTest(
+                at: mainContentPoint,
+                currentEvent: event,
+                dragPasteboard: pasteboard
+            ) === mainContent,
+            "Only the shared browser/Dock divider band should pass through; browser content must remain interactive"
+        )
+    }
+
+    func testWindowPortalAnchorDoesNotStealPointerHitsFromSidebarDivider() {
+        let host = WebViewRepresentable.HostContainerView(
+            frame: NSRect(x: 0, y: 0, width: 240, height: 180)
+        )
+        host.prepareForWindowPortalHosting()
+
+        XCTAssertNil(
+            host.hitTest(NSPoint(x: 120, y: 90)),
+            "A retained SwiftUI browser anchor must defer pointer ownership while the window portal hosts its web view"
         )
     }
 
