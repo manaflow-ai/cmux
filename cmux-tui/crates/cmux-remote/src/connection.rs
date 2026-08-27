@@ -1302,6 +1302,127 @@ mod tests {
         );
     }
 
+    /// A transport whose endpoint accepts the connection and then goes silent:
+    /// sends are swallowed and no frame ever arrives, like a preview-gateway
+    /// edge that still accepts TCP for a deleted machine.
+    struct SilentEndpointLink {
+        closed: Arc<AtomicBool>,
+        close_signal: Arc<Notify>,
+    }
+
+    #[async_trait]
+    impl FrameLink for SilentEndpointLink {
+        fn description(&self) -> &str {
+            "silent-endpoint-link"
+        }
+
+        fn maximum_frame_bytes(&self) -> usize {
+            65_535
+        }
+
+        async fn send(&self, _frame: Bytes) -> Result<(), LinkError> {
+            if self.closed.load(Ordering::Acquire) {
+                return Err(LinkError::Closed);
+            }
+            Ok(())
+        }
+
+        async fn receive(&self) -> Result<Option<Bytes>, LinkError> {
+            loop {
+                let notified = self.close_signal.notified();
+                if self.closed.load(Ordering::Acquire) {
+                    return Err(LinkError::Closed);
+                }
+                notified.await;
+            }
+        }
+
+        async fn close(&self) -> Result<(), LinkError> {
+            self.closed.store(true, Ordering::Release);
+            self.close_signal.notify_waiters();
+            Ok(())
+        }
+    }
+
+    struct SilentEndpointGroup {
+        link_closed: Arc<AtomicBool>,
+        close_signal: Arc<Notify>,
+        evidence: CarrierEvidence,
+    }
+
+    #[async_trait]
+    impl LinkGroup for SilentEndpointGroup {
+        fn description(&self) -> &str {
+            "silent-endpoint-group"
+        }
+
+        fn capabilities(&self) -> ProviderCapabilities {
+            ProviderCapabilities::STREAM
+        }
+
+        fn evidence(&self) -> &CarrierEvidence {
+            &self.evidence
+        }
+
+        async fn open(&self, _request: LinkRequest) -> Result<Box<dyn FrameLink>, ProviderError> {
+            Ok(Box::new(SilentEndpointLink {
+                closed: self.link_closed.clone(),
+                close_signal: self.close_signal.clone(),
+            }))
+        }
+
+        async fn close(&self) -> Result<(), ProviderError> {
+            self.link_closed.store(true, Ordering::Release);
+            self.close_signal.notify_waiters();
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn initial_connect_fails_fast_when_the_endpoint_accepts_but_never_handshakes() {
+        let link_closed = Arc::new(AtomicBool::new(false));
+        let group = Arc::new(SilentEndpointGroup {
+            link_closed: link_closed.clone(),
+            close_signal: Arc::new(Notify::new()),
+            evidence: CarrierEvidence::LocalPeer { uid: None, pid: None },
+        });
+        let connect = ClientConnection::connect(
+            group,
+            ClientConnectionConfig {
+                identity: StaticIdentity::generate().unwrap(),
+                expected_daemon: None,
+                auth: ClientAuthMode::Carrier,
+                device_name: "silent-endpoint-client".into(),
+                session: SessionId([77; 16]),
+                lane_policy: LanePolicy::Single,
+                limits: SessionLimits::default(),
+                reconnect: ReconnectPolicy {
+                    attempt_timeout: Duration::from_millis(200),
+                    ..ReconnectPolicy::default()
+                },
+            },
+        );
+        // The outer timeout converts the historical symptom (the dial holds the
+        // dead endpoint's transport open forever) into a deterministic failure.
+        let result = tokio::time::timeout(Duration::from_secs(5), connect)
+            .await
+            .expect("connect held a silent endpoint open past its handshake deadline");
+        let error =
+            result.expect_err("connect succeeded against an endpoint that never handshakes");
+        assert!(
+            error.to_string().contains("handshake timed out"),
+            "handshake deadline produced the wrong error: {error}"
+        );
+        assert!(
+            !error.is_retryable_carrier_failure(),
+            "a silent endpoint must be a terminal failure so the client exits: {error}"
+        );
+        assert!(
+            link_closed.load(Ordering::Acquire),
+            "handshake deadline left the physical link open"
+        );
+    }
+
     struct BlockingReplayClientLink {
         inner: FaultLink,
         received_frames: AtomicUsize,
