@@ -167,7 +167,12 @@ impl OutboundSink {
     }
 
     pub(crate) async fn critical_text(&self, text: String) -> Result<(), ()> {
-        self.critical_text_with_token(text, None).await
+        // Preserve the original fire-and-return semantics for callers that
+        // run on the relay loop itself. Waiting for a writer acknowledgement
+        // here would deadlock that loop because it is also the only consumer
+        // of the outbound channel. Token-aware producers opt into the ack
+        // path explicitly.
+        self.critical_text_with_token_ack(text, None, None).await
     }
 
     pub(crate) async fn critical_text_with_token(
