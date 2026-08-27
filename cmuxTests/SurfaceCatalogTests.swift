@@ -67,6 +67,7 @@ struct SurfaceCatalogTests {
         var info: SurfaceMachineInfo
         var materialized: [(SurfaceResourceID, SurfaceDestination)] = []
         var ended: [SurfaceProjection] = []
+        var discarded: [SurfaceProjection] = []
         var nextPanel = UUID()
         var materializeGate: MaterializeGate?
 
@@ -90,6 +91,8 @@ struct SurfaceCatalogTests {
         }
 
         func projectionDidEnd(_ projection: SurfaceProjection) { ended.append(projection) }
+
+        func discardMaterialization(_ projection: SurfaceProjection) { discarded.append(projection) }
     }
 
     private func terminal(_ machine: SurfaceMachineID, _ key: String, title: String = "shell") -> SurfaceResource {
@@ -163,6 +166,30 @@ struct SurfaceCatalogTests {
         #expect(secondResult.reused)
         #expect(firstResult.projection == secondResult.projection)
         #expect(catalog.projections(of: term.id).count == 1)
+    }
+
+    @Test func `An adopted projection wins a materialization race`() async throws {
+        let catalog = SurfaceCatalog()
+        let provider = FakeProvider(machine: .cloud("vivid-newt"))
+        let gate = MaterializeGate()
+        provider.materializeGate = gate
+        catalog.register(provider)
+        let term = terminal(.cloud("vivid-newt"), "term_1")
+        catalog.replaceResources([term], on: .cloud("vivid-newt"))
+        let destination = SurfaceDestination.workspace(id: UUID(), placement: .split)
+
+        let project = Task { try await catalog.project(term.id, into: destination) }
+        await gate.waitUntilEntered()
+        let adopted = SurfaceProjection(resource: term.id, workspaceID: UUID(), panelID: UUID())
+        catalog.record(adopted)
+        gate.release()
+
+        let result = try await project.value
+        #expect(result.reused)
+        #expect(result.projection == adopted)
+        #expect(provider.discarded.count == 1)
+        #expect(provider.discarded.first?.panelID != adopted.panelID)
+        #expect(catalog.projections(of: term.id) == [adopted])
     }
 
     @Test func `Cancelling the last project caller cancels materialization`() async throws {
