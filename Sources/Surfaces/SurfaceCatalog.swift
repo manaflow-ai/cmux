@@ -42,7 +42,12 @@ final class SurfaceCatalog {
     private var providers: [SurfaceMachineID: any SurfaceProvider] = [:]
     /// Materializations are asynchronous, so actor reentrancy can otherwise let two callers
     /// pass the reuse check before either provider has returned a projection.
-    private var inFlightProjects: [SurfaceResourceID: Task<SurfaceProjection, Error>] = [:]
+    private struct InFlightProject {
+        let token: UUID
+        let task: Task<SurfaceProjection, Error>
+    }
+
+    private var inFlightProjects: [SurfaceResourceID: InFlightProject] = [:]
     /// Panels whose projection was recorded from a restored session before the provider
     /// re-synced; resolved into `projections` once the resource shows up.
     private var pendingRestoredProjections: [SurfaceProjectionRecord: UUID] = [:]
@@ -61,6 +66,11 @@ final class SurfaceCatalog {
     }
 
     func unregister(machine: SurfaceMachineID) {
+        let inFlightIDs = inFlightProjects.keys.filter { $0.machine == machine }
+        for id in inFlightIDs {
+            inFlightProjects[id]?.task.cancel()
+            inFlightProjects[id] = nil
+        }
         providers[machine] = nil
         machines[machine] = nil
         let gone = resources.keys.filter { $0.machine == machine }
@@ -126,32 +136,36 @@ final class SurfaceCatalog {
         }
         guard let provider = providers[id.machine] else { throw SurfaceCatalogError.noProvider(id.machine) }
         if reuseExisting, let inFlight = inFlightProjects[id] {
-            let projection = try await inFlight.value
+            let projection = try await inFlight.task.value
             if focus { focusProjection?(projection) }
             return (projection, true)
         }
 
         if reuseExisting {
+            let token = UUID()
             let materialization = Task { @MainActor [weak self] in
+                defer { self?.finishInFlightProject(id, token: token) }
                 guard let self else { throw SurfaceCatalogError.unknownResource(id) }
                 let projection = try await provider.materialize(resource, at: destination, focus: focus)
+                guard !Task.isCancelled, self.resources[id] != nil else {
+                    throw SurfaceCatalogError.unknownResource(id)
+                }
                 self.record(projection)
                 return projection
             }
-            inFlightProjects[id] = materialization
-            do {
-                let projection = try await materialization.value
-                inFlightProjects[id] = nil
-                return (projection, false)
-            } catch {
-                inFlightProjects[id] = nil
-                throw error
-            }
+            inFlightProjects[id] = InFlightProject(token: token, task: materialization)
+            let projection = try await materialization.value
+            return (projection, false)
         }
 
         let projection = try await provider.materialize(resource, at: destination, focus: focus)
         record(projection)
         return (projection, false)
+    }
+
+    private func finishInFlightProject(_ id: SurfaceResourceID, token: UUID) {
+        guard inFlightProjects[id]?.token == token else { return }
+        inFlightProjects[id] = nil
     }
 
     /// Record a pane that shows a resource (materialized by a provider, or adopted from an

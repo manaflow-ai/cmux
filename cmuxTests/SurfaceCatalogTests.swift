@@ -136,6 +136,29 @@ final class SurfaceCatalogTests: XCTestCase {
         XCTAssertEqual(catalog.projections(of: term.id).count, 1)
     }
 
+    func testUnregisteringACancelsInFlightMaterialization() async throws {
+        let catalog = SurfaceCatalog()
+        let provider = FakeProvider(machine: .cloud("vivid-newt"))
+        let gate = MaterializeGate()
+        provider.materializeGate = gate
+        catalog.register(provider)
+        let term = terminal(.cloud("vivid-newt"), "term_1")
+        catalog.replaceResources([term], on: .cloud("vivid-newt"))
+
+        let project = Task { try await catalog.project(term.id, into: .workspace(id: UUID(), placement: .split)) }
+        await gate.waitUntilEntered()
+        catalog.unregister(machine: .cloud("vivid-newt"))
+        gate.release()
+
+        do {
+            _ = try await project.value
+            XCTFail("an unregistered machine must not record a completed projection")
+        } catch let error as SurfaceCatalogError {
+            XCTAssertEqual(error, .unknownResource(term.id))
+        }
+        XCTAssertTrue(catalog.projections.isEmpty)
+    }
+
     func testEndingAProjectionKeepsTheRemoteResourceAndTellsTheProvider() async throws {
         let catalog = SurfaceCatalog()
         let provider = FakeProvider(machine: .cloud("m"))
