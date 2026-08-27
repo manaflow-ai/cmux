@@ -11271,13 +11271,13 @@ struct VerticalTabsSidebar: View, Equatable {
 
     private func activateSidebarInteractions() {
         guard !pointerInteractionMonitor.isActive else { return }
-        pointerInteractionMonitor.start { workspaceId in
+        pointerInteractionMonitor.start(onMiddleClickWorkspace: { workspaceId in
             guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
 #if DEBUG
             cmuxDebugLog("sidebar.close workspace=\(workspaceId.uuidString.prefix(5)) method=middleClick")
 #endif
             tabManager.closeWorkspaceWithConfirmation(workspace)
-        }
+        }, onOptionHoverWorkspace: focusWorkspaceRowOnOptionHover)
         if showModifierHoldHints {
             modifierKeyMonitor.setHostWindow(observedWindow)
             modifierKeyMonitor.start()
@@ -11840,7 +11840,8 @@ struct VerticalTabsSidebar: View, Equatable {
             selectedScrollTargetWorkspaceId: selectedScrollTargetWorkspaceId,
             isPresented: isPresented,
             unreadSource: sidebarUnread,
-            onDeferredClickAwaitingApply: { appKitTableApplyRequestToken &+= 1 }
+            onDeferredClickAwaitingApply: { appKitTableApplyRequestToken &+= 1 },
+            onOptionHoverWorkspace: focusWorkspaceRowOnOptionHover
         )
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .mask(
@@ -14253,6 +14254,17 @@ struct VerticalTabsSidebar: View, Equatable {
                 surfaceId: tabManager.focusedSurfaceId(for: workspace.id)
             )
         }
+        selection = .tabs
+    }
+
+    private func focusWorkspaceRowOnOptionHover(_ workspaceId: UUID) {
+        guard tabManager.selectedTabId != workspaceId,
+              let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
+#if DEBUG
+        cmuxDebugLog("sidebar.select workspace=\(workspaceId.uuidString.prefix(5)) source=optionHover")
+#endif
+        lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == workspaceId }
+        tabManager.selectTab(workspace)
         selection = .tabs
     }
 

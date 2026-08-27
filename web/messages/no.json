@@ -874,6 +874,7 @@
       "socketAPI": "Socket-API",
       "environmentVariable": "Miljøvariabel",
       "workspaceShortcuts": "Snarveier: {new} (ny), {jump} (hopp), {close} (lukk), {prevNext} (forrige/neste)",
+      "workspaceOptionHover": "Hold nede Option mens du flytter pekeren over arbeidsområderader for å fokusere dem uten å klikke.",
       "paneTitle": "Panel",
       "paneDesc": "Et delt område innenfor et arbeidsområde. Opprettet ved å dele med {right} (høyre) eller {down} (ned). Naviger mellom paneler med {nav} + piltaster.",
       "paneNote": "Hvert panel kan inneholde flere overflater (faner innenfor panelet).",

@@ -1716,6 +1716,7 @@
       "socketAPI": "Socket API",
       "environmentVariable": "Environment variable",
       "workspaceShortcuts": "Shortcuts: {new} (new), {jump} (jump), {close} (close), {prevNext} (prev/next)",
+      "workspaceOptionHover": "Hold Option while moving the pointer over workspace rows to focus them without clicking.",
       "paneTitle": "Pane",
       "paneDesc": "A split region within a workspace. Created by splitting with {right} (right) or {down} (down). Navigate between panes with {nav} + arrow keys.",
       "paneNote": "Each pane can hold multiple surfaces (tabs within the pane).",

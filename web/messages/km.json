@@ -874,6 +874,7 @@
       "socketAPI": "Socket API",
       "environmentVariable": "អថេរបរិស្ថាន",
       "workspaceShortcuts": "ផ្លូវកាត់: {new} (ថ្មី), {jump} (លោត), {close} (បិទ), {prevNext} (មុន/បន្ទាប់)",
+      "workspaceOptionHover": "សង្កត់គ្រាប់ចុច Option ខណៈពេលផ្លាស់ទីទ្រនិចលើជួរដេក workspace ដើម្បីផ្តោតលើវាដោយមិនចាំបាច់ចុច។",
       "paneTitle": "បន្ទះ",
       "paneDesc": "តំបន់បំបែកក្នុង workspace។ បង្កើតដោយបំបែកជាមួយ {right} (ស្ដាំ) ឬ {down} (ក្រោម)។ រុករករវាងបន្ទះជាមួយ {nav} + គ្រាប់ចុចទិសដៅ។",
       "paneNote": "បន្ទះនីមួយៗអាចមាន surface ជាច្រើន (ផ្ទាំងក្នុងបន្ទះ)។",

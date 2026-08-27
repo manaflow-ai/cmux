@@ -874,6 +874,7 @@
       "socketAPI": "Socket-API",
       "environmentVariable": "Umgebungsvariable",
       "workspaceShortcuts": "Kürzel: {new} (Neu), {jump} (Springen), {close} (Schließen), {prevNext} (Vor/Zurück)",
+      "workspaceOptionHover": "Halte die Wahltaste gedrückt, während du den Zeiger über Arbeitsbereichszeilen bewegst, um sie ohne Klicken zu fokussieren.",
       "paneTitle": "Bereich",
       "paneDesc": "Ein geteilter Bereich innerhalb eines Workspace. Erstellt durch Teilen mit {right} (rechts) oder {down} (unten). Navigieren Sie zwischen Bereichen mit {nav} + Pfeiltasten.",
       "paneNote": "Jeder Bereich kann mehrere Oberflächen (Tabs innerhalb des Bereichs) enthalten.",

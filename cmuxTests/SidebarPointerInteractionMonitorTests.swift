@@ -207,6 +207,57 @@ import Testing
         #expect(monitor.middleClickWorkspaceId(at: CGPoint(x: 100, y: 54)) == nil)
     }
 
+    @Test func optionHoverDoesNotResolveGroupHeaderAnchorWorkspace() {
+        let monitor = SidebarPointerInteractionMonitor()
+        let groupId = UUID()
+        let anchorWorkspaceId = UUID()
+        var focusedWorkspaceIds: [UUID] = []
+        monitor.updateFrame(
+            CGRect(x: 20, y: 40, width: 180, height: 28),
+            for: .group(groupId),
+            workspaceId: anchorWorkspaceId
+        )
+        monitor.start(
+            onMiddleClickWorkspace: { _ in },
+            onOptionHoverWorkspace: { focusedWorkspaceIds.append($0) }
+        )
+        defer { monitor.stop() }
+
+        monitor.recordPointerLocation(CGPoint(x: 100, y: 54), modifiers: [.option])
+
+        #expect(monitor.hoveredRowId == .group(groupId))
+        #expect(focusedWorkspaceIds.isEmpty)
+    }
+
+    @Test func optionHoverFocusesEachNewWorkspaceRowWithoutTreatingHoverAsAClick() {
+        let monitor = SidebarPointerInteractionMonitor()
+        let firstWorkspaceId = UUID()
+        let secondWorkspaceId = UUID()
+        var focusedWorkspaceIds: [UUID] = []
+        monitor.updateFrame(
+            CGRect(x: 0, y: 0, width: 200, height: 30),
+            for: .workspace(firstWorkspaceId),
+            workspaceId: firstWorkspaceId
+        )
+        monitor.updateFrame(
+            CGRect(x: 0, y: 32, width: 200, height: 30),
+            for: .workspace(secondWorkspaceId),
+            workspaceId: secondWorkspaceId
+        )
+        monitor.start(
+            onMiddleClickWorkspace: { _ in },
+            onOptionHoverWorkspace: { focusedWorkspaceIds.append($0) }
+        )
+        defer { monitor.stop() }
+
+        monitor.recordPointerLocation(CGPoint(x: 100, y: 15))
+        monitor.recordPointerLocation(CGPoint(x: 100, y: 47), modifiers: [.option])
+        monitor.recordPointerLocation(CGPoint(x: 100, y: 48), modifiers: [.option])
+        monitor.recordPointerLocation(CGPoint(x: 100, y: 15), modifiers: [.shift])
+
+        #expect(focusedWorkspaceIds == [secondWorkspaceId])
+    }
+
     @Test func menuTrackingReconciliationIgnoresSubmenuEndNotifications() {
         let rootMenu = NSMenu()
         let submenu = NSMenu()

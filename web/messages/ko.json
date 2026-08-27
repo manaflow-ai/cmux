@@ -874,6 +874,7 @@
       "socketAPI": "소켓 API",
       "environmentVariable": "환경 변수",
       "workspaceShortcuts": "단축키: {new} (새로 만들기), {jump} (이동), {close} (닫기), {prevNext} (이전/다음)",
+      "workspaceOptionHover": "Option 키를 누른 채 작업 공간 행 위로 포인터를 이동하면 클릭하지 않고 해당 작업 공간에 포커스를 맞출 수 있습니다.",
       "paneTitle": "패널",
       "paneDesc": "워크스페이스 내의 분할 영역. {right} (오른쪽) 또는 {down} (아래)로 분할하여 생성합니다. {nav} + 방향키로 패널 간 이동합니다.",
       "paneNote": "각 패널은 여러 서피스(패널 내의 탭)를 포함할 수 있습니다.",

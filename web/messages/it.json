@@ -874,6 +874,7 @@
       "socketAPI": "API socket",
       "environmentVariable": "Variabile d'ambiente",
       "workspaceShortcuts": "Scorciatoie: {new} (nuovo), {jump} (vai a), {close} (chiudi), {prevNext} (precedente/successivo)",
+      "workspaceOptionHover": "Tieni premuto Opzione mentre sposti il puntatore sulle righe degli spazi di lavoro per attivarli senza fare clic.",
       "paneTitle": "Pannello",
       "paneDesc": "Una regione divisa all'interno di un workspace. Creata dividendo con {right} (destra) o {down} (basso). Naviga tra i pannelli con {nav} + tasti freccia.",
       "paneNote": "Ogni pannello può contenere più superfici (tab all'interno del pannello).",

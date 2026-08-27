@@ -614,6 +614,43 @@ struct SidebarWorkspaceTableTests {
         #expect(resolvedId() == "c")
     }
 
+    @Test
+    func optionHoverFocusesOnlyWhenThePointerEntersANewTableRow() {
+        let resolver = SidebarWorkspaceTableHoverResolver()
+        let first = SidebarWorkspaceRenderItemID.workspace(UUID())
+        let second = SidebarWorkspaceRenderItemID.workspace(UUID())
+        let groupHeader = SidebarWorkspaceRenderItemID.group(UUID())
+
+        #expect(resolver.optionHoverEnteredRow(
+            1,
+            rowId: second,
+            previousRowId: first,
+            isGroupHeader: false,
+            modifiers: [.option]
+        ) == 1)
+        #expect(resolver.optionHoverEnteredRow(
+            1,
+            rowId: second,
+            previousRowId: second,
+            isGroupHeader: false,
+            modifiers: [.option]
+        ) == nil)
+        #expect(resolver.optionHoverEnteredRow(
+            1,
+            rowId: second,
+            previousRowId: first,
+            isGroupHeader: false,
+            modifiers: []
+        ) == nil)
+        #expect(resolver.optionHoverEnteredRow(
+            2,
+            rowId: groupHeader,
+            previousRowId: second,
+            isGroupHeader: true,
+            modifiers: [.option]
+        ) == nil)
+    }
+
     @MainActor
     private func makeRowConfiguration(
         workspaceId: UUID = UUID(),

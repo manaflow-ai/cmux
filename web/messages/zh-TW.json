@@ -874,6 +874,7 @@
       "socketAPI": "Socket API",
       "environmentVariable": "環境變數",
       "workspaceShortcuts": "快捷鍵：{new}（新增）、{jump}（跳轉）、{close}（關閉）、{prevNext}（上一個/下一個）",
+      "workspaceOptionHover": "按住 Option 鍵並將指標移到工作區列上，即可無需點按便聚焦對應的工作區。",
       "paneTitle": "窗格",
       "paneDesc": "工作區內的分割區域。使用 {right}（右）或 {down}（下）來分割建立。使用 {nav} + 方向鍵在窗格之間導覽。",
       "paneNote": "每個窗格可以包含多個 surface（窗格內的分頁）。",

@@ -874,6 +874,7 @@
       "socketAPI": "Socket API",
       "environmentVariable": "ตัวแปรสภาพแวดล้อม",
       "workspaceShortcuts": "คีย์ลัด: {new} (ใหม่), {jump} (กระโดด), {close} (ปิด), {prevNext} (ก่อนหน้า/ถัดไป)",
+      "workspaceOptionHover": "กด Option ค้างไว้ขณะเลื่อนตัวชี้ผ่านแถวพื้นที่ทำงานเพื่อโฟกัสโดยไม่ต้องคลิก",
       "paneTitle": "พาเนล",
       "paneDesc": "พื้นที่แยกภายใน workspace สร้างโดยแยกด้วย {right} (ขวา) หรือ {down} (ล่าง) นำทางระหว่างพาเนลด้วย {nav} + ปุ่มลูกศร",
       "paneNote": "แต่ละพาเนลสามารถมี surface หลายอัน (แท็บภายในพาเนล)",

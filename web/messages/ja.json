@@ -1637,6 +1637,7 @@
       "socketAPI": "Socket API",
       "environmentVariable": "環境変数",
       "workspaceShortcuts": "ショートカット：{new}（新規）、{jump}（ジャンプ）、{close}（閉じる）、{prevNext}（前後）",
+      "workspaceOptionHover": "Optionキーを押しながらワークスペースの行にポインタを移動すると、クリックせずにそのワークスペースへフォーカスできます。",
       "paneTitle": "ペイン",
       "paneDesc": "ワークスペース内の分割領域です。{right}（右）または{down}（下）で分割して作成します。{nav} + 矢印キーでペイン間を移動します。",
       "paneNote": "各ペインは複数のサーフェス（ペイン内のタブ）を持つことができます。",

@@ -80,6 +80,7 @@ export default function ConceptsPage() {
           })}
         </strong>
       </p>
+      <p>{t("workspaceOptionHover")}</p>
 
       <DocsHeading level={3} id="pane-title">{t("paneTitle")}</DocsHeading>
       <p>

@@ -77,13 +77,18 @@ final class SidebarPointerInteractionMonitor {
     @ObservationIgnored private var middleClickMonitor: Any?
     @ObservationIgnored private var menuEndObserver: NSObjectProtocol?
     @ObservationIgnored private var onMiddleClickWorkspace: ((UUID) -> Void)?
+    @ObservationIgnored private var onOptionHoverWorkspace: ((UUID) -> Void)?
     @ObservationIgnored private var geometryReconciliationTask: Task<Void, Never>?
     @ObservationIgnored private var geometryReconciliationGeneration: UInt = 0
 
     var isActive: Bool { pointerEventMonitor != nil }
 
-    func start(onMiddleClickWorkspace: @escaping (UUID) -> Void) {
+    func start(
+        onMiddleClickWorkspace: @escaping (UUID) -> Void,
+        onOptionHoverWorkspace: @escaping (UUID) -> Void = { _ in }
+    ) {
         self.onMiddleClickWorkspace = onMiddleClickWorkspace
+        self.onOptionHoverWorkspace = onOptionHoverWorkspace
 
         if pointerEventMonitor == nil {
             pointerEventMonitor = NSEvent.addLocalMonitorForEvents(
@@ -128,6 +133,7 @@ final class SidebarPointerInteractionMonitor {
             self.menuEndObserver = nil
         }
         onMiddleClickWorkspace = nil
+        onOptionHoverWorkspace = nil
         if let pointerEventMonitor {
             NSEvent.removeMonitor(pointerEventMonitor)
             self.pointerEventMonitor = nil
@@ -196,9 +202,18 @@ final class SidebarPointerInteractionMonitor {
     }
 
     /// Test seam and event-input primitive in the monitor's SwiftUI coordinate space.
-    func recordPointerLocation(_ point: CGPoint) {
+    func recordPointerLocation(
+        _ point: CGPoint,
+        modifiers: NSEvent.ModifierFlags = []
+    ) {
+        let previousRowId = hoveredRowId
         lastPointerLocation = point
         reconcileHoveredRow()
+        guard modifiers.contains(.option), hoveredRowId != previousRowId,
+              let hoveredRowId,
+              let workspaceId = workspaceIdsByRowId[hoveredRowId],
+              hoveredRowId == .workspace(workspaceId) else { return }
+        onOptionHoverWorkspace?(workspaceId)
     }
 
     func rowId(at point: CGPoint) -> SidebarWorkspaceRenderItemID? {
@@ -237,10 +252,13 @@ final class SidebarPointerInteractionMonitor {
             setHoveredRowId(nil)
             return
         }
-        recordPointerLocation(Self.swiftUIPoint(
-            fromAppKitPoint: appKitPoint,
-            viewportBounds: hostView.bounds
-        ))
+        recordPointerLocation(
+            Self.swiftUIPoint(
+                fromAppKitPoint: appKitPoint,
+                viewportBounds: hostView.bounds
+            ),
+            modifiers: event.modifierFlags
+        )
     }
 
     private func reconcilePointerFromHostWindow() {
