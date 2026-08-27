@@ -100,10 +100,17 @@ extension MobileShellComposite {
         terminalReplayBarrierAckStreamTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayBarrierDroppedOutputSurfaceIDs.remove(surfaceID)
         terminalReplayOverloadReplacementSurfaceIDs.remove(surfaceID)
-        if carryOverloadReplacement {
-            terminalReplayOverloadReplacementSurfaceIDs.insert(surfaceID)
-        }
         terminalReplayBarrierDroppedOutputCountsBySurfaceID.removeValue(forKey: surfaceID)
+        if carryOverloadReplacement {
+            // The overload marker represents output discarded before this
+            // barrier generation, not merely a property of the old token.
+            // Preserve a nonzero owed-output floor alongside it so a
+            // compatibility fallback can never be mistaken for an
+            // authoritative full replacement on a follow-up barrier.
+            terminalReplayOverloadReplacementSurfaceIDs.insert(surfaceID)
+            terminalReplayBarrierDroppedOutputSurfaceIDs.insert(surfaceID)
+            terminalReplayBarrierDroppedOutputCountsBySurfaceID[surfaceID] = 1
+        }
         terminalReplayBarrierAckCoveredDroppedOutputCountsBySurfaceID.removeValue(forKey: surfaceID)
         terminalViewportReplayBarrierPendingAckTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalReplayFailureRetryCountsBySurfaceID.removeValue(forKey: surfaceID)

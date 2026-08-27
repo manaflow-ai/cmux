@@ -50,11 +50,14 @@ public struct MobileTerminalReplayResponse: Decodable, Sendable {
         sequence = try container.decodeIfPresent(UInt64.self, forKey: .sequence)
         columns = try container.decodeIfPresent(Int.self, forKey: .columns)
         rows = try container.decodeIfPresent(Int.self, forKey: .rows)
-        activeScreen = try container.decodeIfPresent(
+        // These fields are advisory compatibility metadata. A newer host may
+        // add an enum case before this client learns it; preserve otherwise
+        // valid byte/snapshot payloads and treat only that field as unknown.
+        activeScreen = try? container.decode(
             MobileTerminalRenderGridFrame.Screen.self,
             forKey: .activeScreen
         )
-        anchor = try container.decodeIfPresent(
+        anchor = try? container.decode(
             MobileTerminalRenderGridFrame.Anchor.self,
             forKey: .anchor
         )

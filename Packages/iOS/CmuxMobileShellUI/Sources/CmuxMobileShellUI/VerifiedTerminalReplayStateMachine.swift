@@ -256,16 +256,20 @@ final class VerifiedTerminalReplayStateMachine {
         return nextTransactionID
     }
 
-    /// Discards the verified presentation baseline after an unverified
+    /// Invalidates the active verified transaction after an unverified
     /// compatibility replacement and requires a fresh full frame before any
     /// later render-grid delta can become visible.
     ///
-    /// Compatibility bytes may repaint the visible terminal without preserving
-    /// the producer's render epoch, revision floors, or cell-grid snapshot. A
-    /// subsequent delta therefore cannot safely apply to the old baseline.
+    /// The surface clears its frozen pixels separately, while this machine keeps
+    /// the logical snapshot, producer epoch, revision floors, and viewport
+    /// negotiation as ordering fences. That prevents a delayed pre-fallback
+    /// frame—or a frame captured at a stale host grid—from becoming an
+    /// unqualified post-fallback baseline. Recovery still rejects deltas until
+    /// a full frame verifies against the live surface.
     func resetForCompatibilityFallback() {
+        guard phase != .invalidated else { return }
         nextTransactionID &+= 1
-        clearPresentationState()
+        activeTransaction = nil
         phase = .recovering
     }
 
