@@ -152,6 +152,7 @@ struct DockPanelView: View {
 struct DockEmptyPaneView: View {
     let onNewTerminal: () -> Void
     let onNewBrowser: () -> Void
+    let browserAvailable: Bool
 
     var body: some View {
         VStack(spacing: 12) {
@@ -168,7 +169,7 @@ struct DockEmptyPaneView: View {
                         systemImage: "terminal.fill"
                     )
                 }
-                if BrowserAvailabilitySettings.isEnabled() {
+                if browserAvailable {
                     Button(action: onNewBrowser) {
                         Label(
                             String(localized: "dock.action.newBrowser", defaultValue: "New Browser"),

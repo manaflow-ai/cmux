@@ -67,6 +67,7 @@ struct cmuxApp: App {
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
     @AppStorage(BrowserToolbarAccessorySpacingDebugSettings.key) private var browserToolbarAccessorySpacingRaw = BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing
     @State private var browserFocusModeMenuRevision = 0
+    @State private var browserAvailabilityRevision = 0
     @StateObject var focusHistoryMenuInvalidator: FocusHistoryMenuInvalidator
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     private var browserToolbarAccessorySpacing: Int {
@@ -411,6 +412,12 @@ struct cmuxApp: App {
                 .onReceive(NotificationCenter.default.publisher(for: .browserFocusModeStateDidChange)) { _ in
                     browserFocusModeMenuRevision &+= 1
                 }
+                .onReceive(NotificationCenter.default.publisher(for: BrowserAvailabilitySettings.didChangeNotification)) { _ in
+                    browserAvailabilityRevision &+= 1
+                }
+                .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
+                    browserAvailabilityRevision &+= 1
+                }
         }
         .windowStyle(.hiddenTitleBar)
         .commands {
@@ -749,7 +756,7 @@ struct cmuxApp: App {
                     }
                 }
 
-                if BrowserAvailabilitySettings.isEnabled() {
+                if browserAvailabilityEnabled {
                     splitCommandButton(title: String(localized: "menu.file.newBrowserWorkspace", defaultValue: "New Browser Workspace"), shortcut: menuShortcut(for: .newBrowserWorkspace)) {
                         if let appDelegate = AppDelegate.shared {
                             appDelegate.performNewBrowserWorkspaceAction(
@@ -957,7 +964,7 @@ struct cmuxApp: App {
             }
             Divider()
             surfaceNavigationCommandButtons()
-            if BrowserAvailabilitySettings.isEnabled() {
+            if browserAvailabilityEnabled {
                 splitCommandButton(title: String(localized: "menu.view.back", defaultValue: "Back"), shortcut: menuShortcut(for: .browserBack)) {
                     _ = performFocusedBrowserAction(.back)
                 }
@@ -1074,7 +1081,7 @@ struct cmuxApp: App {
                 performSplitFromMenu(direction: .down)
             }
 
-            if BrowserAvailabilitySettings.isEnabled() {
+            if browserAvailabilityEnabled {
                 splitCommandButton(title: String(localized: "menu.view.splitBrowserRight", defaultValue: "Split Browser Right"), shortcut: menuShortcut(for: .splitBrowserRight)) {
                     performBrowserSplitFromMenu(direction: .right)
                 }
@@ -1192,6 +1199,11 @@ struct cmuxApp: App {
                 : String(localized: "menu.view.enterBrowserFocusMode", defaultValue: "Enter Browser Focus Mode"),
             canToggle: panel?.canToggleBrowserFocusMode == true
         )
+    }
+
+    private var browserAvailabilityEnabled: Bool {
+        let _ = browserAvailabilityRevision
+        return BrowserAvailabilitySettings.isEnabled()
     }
 
     private var activeBrowserActionTarget: BrowserActionTarget? {
