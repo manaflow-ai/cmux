@@ -16148,6 +16148,7 @@ impl App {
                 Ok(RenderAction::Draw)
             }
             TerminalInput::FocusLost => {
+                self.prefix_armed = false;
                 let action = if self.cancel_pointer_interaction() {
                     RenderAction::Draw
                 } else {
@@ -25278,6 +25279,17 @@ mod tests {
         assert!(!app.prefix_armed);
         assert!(!app.quit);
         assert!(app.pty_input.shutdown(Duration::from_secs(1)));
+    }
+
+    #[test]
+    fn focus_loss_clears_a_pending_prefix() {
+        let mux = Mux::new("focus-loss-prefix-reset", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.prefix_armed = true;
+
+        app.handle(AppEvent::Input(Event::FocusLost)).unwrap();
+
+        assert!(!app.prefix_armed);
     }
 
     #[test]
