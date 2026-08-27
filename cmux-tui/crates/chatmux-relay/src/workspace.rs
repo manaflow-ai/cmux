@@ -1463,7 +1463,7 @@ fn git_refusal(context: &str, stderr: &[u8]) -> Refusal {
 
 const GIT_DIFF_PREFIX_BYTES: usize = 10;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum BoundedGitDiffLine {
     Complete(String),
     TooLong { prefix: [u8; GIT_DIFF_PREFIX_BYTES], length: u8 },
