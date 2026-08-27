@@ -5761,6 +5761,26 @@ impl PointerRouteIdentity {
             _ => None,
         }
     }
+
+    /// A press that opens the cmux-owned context menu never enters the pane's
+    /// application, so the surface's content generation and encoder semantics
+    /// are not part of that press's route identity. Only the geometry (which
+    /// pane, which region) decides where the menu opens.
+    fn normalized_for_cmux_menu(mut self) -> Self {
+        if let Self::Pane { region, .. } = &mut self {
+            match region {
+                PanePointerRegion::TerminalCell { semantics, content_generation, .. } => {
+                    *semantics = None;
+                    *content_generation = None;
+                }
+                PanePointerRegion::BrowserCell { content_generation, .. } => {
+                    *content_generation = None;
+                }
+                PanePointerRegion::ContentPadding | PanePointerRegion::Chrome => {}
+            }
+        }
+        self
+    }
 }
 
 #[derive(Clone, Default)]
@@ -14512,7 +14532,11 @@ impl App {
             if let TerminalInput::Mouse(mouse) = input
                 && !pointer_has_capture
             {
-                let rendered_route = self.rendered_pointer_frame.route_for_mouse(mouse);
+                let rendered_route = if Self::mouse_opens_cmux_context_menu(mouse) {
+                    self.rendered_pointer_frame.route_for_mouse(mouse).normalized_for_cmux_menu()
+                } else {
+                    self.rendered_pointer_frame.route_for_mouse(mouse)
+                };
                 let replayed_route_changed = replay_context
                     .as_ref()
                     .and_then(|context| context.pointer.as_ref())
@@ -15703,8 +15727,16 @@ impl App {
             Some(DeferredPointerInput {
                 focus_generation: self.pointer_focus_generation,
                 pointer_map_generation: self.rendered_pointer_frame.pointer_map_generation,
-                route: Self::mouse_requires_rendered_route(mouse.kind)
-                    .then(|| self.rendered_pointer_frame.route_for_mouse(mouse)),
+                route: Self::mouse_requires_rendered_route(mouse.kind).then(|| {
+                    let route = self.rendered_pointer_frame.route_for_mouse(mouse);
+                    if Self::mouse_opens_cmux_context_menu(mouse) {
+                        // The menu press never enters the pane's application;
+                        // async output must not change its recorded route.
+                        route.normalized_for_cmux_menu()
+                    } else {
+                        route
+                    }
+                }),
             })
         } else {
             None
@@ -15928,6 +15960,14 @@ impl App {
         mouse: &MouseEvent,
         missing_surface: Option<SurfaceId>,
     ) -> TerminalPointerAdmissionResult {
+        if Self::mouse_opens_cmux_context_menu(mouse) {
+            // The menu is owned by cmux rather than the terminal
+            // application: the press never forwards bytes, so encoder
+            // semantics and content-generation admission cannot gate it.
+            // Geometry barriers (pending paints, pointer-map mutations)
+            // still defer it through the route staleness checks.
+            return TerminalPointerAdmissionResult::NotTerminal;
+        }
         let Some((surface, input_rect, expected_snapshot)) =
             rendered_route.terminal_pointer_snapshot()
         else {
