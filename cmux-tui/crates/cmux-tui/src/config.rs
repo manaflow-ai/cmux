@@ -155,6 +155,9 @@ use wait_timeout::ChildExt;
 
 use crate::localization::catalog;
 
+#[cfg(test)]
+pub(crate) static CONFIG_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 /// For a field typed `Option<Option<T>>`: makes an explicit `null` in the
 /// input deserialize to `Some(None)` rather than the `None` an absent key
 /// also produces, so callers can tell "not set" from "set to null".
@@ -5586,12 +5589,7 @@ mod tests {
         assert!(!diagnostic.contains("typo"));
     }
     use std::ffi::OsString;
-    use std::sync::Mutex;
     use std::sync::atomic::{AtomicU64, Ordering};
-
-    /// Config env vars are process-global state; tests that set them must not
-    /// run concurrently with each other.
-    static CONFIG_ENV_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn startup_snapshot_invokes_loader_once() {

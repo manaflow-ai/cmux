@@ -21556,14 +21556,23 @@ impl App {
             && self.drag.is_none()
         {
             match self.hit_at(x, y) {
-                Some(Hit::Workspace { id, .. }) => {
+                Some(Hit::Workspace { index, id }) => {
                     let before = (
                         self.sidebar_workspace_selection,
                         self.workspace_preview,
                         self.tree.active_workspace,
                     );
                     self.workspace_rail_follow_selection = true;
-                    self.select_workspace_rail_target(WorkspaceRailTarget::Workspace(id));
+                    let already_targets_row = self.sidebar_workspace_selection == index
+                        && self.workspace_rail_selection == WorkspaceRailSelection::Workspace
+                        && (self.workspace_preview.is_some_and(|preview| preview.target == id)
+                            || self
+                                .tree
+                                .active_workspace()
+                                .is_some_and(|workspace| workspace.id == id));
+                    if !already_targets_row {
+                        self.select_workspace_rail_target(WorkspaceRailTarget::Workspace(id));
+                    }
                     before
                         != (
                             self.sidebar_workspace_selection,
@@ -21744,7 +21753,8 @@ impl App {
         // panes; otherwise typing would keep going to the plugin PTY after
         // the user clicked into a pane.
         let pointer_hit = self.hit_at(x, y);
-        let captured_tab_targets = self.sidebar_tab_targets();
+        let captured_tab_targets =
+            matches!(pointer_hit, Some(Hit::SidebarTab { .. })).then(|| self.sidebar_tab_targets());
 
         // A workspace row is an activation gesture. Keep the rendered target
         // active until `activate_workspace` commits it, rather than cancelling
@@ -21792,10 +21802,10 @@ impl App {
                     self.drag = Some(Drag::WorkspaceArm { workspace: id, at: (x, y) });
                 }
                 Hit::SidebarTab { surface, .. } => {
-                    if let Some((index, target)) = captured_tab_targets
-                        .iter()
-                        .enumerate()
-                        .find(|(_, target)| target.surface == surface)
+                    if let Some((index, target)) =
+                        captured_tab_targets.as_ref().and_then(|targets| {
+                            targets.iter().enumerate().find(|(_, target)| target.surface == surface)
+                        })
                     {
                         self.tabs_rail_follow_selection = true;
                         self.tabs_rail_selection = index;
@@ -42160,6 +42170,10 @@ mod tests {
             r#"{"sidebar":{"views":[{"id":"workspaces","levels":["workspaces"]}]}}"#,
         )
         .unwrap();
+        // Config environment variables are process-global. Share the config
+        // test lock so this test cannot overlap any other environment-based
+        // config test in the same test process.
+        let _env_guard = crate::config::CONFIG_ENV_LOCK.lock().unwrap();
         let old_config = std::env::var_os("CMUX_TUI_CONFIG");
         let old_mux_config = std::env::var_os("CMUX_MUX_CONFIG");
         // SAFETY: this test restores both config environment variables before returning.
