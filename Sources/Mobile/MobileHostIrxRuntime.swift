@@ -14,8 +14,8 @@ import OSLog
 final class MobileHostIrxRuntime {
     static let shared = MobileHostIrxRuntime()
 
-    static let enabledDefaultsKey = "cmux.irx.enabled"
-    static let forceRelayDefaultsKey = "cmux.irx.force-relay"
+    nonisolated static let enabledDefaultsKey = "cmux.irx.enabled"
+    nonisolated static let forceRelayDefaultsKey = "cmux.irx.force-relay"
 
     /// irx is the PRIMARY transport: on by default in every configuration.
     /// An explicit `false` in defaults (the remote revert switch writes it)
