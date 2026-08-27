@@ -432,6 +432,35 @@ struct SurfaceCatalogTests {
         #expect(replacementProvider.materialized.isEmpty)
     }
 
+    @Test func `Tracked materialization capacity is isolated per machine`() async throws {
+        let catalog = SurfaceCatalog(maximumTrackedMaterializations: 1)
+        let stuckProvider = FakeProvider(machine: .cloud("stuck"))
+        let gate = MaterializeGate()
+        stuckProvider.materializeGate = gate
+        catalog.register(stuckProvider)
+        let stuckTerm = terminal(.cloud("stuck"), "term_1")
+        catalog.replaceResources([stuckTerm], on: .cloud("stuck"))
+
+        let stuckProject = Task {
+            try await catalog.project(stuckTerm.id, into: .workspace(id: UUID(), placement: .split))
+        }
+        await gate.waitUntilEntered()
+        stuckProject.cancel()
+        await #expect(throws: CancellationError.self) {
+            try await stuckProject.value
+        }
+
+        let healthyProvider = FakeProvider(machine: .cloud("healthy"))
+        catalog.register(healthyProvider)
+        let healthyTerm = terminal(.cloud("healthy"), "term_1")
+        catalog.replaceResources([healthyTerm], on: .cloud("healthy"))
+        let result = try await catalog.project(healthyTerm.id, into: .workspace(id: UUID(), placement: .split))
+        #expect(result.projection.resource == healthyTerm.id)
+        #expect(healthyProvider.materialized.count == 1)
+
+        gate.release()
+    }
+
     @Test func `A replacement provider does not join retired materialization`() async throws {
         let catalog = SurfaceCatalog()
         let oldProvider = FakeProvider(machine: .cloud("vivid-newt"))
