@@ -10349,8 +10349,12 @@ class TerminalController {
             "name": cookie.name,
             "value": cookie.value,
             "domain": cookie.domain,
+            // Foundation represents host-only cookies without a leading dot;
+            // retain that distinction so state/load does not widen their scope.
+            "hostOnly": !cookie.domain.hasPrefix("."),
             "path": cookie.path,
             "secure": cookie.isSecure,
+            "httpOnly": cookie.isHTTPOnly,
             "session_only": cookie.isSessionOnly
         ]
         if let expiresDate = cookie.expiresDate {
@@ -10392,42 +10396,43 @@ class TerminalController {
     }
 
     private nonisolated func v2BrowserCookieFromObject(_ raw: [String: Any], fallbackURL: URL?) -> HTTPCookie? {
-        var props: [HTTPCookiePropertyKey: Any] = [:]
-        if let name = raw["name"] as? String {
-            props[.name] = name
-        }
-        if let value = raw["value"] as? String {
-            props[.value] = value
+        guard let name = raw["name"] as? String,
+              let value = raw["value"] as? String else {
+            return nil
         }
 
-        if let urlStr = raw["url"] as? String, let url = URL(string: urlStr) {
-            props[.originURL] = url
-        } else if let fallbackURL {
-            props[.originURL] = fallbackURL
-        }
-
-        if let domain = raw["domain"] as? String {
-            props[.domain] = domain
-        } else if let host = fallbackURL?.host {
-            props[.domain] = host
-        }
-
-        if let path = raw["path"] as? String {
-            props[.path] = path
+        let secure = v2Bool(raw, "secure") ?? false
+        let serializedDomain = raw["domain"] as? String
+        let hostOnly = v2Bool(raw, "hostOnly") == true
+        let originURL: URL?
+        if let urlString = raw["url"] as? String, let url = URL(string: urlString) {
+            originURL = url
+        } else if let serializedDomain {
+            originURL = BrowserCookieBuilder().originURL(forHost: serializedDomain, secure: secure)
         } else {
-            props[.path] = "/"
+            originURL = fallbackURL
+        }
+        let domain = hostOnly ? nil : serializedDomain
+        let path = (raw["path"] as? String) ?? "/"
+        let expires: Date?
+        if let expiresValue = raw["expires"] as? TimeInterval {
+            expires = Date(timeIntervalSince1970: expiresValue)
+        } else if let expiresIntValue = raw["expires"] as? Int {
+            expires = Date(timeIntervalSince1970: TimeInterval(expiresIntValue))
+        } else {
+            expires = nil
         }
 
-        if let secure = raw["secure"] as? Bool, secure {
-            props[.secure] = "TRUE"
-        }
-        if let expires = raw["expires"] as? TimeInterval {
-            props[.expires] = Date(timeIntervalSince1970: expires)
-        } else if let expiresInt = raw["expires"] as? Int {
-            props[.expires] = Date(timeIntervalSince1970: TimeInterval(expiresInt))
-        }
-
-        return HTTPCookie(properties: props)
+        return BrowserCookieBuilder().makeCookie(
+            name: name,
+            value: value,
+            originURL: originURL,
+            domain: domain,
+            path: path,
+            secure: secure,
+            expires: expires,
+            httpOnly: v2Bool(raw, "httpOnly") ?? false
+        )
     }
 
     private nonisolated func v2BrowserCookiesGet(params: [String: Any]) -> V2CallResult {
@@ -10435,21 +10440,23 @@ class TerminalController {
             let store = v2MainSync {
                 ctx.webView.configuration.websiteDataStore.httpCookieStore
             }
-            guard var cookies = v2BrowserCookieStoreAll(store) else {
+            guard let cookies = v2BrowserCookieStoreAll(store) else {
                 return .err(code: "timeout", message: "Timed out reading cookies", data: nil)
             }
 
-            if let name = v2String(params, "name") {
-                cookies = cookies.filter { $0.name == name }
-            }
-            if let domain = v2String(params, "domain") {
-                cookies = cookies.filter { $0.domain.contains(domain) }
-            }
-            if let path = v2String(params, "path") {
-                cookies = cookies.filter { $0.path == path }
+            let name = v2String(params, "name")
+            let domain = v2String(params, "domain")
+            let path = v2String(params, "path")
+            let httpOnly = v2Bool(params, "httpOnly")
+            let filteredCookies = cookies.filter { cookie in
+                if let name, cookie.name != name { return false }
+                if let domain, !cookie.domain.contains(domain) { return false }
+                if let path, cookie.path != path { return false }
+                if let httpOnly, cookie.isHTTPOnly != httpOnly { return false }
+                return true
             }
 
-            return .ok(v2BrowserPanelFields(ctx, adding: ["cookies": cookies.map(v2BrowserCookieDict)]))
+            return .ok(v2BrowserPanelFields(ctx, adding: ["cookies": filteredCookies.map(v2BrowserCookieDict)]))
         }
     }
 
@@ -10473,6 +10480,7 @@ class TerminalController {
                 if let domain = v2String(params, "domain") { single["domain"] = domain }
                 if let path = v2String(params, "path") { single["path"] = path }
                 if let secure = v2Bool(params, "secure") { single["secure"] = secure }
+                if let httpOnly = v2Bool(params, "httpOnly") { single["httpOnly"] = httpOnly }
                 if let expires = v2Int(params, "expires") { single["expires"] = expires }
                 if !single.isEmpty {
                     cookieObjects = [single]
@@ -10486,12 +10494,12 @@ class TerminalController {
             var setCount = 0
             for raw in cookieObjects {
                 guard let cookie = v2BrowserCookieFromObject(raw, fallbackURL: cookieContext.fallbackURL) else {
-                    return .err(code: "invalid_params", message: "Invalid cookie payload", data: ["cookie": raw])
+                    return .err(code: "invalid_params", message: "Invalid cookie payload", data: nil)
                 }
                 if v2BrowserCookieStoreSet(cookieContext.store, cookie: cookie) {
                     setCount += 1
                 } else {
-                    return .err(code: "timeout", message: "Timed out setting cookie", data: ["name": cookie.name])
+                    return .err(code: "timeout", message: "Timed out setting cookie", data: nil)
                 }
             }
 
