@@ -294,12 +294,13 @@ extension SidebarGitMetadataService {
         }
         if workspaceGitMetadataCreationWatcherAncestorByTargetPath[path] != newAncestor {
             let oldAncestor = workspaceGitMetadataCreationWatcherAncestorByTargetPath[path]!
-            migrateWorkspaceGitMetadataCreationWatchTarget(
+            if migrateWorkspaceGitMetadataCreationWatchTarget(
                 path,
                 from: oldAncestor,
                 to: newAncestor
-            )
-            targetNeedsImmediateRefresh = true
+            ) {
+                targetNeedsImmediateRefresh = true
+            }
         }
         let newLogicalParent = snapshot.logicalSymlinkParent.flatMap {
             creationWatchAncestorIsSafe($0, for: key) ? $0 : nil
@@ -479,12 +480,13 @@ extension SidebarGitMetadataService {
             }
             let closerAncestor = snapshot.nearestExistingDirectory
             if isResolvedAncestor, closerAncestor != ancestor, closerAncestor != "/" {
-                migrateWorkspaceGitMetadataCreationWatchTarget(
+                if migrateWorkspaceGitMetadataCreationWatchTarget(
                     target,
                     from: ancestor,
                     to: closerAncestor
-                )
-                changedTargets.insert(target)
+                ) {
+                    changedTargets.insert(target)
+                }
             }
             if isLogicalAncestor {
                 if updateWorkspaceGitMetadataLogicalParent(
@@ -533,13 +535,14 @@ extension SidebarGitMetadataService {
         }
     }
 
+    @discardableResult
     private func migrateWorkspaceGitMetadataCreationWatchTarget(
         _ target: String,
         from previousAncestor: String,
         to ancestor: String
-    ) {
+    ) -> Bool {
         guard creationWatchAncestorIsSafe(ancestor, forTarget: target) else {
-            return
+            return false
         }
         let removesPreviousWatcher =
             workspaceGitMetadataCreationWatchTargetsByAncestor[previousAncestor]?.count == 1
@@ -547,7 +550,7 @@ extension SidebarGitMetadataService {
               workspaceGitMetadataCreationWatchTargetsByAncestor[ancestor] != nil
                 || workspaceGitMetadataCreationWatchersByAncestor.count < 128
                 || removesPreviousWatcher else {
-            return
+            return false
         }
         let previousAncestorIsLogical =
             workspaceGitMetadataCreationWatcherLogicalParentByTargetPath[target]
@@ -566,6 +569,7 @@ extension SidebarGitMetadataService {
         workspaceGitMetadataCreationWatchTargetsByAncestor[ancestor, default: []].insert(target)
         workspaceGitMetadataCreationWatcherAncestorByTargetPath[target] = ancestor
         ensureWorkspaceGitMetadataCreationWatcher(for: ancestor)
+        return true
     }
 
     @discardableResult

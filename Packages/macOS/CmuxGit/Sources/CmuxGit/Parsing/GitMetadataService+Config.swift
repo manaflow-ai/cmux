@@ -286,7 +286,11 @@ extension GitMetadataService {
                     continue
                 }
 
-                let parts = line.split(separator: "=", maxSplits: 1).map {
+                let parts = line.split(
+                    separator: "=",
+                    maxSplits: 1,
+                    omittingEmptySubsequences: false
+                ).map {
                     $0.trimmingCharacters(in: .whitespaces)
                 }
                 if currentSectionIsExtensions,
@@ -673,7 +677,11 @@ extension GitMetadataService {
             }
 
             guard let currentRemoteName else { continue }
-            let parts = line.split(separator: "=", maxSplits: 1).map {
+            let parts = line.split(
+                separator: "=",
+                maxSplits: 1,
+                omittingEmptySubsequences: false
+            ).map {
                 $0.trimmingCharacters(in: .whitespaces)
             }
             guard parts.count == 2, parts[0].lowercased() == "url" else {
@@ -777,7 +785,11 @@ extension GitMetadataService {
                 continue
             }
 
-            let parts = line.split(separator: "=", maxSplits: 1).map {
+            let parts = line.split(
+                separator: "=",
+                maxSplits: 1,
+                omittingEmptySubsequences: false
+            ).map {
                 $0.trimmingCharacters(in: .whitespaces)
             }
 
@@ -875,7 +887,11 @@ extension GitMetadataService {
             }
 
             guard currentSectionAllowsPath else { continue }
-            let parts = line.split(separator: "=", maxSplits: 1).map {
+            let parts = line.split(
+                separator: "=",
+                maxSplits: 1,
+                omittingEmptySubsequences: false
+            ).map {
                 $0.trimmingCharacters(in: .whitespaces)
             }
             guard parts.count == 2,

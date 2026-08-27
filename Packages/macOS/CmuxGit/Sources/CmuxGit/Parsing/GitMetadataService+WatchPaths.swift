@@ -134,6 +134,7 @@ extension GitMetadataService {
             gitMetadataPaths: gitMetadataPaths,
             repository: repository
         )
+        let creationWatchPaths = creationWatchPlan.paths
         let homeDirectory: URL
         if let configuredHome = environment["HOME"], !configuredHome.isEmpty {
             homeDirectory = URL(fileURLWithPath: configuredHome).standardizedFileURL

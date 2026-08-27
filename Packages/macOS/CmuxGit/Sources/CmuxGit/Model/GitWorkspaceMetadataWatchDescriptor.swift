@@ -47,6 +47,9 @@ public struct GitWorkspaceMetadataWatchDescriptor: Equatable, Sendable {
     ///   - eventCoalescingInterval: Leading-edge watcher throttle.
     ///   - eventFilterIdentity: Stable identity for the immutable path filter.
     ///   - degradation: Active safety-valve mode, if any.
+    ///   - creationWatchPaths: Missing external config paths watched
+    ///     non-recursively until they are created.
+    ///   - creationWatchAllowedRoots: Roots that bound creation-watch ancestors.
     public init(
         repositoryRoot: String,
         watchedPaths: [String],
