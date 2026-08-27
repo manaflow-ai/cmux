@@ -9,10 +9,12 @@ import {
 const ent = (planId: string) => ({ planId });
 
 describe("Cloud VM Pro gate", () => {
-  test("isPaidVmPlan recognizes pro and team, not free", () => {
+  test("isPaidVmPlan recognizes pro, team, and founders, not free", () => {
     expect(isPaidVmPlan("pro")).toBe(true);
     expect(isPaidVmPlan("team")).toBe(true);
     expect(isPaidVmPlan("PRO")).toBe(true);
+    expect(isPaidVmPlan("founders")).toBe(true);
+    expect(isPaidVmPlan("Founders")).toBe(true);
     expect(isPaidVmPlan("free")).toBe(false);
     expect(isPaidVmPlan("")).toBe(false);
     expect(isPaidVmPlan("enterprise-unknown")).toBe(false);
@@ -33,10 +35,11 @@ describe("Cloud VM Pro gate", () => {
     expect(isVmProGateBlocked(ent("pro"), {})).toBe(false);
   });
 
-  test("enforcement ON blocks free but allows pro/team", () => {
+  test("enforcement ON blocks free but allows pro/team/founders", () => {
     const env = { CMUX_VM_REQUIRE_PRO: "1" };
     expect(isVmProGateBlocked(ent("free"), env)).toBe(true);
     expect(isVmProGateBlocked(ent("pro"), env)).toBe(false);
     expect(isVmProGateBlocked(ent("team"), env)).toBe(false);
+    expect(isVmProGateBlocked(ent("founders"), env)).toBe(false);
   });
 });

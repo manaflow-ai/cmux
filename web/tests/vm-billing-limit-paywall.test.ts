@@ -107,6 +107,7 @@ describe("free access window", () => {
   test("a paid plan never expires, even for machines created on free", () => {
     expect(isVmFreeAccessExpired("pro", now - days(400), {}, now)).toBe(false);
     expect(isVmFreeAccessExpired("team", now - days(400), {}, now)).toBe(false);
+    expect(isVmFreeAccessExpired("founders", now - days(400), {}, now)).toBe(false);
   });
 
   test("window 0 disables the gate; unknown createdAt fails open", () => {
