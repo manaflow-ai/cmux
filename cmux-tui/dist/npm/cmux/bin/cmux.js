@@ -47,6 +47,8 @@ const PACKAGE_BY_PLATFORM = {
 
 const EXE = process.platform === "win32" ? ".exe" : "";
 const BIN_NAME = `cmux-tui${EXE}`;
+const PUBLISHED_VERSION = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
+const MAX_TARBALL_BYTES = 256 * 1024 * 1024;
 
 function fail(message) {
   console.error(`cmux: ${message}`);
@@ -70,6 +72,10 @@ function shimVersion() {
     return process.env.CMUX_TUI_LAUNCHER_VERSION;
   }
   return version;
+}
+
+function validVersion(version) {
+  return typeof version === "string" && PUBLISHED_VERSION.test(version);
 }
 
 function isManagedPlaceholder(version) {
@@ -198,7 +204,7 @@ async function fetchJson(url) {
     headers: { accept: "application/json" },
   });
   if (!response.ok) {
-    throw new Error(`GET ${url} failed: ${response.status} ${response.statusText}`);
+    throw new Error("registry request failed");
   }
   return response.json();
 }
@@ -280,19 +286,23 @@ async function downloadVersion(pkg, version) {
   const tarballUrl = meta && meta.dist && meta.dist.tarball;
   const integrity = meta && meta.dist && meta.dist.integrity;
   if (!tarballUrl) {
-    throw new Error(`registry metadata for ${pkg}@${version} has no tarball URL`);
+    throw new Error("registry metadata is incomplete");
   }
   console.error(`cmux: downloading ${pkg}@${version}...`);
   const response = await fetch(tarballUrl);
   if (!response.ok) {
-    throw new Error(`GET ${tarballUrl} failed: ${response.status} ${response.statusText}`);
+    throw new Error("platform package download failed");
   }
-  const tgz = Buffer.from(await response.arrayBuffer());
+  const arrayBuffer = await response.arrayBuffer();
+  if (arrayBuffer.byteLength > MAX_TARBALL_BYTES) {
+    throw new Error("platform package is too large");
+  }
+  const tgz = Buffer.from(arrayBuffer);
   verifyIntegrity(tgz, integrity);
   const tar = zlib.gunzipSync(tgz);
   const entries = extractBinEntries(tar);
   if (!entries.some((entry) => entry.name === BIN_NAME)) {
-    throw new Error(`tarball for ${pkg}@${version} does not contain bin/${BIN_NAME}`);
+    throw new Error("platform package does not contain the native binary");
   }
 
   const finalDir = cachedBinDir(version);
@@ -344,17 +354,19 @@ function wantedVersion(pkg) {
   const pinned = shimVersion();
   const state = readState();
   if (isManagedPlaceholder(pinned)) {
-    if (state) return state.version;
+    if (state && validVersion(state.version)) return state.version;
     const installed = installedPackage(pkg);
-    if (installed) return installed.version;
+    if (installed && validVersion(installed.version)) return installed.version;
     fail(
-      "this launcher is an unpublished development copy with no pinned " +
-        "version. Set CMUX_TUI_BIN to a built binary, or " +
-        "CMUX_TUI_LAUNCHER_VERSION to a published version."
+      "this launcher is an unpublished development copy without a pinned " +
+        "binary. Set a development binary override or install a published release."
     );
   }
+  if (!validVersion(pinned)) {
+    fail("this launcher has an invalid release version");
+  }
   if (state && compareVersions(state.version, pinned) > 0) {
-    return state.version;
+    return validVersion(state.version) ? state.version : pinned;
   }
   return pinned;
 }
@@ -379,23 +391,20 @@ async function resolveBinary(pkg) {
   } catch (error) {
     if (installed) {
       console.error(
-        `cmux: download of ${pkg}@${wanted} failed (${error.message}); ` +
-          `falling back to installed ${pkg}@${installed.version}.`
+        `cmux: platform download failed; using the installed binary instead.`
       );
       return installed.binPath;
     }
     const newest = newestCachedVersion();
     if (newest) {
       console.error(
-        `cmux: download of ${pkg}@${wanted} failed (${error.message}); ` +
-          `falling back to cached ${newest}.`
+        `cmux: platform download failed; using a cached binary instead.`
       );
       return cachedBinary(newest);
     }
     fail(
-      `could not obtain the cmux-tui binary (${error.message}). ` +
-        `Check network access to ${registryBase()}, or install the platform ` +
-        `package directly: npm install -g ${pkg}`
+      "could not obtain the native binary. Check network access or install " +
+        "the matching platform package directly."
     );
   }
 }
@@ -407,12 +416,12 @@ async function runUpdate(pkg, args) {
   const checkOnly = args.includes("--check");
   const unknown = args.filter((a) => a !== "--check");
   if (unknown.length) {
-    fail(`unknown arguments for update: ${unknown.join(" ")}. Usage: cmux update [--check]`);
+    fail("invalid update arguments. Usage: cmux update [--check]");
   }
   const current = wantedVersion(pkg);
   const latestMeta = await fetchJson(`${registryBase()}/cmux/latest`);
   const latest = latestMeta && latestMeta.version;
-  if (!latest) fail("could not determine the latest published cmux version");
+  if (!validVersion(latest)) fail("could not determine the latest published release");
   if (compareVersions(latest, current) <= 0) {
     console.log(`cmux ${current} is up to date (latest is ${latest}).`);
     return;
@@ -449,7 +458,7 @@ async function main() {
   const binPath = await resolveBinary(pkg);
   const result = spawnSync(binPath, args, { stdio: "inherit" });
   if (result.error) {
-    fail(`failed to launch ${binPath}: ${result.error.message}`);
+    fail("failed to launch the native binary");
   }
   if (result.signal) {
     process.kill(process.pid, result.signal);
@@ -458,4 +467,4 @@ async function main() {
   process.exit(result.status === null ? 1 : result.status);
 }
 
-main().catch((error) => fail(error.message));
+main().catch(() => fail("launcher failed before starting the native binary"));
