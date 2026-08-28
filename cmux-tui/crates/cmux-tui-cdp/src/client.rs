@@ -2168,7 +2168,8 @@ mod tests {
         let client = CdpClient { inner };
 
         let error = client.send_value(&json!({"payload": "0123456789"})).unwrap_err();
-        assert!(error.to_string().contains("outbound queue byte budget"));
+        assert_eq!(error.to_string(), "browser connection unavailable; retry the command");
+        assert!(format!("{error:#}").contains("CDP outbound queue byte budget exceeded"));
     }
 
     struct BlockingOutboundWriter {
@@ -2203,9 +2204,24 @@ mod tests {
 
         started.wait();
         let error = client.send_value(&value).unwrap_err();
-        assert!(error.to_string().contains("outbound queue byte budget"));
+        assert_eq!(error.to_string(), "browser connection unavailable; retry the command");
+        assert!(format!("{error:#}").contains("CDP outbound queue byte budget exceeded"));
         release.wait();
         drain.join().unwrap();
+    }
+
+    #[test]
+    fn screencast_ack_byte_budget_closure_hides_internal_reason() {
+        let (inner, _outbound_rx) = test_inner_with_limits(1, 1);
+        ack_screencast_frame(&inner, "session-1", 7);
+
+        let (event_tx, event_rx) = sync_channel(1);
+        inner.events.drain_into(&event_tx).unwrap();
+        let CdpEvent::Closed(reason) = event_rx.recv().unwrap() else {
+            panic!("expected a close event");
+        };
+        assert_eq!(reason, "browser connection unavailable; retry the command");
+        assert!(!reason.contains("CDP"));
     }
 
     #[test]
