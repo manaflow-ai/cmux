@@ -332,18 +332,17 @@ mod tests {
 
     #[test]
     fn parse_request_rejects_oversized_input_before_decoding() {
-        let encoded = base64::engine::general_purpose::STANDARD
-            .encode(vec![b'x'; MAX_PIPE_IO_INPUT_BYTES + 1]);
+        let encoded =
+            base64::engine::general_purpose::STANDARD
+                .encode(vec![b'x'; MAX_PIPE_IO_INPUT_BYTES + 1]);
         let line = serde_json::json!({"input": encoded}).to_string();
         assert!(parse_request(&line).is_err());
     }
 
     #[test]
     fn request_line_reader_rejects_unterminated_and_oversized_lines() {
-        let mut exact = std::io::Cursor::new(format!(
-            "{}\n",
-            "x".repeat(MAX_PIPE_IO_REQUEST_LINE_BYTES - 1)
-        ));
+        let mut exact =
+            std::io::Cursor::new(format!("{}\n", "x".repeat(MAX_PIPE_IO_REQUEST_LINE_BYTES - 1)));
         let mut line = String::new();
         assert!(read_request_line(&mut exact, &mut line).unwrap());
 
