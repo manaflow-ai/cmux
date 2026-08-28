@@ -10063,9 +10063,10 @@ impl App {
         if !self.prepare_pty_input_before_mutation() {
             return Ok(());
         }
-        // A rendered sidebar target can outlive its tab. Validate before
-        // committing the preview so stale clicks are a no-op.
-        if self.tree.surface(target.surface).is_none() {
+        // A rendered sidebar target can outlive its tab or its location.
+        // Validate the complete target before committing the preview so a
+        // stale click is a no-op.
+        if !self.sidebar_tab_target_is_current(target) {
             return Ok(());
         }
         if !self.tree.select_surface(target.surface) {
@@ -10076,6 +10077,19 @@ impl App {
         self.pane_focus_history.record(target.pane);
         self.claim_active_terminal_geometry(true);
         Ok(())
+    }
+
+    fn sidebar_tab_target_is_current(&self, target: &SidebarTabTarget) -> bool {
+        let Some(workspace) = self.tree.workspaces.get(target.workspace) else {
+            return false;
+        };
+        let Some(screen) = workspace.screens.get(target.screen) else {
+            return false;
+        };
+        let Some(pane) = screen.panes.iter().find(|pane| pane.id == target.pane) else {
+            return false;
+        };
+        pane.tabs.get(target.index).is_some_and(|tab| tab.surface == target.surface)
     }
 
     fn follow_sidebar_workspace(&mut self, index: usize) {
@@ -33108,6 +33122,43 @@ mod tests {
             subtitle: String::new(),
             active: false,
         };
+
+        app.activate_sidebar_tab(&stale).unwrap();
+
+        assert!(app.workspace_preview.is_some());
+        assert_eq!(app.tree.active_surface(), active);
+        assert_eq!(app.tree.active_workspace, 0);
+    }
+
+    #[test]
+    fn stale_sidebar_tab_activation_rejects_live_surface_at_new_location() {
+        let mux = Mux::new("workspace-sidebar-preview-moved-tab-test", SurfaceOptions::default());
+        let first = mux.new_workspace(Some("Alpha".into()), Some((80, 24))).unwrap();
+        let second = mux.new_workspace(Some("Beta".into()), Some((80, 24))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_view = SidebarView::Workspaces;
+        app.replace_tree(app.session.tree());
+        app.tree.active_workspace = 0;
+        let active = app.tree.active_surface();
+        let (target_pane, target_surface) = {
+            let pane = &app.tree.workspaces[1].screens[0].panes[0];
+            (pane.id, pane.tabs[0].surface)
+        };
+        let stale = SidebarTabTarget {
+            workspace: 1,
+            screen: 0,
+            pane: target_pane,
+            index: 0,
+            surface: target_surface,
+            name: String::new(),
+            subtitle: String::new(),
+            active: false,
+        };
+
+        let moved_tab = app.tree.workspaces[1].screens[0].panes[0].tabs.remove(0);
+        app.tree.workspaces[0].screens[0].panes[0].tabs.push(moved_tab);
+        app.workspace_preview =
+            Some(WorkspacePreview { origin: first.id, target: second.id, origin_scroll: 0 });
 
         app.activate_sidebar_tab(&stale).unwrap();
 
