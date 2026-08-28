@@ -1,6 +1,7 @@
 # cmux cloud machine interactive shell setup (/etc/cmux/bashrc).
-# Sourced from /etc/bash.bashrc, /etc/skel/.bashrc, /root/.bashrc, and
-# /home/cua/.bashrc. Parity source: chatmux infra/sandbox-images/devshell.bashrc.
+# Sourced from /etc/bash.bashrc, /etc/skel/.bashrc, /root/.bashrc,
+# /home/cmux/.bashrc, and /home/cua/.bashrc. Parity source: chatmux
+# infra/sandbox-images/devshell.bashrc.
 case $- in *i*) ;; *) return ;; esac
 
 # PTYs from the sandbox API do not reliably inherit these.
@@ -9,7 +10,7 @@ export USER="${USER:-$(id -un)}"
 export HOME="${HOME:-$(getent passwd "$(id -u)" | cut -d: -f6)}"
 
 # First interactive shell on a fresh HOME (the persistent volume shadows the
-# image's /root): seed history so ble.sh ghost text completes agent launches.
+# image's /home/cmux): seed history so ble.sh ghost text completes agent launches.
 if [ ! -f "$HOME/.bash_history" ] && [ -f /etc/cmux/seed-history ]; then
   cp /etc/cmux/seed-history "$HOME/.bash_history" 2>/dev/null || true
 fi

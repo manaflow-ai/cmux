@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  CMUX_CLOUD_LAYOUT,
   cmuxTuiDaemonCommand,
   cmuxTuiPreviewBranded,
   cmuxTuiInstallCommand,
@@ -84,6 +85,37 @@ describe("cmux-tui install and daemon commands", () => {
     const command = cmuxTuiDaemonCommand();
     expect(command.startsWith("cd /root && env HOME=/root")).toBe(true);
     expect(command).toContain("server start --session cloud --remote-ws 0.0.0.0:1337 --remote-ws-insecure-bind");
+  });
+
+  test("with the cloud layout the install lands in the cmux home and hands the bin dir to the user", () => {
+    const command = cmuxTuiInstallCommand({ url: URL, sha256: SHA, commit: COMMIT, builtAt: null }, CMUX_CLOUD_LAYOUT);
+    expect(command).toContain("mkdir -p '/home/cmux/.cmux/bin'");
+    expect(command).toContain(`'${SHA}' '/home/cmux/.cmux/bin/cmux-tui' | sha256sum -c >/dev/null 2>&1; then :; else`);
+    expect(command).toContain("ln -sfn '/home/cmux/.cmux/bin/cmux-tui' /usr/local/bin/cmux-tui");
+    expect(command).toContain("chown -R cmux:cmux '/home/cmux/.cmux'");
+    expect(command.endsWith("'/home/cmux/.cmux/bin/cmux-tui' --version")).toBe(true);
+    expect(command).not.toContain("/root/.cmux");
+  });
+
+  test("with the cloud layout the daemon drops to the cmux user, never for pre-layout volumes", () => {
+    const command = cmuxTuiDaemonCommand(CMUX_CLOUD_LAYOUT);
+    // Terminals must be non-root shells: agents refuse root
+    // (`claude --dangerously-skip-permissions`), sudo is the escalation path.
+    expect(command).toContain(
+      "runuser -u cmux -- env HOME=/home/cmux USER=cmux LOGNAME=cmux SHELL=/bin/bash TERM=xterm-256color /home/cmux/.cmux/bin/cmux-tui server start",
+    );
+    expect(command).toContain("cd /home/cmux && exec runuser");
+    // A sandbox born before the layout change still has its persistent volume (data
+    // AND daemon state) at /root; it must keep the root daemon until resurrection.
+    expect(command).toContain("if mountpoint -q /root 2>/dev/null; then cd /root && ");
+    expect(command).toContain("exec env HOME=/root TERM=xterm-256color /home/cmux/.cmux/bin/cmux-tui server start");
+    expect(command).toContain("exec env HOME=/root TERM=xterm-256color /root/.cmux/bin/cmux-tui server start");
+    // No user, no runuser, or an unusable home (bindfs view missing over the
+    // root-squashing volume): fall back to root instead of crash-looping.
+    expect(command).toContain(
+      "id -u cmux >/dev/null 2>&1 && command -v runuser >/dev/null 2>&1 && runuser -u cmux -- test -w /home/cmux 2>/dev/null",
+    );
+    expect(command).toContain("else cd /home/cmux && exec env HOME=/home/cmux TERM=xterm-256color /home/cmux/.cmux/bin/cmux-tui server start");
   });
 });
 

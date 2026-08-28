@@ -22,6 +22,10 @@ import { withVmSpan } from "../telemetry";
 import { shellQuote } from "./wsLease";
 import {
   approveCmuxTuiEnrollment,
+  CMUX_CLOUD_HOME,
+  CMUX_CLOUD_LAYOUT,
+  CMUX_CLOUD_USER,
+  cmuxTuiBinaryPath,
   cmuxTuiDaemonBuild,
   cmuxTuiDaemonCommand as sharedCmuxTuiDaemonCommand,
   cmuxTuiInstallCommand as sharedCmuxTuiInstallCommand,
@@ -52,15 +56,20 @@ const SMART_SLEEP_PATH = "/usr/local/bin/cmux-smart-sleep";
 const SMART_SLEEP_PROCESS_NAME = "cmux-keepalive";
 // cmux-tui remote daemon: listens on its own port behind a private preview. The binary
 // lives on the persistent home volume so a resurrected sandbox reuses it; daemon identity
-// and enrolled devices live under /root too (the daemon's default state dir), so they
-// survive as well.
+// and enrolled devices live under the same home (the daemon's default state dir), so
+// they survive as well. The daemon and every terminal pane run as the non-root cmux
+// user (CMUX_CLOUD_LAYOUT); machines from before that change keep their volume at
+// /root and stay root until resurrected (see cmuxTuiDaemonCommand).
 const CMUX_TUI_PORT = 1337;
 // Two previews for the same port: the branded one for clients that can pass the
 // custom-domain ingress, the raw one for everything else (see cmuxTuiPreviewBranded).
 const CMUX_TUI_PREVIEW_NAME = "cmuxtui";
 const CMUX_TUI_RAW_PREVIEW_NAME = "cmuxtui-raw";
 const CMUX_TUI_SESSION = "cloud";
-const CMUX_TUI_BINARY_PATH = "/root/.cmux/bin/cmux-tui";
+const CMUX_TUI_BINARY_PATH = cmuxTuiBinaryPath(CMUX_CLOUD_HOME);
+// Where the binary lived when the volume mounted at /root; still what a pre-layout
+// machine's running daemon was started from, so lease revocation must match it too.
+const CMUX_TUI_LEGACY_BINARY_PATH = cmuxTuiBinaryPath("/root");
 const CMUX_TUI_PROCESS_NAME = "cmux-tui-daemon";
 
 const CMUX_TUI_INSTALL_TIMEOUT_MS = 5 * 60 * 1000;
@@ -100,15 +109,94 @@ while true; do
   sleep "$INTERVAL"
 done
 `;
+// The persistent volume is virtiofs with all guest identity squashed to root
+// (measured 2026-08-28 on sandbox/cmux-devbox: chown is a silent no-op, and a file
+// created by uid 1001 comes back root:root 644 — the creator instantly loses write).
+// Idmapped bind mounts are refused by this virtiofs (mount_setattr EINVAL), so a
+// non-root home on the volume needs a FUSE identity map: the volume mounts at a
+// backing path and bindfs presents it at /home/cmux with every file owned by cmux,
+// performing the real I/O as root. Legacy root-owned volume data becomes cmux-owned
+// through the view instantly, with no chown walk.
+export const CMUX_HOME_VOLUME_BACKING_PATH = "/cmux/home";
+export const CMUX_HOME_BINDFS_COMMAND =
+  `bindfs -o allow_other --multithreaded --force-user=${CMUX_CLOUD_USER} --force-group=${CMUX_CLOUD_USER} ` +
+  `--create-for-user=root --create-for-group=root --chown-ignore --chgrp-ignore ` +
+  `${CMUX_HOME_VOLUME_BACKING_PATH} ${CMUX_CLOUD_HOME}`;
+// Runtime user setup, run at every bootstrap (create and resurrect) before the daemon
+// starts. Idempotent, and the safety net for images that predate the baked cmux user:
+// creates the user (uid 1001 preferred so uids are stable across image versions;
+// Alpine's busybox adduser as the last resort), writes the passwordless-sudo policy
+// (inert until the sudo binary exists — see CMUX_SUDO_INSTALL_COMMAND), and puts the
+// bindfs view over /home/cmux when this machine has a home volume. Machines without a
+// volume keep /home/cmux on the (chown-capable) rootfs and need no view. Skipped work
+// on pre-layout sandboxes (volume still at /root): no backing mount exists there.
+export const CMUX_CLOUD_USER_SETUP_COMMAND = [
+  `id -u ${CMUX_CLOUD_USER} >/dev/null 2>&1` +
+    ` || useradd -m -u 1001 -s /bin/bash ${CMUX_CLOUD_USER} 2>/dev/null` +
+    ` || useradd -m -s /bin/bash ${CMUX_CLOUD_USER} 2>/dev/null` +
+    ` || adduser -D -s /bin/bash ${CMUX_CLOUD_USER} 2>/dev/null || true`,
+  `mkdir -p ${CMUX_CLOUD_HOME} /etc/sudoers.d`,
+  `printf '${CMUX_CLOUD_USER} ALL=(ALL) NOPASSWD:ALL\\n' > /etc/sudoers.d/90-cmux-nopasswd`,
+  `chmod 0440 /etc/sudoers.d/90-cmux-nopasswd`,
+  `if mountpoint -q ${CMUX_HOME_VOLUME_BACKING_PATH} 2>/dev/null && ! mountpoint -q ${CMUX_CLOUD_HOME} 2>/dev/null; then ` +
+    // bindfs ships in baked images from 2026-08-28-r10; older ones install it here,
+    // synchronously, because the daemon must not start before the view exists.
+    `command -v bindfs >/dev/null 2>&1` +
+    ` || { export DEBIAN_FRONTEND=noninteractive; apt-get update -qq && apt-get install -y -qq --no-install-recommends bindfs; }` +
+    ` || apk add --no-cache bindfs 2>/dev/null || true; ` +
+    // On a volume machine the real home is the volume; whatever sits under the
+    // mountpoint is disposable rootfs skel, and FUSE refuses non-empty mountpoints.
+    `find ${CMUX_CLOUD_HOME} -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null; ` +
+    `${CMUX_HOME_BINDFS_COMMAND}; fi`,
+  // A failed view is not a failed machine: the daemon command's usable-user probe
+  // falls back to a root daemon, which still attaches (the pre-layout behavior).
+  `true`,
+].join("; ");
+// Installing bindfs on an old image does an apt round-trip; give it minutes, not the
+// default exec timeout. Everything else in the setup returns instantly.
+const CMUX_USER_SETUP_TIMEOUT_MS = 5 * 60 * 1000;
+// Baked images before 2026-08-28-r10 (and stock Blaxel images) ship no sudo binary.
+// Installed detached so an apt run never delays attach; the sudoers policy above is
+// already in place when it lands.
+export const CMUX_SUDO_INSTALL_COMMAND =
+  "command -v sudo >/dev/null 2>&1" +
+  " || { export DEBIAN_FRONTEND=noninteractive; apt-get update -qq && apt-get install -y -qq --no-install-recommends sudo; }" +
+  " || apk add --no-cache sudo 2>/dev/null || true";
+const CMUX_SUDO_INSTALL_PROCESS_NAME = "cmux-sudo-install";
+
+// "The work user is actually usable": it exists, runuser can drop to it, and it can
+// write its home (false when the bindfs view over a root-squashing volume is missing).
+// Shared by the daemon command (via cmuxTuiDaemon), CLI invocations, and user exec so
+// they always agree on which user owns the machine's sessions.
+const CMUX_CLOUD_USER_USABLE_CONDITION =
+  `id -u ${CMUX_CLOUD_USER} >/dev/null 2>&1 && command -v runuser >/dev/null 2>&1 && ` +
+  `runuser -u ${CMUX_CLOUD_USER} -- test -w ${CMUX_CLOUD_HOME} 2>/dev/null`;
+
+// User-facing exec (`cmux vm exec`) runs as the same user a terminal pane would, so
+// files it creates in the home are editable from the terminal; root is one
+// passwordless `sudo` away inside the command. Pre-layout sandboxes (volume at
+// /root) and images without the user keep the historical root exec. Driver-internal
+// control-plane execs bypass this on purpose.
+export function userExecCommand(command: string): string {
+  const quoted = shellQuote(command);
+  return (
+    `if mountpoint -q /root 2>/dev/null; then exec env HOME=/root sh -c ${quoted}; ` +
+    `elif ${CMUX_CLOUD_USER_USABLE_CONDITION}; then ` +
+    `exec runuser -u ${CMUX_CLOUD_USER} -- env HOME=${CMUX_CLOUD_HOME} USER=${CMUX_CLOUD_USER} LOGNAME=${CMUX_CLOUD_USER} sh -c ${quoted}; ` +
+    `else exec env HOME=${CMUX_CLOUD_HOME} sh -c ${quoted}; fi`
+  );
+}
+
 // Background provisioning for every machine: coding agents plus the dev essentials a person
 // expects on "their computer". The .bashrc seed only writes when absent so user edits stick.
 // Background provisioning: a machine comes with the tools agents and people expect,
 // without delaying attach. Written to the sandbox as a file (heredoc-free, so it survives
 // the process API's own quoting) and run detached; the log is /tmp/cmux/provision.log.
 // Idempotent: re-runs on resurrection (the sandbox root filesystem is disposable, the
-// /root volume is not), so anything that can live under /root does — bun, npm globals
-// (the agents), uv tools — and only distro packages are reinstalled. Ubuntu/Debian
-// (blaxel/xfce-vnc) and Alpine (blaxel/base-image) are both handled.
+// home volume is not), so anything that can live in the persistent home does — bun, npm
+// globals (the agents), uv tools — and only distro packages are reinstalled. Ubuntu/Debian
+// (blaxel/xfce-vnc) and Alpine (blaxel/base-image) are both handled. Runs as root;
+// everything it puts in the home is handed to the cmux user at the end.
 export const CMUX_PROVISION_SCRIPT_PATH = "/tmp/cmux/provision.sh";
 export const CMUX_PROVISION_LOG_PATH = "/tmp/cmux/provision.log";
 export const CMUX_PROVISION_AGENT_PACKAGES = [
@@ -125,9 +213,9 @@ export const CMUX_PROVISION_SCRIPT = `#!/bin/bash
 # session daemon is NOT part of this script: bootstrapDaemon installs and starts it via
 # cmuxTuiInstallCommand on every image, so a stamped image still gets its daemon.
 [ -f /etc/cmux/image-stamp ] && exit 0
-export HOME=/root DEBIAN_FRONTEND=noninteractive
-export PATH=/root/.bun/bin:/root/.npm-global/bin:/root/.local/bin:/usr/local/bin:$PATH
-mkdir -p /root/.npm-global /root/.local/bin
+export HOME=${CMUX_CLOUD_HOME} DEBIAN_FRONTEND=noninteractive
+export PATH=${CMUX_CLOUD_HOME}/.bun/bin:${CMUX_CLOUD_HOME}/.npm-global/bin:${CMUX_CLOUD_HOME}/.local/bin:/usr/local/bin:$PATH
+mkdir -p ${CMUX_CLOUD_HOME}/.npm-global ${CMUX_CLOUD_HOME}/.local/bin
 log() { printf '%s %s\\n' "$(date -u +%FT%TZ)" "$*"; }
 step() { local name="$1"; shift; if "$@"; then log "ok $name"; else log "FAILED $name (exit $?)"; fi; }
 
@@ -135,7 +223,7 @@ distro_packages() {
   if command -v apt-get >/dev/null 2>&1; then
     apt-get update -qq
     apt-get install -y -qq --no-install-recommends \\
-      ca-certificates curl wget git tmux vim less jq ripgrep fd-find unzip zip \\
+      ca-certificates curl wget git sudo tmux vim less jq ripgrep fd-find unzip zip \\
       build-essential pkg-config python3 python3-pip python3-venv openssh-client \\
       xdotool scrot xclip xsel
     [ -x /usr/local/bin/fd ] || ln -sf "$(command -v fdfind)" /usr/local/bin/fd
@@ -148,27 +236,27 @@ distro_packages() {
       apt-get update -qq && apt-get install -y -qq gh
     fi
   elif command -v apk >/dev/null 2>&1; then
-    apk add --no-cache ca-certificates curl wget git tmux vim less jq ripgrep fd unzip zip \\
+    apk add --no-cache ca-certificates curl wget git sudo tmux vim less jq ripgrep fd unzip zip \\
       build-base pkgconf python3 py3-pip openssh-client nodejs npm github-cli
   fi
 }
 
 bun_runtime() {
-  [ -x /root/.bun/bin/bun ] || curl -fsSL https://bun.sh/install | bash
-  ln -sf /root/.bun/bin/bun /usr/local/bin/bun
-  ln -sf /root/.bun/bin/bunx /usr/local/bin/bunx
+  [ -x ${CMUX_CLOUD_HOME}/.bun/bin/bun ] || curl -fsSL https://bun.sh/install | bash
+  ln -sf ${CMUX_CLOUD_HOME}/.bun/bin/bun /usr/local/bin/bun
+  ln -sf ${CMUX_CLOUD_HOME}/.bun/bin/bunx /usr/local/bin/bunx
 }
 
 uv_runtime() {
   command -v uv >/dev/null 2>&1 || curl -LsSf https://astral.sh/uv/install.sh | sh
 }
 
-# The coding agents live under /root/.npm-global so they survive sandbox resurrection.
+# The coding agents live under the persistent home so they survive sandbox resurrection.
 agents() {
   command -v npm >/dev/null 2>&1 || return 1
-  npm config set prefix /root/.npm-global
+  npm config set prefix ${CMUX_CLOUD_HOME}/.npm-global
   npm install -g --no-fund --no-audit ${CMUX_PROVISION_AGENT_PACKAGES.join(" ")}
-  for bin in /root/.npm-global/bin/*; do [ -x "$bin" ] && ln -sf "$bin" "/usr/local/bin/$(basename "$bin")"; done
+  for bin in ${CMUX_CLOUD_HOME}/.npm-global/bin/*; do [ -x "$bin" ] && ln -sf "$bin" "/usr/local/bin/$(basename "$bin")"; done
 }
 
 # The CUA driver: cua-computer-server exposes the desktop (screenshot, click, type) to
@@ -179,9 +267,16 @@ cua_driver() {
 }
 
 shell_profile() {
-  [ -f /root/.bashrc ] || printf '%s\\n' "export PS1='\\\\[\\\\e[1;36m\\\\]\\\\h\\\\[\\\\e[0m\\\\]:\\\\[\\\\e[1;34m\\\\]\\\\w\\\\[\\\\e[0m\\\\]# '" "alias ll='ls -la'" > /root/.bashrc
-  grep -q 'cmux provisioning' /root/.bashrc 2>/dev/null || printf '%s\\n' '# cmux provisioning: tools that live on the persistent home' 'export PATH=/root/.bun/bin:/root/.npm-global/bin:/root/.local/bin:$PATH' >> /root/.bashrc
-  [ -f /root/.profile ] || printf '%s\\n' '[ -f /root/.bashrc ] && . /root/.bashrc' > /root/.profile
+  [ -f ${CMUX_CLOUD_HOME}/.bashrc ] || printf '%s\\n' "export PS1='\\\\[\\\\e[1;36m\\\\]\\\\h\\\\[\\\\e[0m\\\\]:\\\\[\\\\e[1;34m\\\\]\\\\w\\\\[\\\\e[0m\\\\]\\\\$ '" "alias ll='ls -la'" > ${CMUX_CLOUD_HOME}/.bashrc
+  grep -q '${CMUX_CLOUD_HOME}/.bun' ${CMUX_CLOUD_HOME}/.bashrc 2>/dev/null || printf '%s\\n' '# cmux provisioning: tools that live on the persistent home' 'export PATH=${CMUX_CLOUD_HOME}/.bun/bin:${CMUX_CLOUD_HOME}/.npm-global/bin:${CMUX_CLOUD_HOME}/.local/bin:$PATH' >> ${CMUX_CLOUD_HOME}/.bashrc
+  [ -f ${CMUX_CLOUD_HOME}/.profile ] || printf '%s\\n' '[ -f ${CMUX_CLOUD_HOME}/.bashrc ] && . ${CMUX_CLOUD_HOME}/.bashrc' > ${CMUX_CLOUD_HOME}/.profile
+}
+
+# Provisioning runs as root; the home belongs to the cmux user. Scoped to the dirs
+# this script writes (never the whole home, which re-runs on every resurrection).
+own_home() {
+  id -u ${CMUX_CLOUD_USER} >/dev/null 2>&1 || return 0
+  chown -R ${CMUX_CLOUD_USER}:${CMUX_CLOUD_USER} ${CMUX_CLOUD_HOME}/.bun ${CMUX_CLOUD_HOME}/.npm-global ${CMUX_CLOUD_HOME}/.local ${CMUX_CLOUD_HOME}/.bashrc ${CMUX_CLOUD_HOME}/.profile 2>/dev/null || true
 }
 
 {
@@ -192,6 +287,7 @@ shell_profile() {
   step agents agents
   step cua_driver cua_driver
   step shell_profile shell_profile
+  step own_home own_home
   log "provisioning done"
 } >> ${CMUX_PROVISION_LOG_PATH} 2>&1
 `;
@@ -233,9 +329,13 @@ const EXEC_DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_EXEC_TIMEOUT_MS = 15 * 60 * 1000;
 const CONTROL_PLANE_BASE = "https://api.blaxel.ai/v0";
 const DEFAULT_MEMORY_MB = 4096;
-// The persistent-home volume mounts over root's home so dotfiles, repos, and agent state
-// survive sandbox destruction. The sandbox is disposable compute; the volume is the machine.
-const HOME_VOLUME_MOUNT_PATH = "/root";
+// The persistent-home volume backs the cmux user's home so dotfiles, repos, and agent
+// state survive sandbox destruction. The sandbox is disposable compute; the volume is
+// the machine. It mounts at the backing path, and the runtime user setup presents it
+// at /home/cmux through the bindfs identity map (see CMUX_HOME_BINDFS_COMMAND).
+// Volumes born when this said "/root" keep their data: resurrection remounts them here
+// and the view makes the root-owned tree cmux-owned instantly.
+const HOME_VOLUME_MOUNT_PATH = CMUX_HOME_VOLUME_BACKING_PATH;
 // Disk follows memory the way hosted dev boxes do, but Blaxel caps a volume at 16 GB
 // (measured 2026-08-26: 16384 MB accepted, 20480 MB refused with "exceeds maximum allowed
 // size"), so the 24 GB plan default gets the 16 GB ceiling instead of the old flat 5 GB.
@@ -367,8 +467,12 @@ async function blaxelFetch<T>(
 // flows live in ./cmuxTuiDaemon (shared with the E2B and Daytona drivers); the
 // re-exports keep this module the historical import site.
 export {
+  CMUX_CLOUD_HOME,
+  CMUX_CLOUD_LAYOUT,
+  CMUX_CLOUD_USER,
   CMUX_TUI_LINUX_TARGET,
   CMUX_TUI_DEFAULT_MANIFEST_URL,
+  cmuxTuiBinaryPath,
   cmuxTuiManifestUrl,
   parseCmuxTuiManifest,
   resolveCmuxTuiSource,
@@ -536,12 +640,20 @@ export class BlaxelProvider implements VMProvider {
     if (prep.exitCode !== 0) {
       throw new ProviderError("blaxel", `machine prep in ${name} failed: ${prep.stderr || prep.stdout}`);
     }
-    // Everything after the prep is mutually independent: the daemon install/start, the
-    // watcher process, the hostname→VNC-heal chain (ordered within itself — the heal only
-    // succeeds once the hostname resolves; runtime state, so it re-applies on
-    // resurrection too), and the background provision process (agents and dev
-    // essentials come with the machine without delaying attach; the .bashrc seed is
-    // write-once — /root persists, and a user's edits win).
+    // The work user must exist (and a migrated volume must be owned) before the daemon
+    // starts, or its panes would be root shells; everything else can proceed in parallel.
+    const userSetup = await timedStep("user_setup", () =>
+      this.sandboxExec(sandboxUrl, CMUX_CLOUD_USER_SETUP_COMMAND, CMUX_USER_SETUP_TIMEOUT_MS));
+    if (userSetup.exitCode !== 0) {
+      throw new ProviderError("blaxel", `cmux user setup in ${name} failed: ${userSetup.stderr || userSetup.stdout}`);
+    }
+    // Everything after the user setup is mutually independent: the daemon install/start,
+    // the watcher process, the hostname→VNC-heal chain (ordered within itself — the heal
+    // only succeeds once the hostname resolves; runtime state, so it re-applies on
+    // resurrection too), the sudo heal for images that predate the baked sudo package,
+    // and the background provision process (agents and dev essentials come with the
+    // machine without delaying attach; the .bashrc seed is write-once — the home
+    // persists, and a user's edits win).
     await Promise.all([
       timedStep("cmux_tui_bootstrap", () => this.bootstrapCmuxTui(name, sandboxUrl)),
       timedStep("watcher_start", () => this.startWatcherProcess(sandboxUrl)),
@@ -549,6 +661,11 @@ export class BlaxelProvider implements VMProvider {
         await timedStep("hostname_setup", () => this.sandboxExec(sandboxUrl, hostnameSetupCommand(name)).catch(() => undefined));
         await timedStep("vnc_heal_start", () => this.startDesktopVncHeal(sandboxUrl));
       })(),
+      blaxelFetch<BlaxelProcess>("POST", `${sandboxUrl}/process`, {
+        name: CMUX_SUDO_INSTALL_PROCESS_NAME,
+        command: CMUX_SUDO_INSTALL_COMMAND,
+        waitForCompletion: false,
+      }).catch(() => undefined),
       (async () => {
         await blaxelFetch("PUT", `${sandboxUrl}/filesystem/${CMUX_PROVISION_SCRIPT_PATH}`, { content: CMUX_PROVISION_SCRIPT, permissions: "0755" });
         await blaxelFetch<BlaxelProcess>("POST", `${sandboxUrl}/process`, {
@@ -579,7 +696,7 @@ export class BlaxelProvider implements VMProvider {
   /** Installs (or re-verifies) the pinned binary and starts the daemon. */
   private async bootstrapCmuxTui(name: string, sandboxUrl: string): Promise<void> {
     const source = await sharedResolveCmuxTuiSource("blaxel");
-    const install = await this.sandboxExec(sandboxUrl, sharedCmuxTuiInstallCommand(source), CMUX_TUI_INSTALL_TIMEOUT_MS);
+    const install = await this.sandboxExec(sandboxUrl, sharedCmuxTuiInstallCommand(source, CMUX_CLOUD_LAYOUT), CMUX_TUI_INSTALL_TIMEOUT_MS);
     if (install.exitCode !== 0) {
       throw new ProviderError("blaxel", `cmux-tui install in ${name} failed: ${install.stderr || install.stdout}`);
     }
@@ -590,7 +707,7 @@ export class BlaxelProvider implements VMProvider {
   private async startCmuxTuiProcess(sandboxUrl: string): Promise<void> {
     await blaxelFetch<BlaxelProcess>("POST", `${sandboxUrl}/process`, {
       name: CMUX_TUI_PROCESS_NAME,
-      command: sharedCmuxTuiDaemonCommand(),
+      command: sharedCmuxTuiDaemonCommand(CMUX_CLOUD_LAYOUT),
       waitForCompletion: false,
       // Not keepAlive: the smart-sleep watcher counts connections on the daemon's port,
       // so an idle machine still drops to standby.
@@ -604,8 +721,18 @@ export class BlaxelProvider implements VMProvider {
     return sharedWaitForCmuxTuiReady(this.cmuxTuiInvoke(sandboxUrl), "blaxel", name);
   }
 
+  // Mirrors the daemon command's user/home selection (cmuxTuiDaemonCommand): CLI
+  // invocations must read the same state dir, as the same user, as the daemon writes.
   private cmuxTuiExec(sandboxUrl: string, args: string, timeoutMs = EXEC_DEFAULT_TIMEOUT_MS): Promise<ExecResult> {
-    return this.sandboxExec(sandboxUrl, `env HOME=/root ${CMUX_TUI_BINARY_PATH} ${args}`, timeoutMs);
+    const legacy =
+      `if [ -x ${CMUX_TUI_BINARY_PATH} ]; then exec env HOME=/root ${CMUX_TUI_BINARY_PATH} ${args}; ` +
+      `else exec env HOME=/root ${CMUX_TUI_LEGACY_BINARY_PATH} ${args}; fi`;
+    const command =
+      `if mountpoint -q /root 2>/dev/null; then ${legacy}; ` +
+      `elif ${CMUX_CLOUD_USER_USABLE_CONDITION}; then ` +
+      `exec runuser -u ${CMUX_CLOUD_USER} -- env HOME=${CMUX_CLOUD_HOME} USER=${CMUX_CLOUD_USER} LOGNAME=${CMUX_CLOUD_USER} ${CMUX_TUI_BINARY_PATH} ${args}; ` +
+      `else exec env HOME=${CMUX_CLOUD_HOME} ${CMUX_TUI_BINARY_PATH} ${args}; fi`;
+    return this.sandboxExec(sandboxUrl, command, timeoutMs);
   }
 
   /** Adapts the sandbox API exec to the shared cmux-tui flows. */
@@ -617,6 +744,10 @@ export class BlaxelProvider implements VMProvider {
     const source = await sharedResolveCmuxTuiSource("blaxel");
     const proc = await blaxelFetch<BlaxelProcess>("GET", `${sandboxUrl}/process/${CMUX_TUI_PROCESS_NAME}`).catch(() => null);
     if (proc?.status !== "running") {
+      // The daemon is about to (re)start with the layout command; make sure the work
+      // user it drops to exists even on a sandbox whose create predates the layout
+      // (best-effort: the daemon command itself falls back to root without the user).
+      await this.sandboxExec(sandboxUrl, CMUX_CLOUD_USER_SETUP_COMMAND, CMUX_USER_SETUP_TIMEOUT_MS).catch(() => undefined);
       // The binary lives on the persistent volume, so a resurrected sandbox usually only
       // needs the process started; a pin change or a fresh volume re-runs the install.
       const installed = await this.sandboxExec(
@@ -810,7 +941,7 @@ export class BlaxelProvider implements VMProvider {
       },
       async (span) => {
         const sandboxUrl = await this.sandboxApiUrl(vmId);
-        const result = await this.sandboxExec(sandboxUrl, command, timeoutMs);
+        const result = await this.sandboxExec(sandboxUrl, userExecCommand(command), timeoutMs);
         span.setAttribute("cmux.exec.exit_code", result.exitCode);
         return result;
       },
@@ -886,6 +1017,8 @@ export class BlaxelProvider implements VMProvider {
         [
           `pkill -TERM -x ${shellQuote(SMART_SLEEP_PROCESS_NAME)} 2>/dev/null || true`,
           `pkill -TERM -f ${shellQuote(`${CMUX_TUI_BINARY_PATH} server start`)} 2>/dev/null || true`,
+          // A pre-layout sandbox's daemon was started from the /root binary path.
+          `pkill -TERM -f ${shellQuote(`${CMUX_TUI_LEGACY_BINARY_PATH} server start`)} 2>/dev/null || true`,
         ].join("; "),
         15_000,
       );
@@ -1227,9 +1360,12 @@ async function verifiedCustomDomain(): Promise<string | null> {
 
 // One shell round-trip that samples everything the Cloud panel's activity view shows.
 // Two /proc/stat reads half a second apart give a real CPU% (loadavg alone lags minutes).
+// The disk row reads the persistent home volume wherever this machine mounts it:
+// /home/cmux on current machines, /root on pre-layout sandboxes still alive.
 export const MACHINE_STATS_COMMAND =
   "head -1 /proc/stat; sleep 0.5; head -1 /proc/stat; cat /proc/loadavg; nproc; " +
-  "grep -E '^(MemTotal|MemAvailable):' /proc/meminfo; df -kP /root | tail -1";
+  `grep -E '^(MemTotal|MemAvailable):' /proc/meminfo; ` +
+  `(mountpoint -q ${CMUX_CLOUD_HOME} 2>/dev/null && df -kP ${CMUX_CLOUD_HOME} || df -kP /root) | tail -1`;
 
 export function parseMachineStats(
   stdout: string,

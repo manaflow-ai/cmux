@@ -7,10 +7,14 @@ import {
   hostnameSetupCommand,
   parseMachineStats,
   BLAXEL_MAX_HOME_VOLUME_MB,
+  CMUX_CLOUD_USER_SETUP_COMMAND,
+  CMUX_HOME_BINDFS_COMMAND,
   CMUX_PROVISION_AGENT_PACKAGES,
   CMUX_PROVISION_COMMAND,
   CMUX_PROVISION_SCRIPT,
   CMUX_PROVISION_SCRIPT_PATH,
+  CMUX_SUDO_INSTALL_COMMAND,
+  userExecCommand,
   defaultHomeVolumeMbForMemory,
   resolveBlaxelMemoryMb,
   resolveHomeVolumeMb,
@@ -449,9 +453,59 @@ describe("background provisioning", () => {
       expect(CMUX_PROVISION_SCRIPT).toContain(pkg);
     }
     expect(CMUX_PROVISION_SCRIPT).toContain("cua-computer-server");
-    // Persistent-home placement: npm globals and bun survive sandbox resurrection.
-    expect(CMUX_PROVISION_SCRIPT).toContain("npm config set prefix /root/.npm-global");
-    expect(CMUX_PROVISION_SCRIPT).toContain("/root/.bun/bin/bun");
+    // Persistent-home placement: npm globals and bun survive sandbox resurrection,
+    // in the cmux user's home (the volume mount), never /root.
+    expect(CMUX_PROVISION_SCRIPT).toContain("npm config set prefix /home/cmux/.npm-global");
+    expect(CMUX_PROVISION_SCRIPT).toContain("/home/cmux/.bun/bin/bun");
+    expect(CMUX_PROVISION_SCRIPT).not.toContain("/root/.npm-global");
+    expect(CMUX_PROVISION_SCRIPT).not.toContain("/root/.bun");
+    // The stock-image path installs sudo too (baked images already ship it).
+    expect(CMUX_PROVISION_SCRIPT).toMatch(/apt-get install[^\n]*\n[^\n]*\bsudo\b/);
+    expect(CMUX_PROVISION_SCRIPT).toMatch(/apk add[^\n]*\bsudo\b/);
+    // Root-run provisioning hands what it wrote in the home to the work user.
+    expect(CMUX_PROVISION_SCRIPT).toContain("chown -R cmux:cmux /home/cmux/.bun /home/cmux/.npm-global /home/cmux/.local");
     expect(CMUX_PROVISION_SCRIPT).toContain("/tmp/cmux/provision.log");
+  });
+});
+
+describe("cloud work user setup", () => {
+  test("creates the cmux user idempotently with passwordless sudo policy", () => {
+    // uid 1001 keeps volume ownership stable across image generations; busybox
+    // adduser is the Alpine fallback; reruns are no-ops thanks to the id guard.
+    expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain("id -u cmux >/dev/null 2>&1 || useradd -m -u 1001 -s /bin/bash cmux");
+    expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain("adduser -D -s /bin/bash cmux");
+    expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain("printf 'cmux ALL=(ALL) NOPASSWD:ALL\\n' > /etc/sudoers.d/90-cmux-nopasswd");
+    expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain("chmod 0440 /etc/sudoers.d/90-cmux-nopasswd");
+  });
+
+  test("presents the root-squashing volume as cmux-owned through the bindfs view", () => {
+    // The Blaxel volume is virtiofs that squashes every guest identity to root
+    // (chown no-ops; a cmux-created file comes back root-owned and unwritable), so
+    // the home the user sees is a bindfs map over the backing mount: everything
+    // shown as cmux, real I/O done as root.
+    expect(CMUX_HOME_BINDFS_COMMAND).toContain("bindfs -o allow_other");
+    expect(CMUX_HOME_BINDFS_COMMAND).toContain("--force-user=cmux --force-group=cmux");
+    expect(CMUX_HOME_BINDFS_COMMAND).toContain("--create-for-user=root --create-for-group=root");
+    expect(CMUX_HOME_BINDFS_COMMAND).toContain("/cmux/home /home/cmux");
+    // The view mounts only when this machine has a volume, once, and bindfs is
+    // installed on demand for images that predate it being baked in.
+    expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain(CMUX_HOME_BINDFS_COMMAND);
+    expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain("if mountpoint -q /cmux/home 2>/dev/null && ! mountpoint -q /home/cmux 2>/dev/null");
+    expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain("apt-get install -y -qq --no-install-recommends bindfs");
+  });
+
+  test("sudo heal covers images baked before the sudo package (and stock Alpine)", () => {
+    expect(CMUX_SUDO_INSTALL_COMMAND).toContain("command -v sudo >/dev/null 2>&1");
+    expect(CMUX_SUDO_INSTALL_COMMAND).toContain("apt-get install -y -qq --no-install-recommends sudo");
+    expect(CMUX_SUDO_INSTALL_COMMAND).toContain("apk add --no-cache sudo");
+  });
+
+  test("user-facing exec runs as the work user, root only via legacy volume or sudo", () => {
+    const wrapped = userExecCommand("echo 'hi there'");
+    expect(wrapped).toContain("runuser -u cmux -- env HOME=/home/cmux USER=cmux LOGNAME=cmux sh -c 'echo '\\''hi there'\\'''");
+    // Legacy sandboxes (volume at /root) keep the historical root exec.
+    expect(wrapped).toContain("if mountpoint -q /root 2>/dev/null; then exec env HOME=/root sh -c");
+    // No user/runuser: fall back to root rather than failing the exec.
+    expect(wrapped).toContain("else exec env HOME=/home/cmux sh -c");
   });
 });
