@@ -209,6 +209,44 @@ import Testing
         ])
     }
 
+    @Test func structuredSubrouterRestoreRoutesItsChildThroughTheManagedCodexWrapper() throws {
+        let request = AgentRestoreRequest(
+            mode: .resumeAgent,
+            kind: "codex",
+            checkpointID: sessionID,
+            source: "agent-hook",
+            workingDirectory: "/tmp/project",
+            environment: [:],
+            launchCommand: AgentLaunchCommand(
+                launcher: "codex",
+                executablePath: "/opt/bin/codex",
+                arguments: ["/opt/bin/codex", "-c", "model_provider=subrouter"],
+                workingDirectory: "/tmp/project",
+                environment: [
+                    "SUBROUTER_CODEX_BIN": "/opt/bin/codex",
+                    "SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
+                ]
+            ),
+            preparedArguments: nil,
+            observedPermissionMode: nil
+        )
+
+        let invocation = try #require(
+            AgentRestorePlanner(isExecutableFile: { $0 == "/shim/codex" }).invocation(
+                for: request,
+                ambientEnvironment: [
+                    "PATH": "/usr/bin:/bin",
+                    "CMUX_CODEX_WRAPPER_SHIM": "/shim/codex",
+                ]
+            )
+        )
+
+        #expect(invocation.arguments.prefix(4) == ["sr", "codex", "resume", sessionID])
+        #expect(invocation.environment["SUBROUTER_CODEX_BIN"] == "/shim/codex")
+        #expect(invocation.environment["CMUX_CUSTOM_CODEX_PATH"] == "/opt/bin/codex")
+        #expect(invocation.environment["CMUX_AGENT_RESTORE_LAUNCH"] == "codex:\(sessionID)")
+    }
+
     @Test func structuredSubrouterRestoreKeepsProvedLaunchRoutingInputsAuthoritative() throws {
         let request = AgentRestoreRequest(
             mode: .resumeAgent,
