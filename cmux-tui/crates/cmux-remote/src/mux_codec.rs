@@ -19,6 +19,10 @@ pub(crate) const MAX_MUX_DOWNLOAD_LINE_BYTES: usize = REMOTE_SESSION_MESSAGE_MAX
 pub(crate) const MAX_MUX_LINE_BYTES: usize = MAX_MUX_UPLOAD_LINE_BYTES;
 const MAX_IN_FLIGHT_LINES: usize = 256;
 const MAX_IN_FLIGHT_BYTES: usize = MAX_MUX_DOWNLOAD_LINE_BYTES * 2;
+// Keep packet-declared part counts bounded even when callers configure an
+// unusually large byte maximum. `Vec::with_capacity(parts)` allocates before
+// any payload arrives, so the protocol needs an independent entry cap.
+const MAX_PARTS_PER_LINE: usize = MAX_MUX_DOWNLOAD_LINE_BYTES.div_ceil(CHUNK_BYTES);
 
 /// Return the serialized payload size for one JSONL message. A trailing LF is
 /// framing and is not part of the directional payload budget. EOF-terminated
@@ -150,7 +154,11 @@ impl<R> MuxLineAssembler<R> {
         let message = u64::from_be_bytes(packet[4..12].try_into().unwrap());
         let part = u32::from_be_bytes(packet[12..16].try_into().unwrap());
         let parts = u32::from_be_bytes(packet[16..20].try_into().unwrap());
-        if parts == 0 || part >= parts || parts as usize > self.maximum.div_ceil(CHUNK_BYTES) {
+        if parts == 0
+            || part >= parts
+            || parts as usize > self.maximum.div_ceil(CHUNK_BYTES)
+            || parts as usize > MAX_PARTS_PER_LINE
+        {
             return Err(MuxCodecError::InvalidPacket);
         }
         if !self.lines.contains_key(&message) {
@@ -314,5 +322,18 @@ mod tests {
             assembled = assembler.push(Lane::Bulk, packet).unwrap().or(assembled);
         }
         assert_eq!(assembled.unwrap().1, line);
+    }
+
+    #[test]
+    fn assembler_rejects_excessive_part_count_before_allocating() {
+        let parts = u32::try_from(MAX_PARTS_PER_LINE + 1).expect("test limit fits in u32");
+        let mut packet = BytesMut::with_capacity(HEADER_BYTES);
+        packet.extend_from_slice(&MAGIC);
+        packet.put_u64(1);
+        packet.put_u32(0);
+        packet.put_u32(parts);
+
+        let mut assembler = MuxLineAssembler::with_maximum(usize::MAX);
+        assert_eq!(assembler.push(Lane::Bulk, packet.freeze()), Err(MuxCodecError::InvalidPacket));
     }
 }

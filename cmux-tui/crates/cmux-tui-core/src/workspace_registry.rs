@@ -61,12 +61,17 @@ pub use public_projection_store::RegistryPublicProjections;
 #[cfg(test)]
 pub use public_projection_store::{RegistryAgentProjection, RegistryNotificationProjection};
 pub(crate) use resource_store::validate_registry_screen_projection;
+pub(crate) use resource_store::{
+    AGENT_HOOK_MAX_ATTEMPTS, AGENT_HOOK_MAX_RETRY_PAGES_PER_WAKE, AgentHookProjectionState,
+    AgentHookRetryClass,
+};
 #[allow(unused_imports)]
 pub use resource_store::{
     RegistryBrowser, RegistryBrowserLaunch, RegistryBrowserReconnect, RegistryBrowserSource,
     RegistryBrowserStatus, RegistryLayoutNode, RegistryPane, RegistryScreen, RegistryTab,
     RegistryViewport, RegistryViewportColumn, ResourceChange, ResourceEventBatch,
     ResourceEventPage, ResourcePatch, ResourcePatchCommit, ResourceTopologySnapshot,
+    ResourceWorkspaceLedger,
 };
 use resource_store::{
     apply_resource_patch, create_resource_schema, initialize_resource_mutation_retention,

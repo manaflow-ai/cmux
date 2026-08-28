@@ -2827,6 +2827,16 @@ pub(crate) fn test_remote_session_without_provider_authority() -> Session {
     Session::Remote(remote::test_session_without_provider_authority())
 }
 
+/// A remote session whose event transport already died with `reason`, the
+/// state the reader thread leaves behind before it synthesizes
+/// `MuxEvent::Empty` on connection loss.
+#[cfg(test)]
+pub(crate) fn test_remote_session_with_lost_transport(reason: &str) -> Session {
+    let session = remote::test_session_without_provider_authority();
+    session.disconnect_transport_with_reason(Some(reason.to_string()));
+    Session::Remote(session)
+}
+
 #[cfg(test)]
 fn test_remote_session_with_view_attachment_leases() -> Session {
     Session::Remote(remote::test_session_with_view_attachment_leases())

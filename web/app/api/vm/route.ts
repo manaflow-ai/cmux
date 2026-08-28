@@ -12,6 +12,7 @@ import {
   type ProviderId,
 } from "../../../services/vms/drivers";
 import { assertVmCreateEnabled } from "../../../services/vms/config";
+import { mintVmModelPlaneEnvBestEffort } from "../../../services/coderouter/vmModelPlane";
 import {
   isVmCreateDisabledError,
   isVmCreateFailedError,
@@ -33,6 +34,14 @@ import {
   imageUsesBakedFreestyleSignedAdmin,
   inferVmProviderForImage,
   resolveVmImage,
+} from "../../../services/vms/images/resolver";
+import {
+  reportVmImageConfigError,
+  isVmImageKind,
+  listVmImageKinds,
+  VM_IMAGE_KINDS,
+  vmImageKindFor,
+  type VmImageKind,
 } from "../../../services/vms/images/resolver";
 import { reconcileProPlanMetadata } from "../../../services/billing/pro";
 import { getStackServerApp, isStackConfigured } from "../../lib/stack";
@@ -116,6 +125,7 @@ export async function GET(request: Request): Promise<Response> {
         status: entry.status,
         image: entry.image,
         imageVersion: entry.imageVersion,
+        kind: vmImageKindFor(entry.provider, entry.image),
         createdAt: entry.createdAt,
         displayName: entry.displayName,
         // Server-authoritative expiry of the free access window for this machine
@@ -136,6 +146,9 @@ export async function GET(request: Request): Promise<Response> {
               : earliest === null ? vm.freeAccessExpiresAt : Math.min(earliest, vm.freeAccessExpiresAt),
             null,
           ),
+          // Kinds a client may request (and the image each resolves to) for the
+          // default provider, so a "new machine" dialog offers only kinds that work.
+          imageKinds: listVmImageKinds(defaultProviderId()),
         }
         : undefined;
       return jsonResponse({ vms, limits });
@@ -154,7 +167,7 @@ export async function POST(request: Request): Promise<Response> {
       timing.record("auth", authDurationMs);
       setResponseFinalizer((response) => {
         timing.finish({ status: response.status });
-        captureVmProvisionOutcome({ userId: initialUser.id, operation: "create", response });
+        captureVmProvisionOutcome({ userId: initialUser.id, operation: "create", response, span });
       });
       let user: AuthedUser = initialUser;
       {
@@ -202,6 +215,15 @@ export async function POST(request: Request): Promise<Response> {
             message: "`image` must be a string when provided.",
             action: "Remove `image` to use the default Cloud VM image, or pass a supported Cloud VM image id.",
             details: { field: "image" },
+          });
+        }
+        if (candidate.kind !== undefined && !isVmImageKind(candidate.kind)) {
+          return vmErrorResponse({
+            error: "vm_invalid_request",
+            status: 400,
+            message: `\`kind\` must be one of ${VM_IMAGE_KINDS.join(", ")} when provided.`,
+            action: "Remove `kind` to use the default Cloud VM image, or pass `desktop` or `base`.",
+            details: { field: "kind", allowedKinds: VM_IMAGE_KINDS },
           });
         }
         if (candidate.provider !== undefined) {
@@ -264,8 +286,9 @@ export async function POST(request: Request): Promise<Response> {
         if (requestHasBlankVmTeamId(request)) {
           return invalidTeamIdResponse();
         }
-        const body: { image?: string; provider?: ProviderId; billingTeamId?: string } = {
+        const body: { image?: string; kind?: VmImageKind; provider?: ProviderId; billingTeamId?: string } = {
           image: typeof candidate.image === "string" ? candidate.image : undefined,
+          kind: isVmImageKind(candidate.kind) ? candidate.kind : undefined,
           provider: candidate.provider as ProviderId | undefined,
           billingTeamId: typeof bodyBillingTeamId === "string" ? bodyBillingTeamId.trim() : undefined,
         };
@@ -276,7 +299,7 @@ export async function POST(request: Request): Promise<Response> {
         let imageSelection;
         try {
           assertVmCreateEnabled(provider);
-          imageSelection = resolveVmImage(provider, body.image);
+          imageSelection = resolveVmImage(provider, body.image, process.env, { kind: body.kind });
         } catch (err) {
           if (isVmCreateDisabledError(err)) {
             return vmErrorResponse({
@@ -288,13 +311,14 @@ export async function POST(request: Request): Promise<Response> {
             });
           }
           if (isVmImageConfigError(err)) {
+            const described = reportVmImageConfigError(err);
             return vmErrorResponse({
               error: "vm_image_config_error",
               status: 503,
-              message: "The requested Cloud VM image is not available in this environment.",
-              action: "Retry without `image` to use the default Cloud VM image, or ask an admin to configure a supported image.",
+              message: described.message,
+              action: described.action,
               reason: "Cloud VM image configuration is unavailable.",
-              details: { imageRequested: err.image !== undefined },
+              details: described.details,
               diagnostics: {
                 provider,
                 image: err.image,
@@ -403,6 +427,18 @@ export async function POST(request: Request): Promise<Response> {
           "cmux.vm.max_memory_mb": maxMemoryMb,
         });
 
+        // Wire the machine to coderouter: mint a per-machine route token and
+        // hand it over as create-time env (the baked image materializes agent
+        // configs from it). Best-effort: a coderouter outage or entitlement
+        // block ships an unwired machine, never a failed create.
+        const modelPlaneEnvs = await measureVmAsync(timing, "model_plane_env", () =>
+          mintVmModelPlaneEnvBestEffort({
+            teamId: entitlements.billingTeamId,
+            stackUserId: user.id,
+            requestUrl: request.url,
+          }));
+        setSpanAttributes(span, { "cmux.vm.model_plane_env": !!modelPlaneEnvs });
+
         let created;
         try {
           created = await runVmWorkflow(createVm({
@@ -419,6 +455,7 @@ export async function POST(request: Request): Promise<Response> {
             persistentHome: candidate.persistentHome === true,
             perMachineHome: candidate.perMachineHome === true,
             memoryMb,
+            envs: modelPlaneEnvs ?? undefined,
             timing,
           }));
         } catch (err) {
@@ -471,6 +508,7 @@ export async function POST(request: Request): Promise<Response> {
           provider: created.provider,
           image: created.image,
           imageVersion: created.imageVersion,
+          kind: imageSelection.kind,
           createdAt: created.createdAt,
         });
       }

@@ -41,6 +41,30 @@ struct CloudTuiCommandLine: Sendable {
         ["--socket", socketPath, "--json", "workspace", "create", "--name", name]
     }
 
+    /// `terminal <term_id> close`: end that remote terminal (spec `terminal.close`).
+    static func closeTerminalArguments(socketPath: String, terminalID: String) -> [String] {
+        ["--socket", socketPath, "--json", "terminal", terminalID, "close"]
+    }
+
+    /// `tab <tab_id> close`: drop the tab that held a terminal whose process already
+    /// exited — cmux-tui no longer resolves such a terminal by its own selector.
+    static func closeTabArguments(socketPath: String, tabID: String) -> [String] {
+        ["--socket", socketPath, "--json", "tab", tabID, "close"]
+    }
+
+    /// `workspace <ws_id> close`: remove the workspace view. Its terminals detach
+    /// (alive, zero views) rather than die (`spec/cli.md`) — close them first for
+    /// a full delete.
+    static func closeWorkspaceArguments(socketPath: String, workspaceID: String) -> [String] {
+        ["--socket", socketPath, "--json", "workspace", workspaceID, "close"]
+    }
+
+    /// `workspace <ws_id> rename --name <name>` (verified live: the positional
+    /// form is `usage.invalid`; the name rides the `--name` flag).
+    static func renameWorkspaceArguments(socketPath: String, workspaceID: String, name: String) -> [String] {
+        ["--socket", socketPath, "--json", "workspace", workspaceID, "rename", "--name", name]
+    }
+
     /// `attach --terminal <term_id>`: render exactly one remote terminal into this tty.
     static func attachArguments(socketPath: String, terminalID: String) -> [String] {
         ["--socket", socketPath, "attach", "--terminal", terminalID]

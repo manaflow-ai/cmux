@@ -13,6 +13,7 @@ extension CMUXCLI {
         workspaceId: String,
         surfaceId: String,
         sessionId: String?,
+        updatedAt: TimeInterval? = nil,
         sessionDidEnd: Bool = false,
         responseTimeout: TimeInterval? = nil,
         deadline: Date? = nil
@@ -24,6 +25,9 @@ extension CMUXCLI {
         ]
         if let normalizedSessionId {
             params["checkpoint_id"] = normalizedSessionId
+        }
+        if let updatedAt, updatedAt.isFinite {
+            params["expected_updated_at"] = updatedAt
         }
         if sessionDidEnd, normalizedSessionId != nil {
             params["agent_session_ended"] = true
