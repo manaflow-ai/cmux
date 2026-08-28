@@ -33057,6 +33057,45 @@ mod tests {
     }
 
     #[test]
+    fn stale_sidebar_tab_activation_restores_preview_origin() {
+        let mux = Mux::new("workspace-sidebar-preview-stale-tab-test", SurfaceOptions::default());
+        let first = mux.new_workspace(Some("Alpha".into()), Some((80, 24))).unwrap();
+        let second = mux.new_workspace(Some("Beta".into()), Some((80, 24))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_view = SidebarView::Workspaces;
+        app.replace_tree(app.session.tree());
+        app.tree.active_workspace = 0;
+        app.sidebar_workspace_selection = 0;
+        app.workspace_rail_scroll = 4;
+        let origin = app.tree.workspaces[0].id;
+        assert!(app.preview_workspace(1));
+        app.sidebar_workspace_selection = 1;
+
+        let target = app
+            .sidebar_tab_targets()
+            .into_iter()
+            .find(|target| target.workspace == 1)
+            .expect("dependent workspace tab target");
+        for screen in &mut app.tree.workspaces[1].screens {
+            for pane in &mut screen.panes {
+                pane.tabs.retain(|tab| tab.surface != target.surface);
+            }
+        }
+
+        app.activate_sidebar_tab(&target).unwrap();
+
+        assert_eq!(app.workspace_preview, None);
+        assert_eq!(app.tree.active_workspace, 0);
+        assert_eq!(app.tree.workspaces[app.tree.active_workspace].id, origin);
+        assert_eq!(app.sidebar_workspace_selection, 0);
+        assert_eq!(app.workspace_rail_scroll, 4);
+
+        for surface in [first.id, second.id] {
+            mux.close_surface(surface).unwrap();
+        }
+    }
+
+    #[test]
     fn tab_switch_moves_size_lease_without_dropping_hidden_surface() {
         let mux = Mux::new("visible-tab-sizing-test", SurfaceOptions::default());
         let first = mux.new_workspace(None, Some((120, 40))).unwrap();
@@ -42562,6 +42601,51 @@ mod tests {
 
         assert_eq!(app.tree.active_workspace, 1);
         assert_eq!(app.workspace_preview, None);
+        assert_eq!(app.focus, FocusTarget::Pane);
+
+        for surface in [first.id, second.id] {
+            mux.close_surface(surface).unwrap();
+        }
+    }
+
+    #[test]
+    fn denied_workspace_row_activation_restores_preview_origin() {
+        let mux = Mux::new("workspace-sidebar-preview-denied-row-test", SurfaceOptions::default());
+        let first = mux.new_workspace(Some("Alpha".into()), Some((80, 24))).unwrap();
+        let second = mux.new_workspace(Some("Beta".into()), Some((80, 24))).unwrap();
+        mux.select_workspace(Some(0), None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_view = SidebarView::Workspaces;
+        app.replace_tree(app.session.tree());
+        app.tree.active_workspace = 0;
+        app.sidebar_workspace_selection = 0;
+        app.workspace_rail_selection = WorkspaceRailSelection::Workspace;
+        app.focus = FocusTarget::WorkspaceRail;
+        app.workspace_rail_scroll = 5;
+        app.sync_layout((100, 20));
+
+        let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let row = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| {
+                matches!(hit, super::Hit::Workspace { index: 1, .. }).then_some(*rect)
+            })
+            .expect("second workspace hit");
+
+        app.handle_hover_with_admission(row.x, row.y, KeyModifiers::NONE, None).unwrap();
+        assert!(app.workspace_preview.is_some());
+        let mut machine_ui = provider_machine_ui();
+        machine_ui.session_available = false;
+        app.machine_ui = Some(machine_ui);
+
+        app.handle_left_down(row.x, row.y, KeyModifiers::NONE).unwrap();
+
+        assert_eq!(app.workspace_preview, None);
+        assert_eq!(app.tree.active_workspace, 0);
+        assert_eq!(app.sidebar_workspace_selection, 0);
+        assert_eq!(app.workspace_rail_scroll, 5);
         assert_eq!(app.focus, FocusTarget::Pane);
 
         for surface in [first.id, second.id] {
