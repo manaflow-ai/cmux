@@ -39,12 +39,12 @@ use crate::pairing::websocket_url;
 use crate::pty::FrameContext;
 #[cfg(unix)]
 use crate::pty::PtyManager;
-#[cfg(unix)]
-use crate::tunnel_terminal::{TunnelAuth, TunnelAuthState};
 use crate::trust::{
     DEFAULT_RELAY_TRUST, Trust, clear_invalid_yolo_confirmation, effective_local_trust,
     has_yolo_confirmation, relay_trust,
 };
+#[cfg(unix)]
+use crate::tunnel_terminal::{TunnelAuth, TunnelAuthState};
 use crate::wire::{
     CLI_VERSION, EXEC_PROTOCOL_VERSION, FRAME_VERSION, HelloFrame, PTY_PROTOCOL_VERSION,
     ServerFrame, advertised_protocol, heartbeat_frame, parse_server_frame, set_trust_frame,
@@ -615,9 +615,10 @@ async fn relay_session(
     // this socket opens carries this connection's identity, so closing or
     // reconnecting the socket cannot detach an independent tunnel attachment.
     #[cfg(unix)]
-    let transport_id = crate::pty::random_hex(16)
-        .map(|id| format!("relay-{id}"))
-        .map_err(|error| RelayError::transient(format!("unable to create relay transport identity: {error}")))?;
+    let transport_id =
+        crate::pty::random_hex(16).map(|id| format!("relay-{id}")).map_err(|error| {
+            RelayError::transient(format!("unable to create relay transport identity: {error}"))
+        })?;
 
     // Ordered PTY frame dispatch on its own task so a slow open (daemon
     // spawn) never stalls heartbeats or other frames.

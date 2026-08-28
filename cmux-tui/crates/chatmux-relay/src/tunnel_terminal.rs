@@ -514,12 +514,9 @@ async fn handle_client_frame(connection: &Arc<Connection>, frame: TunnelFrame) {
                 open["surface"] = Value::from(surface);
             }
             let context = connection.frame_context();
-            if tokio::time::timeout(
-                OPEN_TIMEOUT,
-                connection.manager.handle_frame(&open, &context),
-            )
-            .await
-            .is_err()
+            if tokio::time::timeout(OPEN_TIMEOUT, connection.manager.handle_frame(&open, &context))
+                .await
+                .is_err()
             {
                 connection.protocol_error("failed");
             }
@@ -936,7 +933,8 @@ mod tests {
 
     #[test]
     fn codec_round_trips_frames_split_at_every_byte_boundary() {
-        let control = encode_control_frame(&json!({ "t": "open", "cols": 80, "rows": 24 })).unwrap();
+        let control =
+            encode_control_frame(&json!({ "t": "open", "cols": 80, "rows": 24 })).unwrap();
         let pty = encode_pty_frame(b"echo hi\r").unwrap();
         let stream = [control, pty].concat();
         let mut decoder = TunnelFrameDecoder::new(MAX_TUNNEL_FRAME_BYTES);
@@ -1033,7 +1031,9 @@ mod tests {
 
     #[test]
     fn tunnel_frame_encoding_rejects_oversized_and_unknown_frames_in_release() {
-        assert!(encode_tunnel_frame(FRAME_KIND_PTY, &vec![0_u8; MAX_TUNNEL_FRAME_BYTES + 1]).is_none());
+        assert!(
+            encode_tunnel_frame(FRAME_KIND_PTY, &vec![0_u8; MAX_TUNNEL_FRAME_BYTES + 1]).is_none()
+        );
         assert!(encode_tunnel_frame(7, b"x").is_none());
         assert!(encode_pty_frame(b"ok").is_some());
     }
@@ -1071,8 +1071,7 @@ mod tests {
         write.write_all(&encode_pty_frame(b"ls\r").unwrap()).await.unwrap();
         write
             .write_all(
-                &encode_control_frame(&json!({ "t": "resize", "cols": 132, "rows": 43 }))
-                    .unwrap(),
+                &encode_control_frame(&json!({ "t": "resize", "cols": 132, "rows": 43 })).unwrap(),
             )
             .await
             .unwrap();
@@ -1181,8 +1180,7 @@ mod tests {
         let (mut read, mut write) = stream.into_split();
         write
             .write_all(
-                &encode_control_frame(&json!({ "t": "open", "cols": 80, "rows": 24 }))
-                    .unwrap(),
+                &encode_control_frame(&json!({ "t": "open", "cols": 80, "rows": 24 })).unwrap(),
             )
             .await
             .unwrap();
@@ -1205,8 +1203,7 @@ mod tests {
         let (mut read, mut write) = stream.into_split();
         write
             .write_all(
-                &encode_control_frame(&json!({ "t": "open", "cols": 80, "rows": 24 }))
-                    .unwrap(),
+                &encode_control_frame(&json!({ "t": "open", "cols": 80, "rows": 24 })).unwrap(),
             )
             .await
             .unwrap();

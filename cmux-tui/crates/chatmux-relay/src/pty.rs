@@ -436,16 +436,15 @@ impl PtyManager {
 
     /// Handle one Worker -> relay PTY frame.
     pub async fn handle_frame(&self, frame: &Value, context: &FrameContext) {
-        self.inner
-            .transport_auth
-            .lock()
-            .expect("transport auth lock")
-            .insert(context.transport_id.clone(), AuthSnapshot {
-            trust: context.trust.clone(),
-            owner_user_id: context.owner_user_id.clone(),
-            send: Arc::clone(&context.send),
-            buffered_amount: Arc::clone(&context.buffered_amount),
-        });
+        self.inner.transport_auth.lock().expect("transport auth lock").insert(
+            context.transport_id.clone(),
+            AuthSnapshot {
+                trust: context.trust.clone(),
+                owner_user_id: context.owner_user_id.clone(),
+                send: Arc::clone(&context.send),
+                buffered_amount: Arc::clone(&context.buffered_amount),
+            },
+        );
         let frame_type = frame.get("type").and_then(Value::as_str).unwrap_or_default();
         match frame_type {
             "pty_open" => self.inner.clone().open(frame, context).await,
