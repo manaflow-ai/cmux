@@ -20,6 +20,18 @@ import {
 } from "./types";
 import { withVmSpan } from "../telemetry";
 import { shellQuote } from "./wsLease";
+import {
+  approveCmuxTuiEnrollment,
+  cmuxTuiDaemonBuild,
+  cmuxTuiDaemonCommand as sharedCmuxTuiDaemonCommand,
+  cmuxTuiInstallCommand as sharedCmuxTuiInstallCommand,
+  isCmuxTuiDeviceEnrolled,
+  mintCmuxTuiInvitation,
+  resolveCmuxTuiSource as sharedResolveCmuxTuiSource,
+  waitForCmuxTuiReady as sharedWaitForCmuxTuiReady,
+  type CmuxTuiInvoke,
+  type CmuxTuiSource,
+} from "./cmuxTuiDaemon";
 
 // Blaxel sandboxes are name-addressed micro-VMs reached over HTTPS only: a per-sandbox
 // "sandbox API" (process exec + filesystem) on the control side, and per-port preview URLs
@@ -50,7 +62,7 @@ const CMUX_TUI_RAW_PREVIEW_NAME = "cmuxtui-raw";
 const CMUX_TUI_SESSION = "cloud";
 const CMUX_TUI_BINARY_PATH = "/root/.cmux/bin/cmux-tui";
 const CMUX_TUI_PROCESS_NAME = "cmux-tui-daemon";
-const CMUX_TUI_INVITATION_TTL_SECONDS = 5 * 60;
+
 const CMUX_TUI_INSTALL_TIMEOUT_MS = 5 * 60 * 1000;
 // Blaxel keeps a sandbox awake while any keepAlive process runs and freezes it ~15 s after the
 // last connection otherwise. The watcher is that keepAlive process: it stays alive while any
@@ -351,139 +363,21 @@ async function blaxelFetch<T>(
   return (text ? JSON.parse(text) : undefined) as T;
 }
 
-export type CmuxTuiSource = { url: string; sha256: string; commit: string; builtAt: string | null };
-
-export const CMUX_TUI_LINUX_TARGET = "cmux-tui-x86_64-unknown-linux-musl";
-export const CMUX_TUI_DEFAULT_MANIFEST_URL = "https://files.cmux.com/cmux-tui/latest/manifest.json";
-const CMUX_TUI_MANIFEST_CACHE_MS = 5 * 60 * 1000;
-
-/**
- * cmux-tui is the machine's session daemon; there is no other. CMUX_VM_CMUX_TUI_MANIFEST_URL
- * pins a deployment to one commit's manifest (`https://files.cmux.com/cmux-tui/<commit>/manifest.json`)
- * instead of the rolling `latest`. Nothing else is configured by hand: the build and its
- * sha256 come from the manifest the artifacts workflow publishes.
- */
-export function cmuxTuiManifestUrl(): string {
-  const url = env("CMUX_VM_CMUX_TUI_MANIFEST_URL") || CMUX_TUI_DEFAULT_MANIFEST_URL;
-  if (!/^https:\/\//.test(url)) {
-    throw new ProviderError("blaxel", "CMUX_VM_CMUX_TUI_MANIFEST_URL must be an https:// URL");
-  }
-  return url;
-}
-
-/** Parses an artifacts manifest into the Linux source; the binary URL is a sibling of the manifest. */
-export function parseCmuxTuiManifest(manifestUrl: string, manifest: unknown): CmuxTuiSource {
-  const record = manifest && typeof manifest === "object" ? manifest as Record<string, unknown> : {};
-  const commit = typeof record.commit === "string" ? record.commit : "";
-  const binaries = record.binaries && typeof record.binaries === "object" ? record.binaries as Record<string, unknown> : {};
-  const sha256 = typeof binaries[CMUX_TUI_LINUX_TARGET] === "string" ? (binaries[CMUX_TUI_LINUX_TARGET] as string).toLowerCase() : "";
-  if (!/^[0-9a-f]{40}$/.test(commit)) {
-    throw new ProviderError("blaxel", `cmux-tui manifest at ${manifestUrl} has no commit`);
-  }
-  if (!/^[0-9a-f]{64}$/.test(sha256)) {
-    throw new ProviderError("blaxel", `cmux-tui manifest at ${manifestUrl} has no ${CMUX_TUI_LINUX_TARGET} sha256 — publish artifacts from a main with the musl target`);
-  }
-  const base = manifestUrl.replace(/\/manifest\.json$/, "");
-  return {
-    url: `${base}/${CMUX_TUI_LINUX_TARGET}`,
-    sha256,
-    commit,
-    builtAt: typeof record.builtAt === "string" ? record.builtAt : null,
-  };
-}
-
-let cmuxTuiSourceCache: { url: string; fetchedAt: number; source: CmuxTuiSource } | null = null;
-
-/** The Linux daemon build to install, from the manifest (cached 5 min per manifest URL). */
-export async function resolveCmuxTuiSource(): Promise<CmuxTuiSource> {
-  const manifestUrl = cmuxTuiManifestUrl();
-  if (cmuxTuiSourceCache && cmuxTuiSourceCache.url === manifestUrl && Date.now() - cmuxTuiSourceCache.fetchedAt < CMUX_TUI_MANIFEST_CACHE_MS) {
-    return cmuxTuiSourceCache.source;
-  }
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 20_000);
-  let manifest: unknown;
-  try {
-    const response = await fetch(manifestUrl, { signal: controller.signal, cache: "no-store" });
-    if (!response.ok) {
-      throw new ProviderError("blaxel", `cmux-tui manifest fetch ${manifestUrl} -> ${response.status}`);
-    }
-    manifest = await response.json();
-  } catch (err) {
-    if (cmuxTuiSourceCache?.url === manifestUrl) {
-      // A transient manifest outage must not break creates: reuse the last good build.
-      return cmuxTuiSourceCache.source;
-    }
-    throw err instanceof ProviderError ? err : new ProviderError("blaxel", `cmux-tui manifest fetch ${manifestUrl} failed`, err);
-  } finally {
-    clearTimeout(timer);
-  }
-  const source = parseCmuxTuiManifest(manifestUrl, manifest);
-  cmuxTuiSourceCache = { url: manifestUrl, fetchedAt: Date.now(), source };
-  return source;
-}
-
-/** Test hook. */
-export function resetCmuxTuiSourceCache(): void {
-  cmuxTuiSourceCache = null;
-}
-
-/**
- * Installs the pinned cmux-tui binary onto the persistent home volume, skipping the
- * download when the installed copy already matches the pin. The VM fetches the ~50 MB
- * static musl binary itself (in-region, seconds) instead of the driver pushing a
- * ~30 MB base64 payload through the sandbox API on every cold create.
- */
-export function cmuxTuiInstallCommand(source: CmuxTuiSource): string {
-  const bin = shellQuote(CMUX_TUI_BINARY_PATH);
-  const tmp = shellQuote(`${CMUX_TUI_BINARY_PATH}.tmp`);
-  const pinned = (path: string) => `printf '%s  %s\n' ${shellQuote(source.sha256)} ${path} | sha256sum -c >/dev/null 2>&1`;
-  // A stock blaxel/base-image has no curl until background provisioning adds it, so
-  // the fetch installs curl itself (apk, Alpine) and falls back to busybox wget.
-  const fetch =
-    `(command -v curl >/dev/null 2>&1 || apk add --no-cache curl >/dev/null 2>&1 || true); ` +
-    `if command -v curl >/dev/null 2>&1; then curl -fsSL --retry 3 --retry-delay 2 -o ${tmp} ${shellQuote(source.url)}; ` +
-    `else wget -q -O ${tmp} ${shellQuote(source.url)}; fi`;
-  return [
-    `mkdir -p ${shellQuote(dirname(CMUX_TUI_BINARY_PATH))}`,
-    `if [ -x ${bin} ] && ${pinned(bin)}; then :; else ` +
-      `${fetch} && ${pinned(tmp)} && chmod 755 ${tmp} && mv -f ${tmp} ${bin}; fi`,
-    `ln -sfn ${bin} /usr/local/bin/cmux-tui`,
-    `${bin} --version`,
-  ].join(" && ");
-}
-
-/** The daemon command the sandbox supervisor runs. Launch cwd = /root so new terminals open in the persistent home. */
-export function cmuxTuiDaemonCommand(): string {
-  return `cd /root && env HOME=/root TERM=xterm-256color ${CMUX_TUI_BINARY_PATH} server start --session ${CMUX_TUI_SESSION} --remote-ws 0.0.0.0:${CMUX_TUI_PORT} --remote-ws-insecure-bind`;
-}
-
-/** Enrollment invitations are `cmux://enroll/<base64url JSON>`; the id and expiry inside are what the approve flow needs. */
-export function parseEnrollmentInvitationUri(uri: string): { id: string; expiresAtUnix: number; daemonFingerprint: string | null } {
-  const prefix = "cmux://enroll/";
-  if (!uri.startsWith(prefix)) {
-    throw new ProviderError("blaxel", "cmux-tui returned an invitation with an unexpected scheme");
-  }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(Buffer.from(uri.slice(prefix.length), "base64url").toString("utf8"));
-  } catch (err) {
-    throw new ProviderError("blaxel", "cmux-tui returned an undecodable invitation", err);
-  }
-  const record = parsed && typeof parsed === "object" ? parsed as Record<string, unknown> : {};
-  const id = typeof record.id === "string" ? record.id : "";
-  const expiresAtUnix = typeof record.expires_at_unix === "number" ? record.expires_at_unix : 0;
-  if (!id || !expiresAtUnix) {
-    throw new ProviderError("blaxel", "cmux-tui returned an invitation without an id or expiry");
-  }
-  return {
-    id,
-    expiresAtUnix,
-    daemonFingerprint: typeof record.daemon_fingerprint === "string" ? record.daemon_fingerprint : null,
-  };
-}
-
-const ENROLLMENT_ID_PATTERN = /^[A-Za-z0-9._-]{1,128}$/;
+// The daemon source resolution, install command, daemon command, and enrollment
+// flows live in ./cmuxTuiDaemon (shared with the E2B and Daytona drivers); the
+// re-exports keep this module the historical import site.
+export {
+  CMUX_TUI_LINUX_TARGET,
+  CMUX_TUI_DEFAULT_MANIFEST_URL,
+  cmuxTuiManifestUrl,
+  parseCmuxTuiManifest,
+  resolveCmuxTuiSource,
+  resetCmuxTuiSourceCache,
+  cmuxTuiInstallCommand,
+  cmuxTuiDaemonCommand,
+  parseEnrollmentInvitationUri,
+  type CmuxTuiSource,
+} from "./cmuxTuiDaemon";
 
 export const CMUX_TUI_CLIENT_CAPABILITY_USER_AGENT = "direct-ws-user-agent";
 
@@ -557,7 +451,7 @@ export class BlaxelProvider implements VMProvider {
                   runtime: {
                     image,
                     memory: memoryMb,
-                    envs: [{ name: "LANG", value: "C.UTF-8" }],
+                    envs: sandboxEnvs(options.envs),
                     ports: sandboxPorts(),
                   },
                   ...(homeVolume ? { volumes: [{ name: homeVolume, mountPath: HOME_VOLUME_MOUNT_PATH }] } : {}),
@@ -684,8 +578,8 @@ export class BlaxelProvider implements VMProvider {
 
   /** Installs (or re-verifies) the pinned binary and starts the daemon. */
   private async bootstrapCmuxTui(name: string, sandboxUrl: string): Promise<void> {
-    const source = await resolveCmuxTuiSource();
-    const install = await this.sandboxExec(sandboxUrl, cmuxTuiInstallCommand(source), CMUX_TUI_INSTALL_TIMEOUT_MS);
+    const source = await sharedResolveCmuxTuiSource("blaxel");
+    const install = await this.sandboxExec(sandboxUrl, sharedCmuxTuiInstallCommand(source), CMUX_TUI_INSTALL_TIMEOUT_MS);
     if (install.exitCode !== 0) {
       throw new ProviderError("blaxel", `cmux-tui install in ${name} failed: ${install.stderr || install.stdout}`);
     }
@@ -696,7 +590,7 @@ export class BlaxelProvider implements VMProvider {
   private async startCmuxTuiProcess(sandboxUrl: string): Promise<void> {
     await blaxelFetch<BlaxelProcess>("POST", `${sandboxUrl}/process`, {
       name: CMUX_TUI_PROCESS_NAME,
-      command: cmuxTuiDaemonCommand(),
+      command: sharedCmuxTuiDaemonCommand(),
       waitForCompletion: false,
       // Not keepAlive: the smart-sleep watcher counts connections on the daemon's port,
       // so an idle machine still drops to standby.
@@ -706,35 +600,21 @@ export class BlaxelProvider implements VMProvider {
     });
   }
 
-  private async waitForCmuxTuiReady(name: string, sandboxUrl: string): Promise<void> {
-    let last = "";
-    for (let attempt = 0; attempt < 15; attempt += 1) {
-      const status = await this.cmuxTuiExec(sandboxUrl, `server status --session ${CMUX_TUI_SESSION}`).catch(() => null);
-      if (status?.exitCode === 0) return;
-      last = status ? (status.stderr || status.stdout) : "status probe failed";
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-    }
-    throw new ProviderError("blaxel", `cmux-tui daemon in ${name} did not become ready: ${last}`);
+  private waitForCmuxTuiReady(name: string, sandboxUrl: string): Promise<void> {
+    return sharedWaitForCmuxTuiReady(this.cmuxTuiInvoke(sandboxUrl), "blaxel", name);
   }
 
   private cmuxTuiExec(sandboxUrl: string, args: string, timeoutMs = EXEC_DEFAULT_TIMEOUT_MS): Promise<ExecResult> {
     return this.sandboxExec(sandboxUrl, `env HOME=/root ${CMUX_TUI_BINARY_PATH} ${args}`, timeoutMs);
   }
 
-  /** The installed daemon's build identity and remote protocol, so clients can name a mismatch instead of hanging. */
-  private async cmuxTuiDaemonBuild(sandboxUrl: string): Promise<CmuxRemoteEndpoint["daemonBuild"] | null> {
-    const probe = await this.cmuxTuiExec(sandboxUrl, "remote-probe --json").catch(() => null);
-    if (!probe || probe.exitCode !== 0) return null;
-    const record = parseJsonObject(probe.stdout);
-    const commit = typeof record.build_identity === "string" ? record.build_identity : null;
-    const remoteProtocol = typeof record.remote_protocol === "number" ? record.remote_protocol : null;
-    const version = typeof record.version === "string" ? record.version : null;
-    if (!commit && remoteProtocol === null) return null;
-    return { commit, remoteProtocol, version };
+  /** Adapts the sandbox API exec to the shared cmux-tui flows. */
+  private cmuxTuiInvoke(sandboxUrl: string): CmuxTuiInvoke {
+    return (args, timeoutMs) => this.cmuxTuiExec(sandboxUrl, args, timeoutMs ?? EXEC_DEFAULT_TIMEOUT_MS);
   }
 
   private async ensureCmuxTuiRunning(vmId: string, sandboxUrl: string): Promise<void> {
-    const source = await resolveCmuxTuiSource();
+    const source = await sharedResolveCmuxTuiSource("blaxel");
     const proc = await blaxelFetch<BlaxelProcess>("GET", `${sandboxUrl}/process/${CMUX_TUI_PROCESS_NAME}`).catch(() => null);
     if (proc?.status !== "running") {
       // The binary lives on the persistent volume, so a resurrected sandbox usually only
@@ -812,27 +692,16 @@ export class BlaxelProvider implements VMProvider {
           // never inside an invitation.
           const route = `wss://${host}/v1/link?bl_preview_token=${encodeURIComponent(token)}`;
 
+          const invoke = this.cmuxTuiInvoke(sandboxUrl);
           let invitation: CmuxRemoteEndpoint["invitation"];
           const enrolled = options?.deviceFingerprint
-            ? await this.isDeviceEnrolled(sandboxUrl, options.deviceFingerprint)
+            ? await isCmuxTuiDeviceEnrolled(invoke, options.deviceFingerprint)
             : false;
           if (!enrolled) {
-            const created = await this.cmuxTuiExec(
-              sandboxUrl,
-              `remote enroll create --session ${CMUX_TUI_SESSION} --ttl ${CMUX_TUI_INVITATION_TTL_SECONDS} --json`,
-            );
-            if (created.exitCode !== 0) {
-              throw new ProviderError("blaxel", `cmux-tui enrollment invitation in ${vmId} failed: ${created.stderr || created.stdout}`);
-            }
-            const uri = parseJsonObject(created.stdout).uri;
-            if (typeof uri !== "string" || !uri) {
-              throw new ProviderError("blaxel", `cmux-tui enrollment invitation in ${vmId} returned no uri`);
-            }
-            const parsed = parseEnrollmentInvitationUri(uri);
-            invitation = { uri, invitationId: parsed.id, expiresAtUnix: parsed.expiresAtUnix };
+            invitation = await mintCmuxTuiInvitation(invoke, "blaxel", vmId);
           }
           span.setAttribute("cmux.vm.cmux_remote.invited", !enrolled);
-          const daemonBuild = await this.cmuxTuiDaemonBuild(sandboxUrl);
+          const daemonBuild = await cmuxTuiDaemonBuild(invoke);
           return {
             transport: "cmux-remote",
             route,
@@ -854,45 +723,13 @@ export class BlaxelProvider implements VMProvider {
       "cmux.vm.provider.approve_cmux_remote_enrollment",
       { "cmux.vm.provider": "blaxel", "cmux.vm.operation": "approve_cmux_remote_enrollment", "cmux.vm.id": vmId },
       async () => {
-        if (!ENROLLMENT_ID_PATTERN.test(invitationId)) {
-          throw new ProviderError("blaxel", "invitation id has an unexpected shape");
-        }
         try {
           const sandboxUrl = await this.sandboxApiUrl(vmId);
-          const pending = await this.cmuxTuiExec(sandboxUrl, `remote enroll pending --session ${CMUX_TUI_SESSION} --json`);
-          if (pending.exitCode !== 0) {
-            throw new ProviderError("blaxel", `cmux-tui pending enrollments in ${vmId} failed: ${pending.stderr || pending.stdout}`);
-          }
-          const entries = parseJsonArray(pending.stdout);
-          const match = entries.find((entry) => entry.invitation_id === invitationId);
-          if (!match) {
-            // The client has not claimed the invitation yet (or it expired); the caller polls.
-            return { approved: false, state: "pending" };
-          }
-          const approved = await this.cmuxTuiExec(
-            sandboxUrl,
-            `remote enroll approve ${shellQuote(invitationId)} --session ${CMUX_TUI_SESSION} --json`,
-          );
-          if (approved.exitCode !== 0) {
-            throw new ProviderError("blaxel", `cmux-tui enrollment approval in ${vmId} failed: ${approved.stderr || approved.stdout}`);
-          }
-          const device = parseJsonObject(approved.stdout);
-          const fingerprint = typeof device.fingerprint === "string"
-            ? device.fingerprint
-            : typeof match.device_fingerprint === "string" ? match.device_fingerprint : undefined;
-          return { approved: true, state: "approved", ...(fingerprint ? { deviceFingerprint: fingerprint } : {}) };
+          return await approveCmuxTuiEnrollment(this.cmuxTuiInvoke(sandboxUrl), "blaxel", vmId, invitationId);
         } catch (err) {
           throw err instanceof ProviderError ? err : new ProviderError("blaxel", `approveCmuxRemoteEnrollment(${vmId}) failed`, err);
         }
       },
-    );
-  }
-
-  private async isDeviceEnrolled(sandboxUrl: string, fingerprint: string): Promise<boolean> {
-    const devices = await this.cmuxTuiExec(sandboxUrl, `remote enroll devices --session ${CMUX_TUI_SESSION} --json`).catch(() => null);
-    if (!devices || devices.exitCode !== 0) return false;
-    return parseJsonArray(devices.stdout).some((device) =>
-      device.fingerprint === fingerprint && (device.revoked_at_unix === null || device.revoked_at_unix === undefined)
     );
   }
 
@@ -1136,7 +973,9 @@ export class BlaxelProvider implements VMProvider {
         runtime: {
           image,
           memory: memoryMb,
-          envs: [{ name: "LANG", value: "C.UTF-8" }],
+          // Create-time model-plane envs are gone here by design; the machine
+          // re-sources them from the home volume (see sandboxEnvs).
+          envs: sandboxEnvs(),
           ports: sandboxPorts(),
         },
         volumes: [{ name: homeVolume, mountPath: HOME_VOLUME_MOUNT_PATH }],
@@ -1484,6 +1323,23 @@ const NAME_ANIMALS = [
 
 export function sandboxPorts(): Array<{ name: string; protocol: "HTTP"; target: number }> {
   return [{ name: CMUX_TUI_PREVIEW_NAME, protocol: "HTTP", target: CMUX_TUI_PORT }];
+}
+
+/**
+ * Machine-level env for the sandbox create payload: LANG always (PTYs from
+ * the sandbox API do not inherit image ENV), plus caller-supplied env such
+ * as the coderouter model-plane vars. Create-time only: Blaxel envs are
+ * immutable after create and are NOT replayed on resurrect, so anything a
+ * machine must keep across a resurrect is persisted onto the home volume by
+ * /etc/cmux/agent-config.sh at first shell. LANG wins on name collision.
+ */
+export function sandboxEnvs(
+  extra?: Readonly<Record<string, string>>,
+): Array<{ name: string; value: string }> {
+  const envs = Object.entries(extra ?? {})
+    .filter(([name]) => name !== "LANG")
+    .map(([name, value]) => ({ name, value }));
+  return [{ name: "LANG", value: "C.UTF-8" }, ...envs];
 }
 
 export function friendlyVmName(withSuffix = false): string {
