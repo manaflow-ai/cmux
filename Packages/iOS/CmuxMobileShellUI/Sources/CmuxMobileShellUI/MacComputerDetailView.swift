@@ -110,6 +110,7 @@ struct MacComputerDetailView: View {
     }
     var body: some View {
         Form {
+            macUpdateRequiredSection
             connectionMethodSection
             appearanceSection
             connectionSection
@@ -281,6 +282,57 @@ struct MacComputerDetailView: View {
     /// per (device, build) and local to this iPhone.
     private var selectedMethod: MobileConnectionMethod {
         pairedMac.map { store.connectionMethod(for: $0) } ?? .automatic
+    }
+
+    private var needsMacUpdate: Bool {
+        MobileMacPairingFloor.pairingRequiresMacUpdate(routes: pairedMac?.routes ?? [])
+    }
+
+    /// The full "update this Mac" explanation behind the row's compact badge:
+    /// why the pairing stopped dialing, what lifts the floor, and the way
+    /// back for users who cannot update the Mac yet. Leads the form so the
+    /// one action that unblocks everything below is impossible to miss.
+    @ViewBuilder
+    private var macUpdateRequiredSection: some View {
+        if needsMacUpdate {
+            Section {
+                VStack(alignment: .leading, spacing: 8) {
+                    Label(
+                        L10n.string(
+                            "mobile.computers.macUpdate.title",
+                            defaultValue: "Update cmux on this Mac"
+                        ),
+                        systemImage: "exclamationmark.triangle.fill"
+                    )
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.orange)
+                    Text(macUpdateDetailText)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.vertical, 4)
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("MobileComputerMacUpdateCallout")
+            }
+        }
+    }
+
+    private var macUpdateDetailText: String {
+        [
+            String(
+                format: L10n.string(
+                    "mobile.computers.macUpdate.detailFormat",
+                    defaultValue: """
+                    This iPhone version speaks a new connection protocol and pairs only with an \
+                    updated Mac. Update cmux on this Mac to %@; the computer reconnects \
+                    automatically, with no need to sign out or pair again.
+                    """
+                ),
+                MobileMacPairingFloor.requiredMacVersionLabel
+            ),
+            MobileMacPairingFloor.revertGuidance,
+        ].joined(separator: " ")
     }
 
     /// The Settings connection-method UI, moved here verbatim (same picker
@@ -594,18 +646,24 @@ struct MacComputerDetailView: View {
                 defaultValue: "Dials this computer's encrypted Iroh identity using the addresses you enable below — for LAN, WireGuard, or any network where it's reachable. No relay discovery, no other computers' routes."
             )
         case .automatic:
-            return L10n.string(
-                "mobile.settings.connectionMethod.automaticFooter",
-                defaultValue: "Requires cmux 0.64.20 or later on your Mac. Connects automatically over an authenticated, end-to-end encrypted connection."
+            return String(
+                format: L10n.string(
+                    "mobile.settings.connectionMethod.automaticFooterFormat",
+                    defaultValue: "Requires %@ on your Mac. Connects automatically over an authenticated, end-to-end encrypted connection."
+                ),
+                MobileMacPairingFloor.requiredMacVersionLabel
             )
         case .tailscale:
-            return L10n.string(
-                "mobile.settings.connectionMethod.tailscaleFooter",
-                defaultValue: """
-                Works with cmux 0.64.17 or later on your Mac. Install Tailscale on both devices, join the same \
-                network, then scan the Mac's pairing code once. cmux stays disconnected until that local \
-                authorization exists.
-                """
+            return String(
+                format: L10n.string(
+                    "mobile.settings.connectionMethod.tailscaleFooterFormat",
+                    defaultValue: """
+                    Works with %@ on your Mac. Install Tailscale on both devices, join the same \
+                    network, then scan the Mac's pairing code once. cmux stays disconnected until \
+                    that local authorization exists.
+                    """
+                ),
+                MobileMacPairingFloor.requiredMacVersionLabel
             )
         }
     }

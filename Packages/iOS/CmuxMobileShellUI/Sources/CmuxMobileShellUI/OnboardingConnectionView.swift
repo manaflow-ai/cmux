@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
 import SwiftUI
@@ -93,19 +94,28 @@ struct OnboardingConnectionView: View {
                 defaultValue: "Open any workspace and respond when an agent needs you."
             )
         }
+        // The floor sentence is composed in, not baked into each body, so
+        // every connect surface names the same minimum Mac version from
+        // MobileMacPairingFloor and the cut-time edit stays one value.
         if connectionMethod == .tailscale {
-            return L10n.string(
-                "mobile.onboarding.connect.tailscaleBody",
-                defaultValue: """
-                Works with cmux 0.64.17 or later. Install Tailscale on both devices and join the same network. \
-                On 0.64.17, choose Connect iPhone/iPad and scan the Pair iPhone code once.
-                """
-            )
+            return [
+                MobileMacPairingFloor.requiredOnMacSentence,
+                L10n.string(
+                    "mobile.onboarding.connect.tailscaleSteps",
+                    defaultValue: """
+                    Install Tailscale on both devices and join the same network, \
+                    then open Tailscale Pairing on the Mac and scan its code once.
+                    """
+                ),
+            ].joined(separator: " ")
         }
-        return L10n.string(
-            "mobile.onboarding.connect.body",
-            defaultValue: "Use the same cmux account on both devices. Your Mac connects automatically."
-        )
+        return [
+            L10n.string(
+                "mobile.onboarding.connect.body",
+                defaultValue: "Use the same cmux account on both devices. Your Mac connects automatically."
+            ),
+            MobileMacPairingFloor.requiredOnMacSentence,
+        ].joined(separator: " ")
     }
 }
 

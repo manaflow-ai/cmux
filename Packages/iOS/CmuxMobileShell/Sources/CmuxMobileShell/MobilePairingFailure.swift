@@ -325,9 +325,12 @@ extension MobilePairingFailureCategory {
                 """
             )
         case .macUpdateRequired:
-            return L10n.string(
-                "mobile.pairing.macUpdateRequired",
-                defaultValue: "Update cmux on this Mac to connect securely."
+            return String(
+                format: L10n.string(
+                    "mobile.pairing.macUpdateRequiredFormat",
+                    defaultValue: "Update cmux on this Mac to %@ to connect securely."
+                ),
+                MobileMacPairingFloor.requiredMacVersionLabel
             )
         case .unsupportedRoute:
             return L10n.string(
@@ -424,10 +427,16 @@ extension MobilePairingFailureCategory {
                 defaultValue: "Update cmux from the App Store (or TestFlight), then scan again."
             )
         case .macUpdateRequired:
-            return L10n.string(
-                "mobile.pairing.guidance.macUpdateRequired",
-                defaultValue: "Your saved computer will reconnect automatically after you update cmux on the Mac. You do not need to sign out or pair again."
-            )
+            // The revert path rides along so the one moment the user actually
+            // hits the floor also names the way back (shared with the
+            // Computers detail callout).
+            return [
+                L10n.string(
+                    "mobile.pairing.guidance.macUpdateRequired",
+                    defaultValue: "Your saved computer will reconnect automatically after you update cmux on the Mac. You do not need to sign out or pair again."
+                ),
+                MobileMacPairingFloor.revertGuidance,
+            ].joined(separator: " ")
         case .routeCleanupBlocked:
             return L10n.string(
                 "mobile.pairing.guidance.routeCleanupBlocked",
