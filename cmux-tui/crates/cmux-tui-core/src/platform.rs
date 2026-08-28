@@ -781,7 +781,7 @@ fn interpreter_script_path(pid: u32, executable: &Path) -> Option<String> {
         .filter(|argument| !argument.is_empty())
         .collect::<Vec<_>>();
     for argument in arguments.into_iter().skip(1) {
-        if argument.first().is_some_and(u8::is_ascii) && argument[0] == b'-' {
+        if argument.first().is_some_and(|byte| *byte == b'-') {
             continue;
         }
         let argument = std::str::from_utf8(argument).ok()?;
@@ -1190,7 +1190,8 @@ mod tests {
         child.wait().unwrap();
         let _ = std::fs::remove_dir_all(&root);
 
-        assert_eq!(observed.as_deref(), Some(script.to_string_lossy().as_ref()));
+        let expected = script.to_string_lossy().into_owned();
+        assert_eq!(observed.as_deref(), Some(expected.as_str()));
     }
 
     fn position(candidates: &[GhosttyInstallation], expected: impl AsRef<Path>) -> usize {
