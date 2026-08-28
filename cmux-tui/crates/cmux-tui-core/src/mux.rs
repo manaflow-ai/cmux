@@ -8765,19 +8765,22 @@ impl Mux {
                 (surface, (*terminal_id).clone())
             }
         };
-        if source == AgentSource::Socket
+        if source != AgentSource::Hook
             && self.agent_hook_tombstones.lock().unwrap().contains(&terminal_id)
         {
             anyhow::bail!("agent session ended for terminal {terminal_id}");
         }
-        let hook_marker = (source == AgentSource::Socket).then(|| {
-            self.agent_hook_sequences
-                .lock()
-                .unwrap()
-                .get(&terminal_id)
-                .map(|sequence| format!("cmux-hook-sequence:{sequence}"))
-        });
-        let persisted_source_session = hook_marker.flatten().or(source_session.clone());
+        let hook_marker = self
+            .agent_hook_sequences
+            .lock()
+            .unwrap()
+            .get(&terminal_id)
+            .map(|sequence| format!("cmux-hook-sequence:{sequence}"));
+        let persisted_source_session = if source == AgentSource::Hook {
+            source_session.clone()
+        } else {
+            hook_marker.or(source_session.clone())
+        };
         let source_session = source_session.filter(|value| {
             !value.starts_with("cmux-hook-sequence:") && !value.starts_with("cmux-hook-ended:")
         });
@@ -21887,6 +21890,9 @@ mod tests {
             mux.workspace_registry.lock().unwrap().public_agent_projections(None, None).unwrap();
         assert_eq!(public_agents.len(), 1);
         assert_eq!(public_agents[0].source_session, None);
+        let snapshot = crate::resource_api::public_session_snapshot(&mux).unwrap();
+        let snapshot_agent = snapshot["agents"].as_array().unwrap().first().unwrap();
+        assert!(snapshot_agent["source_session"].is_null());
     }
 
     #[test]
