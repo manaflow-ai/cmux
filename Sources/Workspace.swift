@@ -11534,20 +11534,29 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 
         guard let targetPanelId, let targetPanel = panels[targetPanelId] else { return }
 
-        for (panelId, panel) in panels where panelId != targetPanelId {
-            panel.unfocus()
-        }
-
+        // Materialization replaces the placeholder in the registry while keeping
+        // its stable UUID. Continue this reconciliation with the replacement so
+        // focus and panel metadata are applied to the live BrowserPanel.
+        var resolvedTargetPanel: any Panel = targetPanel
         if targetPanel is DeferredBrowserPanel {
             _ = requestDeferredBrowserMaterialization(
                 panelId: targetPanelId,
                 isVisibleInUI: true,
                 reason: "workspace.reconcileFocus"
             )
-        } else {
-            targetPanel.focus()
+            resolvedTargetPanel = panels[targetPanelId] ?? targetPanel
         }
-        if let terminalPanel = targetPanel as? TerminalPanel {
+
+        for (panelId, panel) in panels where panelId != targetPanelId {
+            panel.unfocus()
+        }
+
+        // The owner request can be deferred while restore suppression is active;
+        // keep the placeholder inert until the follow-up pass.
+        if !(resolvedTargetPanel is DeferredBrowserPanel) {
+            resolvedTargetPanel.focus()
+        }
+        if let terminalPanel = resolvedTargetPanel as? TerminalPanel {
             terminalPanel.hostedView.ensureFocus(for: id, surfaceId: targetPanelId)
         }
         if let dir = panelDirectories[targetPanelId] {
@@ -13149,8 +13158,22 @@ extension Workspace: BonsplitDelegate {
             return
         }
         let effectiveFocusedPanelId = effectiveSelectedPanelId(inPane: focusedPane) ?? selectedPanelId
-        guard let panel = panels[effectiveFocusedPanelId],
-              let activationPanel = controlSurfaceProjection(forContainerPanelID: effectiveFocusedPanelId)?.panel else { return }
+        guard let initialPanel = panels[effectiveFocusedPanelId] else { return }
+        var panel: any Panel = initialPanel
+        if panel is DeferredBrowserPanel {
+            _ = requestDeferredBrowserMaterialization(
+                panelId: effectiveFocusedPanelId,
+                isVisibleInUI: true,
+                reason: "workspace.applyTabSelection"
+            )
+            // The request may replace the object while preserving the panel ID.
+            // Re-resolve before preparing or activating focus so the live browser
+            // receives the normal focus/autofocus path.
+            panel = panels[effectiveFocusedPanelId] ?? panel
+        }
+        guard let activationPanel = controlSurfaceProjection(
+            forContainerPanelID: effectiveFocusedPanelId
+        )?.panel else { return }
 
         if debugStressPreloadSelectionDepth > 0 {
             if let terminalPanel = panel as? TerminalPanel {
