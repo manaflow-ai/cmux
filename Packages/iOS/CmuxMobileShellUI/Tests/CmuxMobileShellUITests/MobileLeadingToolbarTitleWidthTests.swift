@@ -97,14 +97,16 @@ import Testing
         // menu; a collapse born on the first pass never produces the
         // attach-then-detach signature the recovery ratchet watches, so it
         // sticks until the next remount.
+        // 300pt keeps both caps below maximumMeasuredCap so the reserve
+        // delta is observable rather than flattened by the ceiling.
         let clusterOnly = MobileLeadingToolbarTitleWidth(
-            contentWidth: 402,
+            contentWidth: 300,
             hasBackButton: true,
             hasTrailingCluster: true,
             trailingItemCount: 1
         )
         let clusterPlusChip = MobileLeadingToolbarTitleWidth(
-            contentWidth: 402,
+            contentWidth: 300,
             hasBackButton: true,
             hasTrailingCluster: true,
             trailingItemCount: 2
