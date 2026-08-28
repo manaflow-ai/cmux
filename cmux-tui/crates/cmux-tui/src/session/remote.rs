@@ -3,7 +3,7 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
-use std::io::{self, BufRead, BufReader, Read, Write};
+use std::io::{self, BufRead, BufReader, Write};
 use std::net::Shutdown;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -3079,11 +3079,7 @@ impl RemoteSession {
 
     /// Routes one scoped surface's raw byte stream to a `--pipe-io` relay.
     /// Install before `attach-surface` so the initial replay is not missed.
-    pub fn install_pipe_io_tap(
-        &self,
-        surface: SurfaceId,
-        queue: Arc<PipeIoQueue>,
-    ) -> u64 {
+    pub fn install_pipe_io_tap(&self, surface: SurfaceId, queue: Arc<PipeIoQueue>) -> u64 {
         let id = self.next_pipe_io_tap_id.fetch_add(1, Ordering::Relaxed);
         *self.pipe_io_tap.lock().unwrap() = Some(PipeIoTap { id, surface, queue });
         id
@@ -3111,7 +3107,10 @@ impl RemoteSession {
             if tap.surface != surface {
                 return;
             }
-            matches!(tap.queue.push(event()), Err(PipeIoQueuePushError::Full))
+            matches!(
+                tap.queue.push(event()),
+                Err(PipeIoQueuePushError::Full | PipeIoQueuePushError::Closed)
+            )
         };
         if stalled {
             self.disconnect_transport();
