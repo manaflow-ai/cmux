@@ -18,8 +18,6 @@ final class RenderNodeContextMenuView: NSView {
     var isMenuEnabled = true
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        let builder = RenderNodeContextMenuBuilder(dispatch: dispatch)
-        guard isMenuEnabled, builder.hasPresentableItems(nodes: nodes) else { return nil }
         // AppKit gives NSView.hitTest(_:) a point in this view's local
         // coordinate system. Use bounds for the local containment test.
         guard bounds.contains(point), let event = NSApp.currentEvent else { return nil }
@@ -31,6 +29,11 @@ final class RenderNodeContextMenuView: NSView {
         default:
             return nil
         }
+        // Ordinary pointer events are rejected above before walking the
+        // render-tree menu IR. This keeps sidebar hit testing cheap while
+        // moving, clicking, and dragging over rows.
+        let builder = RenderNodeContextMenuBuilder(dispatch: dispatch)
+        guard isMenuEnabled, builder.hasPresentableItems(nodes: nodes) else { return nil }
         // SwiftUI resolves the context menu of the view under the pointer,
         // so a nested `.contextMenu` inside this row must win over this
         // (topmost) overlay. Deferring lets AppKit's hit-test recursion
