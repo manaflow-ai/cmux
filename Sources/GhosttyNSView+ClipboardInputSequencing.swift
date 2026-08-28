@@ -68,6 +68,7 @@ extension GhosttyNSView {
         ) { [weak self] deferredInput in
             self?.replayClipboardDeferredInput(deferredInput)
         }
+        scheduleMouseRepairAfterClipboardDrainIfNeeded()
     }
 
     func cancelClipboardRead(
@@ -82,6 +83,7 @@ extension GhosttyNSView {
         ) { [weak self] deferredInput in
             self?.replayClipboardDeferredInput(deferredInput)
         }
+        scheduleMouseRepairAfterClipboardDrainIfNeeded()
     }
 
     func cancelReservedClipboardRead(
@@ -98,6 +100,12 @@ extension GhosttyNSView {
         ) { [weak self] deferredInput in
             self?.replayClipboardDeferredInput(deferredInput)
         }
+        scheduleMouseRepairAfterClipboardDrainIfNeeded()
+    }
+
+    private func scheduleMouseRepairAfterClipboardDrainIfNeeded() {
+        guard !hasClipboardInputDeferral else { return }
+        scheduleGhosttyMouseButtonRepair(reason: "clipboardInputDrained")
     }
 
     func routeInputDuringClipboardRead(_ event: NSEvent) -> Bool {

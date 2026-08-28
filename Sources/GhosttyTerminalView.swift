@@ -4015,6 +4015,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     private var hasUsableFocusGeometry: Bool { bounds.width > 1 && bounds.height > 1 }
 
+    fileprivate var hasClipboardInputDeferral: Bool {
+        terminalClipboardInputSequencer.hasInputDeferral(
+            for: terminalSurface?.runtimeSurfaceGeneration ?? .max
+        )
+    }
+
     static func shouldRequestFirstResponderForMouseFocus(
         focusFollowsMouseEnabled: Bool,
         pressedMouseButtons: Int,
@@ -4239,6 +4245,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private func localEventMouseUp(_ event: NSEvent) -> NSEvent? {
         guard let button = TrackedMouseButton(mouseUpEvent: event),
               ghosttyPressedMouseButtons.contains(button) else { return event }
+        // The normal mouse-up path is buffered while a sequenced clipboard
+        // read is in flight. Let that event replay in order instead of
+        // synthesizing a release ahead of the queued gesture.
+        guard !hasClipboardInputDeferral else { return event }
 
         if let eventWindow = event.window, eventWindow == window {
             _ = rememberGhosttyMouseState(from: event)
