@@ -3,15 +3,10 @@ import CmuxSwiftRender
 import Testing
 @testable import CmuxSwiftRenderUI
 
-/// Collects dispatched actions from menu item activations (mutated on main).
-private final class ActionBox: @unchecked Sendable {
-    var actions: [ButtonAction] = []
-}
-
 @MainActor
 @Suite("RenderNode → NSMenu builder")
 struct RenderNodeMenuBuilderTests {
-    private func capturingDispatch(_ box: ActionBox) -> SidebarActionDispatch {
+    private func capturingDispatch(_ box: MenuActionCapture) -> SidebarActionDispatch {
         SidebarActionDispatch { action in box.actions.append(action) }
     }
 
@@ -22,7 +17,7 @@ struct RenderNodeMenuBuilderTests {
 
     @Test("buttons become titled, enabled items that dispatch their action")
     func buttonsDispatch() {
-        let box = ActionBox()
+        let box = MenuActionCapture()
         let focus = ButtonAction(commands: [.cmux(method: "workspace.focus", params: ["id": "w1"])])
         let pin = ButtonAction(commands: [.cmux(method: "workspace.togglePin", params: ["id": "w1"])])
         let nodes = [
@@ -31,7 +26,7 @@ struct RenderNodeMenuBuilderTests {
             RenderNode(kind: .button, text: "Pin", action: pin),
         ]
 
-        let menu = RenderNodeMenuBuilder.menu(for: nodes, dispatch: capturingDispatch(box))
+        let menu = makeRenderNodeContextMenu(nodes: nodes, dispatch: capturingDispatch(box))
 
         #expect(menu.items.count == 3)
         #expect(menu.items[0].title == "Focus")
@@ -46,7 +41,7 @@ struct RenderNodeMenuBuilderTests {
 
     @Test("nested Menu becomes a submenu whose items dispatch")
     func nestedMenu() {
-        let box = ActionBox()
+        let box = MenuActionCapture()
         let red = ButtonAction(commands: [.cmux(method: "workspace.color", params: ["color": "red"])])
         let nodes = [
             RenderNode(kind: .menu, text: "Color", children: [
@@ -56,7 +51,7 @@ struct RenderNodeMenuBuilderTests {
             ]),
         ]
 
-        let menu = RenderNodeMenuBuilder.menu(for: nodes, dispatch: capturingDispatch(box))
+        let menu = makeRenderNodeContextMenu(nodes: nodes, dispatch: capturingDispatch(box))
 
         #expect(menu.items.count == 1)
         #expect(menu.items[0].title == "Color")
@@ -79,7 +74,7 @@ struct RenderNodeMenuBuilderTests {
                        action: action),
         ]
 
-        let menu = RenderNodeMenuBuilder.menu(for: nodes, dispatch: .noop)
+        let menu = makeRenderNodeContextMenu(nodes: nodes, dispatch: .noop)
 
         #expect(!menu.items[0].isEnabled)
         #expect(menu.items[0].action == nil)
@@ -87,9 +82,41 @@ struct RenderNodeMenuBuilderTests {
         #expect(menu.items[1].action != nil)
     }
 
+    @Test("a container's .disabled(true) propagates to descendants, matching SwiftUI")
+    func containerDisabledPropagates() {
+        let action = ButtonAction(commands: [.log("x")])
+        let nodes = [
+            RenderNode(kind: .group,
+                       children: [
+                           RenderNode(kind: .button, text: "Delete", action: action),
+                           // `.disabled(false)` cannot re-enable inside a
+                           // disabled ancestor, same as SwiftUI's environment.
+                           RenderNode(kind: .button, text: "Rename",
+                                      modifiers: [RenderModifier(name: "disabled", args: [ModifierArg(label: nil, value: "false")])],
+                                      action: action),
+                           RenderNode(kind: .menu, text: "Color", children: [
+                               RenderNode(kind: .button, text: "Red", action: action),
+                           ]),
+                       ],
+                       modifiers: [RenderModifier(name: "disabled", args: [ModifierArg(label: nil, value: "true")])]),
+            RenderNode(kind: .button, text: "Outside", action: action),
+        ]
+
+        let menu = makeRenderNodeContextMenu(nodes: nodes, dispatch: .noop)
+
+        #expect(menu.items.map(\.title) == ["Delete", "Rename", "Color", "Outside"])
+        #expect(!menu.items[0].isEnabled)
+        #expect(menu.items[0].action == nil)
+        #expect(!menu.items[1].isEnabled)
+        #expect(!menu.items[2].isEnabled)
+        let submenu = try! #require(menu.items[2].submenu)
+        #expect(!submenu.items[0].isEnabled)
+        #expect(menu.items[3].isEnabled)
+    }
+
     @Test("rich-label button derives its title and icon from the label subtree")
     func richLabelButton() {
-        let box = ActionBox()
+        let box = MenuActionCapture()
         let open = ButtonAction(commands: [.openURL("https://example.com/pr/1")])
         let nodes = [
             RenderNode(kind: .button, children: [
@@ -100,7 +127,7 @@ struct RenderNodeMenuBuilderTests {
             ], action: open),
         ]
 
-        let menu = RenderNodeMenuBuilder.menu(for: nodes, dispatch: capturingDispatch(box))
+        let menu = makeRenderNodeContextMenu(nodes: nodes, dispatch: capturingDispatch(box))
 
         #expect(menu.items[0].title == "Open PR")
         #expect(menu.items[0].image != nil)
@@ -115,7 +142,7 @@ struct RenderNodeMenuBuilderTests {
             RenderNode(kind: .label, text: "Status", systemName: "bolt"),
         ]
 
-        let menu = RenderNodeMenuBuilder.menu(for: nodes, dispatch: .noop)
+        let menu = makeRenderNodeContextMenu(nodes: nodes, dispatch: .noop)
 
         #expect(menu.items.map(\.title) == ["3 agents running", "Status"])
         #expect(menu.items.allSatisfy { !$0.isEnabled && $0.action == nil })
@@ -133,10 +160,12 @@ struct RenderNodeMenuBuilderTests {
             ]),
         ]
 
-        let menu = RenderNodeMenuBuilder.menu(for: nodes, dispatch: .noop)
+        let menu = makeRenderNodeContextMenu(nodes: nodes, dispatch: .noop)
 
         #expect(menu.items.map(\.title) == ["A", "More", "B"])
         #expect(!menu.items[1].isEnabled)
+        #expect(menu.items[0].isEnabled)
+        #expect(menu.items[2].isEnabled)
     }
 
     @Test("non-representable kinds fall back to text-only rows or are skipped")
@@ -150,7 +179,7 @@ struct RenderNodeMenuBuilderTests {
             ]),
         ]
 
-        let menu = RenderNodeMenuBuilder.menu(for: nodes, dispatch: .noop)
+        let menu = makeRenderNodeContextMenu(nodes: nodes, dispatch: .noop)
 
         #expect(menu.items.map(\.title) == ["kept"])
     }
@@ -171,7 +200,7 @@ struct RenderNodeMenuBuilderTests {
                        action: ButtonAction(commands: [.log("copy")])),
         ]
 
-        let menu = RenderNodeMenuBuilder.menu(for: nodes, dispatch: .noop)
+        let menu = makeRenderNodeContextMenu(nodes: nodes, dispatch: .noop)
 
         #expect(menu.items[0].keyEquivalent == "\r")
         #expect(menu.items[1].keyEquivalent == "c")
@@ -211,6 +240,36 @@ struct RenderNodeMenuBuilderTests {
         #expect(handle.view == nil)
     }
 
+    @Test("a row overlay defers to a nested contextMenu overlay under the pointer")
+    func nestedOverlayDeferral() {
+        let menuNodes = [RenderNode(kind: .button, text: "Row",
+                                    action: ButtonAction(commands: [.log("row")]))]
+
+        // Shape mirrors SwiftUI's overlay hosting: one container holding the
+        // row content (which nests its own overlay) and the row's overlay.
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 40))
+        let content = NSView(frame: container.bounds)
+        let nested = RenderNodeContextMenuView(frame: NSRect(x: 150, y: 0, width: 50, height: 40))
+        nested.nodes = menuNodes
+        content.addSubview(nested)
+        container.addSubview(content)
+        let rowOverlay = RenderNodeContextMenuView(frame: container.bounds)
+        rowOverlay.nodes = menuNodes
+        container.addSubview(rowOverlay)
+
+        // Over the nested overlay: the row overlay must yield.
+        #expect(rowOverlay.deeperOverlayClaims(NSPoint(x: 175, y: 20)))
+        // Elsewhere in the row: the row overlay handles the click itself.
+        #expect(!rowOverlay.deeperOverlayClaims(NSPoint(x: 20, y: 20)))
+        // A nested overlay with no menu content never claims.
+        nested.nodes = []
+        #expect(!rowOverlay.deeperOverlayClaims(NSPoint(x: 175, y: 20)))
+        // A hidden nested overlay never claims.
+        nested.nodes = menuNodes
+        nested.isHidden = true
+        #expect(!rowOverlay.deeperOverlayClaims(NSPoint(x: 175, y: 20)))
+    }
+
     @Test("interpreter .contextMenu IR round-trips into the expected NSMenu")
     func interpreterEndToEnd() {
         let interp = SwiftViewInterpreter()
@@ -225,8 +284,8 @@ struct RenderNodeMenuBuilderTests {
         """)
         let children = try! #require(node?.modifiers.first { $0.name == "contextMenu" }?.children)
 
-        let box = ActionBox()
-        let menu = RenderNodeMenuBuilder.menu(for: children, dispatch: capturingDispatch(box))
+        let box = MenuActionCapture()
+        let menu = makeRenderNodeContextMenu(nodes: children, dispatch: capturingDispatch(box))
 
         #expect(menu.items.count == 3)
         #expect(menu.items[0].title == "Focus")
