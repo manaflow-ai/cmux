@@ -1342,7 +1342,11 @@ impl MutationProgress {
     }
 
     fn fail(self, error: RpcError) -> Box<MutationFailure> {
-        Box::new(MutationFailure { error, outcome: self.outcome, recovery_path: self.recovery_path })
+        Box::new(MutationFailure {
+            error,
+            outcome: self.outcome,
+            recovery_path: self.recovery_path,
+        })
     }
 }
 
