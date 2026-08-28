@@ -16,19 +16,7 @@ struct CmxIrohPersistenceLifecycleRaceTests {
         )
         let fixture = try ClientRuntimeTestFixture()
         let binding = CmxIrohBrokerBindingMetadata(binding: fixture.binding)
-        let relayFleet = fixture.configuration.managedRelayURLs
         try await repository.saveBinding(binding, accountID: "account-a")
-        await store.suspendNextWrite()
-        let save = Task {
-            try await repository.saveRelayCredential(
-                fixture.relayResponse(),
-                accountID: "account-a",
-                binding: binding,
-                expectedRelayFleet: relayFleet,
-                now: fixture.now
-            )
-        }
-        await store.waitUntilWriteIsSuspended()
         await store.suspendNextDeleteAll()
 
         let deactivate = Task { try await repository.deactivate() }
@@ -40,8 +28,6 @@ struct CmxIrohPersistenceLifecycleRaceTests {
                 )
             }
         )
-        await store.resumeSuspendedWrite()
-        await #expect(throws: CancellationError.self) { try await save.value }
         await store.waitUntilDeleteAllIsSuspended()
         await store.resumeSuspendedDeleteAll()
         try await deactivate.value

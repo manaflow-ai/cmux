@@ -982,6 +982,14 @@ export const irohEndpointBindings = pgTable(
     directPortV6: integer("direct_port_v6"),
     pathHints: jsonb("path_hints").$type<unknown[]>().notNull().default(sql`'[]'::jsonb`),
     pathHintsNextExpiry: timestamp("path_hints_next_expiry", { withTimezone: true }),
+    // Live relay attach state, written only by HMAC-verified fleet reports
+    // (POST /api/relay/report). `relayAttachedUrl` is the exact catalog or
+    // saved-custom relay URL the endpoint is currently attached through;
+    // `relayAttachReportedAt` is the relay-side event timestamp of the last
+    // APPLIED report and orders fire-and-forget reports that arrive out of
+    // order. Cleared by a matching detach report and by revocation.
+    relayAttachedUrl: text("relay_attached_url"),
+    relayAttachReportedAt: timestamp("relay_attach_reported_at", { withTimezone: true }),
     deviceLimitOverrideUsed: boolean("device_limit_override_used").notNull().default(false),
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
     registeredAt: timestamp("registered_at", { withTimezone: true }).notNull().defaultNow(),
@@ -1000,6 +1008,15 @@ export const irohEndpointBindings = pgTable(
     check("iroh_endpoint_bindings_direct_port_v4_check", sql`${table.directPortV4} is null or ${table.directPortV4} between 1 and 65535`),
     check("iroh_endpoint_bindings_direct_port_v6_check", sql`${table.directPortV6} is null or ${table.directPortV6} between 1 and 65535`),
     check("iroh_endpoint_bindings_path_hints_check", sql`jsonb_typeof(${table.pathHints}) = 'array' and jsonb_array_length(${table.pathHints}) <= 16`),
+    check(
+      "iroh_endpoint_bindings_relay_attached_url_check",
+      sql`${table.relayAttachedUrl} is null or (${table.relayAttachedUrl} ~ '^https://' and length(${table.relayAttachedUrl}) <= 2048)`,
+    ),
+    // A published attach URL always carries the event timestamp that set it.
+    check(
+      "iroh_endpoint_bindings_relay_attach_reported_check",
+      sql`${table.relayAttachedUrl} is null or ${table.relayAttachReportedAt} is not null`,
+    ),
     uniqueIndex("iroh_endpoint_bindings_active_endpoint_unique")
       .on(table.endpointId)
       .where(sql`${table.revokedAt} is null`),

@@ -1,5 +1,5 @@
 import CryptoKit
-import Foundation
+public import Foundation
 import IrohLib
 
 /// Builds the two-leg registration proof using the Iroh EndpointID key.
@@ -67,6 +67,35 @@ public struct CmxIrohRegistrationSigner: Sendable {
         return CmxIrohRegisterRequest(
             challengeID: challengeID,
             nonce: challenge.nonce,
+            payload: prepared.encodedPayload,
+            signature: Self.base64URL(signature)
+        )
+    }
+
+    /// Signs a one-round self-contained registration proof.
+    ///
+    /// The server-minted challenge nonce is replaced by a caller-supplied
+    /// one-use random nonce plus the signed timestamp; the broker enforces
+    /// the same bounded freshness window it grants timestamp-signed binding
+    /// requests and consumes the nonce exactly once.
+    public func signSelfProof(
+        prepared: CmxIrohPreparedRegistration,
+        nonce: Data,
+        issuedAt: Int64
+    ) throws -> CmxIrohRegisterRequest {
+        guard prepared.endpointID == endpointID,
+              nonce.count == 32,
+              issuedAt > 0 else {
+            throw CmxIrohRegistrationError.invalidChallenge
+        }
+        let encodedNonce = Self.base64URL(nonce)
+        let transcript = Data(
+            "cmux/iroh/device-registration/v2\n\(issuedAt)\n\(encodedNonce)\n\(prepared.payloadSHA256)".utf8
+        )
+        let signature = signingKey.sign(message: transcript).toBytes()
+        return CmxIrohRegisterRequest(
+            issuedAt: issuedAt,
+            nonce: encodedNonce,
             payload: prepared.encodedPayload,
             signature: Self.base64URL(signature)
         )

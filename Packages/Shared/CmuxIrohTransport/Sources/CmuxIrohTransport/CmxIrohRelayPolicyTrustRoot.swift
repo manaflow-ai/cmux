@@ -36,7 +36,15 @@ public struct CmxIrohRelayPolicyTrustRoot: Equatable, Sendable {
         } else {
             return nil
         }
-        let keys = records.compactMap { record -> CmxIrohRelayPolicyVerificationKey? in
+        // An unused rotation slot: a build configuration that does not stage
+        // a key for a slot leaves both substitution variables undefined, and
+        // the Info.plist build expands them to empty strings. Only the
+        // exactly-empty pair is skipped; a partially filled or otherwise
+        // invalid record still fails the whole trust root closed below.
+        let activeRecords = records.filter { record in
+            !(record["keyID"] == "" && record["publicKeyBase64"] == "")
+        }
+        let keys = activeRecords.compactMap { record -> CmxIrohRelayPolicyVerificationKey? in
             guard let keyID = record["keyID"],
                   let publicKey = record["publicKeyBase64"] else { return nil }
             return try? CmxIrohRelayPolicyVerificationKey(
@@ -44,7 +52,7 @@ public struct CmxIrohRelayPolicyTrustRoot: Equatable, Sendable {
                 rawPublicKeyBase64: publicKey
             )
         }
-        guard keys.count == records.count else { return nil }
+        guard keys.count == activeRecords.count else { return nil }
         return try? CmxIrohRelayPolicyTrustRoot(keys: keys)
     }
 

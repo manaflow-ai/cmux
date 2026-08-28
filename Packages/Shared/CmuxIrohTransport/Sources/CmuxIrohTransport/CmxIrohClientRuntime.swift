@@ -20,12 +20,6 @@ public actor CmxIrohClientRuntime {
     public typealias CustomPrivateFallbackProvider =
         CmxIrohRegistryContextProvider.CustomPrivateFallbackProvider
 
-    /// Runs after a relay credential is installed on the exact active binding.
-    public typealias RelayCredentialHandler = @Sendable (
-        _ response: CmxIrohRelayTokenResponse,
-        _ binding: CmxIrohBrokerBinding
-    ) async -> Void
-
     /// Removes account-local identity, binding, relay, and route cache state.
     public typealias LocalDeactivationHandler = @Sendable () async -> Void
 
@@ -40,6 +34,15 @@ public actor CmxIrohClientRuntime {
         let offlineExpectation: CmxIrohClientOfflinePolicyExpectation?
         let cachedTargetBindings: [CmxIrohBrokerBinding]
         let cachedLANRendezvous: CmxIrohLANRendezvous?
+        /// True only for the warm-start fast path that resolved this policy
+        /// from the verified offline caches WITHOUT any broker round. It arms
+        /// the immediate post-activation registration refresh, whose
+        /// non-transient rejection tears the runtime down (the same
+        /// fail-closed semantics as the Mac host's cache-first activation,
+        /// cmux#10737). The connectivity-fallback path (broker unreachable)
+        /// deliberately leaves this false: re-requesting a broker that just
+        /// failed adds nothing, and network-change events own that retry.
+        var activatedFromCache = false
     }
 
     private struct ConnectivityReconciliationOperation {
@@ -74,6 +77,14 @@ public actor CmxIrohClientRuntime {
     let broker: any CmxIrohClientBrokerServing
     let configuration: CmxIrohClientRuntimeConfiguration
     var endpointRelayProfile: CmxIrohEndpointRelayProfile
+    /// Whether this runtime binds its endpoint with the managed relays
+    /// withheld and installs them only after ``start()`` has an acknowledged
+    /// broker registration. True exactly when no cached binding proves the
+    /// broker has already seen this endpoint: a fresh endpoint that dials an
+    /// admission-gated relay before its registration lands is denied by the
+    /// relay's allow hook, and that deny is negatively cached, so one lost
+    /// race costs the whole activation.
+    let withholdsManagedRelaysUntilRegistered: Bool
     var managedRelayURLs: Set<String>
     let pendingRevocations: CmxIrohPendingRevocationOutbox
     let protocolConfiguration: CmxIrohProtocolConfiguration
@@ -83,17 +94,14 @@ public actor CmxIrohClientRuntime {
     let customPrivateFallback: CustomPrivateFallbackProvider?
     let diagnosticLog: DiagnosticLog?
     let now: @Sendable () -> Date
-    let automaticRelayCredentialRefreshEnabled: Bool
     let handleBinding: BindingHandler
     let handleCachedBindings: CachedBindingsHandler
-    let handleRelayCredential: RelayCredentialHandler
     let handleLocalDeactivation: LocalDeactivationHandler
     let handlePolicyInvalidation: PolicyInvalidationHandler
 
     var lifecycleRevision: UInt64 = 0
     var lifecyclePhase = LifecyclePhase.inactive
     var signOutOperation: Task<CmxIrohClientSignOutPreparation, Never>?
-    var relayCoordinator: CmxIrohRelayCredentialCoordinator?
     var supervisorEventTask: Task<Void, Never>?
     var registrationRefreshTask: Task<CmxIrohLiveDiscoveryRefreshOutcome, any Error>?
     var registrationRefreshTaskID: UUID?
@@ -130,7 +138,6 @@ public actor CmxIrohClientRuntime {
     ///     private-network profiles. An empty profile set disables explicit hints.
     ///   - now: Wall-clock injection for route and relay validation.
     ///   - handleBinding: Persists the exact verified binding and discovery state.
-    ///   - handleRelayCredential: Persists an installed relay credential.
     ///   - handleLocalDeactivation: Wipes account-local Iroh caches during sign-out.
     ///   - handlePolicyInvalidation: Clears persisted broker routes after a terminal refresh.
     /// - Throws: An endpoint configuration error for an invalid cached relay set.
@@ -148,20 +155,28 @@ public actor CmxIrohClientRuntime {
         lanFallback: LANFallbackProvider? = nil,
         customPrivateFallback: CustomPrivateFallbackProvider? = nil,
         now: @escaping @Sendable () -> Date = { Date() },
-        automaticRelayCredentialRefreshEnabled: Bool = true,
         handleBinding: @escaping BindingHandler = { _, _ in true },
         handleCachedBindings: @escaping CachedBindingsHandler = { _, _ in },
-        handleRelayCredential: @escaping RelayCredentialHandler = { _, _ in },
         handleLocalDeactivation: @escaping LocalDeactivationHandler = {},
         handlePolicyInvalidation: @escaping PolicyInvalidationHandler = {}
     ) throws {
-        let endpointRelayProfile = try configuration.resolvedEndpointRelayProfile(
-            now: now()
-        )
+        let endpointRelayProfile = try configuration.resolvedEndpointRelayProfile()
+        // A cached binding proves the broker has acknowledged this endpoint,
+        // so its relay dials pass the allow hook immediately. Without one the
+        // endpoint binds relay-less and `start()` installs the managed relays
+        // only after registration is acknowledged, ordering the first relay
+        // dial after broker admission. Custom relays are user-operated and
+        // not admission-gated by the cmux broker, so they stay installed at
+        // bind (a broker outage must not disable them).
+        let withholdsManagedRelaysUntilRegistered = configuration.cachedBinding == nil
+            && endpointRelayProfile.source == .managed
+            && !endpointRelayProfile.activeRelays.isEmpty
         let endpointConfiguration = CmxIrohEndpointConfiguration(
             secretKey: configuration.identity.secretKey,
             alpns: [protocolConfiguration.alpn],
-            relayProfile: endpointRelayProfile
+            relayProfile: withholdsManagedRelaysUntilRegistered
+                ? .unavailableManagedSelection
+                : endpointRelayProfile
         )
         let supervisor = CmxIrohEndpointSupervisor(
             factory: factory,
@@ -172,7 +187,8 @@ public actor CmxIrohClientRuntime {
             supervisor: supervisor,
             contextProvider: contextRouter,
             protocolConfiguration: protocolConfiguration,
-            diagnosticLog: diagnosticLog
+            diagnosticLog: diagnosticLog,
+            dialPhaseTimeout: configuration.dialPhaseTimeout
         )
         self.supervisor = supervisor
         self.connectivityEngine = connectivityEngine
@@ -180,6 +196,7 @@ public actor CmxIrohClientRuntime {
         self.broker = broker
         self.configuration = configuration
         self.endpointRelayProfile = endpointRelayProfile
+        self.withholdsManagedRelaysUntilRegistered = withholdsManagedRelaysUntilRegistered
         managedRelayURLs = configuration.managedRelayURLs
         self.pendingRevocations = pendingRevocations
         self.protocolConfiguration = protocolConfiguration
@@ -189,10 +206,8 @@ public actor CmxIrohClientRuntime {
         self.customPrivateFallback = customPrivateFallback
         self.diagnosticLog = diagnosticLog
         self.now = now
-        self.automaticRelayCredentialRefreshEnabled = automaticRelayCredentialRefreshEnabled
         self.handleBinding = handleBinding
         self.handleCachedBindings = handleCachedBindings
-        self.handleRelayCredential = handleRelayCredential
         self.handleLocalDeactivation = handleLocalDeactivation
         self.handlePolicyInvalidation = handlePolicyInvalidation
         transportFactory = CmxConnectivityByteTransportFactory(
@@ -203,12 +218,6 @@ public actor CmxIrohClientRuntime {
     /// Returns the current non-secret lifecycle snapshot.
     public func snapshot() -> CmxIrohClientRuntimeSnapshot {
         currentSnapshot
-    }
-
-    /// Returns the non-secret hard expiry of the relay credential currently
-    /// installed on the live endpoint.
-    public func relayCredentialExpiresAt() async -> Date? {
-        await relayCoordinator?.credentialExpiresAt()
     }
 
     /// Monotonic count of online broker snapshots verified by this runtime.
@@ -372,8 +381,7 @@ public actor CmxIrohClientRuntime {
                     cachedTargetBindings: [],
                     cachedLANRendezvous: nil
                 ),
-                revision: revision,
-                startRelays: false
+                revision: revision
             )
             try requireCurrent(revision)
             let published = await handleBinding(discoveredBinding, discovery)
@@ -484,21 +492,30 @@ public actor CmxIrohClientRuntime {
         )
 
         do {
-            let startingRelayProfile = try endpointRelayProfile
-                .droppingExpiredManagedCredentials(at: now())
-            if startingRelayProfile != endpointRelayProfile {
-                try await connectivityEngine.replaceRelayProfile(
-                    startingRelayProfile
-                )
-                endpointRelayProfile = startingRelayProfile
-            }
             await startSupervisorObservation(revision: revision)
             let cachedDiscoveryTask: Task<CmxIrohDiscoveryResponse?, Never>?
+            var brokerPreflightFailure: (any Error)?
             if configuration.cachedBinding != nil {
-                try await preparePolicyResolution(revision: revision)
-                cachedDiscoveryTask = Task { [weak self] in
-                    guard let self else { return nil }
-                    return try? await self.prefetchAuthoritativeDiscovery()
+                // A broker floor (cooldown, backpressure) must not block a
+                // cache-first activation. Remember the failure: a cache miss
+                // below rethrows it, preserving the previous ordering.
+                do {
+                    try await preparePolicyResolution(revision: revision)
+                } catch let error as CmxIrohClientRuntimeError
+                    where error == .superseded {
+                    throw error
+                } catch is CancellationError {
+                    throw CancellationError()
+                } catch {
+                    brokerPreflightFailure = error
+                }
+                if brokerPreflightFailure == nil {
+                    cachedDiscoveryTask = Task { [weak self] in
+                        guard let self else { return nil }
+                        return try? await self.prefetchAuthoritativeDiscovery()
+                    }
+                } else {
+                    cachedDiscoveryTask = nil
                 }
             } else {
                 cachedDiscoveryTask = nil
@@ -511,14 +528,36 @@ public actor CmxIrohClientRuntime {
                   endpointSnapshot.endpointGeneration != nil else {
                 throw CmxIrohClientRuntimeError.invalidLocalBinding
             }
-            let policy = try await resolvePolicy(
-                expectedEndpointID: endpointID,
-                revision: revision,
-                prefetchedDiscovery: await cachedDiscoveryTask?.value,
-                brokerPreparationComplete: cachedDiscoveryTask != nil
-            )
+            let policy: ResolvedPolicy
+            if let cachedStart = await cachedStartPolicy(
+                expectedEndpointID: endpointID
+            ) {
+                policy = cachedStart
+            } else if let brokerPreflightFailure {
+                throw brokerPreflightFailure
+            } else {
+                policy = try await resolvePolicy(
+                    expectedEndpointID: endpointID,
+                    revision: revision,
+                    prefetchedDiscovery: await cachedDiscoveryTask?.value,
+                    brokerPreparationComplete: cachedDiscoveryTask != nil
+                )
+            }
             try requireCurrent(revision)
-            try await install(policy: policy, revision: revision, startRelays: true)
+            try await install(policy: policy, revision: revision)
+            if withholdsManagedRelaysUntilRegistered {
+                // The broker has now acknowledged this endpoint's binding
+                // (a fresh endpoint cannot reach here otherwise: cooldown
+                // and offline fallbacks both require prior broker proof).
+                // Installing the managed relays only now guarantees the
+                // first relay dial cannot race the relay's allow hook into
+                // a negatively cached deny.
+                try await connectivityEngine.replaceRelayProfile(
+                    endpointRelayProfile,
+                    expectedIdentity: endpointID
+                )
+                try requireCurrent(revision)
+            }
             if !protocolConfiguration.allowsNATTraversalAfterAdmission {
                 guard await connectivityEngine.hasConfiguredRelay() else {
                     throw CmxIrohEndpointSupervisorError.relayReadinessTimedOut
@@ -547,13 +586,27 @@ public actor CmxIrohClientRuntime {
             } else if let lanRendezvous = policy.cachedLANRendezvous {
                 await handleCachedBindings(policy.cachedTargetBindings, lanRendezvous)
             }
-            if policy.registration == nil, policy.discovery != nil {
+            if policy.registration == nil,
+               policy.discovery != nil || policy.activatedFromCache {
                 registrationRefreshPending = true
+                // The cache-first activation never read the broker, so the
+                // immediate refresh must fetch authoritative discovery (a
+                // signed registration when publication is due). Its failure
+                // taxonomy is the fail-closed authority: a non-transient
+                // rejection tears this activation down.
+                registrationRefreshPendingRequiresDiscovery =
+                    registrationRefreshPendingRequiresDiscovery
+                        || policy.activatedFromCache
             }
             registrationRefreshEnabled = true
             if registrationRefreshPending {
                 registrationRefreshPending = false
-                scheduleRegistrationRefresh(revision: revision)
+                let requiresDiscovery = registrationRefreshPendingRequiresDiscovery
+                registrationRefreshPendingRequiresDiscovery = false
+                scheduleRegistrationRefresh(
+                    revision: revision,
+                    requiresDiscovery: requiresDiscovery
+                )
             }
         } catch {
             guard lifecyclePhase == .starting,
@@ -615,8 +668,6 @@ public actor CmxIrohClientRuntime {
             registrationRefreshPendingRequiresDiscovery = false
             registrationRefreshEnabled = true
             _ = try await refreshLiveDiscoveryThrowing()
-            try requireCurrent(revision)
-            try await relayCoordinator?.refreshIfNeeded()
             try requireCurrent(revision)
         } catch {
             if lifecyclePhase == .active, lifecycleRevision == revision {

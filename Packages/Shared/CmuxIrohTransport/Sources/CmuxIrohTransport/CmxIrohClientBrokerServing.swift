@@ -1,6 +1,6 @@
 /// Trust-broker operations required by an iOS Iroh client runtime.
 public protocol CmxIrohClientBrokerServing: CmxIrohRegistryServing,
-    CmxIrohRelayTokenServing, CmxIrohBindingRevoking
+    CmxIrohBindingRevoking
 {
     /// Checks a caller-owned broker floor without performing network work.
     func preflight(operation: CmxIrohBrokerOperation) async throws

@@ -16,10 +16,6 @@ export const IROH_ENDPOINT_ATTESTATION_SCOPE = "cmux.offline-pair.same-account";
 export const IROH_CHALLENGE_LIFETIME_MS = 5 * 60 * 1_000;
 export const IROH_PAIR_GRANT_LIFETIME_SECONDS = 7 * 24 * 60 * 60;
 export const IROH_ENDPOINT_ATTESTATION_LIFETIME_SECONDS = 24 * 60 * 60;
-export const IROH_OFFLINE_PAIR_SESSION_LIFETIME_SECONDS = 5 * 60;
-export const IROH_OFFLINE_PAIR_SESSION_VERSION = 1;
-export const IROH_RELAY_TOKEN_LIFETIME_SECONDS = 24 * 60 * 60;
-export const IROH_RELAY_TOKEN_REFRESH_SECONDS = 12 * 60 * 60;
 export const IROH_ROUTE_CONTRACT_VERSION = 1;
 export const POSTGRES_INT32_MAX = 2_147_483_647;
 
@@ -65,12 +61,20 @@ export type IrohChallengeRequest = Pick<
 };
 
 export type IrohRegisterRequest = {
-  readonly challengeId: string;
+  /** Present for the two-step challenge flow; absent for a self-proof. */
+  readonly challengeId?: string;
+  /** Present (unix seconds) for the one-round self-contained proof. */
+  readonly issuedAtSeconds?: number;
   readonly nonce: string;
   readonly payload: string;
   readonly signature: string;
   readonly discoveryScope?: IrohDiscoveryScope;
 };
+
+/** Accepted clock skew for a self-contained registration proof; the same
+ * window `verifyBindingRequestSignature` grants timestamp-signed binding
+ * requests. */
+export const IROH_SELF_PROOF_MAX_SKEW_MS = IROH_CHALLENGE_LIFETIME_MS;
 
 export function parseChallengeRequest(value: unknown): IrohChallengeRequest {
   const body = record(value);
@@ -97,6 +101,28 @@ export function parseChallengeRequest(value: unknown): IrohChallengeRequest {
 
 export function parseRegisterRequest(value: unknown): IrohRegisterRequest {
   const body = record(value);
+  // A body without a challengeId is the one-round self-contained proof:
+  // the client-chosen nonce and signed timestamp replace the minted
+  // challenge. A body with one keeps the exact two-step wire contract.
+  if (body.challengeId === undefined) {
+    const parsed = {
+      issuedAtSeconds: unixSeconds(body.issuedAt, "invalid_issued_at"),
+      nonce: base64url(body.nonce, 32, "invalid_nonce"),
+      payload: boundedString(body.payload, 1, 48_000, "invalid_payload"),
+      signature: base64url(body.signature, 64, "invalid_signature"),
+      ...(body.discoveryScope === undefined
+        ? {}
+        : { discoveryScope: parseIrohDiscoveryScope(body.discoveryScope) }),
+    };
+    rejectUnknownKeys(body, [
+      "issuedAt",
+      "nonce",
+      "payload",
+      "signature",
+      "discoveryScope",
+    ]);
+    return parsed;
+  }
   const parsed = {
     challengeId: uuid(body.challengeId, "invalid_challenge_id"),
     nonce: base64url(body.nonce, 32, "invalid_nonce"),
@@ -617,6 +643,16 @@ function positiveInteger(value: unknown, code: string): number {
     !Number.isSafeInteger(value) ||
     (value as number) < 1 ||
     (value as number) > POSTGRES_INT32_MAX
+  ) throw new IrohInvalidInputError({ code });
+  return value as number;
+}
+
+function unixSeconds(value: unknown, code: string): number {
+  if (
+    !Number.isSafeInteger(value)
+    || (value as number) < 1
+    // Bounded to the year ~4147 so arithmetic in milliseconds stays safe.
+    || (value as number) > 68_719_476_735
   ) throw new IrohInvalidInputError({ code });
   return value as number;
 }

@@ -201,6 +201,21 @@ struct CmxIrohURLSessionTransport: CmxIrohHTTPTransport {
 /// Authenticated client for endpoint registration, discovery, grants, and relay tokens.
 private struct DiscoverySnapshotChanged: Error {}
 
+/// Rejections that the two-leg challenge flow can repair: an older broker's
+/// parse rejection of the self-proof shape, or a client clock outside the
+/// proof freshness window. Every other verdict is authoritative for the
+/// registration itself and propagates.
+private func cmxRegistrationRetriesAsTwoStep(
+    _ error: CmxIrohTrustBrokerClientError
+) -> Bool {
+    guard case let .rejected(statusCode, code) = error else { return false }
+    if statusCode == 400,
+       code == "invalid_challenge_id" || code == "unknown_field" {
+        return true
+    }
+    return statusCode == 403 && code == "self_proof_expired"
+}
+
 public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
     private struct ConnectivitySyncRequest: Encodable {
         let protocolVersion: Int
@@ -230,41 +245,10 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
     }
 
     private struct BindingRequest: Encodable { let bindingId: String }
-    private struct EndpointRequest: Encodable { let endpointId: String }
-    private struct RelayAccessCredential: Decodable, Sendable {
-        let relayUrl: String
-        let token: String
-        let expiresAt: Int64
-        let refreshAfter: Int64
-        let ttlSeconds: Int64
-    }
-    private struct RelayAccessResponse: Decodable, Sendable {
-        let token: String?
-        let expiresAt: Int64?
-        let ttlSeconds: Int64?
-        let relays: [String]?
-        let endpointId: String?
-        let relayCredentials: [RelayAccessCredential]?
-        let policy: String?
-        let preference: CmxIrohAccountRelayConfiguration?
-        let preferenceRevision: Int64?
-    }
-    private struct RelayTokenHeader: Decodable {
-        let alg: String
-        let typ: String
-    }
-    private struct RelayTokenClaims: Decodable {
-        let issuer: String
-        let audience: String
-        let expiresAt: Int64
-        let endpointID: String
-
-        private enum CodingKeys: String, CodingKey {
-            case issuer = "iss"
-            case audience = "aud"
-            case expiresAt = "exp"
-            case endpointID = "endpoint_id"
-        }
+    private struct RelayPolicyBootstrapResponse: Decodable, Sendable {
+        let policy: String
+        let preference: CmxIrohAccountRelayConfiguration
+        let preferenceRevision: Int64
     }
     private struct PairGrantRequest: Encodable {
         let initiatorBindingId: String
@@ -289,6 +273,8 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
     private let clientNamespace: String
     private var bindingAuthorization: CmxIrohBindingRequestAuthorization?
     private let discoveryScope: CmxConnectivityDiscoveryScope?
+    private let randomness: any CmxIrohRandomByteGenerating =
+        CmxIrohSystemRandomByteGenerator()
 
     /// Creates a client that rejects cleartext non-loopback API origins.
     public init(
@@ -382,7 +368,10 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         }
     }
 
-    /// Runs the challenge and signed registration legs without regenerating payload bytes.
+    /// Registers in ONE broker round with a self-contained proof, falling
+    /// back to the two-leg challenge flow for brokers that do not accept it
+    /// (and for a client clock outside the broker's freshness window), all
+    /// without regenerating payload bytes.
     public func register(
         prepared: CmxIrohPreparedRegistration,
         signer: CmxIrohRegistrationSigner
@@ -390,6 +379,24 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         let response: CmxIrohRegistrationResponse = try await withBackpressure(
             operation: .registration
         ) {
+            // Randomness failure is not a broker verdict: degrade to the
+            // two-leg flow, whose entropy is the server-minted nonce.
+            let selfProof = try? signer.signSelfProof(
+                prepared: prepared,
+                nonce: self.randomness.randomBytes(count: 32),
+                issuedAt: Int64(Date().timeIntervalSince1970)
+            )
+            if let selfProof {
+                do {
+                    return try await self.registerUngated(selfProof)
+                } catch let error as CmxIrohTrustBrokerClientError
+                    where cmxRegistrationRetriesAsTwoStep(error) {
+                    // An older broker rejects the proof shape at parse
+                    // (missing challengeId / unknown field), and a broker may
+                    // reject this client's clock skew; both are repaired by
+                    // the interactive challenge, never by retrying the proof.
+                }
+            }
             let challenge: CmxIrohChallengeResponse = try await self.sendUngated(
                 path: "api/devices/iroh/challenge",
                 method: "POST",
@@ -467,54 +474,22 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         )
     }
 
-    public func issueRelayToken(
-        bindingID _: String,
-        endpointID: CmxIrohPeerIdentity
-    ) async throws -> CmxIrohRelayTokenResponse {
-        let response: RelayAccessResponse = try await send(
-            path: "api/relay/token",
-            method: "POST",
-            body: EndpointRequest(endpointId: endpointID.endpointID),
+    /// Fetches the signed, server-driven relay policy for the account.
+    public func fetchRelayPolicy() async throws -> CmxIrohRelayPolicyResponse {
+        let response: RelayPolicyBootstrapResponse = try await sendWithoutBody(
+            path: "api/relay/policy",
+            method: "GET",
             operation: .relayCredential
         )
-        return try Self.relayTokenResponse(response, endpointID: endpointID)
-    }
-
-    /// Issues a managed credential together with signed, server-driven relay policy.
-    public func issueRelayBootstrap(
-        endpointID: CmxIrohPeerIdentity
-    ) async throws -> CmxIrohRelayBootstrapResponse {
-        let response: RelayAccessResponse = try await send(
-            path: "api/relay/token",
-            method: "POST",
-            body: EndpointRequest(endpointId: endpointID.endpointID),
-            operation: .relayCredential
-        )
-        guard let policy = response.policy,
-              let preference = response.preference,
-              let preferenceRevision = response.preferenceRevision else {
-            throw CmxIrohTrustBrokerClientError.invalidResponse
-        }
-        let policyResponse: CmxIrohRelayPolicyResponse
         do {
-            policyResponse = try CmxIrohRelayPolicyResponse(
-                policy: policy,
-                preference: preference,
-                preferenceRevision: preferenceRevision
+            return try CmxIrohRelayPolicyResponse(
+                policy: response.policy,
+                preference: response.preference,
+                preferenceRevision: response.preferenceRevision
             )
         } catch {
             throw CmxIrohTrustBrokerClientError.invalidResponse
         }
-        let relayToken: CmxIrohRelayTokenResponse?
-        if response.relayCredentials == nil, response.token == nil {
-            relayToken = nil
-        } else {
-            relayToken = try Self.relayTokenResponse(response, endpointID: endpointID)
-        }
-        return CmxIrohRelayBootstrapResponse(
-            relayToken: relayToken,
-            relayPolicy: policyResponse
-        )
     }
 
     /// Fetches the current account relay preference.
@@ -887,6 +862,14 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.timeoutInterval = requestTimeout
+        // A debug-only deployment-protection bypass lets a tagged test build
+        // reach a protected broker preview; nil in release builds.
+        if let bypass = CmxIrohDebugBrokerBypassHeader.activeValue() {
+            request.setValue(
+                bypass,
+                forHTTPHeaderField: CmxIrohDebugBrokerBypassHeader.headerField
+            )
+        }
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         request.setValue(refreshToken, forHTTPHeaderField: "X-Stack-Refresh-Token")
         request.setValue(clientNamespace, forHTTPHeaderField: "X-Cmux-App-Namespace")
@@ -982,130 +965,6 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
             return nil
         }
         return seconds
-    }
-
-    private static func relayTokenResponse(
-        _ response: RelayAccessResponse,
-        endpointID: CmxIrohPeerIdentity
-    ) throws -> CmxIrohRelayTokenResponse {
-        if let credentials = response.relayCredentials {
-            guard response.endpointId == endpointID.endpointID,
-                  (1 ... CmxIrohRelayPolicyVerifier.maximumRelayCount).contains(
-                      credentials.count
-                  ) else {
-                throw CmxIrohTrustBrokerClientError.invalidResponse
-            }
-            let relayCredentials = try credentials.map { credential in
-                guard (30 ... 24 * 60 * 60).contains(credential.ttlSeconds),
-                      credential.expiresAt > credential.refreshAfter,
-                      credential.refreshAfter
-                          >= credential.expiresAt - credential.ttlSeconds,
-                      (1 ... 8 * 1_024).contains(credential.token.utf8.count) else {
-                    throw CmxIrohTrustBrokerClientError.invalidResponse
-                }
-                return CmxIrohManagedRelayCredential(
-                    relayURL: try canonicalRelayOrigin(credential.relayUrl),
-                    token: credential.token,
-                    expiresAt: iso8601(epochSeconds: credential.expiresAt),
-                    refreshAfter: iso8601(epochSeconds: credential.refreshAfter)
-                )
-            }
-            guard Set(relayCredentials.map(\.relayURL)).count
-                    == relayCredentials.count else {
-                throw CmxIrohTrustBrokerClientError.invalidResponse
-            }
-            return CmxIrohRelayTokenResponse(credentials: relayCredentials)
-        }
-
-        guard let token = response.token,
-              let expiresAtSeconds = response.expiresAt,
-              let ttlSeconds = response.ttlSeconds,
-              let relays = response.relays,
-              ttlSeconds == 300,
-              expiresAtSeconds > ttlSeconds,
-              (1 ... CmxIrohRelayPolicyVerifier.maximumRelayCount).contains(
-                  relays.count
-              ),
-              validRelayToken(
-                  token,
-                  expiresAt: expiresAtSeconds,
-                  endpointID: endpointID
-              ) else {
-            throw CmxIrohTrustBrokerClientError.invalidResponse
-        }
-        let relayFleet = try relays.map(canonicalRelayOrigin)
-        guard Set(relayFleet).count == relayFleet.count else {
-            throw CmxIrohTrustBrokerClientError.invalidResponse
-        }
-        let refreshLead = min(60, ttlSeconds / 2)
-        return CmxIrohRelayTokenResponse(
-            token: token,
-            expiresAt: iso8601(epochSeconds: expiresAtSeconds),
-            refreshAfter: iso8601(epochSeconds: expiresAtSeconds - refreshLead),
-            relayFleet: relayFleet
-        )
-    }
-
-    private static func iso8601(epochSeconds: Int64) -> String {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return formatter.string(
-            from: Date(timeIntervalSince1970: TimeInterval(epochSeconds))
-        )
-    }
-
-    private static func validRelayToken(
-        _ token: String,
-        expiresAt: Int64,
-        endpointID: CmxIrohPeerIdentity
-    ) -> Bool {
-        guard (1 ... 8 * 1_024).contains(token.utf8.count) else { return false }
-        let segments = token.split(separator: ".", omittingEmptySubsequences: false)
-        guard segments.count == 3,
-              let headerData = base64URLData(segments[0]),
-              let claimsData = base64URLData(segments[1]),
-              let header = try? JSONDecoder().decode(RelayTokenHeader.self, from: headerData),
-              let claims = try? JSONDecoder().decode(RelayTokenClaims.self, from: claimsData) else {
-            return false
-        }
-        return header.alg == "EdDSA"
-            && header.typ == "JWT"
-            && claims.issuer == "cmux"
-            && claims.audience == "cmux-relay"
-            && claims.expiresAt == expiresAt
-            && claims.endpointID == endpointID.endpointID
-    }
-
-    private static func base64URLData(_ value: Substring) -> Data? {
-        var encoded = String(value)
-            .replacingOccurrences(of: "-", with: "+")
-            .replacingOccurrences(of: "_", with: "/")
-        let remainder = encoded.utf8.count % 4
-        if remainder != 0 {
-            encoded.append(String(repeating: "=", count: 4 - remainder))
-        }
-        return Data(base64Encoded: encoded)
-    }
-
-    private static func canonicalRelayOrigin(_ value: String) throws -> String {
-        guard var components = URLComponents(string: value),
-              components.scheme == "https",
-              let host = components.host,
-              host == host.lowercased(),
-              !host.isEmpty,
-              components.port == nil,
-              components.user == nil,
-              components.password == nil,
-              components.query == nil,
-              components.fragment == nil,
-              components.path.isEmpty || components.path == "/" else {
-            throw CmxIrohTrustBrokerClientError.invalidResponse
-        }
-        components.path = "/"
-        guard let canonical = components.string else {
-            throw CmxIrohTrustBrokerClientError.invalidResponse
-        }
-        return canonical
     }
 
     private static func isConnectivityFailure(_ code: URLError.Code) -> Bool {

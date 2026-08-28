@@ -26,6 +26,9 @@ public actor CmxConnectivityEngine {
     private let installRouteSnapshot: RouteSnapshotInstaller?
     private let diagnosticLog: DiagnosticLog?
     private let clock: any CmxIrohRelayClock
+    /// Deadline for each dial phase (public paths, private fallback, and the
+    /// admission barrier) of every peer session this engine creates.
+    private let dialPhaseTimeout: Duration
     private var desiredActive = false
     private var lifecycleRevision: UInt64 = 0
     private var endpointGeneration: UInt64?
@@ -59,7 +62,8 @@ public actor CmxConnectivityEngine {
         authority: (any CmxConnectivityAuthorityServing)? = nil,
         installRouteSnapshot: RouteSnapshotInstaller? = nil,
         diagnosticLog: DiagnosticLog? = nil,
-        clock: any CmxIrohRelayClock = CmxIrohSystemRelayClock()
+        clock: any CmxIrohRelayClock = CmxIrohSystemRelayClock(),
+        dialPhaseTimeout: Duration = .seconds(5)
     ) {
         precondition((authority == nil) == (installRouteSnapshot == nil))
         supervisor = CmxIrohEndpointSupervisor(
@@ -72,6 +76,7 @@ public actor CmxConnectivityEngine {
         self.installRouteSnapshot = installRouteSnapshot
         self.diagnosticLog = diagnosticLog
         self.clock = clock
+        self.dialPhaseTimeout = dialPhaseTimeout
     }
 
     /// Creates a stopped endpoint-only engine for a host acceptor.
@@ -90,6 +95,7 @@ public actor CmxConnectivityEngine {
         installRouteSnapshot = nil
         diagnosticLog = nil
         clock = CmxIrohSystemRelayClock()
+        dialPhaseTimeout = .seconds(5)
     }
 
     init(
@@ -99,7 +105,8 @@ public actor CmxConnectivityEngine {
         authority: (any CmxConnectivityAuthorityServing)? = nil,
         installRouteSnapshot: RouteSnapshotInstaller? = nil,
         diagnosticLog: DiagnosticLog? = nil,
-        clock: any CmxIrohRelayClock = CmxIrohSystemRelayClock()
+        clock: any CmxIrohRelayClock = CmxIrohSystemRelayClock(),
+        dialPhaseTimeout: Duration = .seconds(5)
     ) {
         precondition((authority == nil) == (installRouteSnapshot == nil))
         self.supervisor = supervisor
@@ -109,6 +116,7 @@ public actor CmxConnectivityEngine {
         self.installRouteSnapshot = installRouteSnapshot
         self.diagnosticLog = diagnosticLog
         self.clock = clock
+        self.dialPhaseTimeout = dialPhaseTimeout
     }
 
     /// Returns the current immutable UI-safe state.
@@ -306,6 +314,11 @@ public actor CmxConnectivityEngine {
         await supervisor.hasConfiguredRelay()
     }
 
+    /// Returns whether the active endpoint generation reports a usable home relay.
+    public func hasUsableHomeRelay() async -> Bool {
+        await supervisor.hasUsableHomeRelay()
+    }
+
     /// Waits for the active endpoint generation to report relay readiness.
     public func waitForUsableHomeRelay(
         timeout: Duration = .seconds(15)
@@ -328,17 +341,6 @@ public actor CmxConnectivityEngine {
     ) async throws {
         try await supervisor.replaceRelayProfile(
             profile,
-            expectedIdentity: expectedIdentity
-        )
-    }
-
-    /// Replaces active managed relay credentials without changing identity.
-    public func replaceRelays(
-        _ relays: [CmxIrohRelayConfiguration],
-        expectedIdentity: CmxIrohPeerIdentity
-    ) async throws {
-        try await supervisor.replaceRelays(
-            relays,
             expectedIdentity: expectedIdentity
         )
     }
@@ -533,40 +535,63 @@ public actor CmxConnectivityEngine {
         let protocolConfiguration = protocolConfiguration
         let diagnosticLog = diagnosticLog
         let clock = clock
+        let dialPhaseTimeout = dialPhaseTimeout
         let peer = CmxConnectivityPeerSession(
             peerID: peerID,
             buildSession: { request in
                 let endpoint = try await supervisor.activeEndpoint()
-                let context = try await contextProvider.context(for: request)
-                let session = try CmxIrohClientSession(
-                    endpoint: endpoint,
-                    targetIdentity: peerID.identity,
-                    dialPlan: context.dialPlan,
-                    credential: context.credential,
-                    privateFallbackAuthorization: context.privateFallbackAuthorization,
-                    privateFallbackValidator: contextProvider,
-                    privateFallbackContextProvider: {
-                        try await contextProvider.contextWithPrivateFallback(
-                            for: request,
-                            basedOn: context
-                        )
-                    },
-                    protocolConfiguration: protocolConfiguration,
-                    diagnostics: diagnosticLog
-                )
-                do {
-                    try await session.connect()
-                    return session
-                } catch {
-                    await session.close()
-                    if !(Task.isCancelled || error is CancellationError) {
-                        await contextProvider.noteDialFailure(
-                            for: request,
-                            dialPlan: context.dialPlan,
-                            failure: DiagnosticFailureKind.classify(error)
-                        )
+                var context = try await contextProvider.context(for: request)
+                var attemptedCredentialFallback = false
+                while true {
+                    let attemptContext = context
+                    let session = try CmxIrohClientSession(
+                        endpoint: endpoint,
+                        targetIdentity: peerID.identity,
+                        dialPlan: attemptContext.dialPlan,
+                        credential: attemptContext.credential,
+                        privateFallbackAuthorization: attemptContext.privateFallbackAuthorization,
+                        privateFallbackValidator: contextProvider,
+                        privateFallbackContextProvider: {
+                            try await contextProvider.contextWithPrivateFallback(
+                                for: request,
+                                basedOn: attemptContext
+                            )
+                        },
+                        dialPhaseTimeout: dialPhaseTimeout,
+                        protocolConfiguration: protocolConfiguration,
+                        diagnostics: diagnosticLog
+                    )
+                    do {
+                        try await session.connect()
+                        await contextProvider.noteAdmissionSucceeded(for: request)
+                        return session
+                    } catch {
+                        await session.close()
+                        if !(Task.isCancelled || error is CancellationError) {
+                            await contextProvider.noteDialFailure(
+                                for: request,
+                                dialPlan: attemptContext.dialPlan,
+                                failure: DiagnosticFailureKind.classify(error)
+                            )
+                        }
+                        // A refused credential-less (allowlist) admission
+                        // falls back to the bootstrap grant path once: the
+                        // provider is told to require a credential again and
+                        // asked for a fresh context, which may fetch a grant.
+                        if case CmxIrohClientSessionError.admissionDenied = error,
+                           attemptContext.credential == nil,
+                           !attemptedCredentialFallback,
+                           !(Task.isCancelled) {
+                            attemptedCredentialFallback = true
+                            await contextProvider.noteAllowlistAdmissionRefused(
+                                for: request
+                            )
+                            context = try await contextProvider.context(for: request)
+                            guard context.credential != nil else { throw error }
+                            continue
+                        }
+                        throw error
                     }
-                    throw error
                 }
             },
             handleSnapshot: { [weak self] snapshot in
@@ -914,5 +939,3 @@ public actor CmxConnectivityEngine {
         return lhs.deviceID < rhs.deviceID
     }
 }
-
-extension CmxConnectivityEngine: CmxIrohRelayEndpointControlling {}

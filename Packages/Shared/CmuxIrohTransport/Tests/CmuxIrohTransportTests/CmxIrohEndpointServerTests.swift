@@ -19,8 +19,7 @@ struct CmxIrohEndpointServerTests {
             configuration: try CmxIrohEndpointConfiguration(
                 secretKey: CmxIrohSecretKey(bytes: Data(repeating: 1, count: 32)),
                 alpns: [CmxIrohProtocolConfiguration.cmuxMobileV1.alpn],
-                managedRelayURLs: [],
-                relays: []
+                managedRelayURLs: []
             )
         )
         let snapshot = try await supervisor.activate()
@@ -65,8 +64,7 @@ struct CmxIrohEndpointServerTests {
             configuration: try CmxIrohEndpointConfiguration(
                 secretKey: CmxIrohSecretKey(bytes: Data(repeating: 4, count: 32)),
                 alpns: [CmxIrohProtocolConfiguration.cmuxMobileV1.alpn],
-                managedRelayURLs: [],
-                relays: []
+                managedRelayURLs: []
             )
         )
         let snapshot = try await supervisor.activate()
@@ -112,8 +110,7 @@ struct CmxIrohEndpointServerTests {
             configuration: try CmxIrohEndpointConfiguration(
                 secretKey: CmxIrohSecretKey(bytes: Data(repeating: 6, count: 32)),
                 alpns: [CmxIrohProtocolConfiguration.cmuxMobileV1.alpn],
-                managedRelayURLs: [],
-                relays: []
+                managedRelayURLs: []
             )
         )
         _ = try await supervisor.activate()
@@ -152,8 +149,7 @@ struct CmxIrohEndpointServerTests {
             configuration: try CmxIrohEndpointConfiguration(
                 secretKey: CmxIrohSecretKey(bytes: Data(repeating: 2, count: 32)),
                 alpns: [CmxIrohProtocolConfiguration.cmuxMobileV1.alpn],
-                managedRelayURLs: [],
-                relays: []
+                managedRelayURLs: []
             )
         )
         _ = try await supervisor.activate()
@@ -214,8 +210,7 @@ struct CmxIrohEndpointServerTests {
             configuration: try CmxIrohEndpointConfiguration(
                 secretKey: CmxIrohSecretKey(bytes: Data(repeating: 8, count: 32)),
                 alpns: [CmxIrohProtocolConfiguration.cmuxMobileV1.alpn],
-                managedRelayURLs: [],
-                relays: []
+                managedRelayURLs: []
             )
         )
         _ = try await supervisor.activate()
@@ -278,8 +273,7 @@ struct CmxIrohEndpointServerTests {
             configuration: try CmxIrohEndpointConfiguration(
                 secretKey: CmxIrohSecretKey(bytes: Data(repeating: 9, count: 32)),
                 alpns: [CmxIrohProtocolConfiguration.cmuxMobileV1.alpn],
-                managedRelayURLs: [],
-                relays: []
+                managedRelayURLs: []
             )
         )
         _ = try await supervisor.activate()
@@ -333,8 +327,7 @@ struct CmxIrohEndpointServerTests {
             configuration: try CmxIrohEndpointConfiguration(
                 secretKey: CmxIrohSecretKey(bytes: Data(repeating: 9, count: 32)),
                 alpns: [CmxIrohProtocolConfiguration.cmuxMobileV1.alpn],
-                managedRelayURLs: [],
-                relays: []
+                managedRelayURLs: []
             )
         )
         _ = try await supervisor.activate()
@@ -503,7 +496,7 @@ actor TestAcceptingIrohEndpoint: CmxIrohEndpoint {
         throw TestIrohTransportError.unsupported
     }
 
-    func accept() async throws -> (any CmxIrohConnection)? {
+    func accept() async throws -> (any CmxIrohIncomingConnection)? {
         try Task.checkCancellation()
         if !acceptEvents.isEmpty {
             return try Self.resolve(acceptEvents.removeFirst())
@@ -519,7 +512,6 @@ actor TestAcceptingIrohEndpoint: CmxIrohEndpoint {
         return try Self.resolve(event)
     }
 
-    func replaceRelays(_: [CmxIrohRelayConfiguration]) {}
     func healthEvents() -> AsyncStream<CmxIrohEndpointHealthEvent> { health }
     func isHealthy() -> Bool { true }
 
@@ -553,9 +545,10 @@ actor TestAcceptingIrohEndpoint: CmxIrohEndpoint {
 
     nonisolated private static func resolve(
         _ event: AcceptEvent
-    ) throws -> (any CmxIrohConnection)? {
+    ) throws -> (any CmxIrohIncomingConnection)? {
         switch event {
-        case let .connection(connection): connection
+        case let .connection(connection):
+            CmxIrohEstablishedIncomingConnection(connection)
         case .failure: throw TestIrohTransportError.unsupported
         case .closed: nil
         }

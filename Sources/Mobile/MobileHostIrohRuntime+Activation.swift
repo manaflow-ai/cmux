@@ -49,29 +49,10 @@ extension MobileHostIrohRuntime {
                 && derivedEndpointID == $0.endpointID
                 && $0.identityGeneration == identity.generation
         } ?? false
-        let cachedManagedRelayURLs: Set<String>
-        if let relayPolicyTrustRoot,
-           let cachedPolicy = try? await relayPolicyCache.load(
-               trustRoot: relayPolicyTrustRoot,
-               now: Date()
-           ) {
-            cachedManagedRelayURLs = Set(cachedPolicy.relays.map(\.url))
-        } else {
-            cachedManagedRelayURLs = []
-        }
-        let cachedRelay: CmxIrohRelayTokenResponse?
         if let cachedBinding, bindingMatches {
             lastKnownBindingID = cachedBinding.bindingID
             lastKnownAccountID = accountID
             lastKnownTag = tag
-            cachedRelay = try await brokerCredentials.loadRelayCredential(
-                accountID: accountID,
-                binding: cachedBinding,
-                expectedRelayFleet: cachedManagedRelayURLs,
-                now: Date()
-            )
-        } else {
-            cachedRelay = nil
         }
         let policyExpectation = try CmxIrohHostPolicyExpectation(
             accountID: accountID,
@@ -176,7 +157,6 @@ extension MobileHostIrohRuntime {
         let managedRelayURLs: Set<String>
         let resolvedPolicyService: CmxIrohRelayPolicyService?
         let resolvedEffectivePolicy: CmxIrohEffectiveRelayPolicy?
-        var freshRelayCredential: CmxIrohRelayTokenResponse?
         var relayPolicyNeedsImmediateRefresh = false
         if let relayPolicyTrustRoot {
             let service = CmxIrohRelayPolicyService(
@@ -193,24 +173,19 @@ extension MobileHostIrohRuntime {
                 effective = await service.restore(
                     accountID: accountID,
                     trustRoot: relayPolicyTrustRoot,
-                    relayCredential: cachedRelay,
                     now: Date()
                 )
                 relayPolicyNeedsImmediateRefresh = true
             } else {
                 // Relay-only verification cannot become active without the
-                // current signed fleet and credential, so keep its explicit
-                // readiness barrier.
+                // current signed fleet, so keep its explicit readiness barrier.
                 diagnosticLog.record(DiagnosticEvent(.relayPolicyRefreshStarted))
                 do {
-                    let outcome = try await service.refreshWithCredential(
-                        endpointID: derivedEndpointID,
+                    effective = try await service.refresh(
                         accountID: accountID,
                         trustRoot: relayPolicyTrustRoot,
                         now: Date()
                     )
-                    effective = outcome.effective
-                    freshRelayCredential = outcome.relayCredential
                     diagnosticLog.record(DiagnosticEvent(.relayPolicyRefreshSucceeded))
                 } catch {
                     diagnosticLog.record(DiagnosticEvent(
@@ -220,7 +195,6 @@ extension MobileHostIrohRuntime {
                     effective = await service.restore(
                         accountID: accountID,
                         trustRoot: relayPolicyTrustRoot,
-                        relayCredential: cachedRelay,
                         now: Date()
                     )
                     relayPolicyNeedsImmediateRefresh = true
@@ -246,12 +220,6 @@ extension MobileHostIrohRuntime {
             resolvedPolicyService = nil
             resolvedEffectivePolicy = nil
         }
-        let compatibleCachedRelay = cachedRelay.flatMap { relay in
-            Set(relay.relayFleet) == managedRelayURLs ? relay : nil
-        }
-        let freshCompatibleRelay = freshRelayCredential.flatMap { relay in
-            Set(relay.relayFleet) == managedRelayURLs ? relay : nil
-        }
         let configuration = CmxIrohHostRuntimeConfiguration(
             accountID: accountID,
             deviceID: deviceID,
@@ -273,13 +241,11 @@ extension MobileHostIrohRuntime {
             ),
             managedRelayURLs: managedRelayURLs,
             endpointRelayProfile: endpointRelayProfile,
-            cachedRelayCredential: freshCompatibleRelay ?? compatibleCachedRelay,
             cachedHostPolicy: cachedHostPolicy
         )
         let credentialRepository = brokerCredentials
         let hostPolicyCache = hostPolicies
         let lanPublisher = lanPublisher
-        let activeRelayPolicyService = resolvedPolicyService
         let hostRuntime = CmxIrohHostRuntime(
             factory: CmxIrohLibEndpointFactory(
                 transportVerificationMode: transportVerificationMode
@@ -287,6 +253,7 @@ extension MobileHostIrohRuntime {
             broker: broker,
             configuration: configuration,
             pendingRevocations: pendingRevocations,
+            pairedPeerAllowlist: pairedPeers,
             protocolConfiguration: protocolConfiguration,
             handleTransport: { [weak self] session, isCurrent in
                 guard let self else {
@@ -456,21 +423,6 @@ extension MobileHostIrohRuntime {
                         // leaves Tailscale/other private-network sessions intact.
                         MobileHostService.shared.closeAllIrohConnections()
                     }
-                )
-            },
-            handleRelayCredential: { [weak self] response, binding in
-                guard await self?.allowsPersistence(
-                    accountID: accountID,
-                    revision: revision
-                ) == true else { return }
-                let expectedRelayFleet = await activeRelayPolicyService?.managedPolicy()
-                    .map { Set($0.relays.map(\.url)) } ?? managedRelayURLs
-                try? await credentialRepository.saveRelayCredential(
-                    response,
-                    accountID: accountID,
-                    binding: binding,
-                    expectedRelayFleet: expectedRelayFleet,
-                    now: Date()
                 )
             },
             handleLANRefresh: {

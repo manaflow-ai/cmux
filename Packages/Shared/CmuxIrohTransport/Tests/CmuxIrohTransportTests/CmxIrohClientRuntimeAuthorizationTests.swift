@@ -28,16 +28,9 @@ extension CmxIrohClientRuntimeTests {
             capabilities: discovery.bindings[0].capabilities,
             managedRelayURLs: [fixture.relayURL]
         )
-        let relay = CmxIrohRelayTokenResponse(
-            token: "testrelaytoken",
-            expiresAt: "2027-01-15T10:00:00Z",
-            refreshAfter: "2027-01-15T09:00:00Z",
-            relayFleet: [fixture.relayURL]
-        )
         let broker = TestIrohClientBroker(
             binding: discovery.bindings[0],
             discovery: discovery,
-            relay: relay,
             pairGrant: try fixture.pairGrantResponse(
                 issuedAt: fixture.nowSeconds,
                 expiresAt: fixture.nowSeconds + 3_600
@@ -100,16 +93,9 @@ extension CmxIrohClientRuntimeTests {
             capabilities: discovery.bindings[0].capabilities,
             managedRelayURLs: [fixture.relayURL]
         )
-        let relay = CmxIrohRelayTokenResponse(
-            token: "testrelaytoken",
-            expiresAt: "2027-01-15T10:00:00Z",
-            refreshAfter: "2027-01-15T09:00:00Z",
-            relayFleet: [fixture.relayURL]
-        )
         let broker = TestIrohClientBroker(
             binding: discovery.bindings[0],
             discovery: discovery,
-            relay: relay,
             pairGrant: try fixture.pairGrantResponse(
                 issuedAt: fixture.nowSeconds,
                 expiresAt: fixture.nowSeconds + 3_600
@@ -173,16 +159,9 @@ extension CmxIrohClientRuntimeTests {
             capabilities: discovery.bindings[0].capabilities,
             managedRelayURLs: [fixture.relayURL]
         )
-        let relay = CmxIrohRelayTokenResponse(
-            token: "testrelaytoken",
-            expiresAt: "2027-01-15T10:00:00Z",
-            refreshAfter: "2027-01-15T09:00:00Z",
-            relayFleet: [fixture.relayURL]
-        )
         let broker = TestIrohClientBroker(
             binding: discovery.bindings[0],
             discovery: discovery,
-            relay: relay,
             registrationError: CmxIrohTrustBrokerClientError.connectivity
         )
         let recorder = ClientRuntimeTestRecorder()
@@ -218,7 +197,6 @@ extension CmxIrohClientRuntimeTests {
         let broker = TestIrohClientBroker(
             binding: fixture.binding,
             discovery: fixture.discovery,
-            relay: fixture.relayResponse(),
             registrationError: CmxIrohTrustBrokerClientError.rejected(
                 statusCode: 401,
                 code: "unauthorized"

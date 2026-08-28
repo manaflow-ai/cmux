@@ -284,13 +284,6 @@ describe("Iroh trust broker database behavior", () => {
     });
     const ios = await pairPeer(iosId);
     const mac = await pairPeer(macId);
-    const [issuance] = await requiredSql()<Array<{ id: string }>>`
-      insert into iroh_relay_token_issuances (
-        user_id, binding_id, endpoint_id_hash, status, requested_at
-      ) values (${userId}, ${macId}, ${"0f".repeat(32)}, 'pending', ${NOW})
-      returning id::text
-    `;
-    if (!issuance) throw new Error("issuance insert failed");
     await requiredSql()`
       insert into account_deletion_tombstones (user_id_hash, user_id, status, updated_at)
       values (${accountDeletionUserHash(userId)}, ${userId}, 'pending', now())
@@ -322,22 +315,6 @@ describe("Iroh trust broker database behavior", () => {
         notBefore: NOW,
         expiresAt: new Date(NOW.getTime() + 7 * 24 * 60 * 60 * 1_000),
       }),
-      repository.reserveRelayIssuance({ userId, bindingId: macId, now: NOW }),
-      repository.completeRelayIssuance({
-        userId,
-        issuanceId: issuance.id,
-        bindingId: macId,
-        endpointId: mac.endpointId,
-        tokenHash: "10".repeat(32),
-        completedAt: NOW,
-        expiresAt: new Date(NOW.getTime() + 24 * 60 * 60 * 1_000),
-      }),
-      repository.failRelayIssuance({
-        userId,
-        issuanceId: issuance.id,
-        completedAt: NOW,
-        failureCode: "test_failure",
-      }),
     ];
     for (const operation of operations) {
       const exit = await Effect.runPromiseExit(operation);
@@ -347,19 +324,16 @@ describe("Iroh trust broker database behavior", () => {
     const [state] = await requiredSql()<Array<{
       revoked: boolean;
       grants: string;
-      issuanceStatus: string;
       securityStates: string;
     }>>`
       select
         exists(select 1 from iroh_endpoint_bindings where id = ${macId} and revoked_at is not null) as revoked,
         (select count(*)::text from iroh_pair_grant_issuances where user_id = ${userId}) as grants,
-        (select status from iroh_relay_token_issuances where id = ${issuance.id}) as "issuanceStatus",
         (select count(*)::text from iroh_account_security_states where user_id = ${userId}) as "securityStates"
     `;
     expect(state).toEqual({
       revoked: false,
       grants: "0",
-      issuanceStatus: "pending",
       securityStates: "0",
     });
   });
@@ -419,6 +393,126 @@ describe("Iroh trust broker database behavior", () => {
     expect({ bindings, consumed }).toEqual({ bindings: "1", consumed: "1" });
     expect(nextExpiry).toBeNull();
     expect(pathHints).toEqual([]);
+  });
+
+  dbTest("registers a self-contained proof atomically and dedupes its nonce", async () => {
+    const repo = requiredRepository();
+    const userId = "user-self-proof";
+    const deviceId = randomUUID();
+    const appInstanceId = randomUUID();
+    const endpointId = "40".repeat(32);
+    const nonceHash = "41".repeat(32);
+    const input = {
+      userId,
+      nonceHash,
+      payloadSha256: "46".repeat(32),
+      payload: {
+        route_contract_version: 1 as const,
+        deviceId,
+        appInstanceId,
+        clientNamespace: "legacy",
+        tag: "stable",
+        platform: "mac" as const,
+        endpointId,
+        identityGeneration: 1,
+        pairingEnabled: true,
+        capabilities: [],
+        pathHints: [],
+      },
+      now: NOW,
+      dedupeExpiresAt: new Date(NOW.getTime() + 10 * 60 * 1_000),
+    };
+
+    const first = await Effect.runPromise(repo.registerWithSelfProof(input));
+    expect(first.created).toBe(true);
+
+    // The one-use dedupe record persists as a consumed challenge row.
+    const [{ bindings, consumed }] = await requiredSql()<Array<{
+      bindings: string;
+      consumed: string;
+    }>>`
+      select
+        (select count(*)::text from iroh_endpoint_bindings) as bindings,
+        (select count(*)::text from iroh_registration_challenges
+          where consumed_at is not null) as consumed
+    `;
+    expect({ bindings, consumed }).toEqual({ bindings: "1", consumed: "1" });
+
+    // An identical nonce can never land twice.
+    const replay = await Effect.runPromiseExit(repo.registerWithSelfProof({
+      ...input,
+      now: new Date(NOW.getTime() + 1_000),
+    }));
+    expect(replay._tag).toBe("Failure");
+    const replayError = replay._tag === "Failure"
+      ? Option.getOrUndefined(Cause.failureOption(replay.cause))
+      : undefined;
+    expect(replayError).toMatchObject({
+      _tag: "IrohConflictError",
+      code: "self_proof_replayed",
+    });
+  });
+
+  dbTest("a challenge minted before a self-proof registration cannot land after it", async () => {
+    const repo = requiredRepository();
+    const userId = "user-self-proof-ordering";
+    const deviceId = randomUUID();
+    const appInstanceId = randomUUID();
+    const endpointId = "42".repeat(32);
+    const payload = {
+      route_contract_version: 1 as const,
+      deviceId,
+      appInstanceId,
+      clientNamespace: "legacy",
+      tag: "stable",
+      platform: "mac" as const,
+      endpointId,
+      identityGeneration: 1,
+      pairingEnabled: true,
+      capabilities: [],
+      pathHints: [],
+    };
+    const staleNonceHash = "43".repeat(32);
+    const staleChallenge = await Effect.runPromise(repo.issueChallenge({
+      userId,
+      deviceUuid: deviceId,
+      appInstanceId,
+      tag: "stable",
+      endpointId,
+      identityGeneration: 1,
+      payloadSha256: "44".repeat(32),
+      nonceHash: staleNonceHash,
+      now: NOW,
+      expiresAt: new Date(NOW.getTime() + 5 * 60 * 1_000),
+    }));
+
+    const selfProof = await Effect.runPromise(repo.registerWithSelfProof({
+      userId,
+      nonceHash: "45".repeat(32),
+      payloadSha256: "47".repeat(32),
+      payload,
+      now: new Date(NOW.getTime() + 1_000),
+      dedupeExpiresAt: new Date(NOW.getTime() + 11 * 60 * 1_000),
+    }));
+    expect(selfProof.created).toBe(true);
+
+    // The self-proof advanced the slot's registration high-water mark; the
+    // older challenge lost the race and must not overwrite it.
+    const late = await Effect.runPromiseExit(repo.consumeChallengeAndRegister({
+      userId,
+      challengeId: staleChallenge.id,
+      nonceHash: staleNonceHash,
+      payload,
+      now: new Date(NOW.getTime() + 2_000),
+    }));
+    expect(late._tag).toBe("Failure");
+    const lateError = late._tag === "Failure"
+      ? Option.getOrUndefined(Cause.failureOption(late.cause))
+      : undefined;
+    expect(lateError).toMatchObject({
+      _tag: "IrohConflictError",
+      code: "challenge_superseded",
+    });
   });
 
   dbTest("adopts legacy and tag-only Mac bindings into the bundle namespace", async () => {
@@ -1876,112 +1970,6 @@ describe("Iroh trust broker database behavior", () => {
     const exit = await finalization;
     expect(exit._tag).toBe("Failure");
     expect(String(exit)).toContain("IrohNotFoundError");
-  });
-
-  dbTest("expires abandoned relay reservations before enforcing endpoint and account quotas", async () => {
-    const repo = requiredRepository();
-    const endpointUserId = "user-relay-abandoned-endpoint";
-    const endpointBindingId = await insertBinding({
-      userId: endpointUserId,
-      endpointId: "63".repeat(32),
-    });
-    for (let index = 0; index < 3; index += 1) {
-      await requiredSql()`
-        insert into iroh_relay_token_issuances (
-          user_id, binding_id, endpoint_id_hash, status, requested_at
-        ) values (
-          ${endpointUserId}, ${endpointBindingId}, ${"64".repeat(32)}, 'pending',
-          ${new Date(NOW.getTime() - 5 * 60 * 1_000 - index * 1_000)}
-        )
-      `;
-    }
-
-    await Effect.runPromise(repo.reserveRelayIssuance({
-      userId: endpointUserId,
-      bindingId: endpointBindingId,
-      now: NOW,
-    }));
-    const endpointStatuses = await requiredSql()<Array<{ status: string; total: string }>>`
-      select status, count(*)::text as total
-      from iroh_relay_token_issuances
-      where user_id = ${endpointUserId}
-      group by status
-      order by status
-    `;
-    expect(endpointStatuses).toEqual([
-      { status: "expired", total: "3" },
-      { status: "pending", total: "1" },
-    ]);
-
-    const accountUserId = "user-relay-abandoned-account";
-    const accountBindingIds: string[] = [];
-    for (let index = 0; index < 10; index += 1) {
-      const bindingId = await insertBinding({
-        userId: accountUserId,
-        endpointId: (0xa0 + index).toString(16).repeat(32),
-      });
-      accountBindingIds.push(bindingId);
-      await requiredSql()`
-        insert into iroh_relay_token_issuances (
-          user_id, binding_id, endpoint_id_hash, status, requested_at
-        )
-        select
-          ${accountUserId}, ${bindingId}, ${"65".repeat(32)}, 'pending',
-          ${new Date(NOW.getTime() - 15 * 60 * 1_000)} - make_interval(secs => value)
-        from generate_series(1, 10) as values(value)
-      `;
-    }
-
-    await Effect.runPromise(repo.reserveRelayIssuance({
-      userId: accountUserId,
-      bindingId: accountBindingIds[0]!,
-      now: NOW,
-    }));
-    const accountStatuses = await requiredSql()<Array<{ status: string; total: string }>>`
-      select status, count(*)::text as total
-      from iroh_relay_token_issuances
-      where user_id = ${accountUserId}
-      group by status
-      order by status
-    `;
-    expect(accountStatuses).toEqual([
-      { status: "expired", total: "100" },
-      { status: "pending", total: "1" },
-    ]);
-  });
-
-  dbTest("fails relay finalization when revocation commits during provider mint", async () => {
-    const repo = requiredRepository();
-    const endpointId = "61".repeat(32);
-    const bindingId = await insertBinding({ userId: "user-relay-race", endpointId });
-    const reservation = await Effect.runPromise(repo.reserveRelayIssuance({
-      userId: "user-relay-race",
-      bindingId,
-      now: NOW,
-    }));
-    expect(await Effect.runPromise(repo.revokeBinding({
-      userId: "user-relay-race",
-      bindingId,
-      now: new Date(NOW.getTime() + 1_000),
-    }))).toEqual({ revoked: true, accountRevision: 1 });
-    expect(await Effect.runPromise(repo.completeRelayIssuance({
-      userId: "user-relay-race",
-      issuanceId: reservation.issuanceId,
-      bindingId,
-      endpointId,
-      tokenHash: "62".repeat(32),
-      completedAt: new Date(NOW.getTime() + 2_000),
-      expiresAt: new Date(NOW.getTime() + 24 * 60 * 60 * 1_000),
-    }))).toBe(false);
-    const [issuance] = await requiredSql()<Array<{ status: string; failureCode: string | null }>>`
-      select status, failure_code as "failureCode"
-      from iroh_relay_token_issuances
-      where id = ${reservation.issuanceId}
-    `;
-    expect(issuance).toEqual({
-      status: "failed",
-      failureCode: "binding_inactive_after_mint",
-    });
   });
 
   dbTest("global retention clears revoked hints and expired private data from Aurora", async () => {

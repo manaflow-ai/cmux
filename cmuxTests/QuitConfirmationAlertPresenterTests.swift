@@ -258,3 +258,27 @@ private final class QuitConfirmationAlertSpy: NSAlert {
         return .alertSecondButtonReturn
     }
 }
+
+@MainActor
+@Suite
+struct AppTerminationRequestDispatchTests {
+    /// Regression for https://github.com/manaflow-ai/cmux/issues/10788: a
+    /// debug-socket `simulate_shortcut cmd+q` runs the quit path inside a
+    /// `DispatchQueue.main.sync` block (`v2MainSync`). Terminating
+    /// synchronously from there deadlocks: `applicationShouldTerminate`
+    /// returns `.terminateLater` and its deferred `@MainActor` cleanup task
+    /// can never start while the main queue is still inside the socket
+    /// command block. The terminate request must therefore leave the
+    /// caller's turn and fire from a later main-run-loop callout.
+    @Test
+    func scheduledTerminateFiresFromALaterRunLoopCallout_notInsideTheRequestingBlock() {
+        var fired = false
+        AppTerminationRequest.schedule { fired = true }
+        #expect(!fired, "terminate ran synchronously inside the requesting block; this is the issue #10788 deadlock shape")
+        let deadline = Date().addingTimeInterval(5)
+        while !fired, Date() < deadline {
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01))
+        }
+        #expect(fired, "the scheduled terminate request never fired on a later run-loop turn")
+    }
+}
