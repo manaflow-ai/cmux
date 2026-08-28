@@ -9,6 +9,7 @@ pub(super) const RESOURCE_MUTATION_PRUNE_INTERVAL: u64 = 128;
 const RESOURCE_EVENT_PAGE_SIZE: usize = 1024;
 pub(super) const AGENT_HOOK_RETRY_PAGE_SIZE: i64 = 64;
 pub(super) const AGENT_HOOK_MAX_ATTEMPTS: i64 = 8;
+pub(crate) const AGENT_HOOK_MAX_RETRY_PAGES_PER_WAKE: usize = 16;
 
 pub(super) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     transaction.execute_batch(

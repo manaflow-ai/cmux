@@ -2481,7 +2481,9 @@ impl Mux {
 
     fn retry_pending_agent_hooks(&self) -> anyhow::Result<()> {
         let mut cursor = None;
-        loop {
+        // Keep startup work bounded. Remaining rows stay durable for a later
+        // availability signal or restart.
+        for _ in 0..crate::workspace_registry::AGENT_HOOK_MAX_RETRY_PAGES_PER_WAKE {
             let (pending, next_cursor) = self
                 .workspace_registry
                 .lock()
@@ -2498,7 +2500,9 @@ impl Mux {
         &self,
         terminal_id: &TerminalPublicId,
     ) -> anyhow::Result<()> {
-        loop {
+        // Drain in fixed-size pages, with a hard per-signal cap. Rows beyond
+        // the cap remain durable for the next terminal availability signal.
+        for _ in 0..crate::workspace_registry::AGENT_HOOK_MAX_RETRY_PAGES_PER_WAKE {
             let pending = self
                 .workspace_registry
                 .lock()
@@ -8949,6 +8953,22 @@ impl Mux {
             if ended_fence.is_some_and(|fence| {
                 fresh_session.is_none_or(|session| session == fence.session_id)
             }) {
+                anyhow::bail!("agent session ended for terminal {terminal_id}");
+            }
+        } else if let Some(fence) = sequence_guard
+            .as_ref()
+            .and_then(|guard| guard.get(&terminal_id))
+            .filter(|fence| fence.ended)
+        {
+            let is_new_hook_session = hook_state.is_some_and(|state| {
+                !state.ended
+                    && state.applied_sequence > fence.sequence
+                    && state.agent_session_id != fence.session_id
+                    && source_session
+                        .as_deref()
+                        .is_some_and(|session| session.starts_with("cmux-hook-sequence:"))
+            });
+            if !is_new_hook_session {
                 anyhow::bail!("agent session ended for terminal {terminal_id}");
             }
         }
@@ -22345,6 +22365,9 @@ mod tests {
         assert!(snapshot["agents"].as_array().unwrap().is_empty());
         assert!(
             mux.report_agent(surface.id, AgentState::Working, AgentSource::Socket, None).is_err()
+        );
+        assert!(
+            mux.report_agent(surface.id, AgentState::Working, AgentSource::Hook, None).is_err()
         );
         assert!(mux.list_agents(Some(surface.id), None).is_empty());
         assert!(

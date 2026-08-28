@@ -60,8 +60,8 @@ pub(crate) use journal_extensions::{
 pub use public_projection_store::RegistryPublicProjections;
 #[cfg(test)]
 pub use public_projection_store::{RegistryAgentProjection, RegistryNotificationProjection};
-pub(crate) use resource_store::AgentHookProjectionState;
 pub(crate) use resource_store::validate_registry_screen_projection;
+pub(crate) use resource_store::{AGENT_HOOK_MAX_RETRY_PAGES_PER_WAKE, AgentHookProjectionState};
 #[allow(unused_imports)]
 pub use resource_store::{
     RegistryBrowser, RegistryBrowserLaunch, RegistryBrowserReconnect, RegistryBrowserSource,
