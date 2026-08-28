@@ -10,6 +10,10 @@ fn frame_for(input: &str, cols: u16) -> ghostty_vt::RenderFrame {
     state.build_frame().unwrap()
 }
 
+fn styled_row_cells(frame: &ghostty_vt::RenderFrame) -> Vec<(String, CellWidth)> {
+    frame.styled_row(0).unwrap().iter().map(|cell| (cell.text.clone(), cell.width)).collect()
+}
+
 fn assert_grapheme_cells(input: &str, expected: &[(&str, CellWidth)]) {
     // Mode 2027 uses the terminal's extended grapheme segmentation. UAX #29
     // keeps combining marks and Indic conjuncts in one cluster, while UAX #11
@@ -92,13 +96,13 @@ fn unicode_conformance_utf8_chunking_preserves_rendered_text() {
     let mut state = RenderState::new().unwrap();
     state.update(&mut terminal).unwrap();
     let actual = state.build_frame().unwrap();
-    let cells = |frame: &ghostty_vt::RenderFrame| {
-        frame
-            .styled_row(0)
-            .unwrap()
+    let expected_cells = styled_row_cells(&expected);
+    let actual_cells = styled_row_cells(&actual);
+    assert_eq!(actual_cells, expected_cells);
+    assert!(
+        expected_cells
             .iter()
-            .map(|cell| (cell.text.clone(), cell.width))
-            .collect::<Vec<_>>()
-    };
-    assert_eq!(cells(&actual), cells(&expected));
+            .any(|(text, width)| text.is_empty() && *width == CellWidth::SpacerTail),
+        "expected fixture must retain the empty spacer tail cell"
+    );
 }
