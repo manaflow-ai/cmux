@@ -120,11 +120,22 @@ struct SourceState {
 
 struct ThreadOutput {
     state: Mutex<SourceState>,
+    overflow_handler: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
 }
 
 impl ThreadOutput {
     fn new() -> Arc<ThreadOutput> {
-        Arc::new(ThreadOutput { state: Mutex::new(SourceState::default()) })
+        Arc::new(ThreadOutput {
+            state: Mutex::new(SourceState::default()),
+            overflow_handler: Mutex::new(None),
+        })
+    }
+
+    /// Install the owner cleanup that must run when the bounded source queue
+    /// overflows. The callback is invoked at most once and never while the
+    /// source mutex is held.
+    fn set_overflow_handler(&self, handler: Arc<dyn Fn() + Send + Sync>) {
+        *self.overflow_handler.lock().expect("overflow handler lock") = Some(handler);
     }
 
     /// Mark the queue as owned by a drainer, if a subscriber is ready.
@@ -172,21 +183,28 @@ impl ThreadOutput {
         if chunk.is_empty() {
             return;
         }
-        let should_drain = {
+        let (should_drain, overflowed) = {
             let mut state = self.state.lock().expect("source lock");
             if state.exited || state.overflowed {
                 return;
             }
+            let mut overflowed = false;
             if chunk.len() > THREAD_OUTPUT_BACKLOG_CAP.saturating_sub(state.backlog_bytes) {
                 state.overflowed = true;
                 state.exited = true;
                 state.pending_exit = Some(THREAD_OUTPUT_OVERFLOW_EXIT);
+                overflowed = true;
             } else {
                 state.backlog_bytes += chunk.len();
                 state.backlog.push_back(chunk);
             }
-            Self::start_delivery(&mut state)
+            (Self::start_delivery(&mut state), overflowed)
         };
+        if overflowed
+            && let Some(handler) = self.overflow_handler.lock().expect("overflow handler lock").clone()
+        {
+            handler();
+        }
         if should_drain {
             self.drain();
         }
@@ -311,6 +329,13 @@ fn spawn_real_pty(spec: &SpawnSpec) -> anyhow::Result<PtyHandle> {
     let writer = spawned.master.take_writer()?;
     let killer = spawned.child.clone_killer();
     let output = ThreadOutput::new();
+    let control = Arc::new(MasterControl {
+        master: Mutex::new(spawned.master),
+        writer: Mutex::new(writer),
+        killer: Mutex::new(killer),
+    });
+    let overflow_control = Arc::clone(&control);
+    output.set_overflow_handler(Arc::new(move || overflow_control.kill()));
 
     // Blocking reader thread -> output sink.
     let data_output = Arc::clone(&output);
@@ -333,11 +358,7 @@ fn spawn_real_pty(spec: &SpawnSpec) -> anyhow::Result<PtyHandle> {
     });
 
     Ok(PtyHandle {
-        control: Arc::new(MasterControl {
-            master: Mutex::new(spawned.master),
-            writer: Mutex::new(writer),
-            killer: Mutex::new(killer),
-        }),
+        control,
         output,
         banner: None,
     })
@@ -365,6 +386,9 @@ fn spawn_pipe_mode(spec: &SpawnSpec, reason: &str) -> PtyHandle {
         Ok(mut child) => {
             let stdin = child.stdin.take();
             let pid = child.id() as i32;
+            let control = Arc::new(PipeControl { stdin: Mutex::new(stdin), pid });
+            let overflow_control = Arc::clone(&control);
+            output.set_overflow_handler(Arc::new(move || overflow_control.kill()));
             if let Some(stdout) = child.stdout.take() {
                 let out = Arc::clone(&output);
                 std::thread::spawn(move || pump_pipe(stdout, out));
@@ -383,7 +407,7 @@ fn spawn_pipe_mode(spec: &SpawnSpec, reason: &str) -> PtyHandle {
                 wait_output.push_exit(code);
             });
             PtyHandle {
-                control: Arc::new(PipeControl { stdin: Mutex::new(stdin), pid }),
+                control,
                 output,
                 banner: Some(banner.into_bytes()),
             }
@@ -687,6 +711,11 @@ mod tests {
     #[test]
     fn backlog_overflow_preserves_prefix_and_emits_terminal_exit_once() {
         let output = ThreadOutput::new();
+        let kills = TestArc::new(AtomicUsize::new(0));
+        let kill_counter = TestArc::clone(&kills);
+        output.set_overflow_handler(TestArc::new(move || {
+            kill_counter.fetch_add(1, AtomicOrdering::Relaxed);
+        }));
         output.push_data(Bytes::from(vec![b'x'; THREAD_OUTPUT_BACKLOG_CAP]));
         output.push_data(Bytes::from_static(b"overflow"));
         output.push_exit(0);
@@ -705,6 +734,8 @@ mod tests {
             *seen.lock().expect("seen lock"),
             vec![format!("data:{THREAD_OUTPUT_BACKLOG_CAP}"), "exit:75".to_owned()]
         );
+        output.push_data(Bytes::from_static(b"another overflow"));
+        assert_eq!(kills.load(AtomicOrdering::Relaxed), 1);
     }
 
     #[test]
