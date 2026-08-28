@@ -117,6 +117,20 @@ describe("cmux-tui install and daemon commands", () => {
     );
     expect(command).toContain("else cd /home/cmux && exec env HOME=/home/cmux TERM=xterm-256color /home/cmux/.cmux/bin/cmux-tui server start");
   });
+
+  test("the layout setup pins the work-user identity and does not accept a silent fallback", () => {
+    expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain("useradd -m -u 1001 -s /bin/bash cmux");
+    expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain("useradd -m -u 1001 -s /bin/bash cmux");
+    expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain("adduser -D -u 1001 -s /bin/bash cmux");
+    expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain("id -u cmux | grep -qx 1001");
+    expect(CMUX_CLOUD_USER_SETUP_COMMAND).not.toContain("|| true");
+  });
+
+  test("new-layout commands fail closed when the identity view is unavailable", () => {
+    const daemon = cmuxTuiDaemonCommand(CMUX_CLOUD_LAYOUT);
+    expect(daemon).toContain("exit 78");
+    expect(daemon).not.toContain("else cd /home/cmux && exec env HOME=/home/cmux");
+  });
 });
 
 describe("enrollment invitation parsing", () => {
