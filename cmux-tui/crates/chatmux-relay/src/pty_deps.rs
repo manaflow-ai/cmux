@@ -27,6 +27,8 @@ use crate::pty::{
 };
 
 const DAEMON_SOCKET_WAIT_MS: u64 = 5_000;
+const THREAD_OUTPUT_BACKLOG_CAP: usize = 1024 * 1024;
+const THREAD_OUTPUT_OVERFLOW_EXIT: i64 = 75;
 // `lifecycle_ready` was added to the cmux-tui control protocol at version 12.
 // This is distinct from the relay's lower-level CONTROL_MIN_PROTOCOL floor.
 const DAEMON_LIFECYCLE_PROTOCOL_MIN: u64 = 12;
@@ -108,10 +110,12 @@ struct SourceState {
     on_data: Option<DataSink>,
     on_exit: Option<ExitSink>,
     backlog: VecDeque<Bytes>,
+    backlog_bytes: usize,
     // Keep exit behind bytes that arrive before the subscriber drains.
     pending_exit: Option<i64>,
     delivering: bool,
     exited: bool,
+    overflowed: bool,
 }
 
 struct ThreadOutput {
@@ -144,6 +148,7 @@ impl ThreadOutput {
             let next = {
                 let mut state = self.state.lock().expect("source lock");
                 if let Some(chunk) = state.backlog.pop_front() {
+                    state.backlog_bytes = state.backlog_bytes.saturating_sub(chunk.len());
                     (Some(chunk), None, state.on_data.clone(), state.on_exit.clone())
                 } else if let Some(code) = state.pending_exit.take() {
                     (None, Some(code), state.on_data.clone(), state.on_exit.clone())
@@ -164,7 +169,17 @@ impl ThreadOutput {
     fn push_data(&self, chunk: Bytes) {
         let should_drain = {
             let mut state = self.state.lock().expect("source lock");
-            state.backlog.push_back(chunk);
+            if state.exited || state.overflowed {
+                return;
+            }
+            if chunk.len() > THREAD_OUTPUT_BACKLOG_CAP.saturating_sub(state.backlog_bytes) {
+                state.overflowed = true;
+                state.exited = true;
+                state.pending_exit = Some(THREAD_OUTPUT_OVERFLOW_EXIT);
+            } else {
+                state.backlog_bytes += chunk.len();
+                state.backlog.push_back(chunk);
+            }
             Self::start_delivery(&mut state)
         };
         if should_drain {
@@ -661,6 +676,29 @@ mod tests {
         assert_eq!(
             *seen.lock().expect("seen lock"),
             vec!["buffered".to_owned(), "live".to_owned(), "exit:7".to_owned()]
+        );
+    }
+
+    #[test]
+    fn backlog_overflow_preserves_prefix_and_emits_terminal_exit_once() {
+        let output = ThreadOutput::new();
+        output.push_data(Bytes::from(vec![b'x'; THREAD_OUTPUT_BACKLOG_CAP]));
+        output.push_data(Bytes::from_static(b"overflow"));
+        output.push_exit(0);
+        let seen = TestArc::new(TestMutex::new(Vec::new()));
+        let data_seen = TestArc::clone(&seen);
+        let exit_seen = TestArc::clone(&seen);
+        output.subscribe(
+            TestArc::new(move |chunk| {
+                data_seen.lock().expect("seen lock").push(format!("data:{}", chunk.len()))
+            }),
+            TestArc::new(move |code| {
+                exit_seen.lock().expect("seen lock").push(format!("exit:{code}"))
+            }),
+        );
+        assert_eq!(
+            *seen.lock().expect("seen lock"),
+            vec![format!("data:{THREAD_OUTPUT_BACKLOG_CAP}"), "exit:75".to_owned()]
         );
     }
 }
