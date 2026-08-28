@@ -38,9 +38,9 @@
 //! already attach terminals through the cmux CLI. Paired human machines
 //! never run this listener: it starts from the managed branch only.
 
-use std::sync::Arc;
 use std::sync::RwLock;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
 
 use base64::Engine as _;
@@ -305,6 +305,9 @@ pub fn generate_session_name() -> Result<String, getrandom::Error> {
 
 enum WriterMessage {
     Frame(Vec<u8>),
+    /// Flush what is queued, then close the write half. The slot for this
+    /// message is reserved when the connection starts.
+    End,
 }
 
 /// State shared between the reader task, the writer task, and the manager's
@@ -313,6 +316,9 @@ struct Connection {
     pty_id: String,
     manager: Arc<PtyManager>,
     writer_tx: mpsc::Sender<WriterMessage>,
+    /// A permanently reserved channel slot for the terminal shutdown frame.
+    /// `finish` is synchronous, so it cannot wait for queue capacity.
+    end_permit: StdMutex<Option<mpsc::OwnedPermit<WriterMessage>>>,
     /// Serializes enqueue and End so shutdown cannot overtake a frame that
     /// already reserved bytes. The critical section only performs a
     /// non-blocking channel operation.
@@ -402,6 +408,9 @@ impl Connection {
         let _queue_gate = self.queue_gate.lock().expect("tunnel queue lock");
         if self.finished.swap(true, Ordering::SeqCst) {
             return;
+        }
+        if let Some(permit) = self.end_permit.lock().expect("tunnel end permit lock").take() {
+            permit.send(WriterMessage::End);
         }
         self.done.cancel();
     }
@@ -513,7 +522,11 @@ impl Connection {
 }
 
 fn queue_limit(control: bool) -> u64 {
-    if control { TUNNEL_QUEUE_BYTES } else { TUNNEL_QUEUE_BYTES - TUNNEL_CONTROL_QUEUE_RESERVE_BYTES }
+    if control {
+        TUNNEL_QUEUE_BYTES
+    } else {
+        TUNNEL_QUEUE_BYTES - TUNNEL_CONTROL_QUEUE_RESERVE_BYTES
+    }
 }
 
 async fn handle_client_frame(connection: &Arc<Connection>, frame: TunnelFrame) {
@@ -610,6 +623,16 @@ async fn serve_connection(
     let _ = stream.set_nodelay(true);
     let (mut read_half, mut write_half) = stream.into_split();
     let (writer_tx, mut writer_rx) = mpsc::channel::<WriterMessage>(TUNNEL_WRITER_QUEUE_ITEMS);
+    // Reserve one item before any producer can fill the queue. Tokio's owned
+    // permit keeps this capacity unavailable to ordinary `try_send` calls and
+    // can later send End synchronously from `finish`.
+    let end_permit = match writer_tx.clone().reserve_owned().await {
+        Ok(permit) => permit,
+        Err(_) => {
+            let _ = write_half.shutdown().await;
+            return;
+        }
+    };
     let (flow_tx, mut flow_rx) = watch::channel(false);
     let pty_id = match random_hex(8) {
         Ok(id) => format!("tunnel-{id}"),
@@ -624,6 +647,7 @@ async fn serve_connection(
         pty_id,
         manager: Arc::clone(&manager),
         writer_tx,
+        end_permit: StdMutex::new(Some(end_permit)),
         queue_gate: std::sync::Mutex::new(()),
         flow_tx,
         auth_state,
@@ -640,27 +664,7 @@ async fn serve_connection(
     let mut writer = {
         let connection = Arc::clone(&connection);
         tokio::spawn(async move {
-            loop {
-                let message = tokio::select! {
-                    message = writer_rx.recv() => message,
-                    _ = connection.done.cancelled() => {
-                        // Cancellation is the reserved control path. Drain
-                        // already-accepted frames, then close without relying
-                        // on an additional bounded-channel End item.
-                        while let Ok(message) = writer_rx.try_recv() {
-                            match message {
-                                WriterMessage::Frame(frame) => {
-                                    let length = frame.len() as u64;
-                                    let written = write_half.write_all(&frame).await;
-                                    connection.pending_out.fetch_sub(length, Ordering::SeqCst);
-                                    if written.is_err() { break; }
-                                }
-                            }
-                        }
-                        break;
-                    }
-                };
-                let Some(message) = message else { break };
+            while let Some(message) = writer_rx.recv().await {
                 match message {
                     WriterMessage::Frame(frame) => {
                         let written = write_half.write_all(&frame).await;
@@ -678,6 +682,7 @@ async fn serve_connection(
                             let _ = connection.flow_tx.send(false);
                         }
                     }
+                    WriterMessage::End => break,
                 }
             }
             let _ = write_half.shutdown().await;
@@ -1063,6 +1068,63 @@ mod tests {
                 return;
             }
         }
+    }
+
+    #[tokio::test]
+    async fn saturated_writer_queue_still_delivers_error_and_end() {
+        let rig = rig().await;
+        let (writer_tx, mut writer_rx) = mpsc::channel::<WriterMessage>(TUNNEL_WRITER_QUEUE_ITEMS);
+        let end_permit = writer_tx.clone().reserve_owned().await.expect("reserve End slot");
+        let (flow_tx, _) = watch::channel(false);
+        let connection = Connection {
+            pty_id: "queue-test".to_owned(),
+            manager: Arc::clone(&rig.manager),
+            writer_tx,
+            end_permit: StdMutex::new(Some(end_permit)),
+            queue_gate: StdMutex::new(()),
+            flow_tx,
+            auth_state: Arc::new(RwLock::new(TunnelAuthority::default())),
+            auth_generation: 0,
+            pending_out: AtomicU64::new(0),
+            paused: AtomicBool::new(false),
+            open_sent: AtomicBool::new(false),
+            opened_seen: AtomicBool::new(false),
+            finished: AtomicBool::new(false),
+            done: CancellationToken::new(),
+        };
+
+        // Data can fill every ordinary slot, but the reserved permit keeps
+        // the shutdown item available and the item reserve leaves room for
+        // the control error.
+        let accepted_data = TUNNEL_WRITER_QUEUE_ITEMS - TUNNEL_CONTROL_QUEUE_RESERVE_ITEMS - 1;
+        for _ in 0..accepted_data {
+            assert!(connection.enqueue_frame(vec![b'x'], false));
+        }
+        connection.send_control(&json!({ "t": "error", "code": "failed" }));
+        connection.finish();
+        drop(connection);
+
+        let mut saw_error = false;
+        let mut saw_end = false;
+        while let Some(message) = writer_rx.recv().await {
+            match message {
+                WriterMessage::Frame(frame)
+                    if frame.len() > 1 && frame[1] == FRAME_KIND_CONTROL =>
+                {
+                    let payload = &frame[5..];
+                    let value: Value = serde_json::from_slice(payload).expect("error frame");
+                    saw_error = value["t"] == "error" && value["code"] == "failed";
+                }
+                WriterMessage::End => {
+                    saw_end = true;
+                    break;
+                }
+                WriterMessage::Frame(_) => {}
+            }
+        }
+        assert!(saw_error, "control error must survive data saturation");
+        assert!(saw_end, "reserved End item must be delivered");
+        rig.cancel.cancel();
     }
 
     // -- pure codec/parse ---------------------------------------------------
