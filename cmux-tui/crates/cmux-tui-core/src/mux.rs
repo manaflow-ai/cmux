@@ -9042,11 +9042,11 @@ impl Mux {
         origin: AgentReportOrigin,
         agent_adapter: Option<String>,
     ) -> anyhow::Result<(ResourcePatchCommit, Option<AgentRecord>)> {
-        let replay = self
-            .workspace_registry
-            .lock()
-            .unwrap()
-            .replay_resource_patch(mutation, "agent.report", fingerprint)?;
+        let replay = self.workspace_registry.lock().unwrap().replay_resource_patch(
+            mutation,
+            "agent.report",
+            fingerprint,
+        )?;
         if let Some(replay) = replay {
             if origin == AgentReportOrigin::Direct {
                 // A previous call may have committed the projection and then
