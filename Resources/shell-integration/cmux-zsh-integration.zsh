@@ -1513,6 +1513,18 @@ _cmux_watcher_parent_start_time() {
     local pid="${1:-}" raw month day clock year token
     case "$pid" in ''|*[!0-9]*) return 1 ;; esac
     case "$pid" in *[1-9]*) ;; *) return 1 ;; esac
+    local kernel="$(/usr/sbin/sysctl -n "kern.proc.pid.$pid" 2>/dev/null | /usr/bin/od -An -tu4 2>/dev/null)"
+    local -a fields=(${=kernel})
+    local i sec usec
+    for (( i = 1; i < ${#fields}; i++ )); do
+        sec="${fields[i]}"; usec="${fields[i+1]}"
+        if [[ "$sec" == <-> && "$usec" == <-> ]] && (( sec >= 1000000000 && sec <= 3000000000 && usec < 1000000 )); then
+            token="${sec}${(l:6::0:)usec}"
+            _cmux_watcher_parent_identity_valid "$pid" "$token" || return 1
+            print -r -- "$token"
+            return 0
+        fi
+    done
     # Darwin's ps exposes process start time through `lstart`, which is a
     # locale-formatted string. Force the stable C locale and UTC timezone,
     # then convert the five fields to a fixed-width numeric token before
@@ -1560,7 +1572,7 @@ _cmux_watcher_parent_identity_valid() {
     case "$identity" in
         ''|*[!0-9]*) return 1 ;;
     esac
-    (( ${#identity} == 14 ))
+    (( ${#identity} == 16 || ${#identity} == 14 ))
 }
 
 _cmux_watcher_parent_alive() {
