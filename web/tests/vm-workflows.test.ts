@@ -63,10 +63,15 @@ const serialTest = (test as typeof test & { serial: typeof test }).serial;
 const dbTest = runDbTests ? serialTest : test.skip;
 
 if (runDbTests) {
+  const directFreeLimit = process.env.CMUX_VM_FREE_MAX_ACTIVE_VMS;
   console.error("vm-workflows test environment", {
-    freeLimit: process.env.CMUX_VM_FREE_MAX_ACTIVE_VMS,
+    freeLimit: directFreeLimit,
     planFreeLimit: process.env.CMUX_VM_PLAN_FREE_MAX_ACTIVE_VMS,
     resolvedFreeLimit: maxActiveVmsForPlan("free"),
+    fallbackFreeLimit: directFreeLimit ?? "1",
+    fallbackType: typeof (directFreeLimit ?? "1"),
+    numberOne: Number("1"),
+    numberOneIsSafe: Number.isSafeInteger(Number("1")),
   });
 }
 
