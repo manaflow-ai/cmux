@@ -4152,24 +4152,43 @@ fn write_config_value_atomic_with_sync(
     sync_parent: &dyn Fn(&Path) -> anyhow::Result<ConfigParentSyncOutcome>,
 ) -> anyhow::Result<ConfigWriteOutcome> {
     let parent = config_parent_directory(path);
-    let created_directories = ensure_config_parent_directory(parent)?;
     let file_name = path.file_name().and_then(|name| name.to_str()).unwrap_or("cmux-tui.json");
     let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos();
-    let tmp_path = parent.join(format!(".{file_name}.{}.{}.tmp", std::process::id(), stamp));
-    let result = (|| -> anyhow::Result<()> {
-        let mut options = OpenOptions::new();
-        options.write(true).create_new(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
+    let process_id = std::process::id();
+    let staging_path = move |parent: &Path, attempt: usize| {
+        let suffix = if attempt == 0 {
+            format!(".{file_name}.{process_id}.{stamp}.tmp")
+        } else {
+            format!(".{file_name}.{process_id}.{stamp}.{attempt}.tmp")
+        };
+        parent.join(suffix)
+    };
+    write_config_value_atomic_with_sync_and_staging(path, value, sync_parent, &staging_path)
+}
 
-            // The config can contain the server authentication token. Create
-            // the staging file private from the start, independent of umask,
-            // and reject a pre-existing symlink if a concurrent writer races
-            // with this process before open(2).
-            options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
-        }
-        let mut file = options.open(&tmp_path)?;
+fn write_config_value_atomic_with_sync_and_staging(
+    path: &Path,
+    value: &Value,
+    sync_parent: &dyn Fn(&Path) -> anyhow::Result<ConfigParentSyncOutcome>,
+    staging_path: &dyn Fn(&Path, usize) -> PathBuf,
+) -> anyhow::Result<ConfigWriteOutcome> {
+    let parent = config_parent_directory(path);
+    let created_directories = ensure_config_parent_directory(parent)?;
+    let tmp_path = staging_path(parent, 0);
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+
+        // The config can contain the server authentication token. Create
+        // the staging file private from the start, independent of umask,
+        // and reject a pre-existing symlink if a concurrent writer races
+        // with this process before open(2).
+        options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
+    }
+    let mut file = options.open(&tmp_path)?;
+    let result = (|| -> anyhow::Result<()> {
         serde_json::to_writer_pretty(&mut file, value)?;
         file.write_all(b"\n")?;
         file.sync_all()?;
@@ -9011,6 +9030,32 @@ mod tests {
         let entries = std::fs::read_dir(&dir.path).unwrap().collect::<Result<Vec<_>, _>>().unwrap();
         assert_eq!(entries.len(), 1, "failed writes must remove their staging file");
         assert_eq!(entries[0].path(), path);
+    }
+
+    #[test]
+    fn config_write_collision_preserves_existing_staging_file() {
+        let dir = TestDirectory::new("staging-collision");
+        let path = dir.path.join("cmux-tui.json");
+        let collision = dir.path.join("collision.tmp");
+        let replacement = dir.path.join("replacement.tmp");
+        std::fs::write(&collision, b"owned by another writer").unwrap();
+        let staging_paths = [collision.clone(), replacement.clone()];
+        let staging_path = |_: &Path, attempt: usize| staging_paths[attempt].clone();
+        let sync_parent = |_parent: &Path| -> anyhow::Result<ConfigParentSyncOutcome> {
+            Ok(ConfigParentSyncOutcome::Synced)
+        };
+
+        assert_committed(
+            write_config_value_atomic_with_sync_and_staging(
+                &path,
+                &json!({"server": {"ws_token": "secret"}}),
+                &sync_parent,
+                &staging_path,
+            )
+            .expect("a colliding staging path should be retried"),
+        );
+        assert_eq!(std::fs::read(&collision).unwrap(), b"owned by another writer");
+        assert!(!replacement.exists(), "the successful staging file must be renamed");
     }
 
     #[test]
