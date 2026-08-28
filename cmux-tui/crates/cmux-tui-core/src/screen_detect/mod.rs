@@ -60,7 +60,12 @@ impl ScreenDetectTracker {
     /// Record the terminal's current output revision. Returns `true` when
     /// the terminal has been quiet for the debounce window and its screen
     /// still needs evaluation for this revision.
-    pub(crate) fn observe_revision(&mut self, terminal_id: &str, revision: u64, now: Instant) -> bool {
+    pub(crate) fn observe_revision(
+        &mut self,
+        terminal_id: &str,
+        revision: u64,
+        now: Instant,
+    ) -> bool {
         let entry = self.terminals.entry(terminal_id.to_string()).or_default();
         if entry.quiet_since.is_none() || entry.revision != revision {
             entry.revision = revision;
@@ -82,11 +87,7 @@ impl ScreenDetectTracker {
     /// `true` on an identity edge (spawn, swap, or exit), which evaluates
     /// the screen immediately: presence comes from the process, so the row
     /// appears the moment `codex` starts, not after its first quiet screen.
-    pub(crate) fn note_foreground_agent(
-        &mut self,
-        terminal_id: &str,
-        agent: Option<&str>,
-    ) -> bool {
+    pub(crate) fn note_foreground_agent(&mut self, terminal_id: &str, agent: Option<&str>) -> bool {
         let entry = self.terminals.entry(terminal_id.to_string()).or_default();
         if entry.foreground_agent.as_deref() == agent {
             return false;
@@ -186,7 +187,8 @@ mod tests {
     fn screen_detect_tracker_emits_only_state_edges() {
         let mut tracker = ScreenDetectTracker::default();
 
-        let first = tracker.record_detection("term_a", Some(("codex", detection(ScreenState::Working))));
+        let first =
+            tracker.record_detection("term_a", Some(("codex", detection(ScreenState::Working))));
         assert_eq!(
             first,
             Some(ScreenDetectEmission {
