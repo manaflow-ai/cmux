@@ -184,6 +184,76 @@ enum TuiManualIOPumpPolicy {
     }
 }
 
+/// One terminal grid size, as the pump schedules it.
+struct TuiManualIOGrid: Equatable {
+    var cols: Int
+    var rows: Int
+}
+
+/// Ack-clocked, latest-wins resize scheduling. The relay applies each
+/// resize as one synchronous daemon round trip and reports it with a
+/// `{"diag":{"resize":...}}` stderr line; sending faster than the link's
+/// round trip therefore queues stale sizes the daemon must chew through
+/// one by one (seconds of lag on a cloud link for one divider drag), and
+/// keystrokes on the same relay stdin stall behind them. This scheduler
+/// keeps at most ONE resize in flight and remembers only the NEWEST
+/// pending sample: on a local daemon (sub-ms ack) it degenerates to
+/// send-every-sample, on a slow link it sends one resize per round trip
+/// and always converges on the final size. Pure and unit-tested; the pump
+/// owns timers and I/O.
+struct TuiManualIOResizeScheduler: Equatable {
+    private(set) var inFlight: TuiManualIOGrid?
+    private(set) var pending: TuiManualIOGrid?
+    private(set) var lastDelivered: TuiManualIOGrid?
+
+    /// The relay was (re)spawned carrying `grid` in its argv; nothing is in
+    /// flight and nothing is pending.
+    mutating func seed(delivered grid: TuiManualIOGrid) {
+        inFlight = nil
+        pending = nil
+        lastDelivered = grid
+    }
+
+    /// The relay died; a respawn reseeds from its spawn grid.
+    mutating func reset() {
+        inFlight = nil
+        pending = nil
+        lastDelivered = nil
+    }
+
+    /// A new surface grid sample. Returns the grid to send NOW, or nil when
+    /// it was deduplicated or parked behind the in-flight resize.
+    mutating func sample(_ grid: TuiManualIOGrid) -> TuiManualIOGrid? {
+        if let inFlight {
+            // Latest wins; intermediate drag sizes are never sent.
+            pending = grid == inFlight ? nil : grid
+            return nil
+        }
+        if grid == lastDelivered {
+            pending = nil
+            return nil
+        }
+        inFlight = grid
+        return grid
+    }
+
+    /// The relay acknowledged (or errored, or the ack timed out — all three
+    /// free the channel). Returns the next grid to send, or nil.
+    mutating func acknowledged() -> TuiManualIOGrid? {
+        if let inFlight {
+            lastDelivered = inFlight
+        }
+        inFlight = nil
+        guard let next = pending, next != lastDelivered else {
+            pending = nil
+            return nil
+        }
+        pending = nil
+        inFlight = next
+        return next
+    }
+}
+
 /// Cross-thread input channel between the Ghostty IO thread (which delivers
 /// the surface's encoded input bytes) and the pump's relay stdin writer.
 /// Lock-guarded because `manualInputHandler` must not touch the main actor.
@@ -280,6 +350,7 @@ final class TuiManualIOPump {
     private var stdoutReader: RemoteTmuxProcessOutputReader?
     private var stdoutTask: Task<Void, Never>?
     private var stderrBox = TuiManualIOStderrBox()
+    private var stderrStream: TuiManualIOStderrStream?
     private var retryTask: Task<Void, Never>?
     /// Process termination and stderr EOF race (termination is not EOF);
     /// classification needs the relay's final stderr line, so it runs only
@@ -291,8 +362,13 @@ final class TuiManualIOPump {
     private var stopped = false
     private var everRenderedAttach = false
     private var consecutiveUnexplainedFailures = 0
-    private var lastKnownGrid: (cols: Int, rows: Int)?
-    private var lastSentGrid: (cols: Int, rows: Int)?
+    private var lastKnownGrid: TuiManualIOGrid?
+    private var resizeScheduler = TuiManualIOResizeScheduler()
+    private var resizeAckTimeoutTask: Task<Void, Never>?
+    /// Liveness bound for a lost or unsupported ack line; treating the
+    /// timeout as an ack keeps the pending size flowing on relays that stop
+    /// emitting resize diags.
+    static let resizeAckTimeout: Duration = .seconds(2)
 
     init(
         binaryPath: String,
@@ -374,10 +450,14 @@ final class TuiManualIOPump {
         stopped = true
         retryTask?.cancel()
         retryTask = nil
+        resizeAckTimeoutTask?.cancel()
+        resizeAckTimeoutTask = nil
         stdoutTask?.cancel()
         stdoutTask = nil
         stdoutReader?.close()
         stdoutReader = nil
+        stderrStream?.close()
+        stderrStream = nil
         inputChannel.closeHandle()
         generation += 1
         process?.terminationHandler = nil
@@ -393,14 +473,47 @@ final class TuiManualIOPump {
 
     private func handleSizingSample(cols: Int, rows: Int) {
         guard !stopped else { return }
-        lastKnownGrid = (cols, rows)
+        let grid = TuiManualIOGrid(cols: cols, rows: rows)
+        lastKnownGrid = grid
         if process == nil, retryTask == nil, case .connecting = state {
             spawnRelay()
             return
         }
-        if let sent = lastSentGrid, sent == (cols, rows) { return }
-        lastSentGrid = (cols, rows)
-        inputChannel.send(TuiManualIOPumpPolicy.resizeLine(cols: cols, rows: rows))
+        if let send = resizeScheduler.sample(grid) {
+            deliverResize(send)
+        }
+    }
+
+    private func deliverResize(_ grid: TuiManualIOGrid) {
+        inputChannel.send(TuiManualIOPumpPolicy.resizeLine(cols: grid.cols, rows: grid.rows))
+        startResizeAckTimeout()
+    }
+
+    /// The relay reported one resize round trip done (applied, deduplicated,
+    /// or errored — all free the channel), or the liveness timeout fired.
+    private func handleResizeAcknowledged(generation ackedGeneration: Int) {
+        guard ackedGeneration == generation, !stopped else { return }
+        resizeAckTimeoutTask?.cancel()
+        resizeAckTimeoutTask = nil
+        if let next = resizeScheduler.acknowledged() {
+            deliverResize(next)
+        }
+    }
+
+    private func startResizeAckTimeout() {
+        let timeoutGeneration = generation
+        let sleep = sleep
+        resizeAckTimeoutTask?.cancel()
+        resizeAckTimeoutTask = Task { @MainActor [weak self] in
+            do {
+                try await sleep(Self.resizeAckTimeout)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            self?.log("resize ack timeout generation=\(timeoutGeneration)")
+            self?.handleResizeAcknowledged(generation: timeoutGeneration)
+        }
     }
 
     // MARK: - Relay lifecycle
@@ -417,8 +530,10 @@ final class TuiManualIOPump {
         }
         generation += 1
         let spawnGeneration = generation
-        let grid = lastKnownGrid ?? (80, 24)
-        lastSentGrid = grid
+        let grid = lastKnownGrid ?? TuiManualIOGrid(cols: 80, rows: 24)
+        resizeScheduler.seed(delivered: grid)
+        resizeAckTimeoutTask?.cancel()
+        resizeAckTimeoutTask = nil
 
         // A respawned relay replays the daemon terminal from scratch; reset
         // the surface first so the replay replaces the stale frame instead
@@ -447,16 +562,24 @@ final class TuiManualIOPump {
         let stderrBox = TuiManualIOStderrBox()
         self.stderrBox = stderrBox
         pendingExitStatus = nil
-        // Blocking drain to EOF on a throwaway queue: it continuously
-        // empties the pipe (a full pipe would wedge the relay) and EOF is
-        // the only signal that the final exit-reason line has landed.
-        let stderrHandle = stderrPipe.fileHandleForReading
-        DispatchQueue(label: "cmux.tuiManualIO.stderr", qos: .utility).async { [weak self] in
-            stderrBox.append(stderrHandle.readDataToEndOfFile())
-            Task { @MainActor [weak self] in
-                self?.handleStderrDrained(generation: spawnGeneration)
+        // Streaming drain: it continuously empties the pipe (a full pipe
+        // would wedge the relay), surfaces per-resize diag lines as acks
+        // for the resize scheduler while the relay runs, and EOF is the
+        // only signal that the final exit-reason line has landed.
+        stderrStream = TuiManualIOStderrStream(
+            handle: stderrPipe.fileHandleForReading,
+            box: stderrBox,
+            onResizeDiag: { [weak self] in
+                Task { @MainActor [weak self] in
+                    self?.handleResizeAcknowledged(generation: spawnGeneration)
+                }
+            },
+            onEOF: { [weak self] in
+                Task { @MainActor [weak self] in
+                    self?.handleStderrDrained(generation: spawnGeneration)
+                }
             }
-        }
+        )
 
         let reader = RemoteTmuxProcessOutputReader(
             label: "cmux.tuiManualIO.stdout",
@@ -531,6 +654,11 @@ final class TuiManualIOPump {
         guard exitedGeneration == generation, !stopped else { return }
         inputChannel.setHandle(nil)
         process = nil
+        // A dead relay has no resize channel; the respawn reseeds the
+        // scheduler from its spawn grid.
+        resizeAckTimeoutTask?.cancel()
+        resizeAckTimeoutTask = nil
+        resizeScheduler.reset()
         let exit = forcedExit
             ?? TuiManualIOPumpPolicy.relayExit(status: status ?? -1, stderrText: stderrBox.text())
 #if DEBUG
@@ -622,6 +750,70 @@ final class TuiManualIOPumpRegistry {
     /// a detach transfer). The relay sees stdin EOF and detaches cleanly.
     func stopAndRemove(surfaceID: UUID) {
         pumps.removeValue(forKey: surfaceID)?.stop()
+    }
+}
+
+/// GCD-driven stderr reader for one relay: accumulates raw bytes in the
+/// exit-classification box AND surfaces each complete `{"diag":{"resize":…}}`
+/// line as a resize ack while the relay runs. `readabilityHandler` runs on a
+/// GCD queue and costs the cooperative pool nothing (same rationale as
+/// `CloudLinkPipe`); EOF is still the only signal that the final exit-reason
+/// line has landed.
+final class TuiManualIOStderrStream: @unchecked Sendable {
+    private let lock = NSLock()
+    private var handle: FileHandle?
+    private var pendingLine = Data()
+
+    init(
+        handle: FileHandle,
+        box: TuiManualIOStderrBox,
+        onResizeDiag: @escaping @Sendable () -> Void,
+        onEOF: @escaping @Sendable () -> Void
+    ) {
+        self.handle = handle
+        handle.readabilityHandler = { [weak self] fh in
+            let data = fh.availableData
+            if data.isEmpty {
+                fh.readabilityHandler = nil
+                onEOF()
+                return
+            }
+            box.append(data)
+            self?.scanLines(data, onResizeDiag: onResizeDiag)
+        }
+    }
+
+    /// Splits the byte stream into complete lines and fires the ack callback
+    /// for each resize diag. Partial trailing lines wait for the next chunk;
+    /// the final (exit) line needs no scan, EOF classification owns it.
+    private func scanLines(_ data: Data, onResizeDiag: @Sendable () -> Void) {
+        lock.lock()
+        pendingLine.append(data)
+        var lines: [Data] = []
+        while let newline = pendingLine.firstIndex(of: 0x0A) {
+            lines.append(Data(pendingLine[pendingLine.startIndex..<newline]))
+            pendingLine = Data(pendingLine[pendingLine.index(after: newline)...])
+        }
+        // Bound the buffer against a relay that misbehaves and never prints
+        // a newline; diag and exit lines are all short.
+        if pendingLine.count > 64 * 1024 {
+            pendingLine.removeFirst(pendingLine.count - 64 * 1024)
+        }
+        lock.unlock()
+        for line in lines {
+            if line.range(of: Data(#""diag""#.utf8)) != nil,
+               line.range(of: Data(#""resize""#.utf8)) != nil {
+                onResizeDiag()
+            }
+        }
+    }
+
+    func close() {
+        lock.lock()
+        let target = handle
+        handle = nil
+        lock.unlock()
+        target?.readabilityHandler = nil
     }
 }
 
