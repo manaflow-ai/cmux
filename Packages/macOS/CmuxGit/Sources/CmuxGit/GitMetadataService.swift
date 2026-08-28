@@ -123,27 +123,27 @@ public struct GitMetadataService: Sendable {
             repository: repository,
             trackedPathEventGeneration: trackedPathEventGeneration
         )
-        let initialReferences = await initialReferences
+        let startReferences = await initialReferences
         var trackedChanges = await initialTrackedChanges
         // HEAD and index updates are separate filesystem operations. Reconcile
         // the reference signature after the index scan for every backend; the
         // files implementation uses a cheap bounded direct revalidation.
         let resolvedReferences: GitReferenceSnapshot
         let latestReferences: GitReferenceSnapshot
-        if initialReferences.usesGitPlumbing {
+        if startReferences.usesGitPlumbing {
             // Plumbing snapshots already perform a stable symbolic-ref/commit
             // read under the shared limiter. Repeating that full probe after
             // the index scan doubles process work for reftable repositories;
             // the watcher will schedule a new snapshot when ref metadata
             // changes.
-            latestReferences = initialReferences
+            latestReferences = startReferences
         } else {
             latestReferences = await gitReferenceSnapshot(
                 repository: repository,
                 revalidateFileBackedHead: true
             )
         }
-        if latestReferences.headSignature != initialReferences.headSignature {
+        if latestReferences.headSignature != startReferences.headSignature {
             trackedChanges = await gitTrackedChangesSnapshot(repository: repository)
         }
         resolvedReferences = latestReferences
