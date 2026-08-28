@@ -23,7 +23,7 @@ use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use tokio::sync::Notify;
+use tokio::sync::{Notify, Semaphore};
 
 use async_trait::async_trait;
 use base64::Engine as _;
@@ -427,6 +427,12 @@ struct Inner {
     /// Monotonic floor for managed tunnel authority generations. It remains
     /// effective while a stale open is still unwinding after revocation.
     tunnel_authority_generation: AtomicU64,
+    /// Bounds provider/PTY opens, including opens that have timed out while
+    /// their provider task is still unwinding. A permit is owned by the open
+    /// task and is released only when that task has returned, so a hung
+    /// provider can consume only the finite terminal budget, never an
+    /// unbounded number of reservations or tasks.
+    open_slots: Arc<Semaphore>,
 }
 
 struct ShellStartReservation {
@@ -457,9 +463,9 @@ impl Drop for OpeningReservation {
             let mut state = self.inner.opening_state.lock().expect("opening state lock");
             if state.reservations.get(&self.id) == Some(&self.owner) {
                 state.reservations.remove(&self.id);
-                if state.cancelled.get(&self.id) == Some(&self.owner) {
-                    state.cancelled.remove(&self.id);
-                }
+            }
+            if state.cancelled.get(&self.id) == Some(&self.owner) {
+                state.cancelled.remove(&self.id);
             }
         }
     }
@@ -467,6 +473,34 @@ impl Drop for OpeningReservation {
 
 pub struct PtyManager {
     inner: Arc<Inner>,
+}
+
+/// Attachments whose ownership has already been removed from the manager.
+/// The controls are retired after the caller releases any outer trust lock,
+/// so a slow platform kill cannot block authorization readers or a later
+/// reconciliation. Dropping this value still retires every control.
+pub struct RetiredAttachments {
+    inner: Arc<Inner>,
+    attachments: Vec<Attachment>,
+}
+
+impl RetiredAttachments {
+    /// Run the potentially blocking control cleanup after the state boundary.
+    pub fn retire(mut self) {
+        let attachments = std::mem::take(&mut self.attachments);
+        for attachment in attachments {
+            self.inner.retire_attachment(attachment);
+        }
+    }
+}
+
+impl Drop for RetiredAttachments {
+    fn drop(&mut self) {
+        let attachments = std::mem::take(&mut self.attachments);
+        for attachment in attachments {
+            self.inner.retire_attachment(attachment);
+        }
+    }
 }
 
 impl PtyManager {
@@ -486,6 +520,7 @@ impl PtyManager {
                 transport_auth: Mutex::new(HashMap::new()),
                 tunnel_state: Mutex::new(()),
                 tunnel_authority_generation: AtomicU64::new(0),
+                open_slots: Arc::new(Semaphore::new(MAX_PTYS)),
             }),
         }
     }
@@ -513,6 +548,7 @@ impl PtyManager {
                 transport_auth: Mutex::new(HashMap::new()),
                 tunnel_state: Mutex::new(()),
                 tunnel_authority_generation: AtomicU64::new(0),
+                open_slots: Arc::new(Semaphore::new(max_ptys)),
             }),
         }
     }
@@ -646,13 +682,13 @@ impl PtyManager {
     /// must use `detach_transport` so it cannot detach attachments the
     /// managed tunnel listener (or another socket) owns.
     pub fn detach_all(&self) {
-        self.detach_matching(|_| true);
+        self.detach_matching(|_| true).retire();
     }
 
     /// One transport dropped: release only its attachments and cancel only
     /// its in-flight opens. Sessions live on either way (docs/TERMINAL.md).
     pub fn detach_transport(&self, transport_id: &str) {
-        self.detach_matching(|owner| owner.id.as_deref() == Some(transport_id));
+        self.detach_matching(|owner| owner.id.as_deref() == Some(transport_id)).retire();
     }
 
     /// One typed transport dropped. This avoids treating an opaque relay ID
@@ -660,17 +696,40 @@ impl PtyManager {
     pub fn detach_transport_kind(&self, transport_id: &str, kind: TransportKind) {
         self.detach_matching(|owner| {
             owner.id.as_deref() == Some(transport_id) && owner.kind == kind
-        });
+        })
+        .retire();
     }
 
     /// Release all managed tunnel attachments. The relay connection clears
     /// tunnel authority on disconnect or trust renegotiation; existing tunnel
     /// viewers must lose their attachments at the same boundary.
     pub fn detach_tunnel_transports(&self) {
-        self.detach_matching(|owner| owner.kind == TransportKind::Tunnel);
+        self.detach_tunnel_transports_deferred().retire();
     }
 
-    fn detach_matching(&self, owns: impl Fn(&TransportOwner) -> bool) {
+    /// Remove managed tunnel ownership while the caller still holds its
+    /// authority boundary, but defer control kills until `retire` is called.
+    /// This lets session reconciliation release the global trust lock before
+    /// touching platform PTY state.
+    pub fn detach_tunnel_transports_deferred(&self) -> RetiredAttachments {
+        self.detach_matching(|owner| owner.kind == TransportKind::Tunnel)
+    }
+
+    /// Cancel one opening reservation at the timeout boundary. The
+    /// owner-specific tombstone rejects a late result without retaining the
+    /// reservation in the capacity count. Tombstones are bounded by
+    /// `open_slots`, because each one belongs to an outstanding open permit.
+    pub fn cancel_open(&self, pty_id: &str, context: &FrameContext) {
+        let owner = OpeningOwner { owner: TransportOwner::from_context(context) };
+        let _state = self.inner.tunnel_state.lock().expect("tunnel state lock");
+        let mut opening = self.inner.opening_state.lock().expect("opening state lock");
+        if opening.reservations.get(pty_id) == Some(&owner) {
+            opening.reservations.remove(pty_id);
+            opening.cancelled.insert(pty_id.to_owned(), owner);
+        }
+    }
+
+    fn detach_matching(&self, owns: impl Fn(&TransportOwner) -> bool) -> RetiredAttachments {
         // The state lock couples authority transitions with the final open
         // install. PTY kill calls happen after it is released, so one slow
         // attachment cannot block unrelated tunnel operations.
@@ -690,6 +749,7 @@ impl PtyManager {
                 .map(|(id, owner)| (id.clone(), owner.clone()))
                 .collect();
             for (id, owner) in cancelled {
+                opening.reservations.remove(&id);
                 opening.cancelled.insert(id, owner);
             }
 
@@ -706,9 +766,7 @@ impl PtyManager {
             }
         }
         drop(_state);
-        for attachment in retired {
-            self.inner.retire_attachment(attachment);
-        }
+        RetiredAttachments { inner: Arc::clone(&self.inner), attachments: retired }
     }
 }
 
@@ -764,6 +822,17 @@ impl Inner {
         if pty_id.is_empty() {
             return;
         }
+        // Keep one permit for the complete provider/PTY open. A timeout may
+        // leave that task unwinding in the background, so the permit remains
+        // owned until the task returns. This is the supervisor boundary that
+        // makes stalled providers consume only the finite terminal budget.
+        let _open_permit = match self.open_slots.clone().try_acquire_owned() {
+            Ok(permit) => permit,
+            Err(_) => {
+                send_pty_error(context, &pty_id, "session_limit", "terminal limit reached");
+                return;
+            }
+        };
         if !self.tunnel_authority_generation_current(context) {
             send_pty_error(context, &pty_id, "trust_revoked", "tunnel authority changed");
             return;
@@ -1136,6 +1205,7 @@ impl Inner {
             let _state = self.tunnel_state.lock().expect("tunnel state lock");
             let mut opening = self.opening_state.lock().expect("opening state lock");
             if let Some(owner) = opening.reservations.get(pty_id).cloned() {
+                opening.reservations.remove(pty_id);
                 opening.cancelled.insert(pty_id.to_owned(), owner);
                 return;
             }
@@ -3413,6 +3483,32 @@ mod tests {
         let state = inner.opening_state.lock().unwrap();
         assert_eq!(state.reservations.get(&id), Some(&owner_b));
         assert_eq!(state.cancelled.get(&id), Some(&owner_b));
+    }
+
+    #[test]
+    fn cancelling_an_open_releases_the_reservation_before_the_task_returns() {
+        let h = harness(None, None);
+        let inner = Arc::clone(&h.manager.inner);
+        let mut context = h.context_with_transport("supervised", h.owner.clone(), Some("tunnel-a"));
+        context.transport_kind = TransportKind::Tunnel;
+        let owner = OpeningOwner { owner: TransportOwner::from_context(&context) };
+        let reservation = OpeningReservation {
+            inner: Arc::clone(&inner),
+            id: "p1".to_owned(),
+            owner: owner.clone(),
+            active: true,
+        };
+        inner.opening_state.lock().unwrap().reservations.insert("p1".to_owned(), owner.clone());
+
+        h.manager.cancel_open("p1", &context);
+
+        {
+            let state = inner.opening_state.lock().unwrap();
+            assert!(!state.reservations.contains_key("p1"));
+            assert_eq!(state.cancelled.get("p1"), Some(&owner));
+        }
+        drop(reservation);
+        assert!(!inner.opening_state.lock().unwrap().cancelled.contains_key("p1"));
     }
 
     #[tokio::test]
