@@ -176,6 +176,36 @@ struct BrowserPanelSessionRestoreTests {
     }
 
     @Test
+    func selectingDeferredBrowserContinuesWithLiveBrowserAutofocus() throws {
+        let source = Workspace()
+        defer { source.retireFromOwningTabManager() }
+        let sourcePane = try #require(source.bonsplitController.focusedPaneId)
+        let sourceBrowser = try #require(source.newBrowserSurface(
+            inPane: sourcePane,
+            url: URL(string: "about:blank"),
+            focus: false
+        ))
+        let snapshot = source.sessionSnapshot(includeScrollback: false)
+
+        let restored = Workspace()
+        defer { restored.retireFromOwningTabManager() }
+        let remap = restored.restoreSessionSnapshot(snapshot, deferBrowserPanels: true)
+        let restoredPanelID = try #require(remap[sourceBrowser.id])
+        let restoredPane = try #require(restored.paneId(forPanelId: restoredPanelID))
+        let restoredTab = try #require(restored.surfaceIdFromPanelId(restoredPanelID))
+
+        #expect(restored.panels[restoredPanelID] is DeferredBrowserPanel)
+        restored.applyTabSelection(
+            tabId: restoredTab,
+            inPane: restoredPane,
+            reassertAppKitFocus: false
+        )
+
+        let browser = try #require(restored.panels[restoredPanelID] as? BrowserPanel)
+        #expect(browser.pendingAddressBarFocusRequestId != nil)
+    }
+
+    @Test
     func appSessionRestoreDoesNotMaterializeSelectedBrowsersDuringTopologyAssembly() throws {
         let firstPanelID = UUID()
         let secondPanelID = UUID()

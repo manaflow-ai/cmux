@@ -50,6 +50,7 @@ struct WorkspaceCanvasHostView: View {
             let isFocused = isWorkspaceInputActive && focusedPanelId == panelId
             return CanvasPaneDescriptor(
                 id: panelId,
+                contentIdentity: ObjectIdentifier(panel),
                 tab: CanvasTabChrome(
                     id: panelId,
                     title: panel.displayTitle,
