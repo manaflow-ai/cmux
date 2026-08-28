@@ -77,9 +77,11 @@ const CHECKS: readonly string[] = [
   // so no [ble: ...] or "insane environment" text ever renders.
   "tmux new-session -d -s marks -x 100 -y 24 && sleep 3 && tmux send-keys -t marks not-a-command Enter && sleep 2 && tmux send-keys -t marks 'printf no-newline' Enter && sleep 2 && out=$(tmux capture-pane -pt marks); tmux kill-session -t marks 2>/dev/null; printf '%s\\n' \"$out\" | grep -E '\\[ble:|ble\\.sh:' && exit 1; echo no-ble-marks",
   // Agent-config generator: a login shell under a throwaway HOME with fake
-  // model-plane env materializes the codex custom provider and persists the
-  // env 0600; the image ships no pre-generated config for root.
-  "rm -rf /tmp/cmux-agent-config-verify && env HOME=/tmp/cmux-agent-config-verify OPENAI_BASE_URL=https://example.invalid/v1 OPENAI_API_KEY=crt_check CMUX_CODEROUTER_URL=https://example.invalid bash -lc 'true' && grep -q 'model_provider = \"cmux\"' /tmp/cmux-agent-config-verify/.codex/config.toml && grep -q 'wire_api = \"responses\"' /tmp/cmux-agent-config-verify/.codex/config.toml && grep -q \"export OPENAI_API_KEY='crt_check'\" /tmp/cmux-agent-config-verify/.config/cmux/model-plane.env && [ \"$(stat -c %a /tmp/cmux-agent-config-verify/.config/cmux/model-plane.env)\" = \"600\" ] && rm -rf /tmp/cmux-agent-config-verify && test ! -e /root/.codex/config.toml && echo agent-config-ok",
+  // model-plane env materializes the codex custom provider plus the pi
+  // openai-codex override (token-free, header env reference) and persists
+  // the env 0600; the unreachable config endpoint writes no opencode
+  // config; the image ships no pre-generated config for root.
+  "rm -rf /tmp/cmux-agent-config-verify && env HOME=/tmp/cmux-agent-config-verify OPENAI_BASE_URL=https://example.invalid/v1 OPENAI_API_KEY=crt_check CMUX_CODEROUTER_URL=https://example.invalid bash -lc 'true' && grep -q 'model_provider = \"cmux\"' /tmp/cmux-agent-config-verify/.codex/config.toml && grep -q 'wire_api = \"responses\"' /tmp/cmux-agent-config-verify/.codex/config.toml && grep -q \"export OPENAI_API_KEY='crt_check'\" /tmp/cmux-agent-config-verify/.config/cmux/model-plane.env && [ \"$(stat -c %a /tmp/cmux-agent-config-verify/.config/cmux/model-plane.env)\" = \"600\" ] && grep -qF '\"x-coderouter-route-token\": \"$OPENAI_API_KEY\"' /tmp/cmux-agent-config-verify/.pi/agent/models.json && ! grep -q crt_check /tmp/cmux-agent-config-verify/.pi/agent/models.json && test ! -e /tmp/cmux-agent-config-verify/.config/opencode/opencode.json && rm -rf /tmp/cmux-agent-config-verify && test ! -e /root/.codex/config.toml && test ! -e /root/.pi/agent/models.json && test ! -e /root/.config/opencode/opencode.json && echo agent-config-ok",
   "grep -q cleanupPeriodDays /etc/claude-code/managed-settings.json && echo claude-retention-ok",
   "whoami; nproc; free -m | sed -n 2p; df -h / | tail -1",
 ];
