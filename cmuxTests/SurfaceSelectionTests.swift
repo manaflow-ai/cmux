@@ -331,6 +331,7 @@ struct SurfaceSelectionTests {
         let preparedNavigationSelection = try await panel.webView.callAsyncJavaScript(
             """
             return await new Promise((resolve) => {
+              document.activeElement?.blur();
               const node = document.getElementById('passage').firstChild;
               const selectedText = 'before selected browser words';
               const start = node.textContent.indexOf(selectedText);
@@ -371,6 +372,7 @@ struct SurfaceSelectionTests {
         let preparedMutationSelection = try await panel.webView.callAsyncJavaScript(
             """
             return await new Promise((resolve) => {
+              document.activeElement?.blur();
               const node = document.getElementById('passage').firstChild;
               const selectedText = 'before selected browser words';
               const start = node.textContent.indexOf(selectedText);
@@ -464,6 +466,9 @@ struct SurfaceSelectionTests {
         _ = try await panel.evaluateJavaScript(
             """
             (() => {
+              document.getElementById('passage').dispatchEvent(
+                new Event('pointerdown', { bubbles: true })
+              );
               window.getSelection().removeAllRanges();
               document.dispatchEvent(new Event('selectionchange'));
               return true;
