@@ -35,7 +35,7 @@ fn migrate_legacy_display_name_table(
     let update = format!("UPDATE {table} SET name = ?1 WHERE {id_column} = ?2");
     let mut last_id: Option<String> = None;
     loop {
-        let (query, rows) = if let Some(last_id) = last_id.as_deref() {
+        let rows = if let Some(last_id) = last_id.as_deref() {
             let query = format!(
                 "SELECT {id_column}, name FROM {table} \
                  WHERE name IS NOT NULL AND {id_column} > ?1 \
@@ -47,7 +47,7 @@ fn migrate_legacy_display_name_table(
                     Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
                 })?
                 .collect::<Result<Vec<_>, _>>()?;
-            (query, rows)
+            rows
         } else {
             let query = format!(
                 "SELECT {id_column}, name FROM {table} \
@@ -59,9 +59,8 @@ fn migrate_legacy_display_name_table(
                     Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
                 })?
                 .collect::<Result<Vec<_>, _>>()?;
-            (query, rows)
+            rows
         };
-        drop(query);
         let Some(next_last_id) = rows.last().map(|(id, _)| id.clone()) else {
             break;
         };
