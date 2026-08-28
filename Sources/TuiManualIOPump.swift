@@ -103,6 +103,21 @@ enum TuiManualIOPumpPolicy {
         Data(#"{"resize":{"cols":\#(max(1, cols)),"rows":\#(max(1, rows))}}"#.utf8 + [0x0A])
     }
 
+    /// One stdin line re-asserting this relay's geometry authority.
+    /// Authority is last-claim-wins across a terminal's attachments, and
+    /// stale panes (session restore recreates every workspace that ever
+    /// viewed the terminal) claim at attach in arbitrary order — so the
+    /// pane the user actually TYPES in re-claims, and the daemon's PTY size
+    /// follows user intent instead of restore order.
+    static let claimGeometryLine = Data(#"{"claim":{"geometry":true}}"#.utf8 + [0x0A])
+
+    /// Re-claim at most this often: a claim is one daemon round trip, so
+    /// claiming per keystroke would double interactive traffic. Within one
+    /// window the current pane already holds authority; switching panes
+    /// re-claims on the first keystroke because each pane throttles its own
+    /// channel.
+    static let claimInterval: TimeInterval = 5
+
     /// Relay argv (no shell, no quoting: the pump spawns the binary
     /// directly, so the exec-wrapper and env(1) classes of the exec attach
     /// pane cannot exist here). `--socket` is a global option and precedes
@@ -260,14 +275,19 @@ struct TuiManualIOResizeScheduler: Equatable {
 final class TuiManualIOInputChannel: @unchecked Sendable {
     private let lock = NSLock()
     private var handle: FileHandle?
+    private var lastGeometryClaim: TimeInterval = 0
     private let queue = DispatchQueue(label: "cmux.tuiManualIO.stdin", qos: .userInitiated)
 
     /// Swaps the live relay stdin. `nil` pauses input (dropped, never
     /// queued: replaying stale input into a shell after a reconnect is
-    /// worse than losing keystrokes typed into a dead pane).
-    func setHandle(_ newHandle: FileHandle?) {
+    /// worse than losing keystrokes typed into a dead pane). A fresh handle
+    /// counts as a claim: the relay claims geometry itself at attach.
+    func setHandle(_ newHandle: FileHandle?, now: TimeInterval = ProcessInfo.processInfo.systemUptime) {
         lock.lock()
         handle = newHandle
+        if newHandle != nil {
+            lastGeometryClaim = now
+        }
         lock.unlock()
     }
 
@@ -279,6 +299,33 @@ final class TuiManualIOInputChannel: @unchecked Sendable {
         queue.async {
             // A failed write means the relay just died; the pump's
             // termination handler owns that transition.
+            try? target.write(contentsOf: line)
+        }
+    }
+
+    /// Sends user input, preceded by a geometry re-claim when the last
+    /// claim on this channel is older than `claimInterval`. Ordering is
+    /// preserved by the serial queue, so the claim lands before the
+    /// keystroke that triggered it.
+    func sendUserInput(
+        _ line: Data,
+        claimInterval: TimeInterval = TuiManualIOPumpPolicy.claimInterval,
+        now: TimeInterval = ProcessInfo.processInfo.systemUptime
+    ) {
+        lock.lock()
+        let target = handle
+        var claim = false
+        if target != nil, now - lastGeometryClaim >= claimInterval {
+            lastGeometryClaim = now
+            claim = true
+        }
+        lock.unlock()
+        guard let target else { return }
+        let sendClaim = claim
+        queue.async {
+            if sendClaim {
+                try? target.write(contentsOf: TuiManualIOPumpPolicy.claimGeometryLine)
+            }
             try? target.write(contentsOf: line)
         }
     }
@@ -391,7 +438,7 @@ final class TuiManualIOPump {
         return { input in
             switch input {
             case .bytes(let bytes):
-                channel.send(TuiManualIOPumpPolicy.inputLine(bytes: bytes))
+                channel.sendUserInput(TuiManualIOPumpPolicy.inputLine(bytes: bytes))
             case .namedKey:
                 // No key-name resolver is installed on this surface, so
                 // Ghostty encodes every key itself; a named key here is a
