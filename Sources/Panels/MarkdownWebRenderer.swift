@@ -23,6 +23,10 @@ struct MarkdownWebRenderer: NSViewRepresentable {
     let maxContentWidth: Double
     let session: MarkdownRendererSession
     let onRequestPanelFocus: () -> Void
+    /// Called after the renderer view is attached to a window. A panel can
+    /// request focus before SwiftUI mounts its WebKit view, so the panel uses
+    /// this lifecycle signal to complete that request without polling.
+    let onViewAttachedToWindow: () -> Void = {}
 
     func makeCoordinator() -> Coordinator {
         session.coordinator(panelId: panelId, workspaceId: workspaceId, filePath: filePath)
@@ -34,6 +38,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
                 webView.removeFromSuperview()
             }
             webView.onPointerDown = onRequestPanelFocus
+            webView.onAttachToWindow = onViewAttachedToWindow
             webView.setVisibleInUI(isVisibleInUI)
             webView.onLeaveWindow = { [weak coordinator = context.coordinator] in
                 coordinator?.handleViewLeftWindow()
@@ -67,6 +72,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         )
         let webView = MarkdownWebView(frame: .zero, configuration: config)
         webView.onPointerDown = onRequestPanelFocus
+        webView.onAttachToWindow = onViewAttachedToWindow
         webView.setVisibleInUI(isVisibleInUI)
         webView.onLeaveWindow = { [weak coordinator = context.coordinator] in
             coordinator?.handleViewLeftWindow()
@@ -119,6 +125,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         nsView.navigationDelegate = nil
         nsView.uiDelegate = nil
         (nsView as? MarkdownWebView)?.onPointerDown = nil
+        (nsView as? MarkdownWebView)?.onAttachToWindow = nil
         (nsView as? MarkdownWebView)?.onLeaveWindow = nil
         (nsView as? MarkdownWebView)?.onReenterWindow = nil
         coordinator.cancelImageLoads()
@@ -268,6 +275,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
                 webView.navigationDelegate = nil
                 webView.uiDelegate = nil
                 webView.onPointerDown = nil
+                webView.onAttachToWindow = nil
                 webView.onLeaveWindow = nil
                 webView.onReenterWindow = nil
             }
