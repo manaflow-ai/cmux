@@ -323,12 +323,12 @@ extension GitMetadataService {
         let cancellationSignal = WorkspaceChangesCancellationSignal(deadline: deadline)
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
-                Self.blockingStatusQueue.async {
+                Self.blockingStatusQueue.async(execute: DispatchWorkItem(block: {
                     let result = cancellationSignal.withCurrentBinding {
                         traversal.watchPathResult()
                     }
                     continuation.resume(returning: result)
-                }
+                }))
             }
         } onCancel: {
             cancellationSignal.cancel()
@@ -345,9 +345,14 @@ extension GitMetadataService {
         let cancellationSignal = WorkspaceChangesCancellationSignal(deadline: deadline)
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
-                Self.blockingStatusQueue.async(execute: {
-                    let result: (header: GitIndexHeaderSummary?, snapshot: GitIndexSnapshot?) = cancellationSignal.withCurrentBinding {
-                        guard deadline > DispatchTime.now() else { return (nil, nil) }
+                Self.blockingStatusQueue.async(execute: DispatchWorkItem(block: {
+                    let result = cancellationSignal.withCurrentBinding {
+                        guard deadline > DispatchTime.now() else {
+                            return (
+                                nil as GitIndexHeaderSummary?,
+                                nil as GitIndexSnapshot?
+                            )
+                        }
                         let readResult = GitIndexDataReader().read(
                             at: URL(fileURLWithPath: indexPath),
                             maximumByteCount: maximumFileByteCount,
@@ -355,18 +360,17 @@ extension GitMetadataService {
                         )
                         let parser = GitIndexSnapshotParser()
                         let header = readResult.header
-                        let snapshot: GitIndexSnapshot?
-                        if let data = readResult.data,
-                           let header,
-                           header.entryCount <= maximumEntryCount {
-                            snapshot = parser.parse(data: data, deadline: deadline)
-                        } else {
-                            snapshot = nil
+                        let snapshot: GitIndexSnapshot? = readResult.data.flatMap { data in
+                            guard let header,
+                                  header.entryCount <= maximumEntryCount else {
+                                return nil
+                            }
+                            return parser.parse(data: data, deadline: deadline)
                         }
                         return (header, snapshot)
                     }
                     continuation.resume(returning: result)
-                })
+                }))
             }
         } onCancel: {
             cancellationSignal.cancel()

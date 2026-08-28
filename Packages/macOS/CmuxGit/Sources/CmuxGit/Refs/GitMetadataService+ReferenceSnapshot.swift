@@ -19,7 +19,7 @@ extension GitMetadataService {
         guard didAcquire else { return nil }
         let cancellationSignal = WorkspaceChangesCancellationSignal(deadline: effectiveDeadline)
         let output: String? = await withTaskCancellationHandler {
-            await withCheckedContinuation { continuation in
+            await withCheckedContinuation { (continuation: CheckedContinuation<String?, Never>) in
                 Self.blockingStatusQueue.async {
                     let output: String? = cancellationSignal.withCurrentBinding {
                         let selector = GitReferenceRunnerSelector(wallTimeLimit: wallTimeLimit)
@@ -126,12 +126,13 @@ extension GitMetadataService {
                                 repository: repository,
                                 deadline: deadline
                             )
+                        } else {
+                            return referenceReader.snapshot(
+                                repository: repository,
+                                deadline: deadline,
+                                includeStorageWatchPaths: includeStorageWatchPaths
+                            )
                         }
-                        return referenceReader.snapshot(
-                            repository: repository,
-                            deadline: deadline,
-                            includeStorageWatchPaths: includeStorageWatchPaths
-                        )
                     }
                     continuation.resume(returning: snapshot)
                 }

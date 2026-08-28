@@ -69,16 +69,18 @@ extension GitMetadataService {
             $0.entryCount > safetyConfiguration.trackedEventPathCount
                 || $0.fileByteCount > Int64(safetyConfiguration.directIndexByteCount)
         } ?? false
-        var indexSnapshot: GitIndexSnapshot?
+        let indexSnapshot: GitIndexSnapshot?
         if header != nil, !exceedsTrackedPathBudget {
             let parser = GitIndexSnapshotParser()
             if let cached = indexSnapshotsByRepository?[repository.workTreeRoot],
                let data = indexReadResult.data,
                parser.signature(data: data) == cached.signature {
                 indexSnapshot = cached
-            } else if let data = indexReadResult.data {
-                indexSnapshot = parser.parse(data: data, deadline: deadline)
+            } else {
+                indexSnapshot = indexReadResult.data.flatMap { parser.parse(data: $0, deadline: deadline) }
             }
+        } else {
+            indexSnapshot = nil
         }
         let acceptsAllWorkTreeEvents = exceedsTrackedPathBudget
         let includesWorkTreeRoot = acceptsAllWorkTreeEvents
@@ -159,11 +161,12 @@ extension GitMetadataService {
         repository: ResolvedGitRepository,
         configPathsByRepository: [String: [String]]? = nil
     ) -> [String] {
-        let configPaths = if let configPathsByRepository {
-            configPathsByRepository[repository.workTreeRoot]
+        let configPaths: [String]
+        if let configPathsByRepository {
+            configPaths = configPathsByRepository[repository.workTreeRoot]
                 ?? gitRootConfigURLs(repository: repository).map(\.path)
         } else {
-            gitConfigURLs(repository: repository).map(\.path)
+            configPaths = gitConfigURLs(repository: repository).map(\.path)
         }
         return [
             joinedPath(root: repository.gitDirectory, relativePath: "HEAD"),
