@@ -22,7 +22,7 @@
 FROM debian:trixie-slim
 
 # Cache-buster: bump to force a full rebuild on Blaxel's builder.
-ENV CMUX_IMAGE_EPOCH=2026-08-27-r7
+ENV CMUX_IMAGE_EPOCH=2026-08-28-r9
 
 # Blaxel's sandbox API binary is mandatory in every custom image: it is the control
 # plane (port 8080) the driver uses for filesystem and process operations.
@@ -201,6 +201,36 @@ RUN printf '%s\n' '[ -f /etc/cmux/bashrc ] && . /etc/cmux/bashrc' >> /etc/bash.b
   && printf '%s\n' '[ -f /etc/cmux/bashrc ] && . /etc/cmux/bashrc' >> /home/cua/.bashrc \
   && echo 'set -g default-shell /bin/bash' >> /etc/tmux.conf
 
+# Agent harness config: every shell materializes per-harness model-proxy
+# configs from the machine boot env (the coderouter model-plane vars minted at
+# VM create), and persists that env on the durable home volume because Blaxel
+# create-time envs are not replayed on resurrect. The build check generates
+# configs under a throwaway HOME with fake env, then proves the image itself
+# ships no generated config.
+COPY agent-config.sh /etc/cmux/agent-config.sh
+RUN bash -n /etc/cmux/agent-config.sh \
+  && printf '%s\n' '[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' > /etc/profile.d/cmux-agents.sh \
+  && printf '%s\n' '[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' >> /etc/bash.bashrc \
+  && printf '%s\n' '[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' >> /etc/skel/.bashrc \
+  && printf '%s\n' '[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' >> /root/.bashrc \
+  && printf '%s\n' '[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' >> /home/cua/.bashrc \
+  && mkdir -p /tmp/agent-config-check \
+  && env HOME=/tmp/agent-config-check OPENAI_BASE_URL=https://example.invalid/v1 OPENAI_API_KEY=crt_check CMUX_CODEROUTER_URL=https://example.invalid bash -lc 'true' \
+  && grep -q 'model_provider = "cmux"' /tmp/agent-config-check/.codex/config.toml \
+  && grep -q 'base_url = "https://example.invalid/v1"' /tmp/agent-config-check/.codex/config.toml \
+  && grep -q 'wire_api = "responses"' /tmp/agent-config-check/.codex/config.toml \
+  && grep -q 'persistence = "save-all"' /tmp/agent-config-check/.codex/config.toml \
+  && grep -q "export OPENAI_API_KEY='crt_check'" /tmp/agent-config-check/.config/cmux/model-plane.env \
+  && [ "$(stat -c %a /tmp/agent-config-check/.config/cmux/model-plane.env)" = "600" ] \
+  && rm -rf /tmp/agent-config-check \
+  && mkdir -p /tmp/agent-config-resurrect/.config/cmux \
+  && printf '%s\n' "export OPENAI_BASE_URL='https://resurrect.invalid/v1'" "export OPENAI_API_KEY='crt_persisted'" > /tmp/agent-config-resurrect/.config/cmux/model-plane.env \
+  && env HOME=/tmp/agent-config-resurrect bash -lc 'grep -q "https://resurrect.invalid/v1" "$HOME/.codex/config.toml"' \
+  && rm -rf /tmp/agent-config-resurrect \
+  && bash -lc 'true' \
+  && test ! -e /root/.codex/config.toml \
+  && test ! -e /root/.config/cmux/model-plane.env
+
 # /entrypoint.sh is the path every official Blaxel template uses; the microVM
 # boot command comes from this ENTRYPOINT.
 COPY start-vnc.sh /usr/local/bin/start-vnc.sh
@@ -211,5 +241,5 @@ RUN chmod +x /usr/local/bin/start-vnc.sh /entrypoint.sh /usr/local/bin/sandbox-a
 # Stamp last: its presence tells the driver every layer above baked successfully.
 RUN mkdir -p /etc/cmux && echo "cmux-devbox ${CMUX_IMAGE_EPOCH}" > /etc/cmux/image-stamp
 
-EXPOSE 5901 6901 7777 8080
+EXPOSE 5901 6901 8080
 ENTRYPOINT ["/entrypoint.sh"]

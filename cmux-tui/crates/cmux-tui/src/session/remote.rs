@@ -2912,7 +2912,7 @@ impl RemoteSession {
         self.disconnect_transport_with_reason(None);
     }
 
-    fn disconnect_transport_with_reason(&self, reason: Option<String>) {
+    pub(super) fn disconnect_transport_with_reason(&self, reason: Option<String>) {
         let mut state = self.disconnect_state.lock().unwrap();
         if matches!(&*state, DisconnectState::Active) {
             *state = match reason {

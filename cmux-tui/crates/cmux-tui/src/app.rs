@@ -2280,6 +2280,12 @@ impl OrderedSession {
         self.inner.daemon_shutdown_requested()
     }
 
+    /// The first reason recorded when a remote transport reader stopped, or
+    /// `None` for local sessions and deliberate local disconnects.
+    fn transport_disconnect_reason(&self) -> Option<String> {
+        self.inner.transport_disconnect_reason()
+    }
+
     fn attach_surface(&self, id: SurfaceId, size: Option<(u16, u16)>) {
         if self.remote
             && let Some(size) = size
@@ -9172,14 +9178,7 @@ fn run_with_machine_updates_inner(
     }
 
     if let Err(error) = app.restart_machine_updates() {
-        app.shutdown_background_workers();
-        app.cancel_pointer_interaction();
-        app.session.begin_shutdown();
-        let _ = app.pty_input.shutdown(Duration::from_secs(3));
-        if let Some(writer) = app.graphics_writer.as_mut() {
-            writer.shutdown(Duration::from_millis(200));
-        }
-        let _ = std::panic::take_hook();
+        app.shutdown_runtime_components();
         return Err(terminal_restore.restore_after_error(error));
     }
 
@@ -9188,14 +9187,7 @@ fn run_with_machine_updates_inner(
     }
 
     let result = app.event_loop(&mut terminal, rx);
-    app.shutdown_background_workers();
-    app.cancel_pointer_interaction();
-    app.session.begin_shutdown();
-    let _ = app.pty_input.shutdown(Duration::from_secs(3));
-    if let Some(writer) = app.graphics_writer.as_mut() {
-        writer.shutdown(Duration::from_millis(200));
-    }
-    let _ = std::panic::take_hook();
+    app.shutdown_runtime_components();
     let restore_result = terminal_restore.restore();
     match (result, restore_result) {
         (Ok(()), Ok(())) => {}
@@ -9557,6 +9549,14 @@ fn should_claim_clear_history_shortcut(
     supports_atomic_fallback: bool,
 ) -> bool {
     surface_kind == SurfaceKind::Pty && supports_atomic_fallback
+}
+
+fn adjust_active_tab_after_removal(pane: &mut PaneView, removed_tab_index: usize) {
+    if pane.active_tab > removed_tab_index {
+        pane.active_tab -= 1;
+    } else if pane.active_tab >= pane.tabs.len() {
+        pane.active_tab = pane.tabs.len().saturating_sub(1);
+    }
 }
 
 impl App {
@@ -10490,6 +10490,17 @@ impl App {
         if let Some(mut owner_reload) = self.owner_reload_worker.take() {
             owner_reload.stop_and_join();
         }
+    }
+
+    fn shutdown_runtime_components(&mut self) {
+        self.shutdown_background_workers();
+        self.cancel_pointer_interaction();
+        self.session.begin_shutdown();
+        let _ = self.pty_input.shutdown(Duration::from_secs(3));
+        if let Some(writer) = self.graphics_writer.as_mut() {
+            writer.shutdown(Duration::from_millis(200));
+        }
+        let _ = std::panic::take_hook();
     }
 
     fn process_machine_requests(&mut self) -> RenderAction {
@@ -11558,34 +11569,41 @@ impl App {
         self.encode_buf.clear();
     }
 
-    fn request_current_machine_session(&mut self) -> bool {
+    /// A machine that is sleeping or stopped lost its stream BECAUSE it was
+    /// paused; reconnecting would start it right back up and make pause
+    /// impossible. Present it as asleep instead - the user's next input (or
+    /// a rail click) wakes it through the normal switch path.
+    fn present_machine_as_asleep_after_stream_loss(&mut self) -> bool {
         let Some(machine) = self.machine_ui.as_mut() else { return false };
-        // A machine that is sleeping or stopped lost its stream BECAUSE it
-        // was paused; reconnecting would start it right back up and make
-        // pause impossible. Present it as asleep instead - the user's next
-        // input (or a rail click) wakes it through the normal switch path.
-        if let Some(active) = machine.snapshot.active
-            && machine.snapshot.machines.iter().any(|descriptor| {
-                descriptor.key == active
-                    && matches!(
-                        descriptor.status,
-                        crate::machine::MachineStatus::Sleeping
-                            | crate::machine::MachineStatus::Stopped
-                    )
-            })
-        {
-            crate::client_log::info(
-                "machine",
-                &format!("stream lost for sleeping machine {}; presenting as asleep", active.0),
-            );
-            machine.session_available = false;
-            machine.set_connection_phase(active, MachineConnectionPhase::Disconnected);
-            // The previous open's narration is stale now; a later wake
-            // reuses the same selection intent, so select_machine_intent
-            // will not clear it.
-            machine.clear_connection_progress(active);
+        let Some(active) = machine.snapshot.active else { return false };
+        if !machine.snapshot.machines.iter().any(|descriptor| {
+            descriptor.key == active
+                && matches!(
+                    descriptor.status,
+                    crate::machine::MachineStatus::Sleeping
+                        | crate::machine::MachineStatus::Stopped
+                )
+        }) {
+            return false;
+        }
+        crate::client_log::info(
+            "machine",
+            &format!("stream lost for sleeping machine {}; presenting as asleep", active.0),
+        );
+        machine.session_available = false;
+        machine.set_connection_phase(active, MachineConnectionPhase::Disconnected);
+        // The previous open's narration is stale now; a later wake
+        // reuses the same selection intent, so select_machine_intent
+        // will not clear it.
+        machine.clear_connection_progress(active);
+        true
+    }
+
+    fn request_current_machine_session(&mut self) -> bool {
+        if self.present_machine_as_asleep_after_stream_loss() {
             return true;
         }
+        let Some(machine) = self.machine_ui.as_mut() else { return false };
         if machine.request.is_none() {
             let request = machine
                 .snapshot
@@ -12869,6 +12887,52 @@ impl App {
     /// topology refresh arrives. The backend projection still owns parent
     /// pane, screen, and workspace collapse.
     fn remove_surface_from_cached_tree(&mut self, surface: SurfaceId) {
+        let Some([workspace_index, screen_index, pane_index, tab_index]) =
+            self.tab_locations.get(&surface).copied()
+        else {
+            self.remove_surface_from_cached_tree_scan_and_rebuild_locations(surface);
+            return;
+        };
+
+        let location_is_current = self
+            .tree
+            .workspaces
+            .get(workspace_index)
+            .and_then(|workspace| workspace.screens.get(screen_index))
+            .and_then(|screen| screen.panes.get(pane_index))
+            .and_then(|pane| pane.tabs.get(tab_index))
+            .is_some_and(|tab| tab.surface == surface);
+        if !location_is_current {
+            self.remove_surface_from_cached_tree_scan_and_rebuild_locations(surface);
+            return;
+        }
+
+        let shifted_tabs = {
+            let pane =
+                &mut self.tree.workspaces[workspace_index].screens[screen_index].panes[pane_index];
+            pane.tabs.remove(tab_index);
+            adjust_active_tab_after_removal(pane, tab_index);
+            pane.tabs
+                .iter()
+                .enumerate()
+                .skip(tab_index)
+                .map(|(tab_index, tab)| (tab.surface, tab_index))
+                .collect::<Vec<_>>()
+        };
+
+        self.tab_locations.remove(&surface);
+        for (shifted_surface, shifted_index) in shifted_tabs {
+            self.tab_locations.insert(
+                shifted_surface,
+                [workspace_index, screen_index, pane_index, shifted_index],
+            );
+        }
+    }
+
+    /// Repair the cache from the tree and rebuild `tab_locations` if the index was missing or stale.
+    /// This path is defensive only. Normal surface exits use the indexed path
+    /// above and touch one pane instead of scanning the entire topology.
+    fn remove_surface_from_cached_tree_scan_and_rebuild_locations(&mut self, surface: SurfaceId) {
         for workspace in &mut self.tree.workspaces {
             for screen in &mut workspace.screens {
                 for pane in &mut screen.panes {
@@ -12877,11 +12941,7 @@ impl App {
                         continue;
                     };
                     pane.tabs.remove(index);
-                    if pane.active_tab > index {
-                        pane.active_tab -= 1;
-                    } else if pane.active_tab >= pane.tabs.len() {
-                        pane.active_tab = pane.tabs.len().saturating_sub(1);
-                    }
+                    adjust_active_tab_after_removal(pane, index);
                 }
             }
         }
@@ -14811,6 +14871,26 @@ impl App {
                 Ok(self.apply_machine_controller_completion(*completion))
             }
             AppEvent::Mux(MuxEvent::Empty) => {
+                // A genuinely emptied workspace list and a dead event
+                // transport both end the event stream with this event, but
+                // only the former is a clean exit. The remote reader records
+                // why it stopped; consult that BEFORE any machine-session
+                // request so a machine or provider surface cannot swallow the
+                // dead transport into a stuck reconnect (issue 11042). A
+                // deliberate local disconnect records no reason. The one
+                // machine response that outranks the error is a sleeping or
+                // stopped machine, whose stream loss is the designed result
+                // of pausing it.
+                if let Some(reason) = self.session.transport_disconnect_reason() {
+                    if self.present_machine_as_asleep_after_stream_loss() {
+                        return Ok(RenderAction::Draw);
+                    }
+                    crate::client_log::error(
+                        "session",
+                        &format!("remote event transport lost: {reason}"),
+                    );
+                    anyhow::bail!(localization::catalog().runtime.session_transport_lost());
+                }
                 if self.request_current_machine_session() {
                     return Ok(RenderAction::Draw);
                 }
@@ -23788,7 +23868,7 @@ mod tests {
         ClientInfo, ClientSizeInfo, RemoteSession, Session, SidebarPluginSurface, SurfaceAttach,
         SurfaceHandle, TreeView, test_remote_session_with_deferred_attach,
         test_remote_session_with_deferred_attach_and_first_resize_failure,
-        test_remote_session_with_deferred_sized_attach,
+        test_remote_session_with_deferred_sized_attach, test_remote_session_with_lost_transport,
     };
 
     #[test]
@@ -33135,6 +33215,68 @@ mod tests {
         assert!(!app.render_states.contains_key(&42));
         assert!(!app.tab_locations.contains_key(&42));
         assert!(!app.mux_titles.snapshot().contains_key(&42));
+    }
+
+    #[test]
+    fn cached_surface_exit_updates_tab_index_without_rebuilding_unrelated_tabs() {
+        let mux = Mux::new("cached-surface-exit-index-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let mut tree = notify_tree(41, false);
+        let pane = &mut tree.workspaces[0].screens[0].panes[0];
+        let mut second = pane.tabs[0].clone();
+        second.surface = 41;
+        let mut third = pane.tabs[0].clone();
+        third.surface = 43;
+        pane.tabs[0].surface = 40;
+        pane.tabs.push(second);
+        pane.tabs.push(third);
+        pane.active_tab = 1;
+        app.replace_tree(tree);
+
+        app.remove_surface_from_cached_tree(40);
+
+        let pane = &app.tree.workspaces[0].screens[0].panes[0];
+        assert_eq!(pane.tabs.iter().map(|tab| tab.surface).collect::<Vec<_>>(), vec![41, 43]);
+        assert_eq!(pane.active_tab, 0);
+        assert!(!app.tab_locations.contains_key(&40));
+        assert_eq!(app.tab_locations.get(&41), Some(&[0, 0, 0, 0]));
+        assert_eq!(app.tab_locations.get(&43), Some(&[0, 0, 0, 1]));
+    }
+
+    #[test]
+    fn stale_surface_exit_index_falls_back_to_tree_scan_and_rebuilds_locations() {
+        let mux = Mux::new("stale-surface-exit-index-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let mut tree = notify_tree(41, false);
+        let pane = &mut tree.workspaces[0].screens[0].panes[0];
+        let mut second = pane.tabs[0].clone();
+        second.surface = 41;
+        let mut third = pane.tabs[0].clone();
+        third.surface = 43;
+        pane.tabs[0].surface = 40;
+        pane.tabs.push(second);
+        pane.tabs.push(third);
+        pane.active_tab = 2;
+        app.replace_tree(tree);
+
+        // Force the defensive dispatch path by making the cached location stale.
+        app.tab_locations.insert(40, [0, 0, 0, 1]);
+        app.remove_surface_from_cached_tree(40);
+
+        let pane = &app.tree.workspaces[0].screens[0].panes[0];
+        assert_eq!(pane.tabs.iter().map(|tab| tab.surface).collect::<Vec<_>>(), vec![41, 43]);
+        assert_eq!(pane.active_tab, 1);
+        assert_eq!(app.tab_locations.get(&41), Some(&[0, 0, 0, 0]));
+        assert_eq!(app.tab_locations.get(&43), Some(&[0, 0, 0, 1]));
+        assert!(!app.tab_locations.contains_key(&40));
+
+        // The fallback must repair the index so the next exit uses the
+        // indexed path instead of scanning the whole tree again.
+        app.remove_surface_from_cached_tree(41);
+        let pane = &app.tree.workspaces[0].screens[0].panes[0];
+        assert_eq!(pane.tabs.iter().map(|tab| tab.surface).collect::<Vec<_>>(), vec![43]);
+        assert_eq!(app.tab_locations.get(&43), Some(&[0, 0, 0, 0]));
+        assert!(!app.tab_locations.contains_key(&41));
     }
 
     #[test]
@@ -43061,6 +43203,80 @@ mod tests {
         assert_eq!(app.session_generation, 2);
         assert!(app.machine_ui.as_ref().unwrap().request.is_none());
         assert!(!app.quit);
+    }
+
+    /// Regression test for issue 11042: when a remote event transport dies,
+    /// the reader thread records the reason and synthesizes `MuxEvent::Empty`.
+    /// That must surface the transport failure as an error, never the "session
+    /// has no workspaces" clean quit (exit code 0) it produces today.
+    #[test]
+    fn transport_loss_empty_event_is_an_error_not_a_clean_quit() {
+        let reason = "the daemon closed the connection";
+        let mut app = test_app(test_remote_session_with_lost_transport(reason));
+
+        let result = app.handle(AppEvent::Mux(MuxEvent::Empty));
+
+        let error = result.expect_err("a lost event transport must not report an empty session");
+        assert_eq!(error.to_string(), "session connection lost. Reconnect and retry.");
+        assert!(!error.to_string().contains(reason));
+        assert!(!app.quit, "a lost transport must not use the clean-quit path");
+    }
+
+    /// The transport check must run BEFORE any machine-session request: with
+    /// machine/provider authority present, `request_current_machine_session`
+    /// returns true and would otherwise swallow the dead transport into a
+    /// stuck reconnect state.
+    #[test]
+    fn transport_loss_outranks_a_machine_session_request() {
+        let reason = "the daemon closed the connection";
+        let mut app = test_app(test_remote_session_with_lost_transport(reason));
+        app.machine_ui = Some(provider_machine_ui());
+
+        let result = app.handle(AppEvent::Mux(MuxEvent::Empty));
+
+        let error = result.expect_err("machine authority must not hide a lost transport");
+        assert_eq!(error.to_string(), "session connection lost. Reconnect and retry.");
+        assert!(!error.to_string().contains(reason));
+        assert!(!app.quit);
+        let machine = app.machine_ui.as_ref().unwrap();
+        assert!(
+            machine.request.is_none(),
+            "no reconnect request may be queued for a dead transport"
+        );
+    }
+
+    /// A sleeping or stopped machine loses its stream because it was paused;
+    /// that deliberate loss keeps presenting the machine as asleep instead of
+    /// failing the client, even though a transport reason is recorded.
+    #[test]
+    fn sleeping_machine_stream_loss_still_presents_as_asleep() {
+        let mut app =
+            test_app(test_remote_session_with_lost_transport("the daemon closed the connection"));
+        let mut ui = provider_machine_ui();
+        ui.snapshot.machines[0].status = MachineStatus::Sleeping;
+        app.machine_ui = Some(ui);
+
+        let action = app.handle(AppEvent::Mux(MuxEvent::Empty)).unwrap();
+
+        assert_eq!(action, RenderAction::Draw);
+        assert!(!app.quit);
+        let machine = app.machine_ui.as_ref().unwrap();
+        assert!(!machine.session_available);
+        assert!(machine.request.is_none());
+    }
+
+    /// A genuinely emptied session (all workspaces closed) still exits
+    /// cleanly: `MuxEvent::Empty` without a recorded transport failure keeps
+    /// the quiet quit path.
+    #[test]
+    fn empty_session_without_transport_loss_still_quits_cleanly() {
+        let mux = Mux::new("empty-clean-quit-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+
+        let action = app.handle(AppEvent::Mux(MuxEvent::Empty)).unwrap();
+
+        assert_eq!(action, RenderAction::None);
+        assert!(app.quit);
     }
 
     #[test]
