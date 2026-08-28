@@ -1549,7 +1549,7 @@ mod tests {
     #[tokio::test]
     async fn listener_rejects_non_loopback_bind_addresses() {
         let spawned = Arc::new(StdMutex::new(Vec::new()));
-        let deps = Arc::new(FakeDeps { spawned: Arc::clone(&spawned) });
+        let deps = Arc::new(FakeDeps { spawned: Arc::clone(&spawned), banner: None });
         let manager = Arc::new(PtyManager::with_limits(
             deps,
             std::env::temp_dir(),
