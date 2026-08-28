@@ -140,7 +140,8 @@ public struct AgentRestorePlanner: Sendable {
                 launcher: launch?.launcher,
                 sessionId: checkpointID,
                 executablePath: launch?.executablePath,
-                arguments: launch?.arguments ?? []
+                arguments: launch?.arguments ?? [],
+                environment: launch?.environment
             ) {
             case .resolved(let arguments):
                 if let arguments {

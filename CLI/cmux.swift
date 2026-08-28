@@ -31132,7 +31132,12 @@ struct CMUXCLI {
         let workingDirectory = (envCaptureIsTrusted ? normalizedHookValue(env["CMUX_AGENT_LAUNCH_CWD"]) : nil)
             ?? normalizedHookValue(cwd)
             ?? normalizedHookValue(env["PWD"])
-        let environment = selectedAgentLaunchEnvironment(from: env, kind: launcher)
+        var environment = selectedAgentLaunchEnvironment(from: env, kind: launcher)
+        let subrouterRouting = SubrouterCodexResumeRouting()
+        if fallbackKind == "codex",
+           let marker = subrouterRouting.capturedMarker(in: env) {
+            environment[SubrouterCodexResumeRouting.environmentKey] = marker
+        }
         // HOME is intentionally not part of the replay environment: changing
         // it for every restored agent can redirect unrelated config and caches.
         // Codex verification still needs the launch account's state root when
@@ -31415,7 +31420,8 @@ struct CMUXCLI {
             launcher: launchCommand?.launcher,
             sessionId: normalizedSessionId,
             executablePath: launchCommand?.executablePath,
-            arguments: launchCommand?.arguments ?? []
+            arguments: launchCommand?.arguments ?? [],
+            environment: launchCommand?.environment
         ) {
         case .resolved(let resolved):
             // Wrapper launchers include the claude-teams orphan-respawn path,

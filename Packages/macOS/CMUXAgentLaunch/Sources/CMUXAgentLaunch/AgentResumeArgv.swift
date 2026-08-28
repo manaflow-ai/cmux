@@ -228,23 +228,28 @@ public struct AgentResumeArgv: Sendable, Equatable {
     }
 
     /// Renders shell command `parts` to quoted tokens, substituting
-    /// ``codexWrapperShellExecutableToken`` for the first bare `codex` executable token.
+    /// ``codexWrapperShellExecutableToken`` only when `codex` is the executable token.
     ///
-    /// Mirror of ``renderingClaudeWrapperExecutable(parts:quote:)`` for codex: only
-    /// the first element equal to `codex` — a logical wrapper executable emitted
-    /// by the codex resume builder — is replaced; every other token is quoted normally.
+    /// Mirror of ``renderingClaudeWrapperExecutable(parts:quote:)`` for codex: the
+    /// executable position is the first token, or the first non-assignment after an
+    /// `env` prefix. A nested `codex` subcommand such as `sr codex resume` is left alone.
     /// Call only for the codex kind. https://github.com/manaflow-ai/cmux/issues/5639
     public static func renderingCodexWrapperExecutable(
         parts: [String],
         quote: (String) -> String
     ) -> [String] {
-        var replaced = false
-        return parts.map { part in
-            if !replaced, part == "codex" {
-                replaced = true
-                return codexWrapperShellExecutableToken
+        var executableIndex = 0
+        if parts.first == "env" {
+            executableIndex = 1
+            while executableIndex < parts.count,
+                  parts[executableIndex].contains("=") {
+                executableIndex += 1
             }
-            return quote(part)
+        }
+        return parts.enumerated().map { index, part in
+            index == executableIndex && part == "codex"
+                ? codexWrapperShellExecutableToken
+                : quote(part)
         }
     }
 
@@ -270,8 +275,17 @@ public struct AgentResumeArgv: Sendable, Equatable {
         launcher: String?,
         sessionId: String,
         executablePath: String?,
-        arguments: [String]
+        arguments: [String],
+        environment: [String: String]? = nil
     ) -> LauncherResolution {
+        if let routed = SubrouterCodexResumeRouting().resumeArguments(
+            launcher: launcher,
+            sessionID: sessionId,
+            launchArguments: arguments,
+            environment: environment
+        ) {
+            return .resolved(routed)
+        }
         switch launcher {
         case "claudeTeams":
             let parts = commandParts(executablePath: executablePath, arguments: arguments, fallbackExecutable: "cmux")

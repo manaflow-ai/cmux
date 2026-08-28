@@ -584,7 +584,8 @@ enum AgentResumeCommandBuilder {
             launcher: launchCommand?.launcher,
             sessionId: sessionId,
             executablePath: launchCommand?.executablePath,
-            arguments: launchCommand?.arguments ?? []
+            arguments: launchCommand?.arguments ?? [],
+            environment: launchCommand?.environment
         ) {
         case .resolved(let argv):
             return argv
