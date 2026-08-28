@@ -46,10 +46,22 @@ export class VmAccountDeletionInProgressError extends Data.TaggedError("VmAccoun
   readonly phase?: "create";
 }> {}
 
+/**
+ * Where the image that failed to resolve came from: the client body, an env
+ * selector, or the server's default selection (manifest defaults). The value
+ * is returned to clients, so it deliberately avoids implementation wording.
+ */
+export type VmImageSource = "request" | "env" | "default";
+
 export class VmImageConfigError extends Data.TaggedError("VmImageConfigError")<{
   readonly provider: ProviderId;
   readonly image?: string;
   readonly envVar?: string;
+  /** Requested machine kind when the caller asked by kind; kept as a string so bad input is reported verbatim. */
+  readonly kind?: string;
+  readonly source: VmImageSource;
+  /** Manifest image ids for the provider, so the error names what would have worked. */
+  readonly allowedImages: readonly string[];
   readonly reason: string;
 }> {}
 

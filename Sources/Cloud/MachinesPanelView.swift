@@ -139,6 +139,7 @@ struct MachinesPanelView: View {
             // and the Files header icon.
             .padding(.leading, 4)
             Spacer(minLength: 4)
+            cloudAgentMenu
             MachinesChromeIconButton(
                 symbolName: "arrow.clockwise",
                 accessibilityLabel: String(localized: "machines.refresh", defaultValue: "Refresh Machines"),
@@ -252,23 +253,74 @@ struct MachinesPanelView: View {
         }
     }
 
-    /// ＋ on a free plan at its ceiling is the upgrade moment: open the Pro flow
-    /// instead of launching a create that the backend would only paywall.
-    private func requestNewMachine() {
-        if let plan = viewModel.plan, plan.isAtLimit, !plan.isPaidPlan {
-            ProUpgradePresenter.present()
-            return
+    /// Cloud-agent launcher: each agent entry opens a local terminal running
+    /// that agent preloaded with the cmux Cloud skill; Copy Cloud Prompt puts
+    /// the same kickoff prompt on the clipboard for any other terminal.
+    private var cloudAgentMenu: some View {
+        Menu {
+            ForEach(CloudAgentSkillLauncher.CodingAgent.allCases, id: \.rawValue) { agent in
+                Button(agent.displayName) {
+                    launchCloudAgent(agent)
+                }
+            }
+            Divider()
+            Button(String(localized: "machines.agent.copyPrompt", defaultValue: "Copy Cloud Prompt")) {
+                runCloudAgentAction { try CloudAgentSkillLauncher.copyPrompt() }
+            }
+        } label: {
+            Image(systemName: "sparkles")
+                .font(.system(size: 11, weight: .medium))
+                .frame(width: 22, height: 20)
+                .contentShape(Rectangle())
         }
-        viewModel.beginOperation(String(localized: "machines.operation.create", defaultValue: "Creating a new machine\u{2026}"))
-        let didStart = MachineRowActions.openNewMachine { [weak viewModel] _ in
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .frame(width: 22, height: 20)
+        .foregroundColor(.secondary)
+        .help(String(localized: "machines.agent.menuLabel", defaultValue: "Open Cloud Agent"))
+        .accessibilityLabel(String(localized: "machines.agent.menuLabel", defaultValue: "Open Cloud Agent"))
+        .accessibilityIdentifier("CloudMachinesAgentMenu")
+    }
+
+    private func runCloudAgentAction(_ action: () throws -> Void) {
+        do {
+            try action()
+        } catch {
+            viewModel.noteTreeFailure(error.localizedDescription)
+        }
+    }
+
+    private func launchCloudAgent(_ agent: CloudAgentSkillLauncher.CodingAgent) {
+        viewModel.beginOperation(String(
+            format: String(localized: "machines.agent.operation.starting", defaultValue: "Starting %@\u{2026}"),
+            agent.displayName
+        ))
+        Task { @MainActor [weak viewModel] in
+            do {
+                _ = try await CloudAgentSkillLauncher.openAgent(agent)
+            } catch {
+                viewModel?.noteTreeFailure(error.localizedDescription)
+            }
             viewModel?.endOperation()
         }
-        if !didStart {
-            // A sign-out can race the button click. CloudVMActionLauncher
-            // opens the shared sign-in flow and returns false; clear the
-            // panel's progress state because no completion callback follows.
-            viewModel.endOperation()
-        }
+    }
+
+    /// ＋ on a free plan at its ceiling is the upgrade moment: open the Pro flow
+    /// instead of launching a create that the backend would only paywall.
+    /// Otherwise the New Machine sheet collects name, kind, and size, and its
+    /// Create runs the same `cmux vm new` path the CLI and palette use.
+    private func requestNewMachine() {
+        NewMachineSheetPresenter.shared.presentNewMachine(
+            plan: viewModel.plan,
+            imageKinds: viewModel.imageKinds,
+            preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow,
+            operationDidBegin: { [weak viewModel] in
+                viewModel?.beginOperation(String(localized: "machines.operation.create", defaultValue: "Creating a new machine\u{2026}"))
+            },
+            operationDidEnd: { [weak viewModel] in
+                viewModel?.endOperation()
+            }
+        )
     }
 
     /// The Finder-like tree over the surface catalog: This Mac, then every
@@ -384,8 +436,15 @@ struct MachinesPanelView: View {
     }
 
     /// Free plans: "Upgrade to use more than 1 machine" — the ceiling plus the
-    /// way past it in one line.
+    /// way past it in one line. A plan with no machines at all has no ceiling
+    /// to cite: upgrading is what grants access in the first place.
     private func upgradeNudgeLabel(_ plan: MachinePlanSnapshot) -> String {
+        if plan.maxActiveVms <= 0 {
+            return String(
+                localized: "machines.empty.upgrade.none",
+                defaultValue: "Subscribe to cmux Pro to use up to 5 machines"
+            )
+        }
         if plan.isSingleMachinePlan {
             return String(
                 localized: "machines.empty.upgrade.single",
@@ -634,7 +693,13 @@ struct MachineRowActions {
 
     @MainActor
     @discardableResult
-    static func openNewMachine(onCompletion: ((CloudVMActionLauncher.Completion) -> Void)? = nil) -> Bool {
+    /// `arguments` is the `cmux vm new …` invocation the New Machine sheet
+    /// built (kind, size, name). Failures come back through `onCompletion`
+    /// so the sheet can show them inline instead of a detached alert.
+    static func openNewMachine(
+        arguments: [String] = ["vm", "new"],
+        onCompletion: ((CloudVMActionLauncher.Completion) -> Void)? = nil
+    ) -> Bool {
         // `vm new` mints a fresh machine with its own persistent home and
         // attaches it; the base slot stays reachable via the ＋ menu's Open Base.
         let socketPath = TerminalController.shared.activeSocketPath(
@@ -643,7 +708,8 @@ struct MachineRowActions {
         return CloudVMActionLauncher.shared.start(
             socketPath: socketPath,
             preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow,
-            arguments: ["vm", "new"],
+            arguments: arguments,
+            presentsFailureAlert: false,
             onCompletion: onCompletion
         )
     }

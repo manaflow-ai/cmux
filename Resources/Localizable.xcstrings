@@ -60058,6 +60058,40 @@
         }
       }
     },
+    "cloudTree.menu.closeTerminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close Terminal"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルを閉じる"
+          }
+        }
+      }
+    },
+    "cloudTree.menu.closeWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close Workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースを閉じる"
+          }
+        }
+      }
+    },
     "cloudTree.menu.copyPort": {
       "extractionState": "manual",
       "localizations": {
@@ -60211,6 +60245,23 @@
         }
       }
     },
+    "cloudTree.menu.openAsNewWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open as New Workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいワークスペースとして開く"
+          }
+        }
+      }
+    },
     "cloudTree.menu.openFullClient": {
       "extractionState": "manual",
       "localizations": {
@@ -60326,6 +60377,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "noVNC"
+          }
+        }
+      }
+    },
+    "cloudTree.pane.connecting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connecting to %@…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ に接続しています…"
+          }
+        }
+      }
+    },
+    "cloudTree.pane.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t open %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ を開けませんでした"
+          }
+        }
+      }
+    },
+    "cloudTree.pane.retryHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close this pane and open it again from the sidebar."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このペインを閉じて、サイドバーからもう一度開いてください。"
+          }
+        }
+      }
+    },
+    "cloudTree.operation.close": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Closing on %@…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ で閉じています…"
           }
         }
       }
@@ -60479,6 +60598,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "このマシンではセッションを利用できません"
+          }
+        }
+      }
+    },
+    "cloudTree.row.closeTerminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close Terminal"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルを閉じる"
+          }
+        }
+      }
+    },
+    "cloudTree.row.closeWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close Workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースを閉じる"
+          }
+        }
+      }
+    },
+    "cloudTree.row.newWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいワークスペース"
           }
         }
       }
@@ -65513,6 +65683,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "エージェントハンドオフ"
+          }
+        }
+      }
+    },
+    "command.cloudVM.newMachine.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Cloud Machine…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいクラウドマシン…"
           }
         }
       }
@@ -125451,6 +125638,125 @@
         }
       }
     },
+    "machines.agent.claude": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        }
+      }
+    },
+    "machines.agent.codex": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        }
+      }
+    },
+    "machines.agent.copyPrompt": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Cloud Prompt"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウドプロンプトをコピー"
+          }
+        }
+      }
+    },
+    "machines.agent.error.missingSkill": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This build is missing the bundled cmux Cloud skill file."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このビルドには cmux Cloud スキルファイルが含まれていません。"
+          }
+        }
+      }
+    },
+    "machines.agent.operation.starting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Starting %@…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ を起動しています…"
+          }
+        }
+      }
+    },
+    "machines.agent.menuLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Cloud Agent"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウドエージェントを開く"
+          }
+        }
+      }
+    },
+    "machines.agent.opencode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode"
+          }
+        }
+      }
+    },
     "machines.auth.checking": {
       "extractionState": "manual",
       "localizations": {
@@ -125702,6 +126008,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "アップグレードすると %d 台を超えるマシンを利用できます"
+          }
+        }
+      }
+    },
+    "machines.empty.upgrade.none": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subscribe to cmux Pro to use up to 5 machines"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Pro に登録すると最大 5 台のマシンを利用できます"
           }
         }
       }
@@ -269532,6 +269855,465 @@
           "stringUnit": {
             "state": "translated",
             "value": "このワークスペースはすでに利用できません。"
+          }
+        }
+      }
+    },
+    "machines.new.kind.desktop.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal plus a screen you can watch and control. Best for browsers and GUI apps."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルに加えて、見たり操作したりできる画面。ブラウザや GUI アプリに最適です。"
+          }
+        }
+      }
+    },
+    "machines.new.kind.base.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal only. Boots faster and uses less memory."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルのみ。起動が速く、メモリ消費が少なくなります。"
+          }
+        }
+      }
+    },
+    "machines.new.plan.single": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$d of 1 machine in use"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 台中 %1$d 台を使用中"
+          }
+        }
+      }
+    },
+    "machines.new.plan.multi": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$d of %2$d machines in use"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$d 台中 %1$d 台を使用中"
+          }
+        }
+      }
+    },
+    "machines.new.plan.freeWindow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Free plan: this machine stays reachable for %d days. Upgrade to keep it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無料プラン: このマシンには %d 日間アクセスできます。継続するにはアップグレードしてください。"
+          }
+        }
+      }
+    },
+    "machines.new.size.gb": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d GB"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d GB"
+          }
+        }
+      }
+    },
+    "machines.new.size.mb": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d MB"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d MB"
+          }
+        }
+      }
+    },
+    "machines.new.done": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Done"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完了"
+          }
+        }
+      }
+    },
+    "machines.new.error.createdOpenFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Machine %1$@ was created, but opening it failed. Open it from the Machines list.\n\n%2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシン %1$@ は作成されましたが、開けませんでした。マシン一覧から開いてください。\n\n%2$@"
+          }
+        }
+      }
+    },
+    "machines.new.error.generic": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The machine could not be created."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシンを作成できませんでした。"
+          }
+        }
+      }
+    },
+    "machines.new.error.launch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not start the create command. Sign in and try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux は作成コマンドを開始できませんでした。サインインしてからもう一度お試しください。"
+          }
+        }
+      }
+    },
+    "machines.new.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Machine"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいマシン"
+          }
+        }
+      }
+    },
+    "machines.new.title.base": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Set Up Base"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Base を設定"
+          }
+        }
+      }
+    },
+    "machines.new.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A cloud computer with devtools and coding agents preinstalled. It keeps its home directory between sessions."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開発ツールとコーディングエージェントがプリインストールされたクラウドコンピュータ。ホームディレクトリはセッション間で保持されます。"
+          }
+        }
+      }
+    },
+    "machines.new.subtitle.base": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Base is your persistent cloud machine. Opening it later reuses this same machine; reset Base to start over."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Base は永続的なクラウドマシンです。次回以降も同じマシンが開きます。最初からやり直すには Base をリセットしてください。"
+          }
+        }
+      }
+    },
+    "machines.new.name.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Name"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名前"
+          }
+        }
+      }
+    },
+    "machines.new.name.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Optional label"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ラベル(任意)"
+          }
+        }
+      }
+    },
+    "machines.new.kind.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kind"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "種類"
+          }
+        }
+      }
+    },
+    "machines.new.size.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Size"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイズ"
+          }
+        }
+      }
+    },
+    "machines.new.size.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Memory. CPU scales with it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メモリ。CPU はメモリに応じて増減します。"
+          }
+        }
+      }
+    },
+    "machines.new.image.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Image"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "イメージ"
+          }
+        }
+      }
+    },
+    "machines.new.creating.base": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Setting up Base…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Base を設定中…"
+          }
+        }
+      }
+    },
+    "machines.new.creating": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Creating…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "作成中…"
+          }
+        }
+      }
+    },
+    "machines.new.cancel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キャンセル"
+          }
+        }
+      }
+    },
+    "machines.new.retry": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retry"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再試行"
+          }
+        }
+      }
+    },
+    "machines.new.create.base": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Set Up Base"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Base を設定"
+          }
+        }
+      }
+    },
+    "machines.new.create": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Create"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "作成"
           }
         }
       }
