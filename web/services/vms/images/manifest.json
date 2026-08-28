@@ -196,13 +196,13 @@
     },
     {
       "provider": "e2b",
-      "version": "e2b-devbox-20260828a",
-      "imageId": "cmux-devbox:devbox-20260828a",
+      "version": "e2b-devbox-20260828b",
+      "imageId": "cmux-devbox:devbox-20260828b",
       "envVar": "E2B_CMUXD_WS_TEMPLATE",
       "defaultForLocalDev": false,
       "kind": "base",
       "cmuxdRemoteCommit": "none-cmux-tui",
-      "builtAt": "2026-08-28T08:40:23.678Z",
+      "builtAt": "2026-08-28T10:01:44.701Z",
       "builderScriptVersion": "b87b2a7d33d83e2213f0afc407bae5d2fdd90083bbba2a9fccffaa368d1d3aa6",
       "agentToolResolvedVersions": {
         "@anthropic-ai/claude-code": "2.1.246",
@@ -212,17 +212,17 @@
         "agent-browser": "0.35.1"
       },
       "validationStatus": "passed",
-      "notes": "Shared devbox image (services/vms/images/devbox), cmux-tui transport. Baked with build-devbox-e2b.ts (templateId 3fktz2o6rxgms895lclw). Validated 2026-08-28 with verify-devbox-image.ts against cmux-tui pin 102aa3d63086bf0617a6b5a34d5cb2465f2a74a7: pinned agents, mise toolchain, gh/jq/fd/fzf/sqlite3/tmux/vim, Chrome + DuckDuckGo managed policy, cua-driver, ffmpeg/Xvfb, byte-identical baked files, ble.sh ghost text under a tmux PTY, agent-config generator materializing the codex custom provider, cmux-tui install + daemon serving session cloud on 1337. Inbound firewall proven live: after the driver's default-deny INPUT (allow lo/established/icmp + envd 49983 + cmux-tui 1337) envd control and 1337 stayed reachable while a scratch dev server on 4820 was reachable before and blocked after. Not the default provider; Blaxel stays default."
+      "notes": "Shared devbox image (services/vms/images/devbox) at epoch 2026-08-28-r1 (#11099: agent-config also wires pi models.json and the opencode config fetch to the coderouter model plane), cmux-tui transport. Supersedes cmux-devbox:devbox-20260828a. Baked with build-devbox-e2b.ts (templateId 3fktz2o6rxgms895lclw). Validated 2026-08-28 with verify-devbox-image.ts against cmux-tui pin fa77ad23364aa12993644b357b425513d61ca632: pinned agents, mise toolchain, devtools, Chrome + DuckDuckGo managed policy, cua-driver, ffmpeg/Xvfb, byte-identical baked files, ble.sh ghost text under a tmux PTY, agent-config generator (codex custom provider + pi models.json with the x-coderouter-route-token env reference and no literal token; no opencode.json when the config endpoint is unreachable), cmux-tui install + daemon serving session cloud on 1337. Inbound firewall proven live again: after the driver's default-deny INPUT (allow lo/established/icmp + envd 49983 + cmux-tui 1337) envd control and 1337 stayed reachable while a scratch dev server on 4820 was reachable before and blocked after. Not the default provider; Blaxel stays default."
     },
     {
       "provider": "daytona",
-      "version": "daytona-cmux-devbox-20260828a",
-      "imageId": "cmux-devbox-20260828a",
+      "version": "daytona-cmux-devbox-20260828b",
+      "imageId": "cmux-devbox-20260828b",
       "envVar": "DAYTONA_SANDBOX_SNAPSHOT",
       "defaultForLocalDev": false,
       "kind": "base",
       "cmuxdRemoteCommit": "none-cmux-tui",
-      "builtAt": "2026-08-28T08:41:18.226Z",
+      "builtAt": "2026-08-28T10:02:08.431Z",
       "builderScriptVersion": "64efcb7124e5e135ad25939b11568c940c69ee208d32ffdd38d466ddade5d643",
       "agentToolResolvedVersions": {
         "@anthropic-ai/claude-code": "2.1.246",
@@ -232,7 +232,29 @@
         "agent-browser": "0.35.1"
       },
       "validationStatus": "passed",
-      "notes": "Shared devbox image (services/vms/images/devbox), cmux-tui transport. Baked fresh (never trusting Daytona's layer cache) with build-devbox-daytona.ts; the cmux-devbox-boot supervisor is the registered snapshot entrypoint (Daytona stop kills processes, start re-runs it). Validated 2026-08-28 with verify-devbox-image.ts against cmux-tui pin 102aa3d63086bf0617a6b5a34d5cb2465f2a74a7: pinned agents, mise toolchain, devtools, Chrome + DuckDuckGo managed policy, cua-driver, ffmpeg/Xvfb, byte-identical baked files, ble.sh ghost text under a tmux PTY, agent-config generator, cmux-tui install + daemon serving session cloud on 1337 through the entrypoint supervisor, and the preview proxy route with the DAYTONA_SANDBOX_AUTH_KEY query token. Region shared us. Not the default provider; Blaxel stays default."
+      "notes": "Shared devbox image (services/vms/images/devbox) at epoch 2026-08-28-r1 (#11099: agent-config also wires pi models.json and the opencode config fetch to the coderouter model plane), cmux-tui transport. Supersedes cmux-devbox-20260828a. Baked fresh (never trusting Daytona's layer cache) with build-devbox-daytona.ts; the cmux-devbox-boot supervisor is the registered snapshot entrypoint (Daytona stop kills processes, start re-runs it). Validated 2026-08-28 with verify-devbox-image.ts against cmux-tui pin fa77ad23364aa12993644b357b425513d61ca632: pinned agents, mise toolchain, devtools, Chrome + DuckDuckGo managed policy, cua-driver, ffmpeg/Xvfb, byte-identical baked files, ble.sh ghost text under a tmux PTY, agent-config generator (codex custom provider + pi models.json with the x-coderouter-route-token env reference and no literal token; no opencode.json when the config endpoint is unreachable), cmux-tui install + daemon serving session cloud on 1337 through the entrypoint supervisor, and the preview proxy route with the DAYTONA_SANDBOX_AUTH_KEY query token. Region shared us. Not the default provider; Blaxel stays default."
+    },
+    {
+      "provider": "freestyle",
+      "version": "freestyle-cmux-devbox-beta1",
+      "imageId": "sh-fb3dcf7b47894114889b10186626af5b",
+      "envVar": "FREESTYLE_SANDBOX_SNAPSHOT",
+      "defaultForLocalDev": false,
+      "features": {
+        "freestylePlatform": "beta"
+      },
+      "cmuxdRemoteCommit": "none-cmux-tui",
+      "builtAt": "2026-08-28T10:35:57.736Z",
+      "builderScriptVersion": "6e40d373a9e25289770d1bfbfc515becafbd905f3b448741df4cc4ea2f2c6cd1",
+      "agentToolResolvedVersions": {
+        "@anthropic-ai/claude-code": "2.1.246",
+        "@openai/codex": "0.150.0",
+        "opencode-ai": "1.18.23",
+        "@earendil-works/pi-coding-agent": "0.84.3",
+        "agent-browser": "0.35.1"
+      },
+      "validationStatus": "passed",
+      "notes": "cmux devbox epoch 2026-08-28-r1 on the Freestyle BETA platform (beta-api.freestyle.sh; slug cmux-devbox-beta1). cmux-tui transport over the VM public IPv6; systemd unit binds [::]:1337. verify-devbox-image.ts passed all toolchain, agent-pin, ghost-text, baked-file, and daemon checks 2026-08-28. Requires the beta driver arm; the legacy driver cannot boot it."
     }
   ]
 }

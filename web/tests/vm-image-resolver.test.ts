@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   reportVmImageConfigError,
   imageUsesBakedFreestyleSignedAdmin,
+  imageUsesFreestyleBetaPlatform,
   inferVmProviderForImage,
   listVmImageKinds,
   providerImageEnvKey,
@@ -189,6 +190,25 @@ describe("VM image resolver", () => {
       imageVersion: "freestyle-signedadmin-20260625b",
     });
     expect(imageUsesBakedFreestyleSignedAdmin("freestyle", "sh-b3jqa6o88qe6l738dw9z")).toBe(true);
+  });
+
+  test("the baked beta devbox snapshot reads as a beta-platform image", () => {
+    expect(imageUsesFreestyleBetaPlatform("freestyle", "sh-fb3dcf7b47894114889b10186626af5b")).toBe(true);
+    expect(imageUsesFreestyleBetaPlatform("freestyle", "freestyle-cmux-devbox-beta1")).toBe(true);
+  });
+
+  test("legacy freestyle images never read as beta-platform images", () => {
+    // The freestyle driver dispatches creates on this flag; a legacy image
+    // reading as beta would boot the old snapshot on the wrong platform.
+    for (const image of [
+      "sc-mt237w1nd7c7673bd03m",
+      "sh-6ch5p9k23xrcx24056n8",
+      "sh-17agfasevrc18c8f15nn",
+      "sh-w2otfp1g287lzrpuc2gr",
+      "sh-b3jqa6o88qe6l738dw9z",
+    ]) {
+      expect(imageUsesFreestyleBetaPlatform("freestyle", image)).toBe(false);
+    }
   });
 
   test("daytona has no local default until a validated snapshot lands in the manifest", () => {
