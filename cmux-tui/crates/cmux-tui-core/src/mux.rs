@@ -22147,9 +22147,15 @@ mod tests {
         let manifests = ManifestSet::bundled();
         let t0 = Instant::now();
         let step = |milliseconds: u64| t0 + Duration::from_millis(milliseconds);
-        let shell = |_: &Surface| Some("zsh".to_string());
-        let codex = |_: &Surface| Some("codex".to_string());
-        let gone = |_: &Surface| None;
+        fn shell(_: &Surface) -> Option<String> {
+            Some("zsh".to_string())
+        }
+        fn codex(_: &Surface) -> Option<String> {
+            Some("codex".to_string())
+        }
+        fn gone(_: &Surface) -> Option<String> {
+            None
+        }
 
         // A shell pane never enters the roster, quiesced or not.
         scanner::scan(&mux, &mut tracker, manifests, step(0), &shell);
@@ -22233,7 +22239,9 @@ mod tests {
         let mut tracker = ScreenDetectTracker::default();
         let manifests = ManifestSet::bundled();
         let t0 = Instant::now();
-        let claude = |_: &Surface| Some("claude".to_string());
+        fn claude(_: &Surface) -> Option<String> {
+            Some("claude".to_string())
+        }
         scanner::scan(&mux, &mut tracker, manifests, t0, &claude);
         scanner::scan(&mux, &mut tracker, manifests, t0 + Duration::from_millis(400), &claude);
         let records = mux.list_agents(Some(surface_id), None);
