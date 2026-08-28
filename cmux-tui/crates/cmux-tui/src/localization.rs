@@ -1241,9 +1241,7 @@ static ENGLISH: Catalog = Catalog {
         mux_subscription_recovered: "Mux event backlog overflowed; subscription recovered",
         mux_subscription_recovery_failed: "Mux event backlog recovery failed; queued input was discarded while retrying: {error}",
     },
-    plugin: PluginMessages {
-        operation_failed: "Plugin operation failed; retry the command",
-    },
+    plugin: PluginMessages { operation_failed: "Plugin operation failed; retry the command" },
     session_reset: SessionResetMessages {
         help: "  cmux session <name> reset-state [--force --confirm-reset <token>] [--state <path>]\n    Preview or confirm a scoped saved-state reset",
         exact_name_required: "session reset-state requires an exact session name",
