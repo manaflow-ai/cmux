@@ -9032,7 +9032,8 @@ impl Mux {
         // Hook replay already owns this guard to serialize sequence checks and
         // projection commits. Other report sources acquire it before the
         // registry/state locks, so all paths use one lock order.
-        let sequence_guard = (!sequence_lock_held).then(|| self.agent_hook_fences.lock().unwrap());
+        let mut sequence_guard =
+            (!sequence_lock_held).then(|| self.agent_hook_fences.lock().unwrap());
         let mut registry = self.workspace_registry.lock().unwrap();
         if let Some(replay) =
             registry.replay_resource_patch(mutation, "agent.report", fingerprint)?
@@ -9072,6 +9073,7 @@ impl Mux {
                 (surface, (*terminal_id).clone())
             }
         };
+        let mut direct_hook_state = None;
         if source != AgentSource::Hook {
             let ended_fence = sequence_guard
                 .as_ref()
@@ -9096,19 +9098,30 @@ impl Mux {
                     && !session.starts_with("cmux-hook-sequence:")
                     && !session.starts_with("cmux-hook-ended:")
             });
-            let is_new_hook_session = hook_state.is_some_and(|state| {
+            let journal_hook_session = hook_state.is_some_and(|state| {
                 !state.ended
                     && state.applied_sequence > fence.sequence
                     && state.agent_session_id != fence.session_id
                     && source_session
                         .as_deref()
                         .is_some_and(|session| session.starts_with("cmux-hook-sequence:"))
-            }) || (hook_state.is_none()
-                && supplied_session.is_some_and(|session| session != fence.session_id));
-            if !is_new_hook_session {
+            });
+            let direct_hook_session = hook_state.is_none()
+                && supplied_session.is_some_and(|session| session != fence.session_id);
+            if direct_hook_session {
+                direct_hook_state = Some(crate::workspace_registry::AgentHookProjectionState {
+                    agent_session_id: supplied_session
+                        .expect("direct hook session was checked above")
+                        .to_owned(),
+                    applied_sequence: fence.sequence,
+                    ended: false,
+                });
+            }
+            if !journal_hook_session && !direct_hook_session {
                 anyhow::bail!("agent_session_ended");
             }
         }
+        let effective_hook_state = direct_hook_state.as_ref().or(hook_state);
         let persisted_source_session = if source == AgentSource::Hook {
             source_session.clone().filter(|value| {
                 !value.starts_with("cmux-hook-sequence:") && !value.starts_with("cmux-hook-ended:")
@@ -9137,7 +9150,7 @@ impl Mux {
         let socket_report_ignored = records.get(&terminal_id).is_some_and(|existing| {
             existing.source == AgentSource::Hook
                 && source == AgentSource::Socket
-                && !hook_state.is_some_and(|state| state.ended)
+                && !effective_hook_state.is_some_and(|state| state.ended)
         });
         let record = match records.get(&terminal_id) {
             Some(existing) if socket_report_ignored => existing.clone(),
@@ -9169,7 +9182,7 @@ impl Mux {
         });
         let mut public_value = value.clone();
         public_value["source_session"] = serde_json::json!(record.session.clone());
-        let deltas = if hook_state.is_some_and(|state| state.ended) {
+        let deltas = if effective_hook_state.is_some_and(|state| state.ended) {
             serde_json::json!([{
                 "kind":"delete",
                 "sequence":0,
@@ -9192,8 +9205,22 @@ impl Mux {
             &terminal_id,
             &value,
             &deltas,
-            hook_state,
+            effective_hook_state,
         )?;
+        if !commit.replayed {
+            if let (Some(direct_state), Some(sequence_guard)) =
+                (direct_hook_state.as_ref(), sequence_guard.as_mut())
+            {
+                sequence_guard.insert(
+                    terminal_id.clone(),
+                    HookFence {
+                        session_id: direct_state.agent_session_id.clone(),
+                        sequence: direct_state.applied_sequence,
+                        ended: false,
+                    },
+                );
+            }
+        }
         state.resource_revision = commit.revision;
         if !commit.replayed {
             records.insert(terminal_id.clone(), record.clone());
@@ -9239,15 +9266,14 @@ impl Mux {
     }
 
     fn purge_terminal_side_tables(&self, terminal_id: &TerminalPublicId) {
-        if self
-            .workspace_registry
-            .lock()
-            .unwrap()
-            .purge_agent_hook_pending_for_terminal(terminal_id)
-            .is_err()
-        {
+        let pending_cleanup = {
+            let mut registry = self.workspace_registry.lock().unwrap();
+            registry.purge_agent_hook_pending_for_terminal(terminal_id)
+        };
+        if pending_cleanup.is_err() {
             eprintln!("cmux-tui: terminal agent hook cleanup deferred");
         }
+        // The registry guard is dropped before acquiring the fence guard.
         self.agent_hook_fences.lock().unwrap().remove(terminal_id);
         self.agent_records.lock().unwrap().remove(terminal_id);
         self.terminal_notifications.lock().unwrap().remove(terminal_id);
@@ -22720,6 +22746,9 @@ mod tests {
         let record = &mux.list_agents(Some(surface.id), None)[0];
         assert_eq!(record.source, AgentSource::Hook);
         assert_eq!(record.session.as_deref(), Some("new"));
+        mux.apply_agent_hook_record(&hook("UserPromptSubmit", "new"), 2).unwrap();
+        assert_eq!(mux.agent_hook_fences.lock().unwrap()[&terminal_id].session_id, "new");
+        assert_eq!(mux.agent_hook_fences.lock().unwrap()[&terminal_id].sequence, 2);
         assert!(
             mux.report_agent(
                 surface.id,
