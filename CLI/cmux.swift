@@ -19412,6 +19412,7 @@ struct CMUXCLI {
               --window <id|ref|index>      Window context for workspace/surface refs and indexes
               --scrollback           Include scrollback
               --lines <n>            Return only the last N lines (implies --scrollback)
+              \(String(localized: "cli.tmuxCompat.capturePane.help.noPositional", defaultValue: "Positional arguments are not supported; use --surface <id|ref|index>."))
 
             Example:
               cmux capture-pane --workspace workspace:2 --surface surface:1 --scrollback --lines 200
@@ -26674,6 +26675,38 @@ struct CMUXCLI {
             let (sfArg, rem1) = parseOption(rem0, name: "--surface")
             let (windowOpt, rem2) = parseOption(rem1, name: "--window")
             let (linesArg, rem3) = parseOption(rem2, name: "--lines")
+            var includeScrollback = false
+            var pastTerminator = false
+            for argument in rem3 {
+                if !pastTerminator, argument == "--" {
+                    pastTerminator = true
+                    continue
+                }
+                if !pastTerminator, argument == "--scrollback" {
+                    includeScrollback = true
+                    continue
+                }
+                if !pastTerminator, Self.isFlagToken(argument) {
+                    throw CLIError(
+                        message: String(
+                            format: String(
+                                localized: "cli.tmuxCompat.capturePane.error.unknownFlag",
+                                defaultValue: "capture-pane: unknown flag '%@'"
+                            ),
+                            argument
+                        )
+                    )
+                }
+                throw CLIError(
+                    message: String(
+                        format: String(
+                            localized: "cli.tmuxCompat.capturePane.error.unknownPositional",
+                            defaultValue: "capture-pane: unknown positional arg '%@'; use --surface <id|ref|index>"
+                        ),
+                        argument
+                    )
+                )
+            }
             let windowRaw = windowOpt ?? windowOverride
             let workspaceArg = wsArg ?? Self.callerWorkspaceForSurfaceHandle(sfArg, windowRaw: windowRaw)
             let surfaceArg = sfArg ?? (wsArg == nil && windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
@@ -26686,7 +26719,6 @@ struct CMUXCLI {
             let sfId = try normalizeSurfaceHandle(surfaceArg, client: client, workspaceHandle: wsId, windowHandle: winId)
             if let sfId { params["surface_id"] = sfId }
 
-            let includeScrollback = rem3.contains("--scrollback")
             if includeScrollback {
                 params["scrollback"] = true
             }

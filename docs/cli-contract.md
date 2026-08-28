@@ -322,7 +322,7 @@ tmux compatibility commands:
 
 | Command | Contract |
 | --- | --- |
-| `capture-pane` | Read pane text. |
+| `capture-pane` | Read pane text. Target with `--surface <id|ref|index>`; positional arguments are rejected. |
 | `resize-pane` | Resize a pane with direction flags. |
 | `pipe-pane` | Pipe pane text to a shell command. |
 | `wait-for` | Signal or wait on a named synchronization point. |
