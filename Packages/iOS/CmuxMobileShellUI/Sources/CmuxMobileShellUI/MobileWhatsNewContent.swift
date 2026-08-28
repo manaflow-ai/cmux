@@ -43,7 +43,32 @@ struct MobileWhatsNewContent: View {
                     }
                 }
                 .padding(.horizontal, 28)
+                .padding(.bottom, page.footnote == nil ? 24 : 0)
+            }
+            if let footnote = page.footnote {
+                // A compact tinted notice, not plain fine print: owner
+                // feedback was that secondary-style text gets missed, and
+                // BETA users need the revert path. Still ambient (no alert,
+                // HIG) and visually below the feature rows.
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.subheadline)
+                        .foregroundStyle(.orange)
+                        .accessibilityHidden(true)
+                    Text(footnote)
+                        .font(.footnote)
+                        .foregroundStyle(.primary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .padding(12)
+                .background(
+                    Color.orange.opacity(0.12),
+                    in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+                )
+                .padding(.horizontal, 28)
                 .padding(.bottom, 24)
+                .accessibilityIdentifier("MobileWhatsNewFootnote")
             }
         }
     }

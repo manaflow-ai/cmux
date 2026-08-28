@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxMobileShell
 import CmuxMobileSupport
 import SwiftUI
 
@@ -48,19 +49,23 @@ struct MobileAutoConnectMigrationExplanation: View {
     }
 
     private var bodyText: some View {
-        Text(L10n.string(
-            "mobile.autoConnectMigration.body",
-            defaultValue: "Iroh needs cmux 0.64.20 or later on your Mac for its authenticated, end-to-end encrypted connection."
+        Text(String(
+            format: L10n.string(
+                "mobile.autoConnectMigration.bodyFormat",
+                defaultValue: "Iroh needs %@ on your Mac for its authenticated, end-to-end encrypted connection."
+            ),
+            MobileMacPairingFloor.requiredMacVersionLabel
         ))
         .font(.body)
         .accessibilityIdentifier("MobileAutoConnectMigrationBody")
     }
 
     private var guidance: some View {
-        Text(L10n.string(
-            "mobile.autoConnectMigration.guidance",
-            defaultValue: "cmux 0.64.17 still works over Tailscale. Choose Connect iPhone/iPad on that Mac and scan its Pair iPhone code once."
-        ))
+        // Below the floor there is no Tailscale fallback anymore (a legacy
+        // Tailscale-only pairing is exactly what this build refuses to dial),
+        // so the secondary line is the shared revert path instead of the old
+        // "0.64.17 still works over Tailscale" claim.
+        Text(MobileMacPairingFloor.revertGuidance)
         .font(.body)
         .foregroundStyle(.secondary)
         .accessibilityIdentifier("MobileAutoConnectMigrationGuidance")
