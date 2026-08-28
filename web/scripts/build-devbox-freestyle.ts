@@ -22,11 +22,11 @@
  * provider (docs/cloud-cmux-tui-daemon.md). No binary is baked: the
  * cmux-tui-daemon systemd unit runs /usr/local/bin/cmux-devbox-boot, which
  * waits for /root/.cmux/bin/cmux-tui and supervises the daemon once a driver
- * installs the pinned build at create time. FORWARD-COMPATIBLE ONLY: the
- * shipped freestyle driver still speaks the legacy (0.1.51) platform and its
- * cmuxd-remote transport; it can neither boot beta snapshots nor talk to
- * cmux-tui. This bake becomes usable when a beta-SDK freestyle driver lands;
- * until then FREESTYLE_SANDBOX_SNAPSHOT must not point at it.
+ * installs the pinned build at create time. The unit binds the listener
+ * dual-stack (CMUX_TUI_REMOTE_WS_BIND=[::]:1337) because the beta driver arm
+ * (web/services/vms/drivers/freestyleBeta.ts) routes attaches to the VM's
+ * stable public IPv6; the legacy (0.1.51) driver arm cannot boot these
+ * snapshots — the manifest marks them features.freestylePlatform: "beta".
  *
  * Builder VM: freestyle/ubuntu-sm, outbound-only firewall, deleted whatever
  * happens.
