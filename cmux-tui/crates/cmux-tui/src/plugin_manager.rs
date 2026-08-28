@@ -171,7 +171,7 @@ fn acquire_plugin_operation_lock() -> anyhow::Result<PluginOperationLock> {
     ensure_real_directory(&root)?;
     let path = root.join(".install.lock");
     let file = fs::OpenOptions::new().create(true).read(true).write(true).open(path)?;
-    file.lock_exclusive()?;
+    FileExt::lock(&file)?;
     Ok(PluginOperationLock(file))
 }
 
