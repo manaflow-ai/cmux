@@ -443,9 +443,7 @@ pub struct PersistentSessionStateResetter {
 impl PersistentSessionStateResetter {
     /// Creates a reset owner for one durable workspace state root.
     pub fn new(state_root: impl Into<PathBuf>) -> Self {
-        Self {
-            state_root: platform::normalize_filesystem_path(state_root.into()),
-        }
+        Self { state_root: platform::normalize_filesystem_path(state_root.into()) }
     }
 
     /// Returns the workspace state root this reset owner can mutate.
@@ -2309,9 +2307,8 @@ impl WorkspaceRegistry {
         // Normalize the complete database path. The state root can be below
         // the legacy MAX_PATH threshold while its session and database
         // descendants exceed it.
-        let db_path = platform::normalize_filesystem_path(
-            session_dir.join(WORKSPACE_REGISTRY_FILE),
-        );
+        let db_path =
+            platform::normalize_filesystem_path(session_dir.join(WORKSPACE_REGISTRY_FILE));
         if db_path.is_file()
             && let Some(error) = preflight_unsupported_schema(&db_path)
         {

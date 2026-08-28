@@ -2368,10 +2368,7 @@ fn start_detached_owner_session(
         session: args.session.clone(),
         socket: socket_path.clone(),
         socket_is_derived: args.socket.is_none(),
-        state: args
-            .state
-            .clone()
-            .map(cmux_tui_core::platform::normalize_filesystem_path),
+        state: args.state.clone().map(cmux_tui_core::platform::normalize_filesystem_path),
         term: args.term.clone(),
     };
     let deadline = std::time::Instant::now() + local_owner::ENSURE_DEADLINE;
