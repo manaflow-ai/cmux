@@ -297,7 +297,11 @@ export async function recordCheckoutCompletion(
   }
 
   const db = dependencies.db ?? cloudDb();
-  const mappedPersonalOwner = await personalStripeCustomerOwner(db, customerId);
+  const mappedCustomer = await stripeCustomerRowForId(db, customerId);
+  if (mappedCustomer?.stackTeamId) {
+    throw new Error("Stripe checkout customer belongs to a Team");
+  }
+  const mappedPersonalOwner = mappedCustomer?.stackUserId ?? null;
   if (mappedPersonalOwner && mappedPersonalOwner !== stackUserId) {
     // A previously claimed checkout can still be replayed from a browser
     // history entry or a delayed Stripe webhook. Never let its immutable
@@ -1492,21 +1496,19 @@ async function stackUserIdForStripeCustomer(
   return rows[0]?.stackUserId ?? null;
 }
 
-async function personalStripeCustomerOwner(
+async function stripeCustomerRowForId(
   db: BillingDbClient,
   customerId: string,
-): Promise<string | null> {
+): Promise<{ stackUserId: string; stackTeamId: string | null } | null> {
   const rows = await db
-    .select({ stackUserId: stripeCustomers.stackUserId })
+    .select({
+      stackUserId: stripeCustomers.stackUserId,
+      stackTeamId: stripeCustomers.stackTeamId,
+    })
     .from(stripeCustomers)
-    .where(
-      and(
-        eq(stripeCustomers.id, customerId),
-        isNull(stripeCustomers.stackTeamId),
-      ),
-    )
+    .where(eq(stripeCustomers.id, customerId))
     .limit(1);
-  return rows[0]?.stackUserId ?? null;
+  return rows[0] ?? null;
 }
 
 async function hasClaimedBillingOwnership(
