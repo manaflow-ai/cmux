@@ -2180,6 +2180,13 @@ mod tests {
         let error = client.send_value(&json!({"payload": "0123456789"})).unwrap_err();
         assert_eq!(error.to_string(), "browser connection unavailable; retry the command");
         assert!(format!("{error:#}").contains("CDP outbound queue byte budget exceeded"));
+        assert!(is_connection_unavailable(&error));
+    }
+
+    #[test]
+    fn protocol_errors_are_not_classified_as_connection_failures() {
+        let error = anyhow::anyhow!("browser failed: invalid target");
+        assert!(!is_connection_unavailable(&error));
     }
 
     struct BlockingOutboundWriter {
