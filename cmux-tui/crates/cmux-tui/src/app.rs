@@ -5799,6 +5799,7 @@ struct RenderedPointerFrame {
     machine_rail: Option<Rect>,
     workspace_rail: Option<Rect>,
     tabs_rail: Option<Rect>,
+    projection_rails: Arc<[(RailKind, Rect)]>,
     hits: Arc<[RenderedHitRoute]>,
     panes: Arc<[RenderedPaneRoute]>,
     terminal_pointer_semantics: Arc<HashMap<SurfaceId, TerminalPointerSemanticSnapshot>>,
@@ -5907,6 +5908,18 @@ impl RenderedPointerFrame {
             (RailKind::Tabs, self.tabs_rail),
         ] {
             if let Some(rect) = rect.filter(|rect| rect.contains(x, y)) {
+                return PointerRouteIdentity::Rail {
+                    kind,
+                    rect,
+                    column: x.saturating_sub(rect.x),
+                    row: y.saturating_sub(rect.y),
+                };
+            }
+        }
+        if let Some((kind, rect)) =
+            self.projection_rails.iter().copied().find(|(_, rect)| rect.contains(x, y))
+        {
+            if !self.panes.iter().any(|pane| pane.content.contains(x, y)) {
                 return PointerRouteIdentity::Rail {
                     kind,
                     rect,
@@ -12062,6 +12075,16 @@ impl App {
         let machine_rail = self.sidebar_layout.machine;
         let workspace_rail = self.sidebar_layout.workspace;
         let tabs_rail = self.sidebar_layout.tabs;
+        let projection_rails = self
+            .sidebar_layout
+            .ordered
+            .iter()
+            .filter_map(|placement| match placement.kind {
+                RailKind::Projection(_) => Some((placement.kind, placement.rect)),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .into();
         let pointer_map_generation = self.session.pointer_map_generation();
         let reuse_owners = action == RenderAction::Paint
             && self.rendered_pointer_frame.pointer_map_generation == pointer_map_generation;
@@ -12145,6 +12168,7 @@ impl App {
             machine_rail,
             workspace_rail,
             tabs_rail,
+            projection_rails,
             hits,
             panes,
             terminal_pointer_semantics,
@@ -30882,6 +30906,49 @@ mod tests {
         assert!(
             Arc::ptr_eq(&levels, &routed),
             "motion routing must clone only the Arc, not menu items"
+        );
+    }
+
+    #[test]
+    fn pointer_routes_projection_rail_padding_to_projection_rail() {
+        let rect = Rect { x: 4, y: 0, width: 20, height: 10 };
+        let pane = PaneArea {
+            pane: 7,
+            surface: 9,
+            rect,
+            bar: None,
+            omnibar: None,
+            content: Rect { x: 5, y: 1, width: 18, height: 8 },
+            track: None,
+            viewport: None,
+        };
+        let mux = Mux::new("projection-rail-pointer-frame-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.outer_size = (40, 10);
+        app.sidebar_layout.ordered =
+            vec![super::RailPlacement { kind: RailKind::Projection(0), view_index: 0, rect }];
+        app.pane_areas = vec![pane];
+        app.commit_rendered_pointer_frame();
+
+        let padding_route = app.rendered_pointer_frame.route_for_mouse(&MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: rect.x + rect.width - 1,
+            row: rect.y + rect.height - 1,
+            modifiers: KeyModifiers::NONE,
+        });
+        assert!(matches!(
+            padding_route,
+            PointerRouteIdentity::Rail { kind: RailKind::Projection(0), .. }
+        ));
+
+        let content_route = app.rendered_pointer_frame.route_for_mouse(&MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: pane.content.x,
+            row: pane.content.y,
+            modifiers: KeyModifiers::NONE,
+        });
+        assert!(
+            matches!(content_route, PointerRouteIdentity::Pane { pane: routed, .. } if routed.pane == pane.pane)
         );
     }
 
