@@ -122,6 +122,7 @@ extension Workspace {
                 remoteRelayTokenHex: configuration.relayToken ?? ""
             ),
             buildInfo: WorkspaceRemoteSessionBuildInfo(),
+            codexWrapperScript: RemoteInteractiveShellBootstrapBuilder.bundledCodexWrapperScript(),
             daemonStrings: RemoteDaemonStrings.appLocalized,
             strings: RemoteSessionStrings.appLocalized
         )

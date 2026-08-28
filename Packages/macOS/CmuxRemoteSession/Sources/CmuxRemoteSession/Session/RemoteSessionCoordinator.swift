@@ -62,6 +62,7 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
     let reachabilityProbe: any RemoteHostReachabilityProbing
     let relayCommandRewriter: any RemoteRelayCommandRewriting
     let buildInfo: any RemoteSessionBuildInfoProviding
+    let codexWrapperScript: String?
     let daemonStrings: RemoteDaemonStrings
     let strings: RemoteSessionStrings
     /// Sleep seam for every legacy `asyncAfter` delay (reconnect backoff,
@@ -177,6 +178,7 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
         reachabilityProbe: any RemoteHostReachabilityProbing,
         relayCommandRewriter: any RemoteRelayCommandRewriting,
         buildInfo: any RemoteSessionBuildInfoProviding,
+        codexWrapperScript: String? = nil,
         daemonStrings: RemoteDaemonStrings,
         strings: RemoteSessionStrings,
         clock: any RemoteProxyRetryClock = SystemRemoteProxyRetryClock()
@@ -191,6 +193,7 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
         self.reachabilityProbe = reachabilityProbe
         self.relayCommandRewriter = relayCommandRewriter
         self.buildInfo = buildInfo
+        self.codexWrapperScript = codexWrapperScript
         self.daemonStrings = daemonStrings
         self.strings = strings
         self.clock = clock

@@ -16,6 +16,19 @@ private let remoteShellPromptFishExecutablePath = [
 ].first { FileManager.default.isExecutableFile(atPath: $0) }
 
 struct RemoteShellPromptRelayTests {
+    @Test("remote shell re-exports the provisioned Codex wrapper shim")
+    func remoteShellExportsCodexWrapperShim() {
+        let script = RemoteInteractiveShellBootstrapBuilder.script(
+            remoteRelayPort: 64_044,
+            shellFeatures: "ssh-env,ssh-terminfo"
+        )
+
+        #expect(script.contains(
+            "export CMUX_CODEX_WRAPPER_SHIM=\"$HOME/.cmux/bin/cmux-codex-wrapper\""
+        ))
+        #expect(script.contains("command -v bash"))
+    }
+
     @Test("remote zsh prompt reports Git metadata through the relay")
     func remoteZshPromptReportsGitMetadataThroughRelay() throws {
         let output = try runPrompt(

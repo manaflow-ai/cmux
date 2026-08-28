@@ -236,6 +236,22 @@ enum RemoteInteractiveShellBootstrapBuilder {
         return contents
     }
 
+    static func bundledCodexWrapperScript(
+        bundleResourceURL: URL? = Bundle.main.resourceURL,
+        fileManager: FileManager = .default
+    ) -> String? {
+        guard let bundleResourceURL else { return nil }
+        let url = bundleResourceURL
+            .appendingPathComponent("bin", isDirectory: true)
+            .appendingPathComponent("cmux-codex-wrapper", isDirectory: false)
+        guard fileManager.fileExists(atPath: url.path),
+              let data = try? Data(contentsOf: url),
+              let contents = String(data: data, encoding: .utf8) else {
+            return nil
+        }
+        return contents
+    }
+
     private static func commonShellLines(
         remoteRelayPort: Int,
         shellStateDir: String,
@@ -248,6 +264,7 @@ enum RemoteInteractiveShellBootstrapBuilder {
         lines.append(contentsOf: shellExportLines(shellFeatures: shellFeatures))
         lines.append("export PATH=\"$HOME/.cmux/bin:$PATH\"")
         lines.append("export CMUX_BUNDLED_CLI_PATH=\"$HOME/.cmux/bin/cmux\"")
+        lines.append("if [ -x \"$HOME/.cmux/bin/cmux-codex-wrapper\" ] && command -v bash >/dev/null 2>&1; then export CMUX_CODEX_WRAPPER_SHIM=\"$HOME/.cmux/bin/cmux-codex-wrapper\"; fi")
         lines.append(
             "export CMUX_PERSISTENT_PTY_EXEC_HELPER=\"${CMUX_PERSISTENT_PTY_EXEC_HELPER:-$CMUX_BUNDLED_CLI_PATH}\""
         )

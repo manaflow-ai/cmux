@@ -362,7 +362,8 @@ extension RemoteSessionCoordinator {
             relayPort: relayPort,
             relayID: relayID,
             relayToken: relayToken,
-            persistentDaemonSlot: configuration.persistentDaemonSlot
+            persistentDaemonSlot: configuration.persistentDaemonSlot,
+            codexWrapperScript: codexWrapperScript
         )
         let command = "sh -c \(script.shellSingleQuoted)"
         let result = try sshExec(arguments: sshCommonArguments(batchMode: true) + [configuration.destination, command], timeout: 8)

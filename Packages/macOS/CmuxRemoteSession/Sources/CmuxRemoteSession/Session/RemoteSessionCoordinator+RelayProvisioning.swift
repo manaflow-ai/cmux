@@ -185,9 +185,26 @@ extension RemoteSessionCoordinator {
         """
     }
 
-    static func remoteCLIWrapperInstallScript(daemonRemotePath: String) -> String {
+    static func remoteCLIWrapperInstallScript(
+        daemonRemotePath: String,
+        codexWrapperScript: String? = nil
+    ) -> String {
         let trimmedRemotePath = daemonRemotePath.trimmingCharacters(in: .whitespacesAndNewlines)
         let daemonPathExpression = remoteDaemonPathShellExpression(trimmedRemotePath)
+        let codexWrapperInstall: String
+        if let codexWrapperScript,
+           !codexWrapperScript.components(separatedBy: .newlines).contains("CMUXREMOTE_CODEX_WRAPPER") {
+            codexWrapperInstall = """
+            codex_wrapper_tmp="$HOME/.cmux/bin/.codex-wrapper.tmp.$$"
+            cat > "$codex_wrapper_tmp" <<'CMUXREMOTE_CODEX_WRAPPER'
+            \(codexWrapperScript)
+            CMUXREMOTE_CODEX_WRAPPER
+            chmod 755 "$codex_wrapper_tmp"
+            mv -f "$codex_wrapper_tmp" "$HOME/.cmux/bin/cmux-codex-wrapper"
+            """
+        } else {
+            codexWrapperInstall = ""
+        }
         return """
         mkdir -p "$HOME/.cmux/bin" "$HOME/.cmux/relay"
         ln -sf \(daemonPathExpression) "$HOME/.cmux/bin/cmuxd-remote-current"
@@ -197,6 +214,7 @@ extension RemoteSessionCoordinator {
         CMUXWRAPPER
         chmod 755 "$wrapper_tmp"
         mv -f "$wrapper_tmp" "$HOME/.cmux/bin/cmux"
+        \(codexWrapperInstall)
         """
     }
 
@@ -205,7 +223,8 @@ extension RemoteSessionCoordinator {
         relayPort: Int,
         relayID: String,
         relayToken: String,
-        persistentDaemonSlot: String? = nil
+        persistentDaemonSlot: String? = nil,
+        codexWrapperScript: String? = nil
     ) -> String {
         let trimmedRemotePath = daemonRemotePath.trimmingCharacters(in: .whitespacesAndNewlines)
         let daemonPathExpression = remoteDaemonPathShellExpression(trimmedRemotePath)
@@ -222,7 +241,10 @@ extension RemoteSessionCoordinator {
         umask 077
         mkdir -p "$HOME/.cmux" "$HOME/.cmux/relay"
         chmod 700 "$HOME/.cmux/relay"
-        \(remoteCLIWrapperInstallScript(daemonRemotePath: trimmedRemotePath))
+        \(remoteCLIWrapperInstallScript(
+            daemonRemotePath: trimmedRemotePath,
+            codexWrapperScript: codexWrapperScript
+        ))
         printf '%s' \(daemonPathExpression) > "$HOME/.cmux/relay/\(relayPort).daemon_path"
         \(slotMetadataLine)
         cat > "$HOME/.cmux/relay/\(relayPort).auth" <<'CMUXRELAYAUTH'
