@@ -63,6 +63,8 @@ actor CloudMachineLinkManager {
         #if DEBUG
         cmuxDebugLog("cloud.link.connect machine=\(machineID)")
         #endif
+        let startedAt = Date()
+        CloudLinkTelemetry.connectStarted(machineID: machineID)
         let task = Task<CloudMachineLink.Connected, Error> { [paths] in
             let link = CloudMachineLink(machineID: machineID, clientURL: clientURL, paths: paths)
             self.store(link: link, for: machineID)
@@ -74,6 +76,10 @@ actor CloudMachineLinkManager {
                 id: machineID,
                 deviceFingerprint: paths.deviceFingerprint(for: machineID),
                 clientCapabilities: Self.clientCapabilities(clientURL: clientURL)
+            )
+            CloudLinkTelemetry.attachEndpointResolved(
+                machineID: machineID,
+                durationMs: Int(Date().timeIntervalSince(startedAt) * 1000)
             )
             var approval: Task<Void, Never>?
             if let invitation = endpoint.invitation {
@@ -92,6 +98,11 @@ actor CloudMachineLinkManager {
         do {
             let connected = try await task.value
             lastFailure[machineID] = nil
+            CloudLinkTelemetry.connected(
+                machineID: machineID,
+                socketPath: connected.socketPath,
+                durationMs: Int(Date().timeIntervalSince(startedAt) * 1000)
+            )
             #if DEBUG
             cmuxDebugLog("cloud.link.connected machine=\(machineID) socket=\(connected.socketPath)")
             #endif
@@ -100,6 +111,11 @@ actor CloudMachineLinkManager {
             let text = CloudMachineLink.errorText(error)
             lastFailure[machineID] = (Date(), text)
             links[machineID] = nil
+            CloudLinkTelemetry.connectFailed(
+                machineID: machineID,
+                error: error,
+                durationMs: Int(Date().timeIntervalSince(startedAt) * 1000)
+            )
             #if DEBUG
             cmuxDebugLog("cloud.link.failed machine=\(machineID) error=\(String(reflecting: error)) text=\(text)")
             #endif
