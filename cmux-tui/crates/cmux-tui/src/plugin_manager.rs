@@ -1432,7 +1432,7 @@ fn replace_installed_plugin_with_config<C: FnOnce() -> anyhow::Result<()>>(
 fn capture_config_snapshot() -> anyhow::Result<ConfigSnapshot> {
     let path = config::config_path()?;
     let (config_existed, sidebar_plugin, original_non_object) = match fs::read_to_string(&path) {
-        Ok(text) if text.trim().is_empty() => (true, None, None),
+        Ok(text) if text.trim().is_empty() => (Some(true), None, None),
         Ok(text) => {
             let value: Value = serde_json::from_str(&text)?;
             let sidebar_plugin = value
@@ -1441,9 +1441,9 @@ fn capture_config_snapshot() -> anyhow::Result<ConfigSnapshot> {
                 .and_then(|sidebar| sidebar.get("plugin"))
                 .cloned();
             let original_non_object = (!value.is_object()).then_some(value);
-            (true, sidebar_plugin, original_non_object)
+            (Some(true), sidebar_plugin, original_non_object)
         }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => (false, None, None),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => (Some(false), None, None),
         Err(error) => return Err(error.into()),
     };
     Ok(ConfigSnapshot { path, config_existed, sidebar_plugin, original_non_object })
@@ -1513,6 +1513,10 @@ fn replace_installed_plugin_with_fs<F: InstallFilesystem, C: FnOnce() -> anyhow:
         })?;
         metadata_installed = true;
         sync_directory(&registry)?;
+        // The committed journal is the recovery point. Persist the directory
+        // entry for the installed plugin before recording that point, so a
+        // crash cannot leave a committed journal with a missing target.
+        sync_directory(install_root)?;
         after_install()?;
         write_install_journal(
             &journal_path,
