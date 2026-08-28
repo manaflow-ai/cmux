@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   capabilityList,
   idempotencyKeyFromRequest,
+  MAX_OBJECT_BODY_BYTES,
   optionalClientIdentifier,
   optionalString,
   parseLenientObjectBody,
@@ -62,14 +63,27 @@ describe("Cloud VM route input", () => {
     const malformed = await parseLenientObjectBody(new Request("https://cmux.test", {
       method: "POST",
       body: "not-json",
-    }));
-    expect(malformed).toEqual({});
+    }), { operation: "attach", action: "Send a JSON object." });
+    expect(malformed).toEqual({ ok: true, body: {} });
 
     const primitive = await parseLenientObjectBody(new Request("https://cmux.test", {
       method: "POST",
       body: "null",
-    }));
-    expect(primitive).toEqual({});
+    }), { operation: "attach", action: "Send a JSON object." });
+    expect(primitive).toEqual({ ok: true, body: {} });
+  });
+
+  test("rejects oversized bodies before JSON parsing", async () => {
+    const body = "{" + "x".repeat(MAX_OBJECT_BODY_BYTES) + "}";
+    const options = { operation: "snapshot", action: "Send a smaller JSON object." };
+    for (const parsed of [
+      await parseOptionalObjectBody(new Request("https://cmux.test", { method: "POST", body }), options),
+      await parseRequiredObjectBody(new Request("https://cmux.test", { method: "POST", body }), options),
+      await parseLenientObjectBody(new Request("https://cmux.test", { method: "POST", body }), options),
+    ]) {
+      expect(parsed.ok).toBe(false);
+      if (!parsed.ok) expect(parsed.response.status).toBe(413);
+    }
   });
 
   test("shares field normalization and identifier validation across routes", () => {
