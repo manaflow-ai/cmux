@@ -242,6 +242,7 @@ import Testing
                         "SUBROUTER_CODEX_BIN": "/opt/bin/codex",
                         "SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
                         "CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
+                        "CMUX_CUSTOM_CODEX_PATH": "/private/custom/codex",
                         "SUBROUTER_CODEX_SERVER": "private-server",
                         "SUBROUTER_CODEX_USER_EMAIL": "private@example.test",
                     ],
@@ -268,6 +269,9 @@ import Testing
         #expect(!result.timedOut, Comment(rawValue: result.diagnostics))
         #expect(result.status == 0, Comment(rawValue: result.diagnostics))
         #expect(result.stdout.contains("SUBROUTER_CODEX_") == false)
+        #expect(result.stdout.contains("CMUX_CUSTOM_CODEX_PATH") == false)
+        #expect(result.stdout.contains("/private/custom/codex") == false)
+        #expect(result.stdout.contains("[private routing metadata]") == false)
         #expect(result.stdout.contains("model_provider=subrouter") == false)
         #expect(result.stdout.contains("private@example.test") == false)
         #expect(result.stdout.contains("router.example.test") == false)
