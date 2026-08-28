@@ -9,6 +9,8 @@ pub(super) struct RestoredPublicProjections {
     pub(super) has_terminal_defaults: bool,
     pub(super) next_notification_id: u64,
     pub(super) agent_records: HashMap<TerminalPublicId, TerminalAgentRecord>,
+    pub(super) agent_hook_sequences: HashMap<TerminalPublicId, u64>,
+    pub(super) agent_hook_tombstones: HashSet<TerminalPublicId>,
     pub(super) terminal_notifications: HashMap<TerminalPublicId, SurfaceNotification>,
     pub(super) notification_ledger: VecDeque<ResourceNotification>,
 }
@@ -59,8 +61,20 @@ pub(super) fn restore_public_projections(
         .saturating_add(1);
 
     let mut agent_records = HashMap::with_capacity(projections.agents.len());
+    let mut agent_hook_sequences = HashMap::new();
+    let mut agent_hook_tombstones = HashSet::new();
     for agent in projections.agents {
         let state = agent_state(&agent.state)?;
+        if let Some(source_session) = agent.source_session.as_deref() {
+            let marker = source_session.strip_prefix("cmux-hook-sequence:");
+            let ended = source_session.strip_prefix("cmux-hook-ended:");
+            if let Some(value) = marker.or(ended).and_then(|value| value.parse::<u64>().ok()) {
+                agent_hook_sequences.insert(agent.terminal_id.clone(), value);
+                if ended.is_some() {
+                    agent_hook_tombstones.insert(agent.terminal_id.clone());
+                }
+            }
+        }
         if state == AgentState::Done {
             continue;
         }
@@ -85,6 +99,8 @@ pub(super) fn restore_public_projections(
         has_terminal_defaults,
         next_notification_id,
         agent_records,
+        agent_hook_sequences,
+        agent_hook_tombstones,
         terminal_notifications,
         notification_ledger,
     })

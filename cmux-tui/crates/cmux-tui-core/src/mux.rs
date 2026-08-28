@@ -1104,48 +1104,6 @@ fn agent_state_for_hook_kind(kind: &str) -> Option<AgentState> {
     })
 }
 
-fn restore_agent_hook_watermarks(
-    registry: &WorkspaceRegistry,
-) -> anyhow::Result<(HashMap<TerminalPublicId, u64>, HashSet<TerminalPublicId>)> {
-    let mut sequences = HashMap::new();
-    let mut tombstones = HashSet::new();
-    if registry.session_journal_database_path().is_none() {
-        return Ok((sequences, tombstones));
-    }
-    let mut cursor = 0;
-    loop {
-        let page = registry.session_journal_after(cursor, 256)?;
-        for record in &page.records {
-            if record.producer.id != crate::agent_hooks::AGENT_HOOK_PRODUCER_ID {
-                continue;
-            }
-            let Some(terminal_id) = record
-                .subjects
-                .iter()
-                .find(|subject| subject.kind == "terminal")
-                .and_then(|subject| TerminalPublicId::parse(&subject.id).ok())
-            else {
-                continue;
-            };
-            sequences
-                .entry(terminal_id.clone())
-                .and_modify(|latest| *latest = (*latest).max(record.sequence))
-                .or_insert(record.sequence);
-            if record.kind == "agent.session.ended" {
-                tombstones.insert(terminal_id);
-            } else if record.kind == "agent.session.started" {
-                tombstones.remove(&terminal_id);
-            }
-        }
-        let Some(last) = page.records.last() else { break };
-        cursor = last.sequence;
-        if cursor >= page.head_sequence {
-            break;
-        }
-    }
-    Ok((sequences, tombstones))
-}
-
 #[derive(Debug, Clone)]
 pub struct AgentRecord {
     pub surface: SurfaceId,
@@ -2337,11 +2295,11 @@ impl Mux {
             has_terminal_defaults,
             next_notification_id,
             agent_records,
+            agent_hook_sequences,
+            agent_hook_tombstones,
             terminal_notifications,
             notification_ledger,
         } = restore_public_projections(&state, registry.public_projections()?)?;
-        let (agent_hook_sequences, agent_hook_tombstones) =
-            restore_agent_hook_watermarks(&registry)?;
         let journal_producers = registry.journal_producer_manifests()?;
         let session_public_id = registry.session_id().clone();
         let journal_kernel = crate::journal_kernel::JournalKernel::new(
@@ -5330,7 +5288,12 @@ impl Mux {
         }
         // The record's session field is a human-facing label; native agent
         // session ids are opaque, so views fall back to their own context.
-        if self.report_agent(surface, state, AgentSource::Hook, None).is_err() {
+        let marker = if state == AgentState::Done {
+            format!("cmux-hook-ended:{sequence}")
+        } else {
+            format!("cmux-hook-sequence:{sequence}")
+        };
+        if self.report_agent(surface, state, AgentSource::Hook, Some(marker)).is_err() {
             eprintln!("cmux-tui: agent record update failed");
             return;
         }
@@ -8802,6 +8765,10 @@ impl Mux {
         {
             anyhow::bail!("agent session ended for terminal {terminal_id}");
         }
+        let persisted_source_session = source_session.clone();
+        let source_session = source_session.filter(|value| {
+            !value.starts_with("cmux-hook-sequence:") && !value.starts_with("cmux-hook-ended:")
+        });
         let now = now_ms();
         let mut records = self.agent_records.lock().unwrap();
         let record = match records.get(&terminal_id) {
@@ -8829,7 +8796,7 @@ impl Mux {
             "state":record.state.as_str(),
             "source":record.source.as_str(),
             "updated_at_ms":record.updated_at_ms.to_string(),
-            "source_session":record.session,
+            "source_session":persisted_source_session.or(record.session.clone()),
         });
         let deltas = serde_json::json!([{
             "kind":"upsert",
@@ -21872,10 +21839,12 @@ mod tests {
         )
         .unwrap();
         let commit = mux.append_journal_ingress(&ingress, "test", "watermark-end").unwrap();
-        let (sequences, tombstones) =
-            restore_agent_hook_watermarks(&mux.workspace_registry.lock().unwrap()).unwrap();
-        assert_eq!(sequences.get(&terminal_id), Some(&commit.sequence));
-        assert!(tombstones.contains(&terminal_id));
+        assert!(commit.sequence > 0);
+        let projections = mux.workspace_registry.lock().unwrap().public_projections().unwrap();
+        let restored =
+            mux.with_state(|state| restore_public_projections(state, projections)).unwrap();
+        assert_eq!(restored.agent_hook_sequences.get(&terminal_id), Some(&commit.sequence));
+        assert!(restored.agent_hook_tombstones.contains(&terminal_id));
         drop(mux);
         std::fs::remove_dir_all(root).unwrap();
     }
