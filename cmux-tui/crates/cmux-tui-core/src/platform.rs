@@ -798,16 +798,16 @@ fn interpreter_script_path(pid: u32, executable: &Path) -> Option<String> {
 #[cfg(target_os = "linux")]
 fn is_known_script_interpreter(interpreter: &str) -> bool {
     const INTERPRETERS: &[&str] = &[
-        "bash", "bun", "dash", "deno", "env", "node", "nodejs", "perl", "php", "python",
-        "python2", "python3", "ruby", "sh", "zsh",
+        "bash", "bun", "dash", "deno", "env", "node", "nodejs", "perl", "php", "python", "python2",
+        "python3", "ruby", "sh", "zsh",
     ];
     INTERPRETERS.contains(&interpreter)
         || INTERPRETERS.iter().any(|name| {
             interpreter.strip_prefix(name).is_some_and(|suffix| {
                 !suffix.is_empty()
-                    && suffix.chars().all(|character| {
-                        character == '.' || character.is_ascii_digit()
-                    })
+                    && suffix
+                        .chars()
+                        .all(|character| character == '.' || character.is_ascii_digit())
             })
         })
 }

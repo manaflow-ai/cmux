@@ -13,7 +13,7 @@ pub(crate) mod manifest;
 pub(crate) mod scanner;
 
 use std::collections::HashMap;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use crate::AgentState;
 use manifest::{Detection, ScreenState};
