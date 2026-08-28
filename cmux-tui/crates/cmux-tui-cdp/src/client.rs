@@ -10,7 +10,6 @@ use std::sync::mpsc::{
 use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::time::{Duration, Instant};
 
-use anyhow::Context;
 use base64::Engine;
 use serde_json::{Value, json};
 use tungstenite::client::IntoClientRequest;
@@ -1850,8 +1849,8 @@ fn ack_screencast_frame(inner: &Arc<Inner>, target_session: &str, frame_session:
         "params": { "sessionId": frame_session },
     });
     let Ok(text) = serde_json::to_string(&msg) else { return };
-    if let Err(error) = reserve_outbound_bytes(inner, text.len()) {
-        eprintln!("cmux-tui-cdp: screencast acknowledgment rejected: {error:#}");
+    if reserve_outbound_bytes(inner, text.len()).is_err() {
+        eprintln!("cmux-tui-cdp: screencast acknowledgment rejected");
         close_inner(inner, CDP_CONNECTION_UNAVAILABLE_MESSAGE);
         return;
     }
