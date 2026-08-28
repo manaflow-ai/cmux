@@ -280,4 +280,58 @@ struct WorkspacePromptSubmitTests {
         defaults.set(true, forKey: IMessageModeSettings.key)
         #expect(IMessageModeSettings.isEnabled(defaults: defaults))
     }
+
+    @Test func testSubmittedMessageWithoutPanelIdLeavesPanelPromptsEmpty() {
+        let workspace = Workspace()
+
+        #expect(workspace.recordSubmittedMessage("workspace only"))
+        #expect(workspace.latestSubmittedMessage == "workspace only")
+        #expect(workspace.panelPrompts.isEmpty)
+    }
+
+    @Test func testSubmittedMessageWithPanelIdRecordsPerPanelPrompt() {
+        let workspace = Workspace()
+        let panelId = UUID()
+
+        #expect(workspace.recordSubmittedMessage("run the migration", panelId: panelId))
+
+        let recorded = workspace.panelPrompts[panelId]
+        #expect(recorded?.message == "run the migration")
+        #expect(recorded?.submittedAt == workspace.latestSubmittedAt)
+        #expect(workspace.latestSubmittedMessage == "run the migration")
+    }
+
+    @Test func testPanelPromptsKeepOneEntryPerPanel() {
+        let workspace = Workspace()
+        let first = UUID()
+        let second = UUID()
+
+        #expect(workspace.recordSubmittedMessage("first agent", panelId: first))
+        #expect(workspace.recordSubmittedMessage("second agent", panelId: second))
+
+        #expect(workspace.panelPrompts[first]?.message == "first agent")
+        #expect(workspace.panelPrompts[second]?.message == "second agent")
+        #expect(workspace.panelPrompts.count == 2)
+        // The workspace-level field still collapses to the newest prompt.
+        #expect(workspace.latestSubmittedMessage == "second agent")
+    }
+
+    @Test func testBlankSubmittedMessageDoesNotRecordPanelPrompt() {
+        let workspace = Workspace()
+        let panelId = UUID()
+
+        #expect(!workspace.recordSubmittedMessage(" \n ", panelId: panelId))
+        #expect(workspace.panelPrompts.isEmpty)
+    }
+
+    @Test func testResetSidebarContextClearsPanelPrompts() {
+        let workspace = Workspace()
+        let panelId = UUID()
+
+        #expect(workspace.recordSubmittedMessage("before reset", panelId: panelId))
+        workspace.resetSidebarContext(reason: "test")
+
+        #expect(workspace.panelPrompts.isEmpty)
+        #expect(workspace.latestSubmittedMessage == nil)
+    }
 }

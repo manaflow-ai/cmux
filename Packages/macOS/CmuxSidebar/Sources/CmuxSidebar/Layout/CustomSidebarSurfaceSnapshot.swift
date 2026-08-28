@@ -30,6 +30,14 @@ public struct CustomSidebarSurfaceSnapshot: Sendable, Equatable {
     public let gitIsDirty: Bool
     /// The surface's listening ports, or empty when none (`tabs[i].ports`).
     public let listeningPorts: [Int]
+    /// The prompt last submitted in this surface; `nil`/empty when the surface
+    /// has not seen one (`tabs[i].latestPrompt`).
+    public let latestSubmittedMessage: String?
+    /// When that prompt was submitted; `nil` when unknown (`tabs[i].latestAt`).
+    public let latestSubmittedAt: Date?
+    /// Whether this surface has an unread notification (`tabs[i].unread`,
+    /// projected as `0`/`1` so it reads like the workspace-level count).
+    public let hasUnreadNotification: Bool
 
     /// Creates a surface snapshot from already-resolved leaf values.
     public init(
@@ -41,7 +49,10 @@ public struct CustomSidebarSurfaceSnapshot: Sendable, Equatable {
         directory: String?,
         gitBranch: String?,
         gitIsDirty: Bool,
-        listeningPorts: [Int]
+        listeningPorts: [Int],
+        latestSubmittedMessage: String? = nil,
+        latestSubmittedAt: Date? = nil,
+        hasUnreadNotification: Bool = false
     ) {
         self.panelId = panelId
         self.surfaceId = surfaceId
@@ -52,5 +63,8 @@ public struct CustomSidebarSurfaceSnapshot: Sendable, Equatable {
         self.gitBranch = gitBranch
         self.gitIsDirty = gitIsDirty
         self.listeningPorts = listeningPorts
+        self.latestSubmittedMessage = latestSubmittedMessage
+        self.latestSubmittedAt = latestSubmittedAt
+        self.hasUnreadNotification = hasUnreadNotification
     }
 }

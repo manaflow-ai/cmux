@@ -1,3 +1,4 @@
+import Bonsplit
 import CMUXAgentLaunch
 import Foundation
 
@@ -146,14 +147,16 @@ extension TabManager {
     func handlePromptSubmit(
         workspaceId: UUID,
         message: String?,
-        iMessageModeEnabled: Bool = IMessageModeSettings.isEnabled()
+        iMessageModeEnabled: Bool = IMessageModeSettings.isEnabled(),
+        surfaceId: String? = nil
     ) -> (messageRecorded: Bool, reordered: Bool, index: Int)? {
         handleConversationMessage(
             workspaceId: workspaceId,
             message: message,
             iMessageModeEnabled: iMessageModeEnabled,
             kind: .promptSubmission,
-            reorderWithoutMessage: true
+            reorderWithoutMessage: true,
+            surfaceId: surfaceId
         )
     }
 
@@ -168,7 +171,8 @@ extension TabManager {
             message: message,
             iMessageModeEnabled: iMessageModeEnabled,
             kind: .assistantFinal,
-            reorderWithoutMessage: false
+            reorderWithoutMessage: false,
+            surfaceId: nil
         )
     }
 
@@ -177,7 +181,8 @@ extension TabManager {
         message: String?,
         iMessageModeEnabled: Bool,
         kind: ConversationMessageKind,
-        reorderWithoutMessage: Bool
+        reorderWithoutMessage: Bool,
+        surfaceId: String?
     ) -> (messageRecorded: Bool, reordered: Bool, index: Int)? {
         guard let originalIndex = tabs.firstIndex(where: { $0.id == workspaceId }) else {
             return nil
@@ -188,7 +193,10 @@ extension TabManager {
         let messageRecorded: Bool
         switch kind {
         case .promptSubmission:
-            messageRecorded = workspace.recordSubmittedMessage(message)
+            messageRecorded = workspace.recordSubmittedMessage(
+                message,
+                panelId: Self.panelId(in: workspace, forSurfaceId: surfaceId)
+            )
             if messageRecorded {
                 CmuxEventBus.shared.publishWorkspacePromptSubmitted(
                     workspaceId: workspaceId,
@@ -211,6 +219,19 @@ extension TabManager {
         moveTabToTop(workspaceId)
         let newIndex = tabs.firstIndex(where: { $0.id == workspaceId }) ?? originalIndex
         return (messageRecorded, newIndex != originalIndex, newIndex)
+    }
+
+    /// Resolves a hook-reported surface id to the panel it belongs to.
+    ///
+    /// Hook payloads carry `CMUX_SURFACE_ID`, which is a surface id for split
+    /// panes but already a panel id for the simple case, so both shapes are
+    /// accepted the same way the focused-notification seam accepts them.
+    private static func panelId(in workspace: Workspace, forSurfaceId surfaceId: String?) -> UUID? {
+        guard let surfaceId,
+              let uuid = UUID(uuidString: surfaceId.trimmingCharacters(in: .whitespacesAndNewlines))
+        else { return nil }
+        if workspace.panels[uuid] != nil { return uuid }
+        return workspace.panelIdFromSurfaceId(TabID(uuid: uuid))
     }
 }
 
