@@ -7,9 +7,6 @@ import Foundation
 import OSLog
 import SwiftUI
 import cmuxFeature
-#if DEBUG
-import CmuxIrohReleaseGateSupport
-#endif
 
 nonisolated private let cmuxAppConnectivityLog = Logger(
     subsystem: Bundle.main.bundleIdentifier ?? "com.cmuxterm.app",
@@ -40,77 +37,31 @@ struct cmuxApp: App {
             buildScope: MobileIOSBuildScope.current(),
             additionalInstanceTags: MobileMacTagAllowlist.persisted()
         )
-        let iroh = MobileIrohRuntimeComposition(
-            apiBaseURL: auth.config.apiBaseURL,
-            reachability: reachability,
-            discoveryCompatibilityPolicy: buildCompatibilityPolicy,
-            appNamespace: auth.appNamespace,
-            keychainAccessGroup: auth.keychainAccessGroup,
-            diagnosticLog: diagnosticLog
-        )
-        let connectivityInvalidationServiceURL = PresenceClient
-            .resolvedServiceBaseURL(
-                isDevelopmentAuthChannel: auth.authEnvironment == .development
-            )
-        let connectivityInvalidationBaseURL = connectivityInvalidationServiceURL
-            .flatMap { URL(string: $0) }
-        if connectivityInvalidationBaseURL == nil {
-            cmuxAppConnectivityLog.error(
-                "Connectivity invalidation disabled: presence service URL unavailable"
-            )
-        }
-        // Exactly one iroh runtime owns the app's broker binding slot: the
-        // irx rebuild when its DEBUG flag is on, the legacy composition
-        // otherwise. The unconfigured one stays dormant.
-        let irxEnabled = MobileIrxRuntimeComposition.isEnabled
-        let irx = MobileIrxRuntimeComposition(
-            apiBaseURL: auth.config.apiBaseURL,
-            appNamespace: auth.appNamespace,
-            keychainAccessGroup: auth.keychainAccessGroup
-        )
-        if irxEnabled {
-            let coordinator = auth.coordinator
-            Task { await irx.configure(auth: coordinator, legacy: iroh) }
-        } else {
-            iroh.configure(
-                auth: auth.coordinator,
-                connectivityInvalidationBaseURL: connectivityInvalidationBaseURL
-            )
-        }
-
         // `debugLoopback` (127.0.0.1) backs the UI-test mock Mac. Enable it on
         // the simulator and on DEBUG device builds so on-device XCUITests can
         // attach to an in-runner mock host; release device builds keep only
-        // real transports. Force-relay mode (soak rigs) registers NO fallback
-        // kinds so even a simulator exercises the real relay path.
-        let forceRelay = MobileIrxRuntimeComposition.forceRelayOnly
+        // real transports.
         #if targetEnvironment(simulator) || DEBUG
-        let supportedKinds: [CmxAttachTransportKind] =
-            forceRelay ? [] : [.debugLoopback, .tailscale]
+        let supportedKinds: [CmxAttachTransportKind] = [.debugLoopback, .tailscale]
         #else
-        let supportedKinds: [CmxAttachTransportKind] = forceRelay ? [] : [.tailscale]
+        let supportedKinds: [CmxAttachTransportKind] = [.tailscale]
         #endif
         let networkFactory = CmxNetworkByteTransportFactory(supportedKinds: supportedKinds)
         let fallbackRegistrations = supportedKinds.map { kind in
             CmxRouteTransportFactoryRegistration(kind: kind, factory: networkFactory)
         }
-        // The cmux mobile relay (`.websocket` routes, synthesized only when a
-        // Computer's connection method is Relay). The dial authenticates with
-        // the account's own Stack access token (verified by the relay worker)
-        // and the transport's first frame admits the session end to end on
-        // the Mac; there is no ticket and no web-API call. The provider reads
-        // live auth, so building the factory here costs nothing while the
-        // method is unused.
+        // cmux Connect (`.websocket` routes through the HostRelay Durable
+        // Object) is the built-in any-network transport. The dial
+        // authenticates with the account's own Stack access token (verified
+        // by the relay worker) and the transport's first frame admits the
+        // session end to end on the Mac; there is no ticket and no web-API
+        // call.
         let relayCoordinator = auth.coordinator
         let relayFactory = RelayClientTransportFactory(
             deviceID: { await DeviceRegistryService.deviceID() },
             accessToken: { try await relayCoordinator.accessToken() }
         )
         let registrations = [
-            CmxRouteTransportFactoryRegistration(
-                kind: .iroh,
-                factory: irxEnabled ? irx.transportFactory : iroh.transportFactory
-            ),
             CmxRouteTransportFactoryRegistration(kind: .websocket, factory: relayFactory),
         ] + fallbackRegistrations
         let transportFactory: CmxRouteTransportFactory
@@ -124,61 +75,12 @@ struct cmuxApp: App {
             transportFactory: transportFactory,
             stackAccessTokenProvider: CMUXMobileRuntime.stackAccessTokenProvider(from: auth.coordinator),
             stackAccessTokenForStatusProvider: CMUXMobileRuntime.stackAccessTokenForStatusProvider(from: auth.coordinator),
-            stackAccessTokenForceRefresher: CMUXMobileRuntime.stackAccessTokenForceRefresher(from: auth.coordinator),
-            independentEventByteStreamProvider: { request in
-                irxEnabled
-                    ? try await irx.serverEventByteStream(for: request)
-                    : try await iroh.serverEventByteStream(for: request)
-            },
-            terminalLaneProvider: { request, surfaceID, cursor in
-                guard let surfaceUUID = UUID(uuidString: surfaceID) else {
-                    throw MobileIrohTerminalLaneError.invalidSurfaceID
-                }
-                return irxEnabled
-                    ? try await irx.openTerminalLane(
-                        for: request,
-                        surfaceID: surfaceUUID,
-                        cursor: cursor
-                    )
-                    : try await iroh.openTerminalLane(
-                        for: request,
-                        surfaceID: surfaceUUID,
-                        cursor: cursor
-                    )
-            },
-            artifactLaneProvider: { request, resourceID, offset in
-                irxEnabled
-                    ? try await irx.openArtifactLane(
-                        for: request,
-                        resourceID: resourceID,
-                        offset: offset
-                    )
-                    : try await iroh.openArtifactLane(
-                        for: request,
-                        resourceID: resourceID,
-                        offset: offset
-                    )
-            },
-            simulatorStreamLaneProvider: { request, panelID in
-                guard let panelUUID = UUID(uuidString: panelID) else {
-                    throw MobileIrohSimulatorStreamLaneError.invalidPanelID
-                }
-                guard !irxEnabled else {
-                    // Simulator streaming is not served by irx v1.
-                    throw MobileIrohSimulatorStreamLaneError.closed
-                }
-                return try await iroh.openSimulatorStreamLane(
-                    for: request,
-                    panelID: panelUUID
-                )
-            }
+            stackAccessTokenForceRefresher: CMUXMobileRuntime.stackAccessTokenForceRefresher(from: auth.coordinator)
         )
 
         return AppCompositionRoot(
             runtime: runtime,
             auth: auth,
-            iroh: iroh,
-            irx: irxEnabled ? irx : nil,
             buildCompatibilityPolicy: buildCompatibilityPolicy,
             reachability: reachability,
             diagnosticLog: diagnosticLog
@@ -207,28 +109,8 @@ struct cmuxApp: App {
 
     @ViewBuilder
     private var rootScene: some View {
-        Group {
-            #if DEBUG
-            MobileIrohReleaseGateScene(
-                root: mobileRootScene,
-                iroh: Self.root.iroh
-            )
-            #else
-            mobileRootScene
-            #endif
-        }
-        .environment(\.irohSettingsController, Self.root.iroh)
-        .environment(\.mobileKeyboardFrameTracker, Self.root.keyboardFrameTracker)
-        .environment(
-            \.dogfoodAttachPreparation,
-            DogfoodAttachPreparation {
-                if let irx = Self.root.irx {
-                    await irx.didBecomeActive()
-                } else {
-                    await Self.root.iroh.prepareForConnection()
-                }
-            }
-        )
+        mobileRootScene
+            .environment(\.mobileKeyboardFrameTracker, Self.root.keyboardFrameTracker)
     }
 
     private var mobileRootScene: CMUXMobileRootScene {
@@ -244,9 +126,6 @@ struct cmuxApp: App {
             autoConnectMigrationStore: Self.root.autoConnectMigrationStore,
             onboardingStore: Self.root.onboardingStore,
             tailscaleStatusMonitor: Self.root.tailscaleStatusMonitor,
-            personalIrohRouteCatalog: Self.root.iroh.routeCatalog,
-            personalIrohDiscovery: Self.root.iroh,
-            personalIrohForget: Self.root.iroh,
             buildCompatibilityPolicy: Self.root.buildCompatibilityPolicy,
             signOutHook: Self.root.signOutHook,
             diagnosticLog: Self.root.diagnosticLog
