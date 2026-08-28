@@ -886,6 +886,57 @@ impl WorkspaceRegistry {
         query_session_journal_after(&self.connection, sequence, limit)
     }
 
+    /// Persisted fold position of one journal reducer: (version, cursor,
+    /// snapshot). A version mismatch on load discards the snapshot so the
+    /// reducer re-folds from the journal head.
+    pub(crate) fn journal_reducer_state(
+        &self,
+        reducer_id: &str,
+    ) -> anyhow::Result<Option<(u32, u64, String)>> {
+        let raw = self
+            .connection
+            .query_row(
+                "SELECT value FROM meta WHERE key = ?1",
+                [format!("journal_reducer.{reducer_id}")],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+        let Some(raw) = raw else { return Ok(None) };
+        let value: Value = serde_json::from_str(&raw)
+            .with_context(|| format!("journal reducer state for {reducer_id} is not JSON"))?;
+        let version = value.get("version").and_then(Value::as_u64).unwrap_or(0) as u32;
+        let cursor = value
+            .get("cursor")
+            .and_then(Value::as_str)
+            .and_then(|cursor| cursor.parse::<u64>().ok())
+            .unwrap_or(0);
+        let snapshot =
+            value.get("snapshot").and_then(Value::as_str).map(str::to_string).unwrap_or_default();
+        Ok(Some((version, cursor, snapshot)))
+    }
+
+    /// Durably record a reducer's fold position and state snapshot. Cursor
+    /// values are stored as strings so 64-bit sequences survive JSON.
+    pub(crate) fn put_journal_reducer_state(
+        &self,
+        reducer_id: &str,
+        version: u32,
+        cursor: u64,
+        snapshot: &str,
+    ) -> anyhow::Result<()> {
+        let value = serde_json::json!({
+            "version": version,
+            "cursor": cursor.to_string(),
+            "snapshot": snapshot,
+        });
+        self.connection.execute(
+            "INSERT INTO meta(key, value) VALUES(?1, ?2)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![format!("journal_reducer.{reducer_id}"), value.to_string()],
+        )?;
+        Ok(())
+    }
+
     /// The most recently started journal output stream for one terminal:
     /// its generation and the exclusive end offset of its journaled bytes.
     pub(crate) fn terminal_stream_latest(
