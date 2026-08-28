@@ -139,17 +139,48 @@ def check_guard_semantics(name: str, shell_argv: list[str], integration: Path, e
         )
 
 
+def check_tiered_cadence(name: str, shell_argv: list[str], integration: Path, env: dict[str, str]) -> None:
+    """The guard tick must run the ps identity comparison only every Nth call.
+
+    With interval 3: call 1 does the full check (passes, matching identity),
+    calls 2 and 3 take the cheap kill -0 path even though the recorded
+    identity is now wrong, call 4 does the full check again and fails.
+    """
+    script = (
+        'source "$1"; '
+        "_CMUX_WATCHER_IDENTITY_INTERVAL=3; "
+        'start="$(_cmux_watcher_parent_start_time $$)" || exit 9; '
+        "_cmux_watcher_guard_tick $$ \"$start\"; printf 'T1:%s\\n' \"$?\"; "
+        "_cmux_watcher_guard_tick $$ \"not-the-start-time\"; printf 'T2:%s\\n' \"$?\"; "
+        "_cmux_watcher_guard_tick $$ \"not-the-start-time\"; printf 'T3:%s\\n' \"$?\"; "
+        "_cmux_watcher_guard_tick $$ \"not-the-start-time\"; printf 'T4:%s\\n' \"$?\""
+    )
+    proc = run_shell(shell_argv, script, [str(integration)], env)
+    expected = ["T1:0", "T2:0", "T3:0"]
+    got = proc.stdout.split()
+    if got[:3] != expected or not got[3:4] or got[3] == "T4:0" or not got[3].startswith("T4:"):
+        fail(
+            f"[{name}] tiered guard cadence wrong (expected T1:0 T2:0 T3:0 T4:nonzero, "
+            f"stdout={proc.stdout!r} stderr={proc.stderr[-500:]!r})"
+        )
+
+
 def check_injected_watcher_loop(name: str, shell_argv: list[str], integration: Path, env: dict[str, str]) -> None:
+    # Pin the identity-check cadence to every iteration: the shipped default
+    # runs the ps comparison only every Nth iteration to avoid steady-state
+    # forks, which would push the reuse-detection bound past this test's.
+    env = dict(env)
+    env["_CMUX_WATCHER_IDENTITY_INTERVAL"] = "1"
     if name == "zsh":
         loop_script = (
             'source "$1"; '
-            "{ while true; do _cmux_watcher_parent_alive \"$2\" \"$3\" || exit 0; sleep 0.2; done } >/dev/null 2>&1 &!; "
+            "{ while true; do _cmux_watcher_guard_tick \"$2\" \"$3\" || exit 0; sleep 0.2; done } >/dev/null 2>&1 &!; "
             'printf \'LOOP:%s\\n\' "$!"'
         )
     else:
         loop_script = (
             'source "$1"; '
-            "{ while true; do _cmux_watcher_parent_alive \"$2\" \"$3\" || exit 0; sleep 0.2; done } >/dev/null 2>&1 & "
+            "{ while true; do _cmux_watcher_guard_tick \"$2\" \"$3\" || exit 0; sleep 0.2; done } >/dev/null 2>&1 & "
             "disown; "
             'printf \'LOOP:%s\\n\' "$!"'
         )
@@ -216,6 +247,7 @@ def check_real_loops(name: str, shell_argv: list[str], integration: Path, tmp: P
             "CMUX_SOCKET_PATH": str(sock_path),
             "CMUX_TAB_ID": "tab-test-10926",
             "CMUX_PANEL_ID": f"panel-test-10926-{name}-{os.getpid()}",
+            "_CMUX_WATCHER_IDENTITY_INTERVAL": "1",
         }
     )
 
@@ -321,6 +353,7 @@ def main() -> int:
         for name, argv, integration in shells:
             env = base_env(tmp)
             check_guard_semantics(name, argv, integration, env)
+            check_tiered_cadence(name, argv, integration, env)
             check_injected_watcher_loop(name, argv, integration, env)
             check_real_loops(name, argv, integration, tmp)
     finally:
