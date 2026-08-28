@@ -15,7 +15,13 @@ final class RenderNodeContextMenuView: NSView {
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard isMenuEnabled else { return nil }
-        let local = convert(point, from: superview)
+        // AppKit's NSView.hitTest(_:) receives `point` in the SUPERVIEW's
+        // coordinate system ("a point that is in the coordinate system of
+        // the receiver's superview" — unlike UIKit's local-space
+        // point(inside:)), so converting from the superview yields local
+        // coordinates. Without a superview AppKit does not hit-test this
+        // view; treat the point as local for safety.
+        let local = superview.map { convert(point, from: $0) } ?? point
         guard bounds.contains(local), let event = NSApp.currentEvent else { return nil }
         switch event.type {
         case .rightMouseDown:
