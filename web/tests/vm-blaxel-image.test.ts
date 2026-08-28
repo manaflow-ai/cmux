@@ -165,6 +165,35 @@ describe("Blaxel baked image template", () => {
     );
   });
 
+  test("tint2rc defines every background before the line that references it", () => {
+    // tint2 resolves `*_background_id = N` while parsing, against the backgrounds
+    // defined ABOVE that line (id 0 is the built-in transparent one; each
+    // `rounded =` opens the next). A forward reference clamps to -1 and hands the
+    // panel a garbage Background (out-of-bounds g_array_index): garbage borders
+    // make the launcher's icon size negative, every scaled icon comes back NULL,
+    // and the whole dock paints nothing — the 2026-08-27 invisible-toolbar
+    // regression on real machines. Order is the contract, so pin it.
+    const lines = read("tint2rc").split("\n");
+    let backgrounds = 1;
+    for (const [index, raw] of lines.entries()) {
+      const line = raw.trim();
+      if (line.startsWith("rounded")) backgrounds += 1;
+      const ref = /^([a-z_]+_background_id)\s*=\s*(\d+)/.exec(line);
+      if (!ref) continue;
+      const id = Number(ref[2]);
+      expect(
+        id < backgrounds,
+        `tint2rc line ${index + 1}: ${ref[1]} = ${id} references a background that is not defined yet (${backgrounds} known so far)`,
+      ).toBe(true);
+    }
+    expect(backgrounds).toBeGreaterThan(1);
+    // Every launcher entry is a template file whose icon is a baked PNG.
+    for (const line of lines.filter((l) => l.startsWith("launcher_item_app"))) {
+      const file = path.basename(line.split("=")[1].trim());
+      expect(read(file)).toMatch(/^Icon=\/etc\/cmux\/icons\/[a-z-]+\.png$/m);
+    }
+  });
+
   test("never installs docker (unsupported in Blaxel microVMs)", () => {
     expect(dockerfile.toLowerCase()).not.toContain("docker.io");
     expect(dockerfile.toLowerCase()).not.toContain("docker-ce");
