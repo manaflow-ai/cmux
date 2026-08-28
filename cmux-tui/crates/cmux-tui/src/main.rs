@@ -2945,6 +2945,17 @@ mod tests {
     }
 
     #[test]
+    fn remote_normalization_leaves_missing_global_values_and_terminator_untouched() {
+        let mut missing = ["--session"].map(str::to_string).to_vec();
+        normalize_remote_resource_args(&mut missing).unwrap();
+        assert_eq!(missing, ["--session"]);
+
+        let mut terminated = ["--", "remote", "connect"].map(str::to_string).to_vec();
+        normalize_remote_resource_args(&mut terminated).unwrap();
+        assert_eq!(terminated, ["--", "remote", "connect"]);
+    }
+
+    #[test]
     fn server_start_routing_skips_private_process_option_values() {
         for value in ["--help", "--json", "--jsonl", "--quiet"] {
             let mut values = [

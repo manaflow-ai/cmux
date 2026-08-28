@@ -817,4 +817,11 @@ mod tests {
         ])));
         assert!(!is_remote_invocation(&strings(&["--session", "remote", "workspace", "list"])));
     }
+
+    #[test]
+    fn remote_invocation_rejects_missing_global_option_values_and_terminator() {
+        assert!(!is_remote_invocation(&strings(&["--session"])));
+        assert!(!is_remote_invocation(&strings(&["--socket"])));
+        assert!(!is_remote_invocation(&strings(&["--", "remote", "connect"])));
+    }
 }
