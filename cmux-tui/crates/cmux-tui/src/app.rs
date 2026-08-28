@@ -10063,6 +10063,12 @@ impl App {
         if !self.prepare_pty_input_before_mutation() {
             return Ok(());
         }
+        // A rendered sidebar target can outlive its tab or its location.
+        // Validate the complete target before committing the preview so a
+        // stale click is a no-op.
+        if !self.sidebar_tab_target_is_current(target) {
+            return Ok(());
+        }
         if !self.tree.select_surface(target.surface) {
             return Ok(());
         }
@@ -10071,6 +10077,19 @@ impl App {
         self.pane_focus_history.record(target.pane);
         self.claim_active_terminal_geometry(true);
         Ok(())
+    }
+
+    fn sidebar_tab_target_is_current(&self, target: &SidebarTabTarget) -> bool {
+        let Some(workspace) = self.tree.workspaces.get(target.workspace) else {
+            return false;
+        };
+        let Some(screen) = workspace.screens.get(target.screen) else {
+            return false;
+        };
+        let Some(pane) = screen.panes.iter().find(|pane| pane.id == target.pane) else {
+            return false;
+        };
+        pane.tabs.get(target.index).is_some_and(|tab| tab.surface == target.surface)
     }
 
     fn follow_sidebar_workspace(&mut self, index: usize) {
@@ -21823,6 +21842,20 @@ impl App {
         let pointer_hit = self.hit_at(x, y);
         let captured_tab_targets =
             matches!(pointer_hit, Some(Hit::SidebarTab { .. })).then(|| self.sidebar_tab_targets());
+        let captured_sidebar_tab_is_current = match pointer_hit {
+            Some(Hit::SidebarTab { workspace, screen, pane, index, surface }) => {
+                captured_tab_targets.as_ref().is_some_and(|targets| {
+                    targets.iter().any(|target| {
+                        target.workspace == workspace
+                            && target.screen == screen
+                            && target.pane == pane
+                            && target.index == index
+                            && target.surface == surface
+                    })
+                })
+            }
+            _ => false,
+        };
 
         // A workspace row is an activation gesture. Keep the rendered target
         // active until `activate_workspace` commits it, rather than cancelling
@@ -21835,10 +21868,12 @@ impl App {
             self.sidebar_focus_pending = false;
             return Ok(RenderAction::Draw);
         }
-        let preserve_preview_for_rail_click = matches!(
-            pointer_hit,
-            Some(Hit::RailPad(kind)) if self.can_preserve_workspace_preview_for_rail(kind)
-        );
+        let preserve_preview_for_rail_click =
+            matches!(
+                pointer_hit,
+                Some(Hit::RailPad(kind)) if self.can_preserve_workspace_preview_for_rail(kind)
+            ) || matches!(pointer_hit, Some(Hit::SidebarTab { .. }))
+                && !captured_sidebar_tab_is_current;
         if !preserve_preview_for_rail_click {
             self.leave_workspace_sidebar();
         }
@@ -21875,14 +21910,20 @@ impl App {
                     self.activate_workspace(index);
                     self.drag = Some(Drag::WorkspaceArm { workspace: id, at: (x, y) });
                 }
-                Hit::SidebarTab { surface, .. } => {
-                    if let Some((index, target)) =
+                Hit::SidebarTab { workspace, screen, pane, index, surface } => {
+                    if let Some((selection_index, target)) =
                         captured_tab_targets.as_ref().and_then(|targets| {
-                            targets.iter().enumerate().find(|(_, target)| target.surface == surface)
+                            targets.iter().enumerate().find(|(_, target)| {
+                                target.workspace == workspace
+                                    && target.screen == screen
+                                    && target.pane == pane
+                                    && target.index == index
+                                    && target.surface == surface
+                            })
                         })
                     {
                         self.tabs_rail_follow_selection = true;
-                        self.tabs_rail_selection = index;
+                        self.tabs_rail_selection = selection_index;
                         self.activate_sidebar_tab(target)?;
                         self.focus = FocusTarget::Pane;
                     }
@@ -24086,18 +24127,19 @@ mod tests {
         Prompt, PromptTarget, PtyFailureIngress, PtyMousePressResult, RailKind, RenderAction,
         RenderedMenuLevel, RenderedPaneRoute, RenderedPointerFrame, Selection, SessionCompletion,
         SessionCompletionAction, SessionEventSender, ShortcutHelp, SidebarActionTarget,
-        SidebarLayout, SidebarPluginSyncClaim, SidebarPluginSyncState, SidebarWidthOverrides,
-        StatusTemplateValues, StatusWorkerStop, StdoutLock, SurfaceAttachClaimState,
-        SurfaceResizeDecision, SurfaceResizeOwnership, TERMINAL_PAINT_CADENCE, TerminalInput,
-        TerminalPaintPacer, TerminalPointerAdmission, TerminalPointerAdmissionResult,
-        TerminalPointerEncoding, TextInput, Toast, VIEWPORT_ANIMATION_DURATION, ViewportMotion,
-        ViewportPaneAreaProjection, WorkspacePreview, WorkspaceRailSelection,
-        action_available_in_mode, browser_content_size_for_rect, browser_frame_source_crop,
-        browser_hover_forward_allowed, browser_source_crop, canonical_terminal_content,
-        catch_renderer_panic, clamp_split_ratio_for_tab_bars, client_menu_item,
-        clip_horizontal_rect, content_size_for_rect, disable_host_keyboard_protocol,
-        enable_host_keyboard_protocol, expand_status_tokens, forward_host_input, forward_mux_event,
-        forward_mux_events, host_mouse_capture_escape_if_changed, host_startup_input_modes,
+        SidebarLayout, SidebarPluginSyncClaim, SidebarPluginSyncState, SidebarTabTarget,
+        SidebarWidthOverrides, StatusTemplateValues, StatusWorkerStop, StdoutLock,
+        SurfaceAttachClaimState, SurfaceResizeDecision, SurfaceResizeOwnership,
+        TERMINAL_PAINT_CADENCE, TerminalInput, TerminalPaintPacer, TerminalPointerAdmission,
+        TerminalPointerAdmissionResult, TerminalPointerEncoding, TextInput, Toast,
+        VIEWPORT_ANIMATION_DURATION, ViewportMotion, ViewportPaneAreaProjection, WorkspacePreview,
+        WorkspaceRailSelection, WorkspaceRailTarget, action_available_in_mode,
+        browser_content_size_for_rect, browser_frame_source_crop, browser_hover_forward_allowed,
+        browser_source_crop, canonical_terminal_content, catch_renderer_panic,
+        clamp_split_ratio_for_tab_bars, client_menu_item, clip_horizontal_rect,
+        content_size_for_rect, disable_host_keyboard_protocol, enable_host_keyboard_protocol,
+        expand_status_tokens, forward_host_input, forward_mux_event, forward_mux_events,
+        host_mouse_capture_escape_if_changed, host_startup_input_modes,
         initial_applied_outer_cursor, initial_host_mouse_capture, keyboard_protocol_accepts,
         layout_undo_error_completion, negotiate_host_keyboard_protocol_with, outer_cursor_escape,
         outer_cursor_escape_if_changed, pane_area_projection_work, pane_context_menu_groups,
@@ -33078,6 +33120,73 @@ mod tests {
         for workspace in workspaces {
             mux.close_workspace(workspace);
         }
+    }
+
+    #[test]
+    fn stale_sidebar_tab_activation_preserves_preview_and_selection() {
+        let mux = Mux::new("workspace-sidebar-preview-stale-tab-test", SurfaceOptions::default());
+        let first = mux.new_workspace(Some("Alpha".into()), Some((80, 24))).unwrap();
+        let second = mux.new_workspace(Some("Beta".into()), Some((80, 24))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_view = SidebarView::Workspaces;
+        app.replace_tree(app.session.tree());
+        app.tree.active_workspace = 0;
+        let active = app.tree.active_surface();
+        app.workspace_preview =
+            Some(WorkspacePreview { origin: first.id, target: second.id, origin_scroll: 0 });
+        let stale = SidebarTabTarget {
+            workspace: 1,
+            screen: 0,
+            pane: 0,
+            index: 0,
+            surface: 0,
+            name: String::new(),
+            subtitle: String::new(),
+            active: false,
+        };
+
+        app.activate_sidebar_tab(&stale).unwrap();
+
+        assert!(app.workspace_preview.is_some());
+        assert_eq!(app.tree.active_surface(), active);
+        assert_eq!(app.tree.active_workspace, 0);
+    }
+
+    #[test]
+    fn stale_sidebar_tab_activation_rejects_live_surface_at_new_location() {
+        let mux = Mux::new("workspace-sidebar-preview-moved-tab-test", SurfaceOptions::default());
+        let first = mux.new_workspace(Some("Alpha".into()), Some((80, 24))).unwrap();
+        let second = mux.new_workspace(Some("Beta".into()), Some((80, 24))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_view = SidebarView::Workspaces;
+        app.replace_tree(app.session.tree());
+        app.tree.active_workspace = 0;
+        let active = app.tree.active_surface();
+        let (target_pane, target_surface) = {
+            let pane = &app.tree.workspaces[1].screens[0].panes[0];
+            (pane.id, pane.tabs[0].surface)
+        };
+        let stale = SidebarTabTarget {
+            workspace: 1,
+            screen: 0,
+            pane: target_pane,
+            index: 0,
+            surface: target_surface,
+            name: String::new(),
+            subtitle: String::new(),
+            active: false,
+        };
+
+        let moved_tab = app.tree.workspaces[1].screens[0].panes[0].tabs.remove(0);
+        app.tree.workspaces[0].screens[0].panes[0].tabs.push(moved_tab);
+        app.workspace_preview =
+            Some(WorkspacePreview { origin: first.id, target: second.id, origin_scroll: 0 });
+
+        app.activate_sidebar_tab(&stale).unwrap();
+
+        assert!(app.workspace_preview.is_some());
+        assert_eq!(app.tree.active_surface(), active);
+        assert_eq!(app.tree.active_workspace, 0);
     }
 
     #[test]
@@ -42166,6 +42275,71 @@ mod tests {
         assert_eq!(app.active_surface(), Some(second.id));
         assert_eq!(app.focus, FocusTarget::Pane);
         assert_ne!(first.id, second.id);
+    }
+
+    #[test]
+    fn stale_rendered_tab_click_preserves_preview_when_surface_moves() {
+        let mux = Mux::new("workspace-preview-stale-rendered-tab-test", SurfaceOptions::default());
+        let first = mux.new_workspace(Some("Alpha".into()), Some((80, 24))).unwrap();
+        let second = mux.new_workspace(Some("Beta".into()), Some((80, 24))).unwrap();
+        let second_pane = mux.with_state(|state| state.pane_of(second.id).unwrap());
+        let moved = mux.new_tab(Some(second_pane), None, Some((80, 24))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.config.sidebar.columns_explicit = true;
+        app.config.sidebar.columns = vec![
+            crate::config::SidebarColumn {
+                kind: SidebarColumnKind::Workspaces,
+                width: 24,
+                max_width: 0,
+            },
+            crate::config::SidebarColumn { kind: SidebarColumnKind::Tabs, width: 24, max_width: 0 },
+        ];
+        app.config.sidebar.views = app
+            .config
+            .sidebar
+            .columns
+            .iter()
+            .map(|column| SidebarViewSpec::legacy(column.kind, column.width, column.max_width))
+            .collect();
+        app.config.sidebar.views_explicit = true;
+        app.replace_tree(app.session.tree());
+        app.sync_layout((100, 20));
+        let origin = app.tree.workspaces[0].id;
+        let target = app.tree.workspaces[1].id;
+        app.tree.active_workspace = 1;
+        app.sidebar_workspace_selection = 1;
+        app.workspace_rail_selection = WorkspaceRailSelection::Workspace;
+        app.workspace_preview = Some(WorkspacePreview { origin, target, origin_scroll: 0 });
+        app.focus = FocusTarget::TabsRail;
+
+        let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let tab = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| {
+                matches!(hit, super::Hit::SidebarTab { surface, .. } if *surface == moved.id)
+                    .then_some(*rect)
+            })
+            .expect("rendered moved-tab hit");
+        let active_before = app.tree.active_surface();
+
+        let moved_tab_index = app.tree.workspaces[1].screens[0].panes[0]
+            .tabs
+            .iter()
+            .position(|tab| tab.surface == moved.id)
+            .expect("moved tab remains in its rendered pane");
+        let moved_tab = app.tree.workspaces[1].screens[0].panes[0].tabs.remove(moved_tab_index);
+        app.tree.workspaces[0].screens[0].panes[0].tabs.push(moved_tab);
+
+        app.handle_left_down(tab.x, tab.y, KeyModifiers::NONE).unwrap();
+
+        assert!(app.workspace_preview.is_some());
+        assert_eq!(app.tree.active_surface(), active_before);
+        assert_eq!(app.tree.active_workspace, 1);
+        assert_eq!(app.focus, FocusTarget::TabsRail);
+        assert_eq!(app.sidebar_workspace_selection, 1);
+        assert_ne!(first.id, moved.id);
     }
 
     #[test]
