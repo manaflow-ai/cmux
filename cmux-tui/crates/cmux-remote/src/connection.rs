@@ -2349,10 +2349,10 @@ mod tests {
             AuthDatabase::load_or_create(directory.path(), "cancel-reconnect", true).unwrap();
         let (daemon, _accepted) = RemoteDaemon::new(auth, SessionLimits::default());
         let initial = HangingCloseGroup::new(Arc::new(FaultGroup {
-                daemon: daemon.clone(),
-                epochs: Mutex::new(Vec::new()),
-                evidence: CarrierEvidence::LocalPeer { uid: None, pid: None },
-            }));
+            daemon: daemon.clone(),
+            epochs: Mutex::new(Vec::new()),
+            evidence: CarrierEvidence::LocalPeer { uid: None, pid: None },
+        }));
         let initial_close_started = initial.close_started.clone();
         let initial_release_close = initial.release_close.clone();
         let initial_close_finished = initial.close_finished.clone();
@@ -2547,10 +2547,10 @@ mod tests {
         let auth = AuthDatabase::load_or_create(directory.path(), "failed-close", true).unwrap();
         let (daemon, _accepted) = RemoteDaemon::new(auth, SessionLimits::default());
         let group = HangingCloseGroup::new(Arc::new(FaultGroup {
-                daemon,
-                epochs: Mutex::new(Vec::new()),
-                evidence: CarrierEvidence::LocalPeer { uid: None, pid: None },
-            }));
+            daemon,
+            epochs: Mutex::new(Vec::new()),
+            evidence: CarrierEvidence::LocalPeer { uid: None, pid: None },
+        }));
         let client = ClientConnection::connect(
             group,
             ClientConnectionConfig {
