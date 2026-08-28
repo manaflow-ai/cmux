@@ -2323,10 +2323,11 @@ mod tests {
     fn transport_close_does_not_publish_socket_details() {
         let (inner, _outbound_rx) = test_inner();
         let (response_tx, response_rx) = channel();
-        inner.pending.lock().unwrap().insert(
-            7,
-            PendingCall { response: response_tx, frame_barrier: None },
-        );
+        inner
+            .pending
+            .lock()
+            .unwrap()
+            .insert(7, PendingCall { response: response_tx, frame_barrier: None });
 
         close_inner_with_detail(
             &inner,
@@ -2334,10 +2335,7 @@ mod tests {
             "CDP socket error: ws://secret.example/devtools/browser/token",
         );
 
-        assert_eq!(
-            response_rx.recv().unwrap().unwrap_err(),
-            CDP_CONNECTION_UNAVAILABLE_MESSAGE
-        );
+        assert_eq!(response_rx.recv().unwrap().unwrap_err(), CDP_CONNECTION_UNAVAILABLE_MESSAGE);
         let (event_tx, event_rx) = sync_channel(1);
         inner.events.drain_into(&event_tx).unwrap();
         let CdpEvent::Closed(reason) = event_rx.recv().unwrap() else {
