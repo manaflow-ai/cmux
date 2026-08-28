@@ -70,10 +70,10 @@ pub use resource_store::{
 };
 use resource_store::{
     apply_resource_patch, create_resource_schema, initialize_resource_mutation_retention,
-    migrate_resource_agent_projections, migrate_resource_browser_metadata,
-    migrate_legacy_display_names, migrate_resource_mutations_to_session_scope,
-    migrate_resource_tabs_to_multiview,
-    resource_tabs_needs_multiview_normalization, validate_resource_invariants,
+    migrate_legacy_display_names, migrate_resource_agent_projections,
+    migrate_resource_browser_metadata, migrate_resource_mutations_to_session_scope,
+    migrate_resource_tabs_to_multiview, resource_tabs_needs_multiview_normalization,
+    validate_resource_invariants,
 };
 pub use session_journal::{
     JournalAuthority, JournalClass, JournalProducer, JournalReplayPolicy, JournalSensitivity,
@@ -145,9 +145,7 @@ pub(crate) fn sanitize_display_name(value: &str) -> String {
     let mut output = String::with_capacity(value.len().min(DISPLAY_NAME_MAX_BYTES));
     for character in value.chars() {
         let start = output.len();
-        if character.is_control()
-            || matches!(character, '\u{0085}' | '\u{2028}' | '\u{2029}')
-        {
+        if character.is_control() || matches!(character, '\u{0085}' | '\u{2028}' | '\u{2029}') {
             let _ = write!(&mut output, "\\u{{{:04X}}}", character as u32);
         } else {
             output.push(character);
@@ -2638,10 +2636,7 @@ impl WorkspaceRegistry {
         {
             let tx = connection.unchecked_transaction()?;
             migrate_legacy_display_names(&tx)?;
-            tx.execute(
-                "INSERT INTO meta(key, value) VALUES('display_name_boundary_v1', '1')",
-                [],
-            )?;
+            tx.execute("INSERT INTO meta(key, value) VALUES('display_name_boundary_v1', '1')", [])?;
             tx.commit()?;
         }
         if terminal_hosts_has_workspace_foreign_key(&connection)? {
