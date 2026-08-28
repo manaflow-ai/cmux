@@ -8770,16 +8770,15 @@ impl Mux {
         {
             anyhow::bail!("agent session ended for terminal {terminal_id}");
         }
-        let hook_marker = self
-            .agent_hook_sequences
-            .lock()
-            .unwrap()
-            .get(&terminal_id)
-            .map(|sequence| format!("cmux-hook-sequence:{sequence}"));
         let persisted_source_session = if source == AgentSource::Hook {
             source_session.clone()
         } else {
-            hook_marker.or(source_session.clone())
+            self.agent_hook_sequences
+                .lock()
+                .unwrap()
+                .get(&terminal_id)
+                .map(|sequence| format!("cmux-hook-sequence:{sequence}"))
+                .or(source_session.clone())
         };
         let source_session = source_session.filter(|value| {
             !value.starts_with("cmux-hook-sequence:") && !value.starts_with("cmux-hook-ended:")
@@ -8811,8 +8810,10 @@ impl Mux {
             "state":record.state.as_str(),
             "source":record.source.as_str(),
             "updated_at_ms":record.updated_at_ms.to_string(),
-            "source_session":persisted_source_session.or(record.session.clone()),
+            "source_session":persisted_source_session.clone().or(record.session.clone()),
         });
+        let mut public_value = value.clone();
+        public_value["source_session"] = serde_json::json!(record.session.clone());
         let deltas = if persisted_source_session
             .as_deref()
             .is_some_and(|value| value.starts_with("cmux-hook-ended:"))
@@ -8824,7 +8825,7 @@ impl Mux {
                 "sequence":0,
                 "resource":"agent",
                 "id":agent_id,
-                "value":value,
+                "value":public_value,
             }])
         };
         let commit = registry.commit_agent_projection(
@@ -21764,6 +21765,33 @@ mod tests {
     }
 
     #[test]
+    fn hook_projection_does_not_relock_its_held_sequence_guard() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = mux.with_state(|state| {
+            match state.resource_indexes.content_ids.get(&surface.id).unwrap() {
+                ContentPublicId::Terminal(id) => id.clone(),
+                ContentPublicId::Browser(_) => panic!("workspace opened a browser"),
+            }
+        });
+        let hook = crate::agent_hooks::agent_hook_journal_ingress(
+            "claude",
+            "UserPromptSubmit",
+            Some(&terminal_id.to_string()),
+            serde_json::json!({}),
+        )
+        .unwrap();
+
+        // apply_agent_hook_record intentionally holds the sequence guard while
+        // it commits. The Hook report path must use its supplied marker and
+        // must not try to acquire that guard again.
+        mux.apply_agent_hook_record(&hook, 1);
+
+        assert_eq!(mux.list_agents(Some(surface.id), None)[0].state, AgentState::Working);
+        assert_eq!(mux.agent_hook_sequences.lock().unwrap().get(&terminal_id), Some(&1));
+    }
+
+    #[test]
     fn replayed_agent_hook_events_do_not_rewrite_the_record() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, None).unwrap();
@@ -21861,6 +21889,7 @@ mod tests {
     fn socket_report_preserves_hook_sequence_marker() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, None).unwrap();
+        let initial_revision = mux.with_state(|state| state.resource_revision);
         let terminal_id = mux.with_state(|state| {
             match state.resource_indexes.content_ids.get(&surface.id).unwrap() {
                 ContentPublicId::Terminal(id) => id.clone(),
@@ -21893,6 +21922,13 @@ mod tests {
         let snapshot = crate::resource_api::public_session_snapshot(&mux).unwrap();
         let snapshot_agent = snapshot["agents"].as_array().unwrap().first().unwrap();
         assert!(snapshot_agent["source_session"].is_null());
+        let public_events = mux.resource_events_after(initial_revision).unwrap();
+        assert!(
+            public_events
+                .batches
+                .iter()
+                .all(|batch| { batch.changes[0]["value"]["source_session"].is_null() })
+        );
     }
 
     #[test]
