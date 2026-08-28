@@ -31,30 +31,42 @@ const DAEMON_SOCKET_WAIT_MS: u64 = 5_000;
 // This is distinct from the relay's lower-level CONTROL_MIN_PROTOCOL floor.
 const DAEMON_LIFECYCLE_PROTOCOL_MIN: u64 = 12;
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct DaemonIdentity {
+    pid: u32,
+    lifecycle_ready: bool,
+}
+
+/// Read and validate the daemon identity without treating a starting daemon
+/// as ready. Returning the PID gives startup cleanup a process identity fence,
+/// so a relay never removes a socket that belongs to a racing daemon.
+async fn control_identity(
+    control: &Arc<dyn ControlHandle>,
+    session: &str,
+) -> Option<DaemonIdentity> {
+    let response = control.request("identify", serde_json::Value::Null).await?;
+    let data = response.get("data")?;
+    if response.get("ok").and_then(serde_json::Value::as_bool) != Some(true)
+        || data.get("app").and_then(serde_json::Value::as_str) != Some("cmux-tui")
+        || data.get("session").and_then(serde_json::Value::as_str) != Some(session)
+        || !data
+            .get("protocol")
+            .and_then(serde_json::Value::as_u64)
+            .is_some_and(|protocol| protocol >= DAEMON_LIFECYCLE_PROTOCOL_MIN)
+    {
+        return None;
+    }
+    let pid = data
+        .get("pid")
+        .and_then(serde_json::Value::as_u64)
+        .and_then(|pid| u32::try_from(pid).ok())
+        .filter(|pid| *pid > 0)?;
+    let lifecycle_ready = data.get("lifecycle_ready").and_then(serde_json::Value::as_bool)?;
+    Some(DaemonIdentity { pid, lifecycle_ready })
+}
+
 async fn control_ready(control: &Arc<dyn ControlHandle>, session: &str) -> bool {
-    control.request("identify", serde_json::Value::Null).await.is_some_and(|response| {
-        response.get("ok").and_then(serde_json::Value::as_bool) == Some(true)
-            && response
-                .get("data")
-                .and_then(|data| data.get("app"))
-                .and_then(serde_json::Value::as_str)
-                == Some("cmux-tui")
-            && response
-                .get("data")
-                .and_then(|data| data.get("session"))
-                .and_then(serde_json::Value::as_str)
-                == Some(session)
-            && response
-                .get("data")
-                .and_then(|data| data.get("protocol"))
-                .and_then(serde_json::Value::as_u64)
-                .is_some_and(|protocol| protocol >= DAEMON_LIFECYCLE_PROTOCOL_MIN)
-            && response
-                .get("data")
-                .and_then(|data| data.get("lifecycle_ready"))
-                .and_then(serde_json::Value::as_bool)
-                == Some(true)
-    })
+    control_identity(control, session).await.is_some_and(|identity| identity.lifecycle_ready)
 }
 
 /// Resolve the same bounded socket path that cmux-tui-core uses for a
@@ -321,13 +333,55 @@ impl RealPtyDeps {
     }
 }
 
+/// Process ownership state shared by a control handle and its wait guard.
+///
+/// A plain `AtomicBool` is not enough here. The wait thread can reap a child
+/// while a close callback concurrently asks the control to kill it. The
+/// mutex serializes those transitions, so a signal is sent only while the
+/// child is still owned by its wait guard. Once `wait` returns, a recycled PID
+/// can never be signalled by a late control drop.
+struct ChildLifecycle {
+    pid: Option<u32>,
+    exited: bool,
+    termination_started: bool,
+}
+
+type ChildLifecycleHandle = Arc<Mutex<ChildLifecycle>>;
+
+impl ChildLifecycle {
+    fn new(pid: Option<u32>) -> ChildLifecycleHandle {
+        Arc::new(Mutex::new(Self { pid, exited: false, termination_started: false }))
+    }
+
+    /// Reserve the one process-group termination and run the signal operation
+    /// while the lifecycle lock is held. Keeping the lock through the syscall
+    /// closes the handoff window where the wait thread could reap the child,
+    /// the PID could be reused, and a late close would signal that new group.
+    fn terminate(lifecycle: &ChildLifecycleHandle, signal: impl FnOnce(Option<u32>)) -> bool {
+        let mut state = lifecycle.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        if state.exited || state.termination_started {
+            return false;
+        }
+        state.termination_started = true;
+        signal(state.pid);
+        true
+    }
+
+    /// Mark the child terminal immediately after `wait` has returned. A
+    /// successful wait has reaped the PID; an error still leaves the guard in
+    /// charge of the child, and its bounded Drop cleanup remains responsible
+    /// for the final reap.
+    fn mark_exited(lifecycle: &ChildLifecycleHandle) {
+        lifecycle.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).exited = true;
+    }
+}
+
 /// A real PTY master behind a mutex; write/resize block briefly.
 struct MasterControl {
     master: Mutex<Box<dyn MasterPty + Send>>,
     writer: Mutex<Box<dyn Write + Send>>,
     killer: Mutex<Box<dyn cmux_pty::ChildKiller + Send + Sync>>,
-    pid: Option<u32>,
-    alive: Arc<std::sync::atomic::AtomicBool>,
+    lifecycle: ChildLifecycleHandle,
 }
 
 impl Drop for MasterControl {
@@ -342,18 +396,17 @@ impl Drop for MasterControl {
 
 impl MasterControl {
     fn terminate(&self) {
-        if !self.alive.swap(false, std::sync::atomic::Ordering::AcqRel) {
-            return;
-        }
-        let mut killer = match self.killer.lock() {
-            Ok(killer) => killer,
-            Err(poisoned) => poisoned.into_inner(),
-        };
-        let _ = killer.kill();
-        // `portable-pty`'s Unix killer sends SIGHUP to only the direct child.
-        // The PTY child is a session leader, so also force its process group
-        // down to cover helpers it may have spawned.
-        signal_process_group(self.pid);
+        ChildLifecycle::terminate(&self.lifecycle, |pid| {
+            let mut killer = match self.killer.lock() {
+                Ok(killer) => killer,
+                Err(poisoned) => poisoned.into_inner(),
+            };
+            let _ = killer.kill();
+            // `portable-pty`'s Unix killer sends SIGHUP to only the direct
+            // child. The PTY child is a session leader, so also force its
+            // process group down to cover helpers it may have spawned.
+            signal_process_group(pid);
+        });
     }
 }
 
@@ -380,8 +433,8 @@ impl PtyControl for MasterControl {
 /// child is owned by its wait thread; kill signals it by pid.
 struct PipeControl {
     stdin: Mutex<Option<std::process::ChildStdin>>,
-    pid: i32,
-    alive: Arc<std::sync::atomic::AtomicBool>,
+    pid: u32,
+    lifecycle: ChildLifecycleHandle,
 }
 
 impl PtyControl for PipeControl {
@@ -398,11 +451,7 @@ impl PtyControl for PipeControl {
     fn resume(&self) {}
     fn kill(&self) {
         // SAFETY: signalling a child pid this handle spawned; harmless if gone.
-        if self.alive.swap(false, std::sync::atomic::Ordering::AcqRel) {
-            unsafe {
-                libc::kill(-(self.pid as libc::pid_t), libc::SIGKILL);
-            }
-        }
+        ChildLifecycle::terminate(&self.lifecycle, |_| signal_process_group(Some(self.pid)));
     }
 }
 
@@ -416,14 +465,7 @@ const CHILD_REAP_TIMEOUT: Duration = Duration::from_millis(500);
 const CHILD_REAP_POLL: Duration = Duration::from_millis(10);
 
 fn signal_process_group(pid: Option<u32>) {
-    let Some(pid) = pid.and_then(|pid| i32::try_from(pid).ok()).filter(|pid| *pid > 0) else {
-        return;
-    };
-    // SAFETY: the pid came from the child we just spawned, and the PTY and
-    // pipe paths both make it a process-group leader before exec.
-    unsafe {
-        let _ = libc::kill(-(pid as libc::pid_t), libc::SIGKILL);
-    }
+    signal_process_group_with(pid, libc::SIGKILL);
 }
 
 /// Reap a portable-pty child without allowing cancellation cleanup to pin a
@@ -556,14 +598,13 @@ fn spawn_real_pty(spec: &SpawnSpec, handoff: &SpawnHandoff) -> anyhow::Result<Pt
         return Err(anyhow::anyhow!("PTY spawn cancelled"));
     }
     let killer = child_guard.child().clone_killer();
-    let alive = Arc::new(std::sync::atomic::AtomicBool::new(true));
     let output = ThreadOutput::new();
+    let lifecycle = ChildLifecycle::new(child_guard.child().process_id());
     let control = Arc::new(MasterControl {
         master: Mutex::new(master),
         writer: Mutex::new(writer),
         killer: Mutex::new(killer),
-        pid: child_guard.child().process_id(),
-        alive: Arc::clone(&alive),
+        lifecycle: Arc::clone(&lifecycle),
     });
     if !handoff.install(Arc::clone(&control) as Arc<dyn PtyControl>) {
         return Err(anyhow::anyhow!("PTY spawn cancelled"));
@@ -592,7 +633,7 @@ fn spawn_real_pty(spec: &SpawnSpec, handoff: &SpawnHandoff) -> anyhow::Result<Pt
     // kills/reaps the child instead of leaving it detached.
     let wait_guard = PtyChildGuard::new(child_guard.take());
     let exit_output = Arc::clone(&output);
-    let wait_alive = Arc::clone(&alive);
+    let wait_lifecycle = Arc::clone(&lifecycle);
     if let Err(error) =
         std::thread::Builder::new().name("cmux-relay-pty-wait".to_owned()).spawn(move || {
             let mut wait_guard = wait_guard;
@@ -601,9 +642,9 @@ fn spawn_real_pty(spec: &SpawnSpec, handoff: &SpawnHandoff) -> anyhow::Result<Pt
             if status.is_ok() {
                 // The child has been reaped. Do not let the guard's Drop
                 // signal a PID that the kernel may already have reused.
+                ChildLifecycle::mark_exited(&wait_lifecycle);
                 wait_guard.disarm();
             }
-            wait_alive.store(false, std::sync::atomic::Ordering::Release);
             exit_output.push_exit(code);
         })
     {
@@ -658,11 +699,15 @@ fn spawn_pipe_mode(spec: &SpawnSpec, reason: &str, handoff: &SpawnHandoff) -> Pt
             }
             let (stdin, stdout, stderr, pid) = {
                 let child = child_guard.child_mut();
-                (child.stdin.take(), child.stdout.take(), child.stderr.take(), child.id() as i32)
+                (child.stdin.take(), child.stdout.take(), child.stderr.take(), child.id())
             };
-            let alive = Arc::new(std::sync::atomic::AtomicBool::new(true));
-            let wait_alive = Arc::clone(&alive);
-            let control = Arc::new(PipeControl { stdin: Mutex::new(stdin), pid, alive });
+            let Some(pid) = pid else {
+                drop(child_guard);
+                return dead_handle(output, None);
+            };
+            let lifecycle = ChildLifecycle::new(Some(pid));
+            let wait_lifecycle = Arc::clone(&lifecycle);
+            let control = Arc::new(PipeControl { stdin: Mutex::new(stdin), pid, lifecycle });
             if !handoff.install(Arc::clone(&control) as Arc<dyn PtyControl>) {
                 drop(child_guard);
                 return dead_handle(output, None);
@@ -704,9 +749,9 @@ fn spawn_pipe_mode(spec: &SpawnSpec, reason: &str, handoff: &SpawnHandoff) -> Pt
                         .map(|status| status.code().unwrap_or(0) as i64)
                         .unwrap_or(0);
                     if status.is_ok() {
+                        ChildLifecycle::mark_exited(&wait_lifecycle);
                         wait_guard.disarm();
                     }
-                    wait_alive.store(false, std::sync::atomic::Ordering::Release);
                     wait_output.push_exit(code);
                 })
             {
@@ -750,55 +795,224 @@ async fn socket_exists(path: &Path) -> bool {
     tokio::fs::metadata(path).await.is_ok()
 }
 
-/// Stop a daemon that was started by `ensure_daemon` but never became ready.
-/// The daemon is placed in its own process group, so cleanup also covers
-/// children it may have spawned before readiness failed.
-async fn cleanup_daemon(mut child: tokio::process::Child) {
-    if let Some(pid) = child.id() {
-        unsafe {
-            let _ = libc::kill(-(pid as libc::pid_t), libc::SIGTERM);
-        }
-    }
-    if matches!(tokio::time::timeout(Duration::from_millis(250), child.wait()).await, Ok(Ok(_))) {
-        return;
-    }
-    if let Some(pid) = child.id() {
-        unsafe {
-            let _ = libc::kill(-(pid as libc::pid_t), libc::SIGKILL);
-        }
-    }
-    let _ = child.kill().await;
-    let _ = tokio::time::timeout(Duration::from_secs(1), child.wait()).await;
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct SocketFingerprint {
+    device: u64,
+    inode: u64,
 }
 
-/// Keep a newly spawned daemon's process group owned by the readiness
-/// operation. If the operation is cancelled, dropping the Tokio child alone
-/// would let it continue running because `kill_on_drop` is intentionally left
-/// disabled for the successful, detached-daemon path.
+fn socket_fingerprint(path: &Path) -> Option<SocketFingerprint> {
+    use std::os::unix::fs::MetadataExt;
+
+    let metadata = std::fs::symlink_metadata(path).ok()?;
+    Some(SocketFingerprint { device: metadata.dev(), inode: metadata.ino() })
+}
+
+/// Remove a socket only when its device/inode is the one observed from the
+/// daemon we started. A pathname can be replaced by a racing daemon, so a
+/// blind `remove_file` during cancellation would disconnect an unrelated
+/// session.
+fn remove_socket_if_owned(path: &Path, expected: Option<SocketFingerprint>) {
+    if expected.is_some_and(|expected| socket_fingerprint(path) == Some(expected)) {
+        let _ = std::fs::remove_file(path);
+    }
+}
+
+/// The cmux-tui core uses `<socket>.spawn-lock` for its probe/unlink/bind
+/// sequence. Relay startup takes the same advisory lock while checking the
+/// path and issuing the child spawn, which prevents two starters from both
+/// classifying an absent socket as safe to claim. The lock is released before
+/// readiness polling because the child must acquire it in `serve_paused`.
+struct DaemonStartLock {
+    _file: std::fs::File,
+}
+
+async fn acquire_daemon_start_lock(
+    path: &Path,
+    uid: u32,
+    deadline: Instant,
+) -> Result<DaemonStartLock, String> {
+    use std::os::fd::AsRawFd;
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+
+    let mut name = path.file_name().unwrap_or_default().to_os_string();
+    name.push(".spawn-lock");
+    let lock_path = path.with_file_name(name);
+    if let Some(parent) = lock_path.parent() {
+        tokio::fs::create_dir_all(parent)
+            .await
+            .map_err(|error| format!("daemon start lock directory create failed: {error}"))?;
+        let metadata = tokio::fs::metadata(parent)
+            .await
+            .map_err(|error| format!("daemon start lock directory stat failed: {error}"))?;
+        if !metadata.is_dir() || metadata.uid() != uid {
+            return Err(format!("daemon start lock directory is not owned by uid {uid}"));
+        }
+        let mut permissions = metadata.permissions();
+        permissions.set_mode(0o700);
+        tokio::fs::set_permissions(parent, permissions)
+            .await
+            .map_err(|error| format!("daemon start lock directory permissions failed: {error}"))?;
+    }
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&lock_path)
+        .map_err(|error| format!("daemon start lock open failed: {error}"))?;
+    loop {
+        // SAFETY: `file` remains open for the lifetime of the lock. `flock`
+        // is the Unix primitive used by cmux-tui-core's fs4 lock.
+        let result = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
+        if result == 0 {
+            return Ok(DaemonStartLock { _file: file });
+        }
+        let error = std::io::Error::last_os_error();
+        let raw_error = error.raw_os_error();
+        if raw_error != Some(libc::EWOULDBLOCK) && raw_error != Some(libc::EAGAIN) {
+            return Err(format!("daemon start lock failed: {error}"));
+        }
+        if Instant::now() >= deadline {
+            return Err("timed out waiting for a concurrent daemon start".to_owned());
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+}
+
+fn signal_process_group_with(pid: Option<u32>, signal: libc::c_int) {
+    let Some(pid) = pid.and_then(|pid| i32::try_from(pid).ok()).filter(|pid| *pid > 0) else {
+        return;
+    };
+    // SAFETY: the pid came from a child this relay spawned with
+    // `process_group(0)`, so the negative pid addresses only that group.
+    unsafe {
+        let _ = libc::kill(-(pid as libc::pid_t), signal);
+    }
+}
+
+fn spawn_daemon_reaper(mut child: std::process::Child) {
+    let _ =
+        std::thread::Builder::new().name("cmux-relay-daemon-reaper".to_owned()).spawn(move || {
+            let _ = child.wait();
+        });
+}
+
+/// Poll a standard child without blocking the async reactor. `false` covers
+/// both a still-running child and an OS wait error; the caller then keeps a
+/// detached reaper as the final ownership fallback.
+async fn wait_std_child_bounded(child: &mut std::process::Child, timeout: Duration) -> bool {
+    let deadline = Instant::now() + timeout;
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => return true,
+            Ok(None) if Instant::now() >= deadline => return false,
+            Err(_) => return false,
+            Ok(None) => tokio::time::sleep(CHILD_REAP_POLL).await,
+        }
+    }
+}
+
+/// Own a newly spawned daemon until readiness is proven. The guard always
+/// retains the child handle, so cancellation cannot silently detach it. On
+/// success it transfers the handle to a named reaper thread. On failure or
+/// cancellation it kills the process group, removes only an identity-matched
+/// socket, and transfers any delayed wait to that same reaper.
 struct DaemonProcessGuard {
-    pid: Option<libc::pid_t>,
+    child: Option<std::process::Child>,
+    pid: Option<u32>,
+    socket_path: PathBuf,
+    socket: Option<SocketFingerprint>,
 }
 
 impl DaemonProcessGuard {
-    fn new(child: &tokio::process::Child) -> Self {
-        Self { pid: child.id().map(|pid| pid as libc::pid_t) }
+    fn new(child: std::process::Child, socket_path: PathBuf) -> Self {
+        let pid = Some(child.id());
+        Self { child: Some(child), pid, socket_path, socket: None }
     }
 
-    fn disarm(&mut self) {
-        self.pid = None;
+    fn pid(&self) -> Option<u32> {
+        self.pid
+    }
+
+    fn child_running(&mut self) -> bool {
+        let Some(child) = self.child.as_mut() else { return false };
+        match child.try_wait() {
+            Ok(None) => true,
+            Ok(Some(_)) => {
+                self.pid = None;
+                false
+            }
+            Err(_) => false,
+        }
+    }
+
+    fn claim_socket(&mut self) {
+        if self.socket.is_none() {
+            self.socket = socket_fingerprint(&self.socket_path);
+        }
+    }
+
+    fn remove_socket(&mut self) {
+        remove_socket_if_owned(&self.socket_path, self.socket.take());
+    }
+
+    /// Finish a successful handoff. The daemon intentionally survives the
+    /// relay attachment, but its child handle still needs a waiter so exits
+    /// are reaped instead of becoming zombies.
+    fn detach(&mut self) {
+        if let Some(child) = self.child.take() {
+            self.pid = None;
+            spawn_daemon_reaper(child);
+        }
+        self.socket = None;
+    }
+
+    async fn wait_bounded(&mut self, timeout: Duration) -> bool {
+        let Some(child) = self.child.as_mut() else { return true };
+        wait_std_child_bounded(child, timeout).await
+    }
+
+    /// Stop a daemon which never became ready. Every wait is bounded; if the
+    /// kernel delays reaping, a detached thread owns the remaining wait.
+    async fn cleanup(&mut self) {
+        signal_process_group_with(self.pid, libc::SIGTERM);
+        let exited = self.wait_bounded(Duration::from_millis(250)).await;
+        if exited {
+            self.pid = None;
+            self.child.take();
+        } else {
+            signal_process_group(self.pid);
+            if let Some(child) = self.child.as_mut() {
+                let _ = child.kill();
+            }
+            let exited = self.wait_bounded(Duration::from_secs(1)).await;
+            if exited {
+                self.pid = None;
+                self.child.take();
+            }
+        }
+        if let Some(child) = self.child.take() {
+            self.pid = None;
+            spawn_daemon_reaper(child);
+        }
+        self.remove_socket();
     }
 }
 
 impl Drop for DaemonProcessGuard {
     fn drop(&mut self) {
-        if let Some(pid) = self.pid {
-            // SAFETY: the child was spawned with `process_group(0)` and this
-            // guard remains armed only while that child is owned by the
-            // readiness operation.
-            unsafe {
-                let _ = libc::kill(-pid, libc::SIGKILL);
+        if self.child.is_some() {
+            // Drop cannot await. A group SIGKILL plus a detached waiter gives
+            // cancellation bounded synchronous work and preserves reaping.
+            signal_process_group(self.pid);
+            if let Some(child) = self.child.as_mut() {
+                let _ = child.kill();
+            }
+            if let Some(child) = self.child.take() {
+                spawn_daemon_reaper(child);
             }
         }
+        self.pid = None;
+        self.remove_socket();
     }
 }
 
@@ -885,6 +1099,13 @@ impl PtyDeps for RealPtyDeps {
             .await
             .map_err(|error| format!("control socket directory permissions failed: {error}"))?;
         let socket_path = session_socket_path(socket_dir, self.uid, session)?;
+
+        // Match cmux-tui-core's startup lock. Hold it through the initial
+        // probe and child spawn, then release it before polling because the
+        // child must acquire the same lock while binding its listener.
+        let start_lock_deadline = Instant::now() + Duration::from_millis(DAEMON_SOCKET_WAIT_MS);
+        let start_lock =
+            acquire_daemon_start_lock(&socket_path, self.uid, start_lock_deadline).await?;
         if socket_exists(&socket_path).await {
             let ready = match connect_control(&socket_path, CONTROL_TIMEOUT_MS).await {
                 Ok(control) => {
@@ -912,7 +1133,8 @@ impl PtyDeps for RealPtyDeps {
             "--socket".to_owned(),
             socket_path.to_string_lossy().into_owned(),
         ]);
-        let mut command = tokio::process::Command::new(&cmux_tui.file);
+        use std::os::unix::process::CommandExt as _;
+        let mut command = std::process::Command::new(&cmux_tui.file);
         command.args(&args).current_dir(cwd).env_clear();
         for (key, value) in env {
             command.env(key, value);
@@ -923,7 +1145,10 @@ impl PtyDeps for RealPtyDeps {
         command.process_group(0);
         let child =
             command.spawn().map_err(|error| format!("cmux-tui daemon spawn failed: {error}"))?;
-        let mut process_guard = DaemonProcessGuard::new(&child);
+        // `serve_paused` takes the same lock before probing and binding. Do
+        // not hold it during readiness polling, or the child would deadlock.
+        drop(start_lock);
+        let mut process_guard = DaemonProcessGuard::new(child, socket_path.clone());
 
         let deadline = Instant::now() + Duration::from_millis(DAEMON_SOCKET_WAIT_MS);
         while Instant::now() < deadline {
@@ -933,30 +1158,41 @@ impl PtyDeps for RealPtyDeps {
                     match connect_control(&socket_path, CONTROL_TIMEOUT_MS).await {
                         Ok(control) => {
                             let mut control_guard = ControlEndGuard::new(Arc::clone(&control));
-                            let ready = control_ready(&control, session).await;
+                            let identity = control_identity(&control, session).await;
                             control.end();
                             control_guard.disarm();
-                            if ready {
-                                process_guard.disarm();
-                                return Ok(EnsureDaemon { created: true, socket_path });
+                            if let Some(identity) = identity {
+                                if identity.pid == process_guard.pid().unwrap_or_default() {
+                                    // The child handle still owns this PID, so
+                                    // it cannot have been recycled between the
+                                    // identity response and this check.
+                                    if process_guard.child_running() {
+                                        process_guard.claim_socket();
+                                        if identity.lifecycle_ready {
+                                            process_guard.detach();
+                                            return Ok(EnsureDaemon { created: true, socket_path });
+                                        }
+                                    }
+                                } else if identity.lifecycle_ready {
+                                    // A concurrent starter won the bind race.
+                                    // Reap our redundant child, then use the
+                                    // already-ready daemon as an existing one.
+                                    process_guard.cleanup().await;
+                                    return Ok(EnsureDaemon { created: false, socket_path });
+                                }
                             }
                         }
                         _ => tokio::time::sleep(Duration::from_millis(50)).await,
                     }
                 }
-                // Do not unlink the path here. Another daemon may have won
-                // the socket race after our initial absence check; ownership
-                // of a pathname cannot be proven after the fact.
-                cleanup_daemon(child).await;
-                process_guard.disarm();
+                process_guard.cleanup().await;
                 return Err(format!(
                     "cmux-tui daemon for \"{session}\" did not become control-ready"
                 ));
             }
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
-        cleanup_daemon(child).await;
-        process_guard.disarm();
+        process_guard.cleanup().await;
         Err(format!("cmux-tui daemon for \"{session}\" never created {}", socket_path.display()))
     }
 
@@ -1112,5 +1348,42 @@ mod tests {
 
         assert_eq!(kills.load(AtomicOrdering::SeqCst), 0);
         drop(control);
+    }
+
+    #[test]
+    fn child_lifecycle_serializes_termination_and_reap() {
+        let lifecycle = ChildLifecycle::new(Some(4242));
+        let signals = TestArc::new(AtomicUsize::new(0));
+        let first_signalled = ChildLifecycle::terminate(&lifecycle, |pid| {
+            assert_eq!(pid, Some(4242));
+            signals.fetch_add(1, AtomicOrdering::SeqCst);
+        });
+        let second_signalled = ChildLifecycle::terminate(&lifecycle, |_| {
+            signals.fetch_add(1, AtomicOrdering::SeqCst);
+        });
+        assert!(first_signalled);
+        assert!(!second_signalled);
+        ChildLifecycle::mark_exited(&lifecycle);
+        assert!(!ChildLifecycle::terminate(&lifecycle, |_| {
+            signals.fetch_add(1, AtomicOrdering::SeqCst);
+        }));
+        assert_eq!(signals.load(AtomicOrdering::SeqCst), 1);
+    }
+
+    #[test]
+    fn socket_cleanup_requires_the_observed_inode() {
+        static NEXT_FIXTURE: AtomicUsize = AtomicUsize::new(0);
+        let path = std::env::temp_dir().join(format!(
+            "cmux-relay-socket-fingerprint-{}-{}",
+            std::process::id(),
+            NEXT_FIXTURE.fetch_add(1, AtomicOrdering::Relaxed)
+        ));
+        std::fs::write(&path, b"socket placeholder").expect("create fingerprint fixture");
+        let observed = socket_fingerprint(&path).expect("fixture fingerprint");
+        let wrong = SocketFingerprint { device: observed.device, inode: observed.inode + 1 };
+        remove_socket_if_owned(&path, Some(wrong));
+        assert!(path.exists(), "mismatched inode must remain untouched");
+        remove_socket_if_owned(&path, Some(observed));
+        assert!(!path.exists(), "matching inode must be cleaned");
     }
 }

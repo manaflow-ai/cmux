@@ -38,9 +38,12 @@
 //! already attach terminals through the cmux CLI. Paired human machines
 //! never run this listener: it starts from the managed branch only.
 
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::RwLock;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
+use std::task::{Context, Poll};
 use std::time::Duration;
 
 use base64::Engine as _;
@@ -539,6 +542,53 @@ fn queue_limit(control: bool) -> u64 {
     }
 }
 
+/// A spawned open task remains owned by the connection until it is joined.
+/// Dropping a Tokio `JoinHandle` detaches the task, which would let a cancelled
+/// tunnel finish opening and retain its PTY callbacks after the socket exits.
+struct AbortOnDrop<T> {
+    handle: Option<tokio::task::JoinHandle<T>>,
+}
+
+impl<T> AbortOnDrop<T> {
+    fn new(handle: tokio::task::JoinHandle<T>) -> Self {
+        Self { handle: Some(handle) }
+    }
+
+    fn abort(&self) {
+        if let Some(handle) = &self.handle {
+            handle.abort();
+        }
+    }
+}
+
+impl<T> Unpin for AbortOnDrop<T> {}
+
+impl<T> Future for AbortOnDrop<T> {
+    type Output = Result<T, tokio::task::JoinError>;
+
+    fn poll(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Self::Output> {
+        let result = {
+            let handle = self.handle.as_mut().expect("open task polled after completion");
+            Pin::new(handle).poll(context)
+        };
+        match result {
+            Poll::Ready(result) => {
+                self.handle = None;
+                Poll::Ready(result)
+            }
+            Poll::Pending => Poll::Pending,
+        }
+    }
+}
+
+impl<T> Drop for AbortOnDrop<T> {
+    fn drop(&mut self) {
+        if let Some(handle) = &self.handle {
+            handle.abort();
+        }
+    }
+}
+
 async fn handle_client_frame(
     connection: &Arc<Connection>,
     frame: TunnelFrame,
@@ -606,10 +656,10 @@ async fn handle_client_frame(
             // `handle_frame` future from `timeout` can abandon work while it
             // owns manager resources. An explicit abort, followed by the
             // normal close path, gives cancellation a defined cleanup point.
-            let mut open_task = tokio::spawn({
+            let mut open_task = AbortOnDrop::new(tokio::spawn({
                 let manager = Arc::clone(&connection.manager);
                 async move { manager.handle_frame(&open, &context).await }
-            });
+            }));
             let deadline = tokio::time::sleep(OPEN_TIMEOUT);
             tokio::pin!(deadline);
             tokio::select! {
