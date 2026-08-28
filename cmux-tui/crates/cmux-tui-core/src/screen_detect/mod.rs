@@ -19,8 +19,14 @@ use crate::AgentState;
 use manifest::{Detection, ScreenState};
 
 /// Output must be quiet this long before the screen is evaluated, so
-/// mid-redraw frames are never matched.
+/// mid-redraw frames are rarely matched.
 pub(crate) const QUIESCENCE_DEBOUNCE_MS: u64 = 300;
+
+/// A screen that never goes quiet (agent spinners animate every ~100ms,
+/// so a working codex never quiesces) is still evaluated at this pace.
+/// Without it, quiescence gating starves detection during the exact
+/// phase it exists to report.
+pub(crate) const MAX_EVAL_INTERVAL_MS: u64 = 1_000;
 
 /// The `native_event` value screen-detection journal events carry.
 pub(crate) const SCREEN_DETECT_NATIVE_EVENT: &str = "ScreenDetect";
@@ -42,6 +48,8 @@ struct TrackedTerminal {
     quiet_since: Option<Instant>,
     /// Revision already evaluated; skip re-evaluating identical screens.
     evaluated_revision: Option<u64>,
+    /// When the screen was last evaluated (the max-interval pacer anchor).
+    last_evaluated_at: Option<Instant>,
     /// Agent the foreground process matched on the previous scan; identity
     /// edges trigger immediate evaluation, before any quiescence.
     foreground_agent: Option<String>,
@@ -58,8 +66,11 @@ pub(crate) struct ScreenDetectTracker {
 
 impl ScreenDetectTracker {
     /// Record the terminal's current output revision. Returns `true` when
-    /// the terminal has been quiet for the debounce window and its screen
-    /// still needs evaluation for this revision.
+    /// the screen changed since the last evaluation and either output has
+    /// been quiet for the debounce window or the max-interval pacer is due
+    /// (a never-quiet spinner screen still evaluates at 1Hz; quiescence
+    /// alone starves detection during the exact phase it must report). A
+    /// `true` return arms the pacer: the caller always evaluates then.
     pub(crate) fn observe_revision(
         &mut self,
         terminal_id: &str,
@@ -70,11 +81,21 @@ impl ScreenDetectTracker {
         if entry.quiet_since.is_none() || entry.revision != revision {
             entry.revision = revision;
             entry.quiet_since = Some(now);
+        }
+        if entry.evaluated_revision == Some(entry.revision) {
             return false;
         }
         let quiet_since = entry.quiet_since.expect("anchored above");
-        now.duration_since(quiet_since).as_millis() as u64 >= QUIESCENCE_DEBOUNCE_MS
-            && entry.evaluated_revision != Some(revision)
+        let quiesced =
+            now.duration_since(quiet_since).as_millis() as u64 >= QUIESCENCE_DEBOUNCE_MS;
+        let overdue = entry.last_evaluated_at.is_none_or(|evaluated_at| {
+            now.duration_since(evaluated_at).as_millis() as u64 >= MAX_EVAL_INTERVAL_MS
+        });
+        if quiesced || overdue {
+            entry.last_evaluated_at = Some(now);
+            return true;
+        }
+        false
     }
 
     /// True when this terminal previously journaled a screen-derived state
@@ -167,20 +188,48 @@ mod tests {
     fn screen_detect_tracker_debounces_quiescence_per_revision() {
         let mut tracker = ScreenDetectTracker::default();
         let t0 = Instant::now();
+        let at = |milliseconds: u64| t0 + Duration::from_millis(milliseconds);
 
-        // First sighting anchors the debounce; nothing evaluates yet.
-        assert!(!tracker.observe_revision("term_a", 1, t0));
-        // Still inside the debounce window.
-        assert!(!tracker.observe_revision("term_a", 1, t0 + Duration::from_millis(200)));
-        // Quiet long enough: evaluate exactly once per revision.
-        assert!(tracker.observe_revision("term_a", 1, t0 + Duration::from_millis(400)));
+        // A never-evaluated terminal evaluates on first sight.
+        assert!(tracker.observe_revision("term_a", 1, t0));
         tracker.record_detection("term_a", Some(("codex", detection(ScreenState::Idle))));
-        assert!(!tracker.observe_revision("term_a", 1, t0 + Duration::from_millis(600)));
+        // An unchanged screen never re-evaluates.
+        assert!(!tracker.observe_revision("term_a", 1, at(400)));
 
-        // New output re-arms the debounce.
-        assert!(!tracker.observe_revision("term_a", 2, t0 + Duration::from_millis(700)));
-        assert!(!tracker.observe_revision("term_a", 2, t0 + Duration::from_millis(900)));
-        assert!(tracker.observe_revision("term_a", 2, t0 + Duration::from_millis(1_100)));
+        // New output re-arms the debounce; inside the window with a recent
+        // evaluation nothing fires.
+        assert!(!tracker.observe_revision("term_a", 2, at(500)));
+        assert!(!tracker.observe_revision("term_a", 2, at(700)));
+        // Quiet long enough: evaluate exactly once per revision.
+        assert!(tracker.observe_revision("term_a", 2, at(900)));
+        tracker.record_detection("term_a", Some(("codex", detection(ScreenState::Idle))));
+        assert!(!tracker.observe_revision("term_a", 2, at(1_100)));
+    }
+
+    #[test]
+    fn screen_detect_tracker_paces_evaluation_of_never_quiet_spinner_screens() {
+        let mut tracker = ScreenDetectTracker::default();
+        let t0 = Instant::now();
+        let at = |milliseconds: u64| t0 + Duration::from_millis(milliseconds);
+
+        assert!(tracker.observe_revision("term_a", 1, t0));
+        tracker.record_detection("term_a", Some(("codex", detection(ScreenState::Idle))));
+
+        // A working spinner redraws every ~100ms, so the screen never goes
+        // quiet for the debounce window. The pacer still evaluates at 1Hz;
+        // without it a working codex would stay idle forever.
+        let mut evaluations = 0;
+        for tick in 1..=25u64 {
+            if tracker.observe_revision("term_a", 1 + tick, at(tick * 100)) {
+                evaluations += 1;
+                tracker.record_detection(
+                    "term_a",
+                    Some(("codex", detection(ScreenState::Working))),
+                );
+            }
+        }
+        assert_eq!(evaluations, 2, "1Hz pacer under 2.5s of continuous output");
+        assert!(tracker.has_live_emission("term_a"));
     }
 
     #[test]
