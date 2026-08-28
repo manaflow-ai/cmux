@@ -283,10 +283,6 @@ impl ProcessOutputCompletion {
         Self::with_post_exit_grace(readers_remaining, output, Some(PIPE_OUTPUT_DRAIN_GRACE))
     }
 
-    fn unbounded(readers_remaining: usize, output: Arc<ThreadOutput>) -> Arc<Self> {
-        Self::with_post_exit_grace(readers_remaining, output, None)
-    }
-
     fn with_post_exit_grace(
         readers_remaining: usize,
         output: Arc<ThreadOutput>,
@@ -505,9 +501,10 @@ fn spawn_real_pty(spec: &SpawnSpec) -> anyhow::Result<PtyHandle> {
         killer: Mutex::new(killer),
     });
     output.set_overflow_control(&control);
-    // PTY EOF is the terminal's lifecycle boundary. Unlike pipe fallback,
-    // background jobs intentionally retain the PTY until they finish.
-    let completion = ProcessOutputCompletion::unbounded(1, Arc::clone(&output));
+    // Use the same bounded post-exit grace as pipe fallback. A background
+    // descendant can inherit the PTY slave, so waiting for terminal EOF here
+    // would otherwise delay the primary child exit without a bound.
+    let completion = ProcessOutputCompletion::new(1, Arc::clone(&output));
 
     // Blocking reader thread -> output sink.
     let data_output = Arc::clone(&output);
@@ -1059,7 +1056,10 @@ mod tests {
     }
 
     #[test]
-    fn inherited_pipe_descriptor_cannot_hold_exit_forever() {
+    fn inherited_pty_descriptor_cannot_hold_exit_forever() {
+        // The PTY completion path uses the same bounded grace coordinator as
+        // pipe fallback. An open stream models a background descendant that
+        // inherited the PTY slave and keeps the reader from reaching EOF.
         let output = ThreadOutput::new();
         let completion = ProcessOutputCompletion::new(1, TestArc::clone(&output));
         let (reader, _writer) = UnixStream::pair().expect("pipe pair");
