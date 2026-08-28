@@ -83,10 +83,7 @@ impl Listener for AdmissionListener {
 fn accept_retry_delay(attempt: u32) -> Duration {
     let shift = attempt.min(6);
     let multiplier = 1u32 << shift;
-    ACCEPT_RETRY_INITIAL
-        .checked_mul(multiplier)
-        .unwrap_or(ACCEPT_RETRY_MAX)
-        .min(ACCEPT_RETRY_MAX)
+    ACCEPT_RETRY_INITIAL.checked_mul(multiplier).unwrap_or(ACCEPT_RETRY_MAX).min(ACCEPT_RETRY_MAX)
 }
 
 pub struct AdmissionStream {
