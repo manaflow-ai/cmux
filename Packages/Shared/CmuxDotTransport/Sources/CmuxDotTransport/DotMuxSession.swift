@@ -90,6 +90,9 @@ final actor DotMuxSession: DotSecureSessionProtocol {
     private var nextStreamID: UInt32
     private var ended = false
     private var endReason: String?
+    /// Set by `close(reason:)`; the pump ends the session after flushing the
+    /// queued goaway (ending inline would cut the pump off before it sends).
+    private var closingReason: String?
 
     // Initiator-side key confirmation.
     private var admitted: Bool
@@ -152,7 +155,9 @@ final actor DotMuxSession: DotSecureSessionProtocol {
     // MARK: - DotSecureSessionProtocol
 
     func openStream(_ descriptor: DotLaneDescriptor) async throws -> any DotStream {
-        guard !ended else { throw DotMuxError.sessionEnded(endReason ?? "ended") }
+        guard !ended, closingReason == nil else {
+            throw DotMuxError.sessionEnded(endReason ?? closingReason ?? "ended")
+        }
         guard admitted else { throw DotMuxError.notAdmitted }
         let id = nextStreamID
         nextStreamID &+= 2
@@ -163,11 +168,15 @@ final actor DotMuxSession: DotSecureSessionProtocol {
     }
 
     func close(reason: String) async {
-        guard !ended else { return }
-        // Best effort goaway ahead of teardown; the pump flushes it unless
-        // the leg is already gone.
+        guard !ended, closingReason == nil else { return }
+        // Graceful close: the goaway rides the pump behind any queued
+        // frames; the pump ends the session once the queue is flushed (or
+        // immediately if the leg is already gone).
+        closingReason = reason
         enqueue(DotMux.encode(.goaway, streamID: 0, payload: Data(reason.utf8)))
-        end(reason: reason, notifyPeer: false)
+        if pumpTask == nil {
+            begin()
+        }
     }
 
     // MARK: - Wiring (engine/acceptor side)
@@ -272,7 +281,9 @@ final actor DotMuxSession: DotSecureSessionProtocol {
     }
 
     func writeStream(_ id: UInt32, data: Data) async throws {
-        guard !ended else { throw DotMuxError.sessionEnded(endReason ?? "ended") }
+        guard !ended, closingReason == nil else {
+            throw DotMuxError.sessionEnded(endReason ?? closingReason ?? "ended")
+        }
         guard let state = streams[id], !state.writeClosed,
             state.resetReason == nil
         else {
@@ -441,7 +452,12 @@ final actor DotMuxSession: DotSecureSessionProtocol {
             } catch {
                 // The leg only throws when stopped or after a continuity
                 // reset — either way this session is unrecoverable.
-                end(reason: "leg-unavailable", notifyPeer: false)
+                end(reason: closingReason ?? "leg-unavailable", notifyPeer: false)
+                return
+            }
+            // Graceful close: the queue (ending in goaway) is flushed.
+            if outbound.isEmpty, let closingReason {
+                end(reason: closingReason, notifyPeer: false)
                 return
             }
         }
