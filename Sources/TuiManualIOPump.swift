@@ -644,8 +644,8 @@ final class TuiManualIOPump {
         stdoutTask = Task { @MainActor [weak self] in
             for await chunk in reader.stream {
                 guard let self, self.generation == spawnGeneration, !self.stopped else { break }
-                reader.release(chunk)
                 self.surface?.processRemoteOutput(chunk)
+                reader.release(chunk)
                 self.everRenderedAttach = true
                 self.consecutiveUnexplainedFailures = 0
                 if self.state != .live {
@@ -699,6 +699,14 @@ final class TuiManualIOPump {
         forcedExit: TuiManualIOPumpPolicy.RelayExit? = nil
     ) {
         guard exitedGeneration == generation, !stopped else { return }
+        if forcedExit != nil {
+            // Overflow means the surface cannot keep up. Stop the relay
+            // before scheduling a replacement, and fence late callbacks
+            // from the terminated process.
+            process?.terminationHandler = nil
+            process?.terminate()
+            generation += 1
+        }
         inputChannel.setHandle(nil)
         process = nil
         // A dead relay has no resize channel; the respawn reseeds the
