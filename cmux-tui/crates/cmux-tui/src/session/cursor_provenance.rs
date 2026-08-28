@@ -263,7 +263,7 @@ mod tests {
     #[test]
     fn c1_string_terminator_ends_all_string_bodies() {
         let mut p = CursorStyleProvenance::default();
-        for opener in [b']', b'P', b'_', b'^', b'X'] {
+        for opener in *b"]P_^X" {
             p.scan(&[0x1b, opener]);
             p.scan(b"payload 5 q");
             p.scan(&[0x9c]);
@@ -342,7 +342,7 @@ fn bell_only_terminates_osc_strings() {
     p.scan(b"\x1b]payload\x1b\x07\x1b[5 q");
     assert!(p.authored(), "BEL must still close OSC after a non-ST ESC");
 
-    for opener in [b'P', b'_', b'^', b'X'] {
+    for opener in *b"P_^X" {
         let mut p = CursorStyleProvenance::default();
         p.scan(&[0x1b, opener]);
         p.scan(b"payload\x07\x1b[5 q");
@@ -354,7 +354,7 @@ fn bell_only_terminates_osc_strings() {
 
 #[test]
 fn can_and_sub_abort_string_bodies() {
-    for opener in [b']', b'P', b'_', b'^', b'X'] {
+    for opener in *b"]P_^X" {
         for abort in [0x18, 0x1a] {
             let mut p = CursorStyleProvenance::default();
             p.scan(&[0x1b, opener, abort]);

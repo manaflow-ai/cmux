@@ -3,7 +3,7 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
-use std::io::{self, BufRead, BufReader, Read, Write};
+use std::io::{self, BufRead, BufReader, Write};
 use std::net::Shutdown;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -1679,7 +1679,7 @@ fn remote_reader_end_reason(result: &io::Result<Option<String>>) -> Option<Strin
     }
 }
 
-fn remote_reader_message_too_large(message: &mut String) -> String {
+fn remote_reader_message_too_large(message: &mut str) -> String {
     let reason = format!(
         "remote session message exceeds the \
          {REMOTE_SESSION_MESSAGE_MAX_BYTES}-byte limit"

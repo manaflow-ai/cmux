@@ -1260,7 +1260,6 @@ fn parse_startup_input_event(bytes: &[u8]) -> Option<crossterm::event::Event> {
 
 #[cfg(test)]
 mod tests {
-    use base64::Engine as _;
     use ghostty_vt::{Callbacks, KittyPlacement, KittyPlacementKey, Terminal};
 
     use super::*;
