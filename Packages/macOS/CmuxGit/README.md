@@ -1,10 +1,9 @@
 # CmuxGit
 
-Reads a directory's Git metadata and workspace changes. Sidebar metadata parses
-file-backed refs directly and uses bounded Git plumbing for other reference
-backends such as reftable. Workspace changes use non-locking, bounded Git
-commands so committed, staged, unstaged, untracked, rename, and binary
-semantics match Git itself.
+Reads a directory's Git metadata and workspace changes. Sidebar metadata is
+parsed directly from the on-disk repository without a subprocess; mobile
+workspace changes use non-locking `/usr/bin/git` commands so committed, staged,
+unstaged, untracked, rename, and binary semantics match Git itself.
 
 It is a Layer-2 service package: `Sendable` value facades over filesystem and
 process boundaries, with actor isolation only for bounded caches. Its reads are
@@ -15,8 +14,8 @@ dependencies and is fully testable through injected seams and temp directories.
 ## What it does
 
 `GitMetadataService` resolves the repository enclosing a directory (handling
-`.git` files for worktrees/submodules and the shared `commondir`), resolves
-`HEAD`, and parses the binary `index` (v2/v3/v4) and `config` (following
+`.git` files for worktrees/submodules and the shared `commondir`) and parses
+`HEAD`, the binary `index` (v2/v3/v4), and `config` (following
 `include`/`includeIf`). From that it derives:
 
 - `workspaceMetadata(for:)` — branch, dirty state, and change-detection
@@ -73,14 +72,12 @@ at the app's composition root and inject or retain them for the owning feature
 
 ## Testing
 
-File-backed reads are deterministic for a stable fixture, so most tests run
-against real temp directories with hand-written Git metadata. The test
-target builds fixtures with `GitRepositoryFixture` (writes `HEAD`, `config`,
-refs, and working-tree files) and `GitIndexFixture` (writes a binary `index` for
-versions 2 and 4, including path prefix-compression). Reftable behavior uses an
-isolated throwaway repository created with `/usr/bin/git`, exercising the same
-plumbing boundary as production. Internal parsing helpers are exercised via
-`@testable import CmuxGit`.
+All reads are pure functions of the directory argument, so tests run against
+real temp directories with hand-written git metadata (no `git` process). The
+test target builds fixtures with `GitRepositoryFixture` (writes `HEAD`,
+`config`, refs, and working-tree files) and `GitIndexFixture` (writes a binary
+`index` for versions 2 and 4, including path prefix-compression). Internal
+parsing helpers are exercised via `@testable import CmuxGit`.
 
 Workspace-changes tests inject `WorkspaceChangesGitRunning` and an actor-backed
 fake clock for parser/cache unit coverage. Behavior tests create isolated

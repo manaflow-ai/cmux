@@ -46,8 +46,6 @@ enum GitMetadataDegradationReason: Hashable, Sendable, CustomStringConvertible {
     case trackedEntryLimit(count: Int, limit: Int)
     case indexByteLimit(count: Int64, limit: Int)
     case directScanDuration(milliseconds: Int)
-    case submoduleReferenceBackend
-    case unreadableIndex
 
     var description: String {
         switch self {
@@ -57,10 +55,6 @@ enum GitMetadataDegradationReason: Hashable, Sendable, CustomStringConvertible {
             return "index-byte-limit bytes=\(count) limit=\(limit)"
         case .directScanDuration(let milliseconds):
             return "direct-scan-duration limitMs=\(milliseconds)"
-        case .submoduleReferenceBackend:
-            return "submodule-reference-backend"
-        case .unreadableIndex:
-            return "unreadable-index"
         }
     }
 }
@@ -88,19 +82,12 @@ extension GitMetadataService {
     }
 
     nonisolated static func gitIndexHeaderSummary(indexPath: String) -> GitIndexHeaderSummary? {
-        let descriptor = Darwin.open(indexPath, O_RDONLY | O_NONBLOCK | O_CLOEXEC)
+        let descriptor = Darwin.open(indexPath, O_RDONLY | O_CLOEXEC)
         guard descriptor >= 0 else { return nil }
         defer { Darwin.close(descriptor) }
 
         var status = stat()
-        guard Darwin.fstat(descriptor, &status) == 0,
-              status.st_mode & mode_t(S_IFMT) == mode_t(S_IFREG),
-              status.st_size >= 12 else {
-            return nil
-        }
-        var filesystem = statfs()
-        guard Darwin.fstatfs(descriptor, &filesystem) == 0,
-              (UInt64(filesystem.f_flags) & UInt64(MNT_LOCAL)) != 0 else {
+        guard Darwin.fstat(descriptor, &status) == 0, status.st_size >= 12 else {
             return nil
         }
         var bytes = [UInt8](repeating: 0, count: 12)
