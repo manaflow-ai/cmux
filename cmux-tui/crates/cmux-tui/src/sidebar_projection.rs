@@ -356,6 +356,7 @@ mod tests {
             state: "working".into(),
             source: "detected".into(),
             session: Some("fix sidebar".into()),
+            agent: None,
             updated_at_ms: 1,
         }];
         let rows = rows(
