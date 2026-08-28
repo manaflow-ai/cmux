@@ -72,6 +72,9 @@ if (runDbTests) {
     fallbackType: typeof (directFreeLimit ?? "1"),
     numberOne: Number("1"),
     numberOneIsSafe: Number.isSafeInteger(Number("1")),
+    resolvedEmptyEnv: maxActiveVmsForPlan("free", {}),
+    resolvedExplicitFreeEnv: maxActiveVmsForPlan("free", { CMUX_VM_FREE_MAX_ACTIVE_VMS: "1" }),
+    resolvedExplicitPlanEnv: maxActiveVmsForPlan("free", { CMUX_VM_PLAN_FREE_MAX_ACTIVE_VMS: "1" }),
     resolverSource: maxActiveVmsForPlan.toString(),
   });
 }
