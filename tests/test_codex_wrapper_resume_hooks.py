@@ -34,6 +34,7 @@ def run_wrapper(
     hooks_disabled: bool = False,
     restore_token: str | None = None,
     inject_args_available: bool = True,
+    subrouter_marker: str | None = None,
 ) -> tuple[int, list[str], list[str], dict[str, str], str]:
     with tempfile.TemporaryDirectory(prefix="cmux-codex-wrapper-test-") as td:
         tmp = Path(td)
@@ -67,6 +68,7 @@ done
   printf 'CMUX_AGENT_LAUNCH_KIND=%s\\n' "${CMUX_AGENT_LAUNCH_KIND-__UNSET__}"
   printf 'CMUX_AGENT_RESUME_LAUNCH=%s\\n' "${CMUX_AGENT_RESUME_LAUNCH-__UNSET__}"
   printf 'CMUX_AGENT_RESTORE_LAUNCH=%s\\n' "${CMUX_AGENT_RESTORE_LAUNCH-__UNSET__}"
+  printf 'CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND=%s\\n' "${CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND-__UNSET__}"
   printf 'CMUX_WORKSPACE_ID=%s\\n' "${CMUX_WORKSPACE_ID-__UNSET__}"
   printf 'CMUX_SURFACE_ID=%s\\n' "${CMUX_SURFACE_ID-__UNSET__}"
 } > "$FAKE_REAL_ENV_LOG"
@@ -131,6 +133,12 @@ exit 1
             env["CMUX_AGENT_RESTORE_LAUNCH"] = restore_token
         else:
             env.pop("CMUX_AGENT_RESTORE_LAUNCH", None)
+        if subrouter_marker is not None:
+            env["SUBROUTER_CODEX_RESUME_COMMAND"] = subrouter_marker
+            env["CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND"] = "inherited ancestor marker"
+        else:
+            env.pop("SUBROUTER_CODEX_RESUME_COMMAND", None)
+            env.pop("CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND", None)
 
         try:
             proc = subprocess.run(
@@ -291,6 +299,31 @@ def test_non_session_command_still_bypasses_hooks(failures: list[str]) -> None:
     expect(cmux_log == [], f"help: expected no cmux calls, got {cmux_log}", failures)
 
 
+def test_subrouter_marker_is_bound_to_current_launch_argv(failures: list[str]) -> None:
+    marker = "sr codex resume"
+    _, _, _, routed_env, _ = run_wrapper(
+        socket_state="stale",
+        argv=["fix this", "-c", 'model_provider="subrouter"'],
+        subrouter_marker=marker,
+    )
+    expect(
+        routed_env.get("CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND") == marker,
+        f"routed launch did not bind its marker: {routed_env}",
+        failures,
+    )
+
+    _, _, _, direct_env, _ = run_wrapper(
+        socket_state="stale",
+        argv=["fix this"],
+        subrouter_marker=marker,
+    )
+    expect(
+        direct_env.get("CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND") == "__UNSET__",
+        f"direct nested launch retained an inherited marker: {direct_env}",
+        failures,
+    )
+
+
 def main() -> int:
     failures: list[str] = []
     test_every_resume_route_is_instrumented(failures)
@@ -300,6 +333,7 @@ def main() -> int:
     test_restore_tokens_do_not_gate_instrumentation(failures)
     test_injection_failure_preserves_cmux_context(failures)
     test_non_session_command_still_bypasses_hooks(failures)
+    test_subrouter_marker_is_bound_to_current_launch_argv(failures)
     if failures:
         print("FAIL: Codex session-entrypoint wrapper reliability checks failed")
         for failure in failures:
