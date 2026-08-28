@@ -546,6 +546,14 @@ final class CmuxSettingsFileStore {
         snapshot: inout ResolvedSettingsSnapshot
     ) {
         applyBooleanSettings(TerminalSettingsFileMapping.booleanSettings, from: section, sourcePath: sourcePath, snapshot: &snapshot)
+        applyStringSettings(TerminalSettingsFileMapping.stringSettings, from: section, snapshot: &snapshot)
+        if let raw = jsonString(section["shellBackend"]),
+           let backend = TerminalShellBackend(rawValue: raw) {
+            snapshot.managedUserDefaults[TerminalCatalogSection().shellBackend.userDefaultsKey] = .string(backend.rawValue)
+        } else if section.keys.contains("shellBackend") {
+            logInvalid("terminal.shellBackend", sourcePath: sourcePath)
+        }
+
         applyTerminalScrollSpeedSetting(from: section, assign: { snapshot.managedUserDefaults[$0] = .double($1) }, logInvalid: { logInvalid($0, sourcePath: sourcePath) })
         if let value = jsonDouble(section["sessionContentMaxWidth"]) {
             if value.isFinite, value >= SessionContentWidthSettings.minimumWidth {
@@ -667,29 +675,6 @@ final class CmuxSettingsFileStore {
             }
         }
 
-        if let raw = jsonString(section["shellBackend"]) {
-            if let backend = LiveShellBackend(rawValue: raw) {
-                snapshot.managedUserDefaults[LiveShellSettings.key] = .string(backend.rawValue)
-            } else {
-                logInvalid("terminal.shellBackend", sourcePath: sourcePath)
-            }
-        } else if section.keys.contains("shellBackend") {
-            logInvalid("terminal.shellBackend", sourcePath: sourcePath)
-        }
-
-        if let value = jsonString(section["liveshExecutablePath"]) {
-            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-            snapshot.managedUserDefaults[LiveShellSettings.liveshExecutableKey] = .string(trimmed)
-        } else if section.keys.contains("liveshExecutablePath") {
-            logInvalid("terminal.liveshExecutablePath", sourcePath: sourcePath)
-        }
-
-        if let value = jsonString(section["liveshctlExecutablePath"]) {
-            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-            snapshot.managedUserDefaults[LiveShellSettings.liveshctlExecutableKey] = .string(trimmed)
-        } else if section.keys.contains("liveshctlExecutablePath") {
-            logInvalid("terminal.liveshctlExecutablePath", sourcePath: sourcePath)
-        }
     }
 
     private func parseSidebarSection(

@@ -151,6 +151,11 @@ if [[ -d "$STALE_APP" ]]; then
   /usr/bin/xattr -cr "$STALE_APP"
   /usr/bin/find "$STALE_APP" -maxdepth 1 \( -name $'Icon\r' -o -name 'Icon' \) -delete
 fi
+# Xcode can retain explicit precompiled modules after a framework's headers
+# were regenerated, which makes the next Swift compile fail with "header has
+# been modified since the module file was built". Rebuild only the affected
+# module cache while keeping the rest of the incremental build products.
+rm -rf "$DERIVED_DATA/Build/Intermediates.noindex/SwiftExplicitPrecompiledModules"
 
 xcodebuild \
   -project "$PROJECT_PATH" \

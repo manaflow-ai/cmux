@@ -1,48 +1,24 @@
+import CmuxSettings
 import Foundation
 
-enum LiveShellBackend: String, CaseIterable, Identifiable, Sendable {
-    case direct
-    case livesh
-
-    var id: String { rawValue }
-
-    var displayName: String {
-        switch self {
-        case .direct:
-            return String(
-                localized: "settings.terminal.shellBackend.direct",
-                defaultValue: "Direct"
-            )
-        case .livesh:
-            return String(
-                localized: "settings.terminal.shellBackend.livesh",
-                defaultValue: "Live Shell (livesh)"
-            )
-        }
-    }
-}
-
-/// User-facing setting for choosing whether new terminal panes wrap their shell in livesh
-/// (a daemon-owned PTY layer that outlives cmux) or run the shell directly (current behavior).
-///
-/// Reads/writes UserDefaults under `LiveShellSettings.key`. Defaults to `.direct` so existing
-/// users see no behavior change until they opt in.
+/// Resolves the configured livesh backend and executable overrides for terminal creation.
 enum LiveShellSettings {
-    static let key = "terminalShellBackend"
-    static let liveshExecutableKey = "terminalLiveshExecutablePath"
-    static let liveshctlExecutableKey = "terminalLiveshctlExecutablePath"
+    private static let terminal = TerminalCatalogSection()
 
-    static let defaultBackend: LiveShellBackend = .direct
+    static let key = terminal.shellBackend.userDefaultsKey
+    static let liveshExecutableKey = terminal.liveshExecutablePath.userDefaultsKey
+    static let liveshctlExecutableKey = terminal.liveshctlExecutablePath.userDefaultsKey
+    static let defaultBackend = terminal.shellBackend.defaultValue
 
-    static func current(defaults: UserDefaults = .standard) -> LiveShellBackend {
+    static func current(defaults: UserDefaults = .standard) -> TerminalShellBackend {
         guard let raw = defaults.string(forKey: key)?.trimmingCharacters(in: .whitespacesAndNewlines),
-              let backend = LiveShellBackend(rawValue: raw) else {
+              let backend = TerminalShellBackend(rawValue: raw) else {
             return defaultBackend
         }
         return backend
     }
 
-    static func set(_ backend: LiveShellBackend, defaults: UserDefaults = .standard) {
+    static func set(_ backend: TerminalShellBackend, defaults: UserDefaults = .standard) {
         defaults.set(backend.rawValue, forKey: key)
     }
 
@@ -54,14 +30,10 @@ enum LiveShellSettings {
         environment: [String: String] = ProcessInfo.processInfo.environment,
         homeDirectory: String = NSHomeDirectory()
     ) -> String? {
-        if let override = defaults.string(forKey: liveshExecutableKey)?
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-           !override.isEmpty,
-           fileManager.isExecutableFile(atPath: override) {
-            return override
-        }
-        return resolveExecutable(
+        resolveConfiguredExecutable(
+            overrideKey: liveshExecutableKey,
             name: "livesh",
+            defaults: defaults,
             fileManager: fileManager,
             environment: environment,
             homeDirectory: homeDirectory
@@ -74,14 +46,10 @@ enum LiveShellSettings {
         environment: [String: String] = ProcessInfo.processInfo.environment,
         homeDirectory: String = NSHomeDirectory()
     ) -> String? {
-        if let override = defaults.string(forKey: liveshctlExecutableKey)?
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-           !override.isEmpty,
-           fileManager.isExecutableFile(atPath: override) {
-            return override
-        }
-        return resolveExecutable(
+        resolveConfiguredExecutable(
+            overrideKey: liveshctlExecutableKey,
             name: "liveshctl",
+            defaults: defaults,
             fileManager: fileManager,
             environment: environment,
             homeDirectory: homeDirectory
@@ -105,19 +73,32 @@ enum LiveShellSettings {
         ) != nil
     }
 
-    private static func resolveExecutable(
+    private static func resolveConfiguredExecutable(
+        overrideKey: String,
         name: String,
+        defaults: UserDefaults,
         fileManager: FileManager,
         environment: [String: String],
         homeDirectory: String
     ) -> String? {
-        let localBin = (homeDirectory as NSString).appendingPathComponent(".local/bin/\(name)")
-        if fileManager.isExecutableFile(atPath: localBin) {
-            return localBin
+        if let override = defaults.string(forKey: overrideKey)?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !override.isEmpty,
+           fileManager.isExecutableFile(atPath: override) {
+            return override
         }
-        let pathEnv = environment["PATH"] ?? "/usr/local/bin:/usr/bin:/bin"
-        for segment in pathEnv.split(separator: ":", omittingEmptySubsequences: true) {
-            let candidate = (String(segment) as NSString).appendingPathComponent(name)
+
+        let searchDirectories = [
+            (homeDirectory as NSString).appendingPathComponent(".local/bin"),
+            "/opt/homebrew/bin",
+            "/usr/local/bin",
+            "/opt/local/bin",
+        ] + (environment["PATH"] ?? "/usr/bin:/bin")
+            .split(separator: ":", omittingEmptySubsequences: true)
+            .map(String.init)
+
+        var seen = Set<String>()
+        for directory in searchDirectories where seen.insert(directory).inserted {
+            let candidate = (directory as NSString).appendingPathComponent(name)
             if fileManager.isExecutableFile(atPath: candidate) {
                 return candidate
             }

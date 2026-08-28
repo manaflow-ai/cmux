@@ -85,6 +85,9 @@ select_zig_for_target() {
   local path_zig=""
   path_zig="$(command -v zig 2>/dev/null || true)"
   [[ -n "$path_zig" ]] && candidates+=("$path_zig")
+  # Keg-only homebrew zig (zig@0.15) is not linked into /opt/homebrew/bin
+  # when a newer zig is the linked version.
+  candidates+=("/opt/homebrew/opt/zig@0.15/bin/zig")
   candidates+=("/usr/local/bin/zig")
 
   local fallback=""

@@ -78,6 +78,9 @@ function buildSettingsFileExample(t: ConfigurationTranslation) {
   //   "showScrollBar": false,
   //   "copyOnSelect": true,
   //   "autoResumeAgentSessions": true,
+  //   "shellBackend": "direct",
+  //   "liveshExecutablePath": "",
+  //   "liveshctlExecutablePath": "",
   //   "showTextBoxOnNewTerminals": false,
   //   "focusTextBoxOnNewTerminals": false,
   //   "agentHibernation": {

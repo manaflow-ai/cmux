@@ -5,10 +5,133 @@ import ObjectiveC
 import UniformTypeIdentifiers
 import WebKit
 
-/// WKWebView can consume app command equivalents before app menu/SwiftUI Commands.
-/// Route app/menu shortcuts first, but allow browser content to try browser-local
-/// Find shortcuts. The configured shortcut stays app-owned so cmux can choose browser
-/// find or right-sidebar file search from the current focus owner.
+enum BrowserTextInputCorrectionDefaults {
+    static let automaticSpellingCorrectionKey = "NSAutomaticSpellingCorrectionEnabled"
+    static let automaticQuoteSubstitutionKey = "NSAutomaticQuoteSubstitutionEnabled"
+    static let automaticDashSubstitutionKey = "NSAutomaticDashSubstitutionEnabled"
+    static let automaticTextReplacementKey = "NSAutomaticTextReplacementEnabled"
+    static let automaticTextCompletionKey = "NSAutomaticTextCompletionEnabled"
+    static let automaticCapitalizationKey = "NSAutomaticCapitalizationEnabled"
+    static let automaticPeriodSubstitutionKey = "NSAutomaticPeriodSubstitutionEnabled"
+    static let automaticInlinePredictionKey = "NSAutomaticInlinePredictionEnabled"
+
+    static func register(in defaults: UserDefaults = .standard) {
+        defaults.register(defaults: [
+            automaticSpellingCorrectionKey: false,
+            automaticQuoteSubstitutionKey: false,
+            automaticDashSubstitutionKey: false,
+            automaticTextReplacementKey: false,
+            automaticTextCompletionKey: false,
+            automaticCapitalizationKey: false,
+            automaticPeriodSubstitutionKey: false,
+            automaticInlinePredictionKey: false,
+        ])
+    }
+}
+
+enum BrowserPageAutocompleteDisabler {
+    static let scriptSource = """
+    (() => {
+      try {
+        if (window.__cmuxDisableTextAutocompleteInstalled) return true;
+        window.__cmuxDisableTextAutocompleteInstalled = true;
+        const roots = new WeakSet();
+        const controlSelector = 'form,input:not([type="hidden"]),textarea,[contenteditable]:not([contenteditable="false"])';
+        const setAttr = (el, name, value) => {
+          try {
+            if (el.getAttribute(name) !== value) el.setAttribute(name, value);
+          } catch (_) {}
+        };
+        const removeAttr = (el, name) => {
+          try {
+            if (el.hasAttribute(name)) el.removeAttribute(name);
+          } catch (_) {}
+        };
+        const disableElement = (el) => {
+          if (!el || el.nodeType !== Node.ELEMENT_NODE) return;
+          const tag = String(el.tagName || '').toLowerCase();
+          if (tag === 'form') {
+            setAttr(el, 'autocomplete', 'off');
+            return;
+          }
+          const isTextControl = tag === 'input' || tag === 'textarea';
+          const isEditable = !!el.isContentEditable;
+          if (!isTextControl && !isEditable) return;
+          const type = tag === 'input'
+            ? String(el.getAttribute('type') || el.type || 'text').toLowerCase()
+            : '';
+          const autocompleteValue = type === 'password' ? 'new-password' : 'off';
+          if (isTextControl) {
+            setAttr(el, 'autocomplete', autocompleteValue);
+            try { el.autocomplete = autocompleteValue; } catch (_) {}
+          }
+          setAttr(el, 'autocorrect', 'off');
+          setAttr(el, 'autocapitalize', 'off');
+          setAttr(el, 'spellcheck', 'false');
+          try { el.spellcheck = false; } catch (_) {}
+          if (tag === 'input' && type === 'search') {
+            setAttr(el, 'results', '0');
+            removeAttr(el, 'autosave');
+          }
+        };
+        const sweepNode = (node) => {
+          try {
+            if (!node || node.nodeType !== Node.ELEMENT_NODE) return;
+            disableElement(node);
+            if (node.shadowRoot) visitRoot(node.shadowRoot);
+            node.querySelectorAll?.(controlSelector)?.forEach(disableElement);
+          } catch (_) {}
+        };
+        const visitRoot = (root) => {
+          if (!root) return;
+          const alreadyObserved = roots.has(root);
+          if (!alreadyObserved) roots.add(root);
+          try {
+            if (root.nodeType === Node.ELEMENT_NODE) disableElement(root);
+            root.querySelectorAll?.(controlSelector)?.forEach(disableElement);
+          } catch (_) {}
+          if (alreadyObserved) return;
+          try {
+            const observer = new MutationObserver((mutations) => {
+              for (const mutation of mutations) mutation.addedNodes.forEach(sweepNode);
+            });
+            observer.observe(root, { childList: true, subtree: true });
+          } catch (_) {}
+        };
+        try {
+          const proto = Element.prototype;
+          const original = proto.attachShadow;
+          if (typeof original === 'function' && !original.__cmuxDisableTextAutocompletePatched) {
+            const patched = function(init) {
+              const root = original.call(this, init);
+              try { visitRoot(root); } catch (_) {}
+              return root;
+            };
+            Object.defineProperty(patched, '__cmuxDisableTextAutocompletePatched', { value: true });
+            Object.defineProperty(proto, 'attachShadow', { configurable: true, writable: true, value: patched });
+          }
+        } catch (_) {}
+        document.addEventListener('DOMContentLoaded', () => visitRoot(document), true);
+        document.addEventListener('focusin', (event) => {
+          try {
+            const target = event?.target;
+            disableElement(target && target.nodeType === Node.ELEMENT_NODE ? target : document.activeElement);
+          } catch (_) {}
+        }, true);
+        visitRoot(document);
+        return true;
+      } catch (_) {
+        return false;
+      }
+    })();
+    """
+}
+
+/// WKWebView tends to consume some app command equivalents,
+/// preventing the app menu/SwiftUI Commands from receiving them. Route app/menu
+/// shortcuts first by default, but allow browser content to try browser-local
+/// Find-family shortcuts. The configured Find shortcut stays app-owned so cmux can
+/// choose browser find or right-sidebar file search from the current focus owner.
 final class CmuxWebView: WKWebView {
     var browserViewportModel: BrowserViewportModel?
     var onBrowserViewportHierarchyChanged: (() -> Void)?
@@ -322,6 +445,7 @@ final class CmuxWebView: WKWebView {
     var debugPointerFocusAllowanceDepth: Int { pointerFocusAllowanceDepth }
 
     override init(frame: NSRect, configuration: WKWebViewConfiguration) {
+        BrowserTextInputCorrectionDefaults.register()
         super.init(frame: frame, configuration: configuration)
         installPasteAsPlainTextFocusTracking()
         installScriptedDownloadInterception()
@@ -329,12 +453,28 @@ final class CmuxWebView: WKWebView {
         installDiffViewerEditableFocusTracking()
     }
     required init?(coder: NSCoder) {
+        BrowserTextInputCorrectionDefaults.register()
         super.init(coder: coder)
         installPasteAsPlainTextFocusTracking()
         installScriptedDownloadInterception()
         installContextMenuLinkCapture()
         installDiffViewerEditableFocusTracking()
     }
+
+    @objc var autocorrectionType: NSTextInputTraitType { get { .no } set {} }
+    @objc var spellCheckingType: NSTextInputTraitType { get { .no } set {} }
+    @objc var grammarCheckingType: NSTextInputTraitType { get { .no } set {} }
+    @objc var smartQuotesType: NSTextInputTraitType { get { .no } set {} }
+    @objc var smartDashesType: NSTextInputTraitType { get { .no } set {} }
+    @objc var smartInsertDeleteType: NSTextInputTraitType { get { .no } set {} }
+    @objc var textReplacementType: NSTextInputTraitType { get { .no } set {} }
+    @objc var dataDetectionType: NSTextInputTraitType { get { .no } set {} }
+    @objc var linkDetectionType: NSTextInputTraitType { get { .no } set {} }
+    @objc var textCompletionType: NSTextInputTraitType { get { .no } set {} }
+    @available(macOS 14.0, *)
+    @objc var inlinePredictionType: NSTextInputTraitType { get { .no } set {} }
+    @available(macOS 15.0, *)
+    @objc var mathExpressionCompletionType: NSTextInputTraitType { get { .no } set {} }
 
     private func installDiffViewerEditableFocusTracking() {
         let controller = configuration.userContentController

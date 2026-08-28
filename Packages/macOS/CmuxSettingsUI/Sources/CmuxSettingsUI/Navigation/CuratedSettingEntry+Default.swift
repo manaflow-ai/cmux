@@ -111,7 +111,17 @@ extension Array where Element == CuratedSettingEntry {
                 synonyms: "terminal.scrollSpeed scroll speed multiplier wheel mouse trackpad sensitivity faster slower"
             ),
             .init(section: .terminal, id: "copy-on-select", title: "Copy on Selection", synonyms: "terminal.copyOnSelect copy on selection select clipboard mouse double click triple click iterm"),
-            .init(section: .terminal, id: "shell-backend", title: "Shell Backend", synonyms: "terminal.shellBackend terminal.liveshExecutablePath terminal.liveshctlExecutablePath live shell livesh liveshctl binary path direct daemon pty persistent reattach outlive"),
+            .init(
+                section: .terminal,
+                id: "shell-backend",
+                title: String(localized: "settings.terminal.shellBackend", defaultValue: "Shell Backend"),
+                paths: [
+                    "terminal.shellBackend",
+                    "terminal.liveshExecutablePath",
+                    "terminal.liveshctlExecutablePath",
+                ],
+                synonyms: "live shell livesh liveshctl binary path direct daemon pty persistent reattach outlive"
+            ),
             .init(section: .terminal, id: "agent-auto-resume", title: "Resume Agent Sessions on Reopen", synonyms: "terminal.autoResumeAgentSessions auto resume restore reopen relaunch quit sessions agents claude code codex opencode rovo dev rovodev toggle"),
             .init(section: .terminal, id: "agent-hibernation", title: "Agent Hibernation", synonyms: "terminal.agentHibernation.enabled idle hibernate suspend background agents claude code codex opencode live terminals"),
             .init(section: .terminal, id: "agent-hibernation-idle", title: "Hibernate After Idle Seconds", synonyms: "terminal.agentHibernation.idleSeconds idle seconds timeout delay hibernate suspend"),

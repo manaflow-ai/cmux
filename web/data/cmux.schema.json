@@ -590,6 +590,25 @@
           "default": true,
           "description": "Automatically run agent resume commands for restored terminal sessions when cmux reopens after quit. Set false to restore panes while keeping Claude Code, Codex, OpenCode, and other saved agent sessions idle until you resume them manually."
         },
+        "shellBackend": {
+          "type": "string",
+          "enum": ["direct", "livesh"],
+          "default": "direct",
+          "descriptionKey": "schemaDescriptions.terminal.shellBackend",
+          "description": "Choose whether new terminal panes run directly under cmux or through livesh so their shells can survive cmux restarts."
+        },
+        "liveshExecutablePath": {
+          "type": "string",
+          "default": "",
+          "descriptionKey": "schemaDescriptions.terminal.liveshExecutablePath",
+          "description": "Optional absolute path to the livesh executable. Leave empty to search ~/.local/bin and PATH."
+        },
+        "liveshctlExecutablePath": {
+          "type": "string",
+          "default": "",
+          "descriptionKey": "schemaDescriptions.terminal.liveshctlExecutablePath",
+          "description": "Optional absolute path to the liveshctl executable used by live-shell management commands."
+        },
         "showTextBoxOnNewTerminals": {
           "type": "boolean",
           "default": false,

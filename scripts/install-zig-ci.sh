@@ -59,7 +59,9 @@ use_existing_zig_if_available() {
 
   local candidate
   local seen=" "
-  for candidate in "$(command -v zig 2>/dev/null || true)" /opt/homebrew/bin/zig /usr/local/bin/zig; do
+  # Keg-only homebrew zig (zig@0.15) is not linked into /opt/homebrew/bin
+  # when a newer zig is the linked version.
+  for candidate in "$(command -v zig 2>/dev/null || true)" /opt/homebrew/bin/zig /opt/homebrew/opt/zig@0.15/bin/zig /usr/local/bin/zig; do
     [ -n "$candidate" ] || continue
     [ -x "$candidate" ] || continue
     candidate="$(cd "$(dirname "$candidate")" && pwd)/$(basename "$candidate")"

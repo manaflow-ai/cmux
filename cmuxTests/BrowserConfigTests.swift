@@ -1923,6 +1923,120 @@ final class BrowserDeveloperToolsConfigurationTests: XCTestCase {
             XCTAssertTrue(panel.webView.isInspectable)
         }
     }
+    func testBrowserPanelDisablesNativeTextCorrectionTraits() throws {
+        let webView = CmuxWebView(
+            frame: NSRect(x: 0, y: 0, width: 100, height: 100),
+            configuration: WKWebViewConfiguration()
+        )
+        let traits: [NSTextInputTraitType] = [
+            webView.autocorrectionType,
+            webView.spellCheckingType,
+            webView.grammarCheckingType,
+            webView.smartQuotesType,
+            webView.smartDashesType,
+            webView.smartInsertDeleteType,
+            webView.textReplacementType,
+            webView.dataDetectionType,
+            webView.linkDetectionType,
+            webView.textCompletionType,
+        ]
+        XCTAssertTrue(traits.allSatisfy { $0 == .no })
+        if #available(macOS 14.0, *) {
+            XCTAssertEqual(webView.inlinePredictionType, .no)
+        }
+        if #available(macOS 15.0, *) {
+            XCTAssertEqual(webView.mathExpressionCompletionType, .no)
+        }
+
+        let suiteName = "cmux.browserTextCorrectionTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        BrowserTextInputCorrectionDefaults.register(in: defaults)
+        let keys = [
+            BrowserTextInputCorrectionDefaults.automaticSpellingCorrectionKey,
+            BrowserTextInputCorrectionDefaults.automaticQuoteSubstitutionKey,
+            BrowserTextInputCorrectionDefaults.automaticDashSubstitutionKey,
+            BrowserTextInputCorrectionDefaults.automaticTextReplacementKey,
+            BrowserTextInputCorrectionDefaults.automaticTextCompletionKey,
+            BrowserTextInputCorrectionDefaults.automaticCapitalizationKey,
+            BrowserTextInputCorrectionDefaults.automaticPeriodSubstitutionKey,
+            BrowserTextInputCorrectionDefaults.automaticInlinePredictionKey,
+        ]
+        XCTAssertTrue(keys.allSatisfy { defaults.bool(forKey: $0) == false })
+    }
+
+    func testBrowserPanelDisablesPageAutocompleteControls() async throws {
+        let panel = BrowserPanel(workspaceId: UUID())
+        defer { panel.close() }
+        panel.webView.loadHTMLString(
+            """
+            <!doctype html><html><body>
+              <form id="form" autocomplete="on">
+                <input id="text" type="text" autocomplete="on" autocorrect="on" autocapitalize="sentences" spellcheck="true">
+                <input id="search" type="search" autocomplete="on" results="5" autosave="cmux-search">
+                <input id="password" type="password" autocomplete="current-password">
+                <textarea id="textarea" autocomplete="on" spellcheck="true"></textarea>
+              </form>
+              <div id="host"></div>
+              <script>
+                const shadow = document.getElementById('host').attachShadow({ mode: 'open' });
+                const shadowInput = document.createElement('input');
+                shadowInput.id = 'shadow-input'; shadowInput.autocomplete = 'on'; shadow.appendChild(shadowInput);
+                setTimeout(() => {
+                  const dynamic = document.createElement('input');
+                  dynamic.id = 'dynamic'; dynamic.autocomplete = 'on'; document.body.appendChild(dynamic);
+                }, 0);
+              </script>
+            </body></html>
+            """,
+            baseURL: URL(string: "https://example.test/")!
+        )
+        let deadline = Date().addingTimeInterval(2)
+        var state: [String: Any] = [:]
+        while Date() < deadline {
+            if let json = try? await panel.evaluateJavaScript(
+                """
+                (() => {
+                  const byId = id => document.getElementById(id);
+                  const shadow = byId('host')?.shadowRoot?.getElementById('shadow-input');
+                  const dynamic = byId('dynamic'), text = byId('text'), search = byId('search');
+                  return JSON.stringify({
+                    ready: document.readyState === 'complete' && !!dynamic && !!shadow,
+                    form: byId('form')?.getAttribute('autocomplete') || '',
+                    text: [text?.getAttribute('autocomplete'), text?.getAttribute('autocorrect'), text?.getAttribute('autocapitalize'), text?.getAttribute('spellcheck'), text?.spellcheck],
+                    search: [search?.getAttribute('autocomplete'), search?.getAttribute('results'), search?.hasAttribute('autosave')],
+                    password: byId('password')?.getAttribute('autocomplete') || '',
+                    textarea: byId('textarea')?.getAttribute('autocomplete') || '',
+                    dynamic: dynamic?.getAttribute('autocomplete') || '',
+                    shadow: shadow?.getAttribute('autocomplete') || ''
+                  });
+                })()
+                """
+            ) as? String,
+               let data = json.data(using: .utf8),
+               let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+               object["ready"] as? Bool == true {
+                state = object
+                break
+            }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertEqual(state["form"] as? String, "off")
+        let text = state["text"] as? [Any]
+        XCTAssertEqual(text?[0] as? String, "off")
+        XCTAssertEqual(text?[1] as? String, "off")
+        XCTAssertEqual(text?[2] as? String, "off")
+        XCTAssertEqual(text?[3] as? String, "false")
+        XCTAssertEqual(text?[4] as? Bool, false)
+        let search = state["search"] as? [Any]
+        XCTAssertEqual(search?[0] as? String, "off")
+        XCTAssertEqual(search?[1] as? String, "0")
+        XCTAssertEqual(search?[2] as? Bool, false)
+        XCTAssertEqual(state["password"] as? String, "new-password")
+        XCTAssertEqual(state["textarea"] as? String, "off")
+        XCTAssertEqual(state["dynamic"] as? String, "off")
+        XCTAssertEqual(state["shadow"] as? String, "off")
+    }
 
     func testBrowserPanelRefreshesUnderPageBackgroundColorWhenGhosttyBackgroundChanges() throws {
         let panel = BrowserPanel(workspaceId: UUID())

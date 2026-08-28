@@ -213,6 +213,8 @@ enum NotificationSettingsFileMapping {
 }
 
 enum TerminalSettingsFileMapping {
+    private static let terminal = TerminalCatalogSection()
+
     static let booleanSettings: [SettingsFileBooleanMapping] = [
         .init(
             jsonKey: "showScrollBar",
@@ -228,6 +230,17 @@ enum TerminalSettingsFileMapping {
             jsonKey: "autoResumeAgentSessions",
             defaultsKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey,
             invalidPath: "terminal.autoResumeAgentSessions"
+        ),
+    ]
+
+    static let stringSettings: [SettingsFileStringMapping] = [
+        .init(
+            jsonKey: "liveshExecutablePath",
+            defaultsKey: terminal.liveshExecutablePath.userDefaultsKey
+        ),
+        .init(
+            jsonKey: "liveshctlExecutablePath",
+            defaultsKey: terminal.liveshctlExecutablePath.userDefaultsKey
         ),
     ]
 }
