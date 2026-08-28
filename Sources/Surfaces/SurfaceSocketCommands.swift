@@ -194,8 +194,14 @@ extension TerminalController {
             let catalog = await SurfaceCatalog.shared
             if await catalog.resources[resource] == nil {
                 // Ports are discovered by probing the machine; a port the person names may
-                // not have been seen yet. Re-sync, then register it so the provider can open it.
-                await CmuxTuiSurfaceProviderRegistry.shared.refresh(force: true)
+                // not have been seen yet. Re-sync THIS machine (a fleet-wide forced refresh
+                // waits on every other machine's link too), then register it so the
+                // provider can open it.
+                if let provider = await CmuxTuiSurfaceProviderRegistry.shared.provider(machineID: vmId) {
+                    await provider.refresh(force: true)
+                } else {
+                    await CmuxTuiSurfaceProviderRegistry.shared.refresh(force: true)
+                }
                 if await catalog.resources[resource] == nil {
                     await catalog.upsert(SurfaceResource(
                         id: resource,
