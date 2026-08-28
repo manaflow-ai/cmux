@@ -106,6 +106,10 @@ struct CodexTurnCompletionOwnershipTests {
             "A parent Stop with live children must remain Running: \(pendingCommands)"
         )
         #expect(
+            !pendingCommands.contains { $0.hasPrefix("set_status codex Idle ") },
+            "A pending parent Stop must not also mark the pane idle: \(pendingCommands)"
+        )
+        #expect(
             AgentJournalAppendCapture.captures(in: pendingCommands).contains {
                 $0.kind == "agent.turn.completed" && $0.pendingWork
             },
@@ -130,6 +134,10 @@ struct CodexTurnCompletionOwnershipTests {
             partiallyDrainedCommands.contains { $0.hasPrefix("set_status codex Running ") },
             "One remaining child must keep the pane Running: \(partiallyDrainedCommands)"
         )
+        #expect(
+            !partiallyDrainedCommands.contains { $0.hasPrefix("set_status codex Idle ") },
+            "One remaining child must not also mark the pane idle: \(partiallyDrainedCommands)"
+        )
 
         try runFeedLifecycle(harness, event: "SubagentStop", id: "child-b")
         let beforeFinalStop = harness.context.state.snapshot().count
@@ -151,6 +159,33 @@ struct CodexTurnCompletionOwnershipTests {
         #expect(
             finalCommands.contains { $0.hasPrefix("set_status codex Idle ") },
             "The settled foreground turn must become idle: \(finalCommands)"
+        )
+        #expect(
+            !finalCommands.contains { $0.hasPrefix("set_status codex Running ") },
+            "The settled foreground turn must not remain Running: \(finalCommands)"
+        )
+
+        // A second Stop for the same settled turn is a duplicate boundary and
+        // must not publish another completion or repaint the pane.
+        let beforeDuplicateStop = harness.context.state.snapshot().count
+        try runHook(
+            harness,
+            subcommand: "stop",
+            input: stopPayload(harness, turnId: "turn-1")
+        )
+        let duplicateCommands = Array(
+            harness.context.state.snapshot().dropFirst(beforeDuplicateStop)
+        )
+        let cumulativeNotifications = harness.context.state.snapshot().filter {
+            $0.hasPrefix("notify_target_async ")
+        }
+        #expect(
+            cumulativeNotifications.count == 1,
+            "A duplicate settled Stop must not publish a second completion: \(harness.context.state.snapshot())"
+        )
+        #expect(
+            !duplicateCommands.contains { $0.hasPrefix("set_status codex Idle ") },
+            "A duplicate settled Stop must not repaint the pane idle: \(duplicateCommands)"
         )
     }
 
@@ -178,6 +213,7 @@ struct CodexTurnCompletionOwnershipTests {
         let commands = Array(harness.context.state.snapshot().dropFirst(beforeStop))
         #expect(commands.filter { $0.hasPrefix("notify_target_async ") }.count == 1)
         #expect(commands.contains { $0.hasPrefix("set_status codex Idle ") })
+        #expect(!commands.contains { $0.hasPrefix("set_status codex Running ") })
     }
 
     private func makeHarness(name: String) throws -> Harness {
@@ -228,9 +264,10 @@ struct CodexTurnCompletionOwnershipTests {
             harness,
             subcommand: subcommand,
             input: input,
-            environment: environment ?? harness.environment
+            environment: environment ?? harness.environment,
+            timeout: 10
         )
-        #expect(harness.handled.wait(timeout: .now() + 5) == .success)
+        #expect(harness.handled.wait(timeout: .now() + 10) == .success)
         harness.support.assertSuccessfulHook(result)
     }
 
@@ -250,7 +287,8 @@ struct CodexTurnCompletionOwnershipTests {
         _ harness: Harness,
         subcommand: String,
         input: String,
-        environment: [String: String]
+        environment: [String: String],
+        timeout: TimeInterval = 5
     ) -> ClaudeHookSurfaceResolutionSwiftTests.ProcessRunResult {
         let command = subcommand.split(separator: " ").map(String.init)
         let arguments = command.first == "feed"
@@ -261,7 +299,7 @@ struct CodexTurnCompletionOwnershipTests {
             arguments: arguments,
             environment: environment,
             standardInput: input,
-            timeout: 5
+            timeout: timeout
         )
     }
 

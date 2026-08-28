@@ -32093,19 +32093,43 @@ export default CMUXSessionRestore;
         ))
     }
 
-    private static func jsonHookValueContainsCmuxOwnedCommand(_ value: Any, for def: AgentHookDef) -> Bool {
+    private static func jsonHookValueContainsCmuxOwnedCommand(
+        _ value: Any,
+        for def: AgentHookDef,
+        materializeCodexScripts: Bool = true
+    ) -> Bool {
         if let command = value as? String {
-            return isCmuxOwnedHookCommand(command, for: def)
+            return isCmuxOwnedHookCommand(
+                command,
+                for: def,
+                materializeCodexScripts: materializeCodexScripts
+            )
         }
         if let array = value as? [Any] {
-            return array.contains { jsonHookValueContainsCmuxOwnedCommand($0, for: def) }
+            return array.contains {
+                jsonHookValueContainsCmuxOwnedCommand(
+                    $0,
+                    for: def,
+                    materializeCodexScripts: materializeCodexScripts
+                )
+            }
         }
         if let object = value as? [String: Any] {
             if let command = object["command"] as? String,
-               isCmuxOwnedHookCommand(command, for: def) {
+               isCmuxOwnedHookCommand(
+                   command,
+                   for: def,
+                   materializeCodexScripts: materializeCodexScripts
+               ) {
                 return true
             }
-            return object.values.contains { jsonHookValueContainsCmuxOwnedCommand($0, for: def) }
+            return object.values.contains {
+                jsonHookValueContainsCmuxOwnedCommand(
+                    $0,
+                    for: def,
+                    materializeCodexScripts: materializeCodexScripts
+                )
+            }
         }
         return false
     }
@@ -32411,7 +32435,11 @@ export default CMUXSessionRestore;
             return []
         }
         return Set(hooks.compactMap { eventName, value in
-            Self.jsonHookValueContainsCmuxOwnedCommand(value, for: def)
+            Self.jsonHookValueContainsCmuxOwnedCommand(
+                value,
+                for: def,
+                materializeCodexScripts: false
+            )
                 ? eventName
                 : nil
         })
@@ -32901,11 +32929,10 @@ export default CMUXSessionRestore;
         telemetry: CLISocketSentryTelemetry,
         socketPassword: String? = nil,
         rawInputOverride: String? = nil,
-        hookDeadline: Date? = nil,
-        codexStopDecisionOverride: CodexTurnLedgerDecision? = nil,
-        skipCodexLegacyPromptStop: Bool = false
+        hookDeadline: Date? = nil
     ) throws {
         let env = ProcessInfo.processInfo.environment
+        let skipCodexLegacyPromptStop = env["CMUX_CODEX_SETTLED_CHILD_STOP"] == "1"
         let subcommand = commandArgs.first?.lowercased() ?? ""
         let hookArgs = Array(commandArgs.dropFirst())
         let cursorShellEvent = def.name == "cursor" && subcommand == "shell-exec"
@@ -34117,21 +34144,11 @@ export default CMUXSessionRestore;
                decision.ownership == .foreground,
                decision.settlement == .settled,
                decision.shouldNotify {
-                // A parent Stop can arrive before its last child exits. Reuse
-                // the normal stop publication path with the already-authoritative
-                // ledger decision so completion is emitted exactly once.
-                try runGenericAgentHook(
-                    def: def,
-                    commandArgs: ["stop"],
-                    client: client,
-                    telemetry: telemetry,
-                    socketPassword: socketPassword,
-                    rawInputOverride: rawInput,
-                    hookDeadline: hookDeadline,
-                    codexStopDecisionOverride: decision,
-                    skipCodexLegacyPromptStop: true
+                spawnDetachedCodexSettledStop(
+                    payload: rawInput,
+                    environment: env,
+                    telemetry: telemetry
                 )
-                return
             }
 
         case .sessionStart:
@@ -34744,9 +34761,6 @@ export default CMUXSessionRestore;
                       let codexLifecycle else {
                     return nil
                 }
-                if let codexStopDecisionOverride {
-                    return codexStopDecisionOverride
-                }
                 return codexLifecycle.observe(
                     sessionID: sessionId,
                     workspaceID: resolvedDirectWorkspaceArg ?? mapped?.workspaceId,
@@ -34903,6 +34917,13 @@ export default CMUXSessionRestore;
             let nestedPromptStop: Bool
             if skipCodexLegacyPromptStop {
                 nestedPromptStop = false
+            } else if def.name == "codex", codexLifecycle?.usesLegacyIdentity == false {
+                // Tokenized wrapper launches use CodexTurnLedger as the sole
+                // ownership and settlement authority. Legacy prompt-depth
+                // inference cannot distinguish a repeated parent Stop while
+                // children drain from a nested turn, so keep it out of this
+                // modern path entirely.
+                nestedPromptStop = false
             } else if def.name == "codex", codexStopDecision?.settlement == .settled {
                 // The ledger admitted this exact terminal boundary; do not let
                 // a prior pending Stop's tombstone make it look nested.
@@ -34938,16 +34959,12 @@ export default CMUXSessionRestore;
             if def.name == "codex",
                !nestedPromptStop,
                let codexLifecycle {
-                if let codexStopDecisionOverride {
-                    codexStopDecision = codexStopDecisionOverride
-                } else {
-                    codexStopDecision = codexLifecycle.stop(
-                        sessionID: sessionId,
-                        turnID: input.turnId,
-                        workspaceID: workspaceId,
-                        surfaceID: surfaceId
-                    )
-                }
+                codexStopDecision = codexLifecycle.stop(
+                    sessionID: sessionId,
+                    turnID: input.turnId,
+                    workspaceID: workspaceId,
+                    surfaceID: surfaceId
+                )
             }
             if def.name == "codex",
                !nestedPromptStop,

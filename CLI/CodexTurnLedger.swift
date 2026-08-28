@@ -295,9 +295,6 @@ final class CodexTurnLedger {
                         record.settledTurnIDs.append(key)
                     }
                     let shouldNotify = !record.notifiedTurnIDs.contains(key)
-                    if shouldNotify {
-                        record.notifiedTurnIDs.append(key)
-                    }
                     decision = self.decision(
                         ownership: .foreground,
                         settlement: .settled,

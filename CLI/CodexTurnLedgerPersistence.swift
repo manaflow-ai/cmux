@@ -85,7 +85,7 @@ extension CodexTurnLedger {
 
     func prune(
         _ state: inout CodexTurnLedgerFile,
-        retainingAtMost limit: Int = Self.maximumRecords
+        retainingAtMost limit: Int = CodexTurnLedger.maximumRecords
     ) {
         guard state.records.count > limit else { return }
         let removable = state.records

@@ -2,6 +2,65 @@ import CMUXAgentLaunch
 import Foundation
 
 extension CMUXCLI {
+    /// Schedules the normal Codex Stop path after the final child exits.
+    ///
+    /// Native child hooks must acknowledge the lifecycle write quickly, so the
+    /// larger notification/store projection runs in a detached CLI process.
+    /// The child-stop marker lets that process skip legacy prompt-depth
+    /// inference; the ledger itself remains the single settlement authority.
+    func spawnDetachedCodexSettledStop(
+        payload: String,
+        environment: [String: String],
+        telemetry: CLISocketSentryTelemetry
+    ) {
+        let selfPath: String = {
+            if let first = ProcessInfo.processInfo.arguments.first,
+               first.hasPrefix("/"),
+               FileManager.default.isExecutableFile(atPath: first) {
+                return first
+            }
+            if let bundled = normalizedHookValue(environment["CMUX_BUNDLED_CLI_PATH"]),
+               FileManager.default.isExecutableFile(atPath: bundled) {
+                return bundled
+            }
+            return "cmux"
+        }()
+        let payloadURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-codex-settled-stop-\(UUID().uuidString).json"
+            )
+        let payloadData = Data(payload.utf8)
+        guard FileManager.default.createFile(
+            atPath: payloadURL.path,
+            contents: payloadData,
+            attributes: [.posixPermissions: NSNumber(value: Int16(0o600))]
+        ) else {
+            telemetry.breadcrumb("codex-hook.settled-stop.payload-write-failed")
+            return
+        }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = [
+            "-c",
+            "nohup \"$0\" hooks codex stop < \"$1\" >/dev/null 2>&1 & rm -f \"$1\"",
+            selfPath,
+            payloadURL.path,
+        ]
+        var childEnvironment = environment
+        childEnvironment["CMUX_CODEX_SETTLED_CHILD_STOP"] = "1"
+        process.environment = childEnvironment
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+        } catch {
+            try? FileManager.default.removeItem(at: payloadURL)
+            telemetry.breadcrumb("codex-hook.settled-stop.spawn-failed")
+        }
+    }
+
     /// Emit, NUL-separated to stdout, the exact codex arg list the wrapper must
     /// splice ahead of the user's args to enable cmux hooks for one Codex
     /// invocation without rewriting the user's Codex configuration. Returns

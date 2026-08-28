@@ -182,7 +182,11 @@ extension CMUXCLI {
         "session-finalize": .sessionFinalize,
     ]
 
-    static func hookCommandString(for def: AgentHookDef, event: AgentHookDef.HookEvent) -> String {
+    static func hookCommandString(
+        for def: AgentHookDef,
+        event: AgentHookDef.HookEvent,
+        materializeCodexScripts: Bool = true
+    ) -> String {
         let command = "cmux hooks \(def.name) \(event.cmuxSubcommand)"
         let inline: String
         if def.name == "codex", codexHookCanRunFireAndForget(event.cmuxSubcommand) {
@@ -191,7 +195,11 @@ extension CMUXCLI {
             inline = agentHookShellCommand(command, for: def)
         }
         if def.name == "codex" {
-            return codexPersistentHookScriptCommand(inline, eventTag: event.cmuxSubcommand)
+            return codexPersistentHookScriptCommand(
+                inline,
+                eventTag: event.cmuxSubcommand,
+                materialize: materializeCodexScripts
+            )
         }
         return inline
     }
@@ -202,8 +210,13 @@ extension CMUXCLI {
     /// the `command` string directly and fail an inline shell snippet with
     /// "No such file or directory (os error 2)". Falls back to the inline command
     /// on any write failure, so the persistent install can never regress.
-    private static func codexPersistentHookScriptCommand(_ inlineCommand: String, eventTag: String) -> String {
-        guard let dir = codexHookScriptsDirectory(),
+    private static func codexPersistentHookScriptCommand(
+        _ inlineCommand: String,
+        eventTag: String,
+        materialize: Bool = true
+    ) -> String {
+        guard materialize,
+              let dir = codexHookScriptsDirectory(),
               let path = writeCodexHookScript(
                   subcommand: "persistent-\(eventTag)", body: inlineCommand, in: dir
               ) else {
@@ -216,7 +229,11 @@ extension CMUXCLI {
         subcommand == "session-start" || subcommand == "prompt-submit" || subcommand == "stop"
     }
 
-    static func feedHookCommandString(for def: AgentHookDef, agentEvent: String) -> String {
+    static func feedHookCommandString(
+        for def: AgentHookDef,
+        agentEvent: String,
+        materializeCodexScripts: Bool = true
+    ) -> String {
         if def.name == "codex",
            let injectedEvent = CodexHookInjectionSchema.current.events.first(where: {
                $0.agentEvent == agentEvent
@@ -235,7 +252,8 @@ extension CMUXCLI {
             }
             return codexPersistentHookScriptCommand(
                 inline,
-                eventTag: "feed-\(agentEvent)"
+                eventTag: "feed-\(agentEvent)",
+                materialize: materializeCodexScripts
             )
         }
 
@@ -256,7 +274,11 @@ extension CMUXCLI {
             )
         }
         if def.name == "codex" {
-            return codexPersistentHookScriptCommand(inline, eventTag: "feed-\(agentEvent)")
+            return codexPersistentHookScriptCommand(
+                inline,
+                eventTag: "feed-\(agentEvent)",
+                materialize: materializeCodexScripts
+            )
         }
         return inline
     }
@@ -484,15 +506,32 @@ extension CMUXCLI {
         "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
-    static func isCmuxOwnedHookCommand(_ command: String, for def: AgentHookDef, includeLegacy: Bool = true) -> Bool {
+    static func isCmuxOwnedHookCommand(
+        _ command: String,
+        for def: AgentHookDef,
+        includeLegacy: Bool = true,
+        materializeCodexScripts: Bool = true
+    ) -> Bool {
         if case .pinned(let marker) = def.dispatch, command.contains(marker) {
             return true
         }
         if def.name == "codex", isCmuxOwnedCodexHookScriptCommand(command) {
             return true
         }
-        if def.events.contains(where: { hookCommandString(for: def, event: $0) == command })
-            || def.feedHookEvents.contains(where: { feedHookCommandString(for: def, agentEvent: $0) == command })
+        if def.events.contains(where: {
+            hookCommandString(
+                for: def,
+                event: $0,
+                materializeCodexScripts: materializeCodexScripts
+            ) == command
+        })
+            || def.feedHookEvents.contains(where: {
+                feedHookCommandString(
+                    for: def,
+                    agentEvent: $0,
+                    materializeCodexScripts: materializeCodexScripts
+                ) == command
+            })
         {
             return true
         }
