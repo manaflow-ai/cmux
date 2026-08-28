@@ -98,6 +98,14 @@ impl ScreenDetectTracker {
         if entry.retry_not_before.is_some_and(|not_before| now < not_before) {
             return false;
         }
+        // A failed viewport read explicitly arms a retry. Once that
+        // deadline is reached, retry the pending revision even when the
+        // terminal has not been quiet for the debounce window.
+        let retry_due = entry.retry_not_before.take().is_some();
+        if retry_due {
+            entry.last_evaluated_at = Some(now);
+            return true;
+        }
         let quiet_since = entry.quiet_since.expect("anchored above");
         let quiesced = now.duration_since(quiet_since).as_millis() as u64 >= QUIESCENCE_DEBOUNCE_MS;
         let overdue = entry.last_evaluated_at.is_none_or(|evaluated_at| {

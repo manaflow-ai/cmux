@@ -81,13 +81,14 @@ pub(crate) fn scan(
     for (terminal_id, surface) in terminals {
         let Ok(revision) = surface.terminal_stream_revision() else { continue };
         let terminal_id = terminal_id.as_str();
-        let quiesced = tracker.observe_revision(terminal_id, revision, now);
         // Identity is resolved every tick: presence comes from the
         // foreground process, so a freshly launched agent is detected on
         // the next scan, never gated behind output quiescence.
         let manifest = resolver(&surface).and_then(|name| manifests.identify(&name));
-        let identity_edge =
-            tracker.note_foreground_agent(terminal_id, manifest.map(|manifest| manifest.id()));
+        tracker.note_foreground_agent(terminal_id, manifest.map(|manifest| manifest.id()));
+        // Observe after the identity edge so the immediate evaluation also
+        // records its pacer timestamp before later output is debounced.
+        let quiesced = tracker.observe_revision(terminal_id, revision, now);
         let emission = match manifest {
             None => {
                 // Not an agent (or the agent exited). Closes a live
@@ -95,7 +96,7 @@ pub(crate) fn scan(
                 // stays silent.
                 tracker.record_detection(terminal_id, None)
             }
-            Some(manifest) if quiesced || identity_edge => {
+            Some(manifest) if quiesced => {
                 let Ok(Ok(screen)) = surface.try_with_terminal(|terminal| terminal.viewport_text())
                 else {
                     tracker.note_evaluation_failure(terminal_id, now);
