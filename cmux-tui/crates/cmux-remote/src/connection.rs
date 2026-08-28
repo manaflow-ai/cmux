@@ -139,6 +139,10 @@ pub struct ClientConnection {
 #[derive(Clone, Debug)]
 enum CloseState {
     Pending,
+    /// Shutdown has started, but the cleanup task has not published its
+    /// terminal result yet. Background work uses this transition as its
+    /// cancellation signal; callers still wait for `Complete` or `Failed`.
+    Started,
     Complete,
     Failed(CloseFailure),
 }
@@ -689,6 +693,11 @@ impl ClientConnection {
         if self.closed.swap(true, Ordering::AcqRel) {
             return wait_for_close(self.close_state.subscribe()).await;
         }
+        // Publish shutdown intent before taking any cleanup locks. Reconnect
+        // and heartbeat tasks may be blocked in transport futures for a long
+        // time, so waiting only for the eventual terminal state would leave
+        // them alive after the caller has requested close.
+        self.close_state.send_replace(CloseState::Started);
         self.set_diagnostics_state(ConnectionState::Closed);
         // The cleanup task owns every lock needed to snapshot the final carrier.
         // It therefore survives cancellation of this caller after `closed` is
@@ -752,7 +761,7 @@ async fn resolve_reconnect_group(
 async fn wait_for_close(mut state: watch::Receiver<CloseState>) -> Result<(), ConnectionError> {
     loop {
         match state.borrow().clone() {
-            CloseState::Pending => {}
+            CloseState::Pending | CloseState::Started => {}
             CloseState::Complete => return Ok(()),
             CloseState::Failed(failure) => return Err(failure.to_error()),
         }
@@ -2374,6 +2383,7 @@ mod tests {
         .unwrap();
 
         let publication = client.reconnecting.lock().await;
+        let mut close_state = client.close_state.subscribe();
         let closing = tokio::spawn({
             let client = client.clone();
             async move { client.close().await }
@@ -2385,6 +2395,11 @@ mod tests {
         })
         .await
         .expect("close did not begin");
+        tokio::time::timeout(Duration::from_secs(1), close_state.changed())
+            .await
+            .expect("shutdown start was not published while cleanup was blocked")
+            .expect("close state channel closed before shutdown completed");
+        assert!(matches!(*close_state.borrow(), CloseState::Started));
         assert!(!closing.is_finished(), "close bypassed reconnect publication serialization");
         closing.abort();
         assert!(closing.await.unwrap_err().is_cancelled());
