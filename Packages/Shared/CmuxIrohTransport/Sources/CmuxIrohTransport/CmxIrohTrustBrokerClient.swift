@@ -279,8 +279,6 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
             case lanRendezvousRotated = "lan_rendezvous_rotated"
         }
     }
-    private struct BrokerError: Decodable { let error: String }
-
     private let baseURL: URL
     private let tokenSource: CmxIrohBrokerTokenSource
     private let transport: any CmxIrohHTTPTransport
@@ -941,7 +939,10 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
             throw CmxIrohTrustBrokerClientError.invalidResponse
         }
         guard (200 ... 299).contains(http.statusCode) else {
-            let code = try? JSONDecoder().decode(BrokerError.self, from: data).error
+            let body = try? JSONDecoder().decode(CmxIrohTrustBrokerError.self, from: data)
+            let code = body.map { payload in
+                payload.source.map { "\(payload.error):\($0.rawValue)" } ?? payload.error
+            }
             if http.statusCode == 429,
                let retryAfterSeconds = Self.retryAfterSeconds(
                    http.value(forHTTPHeaderField: "Retry-After")
