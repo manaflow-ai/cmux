@@ -5258,7 +5258,7 @@ impl Mux {
         // process can crash after the durable journal commit and before the
         // in-memory/resource projection update. The sequence guard makes this
         // a no-op for already-applied events while allowing restart repair.
-        self.apply_agent_hook_record(ingress, commit.sequence);
+        self.apply_agent_hook_record(ingress, commit.sequence)?;
         Ok(commit)
     }
 
@@ -5268,27 +5268,31 @@ impl Mux {
     /// reporting channel. Best effort by design: a hook may outlive its
     /// terminal (exit races, replays into closed tabs), and the journal
     /// append must never start failing because the record cannot update.
-    fn apply_agent_hook_record(&self, ingress: &crate::JournalIngress, sequence: u64) {
+    fn apply_agent_hook_record(
+        &self,
+        ingress: &crate::JournalIngress,
+        sequence: u64,
+    ) -> anyhow::Result<()> {
         if ingress.producer_id != crate::agent_hooks::AGENT_HOOK_PRODUCER_ID {
-            return;
+            return Ok(());
         }
-        let Some(state) = agent_state_for_hook_kind(&ingress.kind) else { return };
+        let Some(state) = agent_state_for_hook_kind(&ingress.kind) else { return Ok(()) };
         let Some(terminal_id) = ingress
             .subjects
             .iter()
             .find(|subject| subject.kind == "terminal")
             .and_then(|subject| TerminalPublicId::parse(&subject.id).ok())
         else {
-            return;
+            return Ok(());
         };
-        let Some(surface) = self.resource_surface_for_terminal(&terminal_id) else { return };
+        let Some(surface) = self.resource_surface_for_terminal(&terminal_id) else { return Ok(()) };
         let agent_session_id = ingress
             .payload
             .get("normalized")
-            .and_then(|value| value.get("agent_session_id"))
+            .and_then(|value| value.get("agent_tree_id").or_else(|| value.get("agent_session_id")))
             .and_then(Value::as_str)
             .map(str::to_owned)
-            .unwrap_or_else(|| format!("legacy:{terminal_id}"));
+            .unwrap_or_else(|| "legacy".to_owned());
         // Serialize the sequence check, projection commit, and sequence
         // update as one operation. The projection path takes registry, state,
         // then agent-record locks, so teardown acquires sequence before those
@@ -5297,15 +5301,15 @@ impl Mux {
         if fences.get(&terminal_id).is_some_and(|fence| fence.session_id != agent_session_id)
             && ingress.kind != "agent.session.started"
         {
-            return;
+            return Ok(());
         }
         if fences.get(&terminal_id).is_some_and(|fence| fence.ended)
             && ingress.kind != "agent.session.started"
         {
-            return;
+            return Ok(());
         }
         if fences.get(&terminal_id).is_some_and(|fence| sequence <= fence.sequence) {
-            return;
+            return Ok(());
         }
         // The record's session field is a human-facing label; native agent
         // session ids are opaque, so views fall back to their own context.
@@ -5319,20 +5323,14 @@ impl Mux {
             applied_sequence: sequence,
             ended: state == AgentState::Done,
         };
-        if self
-            .report_agent_with_sequence_lock(
-                surface,
-                state,
-                AgentSource::Hook,
-                Some(marker),
-                true,
-                Some(hook_state),
-            )
-            .is_err()
-        {
-            eprintln!("cmux-tui: agent record update failed");
-            return;
-        }
+        self.report_agent_with_sequence_lock(
+            surface,
+            state,
+            AgentSource::Hook,
+            Some(marker),
+            true,
+            Some(hook_state),
+        )?;
         fences.insert(
             terminal_id.clone(),
             HookFence { session_id: agent_session_id, sequence, ended: state == AgentState::Done },
@@ -5349,6 +5347,7 @@ impl Mux {
                 records.remove(&terminal_id);
             }
         }
+        Ok(())
     }
 
     pub(crate) fn journal_hook_states(
