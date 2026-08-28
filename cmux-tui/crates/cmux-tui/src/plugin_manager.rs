@@ -233,7 +233,7 @@ fn install_command(positionals: &[String], options: &CliOptions) -> Result<Value
         let name = installed_name(&manifest, options.name.as_deref())
             .map_err(|_| ManagerError::validation(Some("name"), "plugin name is invalid"))?;
         let target = root.join(&name);
-        if target.exists() && !options.force {
+        if path_entry_exists(&target)? && !options.force {
             return Err(ManagerError::validation(
                 Some("name"),
                 "plugin is already installed; use --force to replace it",
@@ -275,8 +275,8 @@ fn install_command(positionals: &[String], options: &CliOptions) -> Result<Value
         })}))
     })();
     if result.is_err() {
-        if temp_dir.exists() {
-            let _ = fs::remove_dir_all(&temp_dir);
+        if path_entry_exists(&temp_dir).unwrap_or(false) {
+            let _ = remove_path_if_present(&temp_dir);
         }
         if let Some(metadata_temp) = metadata_temp_path {
             let _ = fs::remove_file(metadata_temp);
@@ -361,8 +361,13 @@ fn remove_command(positionals: &[String], options: &CliOptions) -> Result<Value,
 }
 
 fn write_builtin_config(_options: &CliOptions) -> Result<Value, ManagerError> {
+    // Recovery must complete before changing the user's selection. Otherwise a
+    // prepared transaction can restore its snapshot after we select the
+    // builtin plugin, silently undoing the requested operation.
+    let root = install_root()?;
+    reconcile_install_transactions(&root)?;
     persist_sidebar_plugin(None)?;
-    let plugins = installed_plugins(true)?;
+    let plugins = installed_plugins(false)?;
     Ok(json!({"plugins": plugins.iter().map(plugin_json).collect::<Vec<_>>()}))
 }
 
@@ -710,11 +715,13 @@ impl InstallFilesystem for StandardInstallFilesystem {
     }
 }
 
-fn unique_backup_path(parent: &Path, name: &str, suffix: &str) -> PathBuf {
+fn unique_backup_path(parent: &Path, name: &str, suffix: &str) -> anyhow::Result<PathBuf> {
     loop {
         let path = parent.join(format!(".{name}.{}-{}{suffix}", std::process::id(), now_nanos()));
-        if !path.exists() {
-            return path;
+        match fs::symlink_metadata(&path) {
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(path),
+            Err(error) => return Err(error.into()),
         }
     }
 }
@@ -795,6 +802,18 @@ fn sync_directory(path: &Path) -> anyhow::Result<()> {
 #[cfg(not(unix))]
 fn sync_directory(_path: &Path) -> anyhow::Result<()> {
     Ok(())
+}
+
+/// Returns whether a directory entry exists, including a dangling symlink.
+/// `Path::exists` follows symlinks and therefore cannot represent an existing
+/// entry whose target has been removed. Transaction replacement and recovery
+/// must preserve those entries as well as regular files and directories.
+fn path_entry_exists(path: &Path) -> anyhow::Result<bool> {
+    match fs::symlink_metadata(path) {
+        Ok(_) => Ok(true),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(error.into()),
+    }
 }
 
 fn remove_path_if_present(path: &Path) -> anyhow::Result<()> {
@@ -961,7 +980,7 @@ fn reconcile_install_transactions(install_root: &Path) -> anyhow::Result<()> {
                     restore_config_snapshot(snapshot)?;
                 }
                 if journal.target_existed {
-                    if journal.target_backup.exists() {
+                    if path_entry_exists(&journal.target_backup)? {
                         remove_path_if_present(&install_root.join(&journal.name))?;
                         fs::rename(&journal.target_backup, install_root.join(&journal.name))?;
                     }
@@ -970,7 +989,7 @@ fn reconcile_install_transactions(install_root: &Path) -> anyhow::Result<()> {
                 }
                 if journal.metadata_existed {
                     let metadata_path = registry_metadata_path(install_root, &journal.name);
-                    if journal.metadata_backup.exists() {
+                    if path_entry_exists(&journal.metadata_backup)? {
                         remove_path_if_present(&metadata_path)?;
                         fs::rename(&journal.metadata_backup, metadata_path)?;
                     }
@@ -1112,12 +1131,12 @@ fn replace_installed_plugin_with_fs<F: InstallFilesystem, C: FnOnce() -> anyhow:
         ensure_real_directory(&registry)?;
     }
     let target = install_root.join(name);
-    let target_exists = target.exists();
+    let target_exists = path_entry_exists(&target)?;
     let metadata_path = registry_metadata_path(install_root, name);
-    let target_backup = unique_backup_path(install_root, name, ".plugin-backup");
+    let target_backup = unique_backup_path(install_root, name, ".plugin-backup")?;
     let metadata_backup =
-        unique_backup_path(&install_root.join(".registry"), name, ".metadata-backup.json");
-    let metadata_exists = metadata_path.exists();
+        unique_backup_path(&install_root.join(".registry"), name, ".metadata-backup.json")?;
+    let metadata_exists = path_entry_exists(&metadata_path)?;
     let journal_path = install_journal_path(install_root, name);
     let journal = InstallJournal {
         name: name.to_string(),
@@ -1594,6 +1613,40 @@ mod tests {
         );
         assert!(temp_dir.exists());
         assert!(metadata_temp.exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn replacement_failure_preserves_dangling_plugin_and_metadata_symlinks() {
+        use std::os::unix::fs::symlink;
+
+        let (root, target, temp_dir, metadata_temp) = replacement_fixture("dangling");
+        let metadata_path = registry_metadata_path(&root, "demo");
+        fs::remove_dir_all(&target).unwrap();
+        fs::remove_file(&metadata_path).unwrap();
+        let missing_target = root.join("missing-target");
+        let missing_metadata = root.join("missing-metadata");
+        symlink(&missing_target, &target).unwrap();
+        symlink(&missing_metadata, &metadata_path).unwrap();
+
+        // The fourth rename is the metadata install. It fails after both
+        // dangling entries have been backed up, so rollback must restore the
+        // symlinks rather than treating them as absent.
+        let filesystem = FailingRenameFilesystem { fail_at: 4, calls: Cell::new(0) };
+        let error = replace_installed_plugin_with_fs(
+            &filesystem,
+            &root,
+            "demo",
+            &temp_dir,
+            &metadata_temp,
+            None,
+            || Ok(()),
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("failed to persist"));
+        assert_eq!(fs::read_link(&target).unwrap(), missing_target);
+        assert_eq!(fs::read_link(&metadata_path).unwrap(), missing_metadata);
         fs::remove_dir_all(root).unwrap();
     }
 
