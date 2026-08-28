@@ -7,7 +7,7 @@ use std::io::{self, BufRead, BufReader, Read, Write};
 use std::net::Shutdown;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
+use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel, sync_channel};
 use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::time::{Duration, Instant};
 
@@ -967,6 +967,25 @@ enum RequestDeadline {
     Standard,
     Attach,
     Fixed(Duration),
+    /// A deadline shared by a sequence of requests, such as reconnect
+    /// classification. Each phase consumes only the time that remains.
+    Until(Instant),
+}
+
+impl RequestDeadline {
+    fn remaining(self) -> Result<Duration, RemoteRequestError> {
+        match self {
+            Self::Standard => Ok(REMOTE_REQUEST_TIMEOUT),
+            Self::Fixed(timeout) => Ok(timeout),
+            Self::Until(deadline) => {
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                if remaining.is_zero() { Err(RemoteRequestError::Timeout) } else { Ok(remaining) }
+            }
+            // Attach has its own progress-aware response deadline, but its
+            // enqueue/write phase still needs the normal bounded write wait.
+            Self::Attach => Ok(remote_write_timeout()),
+        }
+    }
 }
 
 struct AttachResponseDeadline {
@@ -1617,6 +1636,19 @@ impl RemoteTransport {
 
     pub fn json_lines(stream: Box<dyn transport::Stream>) -> io::Result<Self> {
         stream.set_write_timeout(Some(remote_write_timeout()))?;
+        Self::json_lines_parts(stream)
+    }
+
+    fn json_lines_with_timeout(
+        stream: Box<dyn transport::Stream>,
+        timeout: Duration,
+    ) -> io::Result<Self> {
+        stream.set_read_timeout(Some(timeout))?;
+        stream.set_write_timeout(Some(timeout))?;
+        Self::json_lines_parts(stream)
+    }
+
+    fn json_lines_parts(stream: Box<dyn transport::Stream>) -> io::Result<Self> {
         let read_half = stream.try_clone_box()?;
         let abort_stream = stream.try_clone_box()?;
         Ok(Self {
@@ -1805,15 +1837,52 @@ impl RemoteSession {
         Self::connect_path(path, false)
     }
 
+    pub(crate) fn connect_for_terminal_attach_until(
+        path: &Path,
+        deadline: Instant,
+    ) -> anyhow::Result<Arc<Self>> {
+        Self::connect_path_until(path, false, deadline)
+    }
+
     fn connect_path(path: &Path, subscribe: bool) -> anyhow::Result<Arc<Self>> {
         let stream = transport::connect(path).map_err(|e| {
             anyhow::anyhow!("cannot connect to session socket {}: {e}", path.display())
         })?;
-        if subscribe {
-            Self::connect_stream(stream)
-        } else {
-            Self::connect_stream_with_subscription(stream, false)
-        }
+        Self::connect_stream_with_subscription(stream, subscribe)
+    }
+
+    fn connect_path_until(
+        path: &Path,
+        subscribe: bool,
+        deadline: Instant,
+    ) -> anyhow::Result<Arc<Self>> {
+        let path_for_thread = path.to_path_buf();
+        let display = path.display().to_string();
+        let (sender, receiver) = sync_channel(1);
+        let connector =
+            std::thread::Builder::new().name("remote-probe-connect".into()).spawn(move || {
+                let _ = sender.send(transport::connect(&path_for_thread));
+            })?;
+        let stream = match receiver.recv_timeout(deadline.saturating_duration_since(Instant::now()))
+        {
+            Ok(result) => {
+                let _ = connector.join();
+                result.map_err(|error| {
+                    anyhow::anyhow!("cannot connect to session socket {display}: {error}")
+                })?
+            }
+            Err(RecvTimeoutError::Disconnected) => {
+                let _ = connector.join();
+                anyhow::bail!("remote probe connector stopped without a result")
+            }
+            Err(RecvTimeoutError::Timeout) => {
+                // The pipe-io process exits after classification. Dropping the
+                // connector lets that process terminate any blocked connect.
+                drop(connector);
+                anyhow::bail!(RemoteRequestError::Timeout)
+            }
+        };
+        Self::connect_stream_with_subscription_until(stream, subscribe, deadline)
     }
 
     /// Connect over an already-established full-duplex byte stream.
@@ -1834,6 +1903,27 @@ impl RemoteSession {
             anyhow::anyhow!("cannot configure JSON-lines session transport: {error}")
         })?;
         Self::connect_transport_with_initial_subscription(transport, subscribe)
+    }
+
+    fn connect_stream_with_subscription_until(
+        stream: Box<dyn transport::Stream>,
+        subscribe: bool,
+        deadline: Instant,
+    ) -> anyhow::Result<Arc<Self>> {
+        let timeout = deadline.saturating_duration_since(Instant::now());
+        if timeout.is_zero() {
+            anyhow::bail!(RemoteRequestError::Timeout);
+        }
+        let transport =
+            RemoteTransport::json_lines_with_timeout(stream, timeout).map_err(|error| {
+                anyhow::anyhow!("cannot configure JSON-lines session transport: {error}")
+            })?;
+        Self::connect_transport_with_provider_authority_until(
+            transport,
+            None,
+            subscribe,
+            Some(deadline),
+        )
     }
 
     pub fn connect_transport(transport: RemoteTransport) -> anyhow::Result<Arc<Self>> {
@@ -1858,6 +1948,20 @@ impl RemoteSession {
         transport: RemoteTransport,
         provider_workspace_authority: Option<BearerToken>,
         subscribe: bool,
+    ) -> anyhow::Result<Arc<Self>> {
+        Self::connect_transport_with_provider_authority_until(
+            transport,
+            provider_workspace_authority,
+            subscribe,
+            None,
+        )
+    }
+
+    fn connect_transport_with_provider_authority_until(
+        transport: RemoteTransport,
+        provider_workspace_authority: Option<BearerToken>,
+        subscribe: bool,
+        deadline: Option<Instant>,
     ) -> anyhow::Result<Arc<Self>> {
         let RemoteTransport { mut reader, writer, abort } = transport;
         let interactive_writer = InteractiveWriter::spawn(writer, abort)
@@ -1923,7 +2027,11 @@ impl RemoteSession {
             }
         })?;
 
-        if let Err(error) = session.initialize(subscribe) {
+        let initialization = deadline.map_or_else(
+            || session.initialize(subscribe),
+            |deadline| session.initialize_until(subscribe, deadline),
+        );
+        if let Err(error) = initialization {
             session.disconnect_transport();
             return Err(error);
         }
@@ -1931,8 +2039,20 @@ impl RemoteSession {
     }
 
     fn initialize(&self, subscribe: bool) -> anyhow::Result<()> {
+        self.initialize_with_deadline(subscribe, RequestDeadline::Standard)
+    }
+
+    fn initialize_until(&self, subscribe: bool, deadline: Instant) -> anyhow::Result<()> {
+        self.initialize_with_deadline(subscribe, RequestDeadline::Until(deadline))
+    }
+
+    fn initialize_with_deadline(
+        &self,
+        subscribe: bool,
+        deadline: RequestDeadline,
+    ) -> anyhow::Result<()> {
         // Identify the endpoint and register this connection before any optional subscription.
-        let ident = self.request(json!({"cmd": "identify"}))?;
+        let ident = self.request_with_deadline(json!({"cmd": "identify"}), deadline)?;
         validate_remote_identity(&ident)?;
         *self.capabilities.lock().unwrap() = identity_capabilities(&ident);
         let mut client_info = json!({"cmd": "set-client-info", "kind": "tui"});
@@ -1958,10 +2078,10 @@ impl RemoteSession {
         if !negotiated.is_empty() {
             client_info["capabilities"] = json!(negotiated);
         }
-        self.request(client_info)?;
+        self.request_with_deadline(client_info, deadline)?;
         if subscribe {
             self.prime_local_subscription();
-            if let Err(error) = self.request(self.subscription_request()) {
+            if let Err(error) = self.request_with_deadline(self.subscription_request(), deadline) {
                 self.primed_subscription.lock().unwrap().take();
                 return Err(error);
             }
@@ -2631,6 +2751,12 @@ impl RemoteSession {
         mut cmd: Value,
         deadline: RequestDeadline,
     ) -> anyhow::Result<Value> {
+        // A shared deadline must cover enqueueing, the ordered write, and the
+        // response wait. Check it before creating a pending request so an
+        // expired reconnect probe cannot add work to the relay.
+        if let Err(error) = deadline.remaining() {
+            return Err(error.into());
+        }
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let progress = Arc::new(AtomicU64::new(0));
         let attach_progress = matches!(deadline, RequestDeadline::Attach)
@@ -2658,7 +2784,14 @@ impl RemoteSession {
                 return Err(RemoteRequestError::Transport(error).into());
             }
         };
-        if let Err(error) = self.wait_for_ordered_write(sequence) {
+        let write_timeout = match deadline.remaining() {
+            Ok(timeout) => timeout,
+            Err(error) => {
+                self.pending.lock().unwrap().remove(&id);
+                return Err(error.into());
+            }
+        };
+        if let Err(error) = self.wait_for_ordered_write_with_timeout(sequence, write_timeout) {
             self.pending.lock().unwrap().remove(&id);
             return Err(RemoteRequestError::Transport(error).into());
         }
@@ -2702,12 +2835,10 @@ impl RemoteSession {
         progress: Arc<AtomicU64>,
         attach_progress: Option<u64>,
     ) -> Result<Value, RemoteRequestError> {
-        if let RequestDeadline::Standard | RequestDeadline::Fixed(_) = deadline {
-            let timeout = match deadline {
-                RequestDeadline::Standard => REMOTE_REQUEST_TIMEOUT,
-                RequestDeadline::Fixed(timeout) => timeout,
-                RequestDeadline::Attach => unreachable!(),
-            };
+        if let RequestDeadline::Standard | RequestDeadline::Fixed(_) | RequestDeadline::Until(_) =
+            deadline
+        {
+            let timeout = deadline.remaining().map_err(|_| RemoteRequestError::Timeout)?;
             return match rx.recv_timeout(timeout) {
                 Ok(response) => Ok(response),
                 Err(RecvTimeoutError::Timeout) => Err(RemoteRequestError::Timeout),
@@ -2897,7 +3028,15 @@ impl RemoteSession {
     }
 
     fn wait_for_ordered_write(&self, sequence: u64) -> io::Result<()> {
-        match self.interactive_writer.wait_until_written(sequence, remote_write_timeout()) {
+        self.wait_for_ordered_write_with_timeout(sequence, remote_write_timeout())
+    }
+
+    fn wait_for_ordered_write_with_timeout(
+        &self,
+        sequence: u64,
+        timeout: Duration,
+    ) -> io::Result<()> {
+        match self.interactive_writer.wait_until_written(sequence, timeout) {
             Ok(()) => Ok(()),
             Err(error) => {
                 if error.kind() == io::ErrorKind::TimedOut {
@@ -3417,7 +3556,11 @@ impl RemoteSession {
     /// Refresh the workspace tree with a bounded request deadline. Used by
     /// reconnect classification, where a stale daemon must not hold the relay.
     pub fn refresh_tree_with_timeout(&self, timeout: Duration) -> anyhow::Result<TreeView> {
-        self.refresh_tree_inner_with_deadline(true, RequestDeadline::Fixed(timeout))
+        self.refresh_tree_until(Instant::now() + timeout)
+    }
+
+    pub(crate) fn refresh_tree_until(&self, deadline: Instant) -> anyhow::Result<TreeView> {
+        self.refresh_tree_inner_with_deadline(true, RequestDeadline::Until(deadline))
     }
 
     pub fn refresh_tree_background(&self) -> anyhow::Result<TreeView> {
@@ -3433,8 +3576,7 @@ impl RemoteSession {
         identity_refresh: bool,
         deadline: RequestDeadline,
     ) -> anyhow::Result<TreeView> {
-        let _refresh = if let RequestDeadline::Fixed(timeout) = deadline {
-            let deadline = Instant::now() + timeout;
+        let _refresh = if let RequestDeadline::Until(deadline) = deadline {
             loop {
                 match self.tree_refresh.try_lock() {
                     Ok(lock) => break lock,
@@ -6867,7 +7009,59 @@ mod tests {
             error.downcast_ref::<RemoteRequestError>(),
             Some(RemoteRequestError::Timeout)
         ));
-        assert!(started.elapsed() < Duration::from_secs(1));
+        assert!(
+            started.elapsed() < Duration::from_millis(100),
+            "5ms probe deadline was exceeded by {:?}",
+            started.elapsed()
+        );
+        assert!(session.pending.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn bounded_tree_refresh_does_not_wait_for_another_refresh_lock() {
+        let session = test_session(Box::new(CloseTrackingWriter {
+            closed: Arc::new(AtomicBool::new(false)),
+        }));
+        let _refresh = session.tree_refresh.lock().unwrap();
+        let started = Instant::now();
+        let error = session
+            .refresh_tree_with_timeout(Duration::from_millis(5))
+            .expect_err("a contended refresh lock must time out");
+
+        assert!(matches!(
+            error.downcast_ref::<RemoteRequestError>(),
+            Some(RemoteRequestError::Timeout)
+        ));
+        assert!(
+            started.elapsed() < Duration::from_millis(100),
+            "5ms lock deadline was exceeded by {:?}",
+            started.elapsed()
+        );
+        assert!(session.pending.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn bounded_tree_refresh_aborts_a_blocked_ordered_write() {
+        let (stream, control) = BlockingWriteStream::new();
+        let session = blocking_test_session(stream);
+        session.send_bytes(7, b"blocked").unwrap();
+        control.wait_until_entered();
+
+        let started = Instant::now();
+        let error = session
+            .refresh_tree_with_timeout(Duration::from_millis(5))
+            .expect_err("a blocked probe write must time out");
+
+        assert!(error.downcast_ref::<RemoteRequestError>().is_some_and(|error| {
+            matches!(error, RemoteRequestError::Transport(io_error)
+                if io_error.kind() == io::ErrorKind::TimedOut)
+        }));
+        assert!(
+            started.elapsed() < Duration::from_millis(100),
+            "5ms write deadline was exceeded by {:?}",
+            started.elapsed()
+        );
+        assert!(control.state.0.lock().unwrap().aborted);
         assert!(session.pending.lock().unwrap().is_empty());
     }
 
