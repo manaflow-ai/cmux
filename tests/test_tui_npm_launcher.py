@@ -1510,11 +1510,20 @@ def test_launcher_uses_npm_for_proxy_and_tls_config(tmp_path: Path) -> None:
     assert result.returncode == 0, result.stderr
     assert result.stdout == "fake cmux-tui 1.2.3\n"
     records = [json.loads(line) for line in log.read_text().splitlines()]
-    assert [record["args"][0] for record in records] == ["view", "pack"]
-    view_args, pack_args = (record["args"] for record in records)
-    assert f"cmux-tui-{host_platform_key()}@1.2.3" in view_args
-    assert f"cmux-tui-{host_platform_key()}@1.2.3" in pack_args
-    for args in (view_args, pack_args):
+    assert records
+    assert {record["args"][0] for record in records} <= {"view", "pack"}
+    view_records = [record for record in records if record["args"][0] == "view"]
+    pack_records = [record for record in records if record["args"][0] == "pack"]
+    # The launcher may request optional authenticated metadata before packing.
+    # Keep the transport contract about what every request carries, rather
+    # than about the number of metadata projections used by a release.
+    assert view_records
+    assert any(record["args"][2] == "dist" for record in view_records)
+    assert pack_records
+    expected_spec = f"cmux-tui-{host_platform_key()}@1.2.3"
+    assert all(record["args"][1] == expected_spec for record in records)
+    for record in records:
+        args = record["args"]
         assert "--ignore-scripts" in args
         assert "--registry" in args
         assert "http://127.0.0.1:1" in args
