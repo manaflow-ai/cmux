@@ -7956,12 +7956,13 @@ fn sidebar_layout_for_state(
                 break;
             }
             specs[candidate_index].collapsed = true;
+            collapsed_count += 1;
             candidate_index += 1;
             retained_count -= 1;
         }
     }
 
-    if collapsed_count > 0 || needs_hysteresis_collapse {
+    if collapsed_count > 0 {
         specs.sort_unstable_by_key(|spec| spec.view_index);
         specs.retain(|spec| !spec.collapsed);
     }
