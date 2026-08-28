@@ -506,6 +506,169 @@ describe("device registry route", () => {
     expect(instancesTotal).toBe(0);
   });
 
+  // --- Tag-scoped delete (Mac sign-out removes only its own build) ---
+
+  test("rejects a tag-scoped delete with a blank or oversized tag", async () => {
+    // A present-but-blank tag must not silently widen into the whole-device
+    // path (POST coerces blank to "default"; DELETE refuses instead).
+    const blank = await DELETE(
+      new Request("https://cmux.test/api/devices", {
+        method: "DELETE",
+        headers: authHeaders(),
+        body: JSON.stringify({ deviceId: DEVICE_A, tag: "   " }),
+      }),
+    );
+    expect(blank.status).toBe(400);
+    expect(await blank.json()).toEqual({ error: "invalid_tag" });
+
+    const oversized = await DELETE(
+      new Request("https://cmux.test/api/devices", {
+        method: "DELETE",
+        headers: authHeaders(),
+        body: JSON.stringify({ deviceId: DEVICE_A, tag: "x".repeat(65) }),
+      }),
+    );
+    expect(oversized.status).toBe(400);
+    expect(await oversized.json()).toEqual({ error: "invalid_tag" });
+  });
+
+  dbTest("tag-scoped delete removes one instance and keeps the device while others remain", async () => {
+    if (!sql) throw new Error("test database not initialized");
+
+    await POST(registerRequest({ deviceId: DEVICE_A, platform: "mac", tag: "stable", routes: [] }));
+    await POST(registerRequest({ deviceId: DEVICE_A, platform: "mac", tag: "dev", routes: [] }));
+
+    const del = await DELETE(
+      new Request("https://cmux.test/api/devices", {
+        method: "DELETE",
+        headers: authHeaders(),
+        body: JSON.stringify({ deviceId: DEVICE_A, tag: "dev" }),
+      }),
+    );
+    expect(del.status).toBe(200);
+    expect(await del.json()).toEqual({ ok: true, deleted: 1, deviceDeleted: false });
+
+    const [{ total }] = await sql<{ total: number }[]>`
+      select count(*)::int as total from devices where device_uuid = ${DEVICE_A}
+    `;
+    expect(total).toBe(1);
+    const [{ tags }] = await sql<{ tags: string[] }[]>`
+      select array_agg(tag) as tags from device_app_instances
+      where device_id in (select id from devices where device_uuid = ${DEVICE_A})
+    `;
+    expect(tags).toEqual(["stable"]);
+  });
+
+  dbTest("deleting the last tagged instance removes the device row (sign-out path)", async () => {
+    if (!sql) throw new Error("test database not initialized");
+
+    await POST(registerRequest({ deviceId: DEVICE_A, platform: "mac", tag: "stable", routes: [] }));
+
+    const del = await DELETE(
+      new Request("https://cmux.test/api/devices", {
+        method: "DELETE",
+        headers: authHeaders(),
+        body: JSON.stringify({ deviceId: DEVICE_A, tag: "stable" }),
+      }),
+    );
+    expect(del.status).toBe(200);
+    expect(await del.json()).toEqual({ ok: true, deleted: 1, deviceDeleted: true });
+
+    // The signed-out Mac is fully gone from the team list.
+    const [{ total }] = await sql<{ total: number }[]>`
+      select count(*)::int as total from devices where device_uuid = ${DEVICE_A}
+    `;
+    expect(total).toBe(0);
+
+    // Repeating the delete (retry after a dropped response) is an idempotent
+    // no-op that reports nothing removed.
+    const retry = await DELETE(
+      new Request("https://cmux.test/api/devices", {
+        method: "DELETE",
+        headers: authHeaders(),
+        body: JSON.stringify({ deviceId: DEVICE_A, tag: "stable" }),
+      }),
+    );
+    expect(retry.status).toBe(200);
+    expect(await retry.json()).toEqual({ ok: true, deleted: 0, deviceDeleted: false });
+  });
+
+  dbTest("tag-scoped delete of an unknown tag keeps the device and its instances", async () => {
+    if (!sql) throw new Error("test database not initialized");
+
+    await POST(registerRequest({ deviceId: DEVICE_A, platform: "mac", tag: "stable", routes: [] }));
+
+    const del = await DELETE(
+      new Request("https://cmux.test/api/devices", {
+        method: "DELETE",
+        headers: authHeaders(),
+        body: JSON.stringify({ deviceId: DEVICE_A, tag: "never-registered" }),
+      }),
+    );
+    expect(del.status).toBe(200);
+    expect(await del.json()).toEqual({ ok: true, deleted: 0, deviceDeleted: false });
+
+    const [{ total }] = await sql<{ total: number }[]>`
+      select count(*)::int as total from device_app_instances
+      where device_id in (select id from devices where device_uuid = ${DEVICE_A})
+    `;
+    expect(total).toBe(1);
+  });
+
+  dbTest("a manual remote survives a tag-scoped delete of its last instance", async () => {
+    if (!sql) throw new Error("test database not initialized");
+
+    // Manual remotes have no self-registration heartbeat; the device row must
+    // outlive an instance-less state until the user removes it explicitly.
+    await POST(
+      registerRequest({
+        deviceId: DEVICE_A,
+        platform: "mac",
+        displayName: "my-studio",
+        manual: true,
+        routes: [{ id: "m0", kind: "tailscale", endpoint: { type: "host_port", host: "100.64.1.2", port: 51001 } }],
+      }),
+    );
+
+    const del = await DELETE(
+      new Request("https://cmux.test/api/devices", {
+        method: "DELETE",
+        headers: authHeaders(),
+        body: JSON.stringify({ deviceId: DEVICE_A, tag: "default" }),
+      }),
+    );
+    expect(del.status).toBe(200);
+    expect(await del.json()).toEqual({ ok: true, deleted: 1, deviceDeleted: false });
+
+    const [{ total }] = await sql<{ total: number }[]>`
+      select count(*)::int as total from devices where device_uuid = ${DEVICE_A}
+    `;
+    expect(total).toBe(1);
+  });
+
+  dbTest("a non-owner cannot tag-scope delete another user's instance", async () => {
+    if (!sql) throw new Error("test database not initialized");
+
+    await POST(registerRequest({ deviceId: DEVICE_A, platform: "mac", tag: "stable", routes: [] }));
+
+    currentUserId = "registry-user-2";
+    const del = await DELETE(
+      new Request("https://cmux.test/api/devices", {
+        method: "DELETE",
+        headers: authHeaders(),
+        body: JSON.stringify({ deviceId: DEVICE_A, tag: "stable" }),
+      }),
+    );
+    expect(del.status).toBe(200); // idempotent no-op, not an error
+    expect(await del.json()).toEqual({ ok: true, deleted: 0, deviceDeleted: false });
+
+    const [{ total }] = await sql<{ total: number }[]>`
+      select count(*)::int as total from device_app_instances
+      where device_id in (select id from devices where device_uuid = ${DEVICE_A})
+    `;
+    expect(total).toBe(1);
+  });
+
   // --- Manual remotes (cmux remotes add) ---
 
   test("hostIsLoopback classifies loopback and reachable hosts", () => {

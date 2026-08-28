@@ -131,13 +131,13 @@ extension AuthCoordinator {
         // generation after. A timeout preserves the cached identity instead of
         // leaving launch behind "Restoring session".
         let hasStoredTokens: Bool
+        let probedTokens: (access: String?, refresh: String?)
         do {
             let client = self.client
-            hasStoredTokens = try await runPhase(.validateSession, timeout: timeouts.sessionRestore) {
-                let hasAccessToken = await client.accessToken() != nil
-                let hasRefreshToken = await client.refreshToken() != nil
-                return hasAccessToken || hasRefreshToken
+            probedTokens = try await runPhase(.validateSession, timeout: timeouts.sessionRestore) {
+                (access: await client.accessToken(), refresh: await client.refreshToken())
             }
+            hasStoredTokens = probedTokens.access != nil || probedTokens.refresh != nil
         } catch {
             guard generation == sessionGeneration else { return }
             authLog.error("Session token probe failed: \(error.localizedDescription, privacy: .private)")
@@ -145,6 +145,14 @@ extension AuthCoordinator {
             return
         }
         guard generation == sessionGeneration else { return }
+        // Seed the invalidation backstop's last-known pair from the probe
+        // (only after the staleness re-check, so a sign-out that landed while
+        // the probe was parked cannot resurrect the cleared credentials): a
+        // definitive rejection later in THIS validation pass must still be
+        // able to hand the dying session's credentials to the hook.
+        if let access = probedTokens.access, let refresh = probedTokens.refresh {
+            lastKnownTokenPair = (access, refresh)
+        }
 
         #if DEBUG
         if launch.mockDataEnabled { return }
@@ -204,6 +212,11 @@ extension AuthCoordinator {
             return
         }
 
+        // The store came back empty from AVAILABLE storage: the SDK dropped a
+        // definitively rejected refresh token (or the keychain was cleared)
+        // since the last read. If this process ever held a complete pair,
+        // hand it to the invalidation backstop before publishing signed-out.
+        notifySessionInvalidated()
         clearAuthState(preservePendingCode: true)
     }
 
@@ -374,6 +387,12 @@ extension AuthCoordinator {
         expectedRefreshToken: String?
     ) async {
         guard tokenStoreWriteHighWater == storeWriteHighWater else { return }
+        // Token-death backstop: this is the definitive "clear locally only"
+        // path (refresh rejected, vanished user, failed auto-login), so the
+        // composition's teardown hook gets the last-known pair BEFORE the
+        // persisted store is cleared. Runs after the high-water guard so a
+        // stale flow can never fire it against a newer session.
+        notifySessionInvalidated()
         if let expectedRefreshToken {
             await client.clearLocalSession(ifRefreshTokenMatches: expectedRefreshToken)
         } else {

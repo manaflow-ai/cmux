@@ -75,6 +75,7 @@ public final class AuthCoordinator {
     let isTokenStorageAvailable: @Sendable () async -> Bool
     private let onSessionWillTransition: @MainActor @Sendable () -> Void
     private let onSignedIn: @Sendable () async -> Void
+    private let onSessionInvalidated: (@Sendable (_ accessToken: String, _ refreshToken: String) async -> Void)?
     let log = AuthDebugLog()
     let phaseTimeoutRegistry = AuthPhaseTimeoutRegistry()
 
@@ -129,6 +130,16 @@ public final class AuthCoordinator {
     /// block the cleanup.
     @ObservationIgnored var tokenStoreWriteHighWater: UInt64 = 0
     @ObservationIgnored var latestSignInRefreshToken: String?
+    /// The most recent COMPLETE token pair a coordinator read handed out
+    /// (``currentTokens()``, the coherent-pair read, the launch/foreground
+    /// token probe). Kept so the ``onSessionInvalidated`` backstop can still
+    /// present credentials for best-effort teardown after the SDK has already
+    /// dropped the store on a definitive refresh rejection (the access token
+    /// usually outlives that rejection window). Never published; consumed at
+    /// most once per invalidated session by ``notifySessionInvalidated()``
+    /// and dropped on every ``clearAuthState()`` so a deliberately signed-out
+    /// session's credentials can never be replayed by a later failure path.
+    @ObservationIgnored var lastKnownTokenPair: (accessToken: String, refreshToken: String)?
     @ObservationIgnored var activeSignInExchanges: [UInt64: AuthTrackedSignInExchange] = [:]
     @ObservationIgnored var activeSessionValidations: [UUID: AuthTrackedTokenWork] = [:]
     @ObservationIgnored var activePostSignInHooks: [UUID: AuthTrackedTokenWork] = [:]
@@ -185,6 +196,13 @@ public final class AuthCoordinator {
     ///   - onSignedIn: Hook run after a successful sign-in / session restore, for
     ///     side effects above this package (e.g. push token re-upload). Defaults
     ///     to a no-op.
+    ///   - onSessionInvalidated: Fire-and-forget backstop for sessions that die
+    ///     WITHOUT the interactive sign-out flow (definitive refresh rejection,
+    ///     vanished user). Receives the last-known token pair captured before
+    ///     the local clear so the composition can run best-effort authenticated
+    ///     teardown (e.g. device deregistration) that would otherwise have run
+    ///     from the sign-out flow's hooks. Defaults to `nil`: no behavior
+    ///     change for compositions that never set it.
     public init(
         client: any AuthClient,
         sessionCache: CMUXAuthSessionCache,
@@ -198,7 +216,8 @@ public final class AuthCoordinator {
         isOnline: @escaping @Sendable () async -> Bool = { true },
         isTokenStorageAvailable: @escaping @Sendable () async -> Bool = { true },
         onSessionWillTransition: @escaping @MainActor @Sendable () -> Void = {},
-        onSignedIn: @escaping @Sendable () async -> Void = {}
+        onSignedIn: @escaping @Sendable () async -> Void = {},
+        onSessionInvalidated: (@Sendable (_ accessToken: String, _ refreshToken: String) async -> Void)? = nil
     ) {
         self.client = client
         self.sessionCache = sessionCache
@@ -213,6 +232,7 @@ public final class AuthCoordinator {
         self.isTokenStorageAvailable = isTokenStorageAvailable
         self.onSessionWillTransition = onSessionWillTransition
         self.onSignedIn = onSignedIn
+        self.onSessionInvalidated = onSessionInvalidated
         self.selectedTeamID = teamSelection.selectedTeamID
         primeSessionState()
     }
@@ -690,12 +710,27 @@ public final class AuthCoordinator {
         return teams.first?.id
     }
 
+    /// Fire the token-death backstop at most once per invalidated session:
+    /// hand the last-known token pair to the injected hook, fire-and-forget,
+    /// so the composition can run best-effort authenticated teardown (device
+    /// deregistration, presence goodbye) for a session that died WITHOUT the
+    /// interactive sign-out flow. Consuming the pair here (and dropping it in
+    /// every ``clearAuthState()``) keeps a later stale failure path from
+    /// replaying the same dead credentials, and keeps interactive sign-out,
+    /// whose flow hooks own that teardown, from double-firing it.
+    func notifySessionInvalidated() {
+        guard let onSessionInvalidated, let pair = lastKnownTokenPair else { return }
+        lastKnownTokenPair = nil
+        Task { await onSessionInvalidated(pair.accessToken, pair.refreshToken) }
+    }
+
     func clearAuthState(
         preservePendingCode: Bool = false,
         sessionTransitionAlreadyAnnounced: Bool = false
     ) {
         advanceSessionGeneration(notifySessionWillTransition: !sessionTransitionAlreadyAnnounced)
         latestSignInRefreshToken = nil
+        lastKnownTokenPair = nil
         if !preservePendingCode { pendingNonce = nil }
         userCache.clear()
         sessionCache.clear()

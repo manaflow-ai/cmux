@@ -84,6 +84,10 @@ export function parseHeartbeat(body: Record<string, unknown>): HeartbeatParse {
   }
 
   const stopping = body.stopping === true;
+  // `signout` is meaningful only on a stopping goodbye (see HeartbeatInput):
+  // gating it here makes "signout implies stopping" an invariant the DO can
+  // rely on instead of re-checking.
+  const signout = stopping && body.signout === true;
 
   // Routes are tri-state on the heartbeat wire (see HeartbeatInput): absent
   // means "unchanged", `[]` means "no routes". A present-but-non-array value is
@@ -123,6 +127,7 @@ export function parseHeartbeat(body: Record<string, unknown>): HeartbeatParse {
       bundleId: bundleId || undefined,
       capabilities,
       stopping: stopping || undefined,
+      signout: signout || undefined,
       routes,
     },
   };
@@ -137,10 +142,31 @@ export async function isConnectivityPublisherAuthorized(
   request: Request,
   configuredSecret: string | undefined,
 ): Promise<boolean> {
-  const expected = configuredSecret?.trim() ?? "";
-  const actual = request.headers.get(
-    "x-cmux-connectivity-publisher-secret",
-  )?.trim() ?? "";
+  return constantWorkSecretMatch(
+    configuredSecret?.trim() ?? "",
+    request.headers.get("x-cmux-connectivity-publisher-secret")?.trim() ?? "",
+  );
+}
+
+/** Constant-work check of the server-only account purge capability:
+ * `Authorization: Bearer <ADMIN_PURGE_SECRET>` (the caller extracts the
+ * bearer). The unset-secret 503 split is the route's, mirroring
+ * CONNECTIVITY_INVALIDATION_SECRET; this only answers whether the presented
+ * bearer matches the configured secret. */
+export async function isAdminPurgeAuthorized(
+  presentedSecret: string | null,
+  configuredSecret: string | undefined,
+): Promise<boolean> {
+  return constantWorkSecretMatch(
+    configuredSecret?.trim() ?? "",
+    presentedSecret?.trim() ?? "",
+  );
+}
+
+/** HMAC both values under the expected secret and compare signatures, so
+ * comparison time never depends on where the strings first differ. Shared by
+ * every server-only shared-secret capability on this worker. */
+async function constantWorkSecretMatch(expected: string, actual: string): Promise<boolean> {
   if (expected.length < 32 || expected.length > 512) return false;
   const encoder = new TextEncoder();
   const expectedBytes = encoder.encode(expected);
@@ -164,6 +190,38 @@ export async function isConnectivityPublisherAuthorized(
     candidateSignature,
     expectedBytes,
   );
+}
+
+export interface PurgeUserInput {
+  teamId: string;
+  userId: string;
+}
+
+export type PurgeUserParse =
+  | { ok: true; purge: PurgeUserInput }
+  | { ok: false; error: string };
+
+/** Max id length for the admin purge body. Stack team/user ids are UUIDs; the
+ * bound only rejects garbage, it does not validate the format (a purge for an
+ * unknown team simply reaches an empty DO and purges nothing). */
+export const MAX_PURGE_ID_LENGTH = 128;
+
+/** Parses the only payload the admin purge route accepts: exactly
+ * `{teamId, userId}`, mirroring parseConnectivityInvalidation's strictness. */
+export function parsePurgeUser(body: Record<string, unknown>): PurgeUserParse {
+  const keys = Object.keys(body).sort();
+  if (keys.length !== 2 || keys[0] !== "teamId" || keys[1] !== "userId") {
+    return { ok: false, error: "invalid_request" };
+  }
+  const teamId = trimmedString(body.teamId);
+  if (!teamId || teamId.length > MAX_PURGE_ID_LENGTH) {
+    return { ok: false, error: "invalid_team_id" };
+  }
+  const userId = trimmedString(body.userId);
+  if (!userId || userId.length > MAX_PURGE_ID_LENGTH) {
+    return { ok: false, error: "invalid_user_id" };
+  }
+  return { ok: true, purge: { teamId, userId } };
 }
 
 export type ConnectivityInvalidationParse =

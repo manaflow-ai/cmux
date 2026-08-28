@@ -21,7 +21,13 @@ import Foundation
 ///
 /// Offline is explicit on the server: a clean quit sends a `stopping: true`
 /// goodbye; a crash or sleep is caught by the service's missed-heartbeat alarm
-/// (45s), so this client never needs a watchdog of its own.
+/// (45s), so this client never needs a watchdog of its own. Sign-out is
+/// stronger than offline: a `stopping + signout` goodbye tells the service to
+/// REMOVE the instance from the team (the account left this Mac), sent once
+/// per team beaten this session via
+/// ``goodbyeForSignOut(accessToken:refreshToken:)`` and on mid-session team
+/// switches. Auth transitions are observed live, so a sign-in beats
+/// immediately instead of waiting out the cadence.
 @MainActor
 final class PresenceHeartbeatClient {
     static let shared = PresenceHeartbeatClient()
@@ -30,6 +36,11 @@ final class PresenceHeartbeatClient {
     private var auth: AuthCoordinator?
     private var loopTask: Task<Void, Never>?
     private var routesObserveTask: Task<Void, Never>?
+    private let authObserver = CloudAuthStateObserver()
+    private var authObserveTask: Task<Void, Never>?
+    /// The last auth scope the observer yielded; `nil` until the first yield,
+    /// which is treated as a baseline (the loop owns steady-state beats).
+    private var lastAuthState: CloudAuthObservedState?
     private var defaultsObserver: NSObjectProtocol?
     /// Cadence between heartbeats; server-owned, seeded with the service default.
     private var intervalMs: Int = 15_000
@@ -37,6 +48,12 @@ final class PresenceHeartbeatClient {
     /// included in every heartbeat so the presence service mirrors the same
     /// set the device registry stores (DO = live cache, registry = truth).
     private var currentRoutes: [CmxAttachRoute] = []
+    /// Team markers (``DeviceRegistryClient/teamMarker(_:)`` encoding) whose
+    /// heartbeats succeeded this session. In-memory only: presence self-heals
+    /// through the 45s missed-heartbeat alarm, so a crash losing this set only
+    /// delays the offline flip, never leaks a row. Sign-out and team switches
+    /// send the stronger `signout` goodbye to exactly these teams.
+    private var beatenTeamMarkers: Set<String> = []
 
     private init() {}
 
@@ -45,6 +62,7 @@ final class PresenceHeartbeatClient {
     func configure(auth: AuthCoordinator) {
         self.auth = auth
         startObservingRoutes()
+        startObservingAuth()
         if defaultsObserver == nil {
             // Re-evaluate when the flag or URL flips, so enabling presence in a
             // running app starts the loop without a relaunch (and disabling
@@ -95,6 +113,98 @@ final class PresenceHeartbeatClient {
                     await self.sendHeartbeat(stopping: false)
                 }
             }
+        }
+    }
+
+    // MARK: - Auth transitions
+
+    /// React to auth transitions between cadence ticks: a sign-in beats
+    /// immediately (and arms the loop) so the phone sees the Mac online within
+    /// a round trip; a mid-session team switch says a `signout` goodbye to the
+    /// team being left (its list must drop this Mac, not just show it
+    /// offline), then beats into the new team. A sign-out observed here sends
+    /// nothing: the live token store is already empty, and the flow hooks /
+    /// coordinator backstop deliver the captured pair to
+    /// ``goodbyeForSignOut(accessToken:refreshToken:)`` instead.
+    private func startObservingAuth() {
+        guard let auth else { return }
+        authObserveTask?.cancel()
+        lastAuthState = nil
+        let states = authObserver.states(for: auth)
+        authObserveTask = Task { @MainActor [weak self] in
+            for await state in states {
+                if Task.isCancelled { break }
+                guard let self else { break }
+                await self.handleAuthState(state)
+            }
+        }
+    }
+
+    private func handleAuthState(_ state: CloudAuthObservedState) async {
+        let previous = lastAuthState
+        lastAuthState = state
+        guard let previous, previous != state else { return }
+        if state.isAuthenticated, !previous.isAuthenticated || previous.userID != state.userID {
+            // Fresh session: arm the loop if the gate allows it. A freshly
+            // started loop beats immediately on its first iteration; an
+            // already-running one gets one out-of-cadence beat.
+            let loopWasRunning = loopTask != nil
+            evaluate()
+            if loopWasRunning {
+                await sendHeartbeat(stopping: false)
+            }
+        } else if state.isAuthenticated, previous.isAuthenticated, previous.teamID != state.teamID {
+            await moveHeartbeat(from: previous.teamID)
+        }
+    }
+
+    /// Mid-session team switch: `signout`-goodbye the team being left with the
+    /// still-valid current tokens, then beat into the new team immediately.
+    private func moveHeartbeat(from oldTeamID: String?) async {
+        let oldMarker = DeviceRegistryClient.teamMarker(oldTeamID)
+        if beatenTeamMarkers.contains(oldMarker),
+           let auth,
+           let tokens = try? await auth.currentTokens() {
+            _ = await postHeartbeat(
+                accessToken: tokens.accessToken,
+                teamMarker: oldMarker,
+                stopping: true,
+                signout: true
+            )
+            beatenTeamMarkers.remove(oldMarker)
+        }
+        await sendHeartbeat(stopping: false)
+    }
+
+    // MARK: - Sign-out goodbye
+
+    /// Announce this instance's sign-out to every team beaten this session,
+    /// with the pre-clear token pair captured by the sign-out flow (or the
+    /// coordinator's invalidation backstop); the live token store is already
+    /// empty when this runs. `stopping + signout` makes the presence service
+    /// REMOVE the instance rather than flip it offline, so phones drop this
+    /// Mac from their lists live. Best-effort and never throws; a miss
+    /// self-heals through the 45s alarm (offline, and the registry
+    /// deregistration already removed the durable row). The refresh token is
+    /// accepted for signature parity with the registry teardown but unused:
+    /// the presence worker authenticates on the bearer token alone.
+    func goodbyeForSignOut(accessToken: String?, refreshToken: String?) async {
+        _ = refreshToken
+        let markers = beatenTeamMarkers
+        // The session is over either way; a new sign-in repopulates the set
+        // from its own successful beats.
+        beatenTeamMarkers.removeAll()
+        guard let accessToken = accessToken?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !accessToken.isEmpty else {
+            return
+        }
+        for marker in markers {
+            _ = await postHeartbeat(
+                accessToken: accessToken,
+                teamMarker: marker,
+                stopping: true,
+                signout: true
+            )
         }
     }
 
@@ -165,7 +275,7 @@ final class PresenceHeartbeatClient {
     // MARK: - Heartbeat
 
     private func sendHeartbeat(stopping: Bool) async {
-        guard let auth, let baseURL = Self.resolvedServiceURL() else { return }
+        guard let auth else { return }
         // Await tokens first, mirroring DeviceRegistryClient: gates on "signed
         // in" and on launch auth bootstrap so the team header resolves from a
         // populated team list rather than the Stack default.
@@ -176,11 +286,35 @@ final class PresenceHeartbeatClient {
             return // not signed in -> nothing to announce
         }
         let teamID = auth.resolvedTeamID
+        let succeeded = await postHeartbeat(
+            accessToken: tokens.accessToken,
+            teamMarker: DeviceRegistryClient.teamMarker(teamID),
+            stopping: stopping,
+            signout: false
+        )
+        if succeeded, !stopping {
+            // Only teams that actually heard a beat need a sign-out goodbye.
+            beatenTeamMarkers.insert(DeviceRegistryClient.teamMarker(teamID))
+        }
+    }
 
-        guard var comps = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else { return }
+    /// One heartbeat POST against one explicit team scope, shared by the
+    /// cadence loop, the team-switch goodbye, and the sign-out goodbye (which
+    /// present captured tokens the live store no longer holds). An empty
+    /// marker means "no `X-Cmux-Team-Id` header": the service resolves the
+    /// caller's default team, matching the beat that created the record.
+    @discardableResult
+    private func postHeartbeat(
+        accessToken: String,
+        teamMarker: String,
+        stopping: Bool,
+        signout: Bool
+    ) async -> Bool {
+        guard let baseURL = Self.resolvedServiceURL() else { return false }
+        guard var comps = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else { return false }
         comps.path = (comps.path.hasSuffix("/") ? String(comps.path.dropLast()) : comps.path)
             + "/v1/presence/heartbeat"
-        guard let url = comps.url else { return }
+        guard let url = comps.url else { return false }
 
         let bodyDict = Self.heartbeatBody(
             deviceID: MobileHostIdentity.deviceID(),
@@ -188,15 +322,19 @@ final class PresenceHeartbeatClient {
             bundleID: Bundle.main.bundleIdentifier,
             displayName: MobileHostIdentity.instanceDisplayName(),
             routes: currentRoutes,
-            stopping: stopping
+            stopping: stopping,
+            signout: signout
         )
 
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
-        req.timeoutInterval = 10
-        req.setValue("Bearer \(tokens.accessToken)", forHTTPHeaderField: "Authorization")
-        if let teamID, !teamID.isEmpty {
-            req.setValue(teamID, forHTTPHeaderField: "X-Cmux-Team-Id")
+        // Goodbyes ride sign-out's bounded teardown window; keep every beat
+        // short so a hung service can't eat that budget (a missed beat just
+        // waits for the next cadence tick).
+        req.timeoutInterval = signout ? 4 : 10
+        req.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        if !teamMarker.isEmpty {
+            req.setValue(teamMarker, forHTTPHeaderField: "X-Cmux-Team-Id")
         }
         req.setValue("application/json", forHTTPHeaderField: "content-type")
         req.httpBody = try? JSONSerialization.data(withJSONObject: bodyDict, options: [])
@@ -204,7 +342,7 @@ final class PresenceHeartbeatClient {
         do {
             let (data, response) = try await session.data(for: req)
             guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
-                return // best-effort; retry happens on the next cadence tick
+                return false // best-effort; retry happens on the next cadence tick
             }
             // Mirrors the JSONSerialization encode above; a typed Decodable
             // here would be a second major type in this file.
@@ -213,8 +351,10 @@ final class PresenceHeartbeatClient {
                serverInterval >= 1_000 {
                 intervalMs = serverInterval
             }
+            return true
         } catch {
             // best-effort; presence must never disrupt the Mac.
+            return false
         }
     }
 
@@ -230,6 +370,7 @@ final class PresenceHeartbeatClient {
         displayName: String?,
         routes: [CmxAttachRoute],
         stopping: Bool,
+        signout: Bool = false,
         now: Date = Date()
     ) -> [String: Any] {
         var bodyDict: [String: Any] = [
@@ -249,6 +390,14 @@ final class PresenceHeartbeatClient {
         }
         if stopping {
             bodyDict["stopping"] = true
+            // Signout is only meaningful on a goodbye: it upgrades "this
+            // instance went offline" to "this instance left the account,
+            // remove it from the team's list". Never emitted without
+            // `stopping`, so old workers that ignore the unknown field
+            // degrade to a plain goodbye.
+            if signout {
+                bodyDict["signout"] = true
+            }
         }
         return bodyDict
     }

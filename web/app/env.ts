@@ -301,6 +301,11 @@ export const env = createEnv({
     // Server-to-worker authentication for revision publication. Native clients
     // hold only their Stack access token and can never mint invalidations.
     CMUX_CONNECTIVITY_INVALIDATION_SECRET: z.string().min(32).max(512).optional(),
+    // Server-to-worker authentication for the account-deletion presence purge
+    // (POST /v1/admin/purge-user). Optional so previews and local tests run
+    // without a presence worker; the purge is skipped when unset and the DO's
+    // own prune bounds how long deleted-account presence lingers.
+    PRESENCE_ADMIN_PURGE_SECRET: z.string().min(32).max(512).optional(),
     CMUX_IROH_DEV_ALLOW_INSECURE_LOOPBACK_MINTER: localDevelopmentOptIn(
       "CMUX_IROH_DEV_ALLOW_INSECURE_LOOPBACK_MINTER",
     ),
@@ -417,6 +422,7 @@ export const env = createEnv({
     CMUX_CONNECTIVITY_INVALIDATION_SECRET: trimEnv(
       process.env.CMUX_CONNECTIVITY_INVALIDATION_SECRET,
     ),
+    PRESENCE_ADMIN_PURGE_SECRET: trimEnv(process.env.PRESENCE_ADMIN_PURGE_SECRET),
     CMUX_IROH_DEV_ALLOW_INSECURE_LOOPBACK_MINTER: trimEnv(
       process.env.CMUX_IROH_DEV_ALLOW_INSECURE_LOOPBACK_MINTER,
     ),

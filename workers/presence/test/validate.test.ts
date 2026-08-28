@@ -1,5 +1,13 @@
 import { describe, expect, it } from "bun:test";
-import { MAX_REQUEST_BYTES, MAX_ROUTES, parseHeartbeat, readBoundedJson } from "../src/validate";
+import {
+  isAdminPurgeAuthorized,
+  MAX_PURGE_ID_LENGTH,
+  MAX_REQUEST_BYTES,
+  MAX_ROUTES,
+  parseHeartbeat,
+  parsePurgeUser,
+  readBoundedJson,
+} from "../src/validate";
 
 const DEVICE_ID = "11111111-2222-4333-8444-555555555555";
 const IROH_ENDPOINT_ID = "a".repeat(64);
@@ -137,6 +145,71 @@ describe("parseHeartbeat", () => {
     const result = parseHeartbeat({ deviceId: DEVICE_ID, platform: "mac", stopping: "yes" });
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.beat.stopping).toBeUndefined();
+  });
+
+  it("carries signout only on a stopping goodbye", () => {
+    const goodbye = parseHeartbeat({
+      deviceId: DEVICE_ID, platform: "mac", stopping: true, signout: true,
+    });
+    if (!goodbye.ok) throw new Error(goodbye.error);
+    expect(goodbye.beat.signout).toBe(true);
+
+    // Without stopping, signout is meaningless and must be dropped so the DO
+    // can rely on "signout implies stopping".
+    const withoutStopping = parseHeartbeat({ deviceId: DEVICE_ID, platform: "mac", signout: true });
+    if (!withoutStopping.ok) throw new Error(withoutStopping.error);
+    expect(withoutStopping.beat.signout).toBeUndefined();
+
+    // Only literal true counts, like stopping.
+    const truthy = parseHeartbeat({
+      deviceId: DEVICE_ID, platform: "mac", stopping: true, signout: "yes",
+    });
+    if (!truthy.ok) throw new Error(truthy.error);
+    expect(truthy.beat.signout).toBeUndefined();
+  });
+});
+
+describe("parsePurgeUser", () => {
+  it("accepts exactly {teamId, userId}", () => {
+    expect(parsePurgeUser({ teamId: "team-1", userId: "user-1" })).toEqual({
+      ok: true,
+      purge: { teamId: "team-1", userId: "user-1" },
+    });
+  });
+
+  it("rejects missing, extra, or empty fields", () => {
+    expect(parsePurgeUser({ teamId: "team-1" })).toEqual({ ok: false, error: "invalid_request" });
+    expect(parsePurgeUser({ teamId: "team-1", userId: "user-1", extra: 1 })).toEqual({
+      ok: false,
+      error: "invalid_request",
+    });
+    expect(parsePurgeUser({ teamId: "", userId: "user-1" })).toEqual({
+      ok: false,
+      error: "invalid_team_id",
+    });
+    expect(parsePurgeUser({ teamId: "team-1", userId: "  " })).toEqual({
+      ok: false,
+      error: "invalid_user_id",
+    });
+    expect(parsePurgeUser({
+      teamId: "t".repeat(MAX_PURGE_ID_LENGTH + 1),
+      userId: "user-1",
+    })).toEqual({ ok: false, error: "invalid_team_id" });
+  });
+});
+
+describe("isAdminPurgeAuthorized", () => {
+  const secret = "p".repeat(64);
+
+  it("requires the exact server-only capability", async () => {
+    expect(await isAdminPurgeAuthorized(secret, secret)).toBe(true);
+    expect(await isAdminPurgeAuthorized("q".repeat(64), secret)).toBe(false);
+    expect(await isAdminPurgeAuthorized(null, secret)).toBe(false);
+    expect(await isAdminPurgeAuthorized(`${secret}extra`, secret)).toBe(false);
+    // Unset or too-short configured secret fails closed (the route also 503s
+    // before this check when the secret is unset).
+    expect(await isAdminPurgeAuthorized(secret, undefined)).toBe(false);
+    expect(await isAdminPurgeAuthorized("short", "short")).toBe(false);
   });
 });
 
