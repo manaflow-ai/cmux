@@ -4015,7 +4015,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     private var hasUsableFocusGeometry: Bool { bounds.width > 1 && bounds.height > 1 }
 
-    fileprivate var hasClipboardInputDeferral: Bool {
+    var hasClipboardInputDeferral: Bool {
         terminalClipboardInputSequencer.hasInputDeferral(
             for: terminalSurface?.runtimeSurfaceGeneration ?? .max
         )
@@ -7042,7 +7042,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
     }
 
-    fileprivate func scheduleGhosttyMouseButtonRepair(reason: String) {
+    func scheduleGhosttyMouseButtonRepair(reason: String) {
         scheduleGhosttyMouseButtonRepair(reason: reason, forceButtons: [])
     }
 
