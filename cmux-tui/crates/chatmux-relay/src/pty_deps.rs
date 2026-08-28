@@ -11,8 +11,10 @@
 use std::collections::{HashMap, VecDeque};
 use std::io::{Read, Write};
 use std::mem::{offset_of, size_of};
+use std::os::fd::{AsRawFd, RawFd};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
@@ -29,6 +31,8 @@ use crate::pty::{
 const DAEMON_SOCKET_WAIT_MS: u64 = 5_000;
 const THREAD_OUTPUT_BACKLOG_CAP: usize = 1024 * 1024;
 const THREAD_OUTPUT_OVERFLOW_EXIT: i64 = 75;
+const PIPE_OUTPUT_DRAIN_GRACE: Duration = Duration::from_millis(250);
+const PIPE_READ_POLL_MS: i32 = 100;
 // `lifecycle_ready` was added to the cmux-tui control protocol at version 12.
 // This is distinct from the relay's lower-level CONTROL_MIN_PROTOCOL floor.
 const DAEMON_LIFECYCLE_PROTOCOL_MIN: u64 = 12;
@@ -258,11 +262,15 @@ impl PtyOutput for ThreadOutput {
 /// Orders the process exit notification after every reader has reached EOF.
 /// A child can exit while bytes remain buffered in a pipe or PTY master. The
 /// wait thread records the exit code, and the final reader publishes it only
-/// after its last `push_data` call. The output callback runs outside this
-/// coordinator's mutex.
+/// after its last `push_data` call. Pipe fallback uses a bounded grace period;
+/// the PTY path keeps its terminal EOF semantics. The output callback runs
+/// outside this coordinator's mutex.
 struct ProcessOutputCompletion {
     state: Mutex<ProcessOutputCompletionState>,
+    wake: Condvar,
     output: Arc<ThreadOutput>,
+    post_exit_grace: Option<Duration>,
+    cancelled: AtomicBool,
 }
 
 struct ProcessOutputCompletionState {
@@ -272,21 +280,42 @@ struct ProcessOutputCompletionState {
 
 impl ProcessOutputCompletion {
     fn new(readers_remaining: usize, output: Arc<ThreadOutput>) -> Arc<Self> {
+        Self::with_post_exit_grace(readers_remaining, output, Some(PIPE_OUTPUT_DRAIN_GRACE))
+    }
+
+    fn unbounded(readers_remaining: usize, output: Arc<ThreadOutput>) -> Arc<Self> {
+        Self::with_post_exit_grace(readers_remaining, output, None)
+    }
+
+    fn with_post_exit_grace(
+        readers_remaining: usize,
+        output: Arc<ThreadOutput>,
+        post_exit_grace: Option<Duration>,
+    ) -> Arc<Self> {
         Arc::new(Self {
             state: Mutex::new(ProcessOutputCompletionState { readers_remaining, child_exit: None }),
+            wake: Condvar::new(),
             output,
+            post_exit_grace,
+            cancelled: AtomicBool::new(false),
         })
     }
 
-    fn child_exited(&self, code: i64) {
-        {
+    fn child_exited(self: &Arc<Self>, code: i64) {
+        let should_watch = {
             let mut state = self.state.lock().expect("process output completion lock");
             if state.child_exit.is_some() {
                 return;
             }
             state.child_exit = Some(code);
+            state.readers_remaining != 0 && self.post_exit_grace.is_some()
+        };
+        if should_watch {
+            let completion = Arc::clone(self);
+            std::thread::spawn(move || completion.wait_for_readers());
+        } else {
+            self.emit_if_ready();
         }
-        self.emit_if_ready();
     }
 
     fn reader_finished(&self) {
@@ -297,7 +326,41 @@ impl ProcessOutputCompletion {
             }
             state.readers_remaining -= 1;
         }
+        self.wake.notify_all();
         self.emit_if_ready();
+    }
+
+    fn wait_for_readers(self: Arc<Self>) {
+        let grace = self.post_exit_grace.expect("bounded completion grace");
+        let deadline = Instant::now() + grace;
+        let mut state = self.state.lock().expect("process output completion lock");
+        while state.readers_remaining != 0 && state.child_exit.is_some() {
+            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else { break };
+            let (next, timeout) = self
+                .wake
+                .wait_timeout(state, remaining)
+                .expect("process output completion lock");
+            state = next;
+            if timeout.timed_out() {
+                break;
+            }
+        }
+        if state.readers_remaining == 0 || state.child_exit.is_none() {
+            return;
+        }
+        let code = state.child_exit.take();
+        self.cancelled.store(true, Ordering::Release);
+        drop(state);
+        if let Some(code) = code {
+            // End the source after the bounded grace period. Readers poll for
+            // cancellation, so inherited descriptors cannot retain threads
+            // after the child has exited.
+            self.output.push_exit(code);
+        }
+    }
+
+    fn cancelled(&self) -> bool {
+        self.cancelled.load(Ordering::Acquire)
     }
 
     fn emit_if_ready(&self) {
@@ -406,7 +469,9 @@ fn spawn_real_pty(spec: &SpawnSpec) -> anyhow::Result<PtyHandle> {
         killer: Mutex::new(killer),
     });
     output.set_overflow_control(&control);
-    let completion = ProcessOutputCompletion::new(1, Arc::clone(&output));
+    // PTY EOF is the terminal's lifecycle boundary. Unlike pipe fallback,
+    // background jobs intentionally retain the PTY until they finish.
+    let completion = ProcessOutputCompletion::unbounded(1, Arc::clone(&output));
 
     // Blocking reader thread -> output sink.
     let data_output = Arc::clone(&output);
@@ -498,18 +563,53 @@ impl PtyControl for DeadControl {
 }
 
 fn pump_pipe(
-    mut stream: impl Read,
+    mut stream: impl Read + AsRawFd,
     output: Arc<ThreadOutput>,
     completion: Arc<ProcessOutputCompletion>,
 ) {
+    let fd = stream.as_raw_fd();
+    if set_nonblocking(fd).is_err() {
+        completion.reader_finished();
+        return;
+    }
     let mut buffer = [0_u8; 32_768];
     loop {
+        if completion.cancelled() {
+            break;
+        }
+        let mut poll_fd = libc::pollfd { fd, events: libc::POLLIN, revents: 0 };
+        let poll_result = unsafe { libc::poll(&mut poll_fd, 1, PIPE_READ_POLL_MS) };
+        if poll_result < 0 {
+            if std::io::Error::last_os_error().raw_os_error() == Some(libc::EINTR) {
+                continue;
+            }
+            break;
+        }
+        if poll_result == 0 {
+            continue;
+        }
+        if poll_fd.revents & libc::POLLNVAL != 0 {
+            break;
+        }
         match stream.read(&mut buffer) {
-            Ok(0) | Err(_) => break,
+            Ok(0) => break,
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => continue,
+            Err(_) => break,
             Ok(count) => output.push_data(Bytes::copy_from_slice(&buffer[..count])),
         }
     }
     completion.reader_finished();
+}
+
+fn set_nonblocking(fd: RawFd) -> std::io::Result<()> {
+    let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+    if flags < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    if unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(())
 }
 
 async fn socket_exists(path: &Path) -> bool {
