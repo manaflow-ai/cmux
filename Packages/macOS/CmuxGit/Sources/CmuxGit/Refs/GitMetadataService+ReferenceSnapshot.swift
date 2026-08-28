@@ -19,7 +19,7 @@ extension GitMetadataService {
         guard didAcquire else { return nil }
         let cancellationSignal = WorkspaceChangesCancellationSignal(deadline: effectiveDeadline)
         let output = await withTaskCancellationHandler {
-            await withCheckedContinuation { continuation in
+            await withCheckedContinuation { (continuation: CheckedContinuation<String?, Never>) in
                 Self.blockingStatusQueue.async {
                     let output = cancellationSignal.withCurrentBinding {
                         let selector = GitReferenceRunnerSelector(wallTimeLimit: wallTimeLimit)
@@ -111,7 +111,7 @@ extension GitMetadataService {
         }
         let cancellationSignal = WorkspaceChangesCancellationSignal(deadline: deadline)
         let snapshot = await withTaskCancellationHandler {
-            await withCheckedContinuation { continuation in
+            await withCheckedContinuation { (continuation: CheckedContinuation<GitReferenceSnapshot, Never>) in
                 Self.blockingStatusQueue.async {
                     let snapshot = cancellationSignal.withCurrentBinding {
                         guard deadline.map({ $0 > DispatchTime.now() }) ?? true else {
