@@ -16,6 +16,26 @@ private let remoteShellPromptFishExecutablePath = [
 ].first { FileManager.default.isExecutableFile(atPath: $0) }
 
 struct RemoteShellPromptRelayTests {
+    @Test("remote session resource loader owns a dedicated source file")
+    func remoteSessionResourceLoaderOwnsDedicatedSourceFile() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let loaderSource = try String(
+            contentsOf: repositoryRoot
+                .appendingPathComponent("Sources/RemoteSessionBundledResourceLoader.swift"),
+            encoding: .utf8
+        )
+        let bootstrapSource = try String(
+            contentsOf: repositoryRoot
+                .appendingPathComponent("Sources/RemoteInteractiveShellBootstrapBuilder.swift"),
+            encoding: .utf8
+        )
+
+        #expect(loaderSource.contains("struct RemoteSessionBundledResourceLoader"))
+        #expect(!bootstrapSource.contains("struct RemoteSessionBundledResourceLoader"))
+    }
+
     @Test("remote session resource loader reads the bundled Codex wrapper")
     func remoteSessionResourceLoaderReadsBundledCodexWrapper() throws {
         let directory = FileManager.default.temporaryDirectory
