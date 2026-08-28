@@ -1359,7 +1359,7 @@ pub(crate) async fn write_bytes_locked(
 ) -> Result<String, RpcError> {
     write_bytes_locked_with_outcome(root, path, bytes, precondition, create_parents)
         .await
-        .map_err(|failure| (*failure).error)
+        .map_err(|failure| failure.error)
 }
 
 pub(crate) async fn write_bytes_locked_with_outcome(
@@ -1533,7 +1533,7 @@ pub(crate) async fn remove_file_precondition_locked(
 ) -> Result<(), RpcError> {
     remove_file_precondition_locked_with_outcome(root, path, precondition)
         .await
-        .map_err(|failure| (*failure).error)
+        .map_err(|failure| failure.error)
 }
 
 pub(crate) async fn remove_file_precondition_locked_with_outcome(

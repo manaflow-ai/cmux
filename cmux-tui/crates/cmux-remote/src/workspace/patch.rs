@@ -79,9 +79,9 @@ impl CommitTracker {
         mut self,
         path: &str,
         applied_state: AppliedState,
-        failure: Box<MutationFailure>,
+        failure: MutationFailure,
     ) -> Box<CommitFailure> {
-        let MutationFailure { error, outcome, recovery_path } = *failure;
+        let MutationFailure { error, outcome, recovery_path } = failure;
         match outcome {
             MutationOutcome::Unchanged | MutationOutcome::Restored => {}
             MutationOutcome::Applied => self.applied(path, applied_state),
@@ -100,8 +100,8 @@ impl CommitTracker {
 }
 
 impl RollbackReport {
-    fn failure(&mut self, path: &str, failure: Box<MutationFailure>) {
-        let MutationFailure { error, outcome, recovery_path } = *failure;
+    fn failure(&mut self, path: &str, failure: MutationFailure) {
+        let MutationFailure { error, outcome, recovery_path } = failure;
         self.failures.push(RollbackFailure {
             path: path.to_owned(),
             error,
@@ -662,14 +662,14 @@ async fn commit_changes(
                         return Err(tracker.mutation_failure(
                             new,
                             AppliedState::Present(hash_bytes(contents)),
-                            failure,
+                            *failure,
                         ));
                     }
                 }
                 match remove_file_precondition_locked_with_outcome(root, old, &source).await {
                     Ok(()) => tracker.applied(old, AppliedState::Missing),
                     Err(failure) => {
-                        return Err(tracker.mutation_failure(old, AppliedState::Missing, failure));
+                        return Err(tracker.mutation_failure(old, AppliedState::Missing, *failure));
                     }
                 }
             }
@@ -683,7 +683,7 @@ async fn commit_changes(
                         return Err(tracker.mutation_failure(
                             new,
                             AppliedState::Present(hash_bytes(contents)),
-                            failure,
+                            *failure,
                         ));
                     }
                 }
@@ -693,7 +693,7 @@ async fn commit_changes(
                 match remove_file_precondition_locked_with_outcome(root, old, &precondition).await {
                     Ok(()) => tracker.applied(old, AppliedState::Missing),
                     Err(failure) => {
-                        return Err(tracker.mutation_failure(old, AppliedState::Missing, failure));
+                        return Err(tracker.mutation_failure(old, AppliedState::Missing, *failure));
                     }
                 }
             }
@@ -777,7 +777,7 @@ async fn rollback(
             (None, AppliedState::Missing) => Ok(()),
         };
         if let Err(failure) = result {
-            report.failure(path, failure);
+            report.failure(path, *failure);
         }
     }
     report
