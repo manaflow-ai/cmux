@@ -7079,6 +7079,11 @@ pub struct App {
     projection_rails: HashMap<String, ProjectionRailState>,
     projection_rows_cache: VecDeque<ProjectionRowsCache>,
     projection_rows_revision: u64,
+    /// Client-local focus stamps for the agents-view seen bit: surface to
+    /// the last epoch ms this client had it focused. Presentation state,
+    /// never journaled or shared: two attached clients keep separate stamps
+    /// and may rank the same idle agent differently, deliberately.
+    agent_focus_stamps: HashMap<SurfaceId, u64>,
     /// Projection surfaces seen by the most recent rendered snapshots. These
     /// sets cover caches evicted by the bounded LRU, so an update still wakes
     /// a visible rail even when its snapshot is not retained. They are pruned
@@ -9607,6 +9612,7 @@ fn run_with_machine_updates_inner(
         projection_rails: HashMap::new(),
         projection_rows_cache: VecDeque::new(),
         projection_rows_revision: 0,
+        agent_focus_stamps: HashMap::new(),
         projection_agent_surfaces: HashSet::new(),
         projection_title_surfaces: HashSet::new(),
         projection_agent_surfaces_by_view: HashMap::new(),
@@ -10411,10 +10417,12 @@ impl App {
             } else {
                 Vec::new()
             };
+            let seen_idle = self.seen_idle_agent_surfaces(&agents);
             let rows = crate::sidebar_projection::rows(
                 &spec,
                 &self.tree,
                 &agents,
+                &seen_idle,
                 selected_workspace,
                 &collapsed,
             );
@@ -10440,6 +10448,42 @@ impl App {
         };
         self.projection_rail_state_mut(index).reconcile_selection(&rows);
         rows
+    }
+
+    /// Stamp the focused surface, then derive which idle agents this client
+    /// has seen: the surface was focused at or after its idle transition.
+    /// The stamps live only in this client (presentation state); ordering
+    /// can therefore differ between two attached clients, by design. The
+    /// projection cache stays coherent because both seen inputs already
+    /// key it: a focus move changes the focus key and an agent transition
+    /// bumps the invalidation revision.
+    fn seen_idle_agent_surfaces(
+        &mut self,
+        agents: &[crate::session::AgentInfo],
+    ) -> crate::sidebar_projection::SeenIdleSurfaces {
+        if let Some(surface) = self.tree.active_surface() {
+            let now_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|elapsed| elapsed.as_millis() as u64)
+                .unwrap_or(0);
+            self.agent_focus_stamps.insert(surface, now_ms);
+        }
+        // Closed tabs leave stale stamps behind; bound the map instead of
+        // walking the tree every render.
+        if self.agent_focus_stamps.len() > 4_096 {
+            let live: HashSet<SurfaceId> = agents.iter().map(|agent| agent.surface).collect();
+            self.agent_focus_stamps.retain(|surface, _| live.contains(surface));
+        }
+        agents
+            .iter()
+            .filter(|agent| agent.state == "idle")
+            .filter(|agent| {
+                self.agent_focus_stamps
+                    .get(&agent.surface)
+                    .is_some_and(|stamp| *stamp >= agent.updated_at_ms)
+            })
+            .map(|agent| agent.surface)
+            .collect()
     }
 
     fn invalidate_projection_rows_cache(&mut self) {

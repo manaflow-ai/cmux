@@ -138,10 +138,17 @@ struct ProjectionContext {
     pane: Option<PaneId>,
 }
 
+/// Surfaces whose CURRENT idle state the user has already looked at. Seen
+/// is per-client presentation state (derived from this client's focus
+/// history), never journal state: two attached clients can rank the same
+/// idle agent differently, which is correct for a per-viewer property.
+pub(crate) type SeenIdleSurfaces = HashSet<SurfaceId>;
+
 pub(crate) fn rows(
     spec: &SidebarViewSpec,
     tree: &TreeView,
     agents: &[AgentInfo],
+    seen_idle: &SeenIdleSurfaces,
     selected_workspace: usize,
     collapsed: &HashSet<ProjectionBranch>,
 ) -> Vec<ProjectionRow> {
@@ -159,10 +166,24 @@ pub(crate) fn rows(
         None,
         tree,
         &agents_by_surface,
+        seen_idle,
         selected_workspace.min(tree.workspaces.len().saturating_sub(1)),
         collapsed,
     );
     rows
+}
+
+/// herdr's agent priority order: a blocked agent waits on a human, an idle
+/// agent the user has not looked at yet carries unreviewed output, a working
+/// agent is in flight, and a seen idle agent is at rest.
+fn agent_priority(state: &str, seen: bool) -> u8 {
+    match state {
+        "blocked" => 4,
+        "idle" if !seen => 3,
+        "working" => 2,
+        "idle" => 1,
+        _ => 0,
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -174,6 +195,7 @@ fn append_level(
     context: Option<ProjectionContext>,
     tree: &TreeView,
     agents: &HashMap<SurfaceId, &AgentInfo>,
+    seen_idle: &SeenIdleSurfaces,
     selected_workspace: usize,
     collapsed: &HashSet<ProjectionBranch>,
 ) {
@@ -213,6 +235,7 @@ fn append_level(
                         }),
                         tree,
                         agents,
+                        seen_idle,
                         selected_workspace,
                         collapsed,
                     );
@@ -266,6 +289,7 @@ fn append_level(
                             }),
                             tree,
                             agents,
+                            seen_idle,
                             selected_workspace,
                             collapsed,
                         );
@@ -275,21 +299,30 @@ fn append_level(
         }
         SidebarResourceKind::Tabs | SidebarResourceKind::Agents => {
             let agent_only = resource == SidebarResourceKind::Agents;
-            // Agents views sort by (attention desc, recency desc): a blocked
-            // agent outranks a working one regardless of age, and within a
-            // bucket the latest transition floats up. Tab views keep tree
-            // order. The herdr-style idle-unseen bucket needs frontend focus
-            // history and is deferred.
-            let mut agent_entries: Vec<((u8, u64, usize), ProjectionRow)> = Vec::new();
-            let workspace_index = context.map_or(selected_workspace, |context| context.workspace);
-            let Some(workspace) = tree.workspaces.get(workspace_index) else { return };
-            for (screen_index, screen) in workspace.screens.iter().enumerate() {
-                if context.is_some_and(|context| {
-                    context.screen.is_some_and(|candidate| candidate != screen_index)
-                }) {
-                    continue;
-                }
-                for pane in &screen.panes {
+            // A flat `all`-scoped view sweeps every workspace; the historical
+            // behavior scopes the flat view to the selected workspace and a
+            // nested view to its parent context.
+            let all_workspaces = context.is_none() && scope == SidebarViewScope::All;
+            let workspace_indices: Vec<usize> = if all_workspaces {
+                (0..tree.workspaces.len()).collect()
+            } else {
+                vec![context.map_or(selected_workspace, |context| context.workspace)]
+            };
+            // Complexity note: this is the only O(A log A) projection path,
+            // where A is the agent-row count of the view. Every other path
+            // appends in O(A). The ignored 1000-workspace fixture below is
+            // the measurement hook for this intentional tradeoff, without
+            // claiming a local timing.
+            //
+            // Agents views sort by herdr's priority order (blocked >
+            // idle-unseen > working > idle-seen > unknown), most recent
+            // state change first inside a bucket; the tree-order index
+            // breaks exact ties. `u8::MAX - ...` / `u64::MAX - ...` invert
+            // so one ascending sort produces descending buckets.
+            let mut entries: Vec<((u8, u64, usize), ProjectionRow)> = Vec::new();
+            for workspace_index in workspace_indices {
+                let Some(workspace) = tree.workspaces.get(workspace_index) else { continue };
+                for (screen_index, screen) in workspace.screens.iter().enumerate() {
                     if context.is_some_and(|context| {
                         context.screen.is_some_and(|candidate| candidate != screen_index)
                     }) {
@@ -342,12 +375,13 @@ fn append_level(
                             } else {
                                 pane.short_id.clone()
                             };
-                            let recency = if order_by_recency {
-                                u64::MAX
-                                    - agent.map(|agent| agent.updated_at_ms).unwrap_or_default()
-                            } else {
-                                0
-                            };
+                            let sort_key = agent.filter(|_| agent_only).map(|agent| {
+                                let seen = seen_idle.contains(&agent.surface);
+                                (
+                                    u8::MAX - agent_priority(&agent.state, seen),
+                                    u64::MAX - agent.updated_at_ms,
+                                )
+                            });
                             let row = ProjectionRow {
                                 resource,
                                 depth: depth as u16,
@@ -374,17 +408,18 @@ fn append_level(
                                     agent: agent_only,
                                 },
                             };
-                            if order_by_recency {
-                                entries.push(((recency, entries.len()), row));
-                            } else {
-                                output.push(row);
+                            match sort_key {
+                                Some((priority, recency)) => {
+                                    entries.push(((priority, recency, entries.len()), row));
+                                }
+                                None => output.push(row),
                             }
                         }
                     }
                 }
             }
-            agent_entries.sort_by_key(|(key, _)| *key);
-            output.extend(agent_entries.into_iter().map(|(_, row)| row));
+            entries.sort_by_key(|(key, _)| *key);
+            output.extend(entries.into_iter().map(|(_, row)| row));
         }
     }
 }
@@ -489,7 +524,8 @@ mod tests {
         let rows = rows(
             &spec(vec![SidebarResourceKind::Workspaces, SidebarResourceKind::Agents]),
             &tree,
-            &agents,
+            &agents
+            &HashSet::new(),
             0,
             &HashSet::new(),
         );
@@ -514,7 +550,8 @@ mod tests {
         let rows = rows(
             &spec(vec![SidebarResourceKind::Workspaces, SidebarResourceKind::Panes]),
             &tree,
-            &[],
+            &[]
+            &HashSet::new(),
             0,
             &collapsed,
         );
@@ -533,7 +570,8 @@ mod tests {
                 SidebarResourceKind::Tabs,
             ]),
             &tree,
-            &[],
+            &[]
+            &HashSet::new(),
             0,
             &HashSet::new(),
         );
@@ -599,7 +637,7 @@ mod tests {
 
     #[test]
     fn flat_agent_view_is_empty_when_no_agents_are_running() {
-        let rows = rows(&spec(vec![SidebarResourceKind::Agents]), &tree(), &[], 0, &HashSet::new());
+        let rows = rows(&spec(vec![SidebarResourceKind::Agents]), &tree(), &[], &HashSet::new(), 0, &HashSet::new());
         assert!(rows.is_empty());
     }
 
@@ -614,7 +652,7 @@ mod tests {
             updated_at_ms: 1,
         }];
         let rows =
-            rows(&spec(vec![SidebarResourceKind::Agents]), &tree(), &agents, 0, &HashSet::new());
+            rows(&spec(vec![SidebarResourceKind::Agents]), &tree(), &agents, &HashSet::new(), 0, &HashSet::new());
         assert!(rows.is_empty());
     }
 
@@ -655,7 +693,7 @@ mod tests {
     }
 
     #[test]
-    fn all_scope_agents_sweep_workspaces_newest_first() {
+    fn all_scope_agents_sweep_workspaces_by_priority() {
         let tree = TreeView {
             workspaces: vec![
                 workspace(1, "alpha", 10, [11, 12]),
@@ -694,7 +732,7 @@ mod tests {
         let mut all_spec = spec(vec![SidebarResourceKind::Agents]);
         all_spec.scope = SidebarViewScope::All;
         // The selected workspace must not scope the sweep.
-        let rows = rows(&all_spec, &tree, &agents, 1, &HashSet::new());
+        let rows = rows(&all_spec, &tree, &agents, &HashSet::new(), 1, &HashSet::new());
 
         assert_eq!(rows.len(), 3, "agents from every workspace appear");
         let order: Vec<u64> = rows
@@ -704,13 +742,14 @@ mod tests {
                 _ => panic!("agent rows target surfaces"),
             })
             .collect();
-        assert_eq!(order, vec![22, 12, 11], "newest status change first");
-        assert_eq!(rows[0].agent_state.as_deref(), Some("working"));
+        assert_eq!(order, vec![11, 22, 12], "unseen idle > working > everything else");
+        assert_eq!(rows[0].agent_state.as_deref(), Some("idle"));
+        assert_eq!(rows[1].agent_state.as_deref(), Some("working"));
         assert_eq!(
-            rows[0].subtitle, "beta",
+            rows[1].subtitle, "beta",
             "a session-less agent names its workspace in an all sweep"
         );
-        assert_eq!(rows[1].agent_state.as_deref(), Some("done"));
+        assert_eq!(rows[2].agent_state.as_deref(), Some("done"));
     }
 
     #[test]
@@ -743,7 +782,7 @@ mod tests {
             },
         ];
         let rows =
-            rows(&spec(vec![SidebarResourceKind::Agents]), &tree, &agents, 1, &HashSet::new());
+            rows(&spec(vec![SidebarResourceKind::Agents]), &tree, &agents, &HashSet::new(), 1, &HashSet::new());
         assert_eq!(rows.len(), 1);
         assert!(matches!(rows[0].target, ProjectionTarget::Surface { surface: 22, .. }));
     }
@@ -768,7 +807,7 @@ mod tests {
             },
         ];
         let rows =
-            rows(&spec(vec![SidebarResourceKind::Agents]), &tree, &agents, 0, &HashSet::new());
+            rows(&spec(vec![SidebarResourceKind::Agents]), &tree, &agents, &HashSet::new(), 0, &HashSet::new());
         let surfaces = rows
             .iter()
             .map(|row| match row.target {
@@ -777,6 +816,65 @@ mod tests {
             })
             .collect::<Vec<_>>();
         assert_eq!(surfaces, vec![4, 5]);
+    }
+
+    #[test]
+    fn agents_view_priority_ranks_blocked_unseen_working_seen_with_recency_ties() {
+        let tree = TreeView {
+            workspaces: vec![
+                workspace(1, "alpha", 10, [11, 12]),
+                workspace(2, "beta", 20, [21, 22]),
+            ],
+            workspace_revision: 1,
+            pane_revision: Some(1),
+            active_workspace: 0,
+        };
+        let agent = |surface: SurfaceId, state: &str, updated_at_ms: u64| AgentInfo {
+            surface,
+            state: state.into(),
+            source: "detected".into(),
+            session: None,
+            agent: Some("codex".into()),
+            updated_at_ms,
+        };
+        // The blocked agent is the OLDEST update and still ranks first;
+        // the idle agents split on the client-local seen bit around the
+        // newest (working) agent.
+        let agents = vec![
+            agent(11, "idle", 500),
+            agent(12, "blocked", 100),
+            agent(21, "working", 900),
+            agent(22, "idle", 700),
+        ];
+        let mut all_spec = spec(vec![SidebarResourceKind::Agents]);
+        all_spec.scope = SidebarViewScope::All;
+        let seen: SeenIdleSurfaces = [22].into_iter().collect();
+        let rows = rows(&all_spec, &tree, &agents, &seen, 0, &HashSet::new());
+
+        let order: Vec<u64> = rows
+            .iter()
+            .map(|row| match row.target {
+                ProjectionTarget::Surface { surface, .. } => surface,
+                _ => panic!("agent rows target surfaces"),
+            })
+            .collect();
+        assert_eq!(
+            order,
+            vec![12, 11, 21, 22],
+            "blocked > idle-unseen > working > idle-seen"
+        );
+
+        // Marking the remaining idle agent seen drops it below working.
+        let seen: SeenIdleSurfaces = [11, 22].into_iter().collect();
+        let reranked = super::rows(&all_spec, &tree, &agents, &seen, 0, &HashSet::new());
+        let order: Vec<u64> = reranked
+            .iter()
+            .map(|row| match row.target {
+                ProjectionTarget::Surface { surface, .. } => surface,
+                _ => panic!("agent rows target surfaces"),
+            })
+            .collect();
+        assert_eq!(order, vec![12, 21, 22, 11], "seen idle sorts by recency after working");
     }
 
     #[test]
@@ -810,7 +908,7 @@ mod tests {
                 updated_at_ms: 900,
             },
         ];
-        let initial = rows(&all_spec, &tree, &initial_agents, 0, &HashSet::new());
+        let initial = rows(&all_spec, &tree, &initial_agents, &HashSet::new(), 0, &HashSet::new());
         let selected_target = initial[1].target;
         let mut state = ProjectionRailState {
             selected: 1,
@@ -822,7 +920,7 @@ mod tests {
             AgentInfo { updated_at_ms: 1_000, ..initial_agents[0].clone() },
             initial_agents[1].clone(),
         ];
-        let reordered = rows(&all_spec, &tree, &updated_agents, 0, &HashSet::new());
+        let reordered = rows(&all_spec, &tree, &updated_agents, &HashSet::new(), 0, &HashSet::new());
         assert_ne!(reordered[1].target, selected_target);
         state.reconcile_selection(&reordered);
         assert_eq!(state.selected_target, Some(selected_target));
@@ -856,6 +954,7 @@ mod tests {
                 state: "working".into(),
                 source: "fixture".into(),
                 session: None,
+                agent: None,
                 updated_at_ms: index as u64,
             })
             .collect::<Vec<_>>();
@@ -863,7 +962,7 @@ mod tests {
         all_spec.scope = SidebarViewScope::All;
 
         let started = Instant::now();
-        let projected = rows(&all_spec, &tree, &agents, 0, &HashSet::new());
+        let projected = rows(&all_spec, &tree, &agents, &HashSet::new(), 0, &HashSet::new());
         eprintln!(
             "all-scope agent projection: {} rows in {:?}",
             projected.len(),
