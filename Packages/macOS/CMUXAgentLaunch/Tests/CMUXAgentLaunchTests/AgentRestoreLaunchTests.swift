@@ -340,6 +340,52 @@ import Testing
         #expect(invocation.environment["SUBROUTER_CODEX_USER_EMAIL"] == "captured@example.test")
     }
 
+    @Test func structuredSubrouterRestoreTreatsAbsentLaunchRoutingInputsAsAuthoritative() throws {
+        let inheritedRouting = [
+            "CMUX_CUSTOM_CODEX_PATH": "/ambient/custom-codex",
+            "SUBROUTER_CODEX_ACCOUNT_ID": "ambient-account",
+            "SUBROUTER_CODEX_BASE_URL": "https://ambient.example.test/v1",
+            "SUBROUTER_CODEX_BIN": "/ambient/codex",
+            "SUBROUTER_CODEX_RESUME_COMMAND": "cx codex resume",
+            "SUBROUTER_CODEX_SERVER": "ambient-server",
+            "SUBROUTER_CODEX_USER_EMAIL": "ambient@example.test",
+        ]
+        let request = AgentRestoreRequest(
+            mode: .resumeAgent,
+            kind: "codex",
+            checkpointID: sessionID,
+            source: "agent-hook",
+            workingDirectory: "/tmp/project",
+            environment: inheritedRouting,
+            launchCommand: AgentLaunchCommand(
+                launcher: "codex",
+                executablePath: "codex",
+                arguments: ["codex", "-c", "model_provider=subrouter"],
+                workingDirectory: "/tmp/project",
+                environment: [
+                    "CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
+                    "SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
+                ]
+            ),
+            preparedArguments: nil,
+            observedPermissionMode: nil
+        )
+
+        var ambientEnvironment = inheritedRouting
+        ambientEnvironment["PATH"] = "/usr/bin:/bin"
+        let invocation = try #require(
+            AgentRestorePlanner(isExecutableFile: { _ in false }).invocation(
+                for: request,
+                ambientEnvironment: ambientEnvironment
+            )
+        )
+
+        #expect(invocation.arguments.prefix(4) == ["sr", "codex", "resume", sessionID])
+        for key in inheritedRouting.keys {
+            #expect(invocation.environment[key] == nil, "\(key) leaked into routed restore")
+        }
+    }
+
     @Test func structuredCodexRestoreCanonicalizesRelativeHomeFromLaunchDirectory() throws {
         let launchDirectory = "/tmp/codex-launch-root/repository"
         let restoredDirectory = "/tmp/codex-launch-root/repository/worktree"
