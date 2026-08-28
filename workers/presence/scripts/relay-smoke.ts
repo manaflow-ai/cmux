@@ -18,8 +18,13 @@ const CLIENT_KEY = required("STACK_PUBLISHABLE_CLIENT_KEY");
 const EMAIL = required("CMUX_SMOKE_EMAIL");
 const PASSWORD = required("CMUX_SMOKE_PASSWORD");
 const SOAK_MINUTES = Number(process.env.RELAY_SOAK_MINUTES ?? "0");
+const SOAK_INTERVAL_MS = Number(process.env.RELAY_SOAK_INTERVAL_MS ?? "10000");
 if (!Number.isFinite(SOAK_MINUTES) || SOAK_MINUTES < 0) {
   console.error("RELAY_SOAK_MINUTES must be a non-negative number");
+  process.exit(2);
+}
+if (!Number.isFinite(SOAK_INTERVAL_MS) || SOAK_INTERVAL_MS < 1000) {
+  console.error("RELAY_SOAK_INTERVAL_MS must be at least 1000ms");
   process.exit(2);
 }
 
@@ -90,7 +95,10 @@ async function openLeg(
   const closed = new Promise<{ code: number; reason: string }>((resolve) => {
     closeResolve = resolve;
   });
-  ws.addEventListener("close", (event) => closeResolve({ code: event.code, reason: event.reason }));
+  ws.addEventListener("close", (event) => {
+    console.log(`${role} leg closed code=${event.code} reason=${event.reason || "(none)"}`);
+    closeResolve({ code: event.code, reason: event.reason });
+  });
   ws.addEventListener("message", (event) => {
     if (typeof event.data === "string") {
       leg.controls!.push(JSON.parse(event.data));
@@ -322,6 +330,9 @@ if (SOAK_MINUTES > 0) {
     hostBack.ws.send(JSON.stringify({ t: "ping", ts: Date.now() }));
     await waitControl(hostBack, (frame) => frame.t === "pong");
     check(`soak ${tick}: ping/pong`, true, `${(performance.now() - pingStarted).toFixed(0)}ms RTT`);
+    resumed.ws.send(JSON.stringify({ t: "ping", ts: Date.now() }));
+    await waitControl(resumed, (frame) => frame.t === "pong");
+    check(`soak ${tick}: phone ping/pong`, true);
 
     if (tick % 12 === 0) {
       hostBack.ws.send(JSON.stringify({ t: "auth.refresh", token }));
@@ -339,7 +350,7 @@ if (SOAK_MINUTES > 0) {
     const elapsedSeconds = Math.round((Date.now() - startedAt) / 1000);
     console.log(`soak progress ${elapsedSeconds}s/${Math.round(SOAK_MINUTES * 60)}s`);
     const remainingMs = deadline - Date.now();
-    if (remainingMs > 0) await new Promise((resolve) => setTimeout(resolve, Math.min(25_000, remainingMs)));
+    if (remainingMs > 0) await new Promise((resolve) => setTimeout(resolve, Math.min(SOAK_INTERVAL_MS, remainingMs)));
   }
 
   check(
