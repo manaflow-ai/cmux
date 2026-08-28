@@ -1346,7 +1346,10 @@ mod tests {
             .await
             .expect("reconnect group resolver did not start");
 
-        let mut closing = Box::pin(client.close());
+        let mut closing = tokio::spawn({
+            let client = client.clone();
+            async move { client.close().await }
+        });
         let closed = tokio::time::timeout(Duration::from_millis(250), &mut closing).await;
         release.notify_waiters();
         let _ = tokio::time::timeout(Duration::from_secs(1), &mut closing).await;
