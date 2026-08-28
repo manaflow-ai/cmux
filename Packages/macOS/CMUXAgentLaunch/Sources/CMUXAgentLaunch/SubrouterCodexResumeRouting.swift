@@ -23,6 +23,15 @@ public struct SubrouterCodexResumeRouting: Sendable, Equatable {
         "SUBROUTER_CODEX_USER_EMAIL": 320,
     ]
 
+    /// Environment keys whose presence and absence are owned by a proven
+    /// routed launch record during restore.
+    public static let restoreOwnedEnvironmentKeys: Set<String> = Set(routingEnvironmentLimits.keys)
+        .union([
+            environmentKey,
+            launchBoundEnvironmentKey,
+            "CMUX_CUSTOM_CODEX_PATH",
+        ])
+
     /// Creates a Subrouter Codex resume router.
     public init() {}
 

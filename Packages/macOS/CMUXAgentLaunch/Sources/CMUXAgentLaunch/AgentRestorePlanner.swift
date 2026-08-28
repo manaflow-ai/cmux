@@ -71,6 +71,11 @@ public struct AgentRestorePlanner: Sendable {
 
         var environment = ambientEnvironment
         let restoredEnvironment = restoredEnvironment(for: request, kind: kind)
+        if hasProvenRoutedCodexLaunch(request, kind: kind) {
+            for key in SubrouterCodexResumeRouting.restoreOwnedEnvironmentKeys {
+                environment.removeValue(forKey: key)
+            }
+        }
         environment.merge(restoredEnvironment) { _, restored in restored }
 
         var routedArguments = sanitizedArguments
@@ -201,10 +206,19 @@ public struct AgentRestorePlanner: Sendable {
                 environment: launchEnvironment
             ) != nil {
                 // Only the launch record can prove routed resume. Request environment
-                // remains authoritative for ordinary replay values, but cannot replace
-                // the bounded routing values captured with that proof.
+                // remains authoritative for ordinary replay values, but presence and
+                // absence of restore-owned routing values come only from that proof.
+                for key in SubrouterCodexResumeRouting.restoreOwnedEnvironmentKeys {
+                    selected.removeValue(forKey: key)
+                }
                 selected.merge(router.capturedRoutingEnvironment(in: launchEnvironment)) { _, routingValue in
                     routingValue
+                }
+                if let customCodexPath = environmentPolicy.sanitizedValue(
+                    key: "CMUX_CUSTOM_CODEX_PATH",
+                    value: launchEnvironment["CMUX_CUSTOM_CODEX_PATH"]
+                ) {
+                    selected["CMUX_CUSTOM_CODEX_PATH"] = customCodexPath
                 }
             }
         }
@@ -218,6 +232,16 @@ public struct AgentRestorePlanner: Sendable {
             }
         }
         return selected
+    }
+
+    private func hasProvenRoutedCodexLaunch(_ request: AgentRestoreRequest, kind: String) -> Bool {
+        guard kind == "codex", request.mode != .direct else { return false }
+        return SubrouterCodexResumeRouting().resumeArguments(
+            launcher: request.launchCommand?.launcher,
+            sessionID: "restore-environment-validation",
+            launchArguments: request.launchCommand?.arguments ?? [],
+            environment: request.launchCommand?.environment
+        ) != nil
     }
 
     private func retargetPreparedWorkingDirectory(
