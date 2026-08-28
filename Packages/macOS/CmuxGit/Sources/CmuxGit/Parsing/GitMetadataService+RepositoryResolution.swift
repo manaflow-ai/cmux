@@ -165,7 +165,7 @@ extension GitMetadataService {
         at url: URL,
         deadline: DispatchTime?
     ) -> String? {
-        guard case .contents(let contents, consumedByteCount: _) = GitConfigFileReader().read(
+        guard case let .contents(contents, _) = GitConfigFileReader().read(
             at: url,
             maximumByteCount: Self.maximumRepositoryPointerByteCount,
             deadline: deadline

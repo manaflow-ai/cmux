@@ -446,7 +446,7 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
             at: configURL,
             maximumByteCount: Self.maximumReferenceStorageConfigByteCount
         ) {
-        case .contents(let contents, consumedByteCount: _):
+        case let .contents(contents, _):
             return (contents, false)
         case .oversized(consumedByteCount: _):
             return (nil, true)

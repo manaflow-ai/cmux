@@ -21,7 +21,7 @@ nonisolated enum GitConfigBranchContext: Sendable {
                 ?? (DispatchTime.now() + GitMetadataSafetyConfiguration().gitStatusWallTime)
             let headURL = URL(fileURLWithPath: repository.gitDirectory)
                 .appendingPathComponent("HEAD")
-            guard case .contents(let contents, consumedByteCount: _) = GitConfigFileReader().read(
+            guard case let .contents(contents, _) = GitConfigFileReader().read(
                 at: headURL,
                 maximumByteCount: 16 * 1_024,
                 deadline: effectiveDeadline
