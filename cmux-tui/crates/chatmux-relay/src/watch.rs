@@ -1309,7 +1309,8 @@ mod tests {
                 teardown_slots: Arc::new(Semaphore::new(1)),
             },
         };
-        let task = tokio::spawn(finish_open_failure(context, wire::WorkspaceErrorCode::Failed, None));
+        let task =
+            tokio::spawn(finish_open_failure(context, wire::WorkspaceErrorCode::Failed, None));
         let mut frame = critical.recv().await.expect("failure frame");
         assert!(frame.live.is_some(), "failure keeps its opening liveness token until delivery");
         let value: Value = serde_json::from_str(&frame.text).expect("failure json");
@@ -1352,7 +1353,8 @@ mod tests {
                 teardown_slots: Arc::new(Semaphore::new(1)),
             },
         };
-        let task = tokio::spawn(finish_open_failure(context, wire::WorkspaceErrorCode::Failed, None));
+        let task =
+            tokio::spawn(finish_open_failure(context, wire::WorkspaceErrorCode::Failed, None));
         tokio::task::yield_now().await;
         assert!(!task.is_finished(), "failure waits instead of dropping under queue pressure");
 
