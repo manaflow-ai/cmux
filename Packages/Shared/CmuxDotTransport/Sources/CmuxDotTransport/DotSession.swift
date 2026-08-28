@@ -345,7 +345,10 @@ actor DotSecureSession: DotSecureSessionProtocol {
     private let judge: (@Sendable (DotAdmittedPeer) async throws -> Void)?
     private var continuation: AsyncStream<DotSessionEvent>.Continuation?
     private var key: SymmetricKey?
-    private var nextStreamID: UInt32 = 1
+    /// Stream IDs are directional. The phone owns odd IDs and the host owns
+    /// even IDs, so a host-opened lane can never collide with the phone's
+    /// control stream (or any other phone-opened lane) in the shared mux.
+    private var nextStreamID: UInt32
     private var streams: [UInt32: DotStreamImpl] = [:]
     private var closed = false
     private var handshakeWaiter: CheckedContinuation<Void, any Error>?
@@ -379,6 +382,7 @@ actor DotSecureSession: DotSecureSessionProtocol {
         self.peer = peer
         self.sessionID = sessionID
         self.judge = judge
+        self.nextStreamID = role == .phone ? 1 : 2
         let (stream, continuation) = AsyncStream.makeStream(of: DotSessionEvent.self)
         self.events = stream
         self.continuation = continuation
@@ -662,7 +666,8 @@ actor DotSecureSession: DotSecureSessionProtocol {
     func openStream(_ descriptor: DotLaneDescriptor) async throws -> any DotStream {
         guard key != nil, !closed else { throw DotTransportError.sessionEnded("session closed") }
         let id = nextStreamID
-        nextStreamID += 1
+        guard id > 0 else { throw DotTransportError.protocolViolation("stream id exhausted") }
+        nextStreamID = id <= UInt32.max - 2 ? id + 2 : 0
         let stream = DotStreamImpl(id: id, descriptor: descriptor, session: self)
         streams[id] = stream
         let body = try JSONEncoder().encode(DotOpenMessage(descriptor: descriptor))
@@ -714,7 +719,15 @@ actor DotSecureSession: DotSecureSessionProtocol {
     }
 
     private func receiveOpen(streamID: UInt32, body: Data) async throws {
-        guard key != nil, streams[streamID] == nil else { return }
+        guard key != nil else { return }
+        // An inbound OPEN must come from the peer's half of the directional
+        // namespace. Treat a reused local ID as a protocol error instead of
+        // silently dropping the lane and leaving its consumer hung.
+        let localParity = role == .phone ? UInt32(1) : UInt32(0)
+        guard streamID & 1 != localParity,
+              streams[streamID] == nil else {
+            throw DotTransportError.protocolViolation("invalid peer stream id")
+        }
         let open = try JSONDecoder().decode(DotOpenMessage.self, from: body)
         let stream = DotStreamImpl(id: streamID, descriptor: open.descriptor, session: self)
         streams[streamID] = stream
