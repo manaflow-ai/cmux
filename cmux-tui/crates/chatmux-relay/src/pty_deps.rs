@@ -888,9 +888,6 @@ mod tests {
             }),
         );
 
-        assert_eq!(
-            *seen.lock().expect("seen lock"),
-            vec!["tail".to_owned(), "exit:23".to_owned()]
-        );
+        assert_eq!(*seen.lock().expect("seen lock"), vec!["tail".to_owned(), "exit:23".to_owned()]);
     }
 }
