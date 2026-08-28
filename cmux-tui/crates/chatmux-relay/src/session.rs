@@ -39,6 +39,8 @@ use crate::pairing::websocket_url;
 use crate::pty::FrameContext;
 #[cfg(unix)]
 use crate::pty::PtyManager;
+#[cfg(unix)]
+use crate::tunnel_terminal::{TunnelAuth, TunnelAuthState};
 use crate::trust::{
     DEFAULT_RELAY_TRUST, Trust, clear_invalid_yolo_confirmation, effective_local_trust,
     has_yolo_confirmation, relay_trust,
@@ -315,6 +317,8 @@ pub struct SessionRuntime {
     pub(crate) workspace: Arc<crate::workspace::SharedRuntime>,
     #[cfg(unix)]
     pty: Arc<PtyManager>,
+    #[cfg(unix)]
+    pub(crate) tunnel_auth: TunnelAuthState,
 }
 
 impl SessionRuntime {
@@ -336,6 +340,8 @@ impl SessionRuntime {
             workspace: Arc::new(crate::workspace::SharedRuntime::new(local_roots)),
             #[cfg(unix)]
             pty,
+            #[cfg(unix)]
+            tunnel_auth: Arc::new(std::sync::RwLock::new(None)),
         }
     }
 }
@@ -414,17 +420,19 @@ pub async fn stay_online(
     cancellation: CancellationToken,
 ) -> Result<(), RelayError> {
     let runtime = SessionRuntime::with_roots(config.allowed_roots.clone());
-    // Tunnel-direct terminal data plane: serve terminals to spliced tunnel
-    // connections on loopback 127.0.0.1:9776. Managed sandboxes ONLY — this
-    // branch is the gate; paired human machines never start the listener.
-    // Best-effort: a failed bind degrades to the relay-socket terminal path.
+    // Tunnel-direct terminal data plane: bind the loopback listener once for
+    // managed sandboxes. It starts with no authority and therefore refuses
+    // opens until hello negotiation publishes authenticated trust. Authority
+    // is cleared on every disconnect, so a stale tunnel cannot survive a
+    // reconnect.
     #[cfg(unix)]
     if state.managed {
         match crate::tunnel_terminal::start_tunnel_terminal_listener(
             Arc::clone(&runtime.pty),
-            cancellation.child_token(),
+            cancellation.clone(),
             crate::tunnel_terminal::TUNNEL_TERMINAL_HOST,
             crate::tunnel_terminal::TUNNEL_TERMINAL_PORT,
+            Arc::clone(&runtime.tunnel_auth),
         )
         .await
         {
@@ -607,7 +615,9 @@ async fn relay_session(
     // this socket opens carries this connection's identity, so closing or
     // reconnecting the socket cannot detach an independent tunnel attachment.
     #[cfg(unix)]
-    let transport_id = format!("relay-{}", crate::pty::random_hex(16));
+    let transport_id = crate::pty::random_hex(16)
+        .map(|id| format!("relay-{id}"))
+        .map_err(|error| RelayError::transient(format!("unable to create relay transport identity: {error}")))?;
 
     // Ordered PTY frame dispatch on its own task so a slow open (daemon
     // spawn) never stalls heartbeats or other frames.
@@ -899,11 +909,33 @@ async fn relay_session(
                             } else {
                                 local_trust.as_str().to_owned()
                             };
+                            // A server-supplied trust value is authority. Do
+                            // not treat an unknown string as a permissive
+                            // level in either the relay or tunnel data plane.
+                            if Trust::parse(&effective_trust).is_none() {
+                                break Err(RelayError::transient(
+                                    "server returned an invalid trust level; refusing terminal access",
+                                ));
+                            }
                             let local_observe = effective_trust == Trust::Observe.as_str();
                             let mut snapshot = auth.lock().expect("auth lock");
                             snapshot.trust = effective_trust;
                             snapshot.roots = local_roots.clone();
                             snapshot.owner = config.owner_user_id.clone();
+                            #[cfg(unix)]
+                            if state.managed {
+                                // Trust and owner changes revoke all tunnel
+                                // attachments before the new snapshot is
+                                // published. This closes the old capability
+                                // at one clear lifecycle boundary.
+                                runtime.pty.detach_tunnel_transports();
+                                *runtime.tunnel_auth.write().expect("tunnel auth lock") =
+                                    Some(TunnelAuth {
+                                        trust: snapshot.trust.clone(),
+                                        local_roots: snapshot.roots.clone(),
+                                        owner_user_id: snapshot.owner.clone(),
+                                    });
+                            }
                             workspace.set_local_observe(local_observe);
                         }
                         let cadence = Duration::from_millis(hello.heartbeat_interval_ms);
@@ -1193,7 +1225,14 @@ async fn relay_session(
     // managed tunnel listener's attachments are another transport's — a
     // reconnect must never detach them (docs/TERMINAL.md).
     #[cfg(unix)]
-    runtime.pty.detach_transport(&transport_id);
+    {
+        // Clear the listener's authority before releasing relay attachments.
+        // New tunnel opens fail closed during reconnect, and old tunnel
+        // attachments are revoked instead of inheriting the next session.
+        *runtime.tunnel_auth.write().expect("tunnel auth lock") = None;
+        runtime.pty.detach_tunnel_transports();
+        runtime.pty.detach_transport(&transport_id);
+    }
     result
 }
 
