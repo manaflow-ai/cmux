@@ -49,7 +49,11 @@ struct AgentLaunchEnvironmentPolicyTests {
         let selected = policy.selectedRestoreRecordEnvironment(
             from: [
                 "OPENAI_API_KEY": "secret-should-not-cross-socket",
+                "SUBROUTER_CODEX_ACCOUNT_ID": "team-codex-1",
+                "SUBROUTER_CODEX_BASE_URL": "https://router.example.test/v1",
                 "SUBROUTER_CODEX_RESUME_COMMAND": "\(command) codex resume",
+                "SUBROUTER_CODEX_SERVER": "team",
+                "SUBROUTER_CODEX_USER_EMAIL": "operator@example.test",
             ],
             kind: "codex",
             launcher: "codex",
@@ -57,13 +61,37 @@ struct AgentLaunchEnvironmentPolicyTests {
         )
 
         #expect(selected == [
+            "SUBROUTER_CODEX_ACCOUNT_ID": "team-codex-1",
+            "SUBROUTER_CODEX_BASE_URL": "https://router.example.test/v1",
             "SUBROUTER_CODEX_RESUME_COMMAND": "\(command) codex resume",
+            "SUBROUTER_CODEX_SERVER": "team",
+            "SUBROUTER_CODEX_USER_EMAIL": "operator@example.test",
         ])
         #expect(
             policy.selectedRestoreEnvironment(from: selected, kind: "codex")[
                 "SUBROUTER_CODEX_RESUME_COMMAND"
             ] == nil
         )
+    }
+
+    @Test("Restore records reject unsafe Subrouter routing metadata")
+    func restoreRecordsRejectUnsafeSubrouterRoutingMetadata() {
+        let selected = AgentLaunchEnvironmentPolicy().selectedRestoreRecordEnvironment(
+            from: [
+                "SUBROUTER_CODEX_ACCOUNT_ID": "team\ncodex",
+                "SUBROUTER_CODEX_BASE_URL": "https://user:secret@router.example.test/v1",
+                "SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
+                "SUBROUTER_CODEX_SERVER": "team\nstaging",
+                "SUBROUTER_CODEX_USER_EMAIL": "operator@example.test\nX-Injected: yes",
+            ],
+            kind: "codex",
+            launcher: "codex",
+            arguments: ["codex", "-c", "model_provider=subrouter"]
+        )
+
+        #expect(selected == [
+            "SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
+        ])
     }
 
     @Test("Restore records reject unproved or noncanonical Subrouter metadata")

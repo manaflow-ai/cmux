@@ -145,7 +145,13 @@ import Testing
                     "model_provider=subrouter",
                 ],
                 workingDirectory: "/tmp/project",
-                environment: ["SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume"]
+                environment: [
+                    "SUBROUTER_CODEX_ACCOUNT_ID": "team-codex-1",
+                    "SUBROUTER_CODEX_BASE_URL": "https://router.example.test/v1",
+                    "SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
+                    "SUBROUTER_CODEX_SERVER": "team",
+                    "SUBROUTER_CODEX_USER_EMAIL": "operator@example.test",
+                ]
             ),
             preparedArguments: nil,
             observedPermissionMode: nil
@@ -159,7 +165,11 @@ import Testing
         )
 
         #expect(invocation.arguments == ["sr", "codex", "resume", sessionID])
+        #expect(invocation.environment["SUBROUTER_CODEX_ACCOUNT_ID"] == "team-codex-1")
+        #expect(invocation.environment["SUBROUTER_CODEX_BASE_URL"] == "https://router.example.test/v1")
         #expect(invocation.environment["SUBROUTER_CODEX_RESUME_COMMAND"] == nil)
+        #expect(invocation.environment["SUBROUTER_CODEX_SERVER"] == "team")
+        #expect(invocation.environment["SUBROUTER_CODEX_USER_EMAIL"] == "operator@example.test")
         #expect(invocation.environment["CMUX_AGENT_RESTORE_LAUNCH"] == nil)
     }
 
