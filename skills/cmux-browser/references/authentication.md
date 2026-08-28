@@ -8,7 +8,9 @@ returned by `browser open`. Never guess a default surface or log credentials.
 ## Basic login
 
 ```bash
-cmux --json browser open https://app.example.com/login --focus false
+OPEN_JSON="$(cmux --json browser open https://app.example.com/login --focus false)"
+SURFACE="$(printf '%s' "$OPEN_JSON" | jq -r '.surface_ref // .surface_id // empty')"
+[ -n "$SURFACE" ] || { printf '%s\n' 'browser open did not return a surface ref' >&2; exit 1; }
 cmux browser --surface "$SURFACE" wait --load-state complete --timeout-ms 15000
 cmux browser --surface "$SURFACE" snapshot --interactive
 cmux browser --surface "$SURFACE" fill e1 "$APP_USERNAME"
@@ -28,7 +30,9 @@ State includes cookies, localStorage, sessionStorage, and open tab metadata for 
 ## Restoring authentication
 
 ```bash
-cmux --json browser open https://app.example.com --focus false
+OPEN_JSON="$(cmux --json browser open https://app.example.com --focus false)"
+SURFACE="$(printf '%s' "$OPEN_JSON" | jq -r '.surface_ref // .surface_id // empty')"
+[ -n "$SURFACE" ] || { printf '%s\n' 'browser open did not return a surface ref' >&2; exit 1; }
 cmux browser --surface "$SURFACE" state load ./auth-state.json
 cmux browser --surface "$SURFACE" goto https://app.example.com/dashboard
 cmux browser --surface "$SURFACE" snapshot --interactive
@@ -39,7 +43,9 @@ cmux browser --surface "$SURFACE" snapshot --interactive
 Same shape as basic login, waiting on the provider host and then the return host, with generous timeouts:
 
 ```bash
-cmux --json browser open https://app.example.com/auth/provider --focus false
+OPEN_JSON="$(cmux --json browser open https://app.example.com/auth/provider --focus false)"
+SURFACE="$(printf '%s' "$OPEN_JSON" | jq -r '.surface_ref // .surface_id // empty')"
+[ -n "$SURFACE" ] || { printf '%s\n' 'browser open did not return a surface ref' >&2; exit 1; }
 cmux browser --surface "$SURFACE" wait --url-contains "login.example.com" --timeout-ms 30000
 cmux browser --surface "$SURFACE" snapshot --interactive
 # fill and click the provider's fields
@@ -87,5 +93,5 @@ Never commit state files; they contain auth tokens. Take credentials from enviro
 
 ```bash
 cmux browser --surface "$SURFACE" cookies clear --all
-rm -f ./auth-state.json
+rm -f ./auth-state.json ./oauth-state.json
 ```

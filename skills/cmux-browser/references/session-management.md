@@ -10,20 +10,24 @@ Keep the handle returned by creation or
 Each `cmux browser open` returns a new surface ref; drive them independently.
 
 ```bash
-cmux --json browser open https://site-a.example --focus false    # -> surface:11
-cmux --json browser open https://site-b.example --focus false    # -> surface:12
+FIRST_JSON="$(cmux --json browser open https://site-a.example --focus false)"
+FIRST_SURFACE="$(printf '%s' "$FIRST_JSON" | jq -r '.surface_ref // .surface_id // empty')"
+SECOND_JSON="$(cmux --json browser open https://site-b.example --focus false)"
+SECOND_SURFACE="$(printf '%s' "$SECOND_JSON" | jq -r '.surface_ref // .surface_id // empty')"
+[ -n "$FIRST_SURFACE" ] && [ -n "$SECOND_SURFACE" ] || exit 1
 
-cmux browser --surface surface:11 get text body > /tmp/a.txt
-cmux browser --surface surface:12 get text body > /tmp/b.txt
+cmux browser --surface "$FIRST_SURFACE" get text body > /tmp/a.txt
+cmux browser --surface "$SECOND_SURFACE" get text body > /tmp/b.txt
 ```
 
 ## Reusing auth across surfaces
 
 ```bash
 SOURCE_SURFACE="surface:7"       # from discovery
-DESTINATION_SURFACE="surface:8"   # from the second open response
 cmux browser --surface "$SOURCE_SURFACE" state save /tmp/auth.json
-cmux --json browser open https://app.example.com --focus false    # -> surface:8
+DESTINATION_JSON="$(cmux --json browser open https://app.example.com --focus false)"
+DESTINATION_SURFACE="$(printf '%s' "$DESTINATION_JSON" | jq -r '.surface_ref // .surface_id // empty')"
+[ -n "$DESTINATION_SURFACE" ] || exit 1
 cmux browser --surface "$DESTINATION_SURFACE" state load /tmp/auth.json
 cmux browser --surface "$DESTINATION_SURFACE" goto https://app.example.com/dashboard
 ```

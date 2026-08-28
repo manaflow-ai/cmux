@@ -5,6 +5,8 @@ on:
     paths:
       - "skills/cmux-browser/**"
       - "skills/cmux-cli/**"
+      - ".agents/skills"
+      - ".claude/skills/**"
       - "skills.sh"
       - "scripts/validate-cmux-browser-skill.py"
       - "tests/test_cmux_browser_skill.py"
@@ -14,6 +16,8 @@ on:
     paths:
       - "skills/cmux-browser/**"
       - "skills/cmux-cli/**"
+      - ".agents/skills"
+      - ".claude/skills/**"
       - "skills.sh"
       - "scripts/validate-cmux-browser-skill.py"
       - "tests/test_cmux_browser_skill.py"

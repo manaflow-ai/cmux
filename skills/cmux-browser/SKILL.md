@@ -156,16 +156,16 @@ implicit target.
 
 The repository copies are the source of truth: `.claude/skills/cmux-browser`
 and `.agents/skills/cmux-browser` point at `skills/cmux-browser`. Do not edit a
-mirror by hand. The supported Vercel installer refreshes both global Claude
-Code and Codex discovery roots and copies the complete skill (including
-references and templates):
+mirror by hand. The supported Vercel installer (pinned here to the reviewed
+`skills` 1.5.23 release) refreshes both global Claude Code and Codex discovery
+roots and copies the complete skill (including references and templates):
 
 ```bash
 # From this checkout while developing the skill:
-npx skills add . --global --yes --skill cmux-browser --agent claude-code codex --copy
+npx --yes skills@1.5.23 add . --global --yes --skill cmux-browser --agent claude-code codex --copy
 
 # From the published repository after the change is merged:
-npx skills add manaflow-ai/cmux --global --yes --skill cmux-browser --agent claude-code codex --copy
+npx --yes skills@1.5.23 add manaflow-ai/cmux --global --yes --skill cmux-browser --agent claude-code codex --copy
 ```
 
 Restart an agent session after a refresh if it cached the previous document.

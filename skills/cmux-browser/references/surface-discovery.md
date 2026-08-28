@@ -10,7 +10,12 @@ Start with the context of the terminal that launched the agent:
 
 ```bash
 cmux identify --json
-cmux tree --workspace "${CMUX_WORKSPACE_ID:-}" --json
+if [[ -n "${CMUX_WORKSPACE_ID:-}" ]]; then
+  cmux tree --workspace "$CMUX_WORKSPACE_ID" --json
+else
+  # With no caller anchor, use the server's current context after identify.
+  cmux tree --json
+fi
 ```
 
 `CMUX_WORKSPACE_ID` is the caller anchor, not necessarily the workspace visible
@@ -66,12 +71,13 @@ reselect from the authoritative topology. Never fall back to a focused surface
 or a guessed numeric index.
 
 When installed documentation and the binary disagree, stop and refresh the
-contract before continuing:
+contract before continuing. The installer is pinned to the reviewed `skills`
+1.5.23 release:
 
 ```bash
 cmux browser --help
 cmux --version
-npx skills add manaflow-ai/cmux --global --yes --skill cmux-browser --agent claude-code codex --copy
+npx --yes skills@1.5.23 add manaflow-ai/cmux --global --yes --skill cmux-browser --agent claude-code codex --copy
 ```
 
 An already-running agent may have cached the old skill; start a fresh session

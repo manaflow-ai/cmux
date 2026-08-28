@@ -10,6 +10,8 @@ any user's browser state.
 
 from __future__ import annotations
 
+import contextlib
+import io
 import importlib.util
 import os
 import subprocess
@@ -83,8 +85,37 @@ cmux browser --surface surface:1 tab list
         raise AssertionError(f"surface-scoped aliases were rejected: {errors}")
 
 
+def test_nested_commands_are_checked(validator: ModuleType) -> None:
+    browser = "cmux browser "
+    fixture = "```bash\n"
+    fixture += 'URL="$(' + browser + 'url)"\n'
+    fixture += 'TABS="$(' + browser + 'tab list)"\n'
+    fixture += "```\n"
+    examples = [
+        validator.ShellExample(Path("nested-fixture.md"), line, text)
+        for line, text in enumerate(fixture.splitlines(), start=1)
+    ]
+    commands, parse_errors = validator.browser_commands(examples)
+    if parse_errors:
+        raise AssertionError(f"nested fixture parser failed: {parse_errors}")
+    errors = [error for command in commands for error in validator.validate_command(command)]
+    if len(errors) != 2 or not all("explicit" in error for error in errors):
+        raise AssertionError(f"nested unscoped commands were not rejected: {errors}")
+
+
+def test_longer_markdown_fences_are_not_closed_early(validator: ModuleType) -> None:
+    fixture = "````bash\ncmux browser --surface surface:1 get url\n```\n"
+    fixture += "cmux browser --surface surface:1 snapshot --interactive\n````\n"
+    blocks = list(validator._fenced_shell_blocks(Path("fence-fixture.md"), fixture))
+    if len(blocks) != 1 or "snapshot --interactive" not in blocks[0][1]:
+        raise AssertionError(f"longer fence was closed before its matching fence: {blocks}")
+
+
 def test_templates_require_a_surface() -> None:
-    for template in sorted((ROOT / "skills" / "cmux-browser" / "templates").glob("*.sh")):
+    templates = sorted((ROOT / "skills" / "cmux-browser" / "templates").glob("*.sh"))
+    if not templates:
+        raise AssertionError("cmux-browser template directory contains no shell templates")
+    for template in templates:
         environment = dict(os.environ)
         environment.pop("CMUX_SURFACE_ID", None)
         result = subprocess.run(
@@ -115,14 +146,25 @@ def test_live_help_when_available(validator: ModuleType) -> None:
         raise AssertionError("live help contract failed:\n- " + "\n- ".join(errors))
 
 
+def test_cli_flags_are_mutually_exclusive(validator: ModuleType) -> None:
+    output = io.StringIO()
+    with contextlib.redirect_stdout(output):
+        result = validator.main(["--no-cli", "--require-cli"])
+    if result == 0 or "mutually exclusive" not in output.getvalue():
+        raise AssertionError("--no-cli and --require-cli must not silently pass together")
+
+
 def main() -> int:
     validator = load_validator()
     tests = [
         lambda: test_repository_contract(validator),
         lambda: test_old_unscoped_forms_are_rejected(validator),
         lambda: test_scoped_aliases_are_accepted(validator),
+        lambda: test_nested_commands_are_checked(validator),
+        lambda: test_longer_markdown_fences_are_not_closed_early(validator),
         test_templates_require_a_surface,
         lambda: test_live_help_when_available(validator),
+        lambda: test_cli_flags_are_mutually_exclusive(validator),
     ]
     for test in tests:
         test()

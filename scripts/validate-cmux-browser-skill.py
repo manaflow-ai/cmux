@@ -167,11 +167,17 @@ def _fenced_shell_blocks(path: Path, text: str) -> Iterator[tuple[int, str]]:
         match = re.match(r"^\s*(`{3,}|~{3,})\s*([^\s`]*)", line)
         if opening is None:
             if match and match.group(2).lower() in {"bash", "sh", "shell", "zsh"}:
-                opening = (match.group(1)[0], index + 1)
+                opening = (match.group(1), index + 1)
                 body = []
             continue
 
-        if re.match(rf"^\s*{re.escape(opening[0])}{{{len(opening[0])},}}\s*$", line):
+        fence_run = opening[0]
+        stripped = line.strip()
+        if (
+            len(stripped) >= len(fence_run)
+            and stripped
+            and all(character == fence_run[0] for character in stripped)
+        ):
             yield opening[1], "\n".join(body)
             opening = None
             body = []
@@ -261,6 +267,97 @@ def _tokenize(line: str) -> list[str]:
     return shlex.split(line, comments=True, posix=True)
 
 
+def _substitution_bodies(text: str) -> Iterator[str]:
+    """Yield command bodies inside ``$(...)`` and backtick substitutions."""
+
+    index = 0
+    while index < len(text):
+        if text.startswith("$(", index):
+            start = index + 2
+            depth = 1
+            quote: str | None = None
+            escaped = False
+            cursor = start
+            while cursor < len(text):
+                character = text[cursor]
+                if escaped:
+                    escaped = False
+                elif character == "\\":
+                    escaped = True
+                elif quote:
+                    if character == quote:
+                        quote = None
+                elif character in {"'", '"'}:
+                    quote = character
+                elif text.startswith("$(", cursor):
+                    depth += 1
+                    cursor += 1
+                elif character == ")":
+                    depth -= 1
+                    if depth == 0:
+                        yield text[start:cursor]
+                        index = cursor + 1
+                        break
+                cursor += 1
+            else:
+                index += 2
+                continue
+            continue
+
+        if text[index] == "`":
+            start = index + 1
+            cursor = start
+            escaped = False
+            while cursor < len(text):
+                character = text[cursor]
+                if escaped:
+                    escaped = False
+                elif character == "\\":
+                    escaped = True
+                elif character == "`":
+                    yield text[start:cursor]
+                    index = cursor + 1
+                    break
+                cursor += 1
+            else:
+                index += 1
+                continue
+            continue
+
+        index += 1
+
+
+def _commands_from_tokens(
+    example: ShellExample,
+    tokens: Sequence[str],
+    raw: str,
+) -> list[BrowserCommand]:
+    commands: list[BrowserCommand] = []
+    for index, token in enumerate(tokens):
+        if token != "cmux":
+            continue
+        end = len(tokens)
+        for cursor in range(index + 1, len(tokens)):
+            if tokens[cursor] in SHELL_OPERATORS:
+                end = cursor
+                break
+        browser_index = next(
+            (cursor for cursor in range(index + 1, end) if tokens[cursor] == "browser"),
+            None,
+        )
+        if browser_index is None:
+            continue
+        commands.append(
+            BrowserCommand(
+                example.path,
+                example.line,
+                raw,
+                tuple(tokens[index:end]),
+            )
+        )
+    return commands
+
+
 def browser_commands(examples: Iterable[ShellExample]) -> tuple[list[BrowserCommand], list[str]]:
     commands: list[BrowserCommand] = []
     errors: list[str] = []
@@ -273,22 +370,14 @@ def browser_commands(examples: Iterable[ShellExample]) -> tuple[list[BrowserComm
             errors.append(f"{example.path}:{example.line}: invalid shell syntax: {exc}")
             continue
 
-        for index, token in enumerate(tokens):
-            if token != "cmux":
+        commands.extend(_commands_from_tokens(example, tokens, example.text))
+        for body in _substitution_bodies(example.text):
+            try:
+                nested_tokens = _tokenize(body)
+            except ValueError as exc:
+                errors.append(f"{example.path}:{example.line}: invalid nested shell syntax: {exc}")
                 continue
-            end = len(tokens)
-            for cursor in range(index + 1, len(tokens)):
-                if tokens[cursor] in SHELL_OPERATORS:
-                    end = cursor
-                    break
-            browser_index = next(
-                (cursor for cursor in range(index + 1, end) if tokens[cursor] == "browser"),
-                None,
-            )
-            if browser_index is None:
-                continue
-            command_tokens = tuple(tokens[index:end])
-            commands.append(BrowserCommand(example.path, example.line, example.text, command_tokens))
+            commands.extend(_commands_from_tokens(example, nested_tokens, body))
     return commands, errors
 
 
@@ -433,7 +522,12 @@ def _metadata_errors(root: Path) -> list[str]:
 def _template_errors(root: Path) -> list[str]:
     template_root = root / "skills" / "cmux-browser" / "templates"
     errors: list[str] = []
-    for path in sorted(template_root.glob("*.sh")):
+    if not template_root.is_dir():
+        return [f"{template_root}: template directory is missing"]
+    templates = sorted(template_root.glob("*.sh"))
+    if not templates:
+        return [f"{template_root}: no shell templates found"]
+    for path in templates:
         text = path.read_text(encoding="utf-8")
         if re.search(r"SURFACE\s*=\s*[\"']?\$\{[^}]*:-\s*surface:", text):
             errors.append(f"{path}: template must not guess a default surface")
@@ -550,6 +644,9 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv or sys.argv[1:])
+    if args.no_cli and args.require_cli:
+        print("FAIL: --no-cli and --require-cli are mutually exclusive")
+        return 2
     root = args.root.resolve()
     help_text: str | None = None
     cli_warning: str | None = None
