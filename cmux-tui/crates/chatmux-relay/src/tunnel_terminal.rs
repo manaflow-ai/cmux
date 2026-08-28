@@ -285,6 +285,10 @@ struct Connection {
     pty_id: String,
     manager: Arc<PtyManager>,
     writer_tx: mpsc::Sender<WriterMessage>,
+    /// Serializes enqueue and End so shutdown cannot overtake a frame that
+    /// already reserved bytes. The critical section only performs a
+    /// non-blocking channel operation.
+    queue_gate: std::sync::Mutex<()>,
     /// pty_flow requests from the writer's water marks (true = pause).
     flow_tx: mpsc::UnboundedSender<bool>,
     auth_state: TunnelAuthState,
@@ -332,24 +336,26 @@ impl Connection {
     }
 
     fn enqueue_frame(&self, frame: Vec<u8>) -> bool {
-        if self.finished.load(Ordering::SeqCst) {
-            return false;
-        }
-        if !self.reserve_bytes(frame.len()) {
-            self.finish();
-            return false;
-        }
-        let length = frame.len() as u64;
-        match self.writer_tx.try_send(WriterMessage::Frame(frame)) {
-            Ok(()) => true,
-            Err(_) => {
-                // The frame was never handed to the writer, so release its
-                // reservation before closing the connection.
-                self.pending_out.fetch_sub(length, Ordering::AcqRel);
-                self.finish();
-                false
+        let mut accepted = false;
+        let mut reserved = 0_u64;
+        {
+            let _queue_gate = self.queue_gate.lock().expect("tunnel queue lock");
+            if !self.finished.load(Ordering::SeqCst) && self.reserve_bytes(frame.len()) {
+                reserved = frame.len() as u64;
+                if self.writer_tx.try_send(WriterMessage::Frame(frame)).is_ok() {
+                    accepted = true;
+                }
             }
         }
+        if !accepted {
+            if reserved != 0 {
+                // The frame was never handed to the writer, so release its
+                // reservation before closing the connection.
+                self.pending_out.fetch_sub(reserved, Ordering::AcqRel);
+            }
+            self.finish();
+        }
+        accepted
     }
 
     /// Idempotent shutdown: flush queued frames, close the socket, and let
@@ -357,6 +363,7 @@ impl Connection {
     /// session lives on for a later re-attach, the same rule a dropped
     /// relay-socket viewer follows).
     fn finish(&self) {
+        let _queue_gate = self.queue_gate.lock().expect("tunnel queue lock");
         if self.finished.swap(true, Ordering::SeqCst) {
             return;
         }
@@ -560,6 +567,7 @@ async fn serve_connection(
         pty_id,
         manager: Arc::clone(&manager),
         writer_tx,
+        queue_gate: std::sync::Mutex::new(()),
         flow_tx,
         auth_state,
         pending_out: AtomicU64::new(0),
@@ -675,6 +683,10 @@ async fn serve_connection(
         let context = connection.frame_context();
         manager.handle_frame(&close, &context).await;
     }
+    // Remove the per-transport authority even when the open was refused or
+    // the peer disconnected before an attachment existed. Otherwise a busy
+    // local tunnel endpoint could accumulate stale snapshots indefinitely.
+    manager.detach_transport(&connection.pty_id);
     flow.abort();
     // A peer that stopped reading can wedge the final flush forever; the
     // attachment is already released above, so cap the flush and reap.
