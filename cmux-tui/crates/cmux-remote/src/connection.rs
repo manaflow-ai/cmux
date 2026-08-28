@@ -130,6 +130,9 @@ pub struct ClientConnection {
     reconnecting: Arc<Mutex<()>>,
     lane_sends: [Mutex<()>; 4],
     receiving: Mutex<()>,
+    /// Linearizes shutdown start with the short reconnect publication window.
+    /// Reconnect attempts do not hold this gate while dialing or replaying.
+    shutdown_gate: Mutex<()>,
     deferred_receive: StdMutex<Option<Result<ReceivedFrame, ConnectionError>>>,
     last_received: StdMutex<Instant>,
     closed: AtomicBool,
@@ -252,6 +255,7 @@ impl ClientConnection {
             reconnecting: Arc::new(Mutex::new(())),
             lane_sends: std::array::from_fn(|_| Mutex::new(())),
             receiving: Mutex::new(()),
+            shutdown_gate: Mutex::new(()),
             deferred_receive: StdMutex::new(None),
             last_received: StdMutex::new(Instant::now()),
             closed: AtomicBool::new(false),
@@ -539,6 +543,9 @@ impl ClientConnection {
             current.resume_cursors(),
         )
         .await?;
+        if self.closed.load(Ordering::Acquire) {
+            return Err(ConnectionError::Closed);
+        }
         if daemon_key != self.daemon_public_key {
             return Err(ConnectionError::Crypto(CryptoError::DaemonKeyMismatch {
                 expected: crate::crypto::public_key_fingerprint(&self.daemon_public_key),
@@ -553,6 +560,9 @@ impl ClientConnection {
         // there is no await between that commit and publishing both wrappers.
         let mut active_group = self.group.write().await;
         let mut active_session = self.session.write().await;
+        if self.closed.load(Ordering::Acquire) {
+            return Err(ConnectionError::Closed);
+        }
         if active_session.generation() != current.generation() {
             return Err(ConnectionError::GenerationChanged {
                 expected: current.generation(),
@@ -560,6 +570,13 @@ impl ClientConnection {
             });
         }
         let next = current.reconnect_to(Arc::new(link), &daemon_resume, generation).await?;
+        // Shutdown takes this gate before publishing its start signal. This
+        // gives reconnect publication and shutdown a clear linearization
+        // point without holding the gate across dialing or replay.
+        let _shutdown_gate = self.shutdown_gate.lock().await;
+        if self.closed.load(Ordering::Acquire) {
+            return Err(ConnectionError::Closed);
+        }
         let generation = next.generation();
         let previous = std::mem::replace(&mut *active_group, group.clone());
         *active_session = next;
@@ -581,6 +598,7 @@ impl ClientConnection {
                 diagnostics.state = ConnectionState::Connected;
             }
         }
+        drop(_shutdown_gate);
         drop(active_session);
         drop(active_group);
         // Publishing the replacement first lets blocked readers recover onto
@@ -638,17 +656,22 @@ impl ClientConnection {
                 return Err(ConnectionError::Closed);
             }
             attempt = attempt.saturating_add(1);
-            let reconnect = tokio::time::timeout(
-                self.config.reconnect.attempt_timeout,
-                self.reconnect_once(group.clone()),
-            )
-            .await;
+            let reconnect = tokio::select! {
+                _ = close_state.changed() => return Err(ConnectionError::Closed),
+                reconnect = tokio::time::timeout(
+                    self.config.reconnect.attempt_timeout,
+                    self.reconnect_once(group.clone()),
+                ) => reconnect,
+            };
             let result = match reconnect {
                 Ok(result) => result,
                 Err(_) => Err(ConnectionError::ReconnectAttemptTimedOut {
                     timeout: self.config.reconnect.attempt_timeout,
                 }),
             };
+            if self.closed.load(Ordering::Acquire) && result.is_ok() {
+                return Err(ConnectionError::Closed);
+            }
             match result {
                 Ok(()) => {
                     if !self.closed.load(Ordering::Acquire) {
@@ -690,7 +713,12 @@ impl ClientConnection {
     }
 
     pub async fn close(&self) -> Result<(), ConnectionError> {
+        // Acquire the short publication gate before making shutdown visible.
+        // A reconnect that already owns it finishes publishing first; one
+        // that has not reached publication observes `closed` and aborts.
+        let shutdown_gate = self.shutdown_gate.lock().await;
         if self.closed.swap(true, Ordering::AcqRel) {
+            drop(shutdown_gate);
             return wait_for_close(self.close_state.subscribe()).await;
         }
         // Publish shutdown intent before taking any cleanup locks. Reconnect
@@ -698,6 +726,7 @@ impl ClientConnection {
         // time, so waiting only for the eventual terminal state would leave
         // them alive after the caller has requested close.
         self.close_state.send_replace(CloseState::Started);
+        drop(shutdown_gate);
         self.set_diagnostics_state(ConnectionState::Closed);
         // The cleanup task owns every lock needed to snapshot the final carrier.
         // It therefore survives cancellation of this caller after `closed` is
