@@ -490,19 +490,6 @@ final class cmuxUITests: XCTestCase {
             app.descendants(matching: .any)["MobileDisconnectedWorkspaceShell"]
                 .waitForExistence(timeout: 12)
         )
-        let addComputerToolbarButton = app.buttons["MobileShowAddDeviceToolbarButton"]
-        XCTAssertTrue(addComputerToolbarButton.waitForExistence(timeout: 4))
-        tap(addComputerToolbarButton, in: app)
-        XCTAssertTrue(
-            app.textFields["MobileAddDeviceHostField"].waitForExistence(timeout: 8),
-            "Add Computer must present the manual pairing form under Auto-Connect."
-        )
-        let cancelPairing = app.buttons["MobilePairingCancelButton"]
-        XCTAssertTrue(cancelPairing.waitForExistence(timeout: 4))
-        tap(cancelPairing, in: app)
-        XCTAssertTrue(
-            app.textFields["MobileAddDeviceHostField"].waitForNonExistence(timeout: 8)
-        )
         let automaticDescription = app.descendants(matching: .any)[
             "MobileDisconnectedEmptyDescription"
         ]
@@ -523,6 +510,23 @@ final class cmuxUITests: XCTestCase {
             automaticDescription.label.contains(
                 "To use Tailscale instead, open Settings, tap Connection Method, and choose Tailscale Only."
             )
+        )
+
+        // Regression: the always-on Add Computer affordance must actually
+        // present the manual pairing form under Auto-Connect; a stale method
+        // re-check in the root's showAddDevice() made this tap a silent no-op.
+        let addComputerToolbarButton = app.buttons["MobileShowAddDeviceToolbarButton"]
+        XCTAssertTrue(addComputerToolbarButton.waitForExistence(timeout: 4))
+        tap(addComputerToolbarButton, in: app)
+        XCTAssertTrue(
+            app.textFields["MobileAddDeviceHostField"].waitForExistence(timeout: 8),
+            "Add Computer must present the manual pairing form under Auto-Connect."
+        )
+        let cancelPairing = app.buttons["MobilePairingCancelButton"]
+        XCTAssertTrue(cancelPairing.waitForExistence(timeout: 4))
+        tap(cancelPairing, in: app)
+        XCTAssertTrue(
+            app.textFields["MobileAddDeviceHostField"].waitForNonExistence(timeout: 8)
         )
 
         let settings = app.buttons["MobileWorkspaceSettingsMenu"]
