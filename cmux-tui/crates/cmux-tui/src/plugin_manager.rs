@@ -782,10 +782,7 @@ fn ensure_real_directory(path: &Path) -> anyhow::Result<()> {
 
 fn direct_child_named(parent: &Path, path: &Path, predicate: impl FnOnce(&str) -> bool) -> bool {
     path.parent() == Some(parent)
-        && path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .is_some_and(predicate)
+        && path.file_name().and_then(|name| name.to_str()).is_some_and(predicate)
 }
 
 fn validate_install_journal_paths(
@@ -816,7 +813,8 @@ fn validate_install_journal_paths(
     }
     anyhow::ensure!(
         direct_child_named(&registry, &journal.metadata_backup, |name| {
-            name.starts_with(&format!(".{}.", journal.name)) && name.ends_with(".metadata-backup.json")
+            name.starts_with(&format!(".{}.", journal.name))
+                && name.ends_with(".metadata-backup.json")
         }),
         "install journal metadata backup is outside the registry"
     );
@@ -838,7 +836,9 @@ fn validate_install_journal_paths(
 fn quarantine_install_journal(install_root: &Path, path: &Path) -> anyhow::Result<()> {
     let quarantine = install_root.join(INVALID_INSTALL_JOURNAL_DIR);
     match fs::symlink_metadata(&quarantine) {
-        Ok(metadata) => anyhow::ensure!(metadata.is_dir(), "invalid journal quarantine is not a directory"),
+        Ok(metadata) => {
+            anyhow::ensure!(metadata.is_dir(), "invalid journal quarantine is not a directory")
+        }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             match fs::create_dir(&quarantine) {
                 Ok(()) => {}
@@ -855,15 +855,11 @@ fn quarantine_install_journal(install_root: &Path, path: &Path) -> anyhow::Resul
         }
         Err(error) => return Err(error.into()),
     }
-    let basename = path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or("invalid-install-journal");
+    let basename =
+        path.file_name().and_then(|name| name.to_str()).unwrap_or("invalid-install-journal");
     for attempt in 0..JOURNAL_QUARANTINE_ATTEMPTS {
-        let destination = quarantine.join(format!(
-            "{basename}.{}-{attempt}.quarantined",
-            std::process::id()
-        ));
+        let destination =
+            quarantine.join(format!("{basename}.{}-{attempt}.quarantined", std::process::id()));
         if fs::symlink_metadata(&destination).is_ok() {
             continue;
         }
@@ -1540,7 +1536,8 @@ mod tests {
             now_nanos()
         ));
         let registry = root.join(".registry");
-        let outside = root.with_file_name(format!("{}-outside", root.file_name().unwrap().to_string_lossy()));
+        let outside =
+            root.with_file_name(format!("{}-outside", root.file_name().unwrap().to_string_lossy()));
         fs::create_dir_all(&registry).unwrap();
         fs::write(&outside, b"keep").unwrap();
         let journal_path = install_journal_path(&root, "demo");
