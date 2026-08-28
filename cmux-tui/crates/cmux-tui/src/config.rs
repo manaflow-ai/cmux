@@ -152,6 +152,7 @@ use serde::{Deserialize, Deserializer};
 use serde_json::{Value, json};
 use unicode_width::UnicodeWidthStr;
 use wait_timeout::ChildExt;
+use fs4::FileExt;
 
 use crate::localization::catalog;
 
@@ -4097,32 +4098,70 @@ pub(crate) fn write_sidebar_plugin_at_path(
     path: &Path,
     plugin: Option<&SidebarPluginConfig>,
 ) -> anyhow::Result<ConfigWriteOutcome> {
-    let mut root = read_config_value(path)?;
-    let Some(root_object) = root.as_object_mut() else {
-        anyhow::bail!("{} must contain a JSON object", path.display());
-    };
-    match plugin {
-        Some(plugin) => {
-            let sidebar = root_object.entry("sidebar").or_insert_with(|| json!({}));
-            if !sidebar.is_object() {
-                *sidebar = json!({});
+    with_config_file_lock(path, || {
+        let mut root = read_config_value(path)?;
+        let Some(root_object) = root.as_object_mut() else {
+            anyhow::bail!("{} must contain a JSON object", path.display());
+        };
+        match plugin {
+            Some(plugin) => {
+                let sidebar = root_object.entry("sidebar").or_insert_with(|| json!({}));
+                if !sidebar.is_object() {
+                    *sidebar = json!({});
+                }
+                let sidebar_object =
+                    sidebar.as_object_mut().expect("sidebar was just made an object");
+                let mut plugin_value = json!({ "command": &plugin.command });
+                if let Some(cwd) = &plugin.cwd {
+                    plugin_value["cwd"] = json!(cwd);
+                }
+                sidebar_object.insert("plugin".to_string(), plugin_value);
             }
-            let sidebar_object = sidebar.as_object_mut().expect("sidebar was just made an object");
-            let mut plugin_value = json!({ "command": &plugin.command });
-            if let Some(cwd) = &plugin.cwd {
-                plugin_value["cwd"] = json!(cwd);
+            None => {
+                if let Some(sidebar) = root_object.get_mut("sidebar")
+                    && let Some(sidebar_object) = sidebar.as_object_mut()
+                {
+                    sidebar_object.remove("plugin");
+                }
             }
-            sidebar_object.insert("plugin".to_string(), plugin_value);
         }
-        None => {
-            if let Some(sidebar) = root_object.get_mut("sidebar")
-                && let Some(sidebar_object) = sidebar.as_object_mut()
-            {
-                sidebar_object.remove("plugin");
-            }
-        }
+        write_config_value_atomic_unlocked(path, &root)
+    })
+}
+
+/// Serialize all config read-modify-write operations for every cmux-tui
+/// process. The lock is a sibling of the config file because an atomic rename
+/// changes the destination inode and therefore cannot safely carry the lock.
+pub(crate) fn with_config_file_lock<T>(
+    path: &Path,
+    operation: impl FnOnce() -> anyhow::Result<T>,
+) -> anyhow::Result<T> {
+    let parent = config_parent_directory(path);
+    ensure_config_parent_directory(parent)?;
+    let file_name = path.file_name().and_then(|name| name.to_str()).unwrap_or("cmux-tui.json");
+    let lock_path = parent.join(format!(".{file_name}.lock"));
+    let mut options = OpenOptions::new();
+    options.create(true).read(true).write(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{MetadataExt as _, OpenOptionsExt as _, PermissionsExt as _};
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC).mode(0o600);
     }
-    write_config_value_atomic(path, &root)
+    let file = options.open(&lock_path)?;
+    #[cfg(unix)]
+    {
+        let metadata = file.metadata()?;
+        anyhow::ensure!(
+            metadata.uid() == unsafe { libc::geteuid() },
+            "config lock owner changed"
+        );
+        anyhow::ensure!(
+            metadata.permissions().mode() & 0o022 == 0,
+            "config lock is writable by another user"
+        );
+    }
+    FileExt::lock(&file)?;
+    operation()
 }
 
 fn read_config_value(path: &Path) -> anyhow::Result<Value> {
@@ -4143,10 +4182,29 @@ fn read_config_value(path: &Path) -> anyhow::Result<Value> {
 /// [`ConfigWriteOutcome::CommittedButUnsynced`] value means a supported
 /// directory sync failed.
 fn write_config_value_atomic(path: &Path, value: &Value) -> anyhow::Result<ConfigWriteOutcome> {
-    write_config_value_atomic_with_sync(path, value, &sync_config_parent_directory)
+    with_config_file_lock(path, || {
+        write_config_value_atomic_unlocked(path, value)
+    })
+}
+
+fn write_config_value_atomic_unlocked(
+    path: &Path,
+    value: &Value,
+) -> anyhow::Result<ConfigWriteOutcome> {
+    write_config_value_atomic_with_sync_unlocked(path, value, &sync_config_parent_directory)
 }
 
 fn write_config_value_atomic_with_sync(
+    path: &Path,
+    value: &Value,
+    sync_parent: &dyn Fn(&Path) -> anyhow::Result<ConfigParentSyncOutcome>,
+) -> anyhow::Result<ConfigWriteOutcome> {
+    with_config_file_lock(path, || {
+        write_config_value_atomic_with_sync_unlocked(path, value, sync_parent)
+    })
+}
+
+fn write_config_value_atomic_with_sync_unlocked(
     path: &Path,
     value: &Value,
     sync_parent: &dyn Fn(&Path) -> anyhow::Result<ConfigParentSyncOutcome>,
@@ -9048,8 +9106,11 @@ mod tests {
         assert!(!error.to_string().is_empty());
 
         let entries = std::fs::read_dir(&dir.path).unwrap().collect::<Result<Vec<_>, _>>().unwrap();
-        assert_eq!(entries.len(), 1, "failed writes must remove their staging file");
-        assert_eq!(entries[0].path(), path);
+        assert!(entries.iter().any(|entry| entry.path() == path));
+        assert!(
+            entries.iter().all(|entry| !entry.file_name().to_string_lossy().ends_with(".tmp")),
+            "failed writes must remove their staging file"
+        );
     }
 
     #[test]
