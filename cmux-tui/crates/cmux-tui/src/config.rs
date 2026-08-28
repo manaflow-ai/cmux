@@ -9074,6 +9074,17 @@ mod tests {
     }
 
     #[test]
+    fn config_parent_creation_handles_absolute_path_syntax() {
+        let dir = TestDirectory::new("absolute-parent");
+        let parent = dir.path.join("nested").join("config");
+
+        let created = ensure_config_parent_directory(&parent).unwrap();
+
+        assert!(parent.is_dir());
+        assert!(created.iter().any(|directory| directory == &parent));
+    }
+
+    #[test]
     fn config_parent_directory_normalizes_relative_path() {
         assert_eq!(config_parent_directory(Path::new("cmux-tui.json")), Path::new("."));
         assert_eq!(config_parent_directory(Path::new("nested/cmux-tui.json")), Path::new("nested"));
