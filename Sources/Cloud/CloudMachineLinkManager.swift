@@ -60,6 +60,9 @@ actor CloudMachineLinkManager {
             throw ManagerError.retryLater(failure.error)
         }
         guard let clientURL else { throw ManagerError.clientMissing }
+        #if DEBUG
+        cmuxDebugLog("cloud.link.connect machine=\(machineID)")
+        #endif
         let task = Task<CloudMachineLink.Connected, Error> { [paths] in
             let link = CloudMachineLink(machineID: machineID, clientURL: clientURL, paths: paths)
             self.store(link: link, for: machineID)
@@ -89,10 +92,17 @@ actor CloudMachineLinkManager {
         do {
             let connected = try await task.value
             lastFailure[machineID] = nil
+            #if DEBUG
+            cmuxDebugLog("cloud.link.connected machine=\(machineID) socket=\(connected.socketPath)")
+            #endif
             return connected
         } catch {
-            lastFailure[machineID] = (Date(), error.localizedDescription)
+            let text = CloudMachineLink.errorText(error)
+            lastFailure[machineID] = (Date(), text)
             links[machineID] = nil
+            #if DEBUG
+            cmuxDebugLog("cloud.link.failed machine=\(machineID) error=\(String(reflecting: error)) text=\(text)")
+            #endif
             throw error
         }
     }
