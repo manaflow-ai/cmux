@@ -3433,7 +3433,20 @@ impl RemoteSession {
         identity_refresh: bool,
         deadline: RequestDeadline,
     ) -> anyhow::Result<TreeView> {
-        let _refresh = self.tree_refresh.lock().unwrap();
+        let _refresh = if let RequestDeadline::Fixed(timeout) = deadline {
+            let deadline = Instant::now() + timeout;
+            loop {
+                match self.tree_refresh.try_lock() {
+                    Ok(lock) => break lock,
+                    Err(_) if Instant::now() >= deadline => {
+                        anyhow::bail!(RemoteRequestError::Timeout)
+                    }
+                    Err(_) => std::thread::yield_now(),
+                }
+            }
+        } else {
+            self.tree_refresh.lock().unwrap()
+        };
         if identity_refresh {
             self.tree_stale.store(false, Ordering::Release);
         }
