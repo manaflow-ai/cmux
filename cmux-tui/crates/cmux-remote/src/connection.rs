@@ -636,16 +636,22 @@ impl ClientConnection {
         // Publishing the replacement first lets blocked readers recover onto
         // it when closing the prior carrier wakes them. The provider group may
         // be reused across generations, so close the old session link even
-        // when the group identity did not change.
+        // when the group identity did not change. Keep this bounded retirement
+        // in an owned task. If the caller is cancelled after publication, the
+        // dropped JoinHandle detaches a task that still owns both old carriers
+        // and closes them instead of leaking the displaced group.
         let close_previous_group = !Arc::ptr_eq(&previous, &group);
-        let _ = tokio::time::timeout(TERMINAL_SHUTDOWN_TIMEOUT, async {
-            if close_previous_group {
-                let _ = tokio::join!(current.close(), previous.close());
-            } else {
-                let _ = current.close().await;
-            }
-        })
-        .await;
+        let retirement = tokio::spawn(async move {
+            let _ = tokio::time::timeout(TERMINAL_SHUTDOWN_TIMEOUT, async {
+                if close_previous_group {
+                    let _ = tokio::join!(current.close(), previous.close());
+                } else {
+                    let _ = current.close().await;
+                }
+            })
+            .await;
+        });
+        let _ = retirement.await;
         Ok(())
     }
 
@@ -1653,6 +1659,20 @@ mod tests {
 
     struct HangingCloseGroup {
         inner: Arc<FaultGroup>,
+        close_started: Arc<Semaphore>,
+        release_close: Arc<Semaphore>,
+        close_finished: Arc<Semaphore>,
+    }
+
+    impl HangingCloseGroup {
+        fn new(inner: Arc<FaultGroup>) -> Arc<Self> {
+            Arc::new(Self {
+                inner,
+                close_started: Arc::new(Semaphore::new(0)),
+                release_close: Arc::new(Semaphore::new(0)),
+                close_finished: Arc::new(Semaphore::new(0)),
+            })
+        }
     }
 
     struct MutableSnapshotGroup {
@@ -1861,7 +1881,11 @@ mod tests {
         }
 
         async fn close(&self) -> Result<(), ProviderError> {
-            std::future::pending().await
+            self.close_started.add_permits(1);
+            self.release_close.acquire().await.unwrap().forget();
+            self.inner.close().await?;
+            self.close_finished.add_permits(1);
+            Ok(())
         }
     }
 
@@ -2324,13 +2348,14 @@ mod tests {
         let auth =
             AuthDatabase::load_or_create(directory.path(), "cancel-reconnect", true).unwrap();
         let (daemon, _accepted) = RemoteDaemon::new(auth, SessionLimits::default());
-        let initial = Arc::new(HangingCloseGroup {
-            inner: Arc::new(FaultGroup {
+        let initial = HangingCloseGroup::new(Arc::new(FaultGroup {
                 daemon: daemon.clone(),
                 epochs: Mutex::new(Vec::new()),
                 evidence: CarrierEvidence::LocalPeer { uid: None, pid: None },
-            }),
-        });
+            }));
+        let initial_close_started = initial.close_started.clone();
+        let initial_release_close = initial.release_close.clone();
+        let initial_close_finished = initial.close_finished.clone();
         let client = ClientConnection::connect(
             initial,
             ClientConnectionConfig {
@@ -2372,6 +2397,17 @@ mod tests {
 
         reconnect.abort();
         assert!(reconnect.await.unwrap_err().is_cancelled());
+        tokio::time::timeout(Duration::from_secs(1), initial_close_started.acquire())
+            .await
+            .expect("cancelled reconnect did not start displaced-group retirement")
+            .unwrap()
+            .forget();
+        initial_release_close.add_permits(1);
+        tokio::time::timeout(Duration::from_secs(1), initial_close_finished.acquire())
+            .await
+            .expect("displaced-group retirement did not finish after reconnect cancellation")
+            .unwrap()
+            .forget();
         let snapshot = client.snapshot().await;
         assert_eq!(snapshot.generation, 1);
         assert_eq!(snapshot.state, ConnectionState::Connected);
@@ -2510,13 +2546,11 @@ mod tests {
         let directory = tempdir().unwrap();
         let auth = AuthDatabase::load_or_create(directory.path(), "failed-close", true).unwrap();
         let (daemon, _accepted) = RemoteDaemon::new(auth, SessionLimits::default());
-        let group = Arc::new(HangingCloseGroup {
-            inner: Arc::new(FaultGroup {
+        let group = HangingCloseGroup::new(Arc::new(FaultGroup {
                 daemon,
                 epochs: Mutex::new(Vec::new()),
                 evidence: CarrierEvidence::LocalPeer { uid: None, pid: None },
-            }),
-        });
+            }));
         let client = ClientConnection::connect(
             group,
             ClientConnectionConfig {
