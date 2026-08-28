@@ -90,6 +90,32 @@ struct CmuxCodexConfigEditorTests {
         #expect(result.content.contains(Self.featureBegin))
     }
 
+    @Test("Hook state override sorts and escapes trust keys")
+    func hookStateOverrideSortsAndEscapesTrustKeys() {
+        let entries = [
+            CmuxCodexConfigEditor.HookTrustEntry(
+                key: #"/tmp/z\"hook:post_tool_use:0:0"#,
+                trustedHash: "sha256:z"
+            ),
+            CmuxCodexConfigEditor.HookTrustEntry(
+                key: "/tmp/a-hook:pre_tool_use:0:0",
+                trustedHash: "sha256:a"
+            ),
+        ]
+
+        let override = editor.hookStateOverrideDisabling(entries)
+
+        #expect(
+            override ==
+                #"hooks.state={\"/tmp/a-hook:pre_tool_use:0:0\"={enabled=false},\"/tmp/z\\\"hook:post_tool_use:0:0\"={enabled=false}}"#
+        )
+    }
+
+    @Test("Hook state override is absent without trust entries")
+    func hookStateOverrideIsAbsentWithoutTrustEntries() {
+        #expect(editor.hookStateOverrideDisabling([]) == nil)
+    }
+
     private static func occurrences(of needle: String, in haystack: String) -> Int {
         haystack.components(separatedBy: needle).count - 1
     }
