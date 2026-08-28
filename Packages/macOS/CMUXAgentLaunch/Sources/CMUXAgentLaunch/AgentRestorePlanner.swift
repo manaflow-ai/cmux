@@ -253,11 +253,34 @@ public struct AgentRestorePlanner: Sendable {
         kind: String,
         environment: inout [String: String]
     ) -> [String] {
+        guard let restoreLaunch = AgentRestoreLaunch(
+            kind: kind,
+            sessionID: request.checkpointID
+        ) else {
+            return arguments
+        }
+
+        if kind == "codex",
+           let checkpointID = normalized(request.checkpointID),
+           let routedPrefix = SubrouterCodexResumeRouting().resumeArguments(
+               launcher: request.launchCommand?.launcher,
+               sessionID: checkpointID,
+               launchArguments: request.launchCommand?.arguments ?? [],
+               environment: request.launchCommand?.environment
+           ),
+           arguments.starts(with: routedPrefix),
+           let wrapperShim = normalized(environment[restoreLaunch.wrapperShimEnvironmentKey]),
+           isExecutableFile(wrapperShim) {
+            if let capturedExecutable = normalized(environment["SUBROUTER_CODEX_BIN"]),
+               capturedExecutable != wrapperShim {
+                environment[restoreLaunch.customExecutablePathEnvironmentKey] = capturedExecutable
+            }
+            environment["SUBROUTER_CODEX_BIN"] = wrapperShim
+            environment["CMUX_AGENT_RESTORE_LAUNCH"] = restoreLaunch.authorizationEnvironmentValue
+            return arguments
+        }
+
         guard let first = arguments.first,
-              let restoreLaunch = AgentRestoreLaunch(
-                  kind: kind,
-                  sessionID: request.checkpointID
-              ),
               (first as NSString).lastPathComponent == restoreLaunch.executableName else {
             return arguments
         }
