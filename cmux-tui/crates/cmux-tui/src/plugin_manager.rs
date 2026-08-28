@@ -907,6 +907,41 @@ fn direct_child_named(parent: &Path, path: &Path, predicate: impl FnOnce(&str) -
         && path.file_name().and_then(|name| name.to_str()).is_some_and(predicate)
 }
 
+fn is_generated_install_temp_name(name: &str) -> bool {
+    let Some(stamp) = name.strip_prefix(".install-") else { return false };
+    let Some((pid, nonce)) = stamp.split_once('-') else { return false };
+    !pid.is_empty()
+        && !nonce.is_empty()
+        && pid.bytes().all(|byte| byte.is_ascii_digit())
+        && nonce.bytes().all(|byte| byte.is_ascii_digit())
+}
+
+fn validate_install_temp_path(install_root: &Path, path: &Path) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        direct_child_named(install_root, path, is_generated_install_temp_name),
+        "install journal temporary directory is outside the install root"
+    );
+    match fs::symlink_metadata(path) {
+        Ok(metadata) => anyhow::ensure!(
+            metadata.is_dir() && !metadata.file_type().is_symlink(),
+            "install journal temporary directory is not a real directory"
+        ),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error.into()),
+    }
+}
+
+fn remove_install_temp_if_present(install_root: &Path, path: &Path) -> anyhow::Result<()> {
+    // Validate again immediately before recursive removal. This keeps the
+    // recursive operation restricted to a generated, direct-child directory.
+    validate_install_temp_path(install_root, path)?;
+    match fs::symlink_metadata(path) {
+        Ok(_) => fs::remove_dir_all(path).map_err(Into::into),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error.into()),
+    }
+}
+
 fn validate_install_journal_paths(
     install_root: &Path,
     journal_path: &Path,
@@ -926,12 +961,7 @@ fn validate_install_journal_paths(
         }),
         "install journal target backup is outside the install root"
     );
-    anyhow::ensure!(
-        direct_child_named(install_root, &journal.temp_dir, |name| {
-            name.starts_with(".install-")
-        }),
-        "install journal temporary directory is outside the install root"
-    );
+    validate_install_temp_path(install_root, &journal.temp_dir)?;
     let registry = install_root.join(".registry");
     if fs::symlink_metadata(&registry).is_ok() {
         ensure_real_directory(&registry)?;
@@ -1169,7 +1199,7 @@ fn reconcile_install_transactions(install_root: &Path) -> anyhow::Result<()> {
         if committed {
             remove_path_if_present(&journal.target_backup)?;
             remove_path_if_present(&journal.metadata_backup)?;
-            remove_path_if_present(&journal.temp_dir)?;
+            remove_install_temp_if_present(install_root, &journal.temp_dir)?;
             remove_path_if_present(&journal.metadata_temp)?;
         } else {
             match journal.phase {
@@ -1200,7 +1230,7 @@ fn reconcile_install_transactions(install_root: &Path) -> anyhow::Result<()> {
                             &journal.name,
                         ))?;
                     }
-                    remove_path_if_present(&journal.temp_dir)?;
+                    remove_install_temp_if_present(install_root, &journal.temp_dir)?;
                     remove_path_if_present(&journal.metadata_temp)?;
                 }
                 InstallJournalPhase::Committed => unreachable!(),
@@ -1922,7 +1952,7 @@ mod tests {
         let target = root.join("demo");
         let registry = root.join(".registry");
         let metadata_path = registry.join("demo.json");
-        let temp_dir = root.join(".install");
+        let temp_dir = root.join(".install-123-456");
         let metadata_temp = registry.join(".demo.tmp");
         fs::create_dir_all(target.join("bin")).unwrap();
         fs::write(target.join("marker"), "old").unwrap();
@@ -2185,6 +2215,56 @@ mod tests {
         assert_eq!(fs::read_dir(quarantined).unwrap().count(), 1);
         fs::remove_file(outside).unwrap();
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn invalid_journal_temp_paths_are_quarantined_without_recursive_delete() {
+        for (label, temp_name, make_directory) in
+            [("prefix", ".install-important", true), ("file", ".install-123-456", false)]
+        {
+            let root = std::env::temp_dir().join(format!(
+                "cmux-plugin-journal-temp-{label}-{}-{}",
+                std::process::id(),
+                now_nanos()
+            ));
+            let registry = root.join(".registry");
+            fs::create_dir_all(&registry).unwrap();
+            let temp_dir = root.join(temp_name);
+            if make_directory {
+                fs::create_dir_all(temp_dir.join("nested")).unwrap();
+                fs::write(temp_dir.join("nested/sentinel"), b"keep").unwrap();
+            } else {
+                fs::write(&temp_dir, b"keep").unwrap();
+            }
+            let journal_path = install_journal_path(&root, label);
+            write_install_journal(
+                &journal_path,
+                &InstallJournal {
+                    owner_token: None,
+                    name: label.into(),
+                    target_backup: root.join(format!(".{label}.1-2.plugin-backup")),
+                    metadata_backup: registry.join(format!(".{label}.1-2.metadata-backup.json")),
+                    temp_dir: temp_dir.clone(),
+                    metadata_temp: registry.join(format!(".{label}.1-2.tmp")),
+                    target_existed: false,
+                    metadata_existed: false,
+                    config_snapshot: None,
+                    expected_sidebar_plugin: None,
+                    phase: InstallJournalPhase::Committed,
+                },
+            )
+            .unwrap();
+
+            reconcile_install_transactions(&root).unwrap();
+            if make_directory {
+                assert_eq!(fs::read(temp_dir.join("nested/sentinel")).unwrap(), b"keep");
+            } else {
+                assert_eq!(fs::read(&temp_dir).unwrap(), b"keep");
+            }
+            assert!(!journal_path.exists());
+            assert_eq!(fs::read_dir(root.join(INVALID_INSTALL_JOURNAL_DIR)).unwrap().count(), 1);
+            fs::remove_dir_all(root).unwrap();
+        }
     }
 
     #[test]
