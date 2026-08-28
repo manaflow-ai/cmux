@@ -134,6 +134,7 @@ extension Workspace {
             for tab in bonsplitController.tabs(inPane: paneId) {
                 guard let panelId = panelIdFromSurfaceId(tab.id) else { continue }
                 let git = reportedPanelGitBranch(panelId: panelId)
+                let prompt = panelPrompts[panelId]
                 surfaces.append(
                     CustomSidebarSurfaceSnapshot(
                         panelId: panelId,
@@ -144,7 +145,10 @@ extension Workspace {
                         directory: reportedPanelDirectory(panelId: panelId),
                         gitBranch: git?.branch,
                         gitIsDirty: git?.isDirty ?? false,
-                        listeningPorts: surfaceListeningPorts[panelId] ?? []
+                        listeningPorts: surfaceListeningPorts[panelId] ?? [],
+                        latestSubmittedMessage: prompt?.message,
+                        latestSubmittedAt: prompt?.submittedAt,
+                        hasUnreadNotification: hasUnreadNotification(panelId: panelId)
                     )
                 )
             }
