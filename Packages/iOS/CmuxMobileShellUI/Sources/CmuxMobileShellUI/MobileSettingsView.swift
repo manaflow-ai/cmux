@@ -62,6 +62,39 @@ struct MobileSettingsView: View {
     var body: some View {
         @Bindable var displaySettings = displaySettings
         return NavigationStack {
+            settingsContent
+        }
+        .onChange(of: connectionMethodStore?.method) { oldMethod, newMethod in
+            guard oldMethod != newMethod, store != nil else { return }
+            let stackUserID = authManager.currentUser?.id
+            Task {
+                _ = await store?.retryActiveMacReconnect(
+                    stackUserID: stackUserID,
+                    force: true
+                )
+            }
+        }
+        .accessibilityIdentifier("MobileSettingsView")
+        .onAppear {
+            diagnosticLog?.recordAppEvent(.settingsOpened)
+        }
+        .onDisappear {
+            diagnosticLog?.recordAppEvent(.settingsClosed)
+        }
+        .onChange(of: sendAnonymousTelemetry) { _, value in
+            recordBooleanSetting(.telemetrySharingChanged, value)
+            diagnosticLog?.recordAppEvent(
+                .crashReportingConsentChanged,
+                count: value ? 1 : 0
+            )
+        }
+    }
+
+    /// The Form and its modifier chain, extracted so `body` stays inside
+    /// the type checker's budget.
+    @ViewBuilder
+    private var settingsContent: some View {
+        @Bindable var displaySettings = displaySettings
             Form {
                 settingsSectionsTop
                 settingsSectionsBottom
@@ -103,7 +136,7 @@ struct MobileSettingsView: View {
                         isSearching: store?.isReconnectingStoredMac == true,
                         didFinishSearch: store?.didFinishStoredMacReconnectAttempt == true
                     ),
-                    connectionMethod: connectionMethodStore?.method ?? .automatic,
+                    connectionMethod: connectionMethodStore?.method ?? .relay,
                     onSelectConnectionMethod: { connectionMethodStore?.method = $0 },
                     onEnablePush: {
                         await pushCoordinator.enable(trigger: "onboarding_replay")
@@ -125,32 +158,8 @@ struct MobileSettingsView: View {
                 // mark "You are here".
                 SetupHelpView(highlight: setupHelpHighlight) { showingSetupHelp = false }
             }
-        }
-        .onChange(of: connectionMethodStore?.method) { oldMethod, newMethod in
-            guard oldMethod != newMethod, store != nil else { return }
-            let stackUserID = authManager.currentUser?.id
-            Task {
-                _ = await store?.retryActiveMacReconnect(
-                    stackUserID: stackUserID,
-                    force: true
-                )
-            }
-        }
-        .accessibilityIdentifier("MobileSettingsView")
-        .onAppear {
-            diagnosticLog?.recordAppEvent(.settingsOpened)
-        }
-        .onDisappear {
-            diagnosticLog?.recordAppEvent(.settingsClosed)
-        }
-        .onChange(of: sendAnonymousTelemetry) { _, value in
-            recordBooleanSetting(.telemetrySharingChanged, value)
-            diagnosticLog?.recordAppEvent(
-                .crashReportingConsentChanged,
-                count: value ? 1 : 0
-            )
-        }
     }
+
 
     private func recordBooleanSetting(
         _ kind: DiagnosticAppEventKind,

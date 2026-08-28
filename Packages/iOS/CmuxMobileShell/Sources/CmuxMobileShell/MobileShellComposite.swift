@@ -9916,14 +9916,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // target is a constant and the per-connect authority is the minted
         // ticket, not the route.
         if ticketMethod == .relay {
-            // Relay dials ONE synthesized route, always. Advertised or
-            // persisted websocket routes are ignored on purpose: nothing
-            // advertises the kind today, so any that exist are stale
-            // earlier-protocol state carrying a dead dial URL, and the
-            // resolved URL below is the single source of truth for which
-            // relay this build dials.
-            guard let relayRoute = Self.synthesizedRelayRoute() else { return [] }
-            return [relayRoute]
+            // Relay dials the ONE synthesized route. Advertised or persisted
+            // websocket routes are ignored on purpose: nothing advertises the
+            // kind today, so any that exist are stale earlier-protocol state
+            // carrying a dead dial URL, and the resolved URL below is the
+            // single source of truth for which relay this build dials.
+            //
+            // Debug loopback rides alongside, exactly as it rode alongside
+            // iroh: it is the same-machine dev lane (compiled out of
+            // production route sets) that simulator auto-pair depends on,
+            // not a cross-method fallback, and it dials first because a
+            // same-machine hop should never pay the relay round trip.
+            let loopback = supportedRoutes.filter { $0.kind == .debugLoopback }
+            guard let relayRoute = Self.synthesizedRelayRoute() else { return loopback }
+            return loopback + [relayRoute]
         }
         if ticketMethod == .tailscale {
             let authorizedTailscale = supportedRoutes.filter { route in
