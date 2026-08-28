@@ -15,14 +15,23 @@ extension CMUXCLI {
             return selected
         case let array as [Any]:
             return array.map(publicSurfaceResumePayload)
-        case let value as String
-            where value.contains("SUBROUTER_CODEX_")
-                || value.contains("model_provider=subrouter")
-                || value.contains("model_providers.subrouter."):
+        case let value as String where containsPrivateSubrouterRoutingMetadata(value):
             return NSNull()
         default:
             return object
         }
+    }
+
+    private func containsPrivateSubrouterRoutingMetadata(_ value: String) -> Bool {
+        if value.contains("SUBROUTER_CODEX_") || value.contains("model_providers.subrouter.") {
+            return true
+        }
+        let normalized = value.filter {
+            !$0.isWhitespace && $0 != "\"" && $0 != "'"
+        }
+        // `sr`/`subrouter`/`cx` are user-facing launcher names and remain public;
+        // only captured routing inputs and internal provider configuration are private.
+        return normalized.contains("model_provider=subrouter")
     }
 
     func jsonString(_ object: Any) -> String {
