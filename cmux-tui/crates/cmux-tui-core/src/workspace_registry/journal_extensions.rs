@@ -2882,7 +2882,7 @@ fn encode_hex(bytes: &[u8]) -> String {
 fn decode_sha256(value: &str) -> anyhow::Result<[u8; 32]> {
     anyhow::ensure!(value.len() == 64, "SHA-256 digest must contain 64 hexadecimal characters");
     let mut decoded = [0_u8; 32];
-    for (index, chunk) in value.as_bytes().chunks_exact(2).enumerate() {
+    for (index, chunk) in value.as_bytes().as_chunks::<2>().0.iter().enumerate() {
         let text = std::str::from_utf8(chunk)?;
         decoded[index] =
             u8::from_str_radix(text, 16).context("SHA-256 digest is not hexadecimal")?;

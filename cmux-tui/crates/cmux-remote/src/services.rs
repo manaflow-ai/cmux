@@ -869,7 +869,7 @@ fn decode_hex_32(value: &str) -> Result<[u8; 32], ServicesError> {
         return Err(ServicesError::Remote("renderer grant has invalid token".into()));
     }
     let mut output = [0u8; 32];
-    for (index, pair) in value.as_bytes().chunks_exact(2).enumerate() {
+    for (index, pair) in value.as_bytes().as_chunks::<2>().0.iter().enumerate() {
         let nibble = |byte: u8| match byte {
             b'0'..=b'9' => Some(byte - b'0'),
             b'a'..=b'f' => Some(byte - b'a' + 10),
