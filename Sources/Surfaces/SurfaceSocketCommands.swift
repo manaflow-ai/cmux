@@ -224,27 +224,6 @@ extension TerminalController {
         }
     }
 
-    /// `vm.workspace_new {id, name?}` → `{workspace_id, name, machine}`: a new, empty
-    /// cmux-tui workspace on the machine — the direct path, not the create-a-terminal
-    /// fallback. The sidebar's "New Workspace" runs the same provider call.
-    nonisolated func socketWorkerVMWorkspaceNewResponse(id: Any?, params: [String: Any]) -> String {
-        guard let vmId = Self.surfaceString(params["id"]), !vmId.isEmpty else {
-            return v2Error(id: id, code: "invalid_params", message: "vm.workspace_new requires `id`. Run `cmux vm ls` to find one.")
-        }
-        let name = Self.surfaceString(params["name"])
-        return v2VmCall(id: id, timeoutSeconds: 120) {
-            guard let provider = await SurfaceCatalog.shared.provider(for: .cloud(vmId)) else {
-                throw SurfaceCatalogError.noProvider(.cloud(vmId))
-            }
-            let workspace = try await provider.createRemoteWorkspace(name: name)
-            return [
-                "workspace_id": workspace.id,
-                "name": workspace.name,
-                "machine": vmId,
-            ]
-        }
-    }
-
     /// `vm.link_socket {id}` → `{socket_path, session}`.
     nonisolated func socketWorkerVMLinkSocketResponse(id: Any?, params: [String: Any]) -> String {
         guard let vmId = Self.surfaceString(params["id"]), !vmId.isEmpty else {
