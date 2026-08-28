@@ -27,6 +27,7 @@ mod machine_provider_client;
 #[cfg(unix)]
 mod machine_provider_runtime;
 mod machine_runtime;
+mod pipe_io;
 mod plugin_manager;
 mod process_diagnostics;
 #[cfg(target_os = "linux")]
@@ -429,6 +430,12 @@ START OPTIONS
   --session <name>   Session name (default: main). Determines the socket path.
   --socket <path>    Explicit control socket path.
   --terminal <id>    With attach, show only this terminal (use `cmux terminal list`).
+  --pipe-io          With attach --terminal, relay raw bytes over stdio for an
+                     embedder-fed surface instead of rendering (stdout = replay
+                     then live output, stdin = JSON input/resize lines,
+                     exit 0 = terminal ended, exit 2 = daemon connection lost).
+  --cols <n>         Initial viewer columns for --pipe-io (default 80).
+  --rows <n>         Initial viewer rows for --pipe-io (default 24).
   --state <path>     Durable session-state root (default: platform state dir).
   --ephemeral        Keep workspace state in memory for this run only.
   --machine-provider <path>
@@ -492,6 +499,9 @@ struct Args {
     session: String,
     socket: Option<PathBuf>,
     terminal: Option<String>,
+    pipe_io: bool,
+    pipe_io_cols: Option<u16>,
+    pipe_io_rows: Option<u16>,
     state: Option<PathBuf>,
     ephemeral: bool,
     machine_provider: Option<PathBuf>,
@@ -566,6 +576,9 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
         session: "main".to_string(),
         socket: None,
         terminal: None,
+        pipe_io: false,
+        pipe_io_cols: None,
+        pipe_io_rows: None,
         state: None,
         ephemeral: false,
         machine_provider: None,
@@ -618,6 +631,19 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
             "--terminal" => {
                 out.terminal =
                     Some(args.next().ok_or_else(|| "--terminal needs a value".to_string())?);
+            }
+            "--pipe-io" => {
+                out.pipe_io = true;
+            }
+            "--cols" => {
+                let value = args.next().ok_or_else(|| "--cols needs a value".to_string())?;
+                out.pipe_io_cols =
+                    Some(value.parse().map_err(|_| "--cols needs a number".to_string())?);
+            }
+            "--rows" => {
+                let value = args.next().ok_or_else(|| "--rows needs a value".to_string())?;
+                out.pipe_io_rows =
+                    Some(value.parse().map_err(|_| "--rows needs a number".to_string())?);
             }
             "--machine-provider" => {
                 if out.machine_provider.is_some() {
@@ -812,6 +838,12 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
     }
     if out.terminal.is_some() && !out.attach {
         return Err("--terminal requires `cmux attach`".to_string());
+    }
+    if out.pipe_io && out.terminal.is_none() {
+        return Err("--pipe-io requires `cmux attach --terminal`".to_string());
+    }
+    if (out.pipe_io_cols.is_some() || out.pipe_io_rows.is_some()) && !out.pipe_io {
+        return Err("--cols/--rows require --pipe-io".to_string());
     }
     #[cfg(not(unix))]
     if out.agent_browser_provider {
@@ -1569,6 +1601,18 @@ fn run_terminal_host_process(args: &[String]) -> anyhow::Result<()> {
     cmux_tui_core::terminal_host_runtime::serve_terminal_host_stdio(args, &mut reader, &mut writer)
 }
 
+/// Ends a `--pipe-io` relay: the machine-readable exit reason is the final
+/// stderr line (the embedder localizes what it shows) and the exit code
+/// carries the respawn decision.
+fn exit_pipe_io(reason: pipe_io::PipeIoExitReason) -> ! {
+    {
+        let mut stderr = std::io::stderr().lock();
+        let _ = writeln!(stderr, "{}", serde_json::json!({"exit": {"reason": reason.as_str()}}));
+        let _ = stderr.flush();
+    }
+    std::process::exit(reason.exit_code());
+}
+
 fn run_attach(args: Args, config: config::StartupConfigSnapshot) -> anyhow::Result<()> {
     let socket_path = match args.socket {
         Some(path) => path,
@@ -1584,27 +1628,71 @@ fn run_attach(args: Args, config: config::StartupConfigSnapshot) -> anyhow::Resu
         })
         .transpose()?;
     let remote = if terminal.is_some() {
-        RemoteSession::connect_for_terminal_attach(&socket_path)?
+        match RemoteSession::connect_for_terminal_attach(&socket_path) {
+            Ok(remote) => remote,
+            // A pipe-io embedder retries daemon-lost forever (a daemon
+            // restart window looks exactly like this) but gives up on
+            // unexplained failures; a connect failure is the former.
+            Err(_) if args.pipe_io => exit_pipe_io(pipe_io::PipeIoExitReason::DaemonLost),
+            Err(error) => return Err(error),
+        }
     } else {
         RemoteSession::connect(&socket_path)?
     };
     let surface_only = if let Some(terminal) = terminal.as_ref() {
-        let tree = remote.refresh_tree()?;
-        let surface = tree
-            .resolve_terminal(terminal)
+        let tree = match remote.refresh_tree() {
+            Ok(tree) => tree,
+            Err(_) if args.pipe_io => exit_pipe_io(pipe_io::PipeIoExitReason::DaemonLost),
+            Err(error) => return Err(error),
+        };
+        let resolved = tree.resolve_terminal(terminal);
+        // A pipe-io embedder respawns on daemon loss; a terminal that no
+        // longer exists must read as terminal-ended (do not respawn), not
+        // as a startup failure it would retry forever.
+        if args.pipe_io && resolved.is_none() {
+            exit_pipe_io(pipe_io::PipeIoExitReason::TerminalEnded);
+        }
+        let surface = resolved
             .ok_or_else(|| anyhow::anyhow!(messages.unknown_terminal(terminal.as_str())))?;
         if !remote.supports_surface_subscription_filter() {
             anyhow::bail!(messages.filtered_subscription_unavailable);
         }
-        remote.scope_events_to_surface(surface)?;
-        let tree = remote.refresh_tree()?;
+        if let Err(error) = remote.scope_events_to_surface(surface) {
+            if args.pipe_io {
+                exit_pipe_io(pipe_io::PipeIoExitReason::DaemonLost);
+            }
+            return Err(error);
+        }
+        let tree = match remote.refresh_tree() {
+            Ok(tree) => tree,
+            Err(_) if args.pipe_io => exit_pipe_io(pipe_io::PipeIoExitReason::DaemonLost),
+            Err(error) => return Err(error),
+        };
         if tree.resolve_terminal(terminal) != Some(surface) {
+            if args.pipe_io {
+                exit_pipe_io(pipe_io::PipeIoExitReason::TerminalEnded);
+            }
             anyhow::bail!(messages.unknown_terminal(terminal.as_str()));
         }
         Some(surface)
     } else {
         None
     };
+    if args.pipe_io {
+        let surface = surface_only.expect("--pipe-io is validated to carry --terminal");
+        let terminal = terminal.as_ref().expect("--pipe-io is validated to carry --terminal");
+        let session = Session::Remote(remote.clone());
+        let reason = pipe_io::run(
+            &session,
+            &remote,
+            &socket_path,
+            terminal,
+            surface,
+            args.pipe_io_cols.unwrap_or(80),
+            args.pipe_io_rows.unwrap_or(24),
+        )?;
+        exit_pipe_io(reason);
+    }
     run_connected_session_client(
         socket_path,
         args.session,

@@ -14,6 +14,7 @@ public struct BetaFeaturesSection: View {
     @State private var customSidebars: DefaultsValueModel<Bool>
     @State private var remoteTmux: DefaultsValueModel<Bool>
     @State private var tuiTerminalBackend: DefaultsValueModel<Bool>
+    @State private var tuiTerminalBackendManualIO: DefaultsValueModel<Bool>
     @State private var workspaceTodoControls: DefaultsValueModel<Bool>
     @State private var workspaceTodosChecklistStyle: DefaultsValueModel<WorkspaceTodoChecklistStyle>
 
@@ -25,6 +26,7 @@ public struct BetaFeaturesSection: View {
         _customSidebars = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.customSidebars))
         _remoteTmux = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.remoteTmux))
         _tuiTerminalBackend = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.tuiTerminalBackend))
+        _tuiTerminalBackendManualIO = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.tuiTerminalBackendManualIO))
         _workspaceTodoControls = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.workspaceTodoControls))
         _workspaceTodosChecklistStyle = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.workspaceTodosChecklistStyle))
     }
@@ -51,6 +53,8 @@ public struct BetaFeaturesSection: View {
                 SettingsCardDivider()
                 tuiTerminalBackendRow
                 SettingsCardDivider()
+                tuiTerminalBackendManualIORow
+                SettingsCardDivider()
                 workspaceTodoControlsRow
                 SettingsCardDivider()
                 workspaceTodosChecklistStyleRow
@@ -68,6 +72,7 @@ public struct BetaFeaturesSection: View {
             customSidebars,
             remoteTmux,
             tuiTerminalBackend,
+            tuiTerminalBackendManualIO,
             workspaceTodoControls,
             workspaceTodosChecklistStyle,
         ]
@@ -231,6 +236,23 @@ public struct BetaFeaturesSection: View {
                 .labelsHidden()
                 .controlSize(.small)
                 .accessibilityIdentifier("SettingsBetaTuiTerminalBackendToggle")
+        }
+    }
+
+    @ViewBuilder
+    private var tuiTerminalBackendManualIORow: some View {
+        SettingsCardRow(
+            configurationReview: .settingsOnly,
+            searchAnchorID: "setting:betaFeatures:tuiTerminalBackendManualIO",
+            String(localized: "settings.betaFeatures.tuiTerminalBackendManualIO", defaultValue: "cmux-tui Manual-IO Data Path"),
+            subtitle: tuiTerminalBackendManualIO.current
+                ? String(localized: "settings.betaFeatures.tuiTerminalBackendManualIO.subtitleOn", defaultValue: "Daemon-backed terminals feed bytes straight into the Ghostty surface (no attach subprocess in the pane). Requires the cmux-tui Terminal Backend toggle.")
+                : String(localized: "settings.betaFeatures.tuiTerminalBackendManualIO.subtitleOff", defaultValue: "Daemon-backed terminals keep running the attach client as the surface command.")
+        ) {
+            Toggle("", isOn: Binding(get: { tuiTerminalBackendManualIO.current }, set: { tuiTerminalBackendManualIO.set($0) }))
+                .labelsHidden()
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsBetaTuiTerminalBackendManualIOToggle")
         }
     }
 

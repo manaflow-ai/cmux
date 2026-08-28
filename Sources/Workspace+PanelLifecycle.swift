@@ -496,6 +496,11 @@ extension Workspace {
            ) {
             TuiTerminalAttachBridge.shared.closeTerminalForClosedSurface(terminalID: tuiTerminalID)
         }
+        // A manual-IO pump follows its surface: a detach transfer keeps the
+        // surface (and pump) alive; every other discard stops the relay.
+        if closePanel, !preservesTerminalForTransfer {
+            TuiManualIOPumpRegistry.shared.stopAndRemove(surfaceID: panelId)
+        }
 
         let removedPanel = panels.removeValue(forKey: panelId)
         if discardAgentHibernationTracking {

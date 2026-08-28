@@ -29,6 +29,28 @@ final class TuiTerminalAttachBridge {
             ?? key.defaultValue
     }
 
+    /// Manual-IO data-path variant: the daemon terminal feeds a
+    /// manual-mirror Ghostty surface through a `--pipe-io` relay instead of
+    /// running the attach client as the surface command. Requires the main
+    /// backend flag.
+    nonisolated static var isManualIOEnabled: Bool {
+        guard isEnabled else { return false }
+        let key = SettingCatalog().betaFeatures.tuiTerminalBackendManualIO
+        return Bool.decodeFromUserDefaults(UserDefaults.standard.object(forKey: key.userDefaultsKey))
+            ?? key.defaultValue
+    }
+
+    /// A pump owning the `--pipe-io` relay for one daemon terminal, sharing
+    /// this bridge's binary, per-app-tag session, and config isolation.
+    func makeManualIOPump(terminalID: String) -> TuiManualIOPump {
+        TuiManualIOPump(
+            binaryPath: Self.binaryPath,
+            sessionName: sessionName,
+            terminalID: terminalID,
+            environment: Self.bridgeEnvironment
+        )
+    }
+
     private nonisolated static var binaryPath: String {
         let key = SettingCatalog().betaFeatures.tuiTerminalBackendBinaryPath
         let stored = String.decodeFromUserDefaults(UserDefaults.standard.object(forKey: key.userDefaultsKey))

@@ -102,6 +102,19 @@ public struct BetaFeaturesCatalogSection: SettingCatalogSection {
         userDefaultsKey: "terminal.beta.tuiBackend.enabled"
     )
 
+    /// Manual-IO variant of the cmux-tui terminal backend: instead of
+    /// running `cmux-tui attach` as the surface command (exec bridge), the
+    /// surface runs in Ghostty's manual-mirror IO mode and an app-side pump
+    /// relays bytes to/from the daemon through `attach --pipe-io`. The
+    /// surface parses the daemon terminal's own byte stream, so input
+    /// encodings always match the daemon's mode state. Requires
+    /// `tuiTerminalBackend`; defaults off (exec bridge).
+    public let tuiTerminalBackendManualIO = DefaultsKey<Bool>(
+        id: "terminal.beta.tuiBackend.manualIO",
+        defaultValue: false,
+        userDefaultsKey: "terminal.beta.tuiBackend.manualIO"
+    )
+
     /// Path to the cmux-tui binary used by the `tuiTerminalBackend` spike.
     /// Dev-only setting with a spike-only default pointing at a locally
     /// installed npm binary; there is no bundled artifact yet (that is build

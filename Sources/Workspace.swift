@@ -1687,6 +1687,7 @@ extension Workspace {
             // spawning fresh or resuming an agent on top of it.
             let tuiAttachTerminalID: String?
             let tuiAttachCommand: String?
+            let tuiManualIOReattachTerminalID: String?
             if restoredRemotePTYSessionID == nil, restoredTmuxStartCommand == nil,
                case .reattach(let reattachTerminalID) = TuiTerminalAttachBridge.shared.restoreDecision(
                    snapshotTerminalID: snapshot.terminal?.tuiTerminalID,
@@ -1694,11 +1695,19 @@ extension Workspace {
                    hasRemotePTYSessionID: restoredRemotePTYSessionID != nil
                ) {
                 tuiAttachTerminalID = reattachTerminalID
-                tuiAttachCommand = TuiTerminalAttachBridge.shared.attachCommand(terminalID: reattachTerminalID)
+                if TuiTerminalAttachBridge.isManualIOEnabled {
+                    tuiManualIOReattachTerminalID = reattachTerminalID
+                    tuiAttachCommand = nil
+                } else {
+                    tuiManualIOReattachTerminalID = nil
+                    tuiAttachCommand = TuiTerminalAttachBridge.shared.attachCommand(terminalID: reattachTerminalID)
+                }
             } else {
                 tuiAttachTerminalID = nil
                 tuiAttachCommand = nil
+                tuiManualIOReattachTerminalID = nil
             }
+            let tuiReattachActive = tuiAttachCommand != nil || tuiManualIOReattachTerminalID != nil
             // A crash-restart can leave this exact agent session alive from the
             // previous launch (or a duplicate panel can reference the same
             // session in this same restore pass); firing another `codex
@@ -1710,7 +1719,7 @@ extension Workspace {
             // before the freshly spawned process becomes visible to the index.
             let agentSessionAlreadyActive: Bool = {
                 guard shouldAutoResumeAgent, restoredHibernation == nil, restoredBindingLaunch == nil,
-                      tuiAttachCommand == nil,
+                      !tuiReattachActive,
                       let restorableAgent else {
                     return false
                 }
@@ -1748,7 +1757,7 @@ extension Workspace {
             }()
             let restoredAgentResumeLaunch: SurfaceResumeStartupLaunch? =
                 if shouldAutoResumeAgent && restoredHibernation == nil && restoredBindingLaunch == nil
-                    && tuiAttachCommand == nil && !agentSessionAlreadyActive {
+                    && !tuiReattachActive && !agentSessionAlreadyActive {
                     if restoresRemoteWorkspaceTerminalSnapshot {
                         restorableAgent?.resumeStartupInput(
                             useLocalRestoreVerb: false,
@@ -1770,7 +1779,7 @@ extension Workspace {
             // the live process it reattaches to.
             let deferredAgentResumeCandidateInput: String? = if restoreIndexUnavailable,
                 restoredHibernation == nil,
-                tuiAttachCommand == nil,
+                !tuiReattachActive,
                 restorableAgent != nil || resumeBinding?.isAgentHookBinding == true {
                 if let restorableAgent {
                     if restoresRemoteWorkspaceTerminalSnapshot {
@@ -1809,7 +1818,7 @@ extension Workspace {
             let deferredAgentResumeAdmission = deferredAgentResumeStartupInput != nil
             // A daemon reattach redraws its own scrollback; replaying the
             // persisted copy on top would duplicate it.
-            let shouldReplayScrollback = tuiAttachCommand == nil && sessionRestorePolicy.shouldReplaySessionScrollback(
+            let shouldReplayScrollback = !tuiReattachActive && sessionRestorePolicy.shouldReplaySessionScrollback(
                 hasRestorableAgent: restorableAgent != nil,
                 tmuxStartCommand: restoredTmuxStartCommand,
                 hasResumeStartupWork: restoredBindingLaunch != nil ||
@@ -1825,7 +1834,7 @@ extension Workspace {
                 tuiAttachCommand
                 ?? restoredRemotePTYAttachCommand
                 ?? restoredTmuxStartupScript
-            let restoredStartupInput = restoredRemotePTYAttachCommand == nil && tuiAttachCommand == nil
+            let restoredStartupInput = restoredRemotePTYAttachCommand == nil && !tuiReattachActive
                 ? (restoredBindingLaunch?.initialInput ??
                     restoredAgentResumeLaunch?.initialInput ??
                     deferredAgentResumeStartupInput)
@@ -1927,7 +1936,8 @@ extension Workspace {
                     representedChangeTokens: Set(
                         snapshot.terminal?.fontSizeChangeTokens ?? []
                     )
-                )
+                ),
+                tuiManualIOReattachTerminalID: tuiManualIOReattachTerminalID
             ) else {
                 if let replayFileURL { try? FileManager.default.removeItem(at: replayFileURL) }
                 // The claim taken above (if any) was for a launch that never
@@ -7195,7 +7205,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     }
 
     func cloudTerminalReconnectOverlayPresentation(forSurfaceId surfaceId: UUID) -> CloudTerminalReconnectOverlayPolicy.Presentation? {
-        CloudTerminalReconnectOverlayPolicy.presentation(
+        if let pump = TuiManualIOPumpRegistry.shared.pump(forSurfaceID: surfaceId) {
+            return pump.overlayPresentation
+        }
+        return CloudTerminalReconnectOverlayPolicy.presentation(
             isManagedCloudWorkspace: isManagedCloudVMWorkspace,
             isRemoteTerminalSurface: isRemoteTerminalSurface(surfaceId) || remoteDisconnectPlaceholderPanelIds.contains(surfaceId),
             connectionState: remoteConnectionState,
@@ -8667,7 +8680,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         terminalFontSizeCreationPolicy: TerminalFontSizeCreationPolicy = .inherit,
         inheritWorkingDirectoryFallback: Bool = false,
         workingDirectoryFallbackSourcePanelId: UUID? = nil,
-        allowTextBoxFocusDefault: Bool = true
+        allowTextBoxFocusDefault: Bool = true,
+        tuiManualIOReattachTerminalID: String? = nil
     ) -> TerminalPanel? {
         return newTerminalSurfaceOutcome(
             inPane: paneId,
@@ -8687,7 +8701,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             terminalFontSizeCreationPolicy: terminalFontSizeCreationPolicy,
             inheritWorkingDirectoryFallback: inheritWorkingDirectoryFallback,
             workingDirectoryFallbackSourcePanelId: workingDirectoryFallbackSourcePanelId,
-            allowTextBoxFocusDefault: allowTextBoxFocusDefault
+            allowTextBoxFocusDefault: allowTextBoxFocusDefault,
+            tuiManualIOReattachTerminalID: tuiManualIOReattachTerminalID
         ).panel
     }
 
@@ -8712,7 +8727,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         terminalFontSizeCreationPolicy: TerminalFontSizeCreationPolicy = .inherit,
         inheritWorkingDirectoryFallback: Bool = false,
         workingDirectoryFallbackSourcePanelId: UUID? = nil,
-        allowTextBoxFocusDefault: Bool = true
+        allowTextBoxFocusDefault: Bool = true,
+        tuiManualIOReattachTerminalID: String? = nil
     ) -> TerminalPanelCreationOutcome {
         guard !isRetiredFromOwningTabManager else { return .failed }
         // In a remote tmux mirror, a new tab means "create a tmux window"; never
@@ -8763,7 +8779,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             terminalFontSizeCreationPolicy: terminalFontSizeCreationPolicy,
             inheritWorkingDirectoryFallback: inheritWorkingDirectoryFallback,
             workingDirectoryFallbackSourcePanelId: workingDirectoryFallbackSourcePanelId,
-            allowTextBoxFocusDefault: allowTextBoxFocusDefault
+            allowTextBoxFocusDefault: allowTextBoxFocusDefault,
+            tuiManualIOReattachTerminalID: tuiManualIOReattachTerminalID
         ) else { return .failed }
         return .created(panel)
     }
@@ -8786,7 +8803,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         terminalFontSizeCreationPolicy: TerminalFontSizeCreationPolicy,
         inheritWorkingDirectoryFallback: Bool,
         workingDirectoryFallbackSourcePanelId: UUID?,
-        allowTextBoxFocusDefault: Bool
+        allowTextBoxFocusDefault: Bool,
+        tuiManualIOReattachTerminalID: String? = nil
     ) -> TerminalPanel? {
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
         let previousFocusedPanelId = focusedPanelId
@@ -8803,7 +8821,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         // terminal with a daemon terminal so it survives quitting the app.
         // Any provisioning failure falls through to today's spawn path.
         var tuiProvisionedTerminal: TuiTerminalAttachBridge.ProvisionedTerminal?
-        if TuiTerminalAttachPolicy.shouldProvisionNewTerminal(
+        if tuiManualIOReattachTerminalID == nil, TuiTerminalAttachPolicy.shouldProvisionNewTerminal(
             flagEnabled: TuiTerminalAttachBridge.isEnabled,
             hasExplicitStartupCommand: startupCommand != nil,
             hasTmuxStartCommand: tmuxStartCommand != nil,
@@ -8812,7 +8830,12 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         ) {
             tuiProvisionedTerminal = TuiTerminalAttachBridge.shared.provisionTerminalForNewSurface()
         }
-        let effectiveStartupCommand = tuiProvisionedTerminal?.attachCommand ?? startupCommand
+        // Manual-IO variant: the surface runs in Ghostty's manual-mirror IO
+        // mode and a pump relays daemon bytes; there is no surface command.
+        let tuiManualIOTerminalID: String? = tuiManualIOReattachTerminalID
+            ?? (TuiTerminalAttachBridge.isManualIOEnabled ? tuiProvisionedTerminal?.terminalID : nil)
+        let effectiveStartupCommand = (tuiManualIOTerminalID == nil ? tuiProvisionedTerminal?.attachCommand : nil)
+            ?? startupCommand
         let remoteStartupCommandForEnvironment = explicitInitialCommand == nil ? remoteTerminalStartupCommand : nil
         let newPanelID = restoredSurfaceId ?? UUID()
         let requestedRemotePTYSessionID = normalizedRemotePTYSessionID(remotePTYSessionID)
@@ -8849,23 +8872,44 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         // surface id (the panel/surface id IS the ghostty surface id, a
         // Swift-side UUID), so a session's terminal binding survives relaunch
         // and restore. The caller only passes an id it has verified is free.
-        let newPanel = TerminalPanel(
-            id: newPanelID,
-            workspaceId: id,
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: inheritedConfig,
-            workingDirectory: requestedWorkingDirectory,
-            portOrdinal: portOrdinal,
-            initialCommand: effectiveStartupCommand,
-            tmuxStartCommand: tmuxStartCommand,
-            initialInput: initialInput,
-            additionalEnvironment: effectiveStartupEnvironment,
-            runtimeSpawnPolicy: terminalStartupRestoreCoordinator.runtimeSpawnPolicy(
-                requestedPolicy: runtimeSpawnPolicy,
-                willRunStartupCommand: false,
-                willRunStartupInput: startupRestoreAgent != nil && initialInput != nil
+        let newPanel: TerminalPanel
+        if let tuiManualIOTerminalID {
+            let pump = TuiTerminalAttachBridge.shared.makeManualIOPump(terminalID: tuiManualIOTerminalID)
+            let surface = TerminalSurface(
+                id: newPanelID,
+                tabId: id,
+                context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+                configTemplate: inheritedConfig,
+                workingDirectory: requestedWorkingDirectory,
+                portOrdinal: portOrdinal,
+                ioMode: .manualMirror,
+                manualInputHandler: pump.makeManualInputHandler()
             )
-        )
+            pump.start(surface: surface)
+            pump.onStateChange = { [weak surface] in
+                surface?.owningWorkspace()?.postRemoteConnectionPresentationDidChange()
+            }
+            TuiManualIOPumpRegistry.shared.register(pump, surfaceID: surface.id)
+            newPanel = TerminalPanel(workspaceId: id, surface: surface)
+        } else {
+            newPanel = TerminalPanel(
+                id: newPanelID,
+                workspaceId: id,
+                context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+                configTemplate: inheritedConfig,
+                workingDirectory: requestedWorkingDirectory,
+                portOrdinal: portOrdinal,
+                initialCommand: effectiveStartupCommand,
+                tmuxStartCommand: tmuxStartCommand,
+                initialInput: initialInput,
+                additionalEnvironment: effectiveStartupEnvironment,
+                runtimeSpawnPolicy: terminalStartupRestoreCoordinator.runtimeSpawnPolicy(
+                    requestedPolicy: runtimeSpawnPolicy,
+                    willRunStartupCommand: false,
+                    willRunStartupInput: startupRestoreAgent != nil && initialInput != nil
+                )
+            )
+        }
         configureNewTerminalPanel(
             newPanel,
             allowTextBoxFocusDefault: shouldFocusNewTab && allowTextBoxFocusDefault
@@ -8874,6 +8918,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         panelTitles[newPanel.id] = newPanel.displayTitle
         if let tuiProvisionedTerminal {
             tuiTerminalIDsByPanelId[newPanel.id] = tuiProvisionedTerminal.terminalID
+        } else if let tuiManualIOReattachTerminalID {
+            tuiTerminalIDsByPanelId[newPanel.id] = tuiManualIOReattachTerminalID
         }
         let tracksRemoteTerminalSurface = remoteTerminalStartupCommand != nil || effectiveRemotePTYSessionID != nil
         if let effectiveRemotePTYSessionID {
