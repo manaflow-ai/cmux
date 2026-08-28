@@ -1399,7 +1399,7 @@ fn archived_records_after(
         } else {
             anyhow::ensure!(
                 start_sequence <= sequence.saturating_add(1),
-                "cursor.invalid: journal retention begins at sequence {start_sequence}"
+                "journal segments contain a gap before sequence {start_sequence}"
             );
         }
         previous_end = Some(end_sequence);
@@ -2062,7 +2062,12 @@ mod tests {
     #[test]
     fn journal_cursor_and_page_limits_fail_closed() {
         let registry = WorkspaceRegistry::in_memory("limits").unwrap();
-        assert!(registry.session_journal_after(1, 1).unwrap_err().to_string().contains("ahead"));
+        let ahead = registry.session_journal_after(1, 1).unwrap_err();
+        assert!(ahead.to_string().contains("ahead"));
+        assert_eq!(
+            ahead.downcast_ref::<SessionJournalCursorError>(),
+            Some(&SessionJournalCursorError::Ahead { requested: 1, head: 0 })
+        );
         assert!(registry.session_journal_after(0, 0).unwrap_err().to_string().contains("positive"));
         assert!(
             registry
@@ -2070,6 +2075,27 @@ mod tests {
                 .unwrap_err()
                 .to_string()
                 .contains("exceeds")
+        );
+    }
+
+    #[test]
+    fn retained_history_gap_is_a_typed_cursor_error() {
+        let registry = WorkspaceRegistry::in_memory("cursor-gap").unwrap();
+        registry
+            .connection
+            .execute(
+                "INSERT INTO journal_segments(
+                   segment_id, start_sequence, end_sequence, record_count, codec, content,
+                   uncompressed_bytes, sha256, sealed_at_ms
+                 ) VALUES(?1, 3, 3, 1, 'test', ?2, 1, ?3, 1)",
+                rusqlite::params!["gap-segment", vec![0_u8], vec![0_u8; 32]],
+            )
+            .unwrap();
+
+        let error = registry.session_journal_after(0, 1).unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<SessionJournalCursorError>(),
+            Some(&SessionJournalCursorError::Gap { requested: 0, first_retained: 3 })
         );
     }
 
