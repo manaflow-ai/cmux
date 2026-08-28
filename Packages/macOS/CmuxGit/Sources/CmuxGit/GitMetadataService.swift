@@ -33,6 +33,7 @@ public struct GitMetadataService: Sendable {
     let degradationRecorder: GitMetadataDegradationRecorder
     let safetyConfiguration: GitMetadataSafetyConfiguration
     private let trackedChangesSnapshotCache: GitTrackedChangesSnapshotCache
+    private let watchPlanCache: GitMetadataWatchPlanCache
 
     /// Creates a git-metadata service.
     public init() {
@@ -46,6 +47,7 @@ public struct GitMetadataService: Sendable {
         )
         self.safetyConfiguration = safetyConfiguration
         self.trackedChangesSnapshotCache = GitTrackedChangesSnapshotCache()
+        self.watchPlanCache = GitMetadataWatchPlanCache()
     }
 
     init(
@@ -54,6 +56,7 @@ public struct GitMetadataService: Sendable {
         degradationRecorder: GitMetadataDegradationRecorder? = nil,
         safetyConfiguration: GitMetadataSafetyConfiguration = GitMetadataSafetyConfiguration(),
         trackedChangesSnapshotCache: GitTrackedChangesSnapshotCache = GitTrackedChangesSnapshotCache()
+        , watchPlanCache: GitMetadataWatchPlanCache = GitMetadataWatchPlanCache()
     ) {
         self.fileStatusReader = fileStatusReader
         self.dirtyStatusReader = dirtyStatusReader ?? SystemGitDirtyStatusReader(
@@ -64,6 +67,7 @@ public struct GitMetadataService: Sendable {
         )
         self.safetyConfiguration = safetyConfiguration
         self.trackedChangesSnapshotCache = trackedChangesSnapshotCache
+        self.watchPlanCache = watchPlanCache
     }
 
     /// Reads a point-in-time git snapshot for `directory`.
@@ -166,10 +170,10 @@ public struct GitMetadataService: Sendable {
     public nonisolated func watchDescriptor(
         for directory: String
     ) async -> GitWorkspaceMetadataWatchDescriptor? {
-        Self.workspaceGitMetadataWatchDescriptor(
-            for: directory,
-            safetyConfiguration: safetyConfiguration
-        )
+        guard let repository = Self.resolveGitRepository(containing: directory) else { return nil }
+        return await watchPlanCache.plan(for: repository) {
+            Self.workspaceGitMetadataWatchDescriptor(for: directory, safetyConfiguration: self.safetyConfiguration)
+        }
     }
 
     /// The GitHub repository slugs (`owner/name`) configured as remotes for the
