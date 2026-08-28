@@ -38,6 +38,29 @@ fn seed_workspace(registry: &mut WorkspaceRegistry, key: &str) {
 }
 
 #[test]
+fn legacy_display_name_repair_keeps_registry_openable() {
+    let mut registry = WorkspaceRegistry::in_memory("legacy-display-name-repair").unwrap();
+    seed_workspace(&mut registry, "legacy-display-name-repair");
+    registry
+        .connection
+        .execute(
+            "UPDATE workspaces SET name = ?1 WHERE workspace_key = ?2",
+            params!["old\u{001b}[31mname\u{000a}", "legacy-display-name-repair"],
+        )
+        .unwrap();
+
+    let transaction = registry.connection.unchecked_transaction().unwrap();
+    migrate_legacy_display_names(&transaction).unwrap();
+    transaction.commit().unwrap();
+
+    let snapshot = registry.snapshot().unwrap();
+    assert_eq!(snapshot.workspaces[0].name, "old\\u{001B}[31mname\\u{000A}");
+    let transaction = registry.connection.unchecked_transaction().unwrap();
+    validate_resource_invariants(&transaction).unwrap();
+    transaction.commit().unwrap();
+}
+
+#[test]
 fn interrupted_staged_workspace_keeps_reserved_public_id_without_early_publication() {
     let root = temp_root("interrupted-workspace-public-id");
     let key = "018f6e21-7b70-7e70-8000-0000000000aa";
