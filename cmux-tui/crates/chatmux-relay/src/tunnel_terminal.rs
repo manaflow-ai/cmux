@@ -452,6 +452,13 @@ impl Connection {
                 self.send_control(&opened);
             }
             Some("pty_output") => {
+                // Manager callbacks can race the reader's authority watch.
+                // Re-check at enqueue time so revoked transports cannot
+                // publish queued output after the generation changed.
+                if !self.authority_current() {
+                    self.protocol_error("trust_revoked");
+                    return;
+                }
                 let Some(bytes) = frame
                     .get("dataB64")
                     .and_then(Value::as_str)
@@ -591,11 +598,39 @@ async fn handle_client_frame(connection: &Arc<Connection>, frame: TunnelFrame) {
                 open["surface"] = Value::from(surface);
             }
             let context = connection.frame_context();
-            if tokio::time::timeout(OPEN_TIMEOUT, connection.manager.handle_frame(&open, &context))
-                .await
-                .is_err()
-            {
-                connection.protocol_error("failed");
+            // Run the open in its own task. Dropping an in-flight
+            // `handle_frame` future from `timeout` can abandon work while it
+            // owns manager resources. An explicit abort, followed by the
+            // normal close path, gives cancellation a defined cleanup point.
+            let open_task = tokio::spawn({
+                let manager = Arc::clone(&connection.manager);
+                async move { manager.handle_frame(&open, &context).await }
+            });
+            let deadline = tokio::time::sleep(OPEN_TIMEOUT);
+            tokio::pin!(deadline);
+            tokio::select! {
+                result = &mut open_task => {
+                    if result.is_err() {
+                        connection.protocol_error("failed");
+                    }
+                }
+                _ = &mut deadline => {
+                    open_task.abort();
+                    let _ = (&mut open_task).await;
+                    connection.protocol_error("failed");
+                }
+                changed = authority_changes.changed() => {
+                    let revoked = matches!(changed, Ok(()) if *authority_changes.borrow_and_update() != connection.auth_generation);
+                    if revoked {
+                        open_task.abort();
+                        let _ = (&mut open_task).await;
+                        connection.protocol_error("trust_revoked");
+                    } else if changed.is_err() {
+                        open_task.abort();
+                        let _ = (&mut open_task).await;
+                        connection.finish();
+                    }
+                }
             }
         }
         ClientFrame::Resize { cols, rows } => {
