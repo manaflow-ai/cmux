@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
@@ -37,6 +39,45 @@ const body = (text: string): string =>
     .split("\n")
     .filter((line) => line.trim() !== "" && !line.trimStart().startsWith("#"))
     .join("\n");
+
+// A throwaway local HTTP server standing in for the coderouter opencode
+// config endpoint, and a shell run sourcing the generator against it.
+const listen = (
+  handler: (request: IncomingMessage, response: ServerResponse) => void,
+): Promise<{ origin: string; close: () => Promise<void> }> =>
+  new Promise((resolve, reject) => {
+    const server = createServer(handler);
+    server.on("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address() as AddressInfo;
+      resolve({
+        origin: `http://127.0.0.1:${address.port}`,
+        close: () =>
+          new Promise((done) => {
+            server.close(() => done());
+            server.closeAllConnections();
+          }),
+      });
+    });
+  });
+
+const sourceAgentConfig = (home: string, coderouterOrigin: string): Promise<void> =>
+  new Promise((resolve, reject) => {
+    const child = spawn("bash", ["-c", `. ${path.join(templateDir, "agent-config.sh")}`], {
+      env: {
+        ...process.env,
+        HOME: home,
+        OPENAI_BASE_URL: `${coderouterOrigin}/v1`,
+        OPENAI_API_KEY: "crt_test-token",
+        CMUX_CODEROUTER_URL: coderouterOrigin,
+      },
+      stdio: "ignore",
+    });
+    child.on("error", reject);
+    child.on("exit", (code) =>
+      code === 0 ? resolve() : reject(new Error(`agent-config.sh exited ${code}`)),
+    );
+  });
 
 describe("devbox image template", () => {
   test("template directory contains exactly the expected files", () => {
@@ -201,7 +242,18 @@ describe("devbox image template", () => {
     }
     // The image must prove generation in a throwaway HOME and ship none.
     expect(dockerfile).toContain("test ! -e /root/.codex/config.toml");
+    expect(dockerfile).toContain("test ! -e /root/.pi/agent/models.json");
+    expect(dockerfile).toContain("test ! -e /root/.config/opencode/opencode.json");
     expect(dockerfile).toContain("test ! -e /root/.config/cmux/model-plane.env");
+    // The build check proves the pi config generates and carries no token,
+    // and that an unreachable config endpoint writes no opencode config.
+    expect(dockerfile).toContain(
+      `grep -qF '"x-coderouter-route-token": "$OPENAI_API_KEY"' /tmp/agent-config-check/.pi/agent/models.json`,
+    );
+    expect(dockerfile).toContain("! grep -q 'crt_check' /tmp/agent-config-check/.pi/agent/models.json");
+    expect(dockerfile).toContain(
+      "test ! -e /tmp/agent-config-check/.config/opencode/opencode.json",
+    );
   });
 
   test("agent config generator materializes the coderouter plane from boot env", () => {
@@ -229,7 +281,102 @@ describe("devbox image template", () => {
       const plane = readFileSync(path.join(home, ".config/cmux/model-plane.env"), "utf8");
       expect(plane).toContain("export OPENAI_API_KEY='crt_test'");
       expect(plane).toContain("export CMUX_CODEROUTER_URL='https://example.invalid'");
+      // pi: the built-in openai-codex provider is pointed at the plane. The
+      // route token rides the x-coderouter-route-token header as an env
+      // reference pi resolves at request time; the apiKey is the public
+      // placeholder JWT (pi requires a JWT-shaped key client-side), so the
+      // file carries no secret.
+      const pi = readFileSync(path.join(home, ".pi/agent/models.json"), "utf8");
+      expect(JSON.parse(pi)).toEqual({
+        providers: {
+          "openai-codex": {
+            name: "cmux",
+            baseUrl: "https://example.invalid/v1",
+            apiKey:
+              "e30.eyJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOnsiY2hhdGdwdF9hY2NvdW50X2lkIjoiY29kZXJvdXRlciJ9fQ.signature",
+            headers: { "x-coderouter-route-token": "$OPENAI_API_KEY" },
+          },
+        },
+      });
+      expect(pi).not.toContain("crt_test");
+      // opencode: the config endpoint is unreachable here, so nothing may be
+      // written (the next shell retries).
+      expect(existsSync(path.join(home, ".config/opencode/opencode.json"))).toBe(false);
     } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test("opencode config is fetched from the coderouter endpoint and de-tokenized", async () => {
+    const home = mkdtempSync(path.join(tmpdir(), "cmux-devbox-opencode-"));
+    let authorization: string | undefined;
+    const server = await listen((request, response) => {
+      authorization = request.headers.authorization;
+      response.setHeader("content-type", "application/json");
+      response.end(
+        JSON.stringify({
+          provider: {
+            go: {
+              npm: "@ai-sdk/openai-compatible",
+              options: {
+                baseURL: "http://127.0.0.1:9/api/coderouter/opencode/proxy/go",
+                apiKey: "crt_test-token",
+              },
+            },
+          },
+        }),
+      );
+    });
+    try {
+      await sourceAgentConfig(home, server.origin);
+      expect(authorization).toBe("Bearer crt_test-token");
+      const configPath = path.join(home, ".config/opencode/opencode.json");
+      const written = readFileSync(configPath, "utf8");
+      // The inlined route token is swapped for a runtime env reference, so a
+      // resurrected machine with a fresh token needs no rewrite.
+      expect(JSON.parse(written)).toEqual({
+        provider: {
+          go: {
+            npm: "@ai-sdk/openai-compatible",
+            options: {
+              baseURL: "http://127.0.0.1:9/api/coderouter/opencode/proxy/go",
+              apiKey: "{env:OPENAI_API_KEY}",
+            },
+          },
+        },
+      });
+      expect(written).not.toContain("crt_test-token");
+      // Write-if-missing: a second shell leaves the user's file alone.
+      authorization = undefined;
+      await sourceAgentConfig(home, server.origin);
+      expect(authorization).toBeUndefined();
+    } finally {
+      await server.close();
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test("opencode config tolerates a coderouter without a usable account", async () => {
+    const home = mkdtempSync(path.join(tmpdir(), "cmux-devbox-opencode-503-"));
+    let body = JSON.stringify({ error: "no_usable_account" });
+    let status = 503;
+    const server = await listen((_request, response) => {
+      response.statusCode = status;
+      response.setHeader("content-type", "application/json");
+      response.end(body);
+    });
+    try {
+      const configPath = path.join(home, ".config/opencode/opencode.json");
+      // 503 no_usable_account: nothing written, the shell exits clean.
+      await sourceAgentConfig(home, server.origin);
+      expect(existsSync(configPath)).toBe(false);
+      // An empty catalog is not persisted either (it would block retries).
+      body = JSON.stringify({ provider: {} });
+      status = 200;
+      await sourceAgentConfig(home, server.origin);
+      expect(existsSync(configPath)).toBe(false);
+    } finally {
+      await server.close();
       rmSync(home, { recursive: true, force: true });
     }
   });

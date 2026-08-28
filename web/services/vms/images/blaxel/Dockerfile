@@ -22,7 +22,7 @@
 FROM debian:trixie-slim
 
 # Cache-buster: bump to force a full rebuild on Blaxel's builder.
-ENV CMUX_IMAGE_EPOCH=2026-08-28-r9
+ENV CMUX_IMAGE_EPOCH=2026-08-28-r10
 
 # Blaxel's sandbox API binary is mandatory in every custom image: it is the control
 # plane (port 8080) the driver uses for filesystem and process operations.
@@ -222,6 +222,10 @@ RUN bash -n /etc/cmux/agent-config.sh \
   && grep -q 'persistence = "save-all"' /tmp/agent-config-check/.codex/config.toml \
   && grep -q "export OPENAI_API_KEY='crt_check'" /tmp/agent-config-check/.config/cmux/model-plane.env \
   && [ "$(stat -c %a /tmp/agent-config-check/.config/cmux/model-plane.env)" = "600" ] \
+  && grep -q '"baseUrl": "https://example.invalid/v1"' /tmp/agent-config-check/.pi/agent/models.json \
+  && grep -qF '"x-coderouter-route-token": "$OPENAI_API_KEY"' /tmp/agent-config-check/.pi/agent/models.json \
+  && ! grep -q 'crt_check' /tmp/agent-config-check/.pi/agent/models.json \
+  && test ! -e /tmp/agent-config-check/.config/opencode/opencode.json \
   && rm -rf /tmp/agent-config-check \
   && mkdir -p /tmp/agent-config-resurrect/.config/cmux \
   && printf '%s\n' "export OPENAI_BASE_URL='https://resurrect.invalid/v1'" "export OPENAI_API_KEY='crt_persisted'" > /tmp/agent-config-resurrect/.config/cmux/model-plane.env \
@@ -229,6 +233,8 @@ RUN bash -n /etc/cmux/agent-config.sh \
   && rm -rf /tmp/agent-config-resurrect \
   && bash -lc 'true' \
   && test ! -e /root/.codex/config.toml \
+  && test ! -e /root/.pi/agent/models.json \
+  && test ! -e /root/.config/opencode/opencode.json \
   && test ! -e /root/.config/cmux/model-plane.env
 
 # /entrypoint.sh is the path every official Blaxel template uses; the microVM

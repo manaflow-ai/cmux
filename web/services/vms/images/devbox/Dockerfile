@@ -29,7 +29,7 @@ FROM debian:bookworm-slim
 # Cache-buster: bump the date to force remote builders past stale layer
 # caches (Daytona's cache served stale layers for chatmux on 2026-08-21 and
 # 2026-08-25; E2B skips cache by default).
-ENV CMUX_IMAGE_EPOCH=2026-08-27-r2
+ENV CMUX_IMAGE_EPOCH=2026-08-28-r1
 
 ENV LANG=C.UTF-8 \
     DEBIAN_FRONTEND=noninteractive
@@ -201,6 +201,10 @@ RUN bash -n /etc/cmux/agent-config.sh \
   && grep -q 'persistence = "save-all"' /tmp/agent-config-check/.codex/config.toml \
   && grep -q "export OPENAI_API_KEY='crt_check'" /tmp/agent-config-check/.config/cmux/model-plane.env \
   && [ "$(stat -c %a /tmp/agent-config-check/.config/cmux/model-plane.env)" = "600" ] \
+  && grep -q '"baseUrl": "https://example.invalid/v1"' /tmp/agent-config-check/.pi/agent/models.json \
+  && grep -qF '"x-coderouter-route-token": "$OPENAI_API_KEY"' /tmp/agent-config-check/.pi/agent/models.json \
+  && ! grep -q 'crt_check' /tmp/agent-config-check/.pi/agent/models.json \
+  && test ! -e /tmp/agent-config-check/.config/opencode/opencode.json \
   && rm -rf /tmp/agent-config-check \
   && mkdir -p /tmp/agent-config-resurrect/.config/cmux \
   && echo "export OPENAI_BASE_URL='https://resurrect.invalid/v1'" > /tmp/agent-config-resurrect/.config/cmux/model-plane.env \
@@ -209,6 +213,8 @@ RUN bash -n /etc/cmux/agent-config.sh \
   && rm -rf /tmp/agent-config-resurrect \
   && bash -lc 'true' \
   && test ! -e /root/.codex/config.toml \
+  && test ! -e /root/.pi/agent/models.json \
+  && test ! -e /root/.config/opencode/opencode.json \
   && test ! -e /root/.config/cmux/model-plane.env
 
 # The cmux-tui daemon supervisor (see the header; the binary itself is
