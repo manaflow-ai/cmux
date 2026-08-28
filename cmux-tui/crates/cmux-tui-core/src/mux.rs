@@ -1142,22 +1142,32 @@ fn restore_agent_roster(registry: &WorkspaceRegistry) -> anyhow::Result<AgentRos
                 let Some(cursor_error) = error.downcast_ref::<SessionJournalCursorError>() else {
                     return Err(error.context("restore agent roster from session journal"));
                 };
-                if recovered_cursor {
-                    return Err(error.context("restore agent roster after cursor recovery"));
+                match *cursor_error {
+                    SessionJournalCursorError::Ahead { .. } => {
+                        if recovered_cursor {
+                            return Err(error.context("restore agent roster after cursor recovery"));
+                        }
+                        // A persisted cursor can point past the head. Rebuild
+                        // from the journal head, preserving ordinary I/O,
+                        // decode, and corruption errors.
+                        host = AgentRosterHost::default();
+                        recovered_cursor = true;
+                        eprintln!("cmux-tui: recovering invalid agent roster cursor: {error}");
+                        continue;
+                    }
+                    SessionJournalCursorError::Gap { requested, first_retained } => {
+                        // A retained-history gap means the snapshot does not
+                        // cover the records needed to derive the roster. A
+                        // suffix-only replay would silently drop agents and
+                        // claim a successful recovery. Keep the durable
+                        // snapshot untouched and fail closed so the caller can
+                        // surface the recovery failure and preserve evidence.
+                        return Err(anyhow::anyhow!(
+                            "cannot restore agent roster: journal history before sequence {first_retained} "
+                                "was compacted (snapshot cursor {requested}); a complete reducer snapshot is required"
+                        ));
+                    }
                 }
-                // A persisted cursor can point past the head or before the
-                // retained journal floor. Rebuild from a valid boundary,
-                // preserving ordinary I/O, decode, and corruption errors.
-                host = match *cursor_error {
-                    SessionJournalCursorError::Ahead { .. } => AgentRosterHost::default(),
-                    SessionJournalCursorError::Gap { first_retained, .. } => AgentRosterHost {
-                        roster: AgentRoster::default(),
-                        cursor: first_retained.saturating_sub(1),
-                    },
-                };
-                recovered_cursor = true;
-                eprintln!("cmux-tui: recovering invalid agent roster cursor: {error}");
-                continue;
             }
         };
         if page.records.is_empty() {
