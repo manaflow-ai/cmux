@@ -8762,7 +8762,13 @@ impl Mux {
             sequence_lock_held,
             hook_state.as_ref(),
         )?;
-        record.context("fresh raw agent report unexpectedly replayed")
+        let record = record.context("fresh raw agent report unexpectedly replayed")?;
+        if source != AgentSource::Hook {
+            // A successful resource report means the terminal is available.
+            // Use that lifecycle signal to retry durable hook projections.
+            let _ = self.retry_pending_agent_hooks();
+        }
+        Ok(record)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -8784,7 +8790,7 @@ impl Mux {
             "source":source.as_str(),
             "source_session":source_session,
         });
-        self.commit_agent_report(
+        let result = self.commit_agent_report(
             AgentReportTarget::Resource { selectors: &selectors, terminal_id },
             agent_state,
             source,
@@ -8794,8 +8800,11 @@ impl Mux {
             &fingerprint,
             false,
             None,
-        )
-        .map(|(commit, _)| commit)
+        );
+        if result.is_ok() && source != AgentSource::Hook {
+            let _ = self.retry_pending_agent_hooks();
+        }
+        result.map(|(commit, _)| commit)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -22015,6 +22024,39 @@ mod tests {
                 .is_empty()
         );
         assert_eq!(mux.list_agents(Some(surface.id), None)[0].state, AgentState::Working);
+    }
+
+    #[test]
+    fn available_agent_report_wakes_pending_hook_projection_retry() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = mux.with_state(|state| {
+            match state.resource_indexes.content_ids.get(&surface.id).unwrap() {
+                ContentPublicId::Terminal(id) => id.clone(),
+                ContentPublicId::Browser(_) => panic!("workspace opened a browser"),
+            }
+        });
+        let ingress = crate::agent_hooks::agent_hook_journal_ingress(
+            "claude",
+            "UserPromptSubmit",
+            Some(&terminal_id.to_string()),
+            serde_json::json!({}),
+        )
+        .unwrap();
+        mux.workspace_registry.lock().unwrap().set_resource_patch_failure(true).unwrap();
+        mux.append_journal_ingress(&ingress, "test", "hook-wake").unwrap();
+        mux.workspace_registry.lock().unwrap().set_resource_patch_failure(false).unwrap();
+
+        mux.report_agent(surface.id, AgentState::Working, AgentSource::Socket, None).unwrap();
+        assert!(
+            mux.workspace_registry
+                .lock()
+                .unwrap()
+                .pending_agent_hook_projections()
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(mux.list_agents(Some(surface.id), None)[0].source, AgentSource::Hook);
     }
 
     #[test]
