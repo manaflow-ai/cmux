@@ -37,11 +37,17 @@ fn projection_detail<'a>(row: &'a crate::sidebar_projection::ProjectionRow) -> C
         "done" => messages.done,
         _ => messages.unknown,
     };
-    if row.subtitle.is_empty() {
-        Cow::Borrowed(state)
-    } else {
-        Cow::Owned(format!("{state} · {}", row.subtitle))
+    // Lead with the agent type when the row name is the tab title, so
+    // "which agent is this" never depends on the title alone. Skip it when
+    // the name already IS the agent type (untitled tab fallback).
+    let mut detail = match row.agent_label.as_deref() {
+        Some(agent) if row.name != agent => format!("{agent} · {state}"),
+        _ => state.to_string(),
+    };
+    if !row.subtitle.is_empty() {
+        detail = format!("{detail} · {}", row.subtitle);
     }
+    detail
 }
 
 /// The color of a workspace's unread indicator, or `None` when nothing is

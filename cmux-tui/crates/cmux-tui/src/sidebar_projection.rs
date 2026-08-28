@@ -57,6 +57,7 @@ pub(crate) struct ProjectionRow {
     pub name: String,
     pub subtitle: String,
     pub agent_state: Option<String>,
+    pub agent_label: Option<String>,
     pub active: bool,
     pub branch: Option<ProjectionBranch>,
     pub expanded: bool,
@@ -190,6 +191,7 @@ fn append_level(
                     name: workspace.name.clone(),
                     subtitle: workspace.short_id.clone(),
                     agent_state: None,
+                    agent_label: None,
                     active: workspace_index == tree.active_workspace,
                     branch,
                     expanded,
@@ -239,6 +241,7 @@ fn append_level(
                         name: pane.display_name().to_string(),
                         subtitle: pane.short_id.clone(),
                         agent_state: None,
+                        agent_label: None,
                         active: workspace_index == tree.active_workspace
                             && screen_index == workspace.active_screen
                             && pane.id == screen.active_pane,
@@ -309,47 +312,73 @@ fn append_level(
                             let name = tab
                                 .name
                                 .as_deref()
-                                .filter(|session| !session.is_empty())
-                                .unwrap_or(pane.short_id.as_str())
-                                .to_string()
-                        } else {
-                            pane.short_id.clone()
-                        };
-                        let row = ProjectionRow {
-                            resource,
-                            depth: depth as u16,
-                            name,
-                            subtitle,
-                            agent_state: agent
-                                .filter(|_| agent_only)
-                                .map(|agent| agent.state.clone()),
-                            active: workspace_index == tree.active_workspace
-                                && screen_index == workspace.active_screen
-                                && pane.id == screen.active_pane
-                                && pane.active_tab == tab_index,
-                            branch: None,
-                            expanded: false,
-                            target: ProjectionTarget::Surface {
-                                workspace: workspace_index,
-                                screen: screen_index,
-                                pane: pane.id,
-                                index: tab_index,
-                                surface: tab.surface,
-                                agent: agent_only,
-                            },
-                        };
-                        if agent_only {
-                            let agent = agent.expect("agent rows are filtered above");
-                            agent_entries.push((
-                                (
-                                    u8::MAX - agent_attention(&agent.state),
-                                    u64::MAX - agent.updated_at_ms,
-                                    agent_entries.len(),
-                                ),
-                                row,
-                            ));
-                        } else {
-                            output.push(row);
+                                .filter(|name| !name.is_empty())
+                                .or_else(|| (!tab.title.is_empty()).then_some(tab.title.as_str()))
+                                // An untitled agent tab reads better as its
+                                // agent type than as a short id.
+                                .or_else(|| {
+                                    agent
+                                        .filter(|_| agent_only)
+                                        .and_then(|agent| agent.agent.as_deref())
+                                })
+                                .unwrap_or(tab.short_id.as_str())
+                                .to_string();
+                            let subtitle = if let Some(agent) = agent.filter(|_| agent_only) {
+                                agent
+                                    .session
+                                    .as_deref()
+                                    .filter(|session| !session.is_empty())
+                                    .unwrap_or_else(|| {
+                                        // In an all-workspaces sweep the
+                                        // workspace locates the agent better
+                                        // than a pane short id.
+                                        if all_workspaces {
+                                            workspace.name.as_str()
+                                        } else {
+                                            pane.short_id.as_str()
+                                        }
+                                    })
+                                    .to_string()
+                            } else {
+                                pane.short_id.clone()
+                            };
+                            let recency = if order_by_recency {
+                                u64::MAX
+                                    - agent.map(|agent| agent.updated_at_ms).unwrap_or_default()
+                            } else {
+                                0
+                            };
+                            let row = ProjectionRow {
+                                resource,
+                                depth: depth as u16,
+                                name,
+                                subtitle,
+                                agent_state: agent
+                                    .filter(|_| agent_only)
+                                    .map(|agent| agent.state.clone()),
+                                agent_label: agent
+                                    .filter(|_| agent_only)
+                                    .and_then(|agent| agent.agent.clone()),
+                                active: workspace_index == tree.active_workspace
+                                    && screen_index == workspace.active_screen
+                                    && pane.id == screen.active_pane
+                                    && pane.active_tab == tab_index,
+                                branch: None,
+                                expanded: false,
+                                target: ProjectionTarget::Surface {
+                                    workspace: workspace_index,
+                                    screen: screen_index,
+                                    pane: pane.id,
+                                    index: tab_index,
+                                    surface: tab.surface,
+                                    agent: agent_only,
+                                },
+                            };
+                            if order_by_recency {
+                                entries.push(((recency, entries.len()), row));
+                            } else {
+                                output.push(row);
+                            }
                         }
                     }
                 }
@@ -580,6 +609,7 @@ mod tests {
             state: "unknown".into(),
             source: "hook".into(),
             session: None,
+            agent: None,
             updated_at_ms: 1,
         }];
         let rows =
@@ -640,6 +670,7 @@ mod tests {
                 state: "idle".into(),
                 source: "hook".into(),
                 session: Some("older task".into()),
+                agent: None,
                 updated_at_ms: 100,
             },
             AgentInfo {
@@ -647,6 +678,7 @@ mod tests {
                 state: "working".into(),
                 source: "hook".into(),
                 session: None,
+                agent: None,
                 updated_at_ms: 900,
             },
             AgentInfo {
@@ -654,6 +686,7 @@ mod tests {
                 state: "done".into(),
                 source: "hook".into(),
                 session: Some("finished task".into()),
+                agent: None,
                 updated_at_ms: 500,
             },
         ];
@@ -696,6 +729,7 @@ mod tests {
                 state: "working".into(),
                 source: "hook".into(),
                 session: None,
+                agent: None,
                 updated_at_ms: 100,
             },
             AgentInfo {
@@ -703,6 +737,7 @@ mod tests {
                 state: "working".into(),
                 source: "hook".into(),
                 session: None,
+                agent: None,
                 updated_at_ms: 900,
             },
         ];
@@ -762,6 +797,7 @@ mod tests {
                 state: "working".into(),
                 source: "hook".into(),
                 session: None,
+                agent: None,
                 updated_at_ms: 100,
             },
             AgentInfo {
@@ -769,6 +805,7 @@ mod tests {
                 state: "working".into(),
                 source: "hook".into(),
                 session: None,
+                agent: None,
                 updated_at_ms: 900,
             },
         ];
