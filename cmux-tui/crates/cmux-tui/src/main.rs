@@ -1408,7 +1408,7 @@ fn normalize_remote_resource_args(raw_args: &mut Vec<String>) -> Result<(), Stri
     let Some(command) = raw_args.get(index).cloned() else {
         return Ok(());
     };
-    if !crate::cli::is_remote_invocation(raw_args) {
+    if !cli::is_remote_invocation(raw_args) {
         return Ok(());
     }
     let rest = raw_args[index + 1..].to_vec();
@@ -1434,7 +1434,7 @@ fn normalize_remote_resource_args(raw_args: &mut Vec<String>) -> Result<(), Stri
         }
         if let Some(action) = raw_args.get(action_index).cloned() {
             raw_args.remove(action_index);
-            if let Some(command) = crate::cli::remote_action_command(&action) {
+            if let Some(command) = cli::remote_action_command(&action) {
                 raw_args.remove(0);
                 raw_args.insert(0, command.to_string());
                 return Ok(());
@@ -1456,7 +1456,7 @@ fn normalize_remote_resource_args(raw_args: &mut Vec<String>) -> Result<(), Stri
             if raw_args[2..]
                 .iter()
                 .any(|argument| matches!(argument.as_str(), "-h" | "--help")) => {}
-        Some(action) => {
+        Some(_action) => {
             // Action text can come from an untrusted command line and may
             // contain a credential or other private value. Keep diagnostics
             // stable and localized instead of echoing it to the terminal.

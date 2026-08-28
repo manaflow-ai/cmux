@@ -438,7 +438,6 @@ pub(crate) struct RemoteClientMessages {
     option_once: &'static str,
     unknown_action: &'static str,
     unknown_action_generic: &'static str,
-    unknown_action_generic: &'static str,
     enroll_arity: &'static str,
     option_create_only: &'static str,
     pub inline_invitation_rejected: &'static str,
@@ -524,10 +523,6 @@ impl RemoteClientMessages {
         self.unknown_action
             .replace("{command}", command)
             .replace("{action}", &format!("{action:?}"))
-    }
-
-    pub(crate) fn unknown_action_generic(&self, command: &str) -> String {
-        self.unknown_action_generic.replace("{command}", command)
     }
 
     pub(crate) fn unknown_action_generic(&self, command: &str) -> String {
@@ -1498,7 +1493,6 @@ OPTIONS:
         option_once: "{option} may only be specified once",
         unknown_action: "unknown {command} action {action}",
         unknown_action_generic: "unknown {command} action",
-        unknown_action_generic: "unknown {command} action",
         enroll_arity: "enroll {action} expects exactly {expected} positional arguments",
         option_create_only: "{option} is only valid for enroll create",
         inline_invitation_rejected: "inline invitations are not accepted; use --invite-file or stdin",
@@ -2140,7 +2134,6 @@ ID とセッション:
         unknown_option_for_command: "{command} の不明なオプションです: {option}",
         option_once: "{option} は 1 回だけ指定できます",
         unknown_action: "不明な {command} 操作です: {action}",
-        unknown_action_generic: "不明な {command} 操作です",
         unknown_action_generic: "不明な {command} 操作です",
         enroll_arity: "enroll {action} には位置引数をちょうど {expected} 個指定してください",
         option_create_only: "{option} は enroll create でのみ使用できます",
