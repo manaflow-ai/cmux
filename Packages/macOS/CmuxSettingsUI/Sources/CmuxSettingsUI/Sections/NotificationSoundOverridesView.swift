@@ -27,6 +27,14 @@ struct NotificationSoundOverridesView: View {
 
     private let alertTypes = NotificationSoundAlertType.allCases
     private let soundCatalog = NotificationSoundOptionCatalog()
+    /// Flexible columns keep every editor cell inside the Settings detail
+    /// column while still giving the matrix all width the window offers.
+    private let gridColumns = [
+        GridItem(.flexible(minimum: 150), spacing: 12, alignment: .leading),
+        GridItem(.flexible(minimum: 120), spacing: 12, alignment: .leading),
+        GridItem(.flexible(minimum: 120), spacing: 12, alignment: .leading),
+        GridItem(.flexible(minimum: 120), spacing: 12, alignment: .leading),
+    ]
     init(
         parsedOverrides: NotificationSoundOverrides,
         isPersistedValueMalformed: Bool = false,
@@ -74,30 +82,34 @@ struct NotificationSoundOverridesView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
             } else {
-                Grid(alignment: .leading, horizontalSpacing: 8, verticalSpacing: 6) {
-                    GridRow {
-                        Text(String(localized: "settings.notifications.soundOverrides.agent", defaultValue: "Agent"))
+                LazyVGrid(
+                    columns: gridColumns,
+                    alignment: .leading,
+                    spacing: 6
+                ) {
+                    Text(String(localized: "settings.notifications.soundOverrides.agent", defaultValue: "Agent"))
+                        .font(.caption.weight(.semibold))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    ForEach(alertTypes, id: \.self) { alertType in
+                        Text(label(for: alertType))
                             .font(.caption.weight(.semibold))
-                        ForEach(alertTypes, id: \.self) { alertType in
-                            Text(label(for: alertType))
-                                .font(.caption.weight(.semibold))
-                        }
+                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     ForEach(agents) { agent in
-                        GridRow {
-                            Text(agent.displayName)
-                                .lineLimit(1)
-                                .frame(minWidth: 120, alignment: .leading)
-                            ForEach(alertTypes, id: \.self) { alertType in
-                                cell(
-                                    for: agent,
-                                    alertType: alertType,
-                                    overrides: parsedOverrides
-                                )
-                            }
+                        Text(agent.displayName)
+                            .lineLimit(1)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        ForEach(alertTypes, id: \.self) { alertType in
+                            cell(
+                                for: agent,
+                                alertType: alertType,
+                                overrides: parsedOverrides
+                            )
+                            .frame(maxWidth: .infinity, alignment: .leading)
                         }
                     }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .disabled(isPersistedValueMalformed)
             }
 
@@ -148,10 +160,21 @@ struct NotificationSoundOverridesView: View {
             }
         } label: {
             Text(currentLabel(current))
-                .frame(width: 132, alignment: .leading)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 8)
+                .frame(minHeight: 28, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(Color(nsColor: .controlBackgroundColor).opacity(0.72))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .stroke(Color(nsColor: .separatorColor).opacity(0.55), lineWidth: 1)
+                )
         }
         .menuStyle(.borderlessButton)
-        .fixedSize()
         .disabled(filePicker.isValidating)
     }
 
