@@ -92,13 +92,13 @@ fn unicode_conformance_utf8_chunking_preserves_rendered_text() {
     let mut state = RenderState::new().unwrap();
     state.update(&mut terminal).unwrap();
     let actual = state.build_frame().unwrap();
-    let text = |frame: &ghostty_vt::RenderFrame| {
+    let cells = |frame: &ghostty_vt::RenderFrame| {
         frame
             .styled_row(0)
             .unwrap()
             .iter()
-            .filter_map(|c| (!c.text.is_empty()).then_some(c.text.as_str()))
-            .collect::<String>()
+            .map(|cell| (cell.text.clone(), cell.width))
+            .collect::<Vec<_>>()
     };
-    assert_eq!(text(&actual), text(&expected));
+    assert_eq!(cells(&actual), cells(&expected));
 }
