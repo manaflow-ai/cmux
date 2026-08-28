@@ -5491,13 +5491,12 @@ impl Mux {
             // commit and host materialization. A missing or tombstoned
             // terminal cannot become available, so do not retain its receipt
             // in the retry queue forever.
-            let terminal_is_live = self
+            let terminal_is_retryable = self
                 .workspace_registry
                 .lock()
                 .unwrap()
-                .live_terminal_host_id(&terminal_id)?
-                .is_some();
-            if !terminal_is_live {
+                .agent_hook_terminal_retryable(&terminal_id)?;
+            if !terminal_is_retryable {
                 return Err(anyhow::Error::new(AgentHookTerminalGone));
             }
             return Err(anyhow::Error::new(AgentHookTerminalUnavailable).context(format!(
@@ -9092,6 +9091,11 @@ impl Mux {
             .and_then(|guard| guard.get(&terminal_id))
             .filter(|fence| fence.ended)
         {
+            let supplied_session = source_session.as_deref().filter(|session| {
+                !session.is_empty()
+                    && !session.starts_with("cmux-hook-sequence:")
+                    && !session.starts_with("cmux-hook-ended:")
+            });
             let is_new_hook_session = hook_state.is_some_and(|state| {
                 !state.ended
                     && state.applied_sequence > fence.sequence
@@ -9099,7 +9103,8 @@ impl Mux {
                     && source_session
                         .as_deref()
                         .is_some_and(|session| session.starts_with("cmux-hook-sequence:"))
-            });
+            }) || (hook_state.is_none()
+                && supplied_session.is_some_and(|session| session != fence.session_id));
             if !is_new_hook_session {
                 anyhow::bail!("agent_session_ended");
             }
@@ -22686,6 +22691,44 @@ mod tests {
         );
         reopened.shutdown();
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn direct_hook_report_with_new_session_can_follow_hook_end() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+        let hook = |event: &str, session_id: &str| {
+            crate::agent_hooks::agent_hook_journal_ingress(
+                "claude",
+                event,
+                Some(&terminal_id.to_string()),
+                serde_json::json!({"session_id": session_id}),
+            )
+            .unwrap()
+        };
+        mux.apply_agent_hook_record(&hook("SessionEnd", "old"), 1).unwrap();
+        assert!(
+            mux.report_agent(
+                surface.id,
+                AgentState::Working,
+                AgentSource::Hook,
+                Some("new".into()),
+            )
+            .is_ok()
+        );
+        let record = &mux.list_agents(Some(surface.id), None)[0];
+        assert_eq!(record.source, AgentSource::Hook);
+        assert_eq!(record.session.as_deref(), Some("new"));
+        assert!(
+            mux.report_agent(
+                surface.id,
+                AgentState::Working,
+                AgentSource::Hook,
+                Some("old".into()),
+            )
+            .is_err()
+        );
     }
 
     #[test]

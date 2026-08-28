@@ -1012,6 +1012,25 @@ impl WorkspaceRegistry {
             .map_err(Into::into)
     }
 
+    /// A missing in-memory surface can be a startup race only while the
+    /// durable terminal is launching, adopting, or running. Exited and
+    /// tombstoned terminals cannot recover a hook projection.
+    pub fn agent_hook_terminal_retryable(
+        &self,
+        public_id: &TerminalPublicId,
+    ) -> anyhow::Result<bool> {
+        let Some(host_id) = self.live_terminal_host_id(public_id)? else {
+            return Ok(false);
+        };
+        let Some(terminal) = self.terminal_record(&host_id)? else {
+            return Ok(false);
+        };
+        Ok(matches!(
+            terminal.lifecycle,
+            TerminalLifecycle::Launching | TerminalLifecycle::Adopting | TerminalLifecycle::Running
+        ))
+    }
+
     pub fn resource_topology_snapshot(&self) -> anyhow::Result<ResourceTopologySnapshot> {
         let revision = current_resource_revision(&self.connection)?;
         let active_workspace = meta_value(&self.connection, "active_workspace_id")?
