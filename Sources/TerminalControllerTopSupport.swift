@@ -2,20 +2,24 @@ import Foundation
 import Darwin
 
 extension TerminalController {
+    /// Builds a stable identifier for a workspace status tag.
     func v2TopTagIdentifier(workspaceId: UUID, key: String) -> String {
         "\(workspaceId.uuidString):tag:\(v2TopEscapedTagKey(key))"
     }
 
+    /// Builds the externally visible reference for a workspace status tag.
     func v2TopTagRef(workspaceId: UUID, key: String) -> String {
         "workspace:\(workspaceId.uuidString):tag:\(v2TopEscapedTagKey(key))"
     }
 
+    /// Percent-escapes a tag key for use in a top reference.
     func v2TopEscapedTagKey(_ key: String) -> String {
         var allowed = CharacterSet.alphanumerics
         allowed.insert(charactersIn: "-._~")
         return key.addingPercentEncoding(withAllowedCharacters: allowed) ?? ""
     }
 
+    /// Counts shared browser roots before per-window attribution.
     nonisolated func v2TopBrowserPIDOccurrences(in windows: [[String: Any]]) -> [Int: Int] {
         var counts: [Int: Int] = [:]
         for window in windows {
@@ -37,24 +41,30 @@ extension TerminalController {
         return counts
     }
 
+    /// Builds the diagnostic payload from already-annotated top windows.
     nonisolated func v2TopMemoryDiagnosticPayload(
         processSnapshot: CmuxTopProcessSnapshot,
         annotatedWindows: [[String: Any]],
         topGroupLimit: Int = 12
     ) -> [String: Any] {
-        let attributionByPID = v2TopMemoryAttributionByPID(in: annotatedWindows)
+        var unattributedTTYCandidates: Set<Int> = []
+        let attributionByPID = v2TopMemoryAttributionByPID(
+            in: annotatedWindows,
+            unattributedTTYProcessIDs: &unattributedTTYCandidates
+        )
         return processSnapshot.memoryDiagnosticPayload(
             appPID: Int(Darwin.getpid()),
             topGroupLimit: topGroupLimit,
             attributionByPID: attributionByPID,
             unattributedTTYProcessIDs: v2TopUnattributedTTYProcessIDs(
-                in: annotatedWindows,
+                candidates: unattributedTTYCandidates,
                 processSnapshot: processSnapshot,
                 provenProcessIDs: Set(attributionByPID.keys)
             )
         )
     }
 
+    /// Annotates every top window with process and resource ownership data.
     nonisolated func v2AnnotateTopWindows(
         _ windows: inout [[String: Any]],
         processSnapshot: CmuxTopProcessSnapshot,
@@ -94,6 +104,7 @@ extension TerminalController {
         return allPIDs
     }
 
+    /// Annotates one workspace and combines its child process IDs.
     nonisolated func v2AnnotateTopWorkspace(
         _ workspace: inout [String: Any],
         processSnapshot: CmuxTopProcessSnapshot,
@@ -139,6 +150,7 @@ extension TerminalController {
         return workspacePIDs
     }
 
+    /// Annotates one pane and combines its surface process IDs.
     nonisolated func v2AnnotateTopPane(
         _ pane: inout [String: Any],
         processSnapshot: CmuxTopProcessSnapshot,
@@ -168,6 +180,7 @@ extension TerminalController {
         return panePIDs
     }
 
+    /// Annotates a surface while preserving explicit WebKit roots.
     nonisolated func v2AnnotateTopSurface(
         _ surface: inout [String: Any],
         processSnapshot: CmuxTopProcessSnapshot,
@@ -233,6 +246,7 @@ extension TerminalController {
         return surfacePIDs
     }
 
+    /// Annotates a WebKit root and its process-tree resources.
     nonisolated func v2AnnotateTopWebView(
         _ webview: inout [String: Any],
         processSnapshot: CmuxTopProcessSnapshot,
@@ -269,6 +283,7 @@ extension TerminalController {
         return pids
     }
 
+    /// Annotates a status tag's explicit process root.
     nonisolated func v2AnnotateTopTag(
         _ tag: inout [String: Any],
         processSnapshot: CmuxTopProcessSnapshot,
@@ -293,6 +308,7 @@ extension TerminalController {
         return pids
     }
 
+    /// Converts a Foundation JSON scalar to an integer.
     nonisolated func v2TopInt(_ raw: Any?) -> Int? {
         if let value = raw as? Int {
             return value
@@ -306,6 +322,7 @@ extension TerminalController {
         return nil
     }
 
+    /// Converts a Foundation JSON array to integer IDs.
     nonisolated func v2TopIntArray(_ raw: Any?) -> [Int] {
         if let values = raw as? [Int] {
             return values
@@ -314,12 +331,14 @@ extension TerminalController {
         return values.compactMap(v2TopInt)
     }
 
+    /// Trims and validates a Foundation JSON string.
     nonisolated func v2TopString(_ raw: Any?) -> String? {
         guard let value = raw as? String else { return nil }
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
     }
 
+    /// Converts a Foundation JSON scalar to a UUID.
     nonisolated func v2TopUUID(_ raw: Any?) -> UUID? {
         if let value = raw as? UUID {
             return value
@@ -330,6 +349,7 @@ extension TerminalController {
         return nil
     }
 
+    /// Adds the current app process to each eligible top window.
     nonisolated func v2AttachTopApplicationProcess(
         to windows: inout [[String: Any]],
         workspaceFilter: UUID? = nil

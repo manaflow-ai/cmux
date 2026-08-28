@@ -4,6 +4,7 @@ import Foundation
 nonisolated let cmuxTopMemoryDiagnosticDefaultGroupLimit = 12
 
 extension CmuxTopProcessSnapshot {
+    /// Builds the memory diagnostic payload with proven and ambiguous totals.
     func memoryDiagnosticPayload(
         appPID: Int = Int(Darwin.getpid()),
         topGroupLimit: Int = cmuxTopMemoryDiagnosticDefaultGroupLimit,
@@ -27,9 +28,11 @@ extension CmuxTopProcessSnapshot {
                 !childPIDs.contains(processID) &&
                 attributionByPID[processID] == nil
         })
-        let childSummary = summary(for: childPIDs)
-        let descendantSummary = summary(for: Set(descendantPIDs))
-        let excludedTTYSummary = summary(for: excludedTTYProcessIDs)
+        let descendantPIDSet = Set(descendantPIDs)
+        let reducedSummaries = summaries(for: [childPIDs, descendantPIDSet, excludedTTYProcessIDs])
+        let childSummary = reducedSummaries[0]
+        let descendantSummary = reducedSummaries[1]
+        let excludedTTYSummary = reducedSummaries[2]
         let groups = memoryDiagnosticGroups(
             for: childPIDs,
             topGroupLimit: topGroupLimit,
@@ -79,6 +82,7 @@ extension CmuxTopProcessSnapshot {
         ]
     }
 
+    /// Groups proven child processes by display name and owner evidence.
     private func memoryDiagnosticGroups(
         for pids: Set<Int>,
         topGroupLimit: Int,
@@ -114,6 +118,7 @@ extension CmuxTopProcessSnapshot {
             .map { $0.payload() }
     }
 
+    /// Finds the nearest known cmux owner while walking a process' lineage.
     private func nearestCMUXAttribution(
         for pid: Int,
         attributionByPID: [Int: CmuxTopProcessAttribution]
@@ -142,6 +147,7 @@ extension CmuxTopProcessSnapshot {
         return nil
     }
 
+    /// Produces the localized one-line summary shown by diagnostic clients.
     private func memoryDiagnosticSummaryText(
         appFootprintBytes: Int64,
         childRSSBytes: Int64,

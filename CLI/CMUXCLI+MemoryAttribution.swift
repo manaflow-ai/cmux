@@ -1,6 +1,7 @@
 import Foundation
 
 extension CMUXCLI {
+    /// Formats group ownership and its evidence for CLI output.
     func memoryGroupAttributionText(
         _ group: [String: Any],
         idFormat: CLIIDFormat
@@ -33,6 +34,7 @@ extension CMUXCLI {
         return memoryAttributionWithReason(text, reason: groupAttribution["reason"] as? String)
     }
 
+    /// Appends a localized ownership-evidence label when one is available.
     private func memoryAttributionWithReason(_ text: String, reason: String?) -> String {
         guard let reason, !reason.isEmpty else { return text }
         let evidence = String.localizedStringWithFormat(

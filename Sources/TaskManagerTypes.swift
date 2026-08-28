@@ -387,6 +387,7 @@ struct CmuxTaskManagerMemoryDiagnostic: Sendable {
     let unattributedTTYProcessIds: [Int]
     let unattributedTTYReason: String?
 
+    /// Decodes diagnostic totals, including ambiguous same-TTY memory.
     init?(_ payload: [String: Any]?) {
         guard let payload else { return nil }
         let app = payload["app"] as? [String: Any] ?? [:]

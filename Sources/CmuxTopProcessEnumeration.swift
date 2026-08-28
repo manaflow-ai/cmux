@@ -237,6 +237,12 @@ extension CmuxTopProcessSnapshot {
         return path.isEmpty ? nil : path
     }
 
+    /// Reads one executable path for ownership checks without enabling full
+    /// process-detail payloads for every process in a top snapshot.
+    static func executablePathForOwnership(pid: Int) -> String? {
+        processPath(pid: pid)
+    }
+
     private static func fixedString<T>(_ value: T) -> String {
         withUnsafeBytes(of: value) { rawBuffer in
             let endIndex = rawBuffer.firstIndex(of: 0) ?? rawBuffer.endIndex

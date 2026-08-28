@@ -96,6 +96,7 @@ struct CmuxTaskManagerSnapshot {
         self.childMemoryRows = Self.childMemoryRows(from: memoryDiagnostic)
     }
 
+    /// Builds Task Manager rows for attributed and ambiguous child memory.
     private static func childMemoryRows(from diagnostic: CmuxTaskManagerMemoryDiagnostic?) -> [CmuxTaskManagerRow] {
         guard let diagnostic else { return [] }
         var rows = diagnostic.groups.map { group in

@@ -10,6 +10,7 @@ struct CmuxTaskManagerMemoryGroup: Sendable {
     let attribution: CmuxTaskManagerMemoryGroupAttribution
     let attributionReason: String?
 
+    /// Decodes a command group, retaining its aggregate ownership reason.
     init?(_ payload: [String: Any]) {
         guard let name = CmuxTaskManagerMemoryDiagnostic.string(payload["name"]) else {
             return nil

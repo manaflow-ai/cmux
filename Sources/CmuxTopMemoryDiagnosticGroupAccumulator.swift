@@ -20,11 +20,13 @@ struct CmuxTopMemoryDiagnosticGroupAccumulator {
                 .joined(separator: "/")
         }
 
+        /// Adds one process to this attribution bucket.
         mutating func append(process: CmuxTopProcessInfo) {
             rssBytes = CmuxTopProcessSnapshot.clampedAdd(rssBytes, process.residentBytes)
             processIDs.append(process.pid)
         }
 
+        /// Serializes the attribution bucket and its process IDs.
         func payload() -> [String: Any] {
             var payload = attribution.payload()
             let sortedProcessIDs = processIDs.sorted()
@@ -52,6 +54,7 @@ struct CmuxTopMemoryDiagnosticGroupAccumulator {
         self.name = name
     }
 
+    /// Adds a process and, when available, its ownership evidence.
     mutating func append(
         process: CmuxTopProcessInfo,
         attribution: CmuxTopProcessAttribution?
@@ -79,6 +82,7 @@ struct CmuxTopMemoryDiagnosticGroupAccumulator {
         attributions[owner]?.append(process: process)
     }
 
+    /// Serializes the command group and aggregate ownership classification.
     func payload() -> [String: Any] {
         let sortedProcessIDs = processIDs.sorted()
         let attributionPayloads = attributions.values
@@ -103,6 +107,7 @@ struct CmuxTopMemoryDiagnosticGroupAccumulator {
         ]
     }
 
+    /// Builds the stable group-level ownership and reason payload.
     private func groupAttributionPayload() -> [String: Any] {
         let processCount = processIDs.count
         let unattributedProcessCount = max(0, processCount - attributedProcessCount)

@@ -49009,10 +49009,52 @@
     "cli.memory.output.forceQuitNote": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  قد يجمع \"الإنهاء القسري\" في macOS حسب الجلسة أو TTY؛ لا يستطيع cmux تغيير عرض النظام هذا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  macOS Force Quit može grupisati po sesiji ili TTY-ju; cmux ne može promijeniti ovaj prikaz OS-a"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  macOS Force Quit kan gruppere efter session eller TTY; cmux kan ikke ændre denne OS-visning"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  macOS „Sofort beenden“ kann nach Sitzung oder TTY gruppieren; cmux kann diese OS-Ansicht nicht ändern"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "  macOS Force Quit may group by session or TTY; cmux cannot change that OS view"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  Forzar salida de macOS puede agrupar por sesión o TTY; cmux no puede cambiar esa vista del sistema"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  Forcer à quitter sur macOS peut regrouper par session ou TTY ; cmux ne peut pas modifier cet affichage système"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  Uscita forzata di macOS può raggruppare per sessione o TTY; cmux non può modificare questa vista del sistema"
           }
         },
         "ja": {
@@ -49020,16 +49062,124 @@
             "state": "translated",
             "value": "  macOSの強制終了はセッションやTTYでまとめる場合があります。このOS表示はcmuxから変更できません"
           }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  Force Quit របស់ macOS អាចដាក់ជាក្រុមតាមសម័យ ឬ TTY; cmux មិនអាចផ្លាស់ប្តូរទិដ្ឋភាព OS នេះបានទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  macOS 강제 종료는 세션 또는 TTY별로 묶을 수 있으며 cmux는 이 OS 보기를 변경할 수 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  macOS Tving avslutning kan gruppere etter økt eller TTY; cmux kan ikke endre denne OS-visningen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  Wymuszenie zakończenia w macOS może grupować według sesji lub TTY; cmux nie może zmienić tego widoku systemu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  O Forçar Encerrar do macOS pode agrupar por sessão ou TTY; o cmux não pode alterar essa exibição do sistema"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  Принудительное завершение macOS может группировать по сеансу или TTY; cmux не может изменить этот вид ОС"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  Force Quit ของ macOS อาจจัดกลุ่มตามเซสชันหรือ TTY; cmux เปลี่ยนมุมมองของระบบนี้ไม่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  macOS Zorla Çık, oturum veya TTY'ye göre gruplayabilir; cmux bu işletim sistemi görünümünü değiştiremez"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  Примусове завершення macOS може групувати за сеансом або TTY; cmux не може змінити цей вигляд ОС"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  macOS“强制退出”可能按会话或 TTY 分组；cmux 无法更改此 OS 视图"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  macOS「強制結束」可能按工作階段或 TTY 分組；cmux 無法變更此 OS 檢視"
+          }
         }
       }
     },
     "cli.memory.output.ownershipReason": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  السبب    %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  razlog    %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  årsag    %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  Grund     %@"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "  reason    %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  motivo    %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  raison    %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  motivo    %@"
           }
         },
         "ja": {
@@ -49037,19 +49187,193 @@
             "state": "translated",
             "value": "  根拠      %@"
           }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  មូលហេតុ  %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  이유      %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  årsak    %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  powód     %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  motivo    %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  причина   %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  เหตุผล    %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  neden     %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  причина   %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  原因      %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  原因      %@"
+          }
         }
       }
     },
     "cli.memory.output.pids": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  معرّفات PID  %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  PID-ovi   %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  PID'er   %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  PIDs      %@"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "  pids      %@"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  PID       %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  PID       %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  PID       %@"
+          }
+        },
         "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  PID       %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  PID       %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  PID       %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  PID-er   %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  PID-y     %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  PIDs      %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  PID       %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  PID       %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  PID'ler   %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  PID       %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  PID       %@"
+          }
+        },
+        "zh-Hant": {
           "stringUnit": {
             "state": "translated",
             "value": "  PID       %@"
@@ -49060,10 +49384,52 @@
     "cli.memory.output.unattributedTTY": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  RSS %@ عبر %@ (مستبعد من ملكية cmux)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  RSS %@ kroz %@ (isključeno iz cmux vlasništva)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  RSS %@ på tværs af %@ (udeladt fra cmux-ejerskab)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  RSS %@ über %@ (von der cmux-Zuordnung ausgeschlossen)"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "  RSS %@ across %@ (excluded from cmux ownership)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  RSS %@ entre %@ (excluido de la propiedad de cmux)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  RSS %@ sur %@ (exclu de la propriété cmux)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  RSS %@ su %@ (escluso dalla proprietà di cmux)"
           }
         },
         "ja": {
@@ -49071,22 +49437,196 @@
             "state": "translated",
             "value": "  RSS %@（%@、cmuxの所有対象から除外）"
           }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  RSS %@ ក្នុង %@ (មិនរាប់បញ្ចូលពីភាពជាម្ចាស់របស់ cmux)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  RSS %@ / %@ (cmux 소유권에서 제외됨)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  RSS %@ på tvers av %@ (utelatt fra cmux-eierskap)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  RSS %@ łącznie dla %@ (wyłączono z własności cmux)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  RSS %@ em %@ (excluído da propriedade do cmux)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  RSS %@ для %@ (исключено из владения cmux)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  RSS %@ จาก %@ (ไม่รวมในความเป็นเจ้าของของ cmux)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  RSS %@ / %@ (cmux sahipliğinden çıkarıldı)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  RSS %@ для %@ (виключено з власності cmux)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  RSS %@（共 %@；不计入 cmux 所有权）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  RSS %@（共 %@；不計入 cmux 所有權）"
+          }
         }
       }
     },
     "cli.memory.output.unattributedTTYHeader": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TTY غير منسوب"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NEPRIPISANI TTY"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IKKE-TILSKREVET TTY"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NICHT ZUGEORDNETES TTY"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "UNATTRIBUTED TTY"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TTY SIN ATRIBUIR"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TTY NON ATTRIBUÉ"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TTY NON ATTRIBUITO"
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "未帰属TTY"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TTY មិនបានកំណត់ម្ចាស់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "할당되지 않은 TTY"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IKKE-TILDELT TTY"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NIEPRZYPISANY TTY"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TTY NÃO ATRIBUÍDO"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "НЕАТРИБУТИРОВАННЫЙ TTY"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TTY ที่ไม่ระบุเจ้าของ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ATANMAMIŞ TTY"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "НЕАТРИБУТОВАНИЙ TTY"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未归属 TTY"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未歸屬 TTY"
           }
         }
       }
@@ -126750,16 +127290,124 @@
     "memory.attribution.evidence": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الدليل: %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "dokaz: %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "evidens: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nachweis: %@"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "evidence: %@"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "evidencia: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "preuve : %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "evidenza: %@"
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "根拠: %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ភស្តុតាង៖ %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "근거: %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "bevis: %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "dowód: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "evidência: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "доказательство: %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หลักฐาน: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "kanıt: %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "доказ: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "证据：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "證據：%@"
           }
         }
       }
@@ -126937,16 +127585,124 @@
     "memoryDiagnostic.summary.unattributedTTY": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "; تم استبعاد RSS لـ TTY نفسه (%@) لأن الملكية غير مثبتة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "; RSS istog TTY-ja %@ je isključen (vlasništvo nije dokazano)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "; RSS fra samme TTY (%@) er udeladt (ejerskab ikke bevist)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "; RSS desselben TTYs (%@) ausgeschlossen (Zuordnung nicht nachgewiesen)"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "; %@ same-TTY RSS excluded (ownership unproven)"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "; RSS del mismo TTY (%@) excluido (propiedad no demostrada)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "; RSS du même TTY (%@) exclu (propriété non prouvée)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "; RSS dello stesso TTY (%@) escluso (proprietà non dimostrata)"
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "; 同一TTYのRSS %@ は所有権を確認できないため除外"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "; RSS របស់ TTY ដូចគ្នា (%@) ត្រូវបានដកចេញ (មិនមានភស្តុតាងអំពីម្ចាស់)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "; 동일 TTY RSS %@ 제외됨 (소유권 확인 안 됨)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "; RSS fra samme TTY (%@) er utelatt (eierskap ikke bevist)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "; RSS z tego samego TTY (%@) wykluczono (własność niepotwierdzona)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "; RSS do mesmo TTY (%@) excluído (propriedade não comprovada)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "; RSS того же TTY (%@) исключён (владение не доказано)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "; ไม่รวม RSS ของ TTY เดียวกัน (%@) (ยังพิสูจน์ความเป็นเจ้าของไม่ได้)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "; aynı TTY RSS'si (%@) hariç tutuldu (sahiplik kanıtlanmadı)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "; RSS того самого TTY (%@) виключено (власність не доведена)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "; 同一 TTY 的 RSS（%@）已排除（所有权未经证实）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "; 同一 TTY 的 RSS（%@）已排除（所有權未經證實）"
           }
         }
       }
@@ -247759,10 +248515,52 @@
     "taskManager.memory.evidence": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الدليل: %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dokaz: %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Evidens: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nachweis: %@"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Evidence: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Evidencia: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preuve : %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Evidenza: %@"
           }
         },
         "ja": {
@@ -247770,16 +248568,124 @@
             "state": "translated",
             "value": "根拠: %@"
           }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ភស្តុតាង៖ %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "근거: %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bevis: %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dowód: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Evidência: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Доказательство: %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หลักฐาน: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kanıt: %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Доказ: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "证据：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "證據：%@"
+          }
         }
       }
     },
     "taskManager.memory.forceQuitNote": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قد يجمع \"الإنهاء القسري\" في macOS حسب الجلسة أو TTY؛ لا يستطيع cmux تغيير هذا العرض"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS Force Quit može grupisati po sesiji ili TTY-ju; cmux ne može promijeniti ovaj prikaz"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS Force Quit kan gruppere efter session eller TTY; cmux kan ikke ændre denne visning"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS „Sofort beenden“ kann nach Sitzung oder TTY gruppieren; cmux kann diese Ansicht nicht ändern"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "macOS Force Quit may group by session or TTY; cmux cannot change that view"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forzar salida de macOS puede agrupar por sesión o TTY; cmux no puede cambiar esa vista"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forcer à quitter sur macOS peut regrouper par session ou TTY ; cmux ne peut pas modifier cet affichage"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uscita forzata di macOS può raggruppare per sessione o TTY; cmux non può modificare questa vista"
           }
         },
         "ja": {
@@ -247787,16 +248693,124 @@
             "state": "translated",
             "value": "macOSの強制終了はセッションやTTYでまとめる場合があります。この表示はcmuxから変更できません"
           }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Force Quit របស់ macOS អាចដាក់ជាក្រុមតាមសម័យ ឬ TTY; cmux មិនអាចផ្លាស់ប្តូរទិដ្ឋភាពនេះបានទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS 강제 종료는 세션 또는 TTY별로 묶을 수 있으며 cmux는 이 보기를 변경할 수 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS Tving avslutning kan gruppere etter økt eller TTY; cmux kan ikke endre denne visningen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wymuszenie zakończenia w macOS może grupować według sesji lub TTY; cmux nie może zmienić tego widoku"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O Forçar Encerrar do macOS pode agrupar por sessão ou TTY; o cmux não pode alterar essa exibição"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Принудительное завершение macOS может группировать по сеансу или TTY; cmux не может изменить этот вид"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Force Quit ของ macOS อาจจัดกลุ่มตามเซสชันหรือ TTY; cmux เปลี่ยนมุมมองนี้ไม่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS Zorla Çık, oturum veya TTY'ye göre gruplayabilir; cmux bu görünümü değiştiremez"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Примусове завершення macOS може групувати за сеансом або TTY; cmux не може змінити цей вигляд"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS“强制退出”可能按会话或 TTY 分组；cmux 无法更改此视图"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS「強制結束」可能按工作階段或 TTY 分組；cmux 無法變更此檢視"
+          }
         }
       }
     },
     "taskManager.memory.pids": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "معرّفات PID: %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PID-ovi: %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PID'er: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PIDs: %@"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "PIDs: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PIDs: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PIDs : %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PID: %@"
           }
         },
         "ja": {
@@ -247804,22 +248818,196 @@
             "state": "translated",
             "value": "PID: %@"
           }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PID៖ %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PID: %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PID-er: %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PID-y: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PIDs: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PID: %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PID: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PID'ler: %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PID: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PID：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PID：%@"
+          }
         }
       }
     },
     "taskManager.memory.unattributedTTY": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عمليات TTY غير منسوبة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nepripisani procesi istog TTY-ja"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Processer fra samme TTY uden tilskrivning"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nicht zugeordnete Prozesse desselben TTYs"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Unattributed same-TTY processes"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Procesos del mismo TTY sin atribuir"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Processus du même TTY non attribués"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Processi dello stesso TTY non attribuiti"
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "同一TTYの未帰属プロセス"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ដំណើរការ TTY ដូចគ្នាដែលមិនបានកំណត់ម្ចាស់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "할당되지 않은 동일 TTY 프로세스"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prosesser fra samme TTY uten tilordning"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nieprzypisane procesy z tego samego TTY"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Processos do mesmo TTY não atribuídos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Неатрибутированные процессы того же TTY"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กระบวนการ TTY เดียวกันที่ไม่ระบุเจ้าของ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atanmamış aynı TTY işlemleri"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Неатрибутовані процеси того самого TTY"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未归属的同一 TTY 进程"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未歸屬的同一 TTY 程序"
           }
         }
       }

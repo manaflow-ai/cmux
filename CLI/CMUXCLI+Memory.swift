@@ -110,6 +110,7 @@ extension CMUXCLI {
         }
     }
 
+    /// Renders the memory diagnostic payload, including ambiguous TTY evidence.
     private func renderMemoryText(
         payload: [String: Any],
         idFormat: CLIIDFormat
@@ -210,6 +211,7 @@ extension CMUXCLI {
         )
     }
 
+    /// Reads integer PID arrays from Foundation JSON values.
     private func memoryTopIntArray(_ raw: Any?) -> [Int] {
         if let values = raw as? [Int] {
             return values

@@ -179,6 +179,13 @@ struct CmuxTopMemoryAttributionTests {
         let snapshot = CmuxTopProcessSnapshot(
             processes: [
                 process(
+                    pid: 599,
+                    parentPID: 1,
+                    name: "cmux",
+                    residentBytes: 1,
+                    path: "/Applications/cmux.app/Contents/MacOS/cmux"
+                ),
+                process(
                     pid: 600,
                     parentPID: 1,
                     name: "zsh",
@@ -223,7 +230,7 @@ struct CmuxTopMemoryAttributionTests {
         let ownership = snapshot.terminalProcessOwnership(
             surfaceID: surfaceID,
             ttyDevice: ttyDevice,
-            applicationPID: -1
+            applicationPID: 599
         )
 
         #expect(ownership.ownedTTYProcessIDs == Set([600, 601]))
@@ -378,13 +385,14 @@ struct CmuxTopMemoryAttributionTests {
         surfaceID: UUID? = nil,
         attributionReason: String? = nil,
         processGroupID: Int? = nil,
-        terminalProcessGroupID: Int? = nil
+        terminalProcessGroupID: Int? = nil,
+        path: String? = nil
     ) -> CmuxTopProcessInfo {
         CmuxTopProcessInfo(
             pid: pid,
             parentPID: parentPID,
             name: name,
-            path: name == "cmux" ? "/Applications/cmux.app/Contents/Resources/bin/cmux" : nil,
+            path: path ?? (name == "cmux" ? "/Applications/cmux.app/Contents/Resources/bin/cmux" : nil),
             ttyDevice: ttyDevice,
             cmuxWorkspaceID: workspaceID,
             cmuxSurfaceID: surfaceID,

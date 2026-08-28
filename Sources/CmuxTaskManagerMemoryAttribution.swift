@@ -11,6 +11,7 @@ struct CmuxTaskManagerMemoryAttribution: Sendable {
     let surfaceType: String?
     let reason: String?
 
+    /// Decodes an optional structured owner and its evidence reason.
     init?(_ payload: [String: Any]?) {
         guard let payload else { return nil }
         self.workspaceId = Self.uuid(payload["workspace_id"])
@@ -32,6 +33,7 @@ struct CmuxTaskManagerMemoryAttribution: Sendable {
         }
     }
 
+    /// Formats the owner and evidence for a Task Manager row.
     var localizedDescription: String {
         var parts: [String] = []
         if let workspace = workspaceRef ?? workspaceId?.uuidString {
