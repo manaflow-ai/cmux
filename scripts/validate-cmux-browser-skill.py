@@ -327,6 +327,35 @@ def _substitution_bodies(text: str) -> Iterator[str]:
         index += 1
 
 
+def _nested_browser_commands(
+    example: ShellExample,
+    text: str,
+    depth: int = 0,
+) -> tuple[list[BrowserCommand], list[str]]:
+    """Collect browser commands in a shell line and all nested substitutions."""
+
+    # A malformed or adversarial example must not make the validator recurse
+    # forever. Sixteen levels is far beyond any useful shell example while
+    # still allowing nested command substitutions to be checked completely.
+    if depth > 16:
+        return [], [f"{example.path}:{example.line}: shell substitution nesting is too deep"]
+
+    commands: list[BrowserCommand] = []
+    errors: list[str] = []
+    try:
+        tokens = _tokenize(text)
+    except ValueError as exc:
+        errors.append(f"{example.path}:{example.line}: invalid nested shell syntax: {exc}")
+        return commands, errors
+
+    commands.extend(_commands_from_tokens(example, tokens, text))
+    for body in _substitution_bodies(text):
+        nested_commands, nested_errors = _nested_browser_commands(example, body, depth + 1)
+        commands.extend(nested_commands)
+        errors.extend(nested_errors)
+    return commands, errors
+
+
 def _commands_from_tokens(
     example: ShellExample,
     tokens: Sequence[str],
@@ -364,20 +393,9 @@ def browser_commands(examples: Iterable[ShellExample]) -> tuple[list[BrowserComm
     for example in _logical_examples(examples):
         if not example.text.strip() or example.text.lstrip().startswith("#"):
             continue
-        try:
-            tokens = _tokenize(example.text)
-        except ValueError as exc:
-            errors.append(f"{example.path}:{example.line}: invalid shell syntax: {exc}")
-            continue
-
-        commands.extend(_commands_from_tokens(example, tokens, example.text))
-        for body in _substitution_bodies(example.text):
-            try:
-                nested_tokens = _tokenize(body)
-            except ValueError as exc:
-                errors.append(f"{example.path}:{example.line}: invalid nested shell syntax: {exc}")
-                continue
-            commands.extend(_commands_from_tokens(example, nested_tokens, body))
+        nested_commands, nested_errors = _nested_browser_commands(example, example.text)
+        commands.extend(nested_commands)
+        errors.extend(nested_errors)
     return commands, errors
 
 

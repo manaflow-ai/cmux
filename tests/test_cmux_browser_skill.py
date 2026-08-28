@@ -90,6 +90,7 @@ def test_nested_commands_are_checked(validator: ModuleType) -> None:
     fixture = "```bash\n"
     fixture += 'URL="$(' + browser + 'url)"\n'
     fixture += 'TABS="$(' + browser + 'tab list)"\n'
+    fixture += 'NESTED="$(printf "%s" "$(' + browser + 'snapshot -i)")"\n'
     fixture += "```\n"
     examples = [
         validator.ShellExample(Path("nested-fixture.md"), line, text)
@@ -99,7 +100,7 @@ def test_nested_commands_are_checked(validator: ModuleType) -> None:
     if parse_errors:
         raise AssertionError(f"nested fixture parser failed: {parse_errors}")
     errors = [error for command in commands for error in validator.validate_command(command)]
-    if len(errors) != 2 or not all("explicit" in error for error in errors):
+    if len(errors) != 3 or not all("explicit" in error for error in errors):
         raise AssertionError(f"nested unscoped commands were not rejected: {errors}")
 
 

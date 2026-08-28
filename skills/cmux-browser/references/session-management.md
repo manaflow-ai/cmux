@@ -16,19 +16,30 @@ SECOND_JSON="$(cmux --json browser open https://site-b.example --focus false)"
 SECOND_SURFACE="$(printf '%s' "$SECOND_JSON" | jq -r '.surface_ref // .surface_id // empty')"
 [ -n "$FIRST_SURFACE" ] && [ -n "$SECOND_SURFACE" ] || exit 1
 
-cmux browser --surface "$FIRST_SURFACE" get text body > /tmp/a.txt
-cmux browser --surface "$SECOND_SURFACE" get text body > /tmp/b.txt
+ARTIFACT_DIR="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/cmux-browser-output"
+umask 077
+mkdir -p "$ARTIFACT_DIR"
+chmod 700 "$ARTIFACT_DIR"
+cmux browser --surface "$FIRST_SURFACE" get text body > "$ARTIFACT_DIR/a.txt"
+cmux browser --surface "$SECOND_SURFACE" get text body > "$ARTIFACT_DIR/b.txt"
+chmod 600 "$ARTIFACT_DIR/a.txt" "$ARTIFACT_DIR/b.txt"
 ```
 
 ## Reusing auth across surfaces
 
 ```bash
+STATE_DIR="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/cmux-browser-state"
+umask 077
+mkdir -p "$STATE_DIR"
+chmod 700 "$STATE_DIR"
+STATE_FILE="$STATE_DIR/auth.json"
 SOURCE_SURFACE="surface:7"       # from discovery
-cmux browser --surface "$SOURCE_SURFACE" state save /tmp/auth.json
 DESTINATION_JSON="$(cmux --json browser open https://app.example.com --focus false)"
 DESTINATION_SURFACE="$(printf '%s' "$DESTINATION_JSON" | jq -r '.surface_ref // .surface_id // empty')"
 [ -n "$DESTINATION_SURFACE" ] || exit 1
-cmux browser --surface "$DESTINATION_SURFACE" state load /tmp/auth.json
+cmux browser --surface "$SOURCE_SURFACE" state save "$STATE_FILE"
+chmod 600 "$STATE_FILE"
+cmux browser --surface "$DESTINATION_SURFACE" state load "$STATE_FILE"
 cmux browser --surface "$DESTINATION_SURFACE" goto https://app.example.com/dashboard
 ```
 
@@ -36,7 +47,7 @@ cmux browser --surface "$DESTINATION_SURFACE" goto https://app.example.com/dashb
 
 ```bash
 cmux close-surface --surface surface:7
-rm -f /tmp/auth.json
+rm -f "$STATE_FILE"
 ```
 
 ## Best practices
