@@ -3926,7 +3926,7 @@ impl Mux {
                     id: workspace_slot,
                     public_id: public_id.clone(),
                     key: key.clone(),
-                    name: name.clone(),
+                    name,
                     screens: Vec::new(),
                     active_screen: 0,
                 };
