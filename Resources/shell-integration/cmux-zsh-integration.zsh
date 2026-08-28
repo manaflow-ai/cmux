@@ -1595,11 +1595,16 @@ _cmux_watcher_parent_kernel_raw() {
 _cmux_watcher_parent_kernel_fields() {
     # Flatten od output without consulting the caller's IFS, validate one
     # complete LP64 `kinfo_proc` record, and return only its timestamp fields.
-    # Apple exports `kp_proc.p_starttime` as a 16-byte timeval at byte 0 and
-    # `kp_proc.p_stat` at byte 36 and `kp_proc.p_pid` at byte 40 on both arm64
-    # and x86_64. Requiring the full 648-byte record (162 uint32 words), a live
-    # process state, the PID anchor, and timeval padding prevents a short,
-    # zombie, or unrelated prefix from being accepted as identity.
+    # Apple exports `kp_proc.p_starttime` as a 16-byte timeval at byte 0,
+    # `kp_proc.p_stat` at byte 36, and `kp_proc.p_pid` at byte 40 on both arm64
+    # and x86_64. The first field is `p_un`, a union: the queue pointers
+    # (`p_forw`/`p_back`) are alternate names for those same byte 0..15 bytes,
+    # not fields that precede `p_starttime`. This is the user64_extern_proc
+    # layout used by kern.proc.pid (Apple XNU bsd/sys/proc_internal.h and
+    # bsd/kern/kern_sysctl.c, https://github.com/apple/darwin-xnu). Requiring
+    # the full 648-byte record (162 uint32 words), a live process state, the PID
+    # anchor, and timeval padding prevents a short, zombie, or unrelated prefix
+    # from being accepted as identity.
     local pid="${1:-}"
     /usr/bin/awk -v expected_pid="$pid" '
         {

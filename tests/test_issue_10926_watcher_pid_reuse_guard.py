@@ -39,12 +39,23 @@ BASH_INTEGRATION = ROOT / "Resources" / "shell-integration" / "cmux-bash-integra
 # Kernel identities use a `k` marker and diagnostic ps identities use `p`,
 # followed by 16 decimal digits of epoch microseconds. The synthetic kernel
 # fixture models one complete 648-byte LP64 `kinfo_proc` record as uint32
-# words. Its timeval occupies bytes 0..15 and its PID occupies byte 40.
+# words. Its `kp_proc.p_un.__p_starttime` timeval occupies bytes 0..15, its
+# pointer fields follow the union at bytes 16..31, `p_stat` is byte 36, and
+# `p_pid` is byte 40. These offsets come from Apple's user64_extern_proc
+# definition. The queue pointers are an alternate union view, not a prefix.
 FAKE_START_TIME = "k1000000000000000"
 KINFO_PROC_WORD_COUNT = 162
+KINFO_PROC_START_SEC_WORD = 0
+KINFO_PROC_START_USEC_WORD = 2
+KINFO_PROC_VMSPACE_WORD = 4
+KINFO_PROC_SIGACTS_WORD = 6
+KINFO_PROC_FLAG_WORD = 8
+KINFO_PROC_STATE_WORD = 9
+KINFO_PROC_PID_WORD = 10
 SYNTHETIC_KERNEL_SEC = 1700000000
 SYNTHETIC_KERNEL_USEC = 123456
 SYNTHETIC_KERNEL_TOKEN = "k1700000000123456"
+DARWIN_P_LP64 = 0x00000004
 DARWIN_PROCESS_SLEEPING = 3
 DARWIN_PROCESS_ZOMBIE = 5
 
@@ -58,19 +69,39 @@ def synthetic_kernel_record(
     process_state: int = DARWIN_PROCESS_SLEEPING,
     word_count: int = KINFO_PROC_WORD_COUNT,
     malformed_word: int | None = None,
+    queue_union: bool = False,
 ) -> str:
     """Build a complete Darwin LP64 kinfo_proc word stream for shell tests."""
     words: list[str] = ["0"] * word_count
-    if word_count > 0:
-        words[0] = str(sec)
-    if word_count > 1:
-        words[1] = str(sec_high)
-    if word_count > 2:
-        words[2] = str(usec)
-    if word_count > 9:
-        words[9] = str(process_state)
-    if word_count > 10:
-        words[10] = str(pid)
+    if word_count > KINFO_PROC_START_SEC_WORD:
+        words[KINFO_PROC_START_SEC_WORD] = str(sec)
+    if word_count > KINFO_PROC_START_SEC_WORD + 1:
+        words[KINFO_PROC_START_SEC_WORD + 1] = str(sec_high)
+    if word_count > KINFO_PROC_START_USEC_WORD:
+        words[KINFO_PROC_START_USEC_WORD] = str(usec)
+    # The fields after the p_un union are pointer-sized on LP64. Non-zero
+    # values keep the fixture representative of a real record and prove that
+    # the parser does not mistake these fields for a timestamp prefix.
+    if word_count > KINFO_PROC_VMSPACE_WORD + 1:
+        words[KINFO_PROC_VMSPACE_WORD : KINFO_PROC_VMSPACE_WORD + 2] = [
+            str(0x23456000),
+            "1",
+        ]
+    if word_count > KINFO_PROC_SIGACTS_WORD + 1:
+        words[KINFO_PROC_SIGACTS_WORD : KINFO_PROC_SIGACTS_WORD + 2] = [
+            str(0x23457000),
+            "1",
+        ]
+    if word_count > KINFO_PROC_FLAG_WORD:
+        words[KINFO_PROC_FLAG_WORD] = str(DARWIN_P_LP64)
+    if word_count > KINFO_PROC_STATE_WORD:
+        words[KINFO_PROC_STATE_WORD] = str(process_state)
+    if word_count > KINFO_PROC_PID_WORD:
+        words[KINFO_PROC_PID_WORD] = str(pid)
+    if queue_union and word_count > 3:
+        # Model the alternate p_un queue-pointer view. A record in this shape
+        # must fail closed because it has no valid p_starttime timeval.
+        words[0:4] = [str(0x23458000), "1", str(0x23459000), "1"]
     if malformed_word is not None and 0 <= malformed_word < word_count:
         words[malformed_word] = "malformed"
     return " ".join(words)
@@ -183,6 +214,7 @@ def kernel_stub(
     process_state: int = DARWIN_PROCESS_SLEEPING,
     word_count: int = KINFO_PROC_WORD_COUNT,
     malformed_word: int | None = None,
+    queue_union: bool = False,
 ) -> str:
     """Return a shell prefix that supplies a complete Darwin record."""
     # Keep `$1` in the function body so each caller's target PID is anchored
@@ -193,6 +225,7 @@ def kernel_stub(
         process_state=process_state,
         word_count=word_count,
         malformed_word=malformed_word,
+        queue_union=queue_union,
     )
     # Pass each uint32 as a printf argument. Keep the PID marker quoted so
     # the shell expands it when the stub is called with a target PID. Quote
@@ -240,7 +273,10 @@ def check_identity_provider_contract(
             'printf "MALFORMED_RECORD:%s:%s\\n" "$malformed" "$?"; '
             f'{kernel_stub(process_state=DARWIN_PROCESS_ZOMBIE)}'
             'zombie="$(_cmux_watcher_parent_start_time "$$" kernel)"; '
-            'printf "ZOMBIE:%s:%s\\n" "$zombie" "$?"'
+            'printf "ZOMBIE:%s:%s\\n" "$zombie" "$?"; '
+            f'{kernel_stub(queue_union=True)}'
+            'queue_union="$(_cmux_watcher_parent_start_time "$$" kernel)"; '
+            'printf "QUEUE_UNION:%s:%s\\n" "$queue_union" "$?"'
         )
         layout = run_shell(shell_argv, layout_script, [str(integration)], env)
         if f"LAYOUT:{SYNTHETIC_KERNEL_TOKEN}" not in layout.stdout:
@@ -253,6 +289,11 @@ def check_identity_provider_contract(
             fail(f"[{name}] malformed kern.proc.pid record did not fail closed: {layout.stdout!r}")
         if "ZOMBIE::1" not in layout.stdout:
             fail(f"[{name}] zombie kern.proc.pid record did not fail closed: {layout.stdout!r}")
+        if "QUEUE_UNION::1" not in layout.stdout:
+            fail(
+                f"[{name}] a queue-pointer p_un view was treated as a start-time timeval: "
+                f"{layout.stdout!r}"
+            )
 
         kernel = real_kernel or SYNTHETIC_KERNEL_TOKEN
         if real_kernel and (len(real_kernel) != 17 or not real_kernel.startswith("k") or not real_kernel[1:].isdigit()):
