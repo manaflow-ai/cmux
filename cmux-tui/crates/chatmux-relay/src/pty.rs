@@ -393,6 +393,10 @@ struct Attachment {
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 struct OpeningOwner {
     owner: TransportOwner,
+    /// Unique for the lifetime of an open attempt. A transport may reuse a
+    /// pty id after a timed-out attempt has been removed from reservations;
+    /// this token keeps the late task from touching the replacement.
+    attempt_id: u64,
 }
 
 #[derive(Default)]
@@ -428,6 +432,9 @@ struct Inner {
     /// Monotonic floor for managed tunnel authority generations. It remains
     /// effective while a stale open is still unwinding after revocation.
     tunnel_authority_generation: AtomicU64,
+    /// Monotonic identity for in-flight open attempts. Zero is reserved as
+    /// the exhausted state so a wrapped token is never reused.
+    next_open_attempt: AtomicU64,
     /// Bounds provider/PTY opens, including opens that have timed out while
     /// their provider task is still unwinding. A permit is owned by the open
     /// task and is released only when that task has returned, so a hung
@@ -476,6 +483,29 @@ pub struct PtyManager {
     inner: Arc<Inner>,
 }
 
+/// Cancellation and identity for one terminal-open attempt. The identity is
+/// allocated by the manager before a task is spawned, so timeout cleanup can
+/// name the exact reservation even when the task is still unwinding.
+#[derive(Clone)]
+pub(crate) struct OpenCancellation {
+    token: CancellationToken,
+    attempt_id: u64,
+}
+
+impl OpenCancellation {
+    pub(crate) fn cancel(&self) {
+        self.token.cancel();
+    }
+
+    fn is_cancelled(&self) -> bool {
+        self.token.is_cancelled()
+    }
+
+    fn attempt_id(&self) -> u64 {
+        self.attempt_id
+    }
+}
+
 /// Attachments whose ownership has already been removed from the manager.
 /// The controls are retired after the caller releases any outer trust lock,
 /// so a slow platform kill cannot block authorization readers or a later
@@ -521,6 +551,7 @@ impl PtyManager {
                 transport_auth: Mutex::new(HashMap::new()),
                 tunnel_state: Mutex::new(()),
                 tunnel_authority_generation: AtomicU64::new(0),
+                next_open_attempt: AtomicU64::new(1),
                 open_slots: Arc::new(Semaphore::new(MAX_PTYS)),
             }),
         }
@@ -549,6 +580,7 @@ impl PtyManager {
                 transport_auth: Mutex::new(HashMap::new()),
                 tunnel_state: Mutex::new(()),
                 tunnel_authority_generation: AtomicU64::new(0),
+                next_open_attempt: AtomicU64::new(1),
                 open_slots: Arc::new(Semaphore::new(max_ptys)),
             }),
         }
@@ -567,9 +599,9 @@ impl PtyManager {
         &self,
         frame: &Value,
         context: &FrameContext,
-        cancellation: Option<CancellationToken>,
+        cancellation: Option<OpenCancellation>,
     ) {
-        if cancellation.as_ref().is_some_and(|token| token.is_cancelled()) {
+        if cancellation.as_ref().is_some_and(OpenCancellation::is_cancelled) {
             return;
         }
         let frame_type = frame.get("type").and_then(Value::as_str).unwrap_or_default();
@@ -577,7 +609,18 @@ impl PtyManager {
             return;
         }
         match frame_type {
-            "pty_open" => self.inner.clone().open(frame, context, cancellation).await,
+            "pty_open" => {
+                let Some(cancellation) =
+                    cancellation.or_else(|| self.new_open_cancellation())
+                else {
+                    let pty_id = frame.get("ptyId").and_then(Value::as_str).unwrap_or_default();
+                    if !pty_id.is_empty() {
+                        send_pty_error(context, pty_id, "session_limit", "terminal limit reached");
+                    }
+                    return;
+                };
+                self.inner.clone().open(frame, context, cancellation).await
+            }
             "pty_input" => {
                 let Some(pty_id) = frame.get("ptyId").and_then(Value::as_str) else { return };
                 if !self.inner.tunnel_authority_generation_current(context) {
@@ -732,17 +775,35 @@ impl PtyManager {
         self.detach_matching(|owner| owner.kind == TransportKind::Tunnel)
     }
 
-    /// Cancel one opening reservation at the timeout boundary. The
-    /// owner-specific tombstone rejects a late result without retaining the
-    /// reservation in the capacity count. Tombstones are bounded by
+    /// Cancel one opening reservation at the timeout boundary. The capability
+    /// carries both the cancellation signal and the unique attempt identity.
+    /// Its owner-specific tombstone rejects a late result without retaining
+    /// the reservation in the capacity count. Tombstones are bounded by
     /// `open_slots`, because each one belongs to an outstanding open permit.
-    pub fn cancel_open(&self, pty_id: &str, context: &FrameContext) {
-        let owner = OpeningOwner { owner: TransportOwner::from_context(context) };
+    pub(crate) fn cancel_open(
+        &self,
+        pty_id: &str,
+        context: &FrameContext,
+        cancellation: &OpenCancellation,
+    ) {
+        cancellation.cancel();
+        let owner = OpeningOwner {
+            owner: TransportOwner::from_context(context),
+            attempt_id: cancellation.attempt_id(),
+        };
         let _state = self.inner.tunnel_state.lock().expect("tunnel state lock");
         let mut opening = self.inner.opening_state.lock().expect("opening state lock");
-        if opening.reservations.get(pty_id) == Some(&owner) {
+        // The attempt identity check is added in the follow-up fix commit.
+        // Keeping only the transport comparison here makes the regression
+        // test fail against the red commit when a pty id is reused.
+        if let Some(current) = opening
+            .reservations
+            .get(pty_id)
+            .filter(|current| current.owner == owner.owner)
+            .cloned()
+        {
             opening.reservations.remove(pty_id);
-            opening.cancelled.insert(pty_id.to_owned(), owner);
+            opening.cancelled.insert(pty_id.to_owned(), current);
         }
     }
 
@@ -784,6 +845,32 @@ impl PtyManager {
         }
         drop(_state);
         RetiredAttachments { inner: Arc::clone(&self.inner), attachments: retired }
+    }
+
+    /// Allocate the capability that identifies one in-flight terminal open.
+    /// IDs are never reused. Exhaustion is a fail-closed terminal limit.
+    pub(crate) fn new_open_cancellation(&self) -> Option<OpenCancellation> {
+        let mut current = self.inner.next_open_attempt.load(Ordering::Relaxed);
+        loop {
+            if current == 0 {
+                return None;
+            }
+            let next = current.checked_add(1).unwrap_or(0);
+            match self.inner.next_open_attempt.compare_exchange_weak(
+                current,
+                next,
+                Ordering::AcqRel,
+                Ordering::Relaxed,
+            ) {
+                Ok(_) => {
+                    return Some(OpenCancellation {
+                        token: CancellationToken::new(),
+                        attempt_id: current,
+                    });
+                }
+                Err(observed) => current = observed,
+            }
+        }
     }
 }
 
@@ -838,9 +925,9 @@ impl Inner {
         self: Arc<Self>,
         frame: &Value,
         context: &FrameContext,
-        cancellation: Option<CancellationToken>,
+        cancellation: OpenCancellation,
     ) {
-        if cancellation.as_ref().is_some_and(|token| token.is_cancelled()) {
+        if cancellation.is_cancelled() {
             return;
         }
         let pty_id = frame.get("ptyId").and_then(Value::as_str).unwrap_or_default().to_owned();
@@ -858,7 +945,7 @@ impl Inner {
                 return;
             }
         };
-        if cancellation.as_ref().is_some_and(|token| token.is_cancelled()) {
+        if cancellation.is_cancelled() {
             return;
         }
         if !self.tunnel_authority_generation_current(context) {
@@ -866,7 +953,10 @@ impl Inner {
             return;
         }
         let fail = |code: &str, message: &str| send_pty_error(context, &pty_id, code, message);
-        let reservation_owner = OpeningOwner { owner: TransportOwner::from_context(context) };
+        let reservation_owner = OpeningOwner {
+            owner: TransportOwner::from_context(context),
+            attempt_id: cancellation.attempt_id(),
+        };
         let reservation_result = {
             let _state = self.tunnel_state.lock().expect("tunnel state lock");
             let mut opening = self.opening_state.lock().expect("opening state lock");
@@ -965,7 +1055,7 @@ impl Inner {
         let env = pty_env(&self.env);
 
         let cmux_tui = self.deps.resolve_cmux_tui().await;
-        if cancellation.as_ref().is_some_and(|token| token.is_cancelled()) {
+        if cancellation.is_cancelled() {
             return;
         }
         let opened = if let (Some(cmux_tui), Some(surface_ref)) =
@@ -1057,8 +1147,7 @@ impl Inner {
                 });
             let mut opening = self.opening_state.lock().expect("opening state lock");
             let cancelled = opening.cancelled.get(&pty_id) == Some(&reservation_owner);
-            let externally_cancelled =
-                cancellation.as_ref().is_some_and(|token| token.is_cancelled());
+            let externally_cancelled = cancellation.is_cancelled();
             let authority_changed = !self.tunnel_authority_generation_current(context);
             let reservation_owned = opening.reservations.get(&pty_id) == Some(&reservation_owner);
             if !reservation_owned
@@ -3499,9 +3588,11 @@ mod tests {
         let id = "reused".to_owned();
         let owner_a = OpeningOwner {
             owner: TransportOwner { id: Some("tunnel-a".to_owned()), kind: TransportKind::Tunnel },
+            attempt_id: 1,
         };
         let owner_b = OpeningOwner {
             owner: TransportOwner { id: Some("tunnel-b".to_owned()), kind: TransportKind::Tunnel },
+            attempt_id: 2,
         };
         let old = OpeningReservation {
             inner: Arc::clone(&inner),
@@ -3529,7 +3620,11 @@ mod tests {
         let inner = Arc::clone(&h.manager.inner);
         let mut context = h.context_with_transport("supervised", h.owner.clone(), Some("tunnel-a"));
         context.transport_kind = TransportKind::Tunnel;
-        let owner = OpeningOwner { owner: TransportOwner::from_context(&context) };
+        let cancellation = h.manager.new_open_cancellation().expect("open attempt token");
+        let owner = OpeningOwner {
+            owner: TransportOwner::from_context(&context),
+            attempt_id: cancellation.attempt_id(),
+        };
         let reservation = OpeningReservation {
             inner: Arc::clone(&inner),
             id: "p1".to_owned(),
@@ -3538,7 +3633,7 @@ mod tests {
         };
         inner.opening_state.lock().unwrap().reservations.insert("p1".to_owned(), owner.clone());
 
-        h.manager.cancel_open("p1", &context);
+        h.manager.cancel_open("p1", &context, &cancellation);
 
         {
             let state = inner.opening_state.lock().unwrap();
@@ -3547,6 +3642,36 @@ mod tests {
         }
         drop(reservation);
         assert!(!inner.opening_state.lock().unwrap().cancelled.contains_key("p1"));
+    }
+
+    #[test]
+    fn stale_open_cancellation_cannot_touch_a_same_owner_replacement() {
+        let h = harness(None, None);
+        let inner = Arc::clone(&h.manager.inner);
+        let mut context = h.context_with_transport("supervised", h.owner.clone(), Some("tunnel-a"));
+        context.transport_kind = TransportKind::Tunnel;
+        let old_cancellation = h.manager.new_open_cancellation().expect("old token");
+        let new_cancellation = h.manager.new_open_cancellation().expect("new token");
+        let replacement = OpeningOwner {
+            owner: TransportOwner::from_context(&context),
+            attempt_id: new_cancellation.attempt_id(),
+        };
+        inner
+            .opening_state
+            .lock()
+            .unwrap()
+            .reservations
+            .insert("reused".to_owned(), replacement.clone());
+
+        // The old timeout arrives after the caller has reused the pty id on
+        // the same transport. Its capability must not cancel the replacement.
+        h.manager.cancel_open("reused", &context, &old_cancellation);
+
+        let state = inner.opening_state.lock().unwrap();
+        assert_eq!(state.reservations.get("reused"), Some(&replacement));
+        assert!(!state.cancelled.contains_key("reused"));
+        assert!(old_cancellation.is_cancelled());
+        assert!(!new_cancellation.is_cancelled());
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -3562,7 +3687,7 @@ mod tests {
             "cols": 80,
             "rows": 24,
         });
-        let cancellation = CancellationToken::new();
+        let cancellation = manager.new_open_cancellation().expect("open attempt token");
         let task_cancellation = cancellation.clone();
         let task_manager = Arc::clone(&manager);
         let task = tokio::spawn(async move {

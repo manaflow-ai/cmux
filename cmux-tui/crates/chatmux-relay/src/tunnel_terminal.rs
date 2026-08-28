@@ -52,8 +52,8 @@ use tokio::sync::{Semaphore, mpsc, watch};
 use tokio_util::sync::CancellationToken;
 
 use crate::pty::{
-    FrameContext, PTY_PROTOCOL_VERSION, PtyManager, TransportKind, random_hex, session_name_ok,
-    surface_ref_ok,
+    FrameContext, OpenCancellation, PTY_PROTOCOL_VERSION, PtyManager, TransportKind, random_hex,
+    session_name_ok, surface_ref_ok,
 };
 
 /// Loopback port the gateway's spliced streams dial. The chatmux Worker
@@ -336,10 +336,11 @@ struct Connection {
     open_sent: AtomicBool,
     /// The manager answered pty_opened (clears the open deadline).
     opened_seen: AtomicBool,
-    /// Cancels an in-flight open on timeout, disconnect, or protocol error.
-    /// This token is created before the open task is spawned, so a task that
-    /// has not been polled cannot recreate a transport after its owner ends.
-    open_cancellation: CancellationToken,
+    /// Cancels and identifies an in-flight open on timeout, disconnect, or
+    /// protocol error. The capability is created before the open task is
+    /// spawned, so a task that has not been polled cannot recreate a
+    /// transport after its owner ends or collide with a reused pty id.
+    open_cancellation: OpenCancellation,
     finished: AtomicBool,
     done: CancellationToken,
 }
@@ -604,10 +605,11 @@ async fn handle_client_frame(connection: &Arc<Connection>, frame: TunnelFrame) {
             // Keep the manager future owned after the protocol deadline. A
             // direct timeout would drop `handle_frame` while its blocking PTY
             // spawn could still be running, leaving a late child with no
-            // owner. The detached task retains the opening reservation; the
-            // connection token also fences a task that has not reached the
-            // reservation yet. Cleanup marks any installed reservation
-            // cancelled, and `Opened` kills a handle that arrives late.
+            // owner. The detached task retains the opening reservation; its
+            // capability fences a task that has not reached the reservation
+            // yet and names this exact attempt if the pty id is reused.
+            // Cleanup marks any installed reservation cancelled, and `Opened`
+            // kills a handle that arrives late.
             let open_cancellation = connection.open_cancellation.clone();
             let mut open_task = tokio::spawn({
                 let manager = Arc::clone(&connection.manager);
@@ -632,8 +634,9 @@ async fn handle_client_frame(connection: &Arc<Connection>, frame: TunnelFrame) {
                     // manager task still owns its semaphore permit and any
                     // late PTY result, so it cannot install a resource for a
                     // connection that has already timed out.
-                    connection.open_cancellation.cancel();
-                    connection.manager.cancel_open(&connection.pty_id, &context);
+                    connection
+                        .manager
+                        .cancel_open(&connection.pty_id, &context, &connection.open_cancellation);
                     connection.protocol_error("failed");
                     // Dropping a JoinHandle detaches the task. The bounded
                     // open permit above prevents a permanently stalled
@@ -691,6 +694,10 @@ async fn serve_connection(
     };
     let auth_generation =
         auth_state.read().map(|authority| authority.generation).unwrap_or_default();
+    let Some(open_cancellation) = manager.new_open_cancellation() else {
+        let _ = write_half.shutdown().await;
+        return;
+    };
     let connection = Arc::new(Connection {
         pty_id,
         manager: Arc::clone(&manager),
@@ -704,7 +711,7 @@ async fn serve_connection(
         paused: AtomicBool::new(false),
         open_sent: AtomicBool::new(false),
         opened_seen: AtomicBool::new(false),
-        open_cancellation: CancellationToken::new(),
+        open_cancellation,
         finished: AtomicBool::new(false),
         done: CancellationToken::new(),
     });
@@ -1163,6 +1170,7 @@ mod tests {
         let (writer_tx, writer_rx) = mpsc::channel::<WriterMessage>(TUNNEL_WRITER_QUEUE_ITEMS);
         let end_permit = writer_tx.clone().reserve_owned().await.expect("reserve End slot");
         let (flow_tx, _) = watch::channel(false);
+        let open_cancellation = manager.new_open_cancellation().expect("open attempt token");
         (
             Connection {
                 pty_id: "queue-test".to_owned(),
@@ -1177,7 +1185,7 @@ mod tests {
                 paused: AtomicBool::new(false),
                 open_sent: AtomicBool::new(false),
                 opened_seen: AtomicBool::new(false),
-                open_cancellation: CancellationToken::new(),
+                open_cancellation,
                 finished: AtomicBool::new(false),
                 done: CancellationToken::new(),
             },
