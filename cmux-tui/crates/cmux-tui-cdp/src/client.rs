@@ -44,7 +44,7 @@ const CDP_OUTBOUND_QUEUE_MAX_BYTES: usize = 8 * 1024 * 1024;
 // Include tungstenite's default 128 KiB staging buffer and frame overhead in
 // addition to the largest message admitted by the outbound byte budget.
 const CDP_SOCKET_WRITE_BUFFER_MAX_BYTES: usize = CDP_OUTBOUND_QUEUE_MAX_BYTES + 256 * 1024;
-const CDP_CONNECTION_UNAVAILABLE_MESSAGE: &str =
+pub const CDP_CONNECTION_UNAVAILABLE_MESSAGE: &str =
     "browser connection unavailable; retry the command";
 const CDP_OUTBOUND_QUEUE_BYTE_BUDGET_DETAIL: &str = "CDP outbound queue byte budget exceeded";
 const MAX_ENCODED_FRAME_BYTES: usize = 16 * 1024 * 1024;
@@ -2312,8 +2312,8 @@ mod tests {
         let CdpEvent::Closed(reason) = event_rx.recv().unwrap() else {
             panic!("expected a close event");
         };
-        assert_eq!(reason, "browser connection unavailable; retry the command");
-        assert!(!reason.contains("CDP"));
+        assert_eq!(reason.public_message(), "browser connection unavailable; retry the command");
+        assert!(!reason.public_message().contains("CDP"));
         assert_eq!(diagnostics, vec![CDP_ACK_REJECTED_DIAGNOSTIC.to_string()]);
         assert!(!diagnostics[0].contains("ws://"));
         assert!(!diagnostics[0].contains("queue byte budget"));
@@ -2341,9 +2341,9 @@ mod tests {
         let CdpEvent::Closed(reason) = event_rx.recv().unwrap() else {
             panic!("expected a close event");
         };
-        assert_eq!(reason, CDP_CONNECTION_UNAVAILABLE_MESSAGE);
-        assert!(!reason.contains("ws://"));
-        assert!(!reason.contains("secret"));
+        assert_eq!(reason.public_message(), CDP_CONNECTION_UNAVAILABLE_MESSAGE);
+        assert!(!reason.public_message().contains("ws://"));
+        assert!(!reason.public_message().contains("secret"));
     }
 
     #[test]

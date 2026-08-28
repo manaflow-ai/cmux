@@ -6365,7 +6365,7 @@ mod tests {
         runtime.shutdown();
         server.join().unwrap();
         if events.is_err() {
-            cleanup_route.close(CdpCloseReason::SurfaceClosed);
+            cleanup_route.close(cmux_tui_cdp::CdpCloseReason::SurfaceClosed);
         }
         waiter.join().unwrap();
         let (first, second) = events.expect("unregister left surface route blocked");
@@ -6452,7 +6452,7 @@ mod tests {
         )
         .unwrap();
 
-        route.close(CdpCloseReason::EventQueueOverflow);
+        route.close(cmux_tui_cdp::CdpCloseReason::EventQueueOverflow);
         closed_rx
             .recv_timeout(Duration::from_secs(1))
             .expect("closed surface route did not close its CDP target");
@@ -8116,7 +8116,7 @@ mod tests {
         );
         assert!(!browser.take_dirty(), "a rejected frame must not mark the surface dirty");
 
-        route.close(CdpCloseReason::SurfaceClosed);
+        route.close(cmux_tui_cdp::CdpCloseReason::SurfaceClosed);
     }
 
     #[test]
