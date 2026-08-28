@@ -2481,10 +2481,16 @@ impl Mux {
 
     fn retry_pending_agent_hooks(&self) -> anyhow::Result<()> {
         let pending = self.workspace_registry.lock().unwrap().pending_agent_hook_projections()?;
-        for (key, sequence, ingress) in pending {
+        for (producer_id, origin, key, sequence, ingress) in pending {
             match self.apply_agent_hook_record(&ingress, sequence) {
-                Ok(()) => self.workspace_registry.lock().unwrap().clear_agent_hook_pending(&key)?,
+                Ok(()) => self.workspace_registry.lock().unwrap().clear_agent_hook_pending(
+                    &producer_id,
+                    &origin,
+                    &key,
+                )?,
                 Err(error) => self.workspace_registry.lock().unwrap().enqueue_agent_hook_pending(
+                    &producer_id,
+                    &origin,
                     &key,
                     sequence,
                     &ingress,
@@ -5277,13 +5283,19 @@ impl Mux {
         // a no-op for already-applied events while allowing restart repair.
         if let Err(error) = self.apply_agent_hook_record(ingress, commit.sequence) {
             self.workspace_registry.lock().unwrap().enqueue_agent_hook_pending(
+                &ingress.producer_id,
+                origin,
                 idempotency_key,
                 commit.sequence,
                 ingress,
                 &error.to_string(),
             )?;
         } else {
-            self.workspace_registry.lock().unwrap().clear_agent_hook_pending(idempotency_key)?;
+            self.workspace_registry.lock().unwrap().clear_agent_hook_pending(
+                &ingress.producer_id,
+                origin,
+                idempotency_key,
+            )?;
         }
         Ok(commit)
     }
@@ -21933,10 +21945,24 @@ mod tests {
             mux.workspace_registry.lock().unwrap().pending_agent_hook_projections().unwrap().len(),
             1
         );
+        mux.append_journal_ingress(&ingress, "other-origin", "hook-pending-retry").unwrap();
+        assert_eq!(
+            mux.workspace_registry.lock().unwrap().pending_agent_hook_projections().unwrap().len(),
+            2
+        );
         assert!(mux.list_agents(Some(surface.id), None).is_empty());
         mux.workspace_registry.lock().unwrap().set_resource_patch_failure(false).unwrap();
         let replay = mux.append_journal_ingress(&ingress, "test", "hook-pending-retry").unwrap();
         assert!(replay.replayed);
+        assert!(
+            mux.workspace_registry
+                .lock()
+                .unwrap()
+                .pending_agent_hook_projections()
+                .unwrap()
+                .is_empty()
+        );
+        mux.append_journal_ingress(&ingress, "other-origin", "hook-pending-retry").unwrap();
         assert!(
             mux.workspace_registry
                 .lock()
