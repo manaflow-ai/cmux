@@ -194,19 +194,25 @@ extension TerminalController {
             let catalog = await SurfaceCatalog.shared
             if await catalog.resources[resource] == nil {
                 // Ports are discovered by probing the machine; a port the person names may
-                // not have been seen yet. Re-sync, then register it so the provider can open it.
-                await CmuxTuiSurfaceProviderRegistry.shared.refresh(force: true)
-                if await catalog.resources[resource] == nil {
-                    await catalog.upsert(SurfaceResource(
-                        id: resource,
-                        title: ":\(port)",
-                        detail: nil,
-                        lifecycle: .running,
-                        agent: nil,
-                        remoteWorkspace: nil,
-                        port: port,
-                        url: nil
-                    ))
+                // not have been seen yet. Register it now and open it — a port pane is an
+                // HTTPS preview and never needs the cmux-tui link, so waiting on a refresh
+                // here (which does) held `vm open <id> <port>` for the link timeout on a
+                // machine whose link was still connecting. The re-sync runs behind it and
+                // reconciles the row.
+                await catalog.upsert(SurfaceResource(
+                    id: resource,
+                    title: ":\(port)",
+                    detail: nil,
+                    lifecycle: .running,
+                    agent: nil,
+                    remoteWorkspace: nil,
+                    port: port,
+                    url: nil
+                ))
+                Task { @MainActor in
+                    if let provider = CmuxTuiSurfaceProviderRegistry.shared.provider(machineID: vmId) {
+                        await provider.refresh(force: true)
+                    }
                 }
             }
             let opened = try await catalog.project(resource, into: destination, focus: focus, reuseExisting: false)
