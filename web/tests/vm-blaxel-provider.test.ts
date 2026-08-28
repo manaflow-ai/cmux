@@ -158,6 +158,43 @@ describe("BlaxelProvider SSH surface", () => {
 });
 
 describe("BlaxelProvider configuration errors", () => {
+  test("provider failures do not expose tokenized sandbox URLs or response bodies", async () => {
+    const previousKey = process.env.BL_API_KEY;
+    const previousWorkspace = process.env.BL_WORKSPACE;
+    process.env.BL_API_KEY = "test-key";
+    process.env.BL_WORKSPACE = "cmux";
+    const originalFetch = globalThis.fetch;
+    const urlSecret = "url-secret-marker";
+    const bodySecret = "body-secret-marker";
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (url.endsWith("/sandboxes/machine-a")) {
+        return new Response(JSON.stringify({
+          metadata: { url: `https://sandbox-api.test?bl_preview_token=${urlSecret}` },
+        }), { status: 200 });
+      }
+      return new Response(JSON.stringify({
+        error: "upstream request failed",
+        token: bodySecret,
+      }), { status: 502 });
+    }) as typeof fetch;
+    try {
+      const error = await new BlaxelProvider()
+        .revokeEndpointLeases("machine-a")
+        .then(() => "unexpected success", (failure: unknown) => String(failure));
+      expect(error).toContain("POST https://sandbox-api.test -> 502");
+      expect(error).not.toContain(urlSecret);
+      expect(error).not.toContain(bodySecret);
+      expect(error).not.toContain("bl_preview_token");
+    } finally {
+      globalThis.fetch = originalFetch;
+      if (previousKey === undefined) delete process.env.BL_API_KEY;
+      else process.env.BL_API_KEY = previousKey;
+      if (previousWorkspace === undefined) delete process.env.BL_WORKSPACE;
+      else process.env.BL_WORKSPACE = previousWorkspace;
+    }
+  });
+
   test("create fails with a clear error when BL_API_KEY is missing", async () => {
     const prevKey = process.env.BL_API_KEY;
     const prevWs = process.env.BL_WORKSPACE;
