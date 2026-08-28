@@ -539,6 +539,12 @@ impl WorkspaceRegistry {
             .find(|subject| subject.kind == "terminal")
             .map(|subject| subject.id.as_str());
         let bounded_error = error.chars().take(MAX_ERROR_CHARS).collect::<String>();
+        // Projection failures caused by a terminal that is temporarily absent
+        // are availability signals, not permanent payload failures. Keep the
+        // attempt budget unchanged so terminal adoption can retry them later.
+        // Other failures consume the bounded budget and become quarantined at
+        // AGENT_HOOK_MAX_ATTEMPTS.
+        let transient = is_transient_agent_hook_projection_error(error);
         self.connection.execute(
             "INSERT INTO resource_agent_hook_pending(
                producer_id, origin, idempotency_key, terminal_id, event_sequence, ingress_json, error, attempt
@@ -548,12 +554,14 @@ impl WorkspaceRegistry {
                event_sequence = excluded.event_sequence,
                ingress_json = excluded.ingress_json,
                error = CASE
-                 WHEN resource_agent_hook_pending.attempt + 1 >= ?8
+                 WHEN ?8 = 1 THEN excluded.error
+                 WHEN resource_agent_hook_pending.attempt + 1 >= ?9
                  THEN 'agent hook retry limit reached'
                  ELSE excluded.error
                END,
                attempt = CASE
-                 WHEN resource_agent_hook_pending.attempt < ?8
+                 WHEN ?8 = 1 THEN resource_agent_hook_pending.attempt
+                 WHEN resource_agent_hook_pending.attempt < ?9
                  THEN resource_agent_hook_pending.attempt + 1
                  ELSE resource_agent_hook_pending.attempt
                END",
@@ -565,10 +573,17 @@ impl WorkspaceRegistry {
                 i64::try_from(sequence)?,
                 ingress_json,
                 bounded_error,
-                AGENT_HOOK_MAX_ATTEMPTS
+                transient as i64,
+                AGENT_HOOK_MAX_ATTEMPTS,
             ],
         )?;
         Ok(())
+    }
+
+    fn is_transient_agent_hook_projection_error(error: &str) -> bool {
+        error.contains("is not available for agent hook projection")
+            || error.contains("database is locked")
+            || error.contains("database table is locked")
     }
 
     pub fn clear_agent_hook_pending(
