@@ -34794,7 +34794,7 @@ export default CMUXSessionRestore;
             // Native child lifecycle is the sole Codex background-work
             // authority. Transcript-tail signals are deliberately excluded:
             // their flush order is not a completion boundary.
-            let codexHasActiveBackgroundWork = def.name == "codex"
+            var codexHasActiveBackgroundWork = def.name == "codex"
                 && (codexStopDecision?.activeChildCount ?? 0) > 0
             let antigravityFailure: AgentHookNotificationSummary? = {
                 guard def.name == "antigravity", let rawObject = input.rawObject else { return nil }
@@ -34854,19 +34854,45 @@ export default CMUXSessionRestore;
                     defaultValue: "Task completed"
                 )
             let antigravityHasActiveBackgroundWork = hasActiveAntigravityBackgroundWork()
-            let hasActiveBackgroundWork = antigravityHasActiveBackgroundWork || codexHasActiveBackgroundWork
+            var hasActiveBackgroundWork = antigravityHasActiveBackgroundWork || codexHasActiveBackgroundWork
             let stopNotificationStatus: AgentHookNotificationStatus = (codexFailure == nil && antigravityFailure == nil) ? .idle : .error
-            let lifecycleAfterStop: AgentHibernationLifecycleState = {
+            var lifecycleAfterStop: AgentHibernationLifecycleState = {
                 if hasActiveBackgroundWork && stopNotificationStatus == .idle {
                     return .running
                 }
                 return stopNotificationStatus == .idle ? .idle : .needsInput
             }()
-            let staleIdleStopHasNewerRunningSession = lifecycleAfterStop == .idle &&
+            var staleIdleStopHasNewerRunningSession = lifecycleAfterStop == .idle &&
                 hasNewerRunningSession(workspaceId: workspaceId, surfaceId: surfaceId)
-            // Codex settlement is owned by CodexTurnLedger. A transcript tail
-            // cannot prove prompt ordering and is intentionally not consulted.
-            let terminalActivePromptTurnIdsForStop: Set<String> = []
+            // Current tokenized launches settle only from CodexTurnLedger. Keep
+            // this narrow transcript check for pre-ledger launches so stale
+            // prompt-depth records cannot strand an older session; it is never
+            // part of the modern child-work decision.
+            let terminalActivePromptTurnIdsForStop: Set<String>
+            if !staleIdleStopHasNewerRunningSession,
+               def.name == "codex",
+               codexLifecycle?.usesLegacyIdentity == true,
+               let incomingTurnId = normalizedHookValue(input.turnId) {
+                let activePromptTurnStack = mapped?.activePromptTurnIds?
+                    .compactMap({ normalizedHookValue($0) }) ?? []
+                let activePromptTurnId = activePromptTurnStack.last ?? normalizedHookValue(mapped?.activePromptTurnId)
+                let activeTurnIds = activePromptTurnStack.isEmpty
+                    ? activePromptTurnId.map { [$0] } ?? []
+                    : activePromptTurnStack
+                let activeTurnIdsToCheck = activeTurnIds.filter { $0 != incomingTurnId }
+                if !activeTurnIdsToCheck.isEmpty,
+                   let transcriptPath = normalizedHookValue(input.transcriptPath ?? mapped?.transcriptPath)
+                       ?? findCodexTranscriptPath(sessionId: sessionId, env: env) {
+                    terminalActivePromptTurnIdsForStop = codexTranscriptTerminalTurnIds(
+                        path: transcriptPath,
+                        turnIds: Set(activeTurnIdsToCheck)
+                    )
+                } else {
+                    terminalActivePromptTurnIdsForStop = []
+                }
+            } else {
+                terminalActivePromptTurnIdsForStop = []
+            }
             let nestedPromptStop: Bool
             if def.name == "codex", codexStopDecision?.settlement == .settled {
                 // The ledger admitted this exact terminal boundary; do not let
@@ -34910,10 +34936,30 @@ export default CMUXSessionRestore;
                     surfaceID: surfaceId
                 )
             }
+            if def.name == "codex",
+               !nestedPromptStop,
+               codexStopDecision?.ownership != .foreground {
+                telemetry.breadcrumb("codex-hook.stop.settlement-unavailable")
+                print("{}")
+                return
+            }
             if def.name == "codex", codexStopDecision?.settlement == .duplicate {
                 telemetry.breadcrumb("codex-hook.stop.duplicate-settled")
                 print("{}")
                 return
+            }
+            // A native child callback may win the ledger lock between the
+            // ownership observation and the deferred Stop settlement. Rebuild
+            // the lifecycle projection from that final authoritative count so
+            // the store, journal, and visible badge cannot disagree.
+            if def.name == "codex" {
+                codexHasActiveBackgroundWork = (codexStopDecision?.activeChildCount ?? 0) > 0
+                hasActiveBackgroundWork = antigravityHasActiveBackgroundWork || codexHasActiveBackgroundWork
+                lifecycleAfterStop = hasActiveBackgroundWork && stopNotificationStatus == .idle
+                    ? .running
+                    : (stopNotificationStatus == .idle ? .idle : .needsInput)
+                staleIdleStopHasNewerRunningSession = lifecycleAfterStop == .idle &&
+                    hasNewerRunningSession(workspaceId: workspaceId, surfaceId: surfaceId)
             }
             // Codex ownership was admitted before any store mutation. Other
             // integrations retain their existing ancestry-based suppression.

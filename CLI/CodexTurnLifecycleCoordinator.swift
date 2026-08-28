@@ -7,6 +7,12 @@ struct CodexTurnLifecycleCoordinator {
     let ledger: CodexTurnLedger
     let invocation: CodexHookInvocation
 
+    /// Whether this callback came from a pre-ledger, unwrapped Codex launch.
+    /// Legacy prompt-stack cleanup is allowed only for this compatibility lane.
+    var usesLegacyIdentity: Bool {
+        invocation.token == nil && invocation.ownerPID == nil
+    }
+
     init(environment: [String: String], cli: CMUXCLI) {
         invocation = cli.codexHookInvocation(environment: environment)
         ledger = cli.codexTurnLedger(environment: environment)
