@@ -1118,6 +1118,8 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		FEED0000000000000000F00F /* FeedTextEditorDebugWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = FEED0000000000000000F00E /* FeedTextEditorDebugWindowController.swift */; };
 		D0B1001AA1B2C3D4E5F60001 /* FileDropHintBadgeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B1001BA1B2C3D4E5F60001 /* FileDropHintBadgeView.swift */; };
 		781100017811000178110001 /* FileDropOverlayHitTestPerformanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 781100027811000278110002 /* FileDropOverlayHitTestPerformanceTests.swift */; };
+		F0A1100D0000000000000001 /* FileDropOverlayMouseDragButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0A1100E0000000000000001 /* FileDropOverlayMouseDragButton.swift */; };
+		F0A1100F0000000000000001 /* FileDropOverlayMouseDragTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0A110100000000000000001 /* FileDropOverlayMouseDragTarget.swift */; };
 		D0B10020A1B2C3D4E5F60001 /* FileDropOverlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10021A1B2C3D4E5F60001 /* FileDropOverlayView.swift */; };
 		D0B10022A1B2C3D4E5F60001 /* FileDropOverlayViewHitTesting.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10023A1B2C3D4E5F60001 /* FileDropOverlayViewHitTesting.swift */; };
 		D0B10018A1B2C3D4E5F60001 /* FileDropOverlayViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10019A1B2C3D4E5F60001 /* FileDropOverlayViewTests.swift */; };
@@ -1240,6 +1242,10 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		048A66B6400AB53182FA4304 /* GhosttyKeyModifiers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77F5AB36771F1414A95E3330 /* GhosttyKeyModifiers.swift */; };
 		A5001006 /* GhosttyKit.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = A5001016 /* GhosttyKit.xcframework */; };
 		F0A110010000000000000001 /* GhosttyMouseSessionLedger.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0A110020000000000000001 /* GhosttyMouseSessionLedger.swift */; };
+		F0A110050000000000000001 /* GhosttyMouseSessionLedgerButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0A110060000000000000001 /* GhosttyMouseSessionLedgerButton.swift */; };
+		F0A110090000000000000001 /* GhosttyMouseSessionLedgerPointerState.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0A1100A0000000000000001 /* GhosttyMouseSessionLedgerPointerState.swift */; };
+		F0A1100B0000000000000001 /* GhosttyMouseSessionLedgerSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0A1100C0000000000000001 /* GhosttyMouseSessionLedgerSession.swift */; };
+		F0A110070000000000000001 /* GhosttyMouseSessionLedgerSurfaceIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0A110080000000000000001 /* GhosttyMouseSessionLedgerSurfaceIdentity.swift */; };
 		F0A110030000000000000001 /* GhosttyMouseSessionLedgerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0A110040000000000000001 /* GhosttyMouseSessionLedgerTests.swift */; };
 		A11EAF000000000000000000 /* GhosttyNotificationDispatcherTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11EAF000000000000000001 /* GhosttyNotificationDispatcherTests.swift */; };
 		D78971000000000000000001 /* GhosttyNotificationScrollRuntimeBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = D78971000000000000000002 /* GhosttyNotificationScrollRuntimeBridge.swift */; };
@@ -4012,6 +4018,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		FEED0000000000000000F00E /* FeedTextEditorDebugWindowController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = FeedTextEditorDebugWindowController.swift; sourceTree = "<group>"; };
 		D0B1001BA1B2C3D4E5F60001 /* FileDropHintBadgeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileDropHintBadgeView.swift; sourceTree = "<group>"; };
 		781100027811000278110002 /* FileDropOverlayHitTestPerformanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileDropOverlayHitTestPerformanceTests.swift; sourceTree = "<group>"; };
+		F0A1100E0000000000000001 /* FileDropOverlayMouseDragButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileDropOverlayMouseDragButton.swift; sourceTree = "<group>"; };
+		F0A110100000000000000001 /* FileDropOverlayMouseDragTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileDropOverlayMouseDragTarget.swift; sourceTree = "<group>"; };
 		D0B10021A1B2C3D4E5F60001 /* FileDropOverlayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileDropOverlayView.swift; sourceTree = "<group>"; };
 		D0B10023A1B2C3D4E5F60001 /* FileDropOverlayViewHitTesting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileDropOverlayViewHitTesting.swift; sourceTree = "<group>"; };
 		D0B10019A1B2C3D4E5F60001 /* FileDropOverlayViewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileDropOverlayViewTests.swift; sourceTree = "<group>"; };
@@ -4135,6 +4143,10 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 		77F5AB36771F1414A95E3330 /* GhosttyKeyModifiers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyKeyModifiers.swift; sourceTree = "<group>"; };
 		A5001016 /* GhosttyKit.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; path = GhosttyKit.xcframework; sourceTree = "<group>"; };
 		F0A110020000000000000001 /* GhosttyMouseSessionLedger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyMouseSessionLedger.swift; sourceTree = "<group>"; };
+		F0A110060000000000000001 /* GhosttyMouseSessionLedgerButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyMouseSessionLedgerButton.swift; sourceTree = "<group>"; };
+		F0A1100A0000000000000001 /* GhosttyMouseSessionLedgerPointerState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyMouseSessionLedgerPointerState.swift; sourceTree = "<group>"; };
+		F0A1100C0000000000000001 /* GhosttyMouseSessionLedgerSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyMouseSessionLedgerSession.swift; sourceTree = "<group>"; };
+		F0A110080000000000000001 /* GhosttyMouseSessionLedgerSurfaceIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyMouseSessionLedgerSurfaceIdentity.swift; sourceTree = "<group>"; };
 		F0A110040000000000000001 /* GhosttyMouseSessionLedgerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyMouseSessionLedgerTests.swift; sourceTree = "<group>"; };
 		A11EAF000000000000000001 /* GhosttyNotificationDispatcherTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyNotificationDispatcherTests.swift; sourceTree = "<group>"; };
 		D78971000000000000000002 /* GhosttyNotificationScrollRuntimeBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyNotificationScrollRuntimeBridge.swift; sourceTree = "<group>"; };
@@ -6360,6 +6372,8 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A5001F000000000000000002 /* DetachedFolderDragIcon.swift */,
 				B05553C10000000000000002 /* DetachedFolderPathLookupCache.swift */,
 				D0B1001BA1B2C3D4E5F60001 /* FileDropHintBadgeView.swift */,
+				F0A1100E0000000000000001 /* FileDropOverlayMouseDragButton.swift */,
+				F0A110100000000000000001 /* FileDropOverlayMouseDragTarget.swift */,
 				D0B10021A1B2C3D4E5F60001 /* FileDropOverlayView.swift */,
 				D0B10023A1B2C3D4E5F60001 /* FileDropOverlayViewHitTesting.swift */,
 				C0DE35010000000000000002 /* SidebarScrim.swift */,
@@ -6890,6 +6904,10 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C0DEF828300000000000002 /* GhosttyTerminalImmediateHostedStateAction.swift */,
 				E89950010000000000000002 /* GhosttyFlashOverlayView.swift */,
 				F0A110020000000000000001 /* GhosttyMouseSessionLedger.swift */,
+				F0A110060000000000000001 /* GhosttyMouseSessionLedgerButton.swift */,
+				F0A1100A0000000000000001 /* GhosttyMouseSessionLedgerPointerState.swift */,
+				F0A1100C0000000000000001 /* GhosttyMouseSessionLedgerSession.swift */,
+				F0A110080000000000000001 /* GhosttyMouseSessionLedgerSurfaceIdentity.swift */,
 				A5001015 /* GhosttyTerminalView.swift */,
 				9612B0010000000000000001 /* TerminalPortalReconciliation.swift */,
 				E89950040000000000000002 /* KeyboardCopyModeGridMetrics.swift */,
@@ -9928,6 +9946,8 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				FEED0000000000000000F00B /* FeedPreviewWindowController.swift in Sources */,
 				FEED0000000000000000F00F /* FeedTextEditorDebugWindowController.swift in Sources */,
 				D0B1001AA1B2C3D4E5F60001 /* FileDropHintBadgeView.swift in Sources */,
+				F0A1100D0000000000000001 /* FileDropOverlayMouseDragButton.swift in Sources */,
+				F0A1100F0000000000000001 /* FileDropOverlayMouseDragTarget.swift in Sources */,
 				D0B10020A1B2C3D4E5F60001 /* FileDropOverlayView.swift in Sources */,
 				D0B10022A1B2C3D4E5F60001 /* FileDropOverlayViewHitTesting.swift in Sources */,
 				FE5996010000000000000002 /* FileExplorerCellView.swift in Sources */,
@@ -10010,6 +10030,10 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				E89950010000000000000001 /* GhosttyFlashOverlayView.swift in Sources */,
 				048A66B6400AB53182FA4304 /* GhosttyKeyModifiers.swift in Sources */,
 				F0A110010000000000000001 /* GhosttyMouseSessionLedger.swift in Sources */,
+				F0A110050000000000000001 /* GhosttyMouseSessionLedgerButton.swift in Sources */,
+				F0A110090000000000000001 /* GhosttyMouseSessionLedgerPointerState.swift in Sources */,
+				F0A1100B0000000000000001 /* GhosttyMouseSessionLedgerSession.swift in Sources */,
+				F0A110070000000000000001 /* GhosttyMouseSessionLedgerSurfaceIdentity.swift in Sources */,
 				D78971000000000000000001 /* GhosttyNotificationScrollRuntimeBridge.swift in Sources */,
 				B88357000000000000000001 /* GhosttyNSView+ClipboardActions.swift in Sources */,
 				B88357000000000000000003 /* GhosttyNSView+ClipboardInputSequencing.swift in Sources */,

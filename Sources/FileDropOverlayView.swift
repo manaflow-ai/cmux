@@ -40,20 +40,12 @@ extension BrowserPaneDropTargetView: FileDropPaneTarget {
 /// Mouse events are forwarded to the views below via a hide-send-unhide pattern so clicks,
 /// scrolls, and other interactions pass through normally.
 final class FileDropOverlayView: NSView {
+    private typealias ForwardedMouseDragButton = FileDropOverlayMouseDragButton
+    private typealias ForwardedMouseDragTarget = FileDropOverlayMouseDragTarget
+
     /// Fallback handler when no terminal is found under the drop point.
     var onDrop: (([URL]) -> Bool)?
     private var isForwardingMouseEvent = false
-    /// AppKit captures a separate target for each button. Keeping the captures
-    /// independent prevents a right/middle press from replacing an in-flight
-    /// left drag, which would otherwise redirect the eventual left release.
-    private final class ForwardedMouseDragTarget {
-        weak var view: NSView?
-
-        init(view: NSView) {
-            self.view = view
-        }
-    }
-
     private var forwardedMouseDragTargets:
         [ForwardedMouseDragButton: ForwardedMouseDragTarget] = [:]
     /// The WKWebView currently receiving forwarded drag events, so we can
@@ -84,12 +76,6 @@ final class FileDropOverlayView: NSView {
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) not implemented") }
-
-    private enum ForwardedMouseDragButton: Hashable {
-        case left
-        case right
-        case other(Int)
-    }
 
     private func dragButton(for event: NSEvent) -> ForwardedMouseDragButton? {
         switch event.type {
