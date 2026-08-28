@@ -6840,6 +6840,24 @@ mod tests {
         assert!(closed.load(Ordering::Acquire));
     }
 
+    #[test]
+    fn bounded_tree_refresh_times_out_and_clears_pending_probe() {
+        let session = test_session(Box::new(CloseTrackingWriter {
+            closed: Arc::new(AtomicBool::new(false)),
+        }));
+        let started = Instant::now();
+        let error = session
+            .refresh_tree_with_timeout(Duration::from_millis(5))
+            .expect_err("a silent probe must time out");
+
+        assert!(matches!(
+            error.downcast_ref::<RemoteRequestError>(),
+            Some(RemoteRequestError::Timeout)
+        ));
+        assert!(started.elapsed() < Duration::from_secs(1));
+        assert!(session.pending.lock().unwrap().is_empty());
+    }
+
     #[cfg(unix)]
     #[test]
     fn eof_cancels_a_pending_request_without_waiting_for_the_request_timeout() {
