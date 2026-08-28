@@ -17,6 +17,10 @@ export async function generateMetadata({
 
 export default function JobsPage() {
   return (
-    <JobRolePage namespace="jobs" roleLinkHref="/jobs/founding-designer" />
+    <JobRolePage
+      namespace="jobs"
+      roleLinkHref="/jobs/founding-designer"
+      showRoleDirectory
+    />
   );
 }

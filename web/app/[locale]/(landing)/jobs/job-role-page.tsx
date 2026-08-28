@@ -20,10 +20,12 @@ type JobRolePageProps = {
   namespace: JobRoleNamespace;
   backHref?: string;
   roleLinkHref: string;
+  showRoleDirectory?: boolean;
 };
 
 const focusRingClass =
   "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-foreground";
+const applicationEmail = "founders@cmux.com";
 
 export async function jobRoleMetadata({
   params,
@@ -66,11 +68,12 @@ export function JobRolePage({
   namespace,
   backHref,
   roleLinkHref,
+  showRoleDirectory = false,
 }: JobRolePageProps) {
   const t = useTranslations(namespace);
   const whatYoullDo = t.raw("whatYoullDoItems") as string[];
   const whoWereLookingFor = t.raw("whoWereLookingForItems") as string[];
-  const applyHref = `mailto:founders@manaflow.com?subject=${encodeURIComponent(
+  const applyHref = `mailto:${applicationEmail}?subject=${encodeURIComponent(
     t("applyEmailSubject"),
   )}`;
 
@@ -169,6 +172,48 @@ export function JobRolePage({
             </div>
           </aside>
         </div>
+
+        {showRoleDirectory ? (
+          <section
+            aria-labelledby="open-roles-title"
+            className="mt-14 border-y border-border py-8 sm:mt-16 sm:py-10"
+          >
+            <div className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between sm:gap-10">
+              <div>
+                <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted">
+                  {t("openRolesEyebrow")}
+                </p>
+                <h2
+                  id="open-roles-title"
+                  className="mt-3 text-2xl font-medium tracking-tight"
+                >
+                  {t("openRolesTitle")}
+                </h2>
+                <p className="mt-2 max-w-md text-[15px] leading-7 text-muted">
+                  {t("openRolesBody")}
+                </p>
+              </div>
+
+              <div className="grid w-full gap-3 sm:max-w-xl sm:grid-cols-2">
+                <Link
+                  href="/jobs"
+                  aria-current="page"
+                  className={`group flex min-h-14 items-center justify-between gap-4 border border-foreground bg-code-bg/40 px-4 py-3 text-sm font-medium transition-colors hover:bg-code-bg ${focusRingClass}`}
+                >
+                  <span>{t("roleTitle")}</span>
+                  <ArrowIcon />
+                </Link>
+                <Link
+                  href="/jobs/founding-designer"
+                  className={`group flex min-h-14 items-center justify-between gap-4 border border-border px-4 py-3 text-sm font-medium transition-colors hover:border-foreground ${focusRingClass}`}
+                >
+                  <span>{t("otherRoleTitle")}</span>
+                  <ArrowIcon />
+                </Link>
+              </div>
+            </div>
+          </section>
+        ) : null}
 
         <div className="mt-16 grid gap-14 border-t border-border pt-12 lg:mt-20">
           <div className="max-w-3xl">

@@ -85,8 +85,14 @@ describe("jobs page", () => {
     expect(html).toContain("$130k–$170k + 0.5%–1.5% equity");
     expect(html).toContain("San Francisco");
     expect(html).toContain("About cmux");
+    expect(html).toContain("Open roles");
+    expect(html).toContain("Build the future with us.");
+    expect(html).toContain('href="/jobs/founding-designer"');
+    expect(html).toContain('aria-current="page"');
+    expect(html).toContain(">Email<");
+    expect(html).not.toContain("Email founders@cmux.com");
     expect(html).toContain(
-      `href="mailto:founders@manaflow.com?subject=${encodeURIComponent(
+      `href="mailto:founders@cmux.com?subject=${encodeURIComponent(
         enMessages.jobs.applyEmailSubject,
       )}"`,
     );
@@ -102,7 +108,11 @@ describe("jobs page", () => {
     expect(html).toContain("仕事内容");
     expect(html).toContain("数十万人の開発者が");
     expect(html).toContain("$130k〜$170k + 株式 0.5%〜1.5%");
-    expect(html).toContain("founders@manaflow.com にメールする");
+    expect(html).toContain("募集中のポジション");
+    expect(html).toContain("一緒に未来をつくりませんか。");
+    expect(html).toContain("Founding Designer");
+    expect(html).toContain(">メールする<");
+    expect(html).not.toContain("founders@cmux.com にメールする");
     expect(html).toContain(
       `subject=${encodeURIComponent(jaMessages.jobs.applyEmailSubject)}`,
     );
@@ -153,6 +163,8 @@ describe("jobs page", () => {
     );
     expect(html).toContain("Typography, motion, and systems thinking");
     expect(html).toContain("$130k–$170k + 0.5%–1.5% equity");
+    expect(html).toContain(">Email<");
+    expect(html).not.toContain("Email founders@cmux.com");
     expect(html).toContain('href="/jobs"');
     expect(html).toContain("Founding Engineer");
     expect(html).toContain(
@@ -170,7 +182,8 @@ describe("jobs page", () => {
     expect(html).toContain("Founding Designer");
     expect(html).toContain("デザインコンポーネントを知り尽くしている");
     expect(html).toContain("タイポグラフィ、モーション、システム思考");
-    expect(html).toContain("founders@manaflow.com にメールする");
+    expect(html).toContain(">メールする<");
+    expect(html).not.toContain("founders@cmux.com にメールする");
     expect(html).toContain(
       `subject=${encodeURIComponent(
         jaMessages.jobs.foundingDesigner.applyEmailSubject,
