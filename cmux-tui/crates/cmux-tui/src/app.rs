@@ -43916,6 +43916,53 @@ mod tests {
     }
 
     #[test]
+    fn agents_view_priority_renders_header_dots_and_two_line_rows() {
+        let (mux, first) = test_mux("agents-view-two-line-test", None);
+        let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let second = mux.new_tab(Some(pane), None, Some((80, 24))).unwrap();
+        // The working report lands last, but blocked still ranks first.
+        mux.report_agent(second.id, AgentState::Blocked, AgentSource::Socket, None).unwrap();
+        mux.report_agent(first.id, AgentState::Working, AgentSource::Socket, None).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.config.sidebar.columns.clear();
+        app.config.sidebar.views = vec![SidebarViewSpec {
+            id: "agents".into(),
+            levels: vec![SidebarResourceKind::Agents],
+            actions: Vec::new(),
+            actions_position: crate::config::ActionsPosition::Bottom,
+            width: 30,
+            max_width: 0,
+            collapse_priority: 30,
+            row_lines: 2,
+            scope: crate::config::SidebarViewScope::Workspace,
+        }];
+        app.config.sidebar.views_explicit = true;
+        app.replace_tree(app.session.tree());
+        app.sync_layout((100, 20));
+
+        let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let rendered = buffer_text(terminal.backend().buffer());
+        let lines: Vec<&str> = rendered.lines().collect();
+
+        let header = lines
+            .iter()
+            .position(|line| line.contains("agents") && line.contains("priority"))
+            .expect("agents view header shows the title and the sort mode");
+        let blocked = lines.iter().position(|line| line.contains("blocked")).unwrap();
+        let working = lines.iter().position(|line| line.contains("working")).unwrap();
+        assert!(header < blocked, "header renders above the rows");
+        assert!(blocked < working, "blocked outranks working regardless of recency");
+        // Two-line rows: the state dot and title line sits directly above
+        // the dim type/state line.
+        assert!(lines[blocked - 1].contains("●"), "blocked row carries a dot on its title line");
+        assert!(lines[working - 1].contains("●"), "working row carries a dot on its title line");
+        assert_eq!(working - blocked, 2, "each agent entry spans two lines");
+
+        mux.close_surface(second.id).unwrap();
+    }
+
+    #[test]
     fn projection_agent_rows_hide_finished_reports() {
         let (mux, surface) = test_mux("projection-finished-agent-test", None);
         mux.report_agent(
