@@ -2303,7 +2303,9 @@ impl WorkspaceRegistry {
     pub fn open(root: &Path, session_name: &str) -> anyhow::Result<Self> {
         let normalized_root = platform::normalize_filesystem_path(root.to_path_buf());
         let root = normalized_root.as_path();
-        let session_dir = root.join(session_storage_component(session_name));
+        let session_dir = platform::normalize_filesystem_path(
+            root.join(session_storage_component(session_name)),
+        );
         // Normalize the complete database path. The state root can be below
         // the legacy MAX_PATH threshold while its session and database
         // descendants exceed it.
