@@ -31,7 +31,10 @@ for test_file in "${test_files[@]}"; do
   printf '\n==> bun test %s\n' "$test_file"
   output_file="$(mktemp /tmp/cmux-db-behavior-test.XXXXXX)"
   set +e
-  bun test "$test_file" 2>&1 | tee "$output_file"
+  # Each DB-gated file owns one shared database and most cases truncate it at
+  # the start of the test. Keep tests in that file sequential so Bun cannot
+  # interleave those resets with another case's transaction.
+  bun test --max-concurrency=1 "$test_file" 2>&1 | tee "$output_file"
   test_status=${PIPESTATUS[0]}
   set -e
 
