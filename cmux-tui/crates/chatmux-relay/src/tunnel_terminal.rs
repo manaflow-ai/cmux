@@ -39,8 +39,8 @@
 //! never run this listener: it starts from the managed branch only.
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::RwLock;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 
 use base64::Engine as _;
