@@ -30,8 +30,8 @@ use cmux_tui_core::SurfaceId;
 use cmux_tui_core::resource::TerminalPublicId;
 
 use crate::session::{
-    PipeIoEvent, PipeIoQueue, RemoteSession, Session, SurfaceAttach,
-    SurfaceHandle, is_remote_surface_unavailable, is_remote_transport_failure,
+    PipeIoEvent, PipeIoQueue, RemoteSession, Session, SurfaceAttach, SurfaceHandle,
+    is_remote_surface_unavailable, is_remote_transport_failure,
 };
 
 /// The terminal ended, or the embedder walked away: respawning is wrong.
