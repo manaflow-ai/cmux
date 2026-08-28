@@ -757,11 +757,7 @@ fn process_name(pid: u32) -> Option<String> {
 #[cfg(target_os = "linux")]
 fn interpreter_script_path(pid: u32, executable: &Path) -> Option<String> {
     let interpreter = executable.file_name()?.to_str()?.to_ascii_lowercase();
-    const INTERPRETERS: &[&str] = &[
-        "bash", "bun", "dash", "deno", "env", "node", "nodejs", "perl", "php", "python", "python2",
-        "python3", "ruby", "sh", "zsh",
-    ];
-    if !INTERPRETERS.contains(&interpreter.as_str()) {
+    if !is_known_script_interpreter(&interpreter) {
         return None;
     }
 
@@ -797,6 +793,23 @@ fn interpreter_script_path(pid: u32, executable: &Path) -> Option<String> {
         }
     }
     None
+}
+
+#[cfg(target_os = "linux")]
+fn is_known_script_interpreter(interpreter: &str) -> bool {
+    const INTERPRETERS: &[&str] = &[
+        "bash", "bun", "dash", "deno", "env", "node", "nodejs", "perl", "php", "python",
+        "python2", "python3", "ruby", "sh", "zsh",
+    ];
+    INTERPRETERS.contains(&interpreter)
+        || INTERPRETERS.iter().any(|name| {
+            interpreter.strip_prefix(name).is_some_and(|suffix| {
+                !suffix.is_empty()
+                    && suffix.chars().all(|character| {
+                        character == '.' || character.is_ascii_digit()
+                    })
+            })
+        })
 }
 
 #[cfg(target_os = "macos")]
@@ -1190,6 +1203,16 @@ mod tests {
 
         let expected = script.to_string_lossy().into_owned();
         assert_eq!(observed.as_deref(), Some(expected.as_str()));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn versioned_script_interpreters_are_recognized_without_broad_prefixes() {
+        assert!(is_known_script_interpreter("python3.11"));
+        assert!(is_known_script_interpreter("ruby3.3"));
+        assert!(is_known_script_interpreter("node20"));
+        assert!(!is_known_script_interpreter("python3.11-config"));
+        assert!(!is_known_script_interpreter("node-wrapper"));
     }
 
     fn position(candidates: &[GhosttyInstallation], expected: impl AsRef<Path>) -> usize {

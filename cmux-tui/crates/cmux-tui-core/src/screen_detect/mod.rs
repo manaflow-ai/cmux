@@ -28,6 +28,12 @@ pub(crate) const QUIESCENCE_DEBOUNCE_MS: u64 = 300;
 /// phase it exists to report.
 pub(crate) const MAX_EVAL_INTERVAL_MS: u64 = 1_000;
 
+/// A failed viewport read must not turn the scanner into a hot retry loop.
+/// Backoff is short enough to recover after a PTY transition and capped so a
+/// permanently inaccessible terminal has bounded work.
+const SCREEN_READ_RETRY_INITIAL_MS: u64 = 100;
+const SCREEN_READ_RETRY_MAX_MS: u64 = 2_000;
+
 /// The `native_event` value screen-detection journal events carry.
 pub(crate) const SCREEN_DETECT_NATIVE_EVENT: &str = "ScreenDetect";
 
@@ -50,6 +56,10 @@ struct TrackedTerminal {
     evaluated_revision: Option<u64>,
     /// When the screen was last evaluated (the max-interval pacer anchor).
     last_evaluated_at: Option<Instant>,
+    /// Earliest time at which a failed screen read may be retried.
+    retry_not_before: Option<Instant>,
+    /// Exponential retry delay, capped by `SCREEN_READ_RETRY_MAX_MS`.
+    retry_delay_ms: u64,
     /// Agent the foreground process matched on the previous scan; identity
     /// edges trigger immediate evaluation, before any quiescence.
     foreground_agent: Option<String>,
@@ -85,6 +95,9 @@ impl ScreenDetectTracker {
         if entry.evaluated_revision == Some(entry.revision) {
             return false;
         }
+        if entry.retry_not_before.is_some_and(|not_before| now < not_before) {
+            return false;
+        }
         let quiet_since = entry.quiet_since.expect("anchored above");
         let quiesced = now.duration_since(quiet_since).as_millis() as u64 >= QUIESCENCE_DEBOUNCE_MS;
         let overdue = entry.last_evaluated_at.is_none_or(|evaluated_at| {
@@ -95,6 +108,21 @@ impl ScreenDetectTracker {
             return true;
         }
         false
+    }
+
+    /// Record a failed viewport read. The revision remains unevaluated, but
+    /// retries follow an explicit bounded backoff instead of every scanner
+    /// tick.
+    pub(crate) fn note_evaluation_failure(&mut self, terminal_id: &str, now: Instant) {
+        let entry = self.terminals.entry(terminal_id.to_string()).or_default();
+        let delay_ms = if entry.retry_delay_ms == 0 {
+            SCREEN_READ_RETRY_INITIAL_MS
+        } else {
+            entry.retry_delay_ms.saturating_mul(2).min(SCREEN_READ_RETRY_MAX_MS)
+        };
+        entry.retry_delay_ms = delay_ms;
+        entry.retry_not_before = Some(now + Duration::from_millis(delay_ms));
+        entry.last_evaluated_at = Some(now);
     }
 
     /// True when this terminal previously journaled a screen-derived state
@@ -118,6 +146,8 @@ impl ScreenDetectTracker {
         // when the PTY produced no new bytes.
         entry.evaluated_revision = None;
         entry.last_evaluated_at = None;
+        entry.retry_not_before = None;
+        entry.retry_delay_ms = 0;
         true
     }
 
@@ -131,6 +161,8 @@ impl ScreenDetectTracker {
     ) -> Option<ScreenDetectEmission> {
         let entry = self.terminals.entry(terminal_id.to_string()).or_default();
         entry.evaluated_revision = Some(entry.revision);
+        entry.retry_not_before = None;
+        entry.retry_delay_ms = 0;
         let Some((agent, detection)) = detection else {
             let (agent, _) = entry.emitted.take()?;
             return Some(ScreenDetectEmission {
@@ -328,6 +360,21 @@ mod tests {
         // Swapping agents in place is an edge, and so is exiting.
         assert!(tracker.note_foreground_agent("term_a", Some("claude")));
         assert!(tracker.note_foreground_agent("term_a", None));
+    }
+
+    #[test]
+    fn screen_detect_tracker_backs_off_failed_screen_reads() {
+        let mut tracker = ScreenDetectTracker::default();
+        let t0 = Instant::now();
+
+        assert!(tracker.observe_revision("term_a", 1, t0));
+        tracker.note_evaluation_failure("term_a", t0);
+        assert!(!tracker.observe_revision("term_a", 1, t0 + Duration::from_millis(99)));
+        assert!(tracker.observe_revision("term_a", 1, t0 + Duration::from_millis(100)));
+
+        tracker.note_evaluation_failure("term_a", t0 + Duration::from_millis(100));
+        assert!(!tracker.observe_revision("term_a", 1, t0 + Duration::from_millis(299)));
+        assert!(tracker.observe_revision("term_a", 1, t0 + Duration::from_millis(300)));
     }
 
     #[test]
