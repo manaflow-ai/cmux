@@ -7221,7 +7221,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #if DEBUG
         let buttonList = sessions.map { $0.button.rawValue }.joined(separator: ",")
         cmuxDebugLog(
-            "terminal.mouseRepair surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
+            "terminal.mouseRepair surface=\(terminalSurface.id.uuidString.prefix(5)) " +
             "reason=\(reason) buttons=\(buttonList) physicalMask=\(physicalButtons.map(String.init) ?? "none")"
         )
 #endif
