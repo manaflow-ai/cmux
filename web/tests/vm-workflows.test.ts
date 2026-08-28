@@ -54,7 +54,11 @@ import {
 } from "../services/vms/workflows";
 
 const runDbTests = process.env.CMUX_DB_TEST === "1";
-const dbTest = runDbTests ? test : test.skip;
+// These cases share one Postgres database and several exercise paths read or
+// temporarily override process-wide VM plan limits. Keep the DB-backed group
+// explicitly serial even if a Bun config or command-line flag enables
+// concurrent tests for this file.
+const dbTest = runDbTests ? test.serial : test.skip;
 
 let sql: Sql | null = null;
 
