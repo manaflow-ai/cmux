@@ -30,6 +30,7 @@ use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use bytes::Bytes;
 use serde_json::{Value, json};
+use tokio_util::sync::CancellationToken;
 
 use crate::actions::{expand_path, scrubbed_env, validate_request_path};
 use crate::control::ControlHandle;
@@ -555,12 +556,28 @@ impl PtyManager {
 
     /// Handle one Worker -> relay PTY frame.
     pub async fn handle_frame(&self, frame: &Value, context: &FrameContext) {
+        self.handle_frame_with_open_cancellation(frame, context, None).await;
+    }
+
+    /// Handle a frame whose `pty_open` is owned by a connection-level
+    /// cancellation token. The token is created before the task is spawned,
+    /// so a deadline or disconnect can fence an open even when its task has
+    /// not received its first poll yet.
+    pub(crate) async fn handle_frame_with_open_cancellation(
+        &self,
+        frame: &Value,
+        context: &FrameContext,
+        cancellation: Option<CancellationToken>,
+    ) {
+        if cancellation.as_ref().is_some_and(|token| token.is_cancelled()) {
+            return;
+        }
         let frame_type = frame.get("type").and_then(Value::as_str).unwrap_or_default();
         if !self.inner.cache_transport_auth(context) {
             return;
         }
         match frame_type {
-            "pty_open" => self.inner.clone().open(frame, context).await,
+            "pty_open" => self.inner.clone().open(frame, context, cancellation).await,
             "pty_input" => {
                 let Some(pty_id) = frame.get("ptyId").and_then(Value::as_str) else { return };
                 if !self.inner.tunnel_authority_generation_current(context) {
@@ -817,7 +834,15 @@ fn send_typed_pty_error(
 }
 
 impl Inner {
-    async fn open(self: Arc<Self>, frame: &Value, context: &FrameContext) {
+    async fn open(
+        self: Arc<Self>,
+        frame: &Value,
+        context: &FrameContext,
+        cancellation: Option<CancellationToken>,
+    ) {
+        if cancellation.as_ref().is_some_and(|token| token.is_cancelled()) {
+            return;
+        }
         let pty_id = frame.get("ptyId").and_then(Value::as_str).unwrap_or_default().to_owned();
         if pty_id.is_empty() {
             return;
@@ -833,6 +858,9 @@ impl Inner {
                 return;
             }
         };
+        if cancellation.as_ref().is_some_and(|token| token.is_cancelled()) {
+            return;
+        }
         if !self.tunnel_authority_generation_current(context) {
             send_pty_error(context, &pty_id, "trust_revoked", "tunnel authority changed");
             return;
@@ -937,6 +965,9 @@ impl Inner {
         let env = pty_env(&self.env);
 
         let cmux_tui = self.deps.resolve_cmux_tui().await;
+        if cancellation.as_ref().is_some_and(|token| token.is_cancelled()) {
+            return;
+        }
         let opened = if let (Some(cmux_tui), Some(surface_ref)) =
             (cmux_tui.as_ref(), surface_ref.as_ref())
         {
@@ -1026,9 +1057,16 @@ impl Inner {
                 });
             let mut opening = self.opening_state.lock().expect("opening state lock");
             let cancelled = opening.cancelled.get(&pty_id) == Some(&reservation_owner);
+            let externally_cancelled =
+                cancellation.as_ref().is_some_and(|token| token.is_cancelled());
             let authority_changed = !self.tunnel_authority_generation_current(context);
             let reservation_owned = opening.reservations.get(&pty_id) == Some(&reservation_owner);
-            if !reservation_owned || cancelled || auth_changed || authority_changed {
+            if !reservation_owned
+                || cancelled
+                || externally_cancelled
+                || auth_changed
+                || authority_changed
+            {
                 if reservation_owned {
                     opening.reservations.remove(&pty_id);
                 }

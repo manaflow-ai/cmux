@@ -336,6 +336,10 @@ struct Connection {
     open_sent: AtomicBool,
     /// The manager answered pty_opened (clears the open deadline).
     opened_seen: AtomicBool,
+    /// Cancels an in-flight open on timeout, disconnect, or protocol error.
+    /// This token is created before the open task is spawned, so a task that
+    /// has not been polled cannot recreate a transport after its owner ends.
+    open_cancellation: CancellationToken,
     finished: AtomicBool,
     done: CancellationToken,
 }
@@ -410,6 +414,7 @@ impl Connection {
         if self.finished.swap(true, Ordering::SeqCst) {
             return;
         }
+        self.open_cancellation.cancel();
         if let Some(permit) = self.end_permit.lock().expect("tunnel end permit lock").take() {
             permit.send(WriterMessage::End);
         }
@@ -600,13 +605,23 @@ async fn handle_client_frame(connection: &Arc<Connection>, frame: TunnelFrame) {
             // direct timeout would drop `handle_frame` while its blocking PTY
             // spawn could still be running, leaving a late child with no
             // owner. The detached task retains the opening reservation; the
-            // connection cleanup marks that reservation cancelled, and
-            // `Opened` then kills any handle that arrives after the deadline.
+            // connection token also fences a task that has not reached the
+            // reservation yet. Cleanup marks any installed reservation
+            // cancelled, and `Opened` kills a handle that arrives late.
+            let open_cancellation = connection.open_cancellation.clone();
             let mut open_task = tokio::spawn({
                 let manager = Arc::clone(&connection.manager);
                 let open = open.clone();
                 let context = context.clone();
-                async move { manager.handle_frame(&open, &context).await }
+                async move {
+                    manager
+                        .handle_frame_with_open_cancellation(
+                            &open,
+                            &context,
+                            Some(open_cancellation),
+                        )
+                        .await
+                }
             });
             match tokio::time::timeout(OPEN_TIMEOUT, &mut open_task).await {
                 Ok(Ok(())) => {}
@@ -617,6 +632,7 @@ async fn handle_client_frame(connection: &Arc<Connection>, frame: TunnelFrame) {
                     // manager task still owns its semaphore permit and any
                     // late PTY result, so it cannot install a resource for a
                     // connection that has already timed out.
+                    connection.open_cancellation.cancel();
                     connection.manager.cancel_open(&connection.pty_id, &context);
                     connection.protocol_error("failed");
                     // Dropping a JoinHandle detaches the task. The bounded
@@ -688,6 +704,7 @@ async fn serve_connection(
         paused: AtomicBool::new(false),
         open_sent: AtomicBool::new(false),
         opened_seen: AtomicBool::new(false),
+        open_cancellation: CancellationToken::new(),
         finished: AtomicBool::new(false),
         done: CancellationToken::new(),
     });
@@ -1160,6 +1177,7 @@ mod tests {
                 paused: AtomicBool::new(false),
                 open_sent: AtomicBool::new(false),
                 opened_seen: AtomicBool::new(false),
+                open_cancellation: CancellationToken::new(),
                 finished: AtomicBool::new(false),
                 done: CancellationToken::new(),
             },
