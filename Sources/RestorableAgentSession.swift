@@ -888,7 +888,11 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
             restoringWorkingDirectory: effectiveWorkingDirectory
         ).map { command in
             AgentRestoreLaunch(kind: kind.rawValue, sessionID: sessionId)?
-                .applying(toStoredCommand: command) ?? command
+                .applying(
+                    toStoredCommand: command,
+                    routedLaunchCommand: launchCommand,
+                    checkpointID: sessionId
+                ) ?? command
         }
         return restoreCommand.map { $0 + "\n" }
     }
