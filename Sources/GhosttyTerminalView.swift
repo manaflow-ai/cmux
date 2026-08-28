@@ -6976,6 +6976,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
         if didChange {
             cancelDeferredGhosttyMouseRepair()
+            removeMouseUpEventMonitorIfUnused()
         }
         return didChange
     }
