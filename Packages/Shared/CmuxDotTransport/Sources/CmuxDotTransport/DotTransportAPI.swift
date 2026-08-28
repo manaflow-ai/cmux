@@ -192,6 +192,10 @@ public actor DotLeg {
         eventStream = stream
         eventContinuation = continuation
         stopped = false
+        configuration.journal.record(
+            component: "leg", event: "started",
+            attributes: ["role": configuration.role.rawValue]
+        )
         runTask = Task { [weak self] in
             await self?.runLoop()
         }
@@ -223,6 +227,15 @@ public actor DotLeg {
             sentGeneration: nil
         ))
         pendingBytes += payload.count
+        configuration.journal.record(
+            component: "leg", event: "data-queued",
+            attributes: [
+                "role": configuration.role.rawValue,
+                "destination": String(destination),
+                "seq": String(next),
+                "bytes": String(payload.count),
+            ]
+        )
         // A send is durable in the local resend queue before it touches the
         // socket. This is what makes a leg drop transparent to its caller.
         await flushPending()
@@ -247,6 +260,10 @@ public actor DotLeg {
     }
 
     private func runLoop() async {
+        configuration.journal.record(
+            component: "leg", event: "run-loop-started",
+            attributes: ["role": configuration.role.rawValue]
+        )
         while !stopped && !Task.isCancelled {
             do {
                 try await connectOnce()
@@ -254,6 +271,13 @@ public actor DotLeg {
                 try await receiveLoop()
             } catch {
                 guard !stopped && !Task.isCancelled else { break }
+                configuration.journal.record(
+                    component: "leg", event: "connect-loop-failed",
+                    attributes: [
+                        "role": configuration.role.rawValue,
+                        "error": String(describing: error),
+                    ]
+                )
                 ready = false
                 socket?.cancel(with: .abnormalClosure, reason: nil)
                 socket = nil
@@ -266,13 +290,21 @@ public actor DotLeg {
     }
 
     private func connectOnce() async throws {
+        configuration.journal.record(
+            component: "leg", event: "connect-start",
+            attributes: [
+                "role": configuration.role.rawValue,
+                "mac": String(configuration.macDeviceID.prefix(12)),
+            ]
+        )
         let token = try await configuration.tokenProvider()
         let wasResuming = resumeKey != nil
         if !wasResuming {
-            // A fresh leg gets a new relay id and therefore a new sequence
-            // namespace. Reusing a sequence after a failed resume would make
-            // the relay's coverage proof reject the next resume at ack=0.
-            nextSequenceByDestination.removeAll(keepingCapacity: false)
+            // A fresh leg gets a new relay id, so inbound coverage starts over.
+            // Keep upload sequence numbers monotonic across leg replacement.
+            // Resetting this map here races with a caller that queued the
+            // client hello immediately after `start()`, which can otherwise
+            // reuse sequence 1 for two different frames.
             lastReceivedBySource.removeAll(keepingCapacity: false)
         }
         var components = URLComponents(url: configuration.relayBaseURL, resolvingAgainstBaseURL: false)
@@ -293,6 +325,15 @@ public actor DotLeg {
             throw DotTransportError.invalidURL
         }
 
+        configuration.journal.record(
+            component: "leg", event: "connect-url",
+            attributes: [
+                "role": configuration.role.rawValue,
+                "url": wsURL.absoluteString,
+                "resuming": String(wasResuming),
+            ]
+        )
+
         var request = URLRequest(url: wsURL)
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.timeoutInterval = 15
@@ -310,15 +351,38 @@ public actor DotLeg {
                 : nil
         )
         try await task.send(.string(try hello.encoded()))
-        let message = try await receiveWithDeadline(task, seconds: 15)
+        let message: URLSessionWebSocketTask.Message
+        do {
+            message = try await receiveWithDeadline(task, seconds: 15)
+        } catch {
+            configuration.journal.record(
+                component: "leg", event: "connect-failed",
+                attributes: ["error": String(describing: error)]
+            )
+            throw error
+        }
         guard case .string(let text) = message,
               case let .helloAck(id, key, _, peerOnline, replayed) = try decodeControl(text)
-        else { throw DotTransportError.handshakeFailed("expected hello.ack") }
+        else {
+            configuration.journal.record(
+                component: "leg", event: "connect-failed",
+                attributes: ["error": "expected hello.ack"]
+            )
+            throw DotTransportError.handshakeFailed("expected hello.ack")
+        }
         legIDValue = id
         resumeKey = key
         ready = true
         authDeadline = nil
         eventContinuation?.yield(replayed > 0 ? .resumed(replayedFrames: replayed) : .up(peerOnline: peerOnline))
+        configuration.journal.record(
+            component: "leg", event: "connected",
+            attributes: [
+                "leg": String(id),
+                "peer_online": String(peerOnline),
+                "replayed": String(replayed),
+            ]
+        )
         await flushPending()
     }
 
@@ -377,7 +441,6 @@ public actor DotLeg {
                 resumeKey = nil
                 pending.removeAll(keepingCapacity: false)
                 pendingBytes = 0
-                nextSequenceByDestination.removeAll(keepingCapacity: false)
                 lastReceivedBySource.removeAll(keepingCapacity: false)
                 eventContinuation?.yield(.reset(reason: reason))
             case .peerOnline(let id, let device):
@@ -396,6 +459,14 @@ public actor DotLeg {
             guard frame.legID > 0 else {
                 throw DotTransportError.protocolViolation("missing source leg")
             }
+            configuration.journal.record(
+                component: "leg", event: "data-received",
+                attributes: [
+                    "source_leg": String(frame.legID),
+                    "seq": String(frame.seq),
+                    "bytes": String(frame.payload.count),
+                ]
+            )
             let previous = lastReceivedBySource[frame.legID] ?? 0
             guard frame.seq > previous else { return }
             lastReceivedBySource[frame.legID] = frame.seq
@@ -429,8 +500,26 @@ public actor DotLeg {
             do {
                 try await task.send(.data(frame))
             } catch {
+                configuration.journal.record(
+                    component: "leg", event: "data-send-failed",
+                    attributes: [
+                        "role": configuration.role.rawValue,
+                        "destination": String(item.destination),
+                        "seq": String(item.sequence),
+                        "error": String(describing: error),
+                    ]
+                )
                 return
             }
+            configuration.journal.record(
+                component: "leg", event: "data-sent",
+                attributes: [
+                    "role": configuration.role.rawValue,
+                    "destination": String(item.destination),
+                    "seq": String(item.sequence),
+                    "bytes": String(item.payload.count),
+                ]
+            )
             // An ack can prune this item while URLSession is suspended. Find
             // it by both sequence and destination, since host sequences are
             // independent for every phone leg.
@@ -601,7 +690,7 @@ public actor DotPeerEngine {
         setState(.connecting)
         let task = Task<any DotSecureSessionProtocol, any Error> { [weak self] in
             guard let self else { throw DotTransportError.stopped }
-            return try await self.establish()
+            return try await self.establishWithRetry()
         }
         connectTask = task
         do {
@@ -613,6 +702,66 @@ public actor DotPeerEngine {
             connectTask = nil
             guard !stopped else { return }
             setState(.closed(reason: String(describing: error)))
+        }
+    }
+
+    /// A route can become usable shortly after the attach ticket is delivered:
+    /// Stack sign-in, broker registration, and the Mac acceptor all complete
+    /// independently. Keep that expected launch race inside the single
+    /// reconnect owner, otherwise the deferred transport reports an
+    /// instantaneous permanent failure and never gets another dial trigger.
+    private func establishWithRetry() async throws -> any DotSecureSessionProtocol {
+        var delay: Duration = .milliseconds(250)
+        var lastError: (any Error)?
+        for attempt in 0..<7 {
+            do {
+                return try await establish()
+            } catch let error as DotTransportError {
+                guard Self.retryable(error), attempt < 6 else { throw error }
+                lastError = error
+                configuration.leg.journal.record(
+                    component: "session", event: "establish-retry",
+                    attributes: [
+                        "attempt": String(attempt + 1),
+                        "delay": String(describing: delay),
+                        "error": String(describing: error),
+                    ]
+                )
+            } catch {
+                // Composition errors include the auth coordinator's bounded
+                // `timedOut` result and first-contact broker discovery. They
+                // are retryable here; protocol/auth denials are represented
+                // by DotTransportError and are filtered above.
+                guard attempt < 6 else { throw error }
+                lastError = error
+                configuration.leg.journal.record(
+                    component: "session", event: "establish-retry",
+                    attributes: [
+                        "attempt": String(attempt + 1),
+                        "delay": String(describing: delay),
+                        "error": String(describing: error),
+                    ]
+                )
+            }
+            try await Task.sleep(for: delay)
+            delay = min(delay * 2, .seconds(8))
+        }
+        throw lastError ?? DotTransportError.admissionFailed("connection unavailable")
+    }
+
+    private static func retryable(_ error: DotTransportError) -> Bool {
+        switch error {
+        case .stopped, .protocolViolation:
+            return false
+        case .remote(let message):
+            // Relay authorization and capacity denials are definitive for
+            // this ticket. A close without an application error is a normal
+            // startup race and can be retried.
+            return !message.hasPrefix("unauthorized:")
+                && !message.hasPrefix("capacity:")
+        case .invalidURL, .notConnected, .handshakeFailed, .readLivenessExpired,
+             .sessionEnded, .admissionFailed, .backpressure:
+            return true
         }
     }
 
