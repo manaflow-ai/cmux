@@ -49,20 +49,20 @@ struct GhosttyMouseSessionLedgerTests {
         let ledger = GhosttyMouseSessionLedger()
         let surface = Self.surfaceIdentity(generation: 12, address: 0x303)
         ledger.transition(to: surface)
-        _ = try #require(ledger.begin(.left, on: surface))
+        let left = try #require(ledger.begin(.left, on: surface))
         _ = try #require(ledger.begin(.right, on: surface))
 
         let released = ledger.sessionsNeedingRepair(
             on: surface,
             physicalButtons: 1 << 0,
-            forcedButtons: []
+            forcedSessions: []
         )
         #expect(released.map(\.button) == [.right])
 
         let forced = ledger.sessionsNeedingRepair(
             on: surface,
             physicalButtons: 1 << 0,
-            forcedButtons: [.left]
+            forcedSessions: [left]
         )
         #expect(Set(forced.map(\.button)) == [.left, .right])
     }
