@@ -393,6 +393,52 @@ struct WorkspaceRecoveryTests {
     }
 
     @Test
+    func clearedUserTitleDoesNotEvictAutoTitleAcrossRestart() throws {
+        // Regression: a durable `.cleared` customization record (the user once
+        // cleared their title) must not clobber an `.auto` title restored from
+        // the session snapshot. Clearing re-enables auto-naming; it does not
+        // forbid it. Without the guard in applyWorkspaceCustomization, the
+        // reconcile pass that runs after restoreTitleState wipes the restored
+        // auto title on every restart.
+        let fixture = try makeCustomizationStore()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+        let store = fixture.store
+
+        // Seed the durable journal with a `.cleared` record for a stable id by
+        // setting then clearing a user title in a source manager.
+        let sourceManager = TabManager(
+            initialWorkingDirectory: "/tmp/cleared-vs-auto",
+            autoWelcomeIfNeeded: false,
+            workspaceCustomizationStore: store
+        )
+        let sourceWorkspace = try #require(sourceManager.selectedWorkspace)
+        #expect(sourceManager.setCustomTitle(tabId: sourceWorkspace.id, title: "Old User Title"))
+        sourceManager.clearCustomTitle(tabId: sourceWorkspace.id)
+        #expect(
+            store.customization(for: sourceWorkspace.stableId) ==
+                WorkspaceCustomization(customTitle: .cleared, customColor: .absent)
+        )
+
+        // Simulate a later session where auto-naming derived a title for the
+        // same workspace; the snapshot persists it with `.auto` provenance.
+        var snapshot = sourceWorkspace.sessionSnapshot(includeScrollback: false)
+        snapshot.customTitle = "Auto Derived Title"
+        snapshot.customTitleSource = .auto
+
+        let restoredManager = TabManager(
+            autoWelcomeIfNeeded: false,
+            workspaceCustomizationStore: store
+        )
+        restoredManager.restoreSessionSnapshot(SessionTabManagerSnapshot(
+            selectedWorkspaceIndex: 0,
+            workspaces: [snapshot]
+        ))
+        let restoredWorkspace = try #require(restoredManager.selectedWorkspace)
+        #expect(restoredWorkspace.customTitle == "Auto Derived Title")
+        #expect(restoredWorkspace.effectiveCustomTitleSource == .auto)
+    }
+
+    @Test
     func titleAndColorRecoveryFieldsRemainIndependent() throws {
         let fixture = try makeCustomizationStore()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
