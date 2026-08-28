@@ -418,7 +418,6 @@ describe("POST /api/relay/token", () => {
     expect(response.headers.get("retry-after")).toBe("60");
     expect(await response.json()).toEqual({
       error: "rate_limited",
-      source: "auth_provider",
     });
 
     const statusLimited = await handleRelayTokenRequest(
@@ -468,7 +467,6 @@ describe("POST /api/relay/token", () => {
     expect(response.headers.get("retry-after")).toBe("60");
     expect(await response.json()).toEqual({
       error: "rate_limited",
-      source: "ingress_ip",
     });
     expect(authCalls).toBe(0);
   });
@@ -490,9 +488,7 @@ describe("POST /api/relay/token", () => {
       }),
     );
     expect(limited.status).toBe(429);
-    expect(await limited.clone().json()).toEqual(
-      expect.objectContaining({ error: "rate_limited", source: "device_budget" }),
-    );
+    expect(await limited.clone().json()).toEqual({ error: "rate_limited" });
     // Partitioned per device, protocol phase, and minute: a storming endpoint
     // starves only its duplicate work, never bootstrap, renewal, or another
     // phone, simulator, or tagged build.

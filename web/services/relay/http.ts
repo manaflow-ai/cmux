@@ -103,10 +103,9 @@ export function relayErrorResponse(error: unknown): Response {
   if (tag === "RelayAuthenticationError") {
     const typed = error as RelayAuthenticationError;
     const rateLimited = typed.code === "rate_limited";
-    const source = rateLimited ? { source: "auth_provider" } : {};
     console.error("relay.auth.unavailable", { reason: typed.code });
     return jsonResponse(
-      { error: rateLimited ? "rate_limited" : "authentication_unavailable", ...source },
+      { error: rateLimited ? "rate_limited" : "authentication_unavailable" },
       rateLimited ? 429 : 503,
       typed.retryAfterSeconds === undefined
         ? undefined
@@ -115,9 +114,8 @@ export function relayErrorResponse(error: unknown): Response {
   }
   if (tag === "RelayRateLimitError") {
     const code = (error as RelayRateLimitError).code;
-    const limitSource = (error as RelayRateLimitError).source;
     return jsonResponse(
-      { error: code, ...(limitSource ? { source: limitSource } : {}) },
+      { error: code },
       code === "rate_limited" ? 429 : 503,
       code === "rate_limited" &&
       (error as RelayRateLimitError).retryAfterSeconds !== undefined
