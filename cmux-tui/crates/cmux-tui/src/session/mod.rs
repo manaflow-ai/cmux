@@ -36,8 +36,8 @@ use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
 pub use remote::{
-    RemoteMessageReader, RemoteMessageWriter, RemoteSession, RemoteSurface, RemoteTransport,
-    RemoteTransportAbort,
+    PipeIoEvent, RemoteMessageReader, RemoteMessageWriter, RemoteSession, RemoteSurface,
+    RemoteTransport, RemoteTransportAbort,
 };
 pub use tree::{TabNotificationView, TreeView, WorkspaceView};
 
