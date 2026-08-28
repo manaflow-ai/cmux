@@ -51,6 +51,30 @@ import {
 const ROUTE_TOKEN_TTL_SECONDS = 12 * 60 * 60;
 const DEFAULT_SANDBOX_ENVS = { LANG: "C.UTF-8" };
 const EXEC_DEFAULT_TIMEOUT_MS = 30_000;
+// envd is E2B's in-VM control plane (process exec + filesystem): the SDK reaches
+// it through the SAME public port proxy on 49983, so an inbound firewall MUST
+// keep it open or every commands.run/attach breaks (researched live 2026-08-28:
+// ss shows `envd` listening on *:49983; a default-deny INPUT that allows 49983 +
+// 1337 kept control and attach alive while a port-3000 dev server became
+// unreachable externally). ConnectionConfig.envdPort in the e2b SDK is the same
+// constant.
+export const ENVD_CONTROL_PORT = 49983;
+// A dedicated INPUT chain that ends in DROP, hooked once. Reversible (flush the
+// chain) and idempotent (re-hook only if absent), unlike flipping INPUT's policy.
+// allowPublicTraffic exposes every listening port at `<port>-<id>.e2b.app`; this
+// closes all of them except the cmux-tui daemon (1337) and envd (49983), so a
+// user's dev server on 3000 is not silently world-reachable.
+export const INBOUND_FIREWALL_COMMAND = [
+  "command -v iptables >/dev/null 2>&1 || exit 0",
+  "iptables -w -N CMUX_FW 2>/dev/null || iptables -w -F CMUX_FW",
+  "iptables -w -A CMUX_FW -i lo -j ACCEPT",
+  "iptables -w -A CMUX_FW -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT",
+  "iptables -w -A CMUX_FW -p icmp -j ACCEPT",
+  `iptables -w -A CMUX_FW -p tcp --dport ${ENVD_CONTROL_PORT} -j ACCEPT`,
+  `iptables -w -A CMUX_FW -p tcp --dport ${CMUX_TUI_PORT} -j ACCEPT`,
+  "iptables -w -A CMUX_FW -j DROP",
+  "iptables -w -C INPUT -j CMUX_FW 2>/dev/null || iptables -w -I INPUT 1 -j CMUX_FW",
+].join(" && ");
 
 export class E2BProvider implements VMProvider {
   readonly id = "e2b" as const;
@@ -303,6 +327,25 @@ export class E2BProvider implements VMProvider {
     }
     await this.startCmuxTuiDaemon(sandbox);
     await waitForCmuxTuiReady(this.cmuxTuiInvoke(sandbox), "e2b", sandbox.sandboxId);
+    await this.applyInboundFirewall(sandbox);
+  }
+
+  /**
+   * Close every externally reachable port except the cmux-tui daemon (1337)
+   * and envd (49983). allowPublicTraffic exposes every listener at
+   * `<port>-<id>.e2b.app`, so without this a user's dev server would be
+   * world-reachable. Best-effort: a firewall failure must not brick a machine
+   * whose daemon is already up, so it is logged, not thrown. Idempotent, so
+   * ensureCmuxTuiRunning re-asserts it after resume/restore.
+   */
+  private async applyInboundFirewall(sandbox: Sandbox): Promise<void> {
+    const result = await this.rootExec(sandbox, INBOUND_FIREWALL_COMMAND).catch(() => null);
+    if (!result || result.exitCode !== 0) {
+      console.error(
+        `[e2b] inbound firewall on ${sandbox.sandboxId} did not apply cleanly; ports other than ${CMUX_TUI_PORT}/${ENVD_CONTROL_PORT} may be publicly reachable`,
+        result?.stderr || result?.stdout || "",
+      );
+    }
   }
 
   /**
@@ -324,6 +367,9 @@ export class E2BProvider implements VMProvider {
     }
     await this.startCmuxTuiDaemon(sandbox);
     await waitForCmuxTuiReady(this.cmuxTuiInvoke(sandbox), "e2b", sandbox.sandboxId);
+    // Re-assert the inbound firewall: a fresh restore boots with no rules, and
+    // a resume that somehow lost them is repaired here (idempotent).
+    await this.applyInboundFirewall(sandbox);
   }
 
   private async startCmuxTuiDaemon(sandbox: Sandbox): Promise<void> {

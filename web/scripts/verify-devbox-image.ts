@@ -31,6 +31,7 @@ import {
   cmuxTuiInstallCommand,
   resolveCmuxTuiSource,
 } from "../services/vms/drivers/cmuxTuiDaemon";
+import { ENVD_CONTROL_PORT, INBOUND_FIREWALL_COMMAND } from "../services/vms/drivers/e2b";
 import { devboxAgentPins, devboxDir, sha256File } from "./devbox-image-common";
 
 const pins = devboxAgentPins();
@@ -110,27 +111,81 @@ async function runChecks(label: string, checks: readonly string[], exec: Exec): 
 /**
  * Replays the driver's create-time bootstrap: install the pinned build
  * (sha256-verified by the install command itself), make sure something runs
- * the daemon (the image supervisor on Daytona/Freestyle; a detached launch
- * here stands in for the E2B driver's background command), and wait for the
- * session to answer.
+ * the daemon, and wait for the session to answer.
+ *
+ * How the daemon is started differs per provider, exactly as in production:
+ * E2B has no in-image supervisor, so its driver launches the daemon through
+ * the provider's native background-process API (a `setsid nohup … &` shell
+ * trick races E2B's cgroup teardown when the exec returns); Daytona and
+ * Freestyle bake a supervisor (`cmux-devbox-boot` as the snapshot entrypoint
+ * or a systemd unit) that starts the daemon on its own once the binary
+ * exists, so `startDaemon` is a no-op there.
  */
-async function bootstrapDaemon(provider: string, exec: Exec): Promise<void> {
+async function bootstrapDaemon(
+  provider: string,
+  exec: Exec,
+  startDaemon: () => Promise<void>,
+): Promise<void> {
   const source = await resolveCmuxTuiSource();
   console.log(`cmux-tui pin: commit ${source.commit} sha256 ${source.sha256.slice(0, 12)}…`);
   const install = await exec(cmuxTuiInstallCommand(source), 5 * 60 * 1000);
   if (install.exitCode !== 0) {
     throw new Error(`cmux-tui install failed: ${install.output.slice(-2000)}`);
   }
-  await exec(
-    `pgrep -f 'cmux-tui server start' >/dev/null 2>&1 || (setsid nohup sh -c '${cmuxTuiDaemonCommand()}' >>/tmp/cmux-tui-daemon.log 2>&1 &)`,
-    60_000,
-  );
-  for (let attempt = 0; attempt < 30; attempt += 1) {
+  await startDaemon();
+  for (let attempt = 0; attempt < 45; attempt += 1) {
     const status = await exec(`env HOME=/root /root/.cmux/bin/cmux-tui server status --session ${CMUX_TUI_SESSION}`, 30_000);
     if (status.exitCode === 0) return;
     await new Promise((resolve) => setTimeout(resolve, 1000));
   }
   throw new Error(`${provider}: cmux-tui daemon did not become ready`);
+}
+
+/**
+ * Proves the E2B driver's inbound firewall (INBOUND_FIREWALL_COMMAND) does
+ * what it must: after applying it, envd control (this very exec path) and the
+ * cmux-tui daemon (1337) stay reachable, while a scratch listener on a
+ * non-allowed port becomes unreachable from outside. Uses the exact command
+ * string the driver runs, so drift can't hide.
+ */
+async function verifyE2bFirewall(sbx: Sandbox, exec: Exec): Promise<boolean> {
+  const scratchPort = 4820;
+  // A minimal HTTP responder on the scratch port (reachable before firewall).
+  await sbx.commands
+    .run(
+      `nohup sh -c 'while true; do printf "HTTP/1.1 200 OK\\r\\ncontent-length: 2\\r\\n\\r\\nok" | nc -l -p ${scratchPort} -q1; done' >/tmp/scratch.log 2>&1`,
+      { background: true, user: "root", timeoutMs: 0 },
+    )
+    .catch(() => undefined);
+  await new Promise((resolve) => setTimeout(resolve, 1500));
+  const probe = async (port: number): Promise<string> => {
+    const host = sbx.getHost(port);
+    const res = await fetch(`https://${host}/`, { signal: AbortSignal.timeout(12_000) }).catch((e) => String(e));
+    return typeof res === "string" ? (res.includes("imeout") ? "blocked" : res) : `reachable(${res.status})`;
+  };
+  const scratchBefore = await probe(scratchPort);
+
+  const applied = await exec(INBOUND_FIREWALL_COMMAND, 60_000);
+  if (applied.exitCode !== 0) {
+    console.log(`[e2b firewall] apply FAILED exit=${applied.exitCode}\n    ${applied.output.trim()}`);
+    return false;
+  }
+  // envd control must survive (this exec reaches the VM through envd on 49983).
+  const ctrl = await exec("echo envd-control-alive", 30_000);
+  const daemon = await exec(`env HOME=/root /root/.cmux/bin/cmux-tui server status --session ${CMUX_TUI_SESSION} >/dev/null && echo daemon-alive`, 30_000);
+  const scratchAfter = await probe(scratchPort);
+
+  const ok =
+    ctrl.exitCode === 0 &&
+    daemon.exitCode === 0 &&
+    scratchBefore.startsWith("reachable") &&
+    scratchAfter === "blocked";
+  console.log(
+    `[e2b firewall] envd(${ENVD_CONTROL_PORT})=${ctrl.exitCode === 0 ? "alive" : "DEAD"} ` +
+      `daemon(1337)=${daemon.exitCode === 0 ? "alive" : "DEAD"} ` +
+      `scratch(${scratchPort}) before=${scratchBefore} after=${scratchAfter} => ${ok ? "PASS" : "FAIL"}`,
+  );
+  return ok;
 }
 
 const provider = process.argv[2] ?? "";
@@ -155,8 +210,17 @@ if (provider === "e2b") {
       });
       return { exitCode: r.exitCode, output: `${r.stdout}${r.stderr}` };
     };
-    await bootstrapDaemon("e2b", exec);
-    pass = await runChecks("e2b", [...CHECKS, ...DAEMON_CHECKS], exec);
+    // Mirror the E2B driver: start the daemon through the native background
+    // API so envd does not reap it when the launching exec returns.
+    await bootstrapDaemon("e2b", exec, async () => {
+      await sbx.commands.run(cmuxTuiDaemonCommand(), { background: true, user: "root", timeoutMs: 0 });
+    });
+    // Prove the driver's inbound firewall keeps attach alive: start a scratch
+    // listener on a non-allowed port, apply the exact firewall the driver
+    // applies, then confirm envd control + 1337 still work and the scratch
+    // port is unreachable from outside.
+    const firewallOk = await verifyE2bFirewall(sbx, exec);
+    pass = firewallOk && (await runChecks("e2b", [...CHECKS, ...DAEMON_CHECKS], exec));
   } finally {
     await sbx.kill();
     console.log(`killed ${sbx.sandboxId}`);
@@ -180,7 +244,9 @@ if (provider === "e2b") {
         return { exitCode: 124, output: String(error).slice(0, 500) };
       }
     };
-    await bootstrapDaemon("daytona", exec);
+    // The snapshot entrypoint (cmux-devbox-boot) supervises the daemon and
+    // starts it on its own once the binary is installed.
+    await bootstrapDaemon("daytona", exec, async () => {});
     pass = await runChecks("daytona", [
       ...CHECKS,
       ...DAEMON_CHECKS,
@@ -222,7 +288,8 @@ if (provider === "e2b") {
         output: `${r.stdout ?? ""}${r.stderr ?? ""}`,
       };
     };
-    await bootstrapDaemon("freestyle", exec);
+    // The baked cmux-tui-daemon systemd unit supervises the daemon.
+    await bootstrapDaemon("freestyle", exec, async () => {});
     pass = await runChecks("freestyle", [
       ...CHECKS,
       ...DAEMON_CHECKS,
