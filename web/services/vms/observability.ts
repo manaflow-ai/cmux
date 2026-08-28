@@ -132,7 +132,9 @@ export function captureVmProvisionOutcome(
     operation: input.operation,
     success,
     status,
-    operator_fault: code !== undefined && isOperatorFaultVmError({ error: code, status }),
+    // A missing code on a 5xx (a response that bypassed vmErrorResponse) is
+    // still an operator fault; isOperatorFaultVmError treats every 5xx as one.
+    operator_fault: isOperatorFaultVmError({ error: code ?? "", status }),
     schema_version: 2,
     $insert_id: randomUUID(),
     $geoip_disable: true,

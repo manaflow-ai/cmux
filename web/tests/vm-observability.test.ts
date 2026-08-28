@@ -181,6 +181,14 @@ describe("cloud_vm_provision capture", () => {
     expect(attributes["cmux.vm.provision_error_code"]).toBe("vm_create_disabled");
   });
 
+  test("a 5xx without the error header still counts as operator fault", () => {
+    const { body } = captured(new Response("boom", { status: 500 }));
+    const properties = body?.properties as Record<string, unknown>;
+    expect(properties.status).toBe(500);
+    expect(properties.error_code).toBeUndefined();
+    expect(properties.operator_fault).toBe(true);
+  });
+
   test("capture is disabled outside production unless forced", () => {
     let called = false;
     const fakeFetch = (() => {
