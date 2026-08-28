@@ -3,6 +3,17 @@ import Testing
 
 @Suite("AgentLaunchEnvironmentPolicy")
 struct AgentLaunchEnvironmentPolicyTests {
+    @Test("Custom Codex executable remains scoped to Codex restores")
+    func customCodexExecutableRemainsScopedToCodexRestores() {
+        let policy = AgentLaunchEnvironmentPolicy()
+        let environment = ["CMUX_CUSTOM_CODEX_PATH": "/opt/custom/codex"]
+
+        #expect(policy.selectedEnvironment(from: environment, kind: "codex") == environment)
+        #expect(policy.selectedEnvironment(from: environment, kind: "claude").isEmpty)
+        #expect(policy.selectedEnvironment(from: environment, kind: "pi").isEmpty)
+        #expect(policy.selectedEnvironment(from: environment, kind: nil).isEmpty)
+    }
+
     @Test("Preserves OMP config roots without persisting secrets")
     func preservesOmpConfigRootsWithoutPersistingSecrets() {
         let selected = AgentLaunchEnvironmentPolicy().selectedEnvironment(
