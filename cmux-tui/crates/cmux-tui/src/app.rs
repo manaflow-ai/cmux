@@ -17457,17 +17457,17 @@ impl App {
         }
     }
 
-    fn preview_workspace(&mut self, index: usize) {
+    fn preview_workspace(&mut self, index: usize) -> bool {
         let Some(target) = self.tree.workspaces.get(index).map(|workspace| workspace.id) else {
-            return;
+            return false;
         };
         let Some(current) = self.tree.active_workspace().map(|workspace| workspace.id) else {
-            return;
+            return false;
         };
         if self.tree.active_workspace == index
             && self.workspace_preview.is_some_and(|preview| preview.target == target)
         {
-            return;
+            return true;
         }
         let origin = self.workspace_preview.map_or(current, |preview| preview.origin);
         let origin_scroll = self
@@ -17475,18 +17475,19 @@ impl App {
             .map_or(self.workspace_rail_scroll, |preview| preview.origin_scroll);
         if target == origin {
             if self.workspace_preview.is_some() && !self.prepare_pty_input_before_mutation() {
-                return;
+                return false;
             }
             self.cancel_workspace_preview();
-            return;
+            return true;
         }
         if !self.prepare_pty_input_before_mutation() {
-            return;
+            return false;
         }
         self.workspace_preview = Some(WorkspacePreview { origin, target, origin_scroll });
         self.workspace_preview_revision = Some(self.tree.workspace_revision);
         self.workspace_preview_target_index = Some(index);
         self.tree.active_workspace = index;
+        true
     }
 
     fn commit_workspace_preview(&mut self) {
@@ -17572,13 +17573,14 @@ impl App {
                 if let Some(index) =
                     self.tree.workspaces.iter().position(|workspace| workspace.id == id)
                 {
-                    if self.sidebar_workspace_selection != index {
-                        self.tabs_rail_selection = 0;
-                        self.tabs_rail_scroll = 0;
+                    if self.preview_workspace(index) {
+                        if self.sidebar_workspace_selection != index {
+                            self.tabs_rail_selection = 0;
+                            self.tabs_rail_scroll = 0;
+                        }
+                        self.sidebar_workspace_selection = index;
+                        self.workspace_rail_selection = WorkspaceRailSelection::Workspace;
                     }
-                    self.sidebar_workspace_selection = index;
-                    self.workspace_rail_selection = WorkspaceRailSelection::Workspace;
-                    self.preview_workspace(index);
                 }
             }
             WorkspaceRailTarget::Recoverable(id) => {
