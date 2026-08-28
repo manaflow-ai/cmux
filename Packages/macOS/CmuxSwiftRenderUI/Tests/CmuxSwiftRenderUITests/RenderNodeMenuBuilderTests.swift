@@ -275,6 +275,30 @@ struct RenderNodeMenuBuilderTests {
         #expect(!rowOverlay.deeperOverlayClaims(NSPoint(x: 175, y: 20)))
     }
 
+    @Test("a sibling row overlay does not suppress the current row menu")
+    func siblingOverlayDoesNotClaim() {
+        let menuNodes = [RenderNode(kind: .button, text: "Row",
+                                    action: ButtonAction(commands: [.log("row")]))]
+
+        // SwiftUI may flatten separate row overlays into one hosting view.
+        // The sibling row overlaps this point but is not nested in the row
+        // whose overlay is asking whether to defer.
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 80))
+        let siblingRow = NSView(frame: NSRect(x: 150, y: 40, width: 50, height: 40))
+        let siblingOverlay = RenderNodeContextMenuView(frame: siblingRow.bounds)
+        siblingOverlay.nodes = menuNodes
+        siblingRow.addSubview(siblingOverlay)
+        container.addSubview(siblingRow)
+
+        let rowOverlay = RenderNodeContextMenuView(frame: NSRect(x: 0, y: 0, width: 200, height: 80))
+        rowOverlay.nodes = menuNodes
+        container.addSubview(rowOverlay)
+
+        // The point is inside both rows. Only a nested overlay in the current
+        // row should make `deeperOverlayClaims` return true.
+        #expect(!rowOverlay.deeperOverlayClaims(NSPoint(x: 175, y: 60)))
+    }
+
     @Test("interpreter .contextMenu IR round-trips into the expected NSMenu")
     func interpreterEndToEnd() {
         let interp = SwiftViewInterpreter()
