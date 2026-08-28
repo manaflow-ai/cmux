@@ -52,6 +52,7 @@ export class RelayAccountDeletionBlockedError extends Data.TaggedError(
 export class RelayRateLimitError extends Data.TaggedError("RelayRateLimitError")<{
   readonly code: "rate_limited" | "rate_limit_unavailable";
   readonly retryAfterSeconds?: number;
+  readonly source?: RelayRateLimitSource;
 }> {}
 
 export class RelayAuthenticationError extends Data.TaggedError(
@@ -61,6 +62,11 @@ export class RelayAuthenticationError extends Data.TaggedError(
   readonly cause: unknown;
   readonly retryAfterSeconds?: number;
 }> {}
+
+/** Which enforcement layer produced a 429; diagnosing the 08-27 incident
+ * required hours of elimination because all three were indistinguishable. */
+export type RelayRateLimitSource = "ingress_ip" | "device_budget" | "auth_provider";
+
 
 export class RelaySigningError extends Data.TaggedError("RelaySigningError")<{
   readonly cause: unknown;
@@ -77,6 +83,9 @@ const MAX_AUTH_ERROR_METADATA_DEPTH = 8;
  */
 export function relayAuthenticationError(cause: unknown): RelayAuthenticationError {
   const rateLimited = hasRateLimitSignal(cause);
+  if (rateLimited) {
+    console.warn("relay.rate_limited", { source: "auth_provider" });
+  }
   return new RelayAuthenticationError({
     code: rateLimited ? "rate_limited" : "unavailable",
     cause,
