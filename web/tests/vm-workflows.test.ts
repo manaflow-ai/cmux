@@ -72,6 +72,7 @@ if (runDbTests) {
     fallbackType: typeof (directFreeLimit ?? "1"),
     numberOne: Number("1"),
     numberOneIsSafe: Number.isSafeInteger(Number("1")),
+    resolverSource: maxActiveVmsForPlan.toString(),
   });
 }
 
