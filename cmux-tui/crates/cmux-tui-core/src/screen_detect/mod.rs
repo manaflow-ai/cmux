@@ -432,15 +432,11 @@ mod tests {
         const CLOSED_COUNT: usize = 1_024;
 
         let mut tracker = ScreenDetectTracker::default();
-        let live_ids: Vec<String> =
-            (0..LIVE_COUNT).map(|index| format!("live-{index}")).collect();
+        let live_ids: Vec<String> = (0..LIVE_COUNT).map(|index| format!("live-{index}")).collect();
         let closed_ids: Vec<String> =
             (0..CLOSED_COUNT).map(|index| format!("closed-{index}")).collect();
         for terminal_id in live_ids.iter().chain(&closed_ids) {
-            tracker.record_detection(
-                terminal_id,
-                Some(("codex", detection(ScreenState::Working))),
-            );
+            tracker.record_detection(terminal_id, Some(("codex", detection(ScreenState::Working))));
         }
 
         let builds = Arc::new(AtomicUsize::new(0));
