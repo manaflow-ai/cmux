@@ -459,6 +459,27 @@ pub(super) fn migrate_resource_browser_metadata(
 }
 
 impl WorkspaceRegistry {
+    pub(super) fn stage_agent_hook_pending(
+        transaction: &Transaction<'_>,
+        producer_id: &str,
+        origin: &str,
+        idempotency_key: &str,
+        sequence: u64,
+        ingress: &crate::JournalIngress,
+    ) -> anyhow::Result<()> {
+        let ingress_json = serde_json::to_string(ingress)?;
+        transaction.execute(
+            "INSERT INTO resource_agent_hook_pending(
+               producer_id, origin, idempotency_key, event_sequence, ingress_json, error, attempt
+             ) VALUES(?1, ?2, ?3, ?4, ?5, '', 0)
+             ON CONFLICT(producer_id, origin, idempotency_key) DO UPDATE SET
+               event_sequence = excluded.event_sequence,
+               ingress_json = excluded.ingress_json",
+            params![producer_id, origin, idempotency_key, i64::try_from(sequence)?, ingress_json],
+        )?;
+        Ok(())
+    }
+
     pub fn enqueue_agent_hook_pending(
         &mut self,
         producer_id: &str,
@@ -479,7 +500,11 @@ impl WorkspaceRegistry {
                event_sequence = excluded.event_sequence,
                ingress_json = excluded.ingress_json,
                error = excluded.error,
-               attempt = resource_agent_hook_pending.attempt + 1",
+               attempt = CASE
+                 WHEN resource_agent_hook_pending.attempt < 9223372036854775807
+                 THEN resource_agent_hook_pending.attempt + 1
+                 ELSE resource_agent_hook_pending.attempt
+               END",
             params![
                 producer_id,
                 origin,

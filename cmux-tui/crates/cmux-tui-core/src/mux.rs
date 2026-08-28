@@ -21975,6 +21975,49 @@ mod tests {
     }
 
     #[test]
+    fn journal_commit_preseeds_hook_retry_before_projection() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = mux.with_state(|state| {
+            match state.resource_indexes.content_ids.get(&surface.id).unwrap() {
+                ContentPublicId::Terminal(id) => id.clone(),
+                ContentPublicId::Browser(_) => panic!("workspace opened a browser"),
+            }
+        });
+        let ingress = crate::agent_hooks::agent_hook_journal_ingress(
+            "claude",
+            "UserPromptSubmit",
+            Some(&terminal_id.to_string()),
+            serde_json::json!({}),
+        )
+        .unwrap();
+        let validated = mux.journal_kernel.validate_ingress(&ingress).unwrap();
+        let commit = mux
+            .workspace_registry
+            .lock()
+            .unwrap()
+            .append_journal_ingress(&ingress, &validated, "test", "crash-window")
+            .unwrap();
+        assert!(!commit.replayed);
+        assert_eq!(
+            mux.workspace_registry.lock().unwrap().pending_agent_hook_projections().unwrap().len(),
+            1
+        );
+
+        let replay = mux.append_journal_ingress(&ingress, "test", "crash-window").unwrap();
+        assert!(replay.replayed);
+        assert!(
+            mux.workspace_registry
+                .lock()
+                .unwrap()
+                .pending_agent_hook_projections()
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(mux.list_agents(Some(surface.id), None)[0].state, AgentState::Working);
+    }
+
+    #[test]
     fn late_socket_report_cannot_resurrect_hook_ended_agent() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, None).unwrap();
