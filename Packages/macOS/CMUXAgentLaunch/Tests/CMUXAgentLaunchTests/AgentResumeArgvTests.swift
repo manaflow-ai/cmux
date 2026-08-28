@@ -325,6 +325,37 @@ struct AgentResumeArgvTests {
                 launcher: "codex",
                 sessionId: "SID",
                 executablePath: "/opt/bin/codex",
+                arguments: [
+                    "/opt/bin/codex",
+                    "-c", "model_provider=subrouter",
+                    "-c", "model_provider=openai",
+                ],
+                environment: ["SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume"]
+            ) == .passthrough
+        )
+
+        #expect(
+            AgentResumeArgv().launcherResolution(
+                launcher: "codex",
+                sessionId: "SID",
+                executablePath: "/opt/bin/codex",
+                arguments: [
+                    "/opt/bin/codex",
+                    "-c", "model_provider=openai",
+                    "--config=model_provider='subrouter'",
+                ],
+                environment: ["SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume"]
+            ) == .resolved([
+                "sr", "codex", "resume", "SID",
+                "-c", "check_for_update_on_startup=false",
+            ])
+        )
+
+        #expect(
+            AgentResumeArgv().launcherResolution(
+                launcher: "codex",
+                sessionId: "SID",
+                executablePath: "/opt/bin/codex",
                 arguments: ["/opt/bin/codex"],
                 environment: ["SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume"]
             ) == .passthrough
