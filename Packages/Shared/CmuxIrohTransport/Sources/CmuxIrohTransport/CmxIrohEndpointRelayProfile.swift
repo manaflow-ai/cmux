@@ -1,6 +1,10 @@
 import Foundation
 
 /// The complete relay policy installed on one Iroh endpoint generation.
+///
+/// Managed relays carry no client credentials: the relay handshake proves the
+/// endpoint key and the relay's server-side allow hook decides admission.
+/// Custom relays may still carry a user-configured static token.
 public struct CmxIrohEndpointRelayProfile: Equatable, Sendable {
     enum Source: Equatable, Sendable {
         case managed
@@ -10,11 +14,6 @@ public struct CmxIrohEndpointRelayProfile: Equatable, Sendable {
     struct Relay: Equatable, Sendable {
         let url: String
         let authenticationToken: String?
-        let expiresAt: Date?
-
-        func isUsable(at now: Date) -> Bool {
-            expiresAt.map { $0 > now } ?? true
-        }
     }
 
     /// Exact relay origins accepted in peer reachability hints.
@@ -22,15 +21,13 @@ public struct CmxIrohEndpointRelayProfile: Equatable, Sendable {
 
     let source: Source
     let activeRelays: [Relay]
-    let managedRelays: [CmxIrohRelayConfiguration]
 
     /// A fail-closed profile used when a selected custom relay profile cannot
     /// be restored. Direct P2P stays enabled, while every relay is disabled.
     public static let unavailableCustomOverride = CmxIrohEndpointRelayProfile(
         allowedRelayURLs: [],
         source: .custom,
-        activeRelays: [],
-        managedRelays: []
+        activeRelays: []
     )
 
     /// A fail-closed profile used when a managed relay selection cannot be
@@ -38,72 +35,41 @@ public struct CmxIrohEndpointRelayProfile: Equatable, Sendable {
     public static let unavailableManagedSelection = CmxIrohEndpointRelayProfile(
         allowedRelayURLs: [],
         source: .managed,
-        activeRelays: [],
-        managedRelays: []
+        activeRelays: []
     )
 
     private init(
         allowedRelayURLs: Set<String>,
         source: Source,
-        activeRelays: [Relay],
-        managedRelays: [CmxIrohRelayConfiguration]
+        activeRelays: [Relay]
     ) {
         self.allowedRelayURLs = allowedRelayURLs
         self.source = source
         self.activeRelays = activeRelays
-        self.managedRelays = managedRelays
     }
 
-    /// Creates a managed profile whose credentials are constrained by an
-    /// app-pinned or root-verified relay allowlist.
+    /// Creates a managed profile in which every allowed relay is active with
+    /// no client credential.
     ///
-    /// The allowlist may contain relays without a current credential so an
-    /// endpoint can bind before broker refresh completes.
-    ///
-    /// - Parameters:
-    ///   - allowedRelayURLs: Exact managed relay origins accepted by policy.
-    ///   - relays: Current endpoint-scoped credentials for a subset of the allowlist.
+    /// - Parameter allowedRelayURLs: Exact managed relay origins accepted by policy.
     /// - Throws: ``CmxIrohEndpointConfigurationError`` for a policy violation.
-    public init(
-        managedRelayURLs allowedRelayURLs: Set<String>,
-        relays: [CmxIrohRelayConfiguration]
-    ) throws {
-        try Self.validate(
-            allowedRelayURLs: allowedRelayURLs,
-            relayURLs: relays.map(\.url)
-        )
+    public init(managedRelayURLs allowedRelayURLs: Set<String>) throws {
+        guard allowedRelayURLs.count <= CmxIrohRelayPolicyVerifier.maximumRelayCount else {
+            throw CmxIrohEndpointConfigurationError.tooManyRelays(allowedRelayURLs.count)
+        }
         self.allowedRelayURLs = allowedRelayURLs
         source = .managed
-        activeRelays = relays.map {
-            Relay(
-                url: $0.url,
-                authenticationToken: $0.token,
-                expiresAt: $0.expiresAt
-            )
+        activeRelays = allowedRelayURLs.sorted().map {
+            Relay(url: $0, authenticationToken: nil)
         }
-        managedRelays = relays
     }
 
-    /// Creates a managed profile from one verified catalog selection and its
-    /// exact endpoint-scoped credential set.
+    /// Creates a managed profile from one verified catalog selection.
     ///
-    /// - Parameters:
-    ///   - snapshot: Root-verified managed catalog and local selection.
-    ///   - relays: Credentials for every selected relay and no other origin.
-    /// - Throws: ``CmxIrohEndpointConfigurationError`` for credential substitution.
-    public init(
-        snapshot: CmxIrohRelayPolicySnapshot,
-        relays: [CmxIrohRelayConfiguration]
-    ) throws {
-        let selectedURLs = snapshot.relayURLs
-        let credentialURLs = Set(relays.map(\.url))
-        guard credentialURLs == selectedURLs else {
-            if let substituted = credentialURLs.subtracting(selectedURLs).first {
-                throw CmxIrohEndpointConfigurationError.unmanagedRelayURL(substituted)
-            }
-            throw CmxIrohEndpointConfigurationError.incompleteManagedRelayCredentials
-        }
-        try self.init(managedRelayURLs: selectedURLs, relays: relays)
+    /// - Parameter snapshot: Root-verified managed catalog and local selection.
+    /// - Throws: ``CmxIrohEndpointConfigurationError`` for a policy violation.
+    public init(snapshot: CmxIrohRelayPolicySnapshot) throws {
+        try self.init(managedRelayURLs: snapshot.relayURLs)
     }
 
     /// Creates a strict custom override with no managed-provider fallback.
@@ -118,51 +84,8 @@ public struct CmxIrohEndpointRelayProfile: Equatable, Sendable {
         activeRelays = customProfile.relays.map {
             Relay(
                 url: $0.url,
-                authenticationToken: $0.authenticationToken,
-                expiresAt: nil
+                authenticationToken: $0.authenticationToken
             )
-        }
-        managedRelays = []
-    }
-
-    func replacingManagedRelays(
-        _ relays: [CmxIrohRelayConfiguration]
-    ) throws -> CmxIrohEndpointRelayProfile {
-        guard source == .managed else {
-            throw CmxIrohEndpointConfigurationError.managedCredentialUpdateInCustomProfile
-        }
-        return try CmxIrohEndpointRelayProfile(
-            managedRelayURLs: allowedRelayURLs,
-            relays: relays
-        )
-    }
-
-    func droppingExpiredManagedCredentials(at now: Date) throws -> CmxIrohEndpointRelayProfile {
-        guard source == .managed else { return self }
-        return try CmxIrohEndpointRelayProfile(
-            managedRelayURLs: allowedRelayURLs,
-            relays: managedRelays.filter { $0.expiresAt > now }
-        )
-    }
-
-    private static func validate(
-        allowedRelayURLs: Set<String>,
-        relayURLs: [String]
-    ) throws {
-        guard allowedRelayURLs.count <= CmxIrohRelayPolicyVerifier.maximumRelayCount else {
-            throw CmxIrohEndpointConfigurationError.tooManyRelays(allowedRelayURLs.count)
-        }
-        guard relayURLs.count <= CmxIrohRelayPolicyVerifier.maximumRelayCount else {
-            throw CmxIrohEndpointConfigurationError.tooManyRelays(relayURLs.count)
-        }
-        var observedURLs = Set<String>()
-        for url in relayURLs {
-            guard allowedRelayURLs.contains(url) else {
-                throw CmxIrohEndpointConfigurationError.unmanagedRelayURL(url)
-            }
-            guard observedURLs.insert(url).inserted else {
-                throw CmxIrohEndpointConfigurationError.duplicateRelayURL(url)
-            }
         }
     }
 }

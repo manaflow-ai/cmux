@@ -28,17 +28,16 @@ public protocol CmxIrohEndpoint: Sendable {
         alpn: Data
     ) async throws -> any CmxIrohConnection
 
-    /// Accepts the next connection that negotiated a configured ALPN.
+    /// Accepts the next incoming connection attempt without completing its
+    /// server-side handshake.
     ///
-    /// - Returns: The accepted connection, or `nil` after endpoint close.
-    /// - Throws: A transport error for a failed handshake.
-    func accept() async throws -> (any CmxIrohConnection)?
-
-    /// Replaces relay credentials without changing the EndpointID.
+    /// The returned attempt performs the handshake in
+    /// ``CmxIrohIncomingConnection/establish()``, so a peer that stops making
+    /// handshake progress never blocks the accept queue behind it.
     ///
-    /// - Parameter relays: The new complete managed relay set.
-    /// - Throws: A transport error when the update cannot be applied.
-    func replaceRelays(_ relays: [CmxIrohRelayConfiguration]) async throws
+    /// - Returns: The incoming attempt, or `nil` after endpoint close.
+    /// - Throws: A transport error when the accept queue fails.
+    func accept() async throws -> (any CmxIrohIncomingConnection)?
 
     /// Replaces the complete managed or custom relay profile without changing EndpointID.
     ///
@@ -65,11 +64,10 @@ public extension CmxIrohEndpoint {
     /// Test and alternate endpoints opt out of local advertisement by default.
     func localDirectAddresses() async -> [String] { [] }
 
-    /// Alternate endpoints retain managed credential refresh compatibility.
-    func replaceRelayProfile(_ profile: CmxIrohEndpointRelayProfile) async throws {
-        guard profile.source == .managed else {
-            throw CmxIrohEndpointConfigurationError.unsupportedRelayProfileReplacement
-        }
-        try await replaceRelays(profile.managedRelays)
+    /// Test and alternate endpoints reject relay profile replacement by
+    /// default, so a supervisor can never commit a profile the endpoint did
+    /// not actually apply.
+    func replaceRelayProfile(_: CmxIrohEndpointRelayProfile) async throws {
+        throw CmxIrohEndpointConfigurationError.unsupportedRelayProfileReplacement
     }
 }

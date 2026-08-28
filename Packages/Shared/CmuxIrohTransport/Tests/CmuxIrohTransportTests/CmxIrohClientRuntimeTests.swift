@@ -42,8 +42,7 @@ struct CmxIrohClientRuntimeTests {
             ]),
             broker: TestRevisionedClientBroker(
                 binding: fixture.binding,
-                discoveries: [discovery],
-                relay: fixture.relayResponse()
+                discoveries: [discovery]
             ),
             configuration: configuration,
             pendingRevocations: fixture.pendingRevocations(),
@@ -69,7 +68,6 @@ struct CmxIrohClientRuntimeTests {
             broker: TestRevisionedClientBroker(
                 binding: fixture.binding,
                 discoveries: [discovery],
-                relay: fixture.relayResponse(),
                 registrationRevision: 2
             ),
             configuration: fixture.configuration,
@@ -96,7 +94,6 @@ struct CmxIrohClientRuntimeTests {
             broker: TestRevisionedClientBroker(
                 binding: fixture.binding,
                 discoveries: [discovery],
-                relay: fixture.relayResponse(),
                 embedInitialDiscovery: true,
                 registrationRevision: 1
             ),
@@ -164,12 +161,6 @@ struct CmxIrohClientRuntimeTests {
             managedRelayURLs: [fixture.relayURL],
             cachedBinding: CmxIrohBrokerBindingMetadata(binding: localBinding)
         )
-        let relay = CmxIrohRelayTokenResponse(
-            token: "testrelaytoken",
-            expiresAt: "2027-01-15T10:00:00Z",
-            refreshAfter: "2027-01-15T09:00:00Z",
-            relayFleet: [fixture.relayURL]
-        )
         let runtime = try CmxIrohClientRuntime(
             factory: TestIrohEndpointFactory(endpoints: [
                 TestIrohEndpoint(identity: fixture.initiator.endpointID),
@@ -177,7 +168,6 @@ struct CmxIrohClientRuntimeTests {
             broker: TestRevisionedClientBroker(
                 binding: localBinding,
                 discoveries: [rejectedRevision],
-                relay: relay,
                 registrationError: .connectivity
             ),
             configuration: configuration,
@@ -203,7 +193,6 @@ struct CmxIrohClientRuntimeTests {
         let broker = TestRevisionedClientBroker(
             binding: fixture.binding,
             discoveries: [discovery],
-            relay: fixture.relayResponse(),
             embedInitialDiscovery: true
         )
         let runtime = try CmxIrohClientRuntime(
@@ -245,7 +234,6 @@ struct CmxIrohClientRuntimeTests {
         let broker = TestRevisionedClientBroker(
             binding: fixture.binding,
             discoveries: [authoritativeDiscovery],
-            relay: fixture.relayResponse(),
             embeddedRegistrationDiscovery: staleDiscovery,
             embeddedRegistrationDiscoveryIsComplete: true,
             registrationRevision: 1
@@ -282,7 +270,6 @@ struct CmxIrohClientRuntimeTests {
         let broker = TestRevisionedClientBroker(
             binding: fixture.binding,
             discoveries: [truncatedRegistrationDiscovery, completeDiscovery],
-            relay: fixture.relayResponse(),
             embeddedRegistrationDiscovery: truncatedRegistrationDiscovery,
             connectivitySnapshotsProvenComplete: nil
         )
@@ -335,7 +322,6 @@ struct CmxIrohClientRuntimeTests {
         let broker = TestRevisionedClientBroker(
             binding: fixture.binding,
             discoveries: [revisionOne, revisionTwo],
-            relay: fixture.relayResponse(),
             blockedRegistrationCount: 1
         )
         let runtime = try CmxIrohClientRuntime(
@@ -384,8 +370,7 @@ struct CmxIrohClientRuntimeTests {
         )
         let broker = TestRevisionedClientBroker(
             binding: fixture.binding,
-            discoveries: [revisionOne, revisionTwo],
-            relay: fixture.relayResponse()
+            discoveries: [revisionOne, revisionTwo]
         )
         let recorder = ClientRuntimeTestRecorder()
         let runtime = try CmxIrohClientRuntime(
@@ -435,7 +420,6 @@ struct CmxIrohClientRuntimeTests {
         let broker = TestRevisionedClientBroker(
             binding: fixture.binding,
             discoveries: discoveries,
-            relay: fixture.relayResponse(),
             blockedSyncCount: 2
         )
         let runtime = try CmxIrohClientRuntime(
@@ -474,8 +458,7 @@ struct CmxIrohClientRuntimeTests {
         let factory = TestIrohEndpointFactory(endpoints: [endpoint])
         let broker = TestIrohClientBroker(
             binding: fixture.binding,
-            discovery: fixture.discovery,
-            relay: fixture.relayResponse()
+            discovery: fixture.discovery
         )
         let recorder = ClientRuntimeTestRecorder()
         let runtime = try CmxIrohClientRuntime(
@@ -487,8 +470,7 @@ struct CmxIrohClientRuntimeTests {
             handleBinding: { _, _ in
                 await recorder.recordBinding()
                 return true
-            },
-            handleRelayCredential: { _, _ in await recorder.recordRelay() }
+            }
         )
 
         try await runtime.start()
@@ -503,10 +485,10 @@ struct CmxIrohClientRuntimeTests {
         #expect(prepared.challengeRequest.tag == fixture.binding.tag)
         #expect(prepared.challengeRequest.endpointId == fixture.endpointID.endpointID)
         #expect(prepared.challengeRequest.identityGeneration == fixture.identity.generation)
-        #expect(await endpoint.observedRelayUpdates().last?.count == 4)
+        // Tokenless transport: relays are configured at bind time and the
+        // connect path installs no credential and mutates no relay.
+        #expect(await endpoint.observedRelayProfileUpdates().isEmpty)
         #expect(await recorder.observedBindingCount() == 1)
-        await recorder.waitForRelayCount(1)
-        #expect(await recorder.observedRelayCount() == 1)
         #expect(runtime.transportFactory.supportedKinds == [.iroh])
         await runtime.stop()
     }
@@ -516,8 +498,7 @@ struct CmxIrohClientRuntimeTests {
         let fixture = try ClientRuntimeTestFixture()
         let broker = TestIrohClientBroker(
             binding: fixture.binding,
-            discovery: fixture.discovery,
-            relay: fixture.relayResponse()
+            discovery: fixture.discovery
         )
         let recorder = ClientRuntimeTestRecorder()
         let runtime = try CmxIrohClientRuntime(
@@ -551,7 +532,6 @@ struct CmxIrohClientRuntimeTests {
         let broker = TestIrohClientBroker(
             binding: fixture.binding,
             discovery: fixture.discovery,
-            relay: fixture.relayResponse(),
             discoveryErrorsByCount: [
                 2: CmxIrohTrustBrokerClientError.connectivity,
             ]
@@ -591,7 +571,6 @@ struct CmxIrohClientRuntimeTests {
         let broker = TestIrohClientBroker(
             binding: fixture.binding,
             discovery: fixture.discovery,
-            relay: fixture.relayResponse(),
             discoveryErrorsByCount: [2: rateLimit]
         )
         let runtime = try CmxIrohClientRuntime(
@@ -620,7 +599,6 @@ struct CmxIrohClientRuntimeTests {
         let broker = TestIrohClientBroker(
             binding: fixture.binding,
             discovery: fixture.discovery,
-            relay: fixture.relayResponse(),
             registrationError: CmxIrohTrustBrokerClientError.rateLimited(
                 code: "device_registration_hour_quota",
                 retryAfterSeconds: 600
@@ -659,7 +637,6 @@ struct CmxIrohClientRuntimeTests {
         let broker = TestIrohClientBroker(
             binding: fixture.binding,
             discovery: fixture.discovery,
-            relay: fixture.relayResponse(),
             registrationError: CmxIrohTrustBrokerClientError.rateLimited(
                 code: "device_registration_hour_quota",
                 retryAfterSeconds: 600
@@ -701,7 +678,6 @@ struct CmxIrohClientRuntimeTests {
         let broker = TestIrohClientBroker(
             binding: fixture.binding,
             discovery: fixture.discovery,
-            relay: fixture.relayResponse(),
             bindingAuthorizationAvailable: false,
             registrationError: CmxIrohTrustBrokerClientError.rateLimited(
                 code: "device_registration_hour_quota",
@@ -743,7 +719,6 @@ struct CmxIrohClientRuntimeTests {
         let broker = TestIrohClientBroker(
             binding: fixture.binding,
             discovery: fixture.discovery,
-            relay: fixture.relayResponse(),
             registrationError: CmxIrohTrustBrokerClientError.rateLimited(
                 code: "device_registration_hour_quota",
                 retryAfterSeconds: 600
@@ -794,7 +769,6 @@ struct CmxIrohClientRuntimeTests {
             let broker = TestIrohClientBroker(
                 binding: fixture.binding,
                 discovery: discovery,
-                relay: fixture.relayResponse(),
                 registrationError: CmxIrohTrustBrokerClientError.rateLimited(
                     code: "device_registration_hour_quota",
                     retryAfterSeconds: 600
@@ -839,7 +813,6 @@ struct CmxIrohClientRuntimeTests {
         let broker = TestIrohClientBroker(
             binding: fixture.binding,
             discovery: fixture.discovery,
-            relay: fixture.relayResponse(),
             registrationError: CmxIrohTrustBrokerClientError.rateLimited(
                 code: "device_registration_hour_quota",
                 retryAfterSeconds: 600
@@ -873,8 +846,7 @@ struct CmxIrohClientRuntimeTests {
             ]),
             broker: TestIrohClientBroker(
                 binding: fixture.binding,
-                discovery: fixture.discovery,
-                relay: fixture.relayResponse()
+                discovery: fixture.discovery
             ),
             configuration: fixture.configuration,
             pendingRevocations: fixture.pendingRevocations(),
@@ -899,8 +871,7 @@ struct CmxIrohClientRuntimeTests {
             factory: TestIrohEndpointFactory(endpoints: []),
             broker: TestIrohClientBroker(
                 binding: fixture.binding,
-                discovery: fixture.discovery,
-                relay: fixture.relayResponse()
+                discovery: fixture.discovery
             ),
             configuration: fixture.configuration,
             pendingRevocations: fixture.pendingRevocations(),
@@ -923,8 +894,7 @@ struct CmxIrohClientRuntimeTests {
         let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
         let broker = TestIrohClientBroker(
             binding: fixture.binding,
-            discovery: substitutedDiscovery,
-            relay: fixture.relayResponse()
+            discovery: substitutedDiscovery
         )
         let runtime = try CmxIrohClientRuntime(
             factory: TestIrohEndpointFactory(endpoints: [endpoint]),
@@ -950,7 +920,6 @@ struct CmxIrohClientRuntimeTests {
         let broker = TestIrohClientBroker(
             binding: fixture.binding,
             discovery: fixture.discovery,
-            relay: fixture.relayResponse(),
             discoveryErrorsByCount: [
                 2: CmxIrohTrustBrokerClientError.connectivity,
             ]
@@ -988,8 +957,7 @@ struct CmxIrohClientRuntimeTests {
         )
         let broker = TestIrohClientBroker(
             binding: fixture.binding,
-            discovery: fixture.discovery,
-            relay: fixture.relayResponse()
+            discovery: fixture.discovery
         )
         let runtime = try CmxIrohClientRuntime(
             factory: factory,
@@ -1024,7 +992,6 @@ struct CmxIrohClientRuntimeTests {
         let broker = TestIrohClientBroker(
             binding: fixture.binding,
             discovery: fixture.discovery,
-            relay: fixture.relayResponse(),
             discoveryErrorsByCount: [2: terminal]
         )
         let offlineStore = TestSecureCredentialStore()
@@ -1059,8 +1026,7 @@ struct CmxIrohClientRuntimeTests {
         let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
         let broker = TestIrohClientBroker(
             binding: fixture.binding,
-            discovery: fixture.discovery,
-            relay: fixture.relayResponse()
+            discovery: fixture.discovery
         )
         let offlineStore = TestSecureCredentialStore()
         let recorder = ClientRuntimeTestRecorder()
@@ -1108,7 +1074,6 @@ struct CmxIrohClientRuntimeTests {
         let broker = TestIrohClientBroker(
             binding: fixture.binding,
             discovery: fixture.discovery,
-            relay: fixture.relayResponse(),
             discoveryErrorsByCount: [2: failure]
         )
         let offlineStore = TestSecureCredentialStore()
@@ -1144,7 +1109,6 @@ struct CmxIrohClientRuntimeTests {
         let broker = TestIrohClientBroker(
             binding: fixture.binding,
             discovery: fixture.discovery,
-            relay: fixture.relayResponse(),
             revokeError: TestIrohTransportError.unsupported
         )
         let recorder = ClientRuntimeTestRecorder()
@@ -1221,8 +1185,7 @@ struct CmxIrohClientRuntimeTests {
             factory: TestIrohEndpointFactory(endpoints: []),
             broker: TestIrohClientBroker(
                 binding: fixture.binding,
-                discovery: fixture.discovery,
-                relay: fixture.relayResponse()
+                discovery: fixture.discovery
             ),
             configuration: configuration,
             pendingRevocations: fixture.pendingRevocations(),
@@ -1245,8 +1208,7 @@ struct CmxIrohClientRuntimeTests {
             factory: TestIrohEndpointFactory(endpoints: [endpoint]),
             broker: TestIrohClientBroker(
                 binding: fixture.binding,
-                discovery: fixture.discovery,
-                relay: fixture.relayResponse()
+                discovery: fixture.discovery
             ),
             configuration: fixture.configuration,
             pendingRevocations: pendingRevocations,
@@ -1284,8 +1246,7 @@ struct CmxIrohClientRuntimeTests {
             factory: TestIrohEndpointFactory(endpoints: [endpoint]),
             broker: TestIrohClientBroker(
                 binding: fixture.binding,
-                discovery: fixture.discovery,
-                relay: fixture.relayResponse()
+                discovery: fixture.discovery
             ),
             configuration: fixture.configuration,
             pendingRevocations: pendingRevocations,
@@ -1336,7 +1297,6 @@ struct CmxIrohClientRuntimeTests {
         let broker = TestIrohClientBroker(
             binding: fixture.binding,
             discovery: fixture.discovery,
-            relay: fixture.relayResponse(),
             revokeError: CmxIrohTrustBrokerClientError.connectivity
         )
         let runtime = try CmxIrohClientRuntime(
@@ -1374,7 +1334,6 @@ private actor TestRevisionedClientBroker:
 {
     private let binding: CmxIrohBrokerBinding
     private var discoveries: [CmxIrohDiscoveryResponse]
-    private let relay: CmxIrohRelayTokenResponse
     private let blockedSyncCount: Int?
     private let blockedRegistrationCount: Int?
     private let embeddedRegistrationDiscovery: CmxIrohDiscoveryResponse?
@@ -1391,7 +1350,6 @@ private actor TestRevisionedClientBroker:
     init(
         binding: CmxIrohBrokerBinding,
         discoveries: [CmxIrohDiscoveryResponse],
-        relay: CmxIrohRelayTokenResponse,
         blockedSyncCount: Int? = nil,
         blockedRegistrationCount: Int? = nil,
         embedInitialDiscovery: Bool = false,
@@ -1403,7 +1361,6 @@ private actor TestRevisionedClientBroker:
     ) {
         self.binding = binding
         self.discoveries = discoveries
-        self.relay = relay
         self.blockedSyncCount = blockedSyncCount
         self.blockedRegistrationCount = blockedRegistrationCount
         self.embeddedRegistrationDiscovery = embeddedRegistrationDiscovery
@@ -1431,7 +1388,7 @@ private actor TestRevisionedClientBroker:
                 ?? embeddedRegistrationDiscovery?.revision
                 ?? discoveries.first?.revision,
             binding: binding,
-            relay: .issued(relay),
+            relay: .unavailable,
             discovery: embeddedRegistrationDiscovery,
             discoveryComplete: embeddedRegistrationDiscoveryIsComplete
         )
@@ -1470,13 +1427,6 @@ private actor TestRevisionedClientBroker:
         acceptorBindingID _: String
     ) throws -> CmxIrohPairGrantResponse {
         throw TestIrohTransportError.unsupported
-    }
-
-    func issueRelayToken(
-        bindingID _: String,
-        endpointID _: CmxIrohPeerIdentity
-    ) -> CmxIrohRelayTokenResponse {
-        relay
     }
 
     func revoke(bindingID _: String) {}
@@ -1534,9 +1484,7 @@ private actor TestSubstitutedAddressEndpoint: CmxIrohEndpoint {
         throw TestIrohTransportError.unsupported
     }
 
-    func accept() async throws -> (any CmxIrohConnection)? { nil }
-
-    func replaceRelays(_: [CmxIrohRelayConfiguration]) {}
+    func accept() async throws -> (any CmxIrohIncomingConnection)? { nil }
 
     func replaceRelayProfile(_: CmxIrohEndpointRelayProfile) {}
 

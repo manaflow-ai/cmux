@@ -175,3 +175,65 @@ export function jsonResponse(
     },
   });
 }
+
+export type BoundedBodyResult =
+  | { readonly ok: true; readonly bytes: Uint8Array }
+  | { readonly ok: false; readonly response: Response };
+
+/**
+ * Reads a request body under a hard byte cap and a hard read deadline, for
+ * unauthenticated fleet-hook routes (/api/relay/allow, /api/relay/report).
+ * The byte cap alone does not stop a slowloris client that trickles (or
+ * never finishes) a body to occupy the handler; the deadline cancels the
+ * request stream itself on expiry — real cancellation, not an abandoned
+ * promise. A missing body resolves to zero bytes, so callers that require a
+ * body decide their own failure mode.
+ */
+export async function readBoundedBody(
+  request: Request,
+  options: { readonly maxBytes: number; readonly timeoutMs: number },
+): Promise<BoundedBodyResult> {
+  const contentLength = request.headers.get("content-length");
+  if (contentLength) {
+    const parsed = Number(contentLength);
+    if (!Number.isSafeInteger(parsed) || parsed < 0 || parsed > options.maxBytes) {
+      return { ok: false, response: jsonResponse({ error: "request_too_large" }, 413) };
+    }
+  }
+  const reader = request.body?.getReader();
+  if (!reader) return { ok: true, bytes: new Uint8Array() };
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  let timedOut = false;
+  // Cancelling the reader on expiry resolves the pending read() and releases
+  // the underlying stream.
+  const timer = setTimeout(() => {
+    timedOut = true;
+    void reader.cancel().catch(() => undefined);
+  }, options.timeoutMs);
+  try {
+    while (true) {
+      const next = await reader.read();
+      if (next.done) break;
+      total += next.value.byteLength;
+      if (total > options.maxBytes) {
+        await reader.cancel();
+        return { ok: false, response: jsonResponse({ error: "request_too_large" }, 413) };
+      }
+      chunks.push(next.value);
+    }
+  } catch {
+    if (!timedOut) {
+      return { ok: false, response: jsonResponse({ error: "invalid_body" }, 400) };
+    }
+  } finally {
+    clearTimeout(timer);
+  }
+  if (timedOut) {
+    return { ok: false, response: jsonResponse({ error: "request_read_timeout" }, 408) };
+  }
+  return {
+    ok: true,
+    bytes: Buffer.concat(chunks.map((chunk) => Buffer.from(chunk)), total),
+  };
+}

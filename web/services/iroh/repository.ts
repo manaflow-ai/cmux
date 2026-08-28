@@ -19,14 +19,12 @@ import {
   IrohDatabaseError,
   IrohForbiddenError,
   IrohNotFoundError,
-  IrohQuotaExceededError,
 } from "./errors";
 import type { PairGrantPeer } from "./crypto";
 import type { IrohDiscoveryCursor } from "./discoveryPagination";
 import {
   nextPathHintExpiry,
   parseIrohPathHint,
-  sha256,
   type IrohPathHint,
   type IrohRegistrationPayload,
 } from "./model";
@@ -40,7 +38,6 @@ import type { IrohDiscoveryScope } from "./discoveryScope";
 export const IROH_RETENTION_BATCH_SIZE = 500;
 export const IROH_RETENTION_MAX_ROWS = 10_000;
 export const IROH_RETENTION_MAX_DURATION_MS = 8_000;
-export const IROH_RELAY_RESERVATION_LEASE_MS = 60 * 1_000;
 
 export type IrohRetentionCategory =
   | "revokedHints"
@@ -76,8 +73,7 @@ type RepositoryError =
   | IrohDatabaseError
   | IrohForbiddenError
   | IrohNotFoundError
-  | IrohConflictError
-  | IrohQuotaExceededError;
+  | IrohConflictError;
 
 export type IrohRepositoryShape = {
   readonly issueChallenge: (input: {
@@ -180,30 +176,6 @@ export type IrohRepositoryShape = {
     readonly issuedAt: Date;
     readonly notBefore: Date;
     readonly expiresAt: Date;
-  }) => Effect.Effect<void, RepositoryError>;
-  readonly reserveRelayIssuance: (input: {
-    readonly userId: string;
-    readonly bindingId: string;
-    readonly clientNamespace?: string;
-    readonly now: Date;
-  }) => Effect.Effect<{
-    readonly issuanceId: string;
-    readonly binding: IrohBindingRecord;
-  }, RepositoryError>;
-  readonly completeRelayIssuance: (input: {
-    readonly userId: string;
-    readonly issuanceId: string;
-    readonly bindingId: string;
-    readonly endpointId: string;
-    readonly tokenHash: string;
-    readonly completedAt: Date;
-    readonly expiresAt: Date;
-  }) => Effect.Effect<boolean, RepositoryError>;
-  readonly failRelayIssuance: (input: {
-    readonly userId: string;
-    readonly issuanceId: string;
-    readonly completedAt: Date;
-    readonly failureCode: string;
   }) => Effect.Effect<void, RepositoryError>;
 };
 
@@ -1145,134 +1117,6 @@ function makeLiveRepository(): IrohRepositoryShape {
       });
     }),
 
-    reserveRelayIssuance: (input) => repositoryEffect("reserve_relay_issuance", async () => {
-      return await cloudDb().transaction(async (tx) => {
-        await assertIrohUserMutationAllowed(tx, input.userId);
-        await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`iroh:binding:${input.userId}`}, 0))`);
-        await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`iroh:relay:${input.userId}`}, 0))`);
-        const [binding] = await tx
-          .select()
-          .from(irohEndpointBindings)
-          .where(and(
-            eq(irohEndpointBindings.id, input.bindingId),
-            eq(irohEndpointBindings.userId, input.userId),
-            isNull(irohEndpointBindings.revokedAt),
-          ))
-          .for("update")
-          .limit(1);
-        if (!binding) throw new IrohNotFoundError({ resource: "binding" });
-        if (binding.clientNamespace !== (input.clientNamespace ?? "legacy")) {
-          throw new IrohNotFoundError({ resource: "binding" });
-        }
-
-        await tx
-          .update(irohEndpointBindings)
-          .set({ lastSeenAt: input.now, updatedAt: input.now })
-          .where(eq(irohEndpointBindings.id, binding.id));
-
-        const reservationCutoff = new Date(
-          input.now.getTime() - IROH_RELAY_RESERVATION_LEASE_MS,
-        );
-        await tx
-          .update(irohRelayTokenIssuances)
-          .set({
-            status: "expired",
-            completedAt: input.now,
-            failureCode: "reservation_expired",
-          })
-          .where(and(
-            eq(irohRelayTokenIssuances.userId, input.userId),
-            eq(irohRelayTokenIssuances.status, "pending"),
-            lte(irohRelayTokenIssuances.requestedAt, reservationCutoff),
-          ));
-
-        const [issuance] = await tx
-          .insert(irohRelayTokenIssuances)
-          .values({
-            userId: input.userId,
-            bindingId: binding.id,
-            endpointIdHash: sha256(binding.endpointId),
-            status: "pending",
-            requestedAt: input.now,
-          })
-          .returning({ id: irohRelayTokenIssuances.id });
-        if (!issuance) throw new Error("relay issuance insert returned no row");
-        return { issuanceId: issuance.id, binding };
-      });
-    }),
-
-    completeRelayIssuance: (input) => repositoryEffect("complete_relay_issuance", async () => {
-      return await cloudDb().transaction(async (tx) => {
-        await assertIrohUserMutationAllowed(tx, input.userId);
-        await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`iroh:binding:${input.userId}`}, 0))`);
-        const [issuance] = await tx
-          .select()
-          .from(irohRelayTokenIssuances)
-          .where(and(
-            eq(irohRelayTokenIssuances.id, input.issuanceId),
-            eq(irohRelayTokenIssuances.userId, input.userId),
-            eq(irohRelayTokenIssuances.bindingId, input.bindingId),
-            eq(irohRelayTokenIssuances.status, "pending"),
-          ))
-          .for("update")
-          .limit(1);
-        if (!issuance) return false;
-        const [binding] = await tx
-          .select({ endpointId: irohEndpointBindings.endpointId })
-          .from(irohEndpointBindings)
-          .where(and(
-            eq(irohEndpointBindings.id, input.bindingId),
-            eq(irohEndpointBindings.userId, input.userId),
-            isNull(irohEndpointBindings.revokedAt),
-          ))
-          .for("update")
-          .limit(1);
-        if (
-          !binding ||
-          binding.endpointId !== input.endpointId ||
-          issuance.endpointIdHash !== sha256(input.endpointId)
-        ) {
-          await tx
-            .update(irohRelayTokenIssuances)
-            .set({
-              status: "failed",
-              completedAt: input.completedAt,
-              failureCode: "binding_inactive_after_mint",
-            })
-            .where(eq(irohRelayTokenIssuances.id, input.issuanceId));
-          return false;
-        }
-        const completed = await tx
-          .update(irohRelayTokenIssuances)
-          .set({
-            status: "succeeded",
-            tokenHash: input.tokenHash,
-            completedAt: input.completedAt,
-            expiresAt: input.expiresAt,
-            failureCode: null,
-          })
-          .where(and(
-            eq(irohRelayTokenIssuances.id, input.issuanceId),
-            eq(irohRelayTokenIssuances.status, "pending"),
-          ))
-          .returning({ id: irohRelayTokenIssuances.id });
-        return completed.length === 1;
-      });
-    }),
-
-    failRelayIssuance: (input) => repositoryEffect("fail_relay_issuance", async () => {
-      await cloudDb().transaction(async (tx) => {
-        await assertIrohUserMutationAllowed(tx, input.userId);
-        await tx
-          .update(irohRelayTokenIssuances)
-          .set({ status: "failed", completedAt: input.completedAt, failureCode: input.failureCode.slice(0, 64) })
-          .where(and(
-            eq(irohRelayTokenIssuances.id, input.issuanceId),
-            eq(irohRelayTokenIssuances.userId, input.userId),
-            eq(irohRelayTokenIssuances.status, "pending"),
-          ));
-      });
-    }),
   };
 }
 
@@ -1298,6 +1142,8 @@ async function revokeActiveBindings(
       directPortV6: null,
       pathHints: [],
       pathHintsNextExpiry: null,
+      relayAttachedUrl: null,
+      relayAttachReportedAt: null,
       updatedAt: input.now,
     })
     .where(and(
@@ -1424,6 +1270,7 @@ async function drainIrohRetention(input: {
               path_hints_next_expiry is not null
               or direct_port_v4 is not null
               or direct_port_v6 is not null
+              or relay_attached_url is not null
             )
           order by revoked_at, id
           limit ${limit}
@@ -1434,6 +1281,8 @@ async function drainIrohRetention(input: {
               path_hints_next_expiry = null,
               direct_port_v4 = null,
               direct_port_v6 = null,
+              relay_attached_url = null,
+              relay_attach_reported_at = null,
               updated_at = ${nowIso}::timestamptz
           from candidates
           where binding.id = candidates.id
@@ -1735,11 +1584,10 @@ function repositoryEffect<A>(
 function isDomainError(error: unknown): error is
   | IrohForbiddenError
   | IrohNotFoundError
-  | IrohConflictError
-  | IrohQuotaExceededError {
+  | IrohConflictError {
   const tag = (error as { _tag?: unknown } | null)?._tag;
   return tag === "IrohForbiddenError" || tag === "IrohNotFoundError" ||
-    tag === "IrohConflictError" || tag === "IrohQuotaExceededError";
+    tag === "IrohConflictError";
 }
 
 function sanitizedDatabaseCause(cause: unknown): unknown {
