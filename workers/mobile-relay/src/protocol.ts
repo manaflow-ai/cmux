@@ -1,5 +1,12 @@
 // cmux mobile relay wire protocol — SINGLE SOURCE OF TRUTH.
 //
+// v2: endpoints authenticate the WebSocket connect DIRECTLY with their Stack
+// access token (STACK_ACCESS_HEADER); the worker verifies it against the
+// Stack API and derives the object name from the verified user id. There is
+// no ticket, no web-app mint, and no per-request credential on the RPC layer:
+// the host admits each client session once, in-band, end to end
+// (mobile.session.admit), then requests ride credential-free.
+//
 // Everything rides one WebSocket per device. Two frame kinds:
 //   - Control: JSON text frames, schema-validated below. The only messages the
 //     relay itself understands.
@@ -23,7 +30,7 @@
 
 import * as Schema from "effect/Schema";
 
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 2;
 
 // ---------------------------------------------------------------------------
 // Binary data frames
@@ -56,14 +63,26 @@ export const MAX_CONTROL_BYTES = 4096;
 /** Connected clients per host object. The product shape is one phone, a few
  * at most; this is an abuse bound, not a product limit. */
 export const MAX_CLIENTS = 8;
-/** How long a session may live past its last accepted ticket (connect or
- * refresh). Endpoints refresh lazily (mint a new ticket and send `refresh`)
- * well before this; a revoked device that stays connected is therefore
- * bounded by this window, on top of the host dropping unpaired devices. */
-export const SESSION_MAX_AGE_MS = 12 * 60 * 60 * 1000;
-/** Connect-ticket lifetime. Tickets authorize one WebSocket connect (or one
- * in-band refresh); they are not session credentials. */
-export const TICKET_TTL_SECONDS = 5 * 60;
+/** How long a session may live past its last verified Stack access token
+ * (connect or in-band `refresh`). Endpoints refresh lazily well before this;
+ * a revoked account that stays connected is therefore bounded by this window,
+ * on top of the host dropping unadmitted sessions. Short because a refresh is
+ * now free (no mint round trip): the endpoint re-presents its current token. */
+export const SESSION_MAX_AGE_MS = 60 * 60 * 1000;
+
+/** Connect authentication headers. The endpoint presents its Stack access
+ * token; the worker verifies it against the Stack API (short verdict cache)
+ * and derives the object name from the VERIFIED user id, so a token can never
+ * reach another user's relay. There is no ticket and no web-app mint: the
+ * relay worker is the only server an endpoint talks to. */
+export const STACK_ACCESS_HEADER = "x-cmux-stack-access";
+export const ROLE_HEADER = "x-cmux-role";
+export const HOST_DEVICE_HEADER = "x-cmux-host-device";
+export const DEVICE_HEADER = "x-cmux-device";
+/** Device ids ride headers and control frames; bound before use. */
+export const MAX_DEVICE_ID_CHARS = 128;
+/** Stack access tokens are JWTs, well under this. */
+export const MAX_ACCESS_TOKEN_CHARS = 8 * 1024;
 
 /** Hibernation keepalive: clients may send this text frame; the runtime
  * answers without waking the object. */
@@ -99,34 +118,22 @@ export function decodeDataFrame(buffer: ArrayBuffer): DataFrame | null {
 }
 
 // ---------------------------------------------------------------------------
-// Ticket claims
+// Roles
 // ---------------------------------------------------------------------------
 
 export const RelayRole = Schema.Literal("host", "client");
 export type RelayRole = typeof RelayRole.Type;
 
-/** Claims inside a signed relay ticket (`v1.<b64url claims>.<b64url hmac>`).
- * Minted only by the web app after Stack auth + device-registry ownership
- * checks; verified by the worker (connect) and the object (refresh). */
-export const TicketClaims = Schema.Struct({
-  userId: Schema.NonEmptyString,
-  hostDeviceId: Schema.NonEmptyString,
-  deviceId: Schema.NonEmptyString,
-  role: RelayRole,
-  iat: Schema.Int,
-  exp: Schema.Int,
-});
-export type TicketClaims = typeof TicketClaims.Type;
-
 // ---------------------------------------------------------------------------
 // Control messages (JSON text frames)
 // ---------------------------------------------------------------------------
 
-/** client -> relay: extend the session deadline with a fresh ticket. The
- * ticket must carry the exact identity the socket connected with. */
+/** endpoint -> relay: extend the session deadline by re-presenting a current
+ * Stack access token. The verified user must be the one the socket connected
+ * with; role and device identity stay pinned from connect time. */
 export const RefreshMessage = Schema.Struct({
   t: Schema.Literal("refresh"),
-  ticket: Schema.NonEmptyString,
+  accessToken: Schema.NonEmptyString,
 });
 export type RefreshMessage = typeof RefreshMessage.Type;
 
@@ -207,4 +214,3 @@ export const BYE_HOST_CLOSED = "host_closed";
 const STRICT = { onExcessProperty: "error" } as const;
 export const decodeClientControl = Schema.decodeUnknownEither(ClientControlMessage, STRICT);
 export const decodeServerControl = Schema.decodeUnknownEither(ServerControlMessage, STRICT);
-export const decodeTicketClaims = Schema.decodeUnknownEither(TicketClaims, STRICT);

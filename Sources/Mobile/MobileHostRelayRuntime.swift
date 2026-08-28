@@ -2,9 +2,10 @@
 //
 // Owns the Mac's single outbound WebSocket to its HostRelay Durable Object
 // (workers/mobile-relay) and funnels every phone session it announces into
-// `MobileHostService.acceptTransport`, which owns RPC dispatch, per-request
-// Stack verification (`.relaySession` authorizes exactly like `.stackBearer`),
-// event fan-out, and connection quotas.
+// `MobileHostService.acceptTransport`, which owns RPC dispatch, end-to-end
+// session admission (`.relaySession`: the phone's first frame proves the
+// account once, later requests are credential-free), event fan-out, and
+// connection quotas.
 //
 // OFF by default: gated on the `mobile.relayHost.enabled` settings key. While
 // the toggle is off this runtime never mints a ticket and never dials, so
@@ -62,25 +63,18 @@ final class MobileHostRelayRuntime {
 
     private func start() {
         guard runTask == nil, let auth else { return }
-        let ticketProvider = RelayTicketClient(
-            apiBaseURL: { AuthEnvironment.vmAPIBaseURL },
-            authorizationHeaders: {
-                guard let tokens = try? await auth.currentTokens() else { return nil }
-                return [
-                    "Authorization": "Bearer \(tokens.accessToken)",
-                    "X-Stack-Refresh-Token": tokens.refreshToken,
-                ]
-            }
-        )
         let link = RelayHostLink(
             hostDeviceID: MobileHostIdentity.deviceID(),
-            ticketProvider: ticketProvider,
+            accessToken: { try await auth.currentTokens().accessToken },
             relayURLOverride: Self.relayURLOverride(),
             onClientSession: { session in
                 relayHostLog.info("relay session \(session.sessionID) accepted")
+                // Each session carries its own admission: the phone's first
+                // frame proves the account end to end before anything else
+                // is served (see MobileHostRelayAdmission).
                 await MobileHostService.acceptTransport(
                     session.transport,
-                    authorization: .relaySession,
+                    authorization: .relaySession(MobileHostRelayAdmission()),
                     isCurrent: { true }
                 )
                 relayHostLog.info("relay session \(session.sessionID) ended")

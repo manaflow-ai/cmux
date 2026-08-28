@@ -12,9 +12,8 @@
 #   CLOUDFLARE_API_TOKEN   API token with Workers Scripts:Edit on the account
 #   CLOUDFLARE_ACCOUNT_ID  the Cloudflare account id
 #
-# One-time Worker secret (set once via `wrangler secret put`, survives every
-# deploy; see workers/mobile-relay/README.md):
-#   MOBILE_RELAY_TICKET_SECRET
+# The worker holds no secrets: connect auth verifies Stack access tokens
+# with the public project configuration in wrangler[.dev].toml [vars].
 
 name: mobile-relay
 

@@ -1,10 +1,10 @@
 // HostRelay Durable Object — one instance per host device.
 //
-// The object id is derived by the worker from VERIFIED ticket claims
-// (`v1:<stackUserId>:<hostDeviceId>`), so one user's relay can never be
+// The object id is derived by the worker from a VERIFIED Stack access token
+// (`v2:<stackUserId>:<hostDeviceId>`), so one user's relay can never be
 // reached with another user's credentials: isolation is by construction, the
 // same property TeamPresence relies on. The DO trusts the identity headers
-// the worker sets after ticket verification; it re-verifies tickets itself
+// the worker sets after token verification; it re-verifies tokens itself
 // only for in-band `refresh`.
 //
 // The object is a dumb relay. It parses control JSON (schema-validated,
@@ -36,11 +36,9 @@ import {
   type RelayRole,
   type ServerControlMessage,
 } from "./protocol";
-import { verifyTicket } from "./ticket";
+import { verifyStackAccessToken, type StackAuthEnv } from "./stackAuth";
 
-export interface RelayEnv {
-  MOBILE_RELAY_TICKET_SECRET?: string;
-}
+export type RelayEnv = StackAuthEnv;
 
 /** Verified-identity headers set by the worker; the DO never reads client
  * input for these. */
@@ -264,16 +262,10 @@ export class HostRelay extends DurableObject<RelayEnv> {
       return;
     }
 
-    const secret = this.env.MOBILE_RELAY_TICKET_SECRET;
-    if (!secret) return; // Misconfiguration; the worker would have rejected the connect.
-    const verified = await verifyTicket(secret, control.ticket, Date.now());
-    if (
-      !verified.ok
-      || verified.claims.role !== info.role
-      || verified.claims.userId !== info.userId
-      || verified.claims.hostDeviceId !== info.hostDeviceId
-      || verified.claims.deviceId !== info.deviceId
-    ) {
+    // Role and device identity stay pinned from connect time; the refresh
+    // only has to prove the SAME account is still live.
+    const verified = await verifyStackAccessToken(this.env, control.accessToken, Date.now());
+    if (!verified.ok || verified.userId !== info.userId) {
       // A bad refresh does not kill a live session; the deadline still stands.
       trySend(ws, controlJson({ t: "refresh_ack", deadline: info.deadline }));
       return;

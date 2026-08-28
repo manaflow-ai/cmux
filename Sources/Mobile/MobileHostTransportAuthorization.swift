@@ -12,15 +12,97 @@ import OSLog
 import StackAuth
 import os
 
-enum MobileHostConnectionAuthorizationContext: Equatable, Sendable {
+enum MobileHostConnectionAuthorizationContext: Sendable {
     case stackBearer
     case irohAdmission(CmxIrohAdmittedPeer)
     /// A session tunneled through the cmux mobile relay (HostRelay Durable
-    /// Object). Per-request authorization is identical to `.stackBearer` —
-    /// every RPC re-verifies the same-account Stack token — but the case is
-    /// separate so legacy TCP listener restarts (`removeStackBearerConnections`)
-    /// never tear down relay sessions.
-    case relaySession
+    /// Object). The client's FIRST frame is `mobile.session.admit` carrying
+    /// its Stack token; the Mac verifies it end to end once (the relay chain
+    /// is never trusted with data-plane authority) and binds the connection.
+    /// Every later request authorizes against that binding plus a local
+    /// same-account check — no per-request credential, no network. The case
+    /// is separate from `.stackBearer` so legacy TCP listener restarts
+    /// (`removeStackBearerConnections`) never tear down relay sessions.
+    case relaySession(MobileHostRelayAdmission)
+}
+
+extension MobileHostConnectionAuthorizationContext: Equatable {
+    static func == (
+        lhs: MobileHostConnectionAuthorizationContext,
+        rhs: MobileHostConnectionAuthorizationContext
+    ) -> Bool {
+        switch (lhs, rhs) {
+        case (.stackBearer, .stackBearer):
+            return true
+        case let (.irohAdmission(left), .irohAdmission(right)):
+            return left == right
+        case let (.relaySession(left), .relaySession(right)):
+            return left === right
+        default:
+            return false
+        }
+    }
+}
+
+/// Per-connection admission state for one relay session. Requests that
+/// arrive while the admission verification is still in flight wait (bounded)
+/// instead of failing, because the admit frame is first on the stream but
+/// its Stack round trip takes real time.
+actor MobileHostRelayAdmission {
+    private static let waitTimeoutNanoseconds: UInt64 = 15 * 1_000_000_000
+
+    private enum State {
+        case pending
+        case admitted(userID: String)
+        case failed
+    }
+
+    private var state: State = .pending
+    private var waiters: [UUID: CheckedContinuation<String?, Never>] = [:]
+
+    func recordAdmitted(userID: String) {
+        state = .admitted(userID: userID)
+        resumeAllWaiters(with: userID)
+    }
+
+    func recordFailed() {
+        state = .failed
+        resumeAllWaiters(with: nil)
+    }
+
+    /// The admitted user id, waiting (bounded) while admission is pending.
+    /// Returns nil when admission failed or never resolved in time.
+    func admittedUserID() async -> String? {
+        switch state {
+        case let .admitted(userID):
+            return userID
+        case .failed:
+            return nil
+        case .pending:
+            break
+        }
+        let waiterID = UUID()
+        return await withCheckedContinuation { continuation in
+            waiters[waiterID] = continuation
+            Task { [weak self] in
+                try? await Task.sleep(nanoseconds: Self.waitTimeoutNanoseconds)
+                await self?.timeoutWaiter(waiterID)
+            }
+        }
+    }
+
+    private func timeoutWaiter(_ waiterID: UUID) {
+        guard let continuation = waiters.removeValue(forKey: waiterID) else { return }
+        continuation.resume(returning: nil)
+    }
+
+    private func resumeAllWaiters(with userID: String?) {
+        let resumed = waiters
+        waiters = [:]
+        for (_, continuation) in resumed {
+            continuation.resume(returning: userID)
+        }
+    }
 }
 
 extension MobileHostConnectionAuthorizationContext {

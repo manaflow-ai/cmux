@@ -17,11 +17,11 @@ public actor RelayHostLink {
     public typealias SessionHandler = @Sendable (RelayClientSession) async -> Void
 
     /// Refresh the session this long before its deadline.
-    private static let refreshLead: TimeInterval = 60 * 60
+    private static let refreshLead: TimeInterval = 10 * 60
     private static let reconnectDelays: [Duration] = [.seconds(1), .seconds(2), .seconds(5), .seconds(15), .seconds(30), .seconds(60)]
 
     private let hostDeviceID: String
-    private let ticketProvider: any RelayTicketProviding
+    private let accessToken: RelayAccessTokenProvider
     private let relayURLOverride: URL?
     private let makeConnection: RelayConnectionFactory
     private let onClientSession: SessionHandler
@@ -34,13 +34,13 @@ public actor RelayHostLink {
 
     public init(
         hostDeviceID: String,
-        ticketProvider: any RelayTicketProviding,
+        accessToken: @escaping RelayAccessTokenProvider,
         relayURLOverride: URL? = nil,
         makeConnection: @escaping RelayConnectionFactory = RelayConnection.factory(),
         onClientSession: @escaping SessionHandler
     ) {
         self.hostDeviceID = hostDeviceID
-        self.ticketProvider = ticketProvider
+        self.accessToken = accessToken
         self.relayURLOverride = relayURLOverride
         self.makeConnection = makeConnection
         self.onClientSession = onClientSession
@@ -71,12 +71,16 @@ public actor RelayHostLink {
     /// Returns true when the connection served long enough to be considered
     /// healthy (welcome received and the event stream ran).
     private func serveOnce() async throws -> Bool {
-        let grant = try await ticketProvider.mintTicket(
+        let token = try await accessToken()
+        guard let url = relayURLOverride ?? RelayConnectAuth.defaultRelayURL() else {
+            throw RelayTransportError.invalidRequest("no relay URL")
+        }
+        let connection = makeConnection(url, RelayConnectAuth.headers(
+            accessToken: token,
+            role: .host,
             hostDeviceID: hostDeviceID,
-            deviceID: hostDeviceID,
-            role: .host
-        )
-        let connection = makeConnection(relayURLOverride ?? grant.relayURL, grant.ticket)
+            deviceID: hostDeviceID
+        ))
         let welcome = try await connection.connect()
         self.connection = connection
         scheduleRefresh(deadline: Date(timeIntervalSince1970: welcome.deadline / 1000))
@@ -177,12 +181,8 @@ public actor RelayHostLink {
     private func refresh() async {
         guard let connection else { return }
         do {
-            let grant = try await ticketProvider.mintTicket(
-                hostDeviceID: hostDeviceID,
-                deviceID: hostDeviceID,
-                role: .host
-            )
-            try await connection.sendControl(JSONEncoder().encode(RelayRefresh(ticket: grant.ticket)))
+            let token = try await accessToken()
+            try await connection.sendControl(JSONEncoder().encode(RelayRefresh(accessToken: token)))
         } catch {
             // Best effort; the deadline close triggers a normal reconnect.
         }

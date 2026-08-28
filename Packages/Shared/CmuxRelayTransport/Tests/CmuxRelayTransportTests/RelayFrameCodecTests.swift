@@ -70,10 +70,10 @@ import Testing
     }
 
     @Test func clientMessagesEncodeWithDiscriminator() throws {
-        let refresh = try JSONEncoder().encode(RelayRefresh(ticket: "v1.a.b"))
+        let refresh = try JSONEncoder().encode(RelayRefresh(accessToken: "eyJ.a.b"))
         let object = try JSONSerialization.jsonObject(with: refresh) as? [String: Any]
         #expect(object?["t"] as? String == "refresh")
-        #expect(object?["ticket"] as? String == "v1.a.b")
+        #expect(object?["accessToken"] as? String == "eyJ.a.b")
 
         let closeSession = try JSONEncoder().encode(RelayCloseSession(sessionId: 9))
         let closeObject = try JSONSerialization.jsonObject(with: closeSession) as? [String: Any]

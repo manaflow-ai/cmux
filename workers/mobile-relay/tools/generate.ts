@@ -1,13 +1,11 @@
 // Codegen for the mobile relay protocol. Source of truth: src/protocol.ts
-// (Effect Schema) and src/ticket.ts. Outputs, all checked in:
+// (Effect Schema). Output, checked in:
 //
-//   1. web/services/mobileRelay/generated/{protocol,ticket}.ts
-//      Verbatim copies (the web app mints tickets; Vercel builds cannot reach
-//      files outside web/, the same reason the relay catalog was copied).
-//   2. Packages/Shared/CmuxRelayTransport/Sources/CmuxRelayTransport/Generated/
-//      RelayProtocolGenerated.swift
-//      Swift Codable types emitted from the JSON Schema of every control
-//      message, plus the wire constants.
+//   Packages/Shared/CmuxRelayTransport/Sources/CmuxRelayTransport/Generated/
+//   RelayProtocolGenerated.swift
+//   Swift Codable types emitted from the JSON Schema of every control
+//   message, plus the wire constants. (The web app is no longer part of the
+//   relay protocol: connect auth is the endpoint's own Stack token.)
 //
 // Run `bun tools/generate.ts --write` after editing the protocol;
 // `--check` (CI) fails on drift. The emitter is deliberately narrow: flat
@@ -53,7 +51,6 @@ const MESSAGES: readonly MessageSpec[] = [
   { swiftName: "RelayBye", schema: protocol.ByeMessage, group: "server" },
   { swiftName: "RelayRefresh", schema: protocol.RefreshMessage, group: "client" },
   { swiftName: "RelayCloseSession", schema: protocol.CloseSessionMessage, group: "client" },
-  { swiftName: "RelayTicketClaims", schema: protocol.TicketClaims, group: null },
 ];
 
 /** JSON-Schema property shapes the emitter accepts. */
@@ -203,10 +200,12 @@ public enum RelayProtocol {
     public static let maxDataPayloadBytes = ${protocol.MAX_DATA_PAYLOAD_BYTES}
     public static let maxControlBytes = ${protocol.MAX_CONTROL_BYTES}
     public static let sessionMaxAgeMilliseconds = ${protocol.SESSION_MAX_AGE_MS}
-    public static let ticketTTLSeconds = ${protocol.TICKET_TTL_SECONDS}
     public static let pingText = "${protocol.PING_TEXT}"
     public static let pongText = "${protocol.PONG_TEXT}"
-    public static let ticketHeaderName = "x-cmux-relay-ticket"
+    public static let stackAccessHeaderName = "${protocol.STACK_ACCESS_HEADER}"
+    public static let roleHeaderName = "${protocol.ROLE_HEADER}"
+    public static let hostDeviceHeaderName = "${protocol.HOST_DEVICE_HEADER}"
+    public static let deviceHeaderName = "${protocol.DEVICE_HEADER}"
     public static let connectPath = "/v1/connect"
     public static let defaultRelayURL = "${protocol.DEFAULT_RELAY_URL}"
     public static let byeSuperseded = "${protocol.BYE_SUPERSEDED}"
@@ -234,14 +233,6 @@ interface Output {
 
 function outputs(): Output[] {
   return [
-    {
-      path: join(webGeneratedDir, "protocol.ts"),
-      content: GENERATED_TS_HEADER + readFileSync(join(workerDir, "src", "protocol.ts"), "utf8"),
-    },
-    {
-      path: join(webGeneratedDir, "ticket.ts"),
-      content: GENERATED_TS_HEADER + readFileSync(join(workerDir, "src", "ticket.ts"), "utf8"),
-    },
     { path: swiftOutputPath, content: swiftFile() },
   ];
 }

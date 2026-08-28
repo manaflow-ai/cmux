@@ -29,12 +29,13 @@ public protocol RelayConnecting: Sendable {
     func close() async
 }
 
-/// Builds connections; injected so tests can script them.
-public typealias RelayConnectionFactory = @Sendable (_ url: URL, _ ticket: String) -> any RelayConnecting
+/// Builds connections; injected so tests can script them. The headers carry
+/// the connect authentication (see RelayConnectAuth.headers).
+public typealias RelayConnectionFactory = @Sendable (_ url: URL, _ headers: [String: String]) -> any RelayConnecting
 
 public actor RelayConnection: RelayConnecting {
     private let url: URL
-    private let ticket: String
+    private let headers: [String: String]
     private let urlSession: URLSession
     private var task: URLSessionWebSocketTask?
     private var pumpTask: Task<Void, Never>?
@@ -42,19 +43,21 @@ public actor RelayConnection: RelayConnecting {
     private var eventStream: AsyncStream<RelayConnectionEvent>?
     private var eventContinuation: AsyncStream<RelayConnectionEvent>.Continuation?
 
-    public init(url: URL, ticket: String, urlSession: URLSession = .shared) {
+    public init(url: URL, headers: [String: String], urlSession: URLSession = .shared) {
         self.url = url
-        self.ticket = ticket
+        self.headers = headers
         self.urlSession = urlSession
     }
 
     public static func factory(urlSession: URLSession = .shared) -> RelayConnectionFactory {
-        { url, ticket in RelayConnection(url: url, ticket: ticket, urlSession: urlSession) }
+        { url, headers in RelayConnection(url: url, headers: headers, urlSession: urlSession) }
     }
 
     public func connect() async throws -> RelayWelcome {
         var request = URLRequest(url: url)
-        request.setValue(ticket, forHTTPHeaderField: RelayProtocol.ticketHeaderName)
+        for (name, value) in headers {
+            request.setValue(value, forHTTPHeaderField: name)
+        }
         request.timeoutInterval = 15
         let task = urlSession.webSocketTask(with: request)
         task.maximumMessageSize = RelayProtocol.dataHeaderBytes + RelayProtocol.maxDataPayloadBytes

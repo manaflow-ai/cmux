@@ -37,12 +37,6 @@ final class MobileTerminalInputRPCPipeline {
     /// path (which remains correctly ordered with a late apply) until the next
     /// connection-lifecycle clear().
     private var surfacesWithAmbiguousFailures: Set<String> = []
-    /// The host definitively rejected a pipelined request's bearer. Auth is a
-    /// connection-wide property (every surface's requests carry the same
-    /// token), so the whole connection parks on the awaited RPC path — whose
-    /// force-refresh retry owns the re-auth decision — until the next
-    /// connection-lifecycle clear().
-    private var authorizationFallbackActive = false
     private var generation = UUID()
 
     private var totalUnsettledCount: Int {
@@ -55,16 +49,6 @@ final class MobileTerminalInputRPCPipeline {
 
     func hasAmbiguousFailure(surfaceID: String) -> Bool {
         surfacesWithAmbiguousFailures.contains(surfaceID)
-    }
-
-    var hasAuthorizationFallback: Bool {
-        authorizationFallbackActive
-    }
-
-    /// Records a definitive bearer rejection on a pipelined request. See
-    /// ``authorizationFallbackActive``.
-    func recordAuthorizationFallback() {
-        authorizationFallbackActive = true
     }
 
     func enqueue(
@@ -124,7 +108,6 @@ final class MobileTerminalInputRPCPipeline {
         let abandonedEntries = entriesBySurfaceID.values.flatMap { $0 }
         entriesBySurfaceID.removeAll()
         surfacesWithAmbiguousFailures.removeAll()
-        authorizationFallbackActive = false
         for (_, reaperTask) in reaperTasksBySurfaceID {
             reaperTask.cancel()
         }

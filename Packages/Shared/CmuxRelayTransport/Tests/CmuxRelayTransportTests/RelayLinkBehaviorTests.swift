@@ -64,7 +64,7 @@ private func farDeadline() -> Double {
         let transport = RelayClientByteTransport(
             hostDeviceID: "host-1",
             deviceID: { "phone-1" },
-            ticketProvider: StaticTicketProvider(),
+            accessToken: { "stack-token-1" },
             makeConnection: { _, _ in fake }
         )
         return (transport, fake)
@@ -94,9 +94,39 @@ private func farDeadline() -> Double {
 
         try await transport.send(Data([9]))
         let sent = await fake.sentData
+        // Frame 0 is the admission written by connect(); frame 1 is ours.
+        #expect(sent.count == 2)
+        #expect(sent.last?.sessionID == RelayProtocol.hostSessionID)
+        #expect(RelayFrameCodec.splitChannel(sent.last?.payload ?? Data())?.data == Data([9]))
+        await transport.close()
+    }
+
+    /// The FIRST bytes a client session puts on the wire are the end-to-end
+    /// admission request carrying the account token, so the host can bind the
+    /// session before any other request exists.
+    @Test func connectSendsAdmissionBeforeAnythingElse() async throws {
+        let (transport, fake) = makeTransport(
+            welcome: RelayWelcome(v: 2, role: .client, sessionId: 5, deadline: farDeadline(), hostPresent: true)
+        )
+        try await transport.connect()
+
+        let sent = await fake.sentData
         #expect(sent.count == 1)
-        #expect(sent.first?.sessionID == RelayProtocol.hostSessionID)
-        #expect(RelayFrameCodec.splitChannel(sent.first?.payload ?? Data())?.data == Data([9]))
+        let first = try #require(sent.first)
+        #expect(first.sessionID == RelayProtocol.hostSessionID)
+        let split = try #require(RelayFrameCodec.splitChannel(first.payload))
+        #expect(split.channel == RelayProtocol.channelRPC)
+        var buffer = split.data
+        let frames = try MobileSyncFrameCodec.decodeFrames(from: &buffer)
+        let frame = try #require(frames.first)
+        let parsed = try JSONSerialization.jsonObject(with: frame)
+        let envelope = try #require(parsed as? [String: Any])
+        #expect(envelope["method"] as? String == RelayAdmission.method)
+        #expect(envelope["id"] as? String == RelayAdmission.requestID)
+        let auth = try #require(envelope["auth"] as? [String: Any])
+        #expect(auth["stack_access_token"] as? String == "stack-token-1")
+        let params = try #require(envelope["params"] as? [String: Any])
+        #expect(params["device_id"] as? String == "phone-1")
         await transport.close()
     }
 
@@ -120,7 +150,7 @@ private func farDeadline() -> Double {
         let seen = SessionRecorder()
         let link = RelayHostLink(
             hostDeviceID: "host-1",
-            ticketProvider: StaticTicketProvider(),
+            accessToken: { "stack-token-mac" },
             makeConnection: { _, _ in fake },
             onClientSession: { session in
                 await seen.record(session)
@@ -164,7 +194,7 @@ private func farDeadline() -> Double {
         let ended = SessionRecorder()
         let link = RelayHostLink(
             hostDeviceID: "host-1",
-            ticketProvider: StaticTicketProvider(),
+            accessToken: { "stack-token-mac" },
             makeConnection: { _, _ in fake },
             onClientSession: { session in
                 // Consume until EOF (the peer_left), then record.
@@ -196,17 +226,6 @@ actor SessionRecorder {
 
     func record(_ session: RelayClientSession) {
         sessions.append([session.clientDeviceID, String(session.sessionID)])
-    }
-}
-
-struct StaticTicketProvider: RelayTicketProviding {
-    func mintTicket(hostDeviceID: String, deviceID: String, role: RelayRole) async throws -> RelayTicketGrant {
-        RelayTicketGrant(
-            ticket: "v1.claims.mac",
-            relayURL: URL(string: "wss://example.invalid/v1/connect")!,
-            expiresAt: Date().addingTimeInterval(300),
-            protocolVersion: RelayProtocol.version
-        )
     }
 }
 
