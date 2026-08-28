@@ -6919,6 +6919,14 @@ pub struct App {
     pub(crate) sidebar_recoverable_workspace_selection: usize,
     pub(crate) workspace_rail_selection: WorkspaceRailSelection,
     workspace_preview: Option<WorkspacePreview>,
+    /// Workspace-list revision last reconciled for the active preview.
+    /// Unrelated tree snapshots can then skip a full workspace scan.
+    workspace_preview_revision: Option<u64>,
+    /// Target index for `workspace_preview_revision`.
+    /// Reapply the preview in O(1) while the workspace list is unchanged.
+    workspace_preview_target_index: Option<usize>,
+    #[cfg(test)]
+    workspace_preview_reconcile_count: usize,
     pub(crate) machine_rail_scroll: usize,
     pub(crate) machine_footer_scroll: usize,
     pub(crate) workspace_rail_scroll: usize,
@@ -9119,6 +9127,10 @@ fn run_with_machine_updates_inner(
         sidebar_recoverable_workspace_selection: 0,
         workspace_rail_selection: WorkspaceRailSelection::default(),
         workspace_preview: None,
+        workspace_preview_revision: None,
+        workspace_preview_target_index: None,
+        #[cfg(test)]
+        workspace_preview_reconcile_count: 0,
         machine_rail_scroll: 0,
         machine_footer_scroll: 0,
         workspace_rail_scroll: 0,
@@ -11597,6 +11609,8 @@ impl App {
         self.sidebar_recoverable_workspace_selection = 0;
         self.workspace_rail_selection = WorkspaceRailSelection::Workspace;
         self.workspace_preview = None;
+        self.workspace_preview_revision = None;
+        self.workspace_preview_target_index = None;
         self.tabs_rail_selection = 0;
         self.tabs_rail_scroll = 0;
         self.tabs_rail_follow_selection = true;
@@ -17454,11 +17468,15 @@ impl App {
             return;
         }
         self.workspace_preview = Some(WorkspacePreview { origin, target, origin_scroll });
+        self.workspace_preview_revision = Some(self.tree.workspace_revision);
+        self.workspace_preview_target_index = Some(index);
         self.tree.active_workspace = index;
     }
 
     fn commit_workspace_preview(&mut self) {
         self.workspace_preview = None;
+        self.workspace_preview_revision = None;
+        self.workspace_preview_target_index = None;
     }
 
     fn commit_workspace_preview_for_pane_input(&mut self, x: u16, y: u16) {
@@ -17488,7 +17506,13 @@ impl App {
     }
 
     fn cancel_workspace_preview(&mut self) {
-        let Some(preview) = self.workspace_preview.take() else { return };
+        let Some(preview) = self.workspace_preview.take() else {
+            self.workspace_preview_revision = None;
+            self.workspace_preview_target_index = None;
+            return;
+        };
+        self.workspace_preview_revision = None;
+        self.workspace_preview_target_index = None;
         self.workspace_rail_scroll = preview.origin_scroll;
         if let Some(index) =
             self.tree.workspaces.iter().position(|workspace| workspace.id == preview.origin)
@@ -17499,6 +17523,11 @@ impl App {
     }
 
     fn reconcile_workspace_preview(&mut self) {
+        #[cfg(test)]
+        {
+            self.workspace_preview_reconcile_count =
+                self.workspace_preview_reconcile_count.saturating_add(1);
+        }
         let Some(preview) = self.workspace_preview else { return };
         let Some(target_index) =
             self.tree.workspaces.iter().position(|workspace| workspace.id == preview.target)
@@ -17513,6 +17542,8 @@ impl App {
         self.tree.active_workspace = target_index;
         self.sidebar_workspace_selection = target_index;
         self.workspace_rail_selection = WorkspaceRailSelection::Workspace;
+        self.workspace_preview_revision = Some(self.tree.workspace_revision);
+        self.workspace_preview_target_index = Some(target_index);
     }
 
     fn select_workspace_rail_target(&mut self, target: WorkspaceRailTarget) {
@@ -42252,6 +42283,64 @@ mod tests {
     }
 
     #[test]
+    fn replace_tree_reconciles_preview_only_when_workspace_revision_changes() {
+        let mux = Mux::new("workspace-preview-revision-gate-test", SurfaceOptions::default());
+        mux.new_workspace(Some("Alpha".into()), Some((80, 24))).unwrap();
+        mux.new_workspace(Some("Beta".into()), Some((80, 24))).unwrap();
+        let mut app = test_app(Session::Local(mux));
+        let mut initial = app.session.tree();
+        initial.workspace_revision = 7;
+        app.replace_tree(initial);
+        let origin = app.tree.workspaces[0].id;
+        let target = app.tree.workspaces[1].id;
+        app.tree.active_workspace = 0;
+        app.sidebar_workspace_selection = 0;
+        app.preview_workspace(1);
+        assert_eq!(app.workspace_preview_revision, Some(7));
+        let reconcile_count = app.workspace_preview_reconcile_count;
+
+        let mut unrelated = app.tree.clone();
+        unrelated.workspace_revision = 7;
+        // The authoritative snapshot still points at the origin workspace.
+        // The preview fast path must restore the rendered target without an
+        // O(workspaces) reconciliation scan.
+        unrelated.active_workspace = 0;
+        unrelated.workspaces[1].screens[0].panes[0].tabs[0].title = "updated".into();
+        app.replace_tree(unrelated);
+        assert_eq!(app.workspace_preview_revision, Some(7));
+        assert_eq!(app.workspace_preview_target_index, Some(1));
+        assert_eq!(app.tree.active_workspace, 1);
+        assert_eq!(app.sidebar_workspace_selection, 1);
+        assert_eq!(app.workspace_preview_reconcile_count, reconcile_count);
+        assert_eq!(
+            app.workspace_preview,
+            Some(WorkspacePreview { origin, target, origin_scroll: 0 })
+        );
+
+        let mut reordered = app.tree.clone();
+        reordered.workspace_revision = 8;
+        reordered.workspaces.swap(0, 1);
+        reordered.active_workspace = 0;
+        app.replace_tree(reordered);
+        assert_eq!(app.workspace_preview_revision, Some(8));
+        assert_eq!(app.workspace_preview_reconcile_count, reconcile_count + 1);
+        assert_eq!(app.tree.active_workspace, 0);
+        assert_eq!(app.tree.workspaces[0].id, target);
+        assert_eq!(app.sidebar_workspace_selection, 0);
+
+        let mut removed = app.tree.clone();
+        removed.workspace_revision = 9;
+        removed.workspaces.retain(|workspace| workspace.id != target);
+        removed.active_workspace = 0;
+        app.replace_tree(removed);
+        assert_eq!(app.workspace_preview, None);
+        assert_eq!(app.workspace_preview_revision, None);
+        assert_eq!(app.workspace_preview_reconcile_count, reconcile_count + 2);
+        assert_eq!(app.tree.active_workspace, 0);
+        assert_eq!(app.tree.workspaces[0].id, origin);
+    }
+
+    #[test]
     fn switching_to_profile_without_focused_child_rail_cancels_workspace_preview() {
         let mux = Mux::new("workspace-preview-profile-cancel-test", SurfaceOptions::default());
         mux.new_workspace(Some("Alpha".into()), Some((80, 24))).unwrap();
@@ -45073,6 +45162,10 @@ mod tests {
             sidebar_recoverable_workspace_selection: 0,
             workspace_rail_selection: WorkspaceRailSelection::default(),
             workspace_preview: None,
+            workspace_preview_revision: None,
+            workspace_preview_target_index: None,
+            #[cfg(test)]
+            workspace_preview_reconcile_count: 0,
             machine_rail_scroll: 0,
             machine_footer_scroll: 0,
             workspace_rail_scroll: 0,
