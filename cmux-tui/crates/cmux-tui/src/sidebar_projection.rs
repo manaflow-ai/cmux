@@ -507,6 +507,7 @@ mod tests {
             state: "working".into(),
             source: "detected".into(),
             session: Some("fix sidebar".into()),
+            agent: None,
             updated_at_ms: 1,
         }];
         let rows = rows(
@@ -740,6 +741,7 @@ mod tests {
                 state: "working".into(),
                 source: "hook".into(),
                 session: None,
+                agent: None,
                 updated_at_ms: 900,
             },
             AgentInfo {
@@ -747,6 +749,7 @@ mod tests {
                 state: "working".into(),
                 source: "hook".into(),
                 session: None,
+                agent: None,
                 updated_at_ms: 100,
             },
         ];
