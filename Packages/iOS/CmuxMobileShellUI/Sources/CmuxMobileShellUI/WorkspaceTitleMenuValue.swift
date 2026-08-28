@@ -4,6 +4,8 @@ import CoreGraphics
 struct WorkspaceTitleMenuValue: Equatable {
     let contentWidth: CGFloat
     let hasBackButton: Bool
+    /// Badge-aware back reserve; see `MobileLeadingToolbarTitleWidth`.
+    let backButtonUnreadCount: Int
     let hasTrailingCluster: Bool
     let measuredTrailingItemsWidth: CGFloat
     let measuredTrailingItemCount: Int

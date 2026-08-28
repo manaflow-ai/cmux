@@ -19,6 +19,13 @@ import CoreGraphics
 struct MobileLeadingToolbarTitleWidth {
     let contentWidth: CGFloat
     let hasBackButton: Bool
+    /// Other-workspace unread count folded into the back button. A badged
+    /// back button renders chevron + spacing + a mono badge circle, up to
+    /// ~32pt wider than the bare chevron; reserving only the bare width let
+    /// the title over-claim exactly when another workspace held unread, and
+    /// the resulting first-pass collapse is invisible to the recovery
+    /// ratchet, so it stuck until remount.
+    let backButtonUnreadCount: Int
     let hasTrailingCluster: Bool
     /// Sum of the measured content widths of the structurally visible trailing
     /// toolbar items, 0 until the first layout pass reports them.
@@ -37,6 +44,10 @@ struct MobileLeadingToolbarTitleWidth {
     let hadTrailingCollapse: Bool
 
     static let backButtonReserve: CGFloat = 44
+    /// Chevron-to-badge spacing plus the badge circle (18pt minimum, wider
+    /// for "99+"), matching WorkspaceBackButton's layout with slack.
+    static let backButtonBadgeReserve: CGFloat = 24
+    static let backButtonWideBadgeReserve: CGFloat = 32
     static let trailingReserveBase: CGFloat = 64
     /// Dogfood on a 402pt iPhone 17 measured ~22pt of dead gap between the
     /// title pill and the trailing capsule under the original 84pt margin +
@@ -61,6 +72,7 @@ struct MobileLeadingToolbarTitleWidth {
     init(
         contentWidth: CGFloat,
         hasBackButton: Bool,
+        backButtonUnreadCount: Int = 0,
         hasTrailingCluster: Bool,
         measuredTrailingItemsWidth: CGFloat = 0,
         measuredTrailingItemCount: Int = 0,
@@ -69,6 +81,7 @@ struct MobileLeadingToolbarTitleWidth {
     ) {
         self.contentWidth = contentWidth
         self.hasBackButton = hasBackButton
+        self.backButtonUnreadCount = backButtonUnreadCount
         self.hasTrailingCluster = hasTrailingCluster
         self.measuredTrailingItemsWidth = measuredTrailingItemsWidth
         self.measuredTrailingItemCount = measuredTrailingItemCount
@@ -78,9 +91,18 @@ struct MobileLeadingToolbarTitleWidth {
 
     var cap: CGFloat {
         guard contentWidth > 0 else { return Self.unmeasuredFallback }
-        let leading = hasBackButton ? Self.backButtonReserve : 0
         let recovery = hadTrailingCollapse ? Self.collapseRecoveryReserve : 0
-        return max(0, contentWidth - leading - trailingReserve - Self.barMarginsAndSpacing - recovery)
+        return max(0, contentWidth - leadingReserve - trailingReserve - Self.barMarginsAndSpacing - recovery)
+    }
+
+    private var leadingReserve: CGFloat {
+        guard hasBackButton else { return 0 }
+        guard backButtonUnreadCount > 0 else { return Self.backButtonReserve }
+        // WorkspaceBackButton caps the visible badge text at "99+".
+        let badge = backButtonUnreadCount > 99
+            ? Self.backButtonWideBadgeReserve
+            : Self.backButtonBadgeReserve
+        return Self.backButtonReserve + badge
     }
 
     private var trailingReserve: CGFloat {
