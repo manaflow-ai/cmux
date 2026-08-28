@@ -404,27 +404,30 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                     item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() },
                 ]
             case .displaysPool(let machine, _):
-                return [
-                    newDisplayItem(machine),
-                    item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() },
-                ]
+                var items: [NSMenuItem] = []
+                if machine(id: machine)?.isDesktop == true {
+                    items.append(newDisplayItem(machine))
+                }
+                items.append(item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() })
+                return items
             case .workspacesGroup(let machine):
-                return [
+                var items: [NSMenuItem] = [
                     item(String(localized: "cloudTree.menu.newWorkspace", defaultValue: "New Workspace")) { [nodeActions] in nodeActions.newWorkspace(machine) },
                     item(String(localized: "cloudTree.menu.newTerminal", defaultValue: "New Terminal")) { [nodeActions] in nodeActions.newTerminal(machine, nil) },
-                    newDisplayItem(machine),
-                    item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() },
                 ]
+                if machine(id: machine)?.isDesktop == true { items.append(newDisplayItem(machine)) }
+                items.append(item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() })
+                return items
             case .workspace(let machine, let workspace, _):
                 let group = node.dragGroup ?? SurfaceResourceGroup(title: workspace.name, resources: [])
-                return [
+                var items: [NSMenuItem] = [
                     item(String(localized: "cloudTree.menu.openAllHere", defaultValue: "Open All Here")) { [nodeActions] in nodeActions.openGroup(machine, group, .split, workspace.id) },
                     item(String(localized: "cloudTree.menu.openAllInNewTabs", defaultValue: "Open All in New Tabs")) { [nodeActions] in nodeActions.openGroup(machine, group, .tab, workspace.id) },
                     item(String(localized: "cloudTree.menu.newTerminalHere", defaultValue: "New Terminal Here")) { [nodeActions] in nodeActions.newTerminal(machine, workspace.id) },
-                    newDisplayItem(machine),
-                    .separator(),
-                    item(String(localized: "cloudTree.menu.copyWorkspaceID", defaultValue: "Copy Workspace ID")) { [nodeActions] in nodeActions.copyToPasteboard(workspace.id) },
                 ]
+                if machine(id: machine)?.isDesktop == true { items.append(newDisplayItem(machine)) }
+                items.append(contentsOf: [.separator(), item(String(localized: "cloudTree.menu.copyWorkspaceID", defaultValue: "Copy Workspace ID")) { [nodeActions] in nodeActions.copyToPasteboard(workspace.id) }])
+                return items
             case .localWorkspace(let row):
                 var items = [
                     item(String(localized: "cloudTree.menu.selectWorkspace", defaultValue: "Go to Workspace")) { [nodeActions] in nodeActions.selectLocalWorkspace(row.workspaceID) },
