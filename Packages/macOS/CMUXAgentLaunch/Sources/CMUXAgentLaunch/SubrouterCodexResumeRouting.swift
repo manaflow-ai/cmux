@@ -15,6 +15,7 @@ public struct SubrouterCodexResumeRouting: Sendable, Equatable {
     private static let routingEnvironmentLimits = [
         "SUBROUTER_CODEX_ACCOUNT_ID": 256,
         "SUBROUTER_CODEX_BASE_URL": 2048,
+        "SUBROUTER_CODEX_BIN": 4096,
         "SUBROUTER_CODEX_SERVER": 256,
         "SUBROUTER_CODEX_USER_EMAIL": 320,
     ]
@@ -75,6 +76,30 @@ public struct SubrouterCodexResumeRouting: Sendable, Equatable {
         return marker.split(separator: " ").map(String.init) + [sessionID]
     }
 
+    func removingRoutingArguments(from arguments: [String]) -> [String] {
+        var selected: [String] = []
+        var index = 0
+        while index < arguments.count {
+            let argument = arguments[index]
+            if (argument == "-c" || argument == "--config"), index + 1 < arguments.count {
+                if isSubrouterRoutingAssignment(arguments[index + 1]) {
+                    index += 2
+                    continue
+                }
+            }
+            if ["-c=", "--config="].contains(where: { prefix in
+                argument.hasPrefix(prefix)
+                    && isSubrouterRoutingAssignment(String(argument.dropFirst(prefix.count)))
+            }) {
+                index += 1
+                continue
+            }
+            selected.append(argument)
+            index += 1
+        }
+        return selected
+    }
+
     private func launchArgumentsContainSubrouterProvider(_ arguments: [String]) -> Bool {
         for (index, argument) in arguments.enumerated() {
             if (argument == "-c" || argument == "--config"),
@@ -108,6 +133,13 @@ public struct SubrouterCodexResumeRouting: Sendable, Equatable {
         return value == "subrouter"
     }
 
+    private func isSubrouterRoutingAssignment(_ rawValue: String) -> Bool {
+        let parts = rawValue.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+        guard parts.count == 2 else { return false }
+        let key = parts[0].trimmingCharacters(in: .whitespacesAndNewlines)
+        return key == "model_provider" || key.hasPrefix("model_providers.subrouter.")
+    }
+
     private func sanitizedRoutingValue(key: String, value: String?) -> String? {
         guard let maximumByteCount = Self.routingEnvironmentLimits[key],
               let value else {
@@ -128,7 +160,9 @@ public struct SubrouterCodexResumeRouting: Sendable, Equatable {
               components.user == nil,
               components.password == nil,
               components.query == nil,
-              components.fragment == nil else {
+              components.fragment == nil,
+              !components.path.lowercased().hasPrefix("/t/"),
+              !components.percentEncodedPath.lowercased().hasPrefix("/t/") else {
             return nil
         }
         return trimmed

@@ -284,7 +284,18 @@ public struct AgentResumeArgv: Sendable, Equatable {
             launchArguments: arguments,
             environment: environment
         ) {
-            return .resolved(routed)
+            let parts = commandParts(
+                executablePath: executablePath,
+                arguments: arguments,
+                fallbackExecutable: "codex"
+            )
+            guard let captured = preservedCodexForkArguments(
+                args: parts.tail,
+                preservePromptTags: false,
+                stripCmuxHooks: parts.executable == "codex"
+            ) else { return .resolved(nil) }
+            let preserved = SubrouterCodexResumeRouting().removingRoutingArguments(from: captured)
+            return .resolved(routed + codexResumeConfigOverrides(preserved: preserved) + preserved)
         }
         switch launcher {
         case "claudeTeams":

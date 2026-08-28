@@ -164,7 +164,10 @@ import Testing
             )
         )
 
-        #expect(invocation.arguments == ["sr", "codex", "resume", sessionID])
+        #expect(invocation.arguments == [
+            "sr", "codex", "resume", sessionID,
+            "-c", "check_for_update_on_startup=false",
+        ])
         #expect(invocation.environment["SUBROUTER_CODEX_ACCOUNT_ID"] == "team-codex-1")
         #expect(invocation.environment["SUBROUTER_CODEX_BASE_URL"] == "https://router.example.test/v1")
         #expect(invocation.environment["SUBROUTER_CODEX_RESUME_COMMAND"] == nil)
@@ -200,7 +203,10 @@ import Testing
             )
         )
 
-        #expect(invocation.arguments == [command, "codex", "resume", sessionID])
+        #expect(invocation.arguments == [
+            command, "codex", "resume", sessionID,
+            "-c", "check_for_update_on_startup=false",
+        ])
     }
 
     @Test func structuredCodexRestoreCanonicalizesRelativeHomeFromLaunchDirectory() throws {

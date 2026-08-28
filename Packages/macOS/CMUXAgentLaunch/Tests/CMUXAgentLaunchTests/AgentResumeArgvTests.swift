@@ -304,7 +304,10 @@ struct AgentResumeArgvTests {
                 executablePath: "/opt/bin/codex",
                 arguments: ["/opt/bin/codex", "--config=model_provider=\"subrouter\""],
                 environment: ["SUBROUTER_CODEX_RESUME_COMMAND": "  sr   codex resume  "]
-            ) == .resolved(["sr", "codex", "resume", "SID"])
+            ) == .resolved([
+                "sr", "codex", "resume", "SID",
+                "-c", "check_for_update_on_startup=false",
+            ])
         )
 
         #expect(
