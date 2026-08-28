@@ -9,8 +9,8 @@ nonisolated protocol GitExecutableFileProbing: Sendable {
 /// Probes executable paths through Foundation's filesystem API.
 nonisolated struct SystemGitExecutableFileProbe: GitExecutableFileProbing {
     func isExecutableFile(atPath path: String) -> Bool {
-        var metadata = stat()
-        return Darwin.stat(path, &metadata) == 0
+        var metadata = Darwin.stat()
+        return path.withCString { Darwin.stat($0, &metadata) == 0 }
             && metadata.st_mode & mode_t(S_IFMT) == mode_t(S_IFREG)
             && Darwin.access(path, X_OK) == 0
     }
