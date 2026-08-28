@@ -42,4 +42,34 @@ public struct SidebarWorkspaceDragBlockResolver: Sendable {
             selectedIds.contains($0) && !anchorIds.contains($0)
         }
     }
+
+    /// Whether the block's members occupy noncontiguous positions in the
+    /// given row space.
+    ///
+    /// A contiguous block dropped at its own gap is a true no-op, matching
+    /// single-drag no-op suppression. A noncontiguous block coalesces at any
+    /// gap, including the dragged row's own edges, so that gap is a real
+    /// drop target and must not be suppressed.
+    ///
+    /// - Parameters:
+    ///   - blockIds: The workspace ids represented by the drag.
+    ///   - rowSpaceIds: Row ids in the space the drop plan addresses
+    ///     (full rows or top-level rows).
+    /// - Returns: True when the block spans a gap in `rowSpaceIds`.
+    public func blockOccupiesNoncontiguousRows(
+        blockIds: Set<UUID>,
+        rowSpaceIds: [UUID]
+    ) -> Bool {
+        guard blockIds.count > 1 else { return false }
+        var firstIndex: Int?
+        var lastIndex = 0
+        var presentCount = 0
+        for (index, id) in rowSpaceIds.enumerated() where blockIds.contains(id) {
+            if firstIndex == nil { firstIndex = index }
+            lastIndex = index
+            presentCount += 1
+        }
+        guard let firstIndex, presentCount > 1 else { return false }
+        return lastIndex - firstIndex + 1 != presentCount
+    }
 }

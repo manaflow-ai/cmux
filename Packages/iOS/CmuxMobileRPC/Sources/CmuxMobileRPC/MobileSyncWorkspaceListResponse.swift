@@ -46,6 +46,10 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
         /// Whether the workspace has unread activity on the Mac. `nil` on Macs
         /// old enough not to emit it (the row then shows no unread dot).
         public let hasUnread: Bool?
+        /// The exact unread count behind `has_unread` (the number the Mac
+        /// sidebar badge shows). `nil` on Macs old enough not to emit it (the
+        /// row then falls back to the boolean dot).
+        public let unreadCount: Int?
         /// Terminals belonging to this workspace.
         public let terminals: [Terminal]
         /// All workspace surfaces. `nil` when an older Mac omits the field.
@@ -68,6 +72,7 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             case previewAt = "preview_at"
             case lastActivityAt = "last_activity_at"
             case hasUnread = "has_unread"
+            case unreadCount = "unread_count"
             case terminals
             case surfaces
             case simulators
@@ -91,6 +96,7 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             previewAt: Double?,
             lastActivityAt: Double?,
             hasUnread: Bool?,
+            unreadCount: Int? = nil,
             terminals: [Terminal],
             surfaces: [Surface]? = nil,
             simulators: [MobileSimulatorPanelDescriptor] = []
@@ -109,11 +115,13 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             self.previewAt = previewAt
             self.lastActivityAt = lastActivityAt
             self.hasUnread = hasUnread
+            self.unreadCount = unreadCount
             self.terminals = terminals
             self.surfaces = surfaces
             self.simulators = simulators
         }
 
+        /// Decodes a workspace row while accepting legacy optional fields.
         public init(from decoder: any Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             id = try container.decode(String.self, forKey: .id)
@@ -130,6 +138,7 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             previewAt = try container.decodeIfPresent(Double.self, forKey: .previewAt)
             lastActivityAt = try container.decodeIfPresent(Double.self, forKey: .lastActivityAt)
             hasUnread = try container.decodeIfPresent(Bool.self, forKey: .hasUnread)
+            unreadCount = try container.decodeIfPresent(Int.self, forKey: .unreadCount)
             terminals = try container.decode([Terminal].self, forKey: .terminals)
             surfaces = try container.decodeIfPresent([Surface].self, forKey: .surfaces)
             simulators = try container.decodeIfPresent(
@@ -147,6 +156,8 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
         public let kind: String
         /// User-facing surface title.
         public let title: String
+        /// Whether the surface currently holds focus on the owning Mac.
+        public let isFocused: Bool
         /// Backing path for file-oriented surfaces, when present.
         public let filePath: String?
         /// Bounded checklist/status payload for todo surfaces.
@@ -156,6 +167,7 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             case surfaceID = "surface_id"
             case kind
             case title
+            case isFocused = "is_focused"
             case filePath = "file_path"
             case todo
         }
@@ -166,13 +178,25 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             kind: String,
             title: String,
             filePath: String?,
-            todo: MobileTodoSnapshot? = nil
+            todo: MobileTodoSnapshot? = nil,
+            isFocused: Bool = false
         ) {
             self.surfaceID = surfaceID
             self.kind = kind
             self.title = title
+            self.isFocused = isFocused
             self.filePath = filePath
             self.todo = todo
+        }
+
+        public init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            surfaceID = try container.decode(String.self, forKey: .surfaceID)
+            kind = try container.decode(String.self, forKey: .kind)
+            title = try container.decode(String.self, forKey: .title)
+            isFocused = try container.decodeIfPresent(Bool.self, forKey: .isFocused) ?? false
+            filePath = try container.decodeIfPresent(String.self, forKey: .filePath)
+            todo = try container.decodeIfPresent(MobileTodoSnapshot.self, forKey: .todo)
         }
     }
 
@@ -191,9 +215,12 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
         public let isPinned: Bool
         /// SF Symbol rendered by the corresponding group row on the Mac.
         public let iconSymbol: String?
-        /// The anchor workspace that owns this group. It is represented by the
-        /// group header and never rendered as a separate row.
-        public let anchorWorkspaceID: String
+        /// The live anchor workspace that owns this group, or `nil` for a
+        /// header-only group. Empty groups never publish a placeholder
+        /// workspace identifier.
+        public let anchorWorkspaceID: String?
+        /// Whether this group intentionally has no live workspace anchor.
+        public let isEmpty: Bool
 
         // The Mac also emits `member_workspace_ids`, but membership is derived on
         // the client from each workspace's `group_id` (which preserves spatial
@@ -206,6 +233,22 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             case isPinned = "is_pinned"
             case iconSymbol = "icon_symbol"
             case anchorWorkspaceID = "anchor_workspace_id"
+            case isEmpty = "is_empty"
+        }
+
+        /// Decodes a group row from both legacy and empty-group payloads.
+        public init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            id = try container.decode(String.self, forKey: .id)
+            name = try container.decode(String.self, forKey: .name)
+            isCollapsed = try container.decode(Bool.self, forKey: .isCollapsed)
+            isPinned = try container.decode(Bool.self, forKey: .isPinned)
+            iconSymbol = try container.decodeIfPresent(String.self, forKey: .iconSymbol)
+            anchorWorkspaceID = try container.decodeIfPresent(String.self, forKey: .anchorWorkspaceID)
+            let decodedIsEmpty = try container.decodeIfPresent(Bool.self, forKey: .isEmpty) ?? false
+            // A null anchor is authoritative even when a legacy or malformed
+            // sender reports `is_empty: false`.
+            isEmpty = decodedIsEmpty || anchorWorkspaceID == nil
         }
 
         /// Memberwise construction for locally-synced sources (state sync v2).
@@ -215,7 +258,8 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             isCollapsed: Bool,
             isPinned: Bool,
             iconSymbol: String? = nil,
-            anchorWorkspaceID: String
+            anchorWorkspaceID: String?,
+            isEmpty: Bool = false
         ) {
             self.id = id
             self.name = name
@@ -223,6 +267,7 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             self.isPinned = isPinned
             self.iconSymbol = iconSymbol
             self.anchorWorkspaceID = anchorWorkspaceID
+            self.isEmpty = isEmpty || anchorWorkspaceID == nil
         }
     }
 

@@ -27,14 +27,20 @@ struct WorkspaceRow: View {
     /// with short previews keep the same height as their neighbors.
     var previewLineLimit: Int = MobileDisplaySettings.defaultWorkspacePreviewLineCount
     var unreadIndicatorLeftShift: Double = MobileDisplaySettings.defaultUnreadIndicatorLeftShift
+    var unreadBadgeDiameter: Double = MobileDisplaySettings.defaultUnreadBadgeDiameter
 
     var body: some View {
         HStack(alignment: .center, spacing: 0) {
-            // Unread is JUST this dot, left of the workspace rail. The
-            // gutter is always present (hidden dot when read) so read and
-            // unread rows line up. Center alignment keeps it centered in the
-            // actual row height as descriptions and previews wrap.
-            WorkspaceUnreadDot(isUnread: workspace.hasUnread, leftShift: unreadIndicatorLeftShift)
+            // Unread is JUST this indicator (count badge, or dot against old
+            // Macs), left of the workspace rail. The gutter is always present
+            // (hidden when read) so read and unread rows line up. Center
+            // alignment keeps it centered in the actual row height as
+            // descriptions and previews wrap.
+            WorkspaceUnreadDot(
+                unread: workspace.unreadState,
+                leftShift: unreadIndicatorLeftShift,
+                diameter: unreadBadgeDiameter
+            )
 
             Spacer()
                 .frame(width: unreadDotRailLayoutGap)
@@ -132,11 +138,14 @@ struct WorkspaceRow: View {
     }
 
     private var unreadDotRailLayoutGap: CGFloat {
-        let dotTrailing = (WorkspaceUnreadDot.gutterWidth + WorkspaceUnreadDot.dotDiameter) / 2
+        // Indicators are leading-aligned in the gutter, so the badge ends at
+        // its diameter. Reserving for it keeps the visual gap promise for
+        // badge rows and one uniform rail column for every row.
+        let indicatorTrailing = CGFloat(unreadBadgeDiameter)
             - CGFloat(unreadIndicatorLeftShift)
         return max(
             0,
-            Self.unreadDotRailVisualGap + dotTrailing - WorkspaceUnreadDot.gutterWidth
+            Self.unreadDotRailVisualGap + indicatorTrailing - WorkspaceUnreadDot.gutterWidth
         )
     }
 

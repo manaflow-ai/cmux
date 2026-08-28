@@ -8,13 +8,14 @@ import {
   jsonb,
   pgEnum,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
 
-export const vmProvider = pgEnum("vm_provider", ["e2b", "freestyle", "daytona"]);
+export const vmProvider = pgEnum("vm_provider", ["e2b", "freestyle", "daytona", "blaxel"]);
 
 export const vmStatus = pgEnum("vm_status", [
   "provisioning",
@@ -24,7 +25,7 @@ export const vmStatus = pgEnum("vm_status", [
   "destroyed",
 ]);
 
-export const vmLeaseKind = pgEnum("vm_lease_kind", ["pty", "rpc", "ssh"]);
+export const vmLeaseKind = pgEnum("vm_lease_kind", ["pty", "rpc", "ssh", "preview"]);
 
 export const cloudVmSessionStatus = pgEnum("cloud_vm_session_status", [
   "running",
@@ -57,6 +58,9 @@ export const cloudVms = pgTable(
     billingPlanId: text("billing_plan_id"),
     provider: vmProvider("provider").notNull(),
     providerVmId: text("provider_vm_id"),
+    // User-chosen label shown in machine lists. The provider VM id stays the
+    // machine's address (URLs, CLI verbs); this is display-only.
+    displayName: text("display_name"),
     imageId: text("image_id").notNull(),
     imageVersion: text("image_version"),
     status: vmStatus("status").notNull().default("provisioning"),
@@ -578,6 +582,38 @@ export const coderouterVaultLeases = pgTable(
   },
   (table) => [
     index("coderouter_vault_leases_expiry_idx").on(table.expiresAt),
+  ],
+);
+
+/**
+ * Session -> account stickiness for coderouter routing.
+ *
+ * Providers cache prompt prefixes per account, so moving a live session to a
+ * different account re-bills its whole prompt prefix as uncached input. A row
+ * here pins one agent session (the Codex CLI `session_id` header) to one
+ * account. Placement of a new session spreads across the least-loaded usable
+ * accounts under FOR UPDATE SKIP LOCKED, so concurrent session starts cannot
+ * herd onto a single account (port of subrouter PR #228).
+ */
+export const coderouterSessionAccounts = pgTable(
+  "coderouter_session_accounts",
+  {
+    teamId: text("team_id").notNull(),
+    provider: text("provider").$type<"codex" | "opencode-go">().notNull(),
+    sessionKey: text("session_key").notNull(),
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => coderouterAccounts.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({
+      name: "coderouter_session_accounts_pkey",
+      columns: [table.teamId, table.provider, table.sessionKey],
+    }),
+    index("coderouter_session_accounts_account_idx").on(table.accountId),
+    index("coderouter_session_accounts_last_seen_idx").on(table.lastSeenAt),
   ],
 );
 

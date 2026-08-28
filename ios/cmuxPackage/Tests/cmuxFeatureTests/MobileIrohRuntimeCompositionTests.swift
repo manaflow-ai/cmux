@@ -480,7 +480,7 @@ struct MobileIrohRuntimeCompositionTests {
     }
 
     @Test
-    func taggedDevelopmentDiscoveryCannotCrossIntoAnotherAgentLane() async throws {
+    func taggedDevelopmentDiscoveryIncludesSiblingMacBuilds() async throws {
         let discovery = try mobileIrohDiscovery(bindings: [
             mobileIrohBinding(
                 bindingID: "31000000-0000-4000-8000-000000000001",
@@ -489,7 +489,8 @@ struct MobileIrohRuntimeCompositionTests {
                 endpointID: String(repeating: "a", count: 64),
                 platform: "mac",
                 pairingEnabled: true,
-                tag: "lane-a"
+                tag: "lane-a",
+                clientNamespace: "mac:com.cmuxterm.app.debug.lane-a"
             ),
             mobileIrohBinding(
                 bindingID: "31000000-0000-4000-8000-000000000004",
@@ -498,7 +499,8 @@ struct MobileIrohRuntimeCompositionTests {
                 endpointID: String(repeating: "b", count: 64),
                 platform: "mac",
                 pairingEnabled: true,
-                tag: "lane-b"
+                tag: "lane-b",
+                clientNamespace: "mac:com.cmuxterm.app.debug.lane-b"
             ),
             mobileIrohBinding(
                 bindingID: "31000000-0000-4000-8000-000000000007",
@@ -507,18 +509,37 @@ struct MobileIrohRuntimeCompositionTests {
                 endpointID: String(repeating: "c", count: 64),
                 platform: "mac",
                 pairingEnabled: true,
-                tag: "default"
+                tag: "default",
+                clientNamespace: "mac:com.cmuxterm.app"
             ),
         ])
         let catalog = MobileIrohRouteCatalog()
         await catalog.activate(scope: 4)
         await catalog.replace(with: discovery, scope: 4)
 
+        let lanePolicy = MobileMacBuildCompatibilityPolicy.development(
+            expectedInstanceTag: "lane-a",
+            additionalInstanceTags: MobileMacTagAllowlist(tags: ["lane-b"])
+        )
+        let development = await catalog.liveMacCandidates(
+            preferredTag: "lane-a",
+            compatibleWith: lanePolicy
+        )
+        #expect(development.map(\.instanceTag) == ["lane-a", "lane-b"])
+
+        // Without a grant the sibling lane is filtered out entirely.
         let isolated = await catalog.liveMacCandidates(
             preferredTag: "lane-a",
             compatibleWith: .development(expectedInstanceTag: "lane-a")
         )
         #expect(isolated.map(\.instanceTag) == ["lane-a"])
+
+        let boundedDevelopment = await catalog.liveMacCandidates(
+            preferredTag: "lane-a",
+            compatibleWith: lanePolicy,
+            limit: 1
+        )
+        #expect(boundedDevelopment.map(\.instanceTag) == ["lane-a"])
 
         let official = await catalog.liveMacCandidates(
             preferredTag: "lane-a",
@@ -2017,10 +2038,11 @@ private func mobileIrohBinding(
     platform: String,
     pairingEnabled: Bool,
     tag: String = "test",
+    clientNamespace: String? = nil,
     lastSeenAt: String = "2027-07-10T12:00:00.000Z",
     pathHints: [[String: Any]] = []
 ) -> [String: Any] {
-    [
+    var object: [String: Any] = [
         "binding_id": bindingID,
         "device_id": deviceID,
         "app_instance_id": appInstanceID,
@@ -2033,6 +2055,10 @@ private func mobileIrohBinding(
         "path_hints": pathHints,
         "last_seen_at": lastSeenAt,
     ]
+    if let clientNamespace {
+        object["client_namespace"] = clientNamespace
+    }
+    return object
 }
 
 private func mobileIrohDiscovery(

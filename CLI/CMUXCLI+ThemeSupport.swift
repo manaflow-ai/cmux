@@ -432,7 +432,7 @@ extension CMUXCLI {
 
     func isRightSidebarCLIMode(_ value: String) -> Bool {
         switch value.lowercased() {
-        case "files", "find", "vault", "sessions", "feed", "dock", "custom", "custom-sidebar":
+        case "files", "find", "vault", "sessions", "feed", "dock", "cloud", "machines", "vms", "custom", "custom-sidebar":
             return true
         default:
             return false
@@ -441,8 +441,10 @@ extension CMUXCLI {
 
     func normalizedRightSidebarCLIArgument(_ value: String) -> String {
         switch value.lowercased() {
-        case "files", "find", "vault", "sessions", "feed", "dock", "custom", "custom-sidebar":
+        case "files", "find", "vault", "sessions", "feed", "dock", "machines", "custom", "custom-sidebar":
             return value.lowercased()
+        case "cloud", "vms":
+            return "machines"
         default:
             return value
         }

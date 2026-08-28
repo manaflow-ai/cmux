@@ -84,8 +84,8 @@ struct BrowserWebContentProcessTests {
         let sourcePageURL = URL(
             string: "https://cmux.test/handler/after-sign-in?web_return_to=%2Fapp-pricing%3Fcmux_app%3D1"
         )!
-        var cancelled = false
-        var reportedTerminalCancellation = false
+        var cancellationCount = 0
+        var terminalCancellationReportCount = 0
 
         let completion = await withCheckedContinuation {
             (continuation: CheckedContinuation<(Bool, URL?), Never>) in
@@ -93,16 +93,16 @@ struct BrowserWebContentProcessTests {
                 disposition: .deliverInApp,
                 callbackURL: callbackURL,
                 sourcePageURL: sourcePageURL,
-                cancelNavigation: { cancelled = true },
-                reportTerminalCancellation: { reportedTerminalCancellation = true },
+                cancelNavigation: { cancellationCount += 1 },
+                reportTerminalCancellation: { terminalCancellationReportCount += 1 },
                 deliver: { _ in false },
                 completion: { delivered, returnURL in
                     continuation.resume(returning: (delivered, returnURL))
                 }
             )
             #expect(consumed)
-            #expect(cancelled)
-            #expect(reportedTerminalCancellation)
+            #expect(cancellationCount == 1)
+            #expect(terminalCancellationReportCount == 1)
         }
 
         #expect(!completion.0)
@@ -136,15 +136,15 @@ struct BrowserWebContentProcessTests {
             callbackScheme: "cmux-dev-test"
         )
         let callbackURL = URL(string: "cmux-nightly://auth-callback?refresh_token=secret")!
-        var cancelled = false
-        var reportedTerminalCancellation = false
+        var cancellationCount = 0
+        var terminalCancellationReportCount = 0
 
         let consumed = policy.consume(
             disposition: .block,
             callbackURL: callbackURL,
             sourcePageURL: nil,
-            cancelNavigation: { cancelled = true },
-            reportTerminalCancellation: { reportedTerminalCancellation = true },
+            cancelNavigation: { cancellationCount += 1 },
+            reportTerminalCancellation: { terminalCancellationReportCount += 1 },
             deliver: { _ in
                 Issue.record("Blocked callbacks must never be delivered")
                 return false
@@ -155,8 +155,8 @@ struct BrowserWebContentProcessTests {
         )
 
         #expect(consumed)
-        #expect(cancelled)
-        #expect(reportedTerminalCancellation)
+        #expect(cancellationCount == 1)
+        #expect(terminalCancellationReportCount == 1)
     }
 
     @Test

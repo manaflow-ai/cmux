@@ -77,6 +77,7 @@ struct MarkdownPanelView: View {
                 markdown: panel.content,
                 theme: MarkdownWebTheme.resolve(backgroundColor: themeBackgroundColor),
                 backgroundColor: appearance.contentBackgroundColor,
+                isVisibleInUI: isVisibleInUI && panel.displayMode == .preview,
                 panelId: panel.id,
                 workspaceId: panel.workspaceId,
                 filePath: panel.filePath,
@@ -101,6 +102,21 @@ struct MarkdownPanelView: View {
                     wordWrap: fileEditorWordWrap
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+
+            if panel.displayMode == .preview, let searchState = panel.searchState {
+                BrowserSearchOverlay(
+                    panelId: panel.id,
+                    searchState: searchState,
+                    focusRequestGeneration: panel.searchFocusRequestGeneration,
+                    canApplyFocusRequest: { generation in
+                        panel.canApplySearchFocusRequest(generation)
+                    },
+                    onNext: { panel.findNext() },
+                    onPrevious: { panel.findPrevious() },
+                    onClose: { panel.hideFind() },
+                    onFieldDidFocus: {}
+                )
             }
         }
     }

@@ -29,6 +29,7 @@ struct CMUXMobileRootView: View {
     /// capability closures are rebuilt for the newly selected method.
     @State private var connectionMethodObservationToken: MobileConnectionMethod?
     @Environment(\.dogfoodAttachPreparation) private var dogfoodAttachPreparation
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private let signOutHook: MobileSignOutHook
     private let startupConnectionCoordinator: MobileStartupConnectionCoordinator
     #if os(iOS)
@@ -42,6 +43,10 @@ struct CMUXMobileRootView: View {
     @State private var onboardingMacDiscoveryKeepAlive = OnboardingMacDiscoveryKeepAlive()
     /// The shared iOS modal slot for root sheets and shell-owned child sheets.
     @State private var rootPresentation: MobileRootPresentationState
+    #if DEBUG
+    /// One-shot latch for the UI-test auto-open-first-workspace hook.
+    @State private var didAutoOpenFirstWorkspaceForUITest = false
+    #endif
     #endif
     @State private var pendingAttachURL: String?
     @State private var didAuthenticateWithAttachTicket = false
@@ -138,14 +143,6 @@ struct CMUXMobileRootView: View {
         #endif
     }
 
-    private var shouldShowStreamingChatPreview: Bool {
-        #if os(iOS) && DEBUG
-        return UITestConfig.streamingChatPreviewEnabled
-        #else
-        return false
-        #endif
-    }
-
     private var shouldShowMacSurfaceGalleryPreview: Bool {
         #if os(iOS) && DEBUG
         return UITestConfig.macSurfaceGalleryPreviewPage != nil
@@ -189,14 +186,6 @@ struct CMUXMobileRootView: View {
         #endif
     }
     #endif
-
-    @ViewBuilder private var streamingChatPreview: some View {
-        #if os(iOS) && DEBUG
-        StreamingChatPreviewView()
-        #else
-        EmptyView()
-        #endif
-    }
 
     @ViewBuilder private var terminalLayoutPreview: some View {
         #if os(iOS) && DEBUG
@@ -267,7 +256,11 @@ struct CMUXMobileRootView: View {
             pairingSheet(initialPresentation: pairingPresentation)
         }
         #endif
-        .animation(.snappy(duration: 0.18), value: isAuthenticated)
+        // Full-screen surface swaps (sign-in <-> onboarding <-> shell) get a
+        // longer, softer curve than in-shell phase changes; 0.18s reads as a
+        // hard cut across two unrelated screens.
+        .animation(.smooth(duration: 0.35), value: isAuthenticated)
+        .animation(.smooth(duration: 0.35), value: shouldShowOnboarding)
         .animation(.snappy(duration: 0.18), value: store.phase)
         .onAppear {
             syncShellAuthentication(isAuthenticated)
@@ -321,6 +314,13 @@ struct CMUXMobileRootView: View {
         .onChange(of: store.workspaceTopologyVersion) { _, _ in
             pushCoordinator.workspacesDidChange()
         }
+        #if DEBUG
+        // The UI-test auto-open hook observes the same workspace-arrival
+        // signal; `initial: true` covers a list already loaded at mount.
+        .onChange(of: store.workspaceTopologyVersion, initial: true) { _, _ in
+            autoOpenFirstWorkspaceForUITestIfNeeded()
+        }
+        #endif
         #endif
         .onChange(of: authManager.resolvedTeamID) { _, _ in
             diagnosticLog?.recordAppEvent(.authTeamChanged)
@@ -397,6 +397,11 @@ struct CMUXMobileRootView: View {
             )
             updateOnboardingMacDiscoveryKeepAlive()
             presentAutoConnectMigrationIfEligible()
+            #if DEBUG
+            // Auth can resolve after the workspace list is already loaded, so
+            // the topology-version hook alone would miss the arm-late case.
+            autoOpenFirstWorkspaceForUITestIfNeeded()
+            #endif
             #endif
         }
         .onChange(of: authManager.isRestoringSession) { _, isRestoringSession in
@@ -459,8 +464,6 @@ struct CMUXMobileRootView: View {
             changesPreview
         } else if shouldShowHideComputersVerifier {
             hideComputersVerifier
-        } else if shouldShowAgentChatDemoPreview {
-            agentChatDemoPreview
         } else if shouldShowTerminalLayoutPreview {
             terminalLayoutPreview
         } else if shouldShowWorkspaceListLayoutPreview {
@@ -469,14 +472,22 @@ struct CMUXMobileRootView: View {
             macSurfaceGalleryPreview
         } else if shouldShowHiddenComputersPreview {
             hiddenComputersPreview
-        } else if shouldShowStreamingChatPreview {
-            streamingChatPreview
         } else if shouldShowOnboardingPreview {
             onboardingPreview
         } else if shouldShowOnboarding {
+            // Sign-in hands directly into onboarding, so the swap reads as a
+            // forward push in the tour's paging direction rather than a cut.
             onboardingFlow
+                .transition(reduceMotion ? .opacity : .asymmetric(
+                    insertion: .move(edge: .trailing).combined(with: .opacity),
+                    removal: .opacity
+                ))
         } else if !isAuthenticated {
             SignInView()
+                .transition(reduceMotion ? .opacity : .asymmetric(
+                    insertion: .opacity,
+                    removal: .move(edge: .leading).combined(with: .opacity)
+                ))
         } else {
             switch MobileRootAuthGate.shellSurface(
                 connectionState: store.connectionState,
@@ -499,6 +510,7 @@ struct CMUXMobileRootView: View {
                     store: store,
                     tailscalePairingRequired: tailscaleSetupPrompt.requiresPairing,
                     showSettings: showSettings,
+                    showComputers: showComputers,
                     setupHelpPresentation: childSheetPresentation(
                         for: .disconnectedSetupHelp
                     )
@@ -614,8 +626,7 @@ struct CMUXMobileRootView: View {
                 store: store,
                 selectWorkspace: selectWorkspaceFromComputers,
                 showAddDevice: addComputerAction,
-                dismissAction: dismissComputers,
-                didForgetComputer: didForgetComputer
+                dismissAction: dismissComputers
             )
         case let .pairing(pairingPresentation):
             pairingSheet(initialPresentation: pairingPresentation)
@@ -672,14 +683,6 @@ struct CMUXMobileRootView: View {
 
     private func dismissComputers() {
         handleRootPresentation(.dismissComputers)
-    }
-
-    /// Forget completes its durable cleanup before this callback fires. Route
-    /// the final-row transition through the same root owner as Done, so the
-    /// authenticated shell and its toolbar become visible together.
-    private func didForgetComputer() {
-        guard !store.hasKnownPairedMac, !store.hasHiddenComputers else { return }
-        dismissComputers()
     }
 
     private func selectWorkspaceFromComputers(_ id: MobileWorkspacePreview.ID) {
@@ -809,10 +812,18 @@ struct CMUXMobileRootView: View {
         )
     }
 
-    /// Whether first-run onboarding has an unfinished durable milestone.
+    /// Whether first-run onboarding should present: only for a signed-in
+    /// account session, and only while a durable milestone remains unfinished.
+    /// Signed out, `rootContent` falls through to the sign-in screen instead.
+    /// Deliberately narrower than the composite `isAuthenticated`: a temporary
+    /// attach-ticket authentication must reach the shell so the attach
+    /// completes, not detour into the tour (whose discovery keep-alive
+    /// requires an account session anyway).
     private var shouldShowOnboarding: Bool {
         #if os(iOS)
-        return onboardingStore.progress.shouldShowOnboarding
+        return onboardingStore.progress.shouldShowOnboarding(
+            isAuthenticated: authManager.isAuthenticated
+        )
         #else
         return false
         #endif
@@ -863,6 +874,7 @@ struct CMUXMobileRootView: View {
             connectionPhase: onboardingConnectionPhase,
             connectionMethod: connectionMethodStore?.method ?? .automatic,
             onSelectConnectionMethod: { connectionMethodStore?.method = $0 },
+            onEnablePush: { await pushCoordinator.enable(trigger: "onboarding") },
             onReachedConnection: markOnboardingReadyToConnect,
             onSkip: completeOnboarding,
             onRetryConnection: retryAutomaticConnection,
@@ -886,6 +898,8 @@ struct CMUXMobileRootView: View {
                 : .searching,
             connectionMethod: connectionMethodStore?.method ?? .automatic,
             onSelectConnectionMethod: { connectionMethodStore?.method = $0 },
+            // The deterministic preview must never raise the OS alert.
+            onEnablePush: { true },
             onReachedConnection: markOnboardingReadyToConnect,
             onSkip: completeOnboarding,
             onRetryConnection: {},
@@ -924,6 +938,21 @@ struct CMUXMobileRootView: View {
     private func completeOnboarding() {
         onboardingStore.markComplete()
     }
+
+    #if DEBUG
+    /// Auto-opens the first loaded workspace once for the headless UI-test
+    /// harness (`CMUX_UITEST_AUTO_OPEN_FIRST_WORKSPACE=1`), so scripted
+    /// terminal verification (e.g. the scroll script) reaches a workspace
+    /// detail without GUI taps. Called only from onChange handlers. DEBUG-only.
+    private func autoOpenFirstWorkspaceForUITestIfNeeded() {
+        guard UITestConfig.autoOpenFirstWorkspaceEnabled,
+              !didAutoOpenFirstWorkspaceForUITest,
+              isAuthenticated,
+              let firstWorkspaceID = store.workspaces.first?.id else { return }
+        didAutoOpenFirstWorkspaceForUITest = true
+        store.navigateToWorkspaceForDeeplink(firstWorkspaceID)
+    }
+    #endif
     #endif
 
     private var isAuthenticated: Bool {
@@ -1044,8 +1073,11 @@ struct CMUXMobileRootView: View {
         }
     }
 
+    /// No method gate: `addComputerAction` renders this entrypoint everywhere,
+    /// so a runtime re-check here would turn visible Add Computer buttons into
+    /// silent no-ops on Iroh-only setups (the Computers sheet would dismiss
+    /// with nothing after it). Only the scanner entrypoints below re-check.
     private func showAddDevice() {
-        guard currentlyAllowsManualPairing else { return }
         presentPairing(.manual)
     }
 
@@ -1065,11 +1097,12 @@ struct CMUXMobileRootView: View {
         presentPairing(.versionApproval)
     }
 
-    /// Manual host and pairing-code authorization create Tailscale routes, so
-    /// every ordinary Add Computer entrypoint shares this availability gate.
+    /// Add Computer (including its manual host:port form) is always available:
+    /// entering the address where a same-account Mac is reachable IS discovery
+    /// for LAN, WireGuard, and other networks Iroh may not find fast enough.
+    /// Only the Tailscale pairing-code scanner keeps a method gate.
     private var addComputerAction: (() -> Void)? {
-        guard allowsManualPairing else { return nil }
-        return showAddDevice
+        showAddDevice
     }
 
     /// Scanner entrypoints use the same gate as the manual pairing form.
@@ -1078,13 +1111,16 @@ struct CMUXMobileRootView: View {
         return showPairingScanner
     }
 
+
     private var allowsManualPairing: Bool {
         #if os(iOS)
         // The stream value is only an invalidation token. Read the authoritative
         // store synchronously so the migration transition can expose pairing in
-        // the same render that selects Tailscale.
+        // the same render that selects Tailscale. Tailscale is "selected"
+        // wherever it applies: the app default OR any Computer's own method
+        // (`tailscaleSetupStatus` covers both).
         _ = connectionMethodObservationToken
-        return connectionMethodStore?.method == .tailscale
+        return store.tailscaleSetupStatus != .notSelected
         #else
         return true
         #endif
@@ -1095,7 +1131,7 @@ struct CMUXMobileRootView: View {
     /// a newly selected method yet.
     private var currentlyAllowsManualPairing: Bool {
         #if os(iOS)
-        connectionMethodStore?.method == .tailscale
+        store.tailscaleSetupStatus != .notSelected
         #else
         true
         #endif

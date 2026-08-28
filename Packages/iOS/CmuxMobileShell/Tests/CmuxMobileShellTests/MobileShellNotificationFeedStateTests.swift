@@ -216,6 +216,28 @@ struct MobileShellNotificationFeedStateTests {
         #expect(store.notificationFeedItems(scopedTo: nil).isEmpty)
     }
 
+    @Test("Device-only notifications cannot borrow a tagged workspace")
+    func legacyNotificationDoesNotRouteToTaggedWorkspace() throws {
+        var nightlyWorkspace = MobileWorkspacePreview(
+            id: "nightly-row",
+            macDeviceID: "mac",
+            name: "Nightly",
+            terminals: []
+        )
+        nightlyWorkspace.macInstanceTag = "nightly"
+        nightlyWorkspace.remoteWorkspaceID = "workspace"
+        let store = MobileShellComposite(workspaces: [nightlyWorkspace])
+
+        #expect(store.applyNotificationFeedSnapshot(
+            try response(revision: 1, id: "legacy", createdAt: 100),
+            macDeviceID: "mac",
+            displayName: "Mac"
+        ))
+
+        #expect(store.notificationFeedItems.map(\.notificationID) == ["legacy"])
+        #expect(store.notificationFeedItems(scopedTo: nil).isEmpty)
+    }
+
     @Test("Mark All targets all selected Macs before applying the visible feed cap")
     func markAllTargetsSelectedMacsBeforeVisibleFeedCap() async throws {
         let store = MobileShellComposite()

@@ -26,6 +26,24 @@ import Testing
         #expect(queue.pendingDismisses.map(\.macDeviceID) == ["mac-a", "mac-a"])
     }
 
+    @Test func enqueueCarriesOwningBuildTag() {
+        let queue = PendingNotificationDismissQueue(defaults: makeDefaults())
+
+        queue.enqueue(
+            ["n-1"],
+            macDeviceID: "mac-a",
+            instanceTag: "nightly"
+        )
+
+        #expect(queue.pendingDismisses == [
+            PendingNotificationDismiss(
+                id: "n-1",
+                macDeviceID: "mac-a",
+                instanceTag: "nightly"
+            ),
+        ])
+    }
+
     @Test func enqueueKeepsDuplicatesOnceAndPreservesOrder() {
         let queue = PendingNotificationDismissQueue(defaults: makeDefaults())
 

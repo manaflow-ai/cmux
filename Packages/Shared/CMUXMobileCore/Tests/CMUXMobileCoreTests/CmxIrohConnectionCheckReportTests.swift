@@ -173,7 +173,9 @@ struct CmxIrohConnectionCheckReportTests {
             preference: .automatic,
             managedRelays: [],
             customRelays: [],
-            privateNetworkMacs: hasMac ? [.init(id: "mac", displayName: "Mac")] : [],
+            privateNetworkMacs: hasMac
+                ? [.init(macDeviceID: "mac", displayName: "Mac")]
+                : [],
             policySource: .server
         )
     }

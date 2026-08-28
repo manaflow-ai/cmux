@@ -13,6 +13,8 @@ fileprivate struct QueuedTerminalNotification: Sendable {
     let subtitle: String
     let body: String
     let replyShape: TerminalNotificationReplyShape
+    let agent: TerminalNotificationPolicyAgentContext?
+    let correlationKey: String?
 }
 
 fileprivate enum TerminalSocketMutation {
@@ -20,6 +22,7 @@ fileprivate enum TerminalSocketMutation {
     case clearAllNotifications(through: UInt64)
     case clearNotificationsForTab(UUID, through: UInt64)
     case clearNotificationsForSurface(UUID, UUID, through: UInt64)
+    case clearNotificationsForCorrelation(UUID, UUID, String, through: UInt64)
     case perform(@MainActor () -> Void)
 }
 
@@ -74,6 +77,8 @@ final class TerminalMutationBus: @unchecked Sendable {
         subtitle: String,
         body: String,
         replyShape: TerminalNotificationReplyShape = .none,
+        agent: TerminalNotificationPolicyAgentContext? = nil,
+        correlationKey: String? = nil,
         coalesces: Bool = true
     ) {
         enqueueNotification(QueuedTerminalNotification(
@@ -81,7 +86,9 @@ final class TerminalMutationBus: @unchecked Sendable {
             title: title,
             subtitle: subtitle,
             body: body,
-            replyShape: replyShape
+            replyShape: replyShape,
+            agent: agent,
+            correlationKey: correlationKey
         ), coalesces: coalesces)
     }
 
@@ -101,6 +108,23 @@ final class TerminalMutationBus: @unchecked Sendable {
         // Canonical surface identity: a stale-keyed entry would retarget here at drain.
         enqueueClear({ .clearNotificationsForSurface(tabId, surfaceId, through: $0) }) { notification in
             notification.key.surfaceId == surfaceId
+        }
+    }
+
+    /// Clears one surface notification by its opaque producer correlation
+    /// key. The key is part of the pending entry, so this removes only the
+    /// request being reconciled even when a newer notification is queued on
+    /// the same surface.
+    nonisolated func enqueueClearNotifications(
+        forTabId tabId: UUID,
+        surfaceId: UUID,
+        correlationKey: String
+    ) {
+        enqueueClear({
+            .clearNotificationsForCorrelation(tabId, surfaceId, correlationKey, through: $0)
+        }) { notification in
+            notification.key.surfaceId == surfaceId
+                && notification.correlationKey == correlationKey
         }
     }
 
@@ -128,6 +152,18 @@ final class TerminalMutationBus: @unchecked Sendable {
         discardPendingNotifications { notification, generation in
             notification.key.tabId == tabId
                 && notification.key.surfaceId == surfaceId
+                && generation <= boundary
+        }
+    }
+
+    nonisolated func discardPendingNotifications(
+        forSurfaceId surfaceId: UUID,
+        correlationKey: String,
+        through boundary: UInt64
+    ) {
+        discardPendingNotifications { notification, generation in
+            notification.key.surfaceId == surfaceId
+                && notification.correlationKey == correlationKey
                 && generation <= boundary
         }
     }
@@ -459,6 +495,8 @@ final class TerminalMutationBus: @unchecked Sendable {
                     subtitle: notification.subtitle,
                     body: notification.body,
                     replyShape: notification.replyShape,
+                    agent: notification.agent,
+                    correlationKey: notification.correlationKey,
                     notificationGeneration: entry.notificationGeneration ?? 0
                 )
             case .clearAllNotifications(let boundary):
@@ -474,6 +512,13 @@ final class TerminalMutationBus: @unchecked Sendable {
                     forTabId: tabId,
                     surfaceId: surfaceId,
                     discardQueuedNotifications: false,
+                    throughNotificationGeneration: boundary
+                )
+            case .clearNotificationsForCorrelation(let tabId, let surfaceId, let correlationKey, let boundary):
+                TerminalNotificationStore.shared.clearNotifications(
+                    forTabId: tabId,
+                    surfaceId: surfaceId,
+                    correlationKey: correlationKey,
                     throughNotificationGeneration: boundary
                 )
             case .perform(let mutation):

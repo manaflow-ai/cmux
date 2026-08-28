@@ -54,6 +54,7 @@
     "community": "Communauté",
     "docs": "Docs",
     "changelog": "Changelog",
+    "support": "Support",
     "privacy": "Confidentialité",
     "terms": "Conditions",
     "eula": "EULA",
@@ -1021,7 +1022,8 @@
         "browser": {
           "defaultSearchEngine": "Moteur de recherche par défaut pour les saisies de la barre d’adresse du navigateur qui ne sont pas des URL. Utilisez custom avec customSearchEngineURLTemplate pour d’autres fournisseurs.",
           "customSearchEngineName": "Nom affiché lorsque defaultSearchEngine vaut custom.",
-          "customSearchEngineURLTemplate": "URL de recherche utilisée lorsque defaultSearchEngine vaut custom. Incluez l’espace réservé de requête ou %s pour la requête encodée. Sans espace réservé, cmux ajoute q= à l’URL."
+          "customSearchEngineURLTemplate": "URL de recherche utilisée lorsque defaultSearchEngine vaut custom. Incluez l’espace réservé de requête ou %s pour la requête encodée. Sans espace réservé, cmux ajoute q= à l’URL.",
+          "urlAllowlist": "Motifs d’hôte ou d’URL qui limitent la navigation du navigateur intégré. Les réglages suggèrent les origines de développement local ; enregistrer une liste active la restriction facultative. Supprimez des entrées pour les bloquer ou laissez la valeur utilisateur vide, sans politique gérée, pour désactiver la restriction."
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "Valeur globale par défaut indiquant où Cmd-N dans un groupe, le bouton + de l’en-tête du groupe et les actions de groupe configurées placent le nouveau workspace : `afterCurrent` (après le workspace actif du groupe, avec repli sur top), `top` (deuxième position, juste après l’ancre) ou `end` (après le dernier membre).",
@@ -3671,6 +3673,52 @@
       "secondaryCta": "Paquet Debian (.deb)",
       "requirements": "Linux · x64",
       "installBody": "Exécutez une seule fois le programme d’installation pour votre compte utilisateur. Il installe cmux dans ~/.local sans droits root et active les mises à jour signées dans l’application. Si vous souhaitez que votre gestionnaire de paquets gère les mises à jour, choisissez plutôt le paquet Debian."
+    }
+  },
+  "support": {
+    "metaTitle": "Support | cmux",
+    "metaDescription": "Obtenez de l'aide avec cmux. Envoyez-nous un message et nous vous répondrons par e-mail, ou retrouvez-nous sur Discord et GitHub.",
+    "section": "Support",
+    "title": "Obtenez de l'aide avec cmux.",
+    "body": "Envoyez-nous un message et nous vous répondrons par e-mail. Indiquez ce que vous faisiez, ce que vous attendiez et ce qui s'est passé à la place, pour que nous puissions vous aider plus vite.",
+    "channels": {
+      "docs": {
+        "label": "Documentation",
+        "description": "Des guides pour les premiers pas, la configuration et le dépannage."
+      },
+      "discord": {
+        "label": "Discord",
+        "description": "Posez vos questions à la communauté et à l'équipe en temps réel."
+      },
+      "github": {
+        "label": "Issues GitHub",
+        "description": "Signalez des bugs et proposez des fonctionnalités publiquement."
+      },
+      "email": {
+        "label": "founders@manaflow.com",
+        "description": "Vous préférez l'e-mail ? Écrivez-nous directement."
+      }
+    },
+    "formAriaLabel": "Formulaire de contact du support",
+    "form": {
+      "name": "Nom",
+      "email": "Adresse e-mail",
+      "topic": "Sujet",
+      "message": "Comment pouvons-nous vous aider ?",
+      "selectPlaceholder": "Sélectionnez une option",
+      "topicOptions": [
+        "Signalement de bug",
+        "Facturation ou abonnement",
+        "Compte ou connexion",
+        "Cloud VMs",
+        "Demande de fonctionnalité",
+        "Autre"
+      ],
+      "privacy": "Nous utilisons votre adresse e-mail uniquement pour répondre à votre demande de support. Nous ne vendons pas vos coordonnées.",
+      "submit": "Envoyer le message",
+      "submitting": "Envoi en cours…",
+      "success": "Merci. Nous avons bien reçu votre message et vous répondrons par e-mail depuis founders@manaflow.com.",
+      "error": "Une erreur s'est produite. Veuillez réessayer ou écrire à founders@manaflow.com."
     }
   },
   "emails": {

@@ -61,7 +61,7 @@ pub(crate) fn public_frontend_projection_snapshot(
 }
 
 #[cfg(test)]
-fn set_snapshot_before_projection_hook(hook: impl FnOnce() + 'static) {
+pub(crate) fn set_snapshot_before_projection_hook(hook: impl FnOnce() + 'static) {
     SNAPSHOT_BEFORE_PROJECTION_HOOK.with(|slot| {
         *slot.borrow_mut() = Some(Box::new(hook));
     });
@@ -142,7 +142,7 @@ impl ResourceMachineService for LocalResourceMachineService {
             }
             ResourceOperation::SessionOpen => self.open_local_session(request, &context),
             operation => Err(ResourceError::operation_failed(
-                resource_operation_name(operation),
+                operation.wire_name().to_owned(),
                 "operation was routed to the wrong machine service",
                 json!({}),
             )),
@@ -385,14 +385,6 @@ pub(crate) fn operation_failed(error: anyhow::Error) -> ResourceError {
     ResourceError::operation_failed("resource.runtime", error.to_string(), json!({}))
 }
 
-fn resource_operation_name(operation: ResourceOperation) -> String {
-    serde_json::to_value(operation)
-        .expect("resource operation serializes")
-        .as_str()
-        .expect("resource operation serializes as a string")
-        .to_string()
-}
-
 pub(crate) fn terminal_tab_ids_in_canonical_order(
     tabs: impl IntoIterator<Item = (TerminalPublicId, PanePublicId, usize, TabPublicId)>,
 ) -> HashMap<TerminalPublicId, Vec<TabPublicId>> {
@@ -461,6 +453,18 @@ pub(crate) fn public_terminal_snapshot(
 }
 
 pub(crate) fn public_session_snapshot(mux: &Mux) -> Result<Value, ResourceError> {
+    public_session_snapshot_with_journal_head(mux).map(|(snapshot, _)| snapshot)
+}
+
+/// Returns the public session snapshot together with the session journal head
+/// read under the same registry + state projection lock. The pair is one
+/// consistent cut: every journal record at or below the returned head is
+/// reflected in the snapshot, and every later record is not. Checkpoint
+/// capture keys its consistency fence to this cut so a journal write that
+/// merely precedes the cut cannot spuriously abort the capture.
+pub(crate) fn public_session_snapshot_with_journal_head(
+    mux: &Mux,
+) -> Result<(Value, u64), ResourceError> {
     // Collect the auxiliary runtime before taking the registry + state
     // projection lock. Sidebar status locks its own lifecycle and then looks
     // up a surface in State, so doing this inside the projection would invert
@@ -471,6 +475,7 @@ pub(crate) fn public_session_snapshot(mux: &Mux) -> Result<Value, ResourceError>
     #[cfg(test)]
     run_snapshot_before_projection_hook();
     mux.with_resource_projection(|registry, state| {
+        let journal_head = registry.session_journal_after(0, 1)?.head_sequence;
         let registry_snapshot = registry.snapshot()?;
         let topology = registry.resource_topology_snapshot()?;
         let terminal_registry = registry.terminal_snapshot()?;
@@ -636,10 +641,17 @@ pub(crate) fn public_session_snapshot(mux: &Mux) -> Result<Value, ResourceError>
             }
         }
         for (host_id, terminal_id) in &terminal_resources_by_host {
-            anyhow::ensure!(
-                terminals_by_id.contains_key(host_id.as_str()),
-                "terminal {terminal_id} references missing {host_id}"
-            );
+            if !terminals_by_id.contains_key(host_id.as_str()) {
+                // A resource row whose durable host vanished (a close that
+                // tombstoned the registry but not the resource row, or a crash
+                // between the two writes) must not fail the whole snapshot:
+                // every client renders a failed snapshot as "machine
+                // unreachable". Skip the dangling row; the close path owns the
+                // repair.
+                eprintln!(
+                    "cmux-tui: snapshot skipping terminal {terminal_id} referencing missing {host_id}"
+                );
+            }
         }
 
         let terminals = terminal_order
@@ -727,7 +739,7 @@ pub(crate) fn public_session_snapshot(mux: &Mux) -> Result<Value, ResourceError>
             .collect::<Result<Vec<_>, ResourceError>>()?;
         let _terminal_defaults = public_projections.terminal_defaults;
 
-        Ok(json!({
+        let snapshot = json!({
             "machine": machine_snapshot(&context),
             "session": session_snapshot(&context),
             "workspaces": workspaces,
@@ -745,7 +757,8 @@ pub(crate) fn public_session_snapshot(mux: &Mux) -> Result<Value, ResourceError>
                 "generation": topology.generation,
                 "revision": topology.revision.to_string(),
             },
-        }))
+        });
+        Ok((snapshot, journal_head))
     })
     .map_err(operation_failed)
 }
@@ -1005,6 +1018,16 @@ mod tests {
         assert_eq!(terminal["cols"], 80);
         assert_eq!(terminal["rows"], 24);
         assert_eq!(terminal["lifecycle"], "running");
+
+        // The daemon owns terminal lifecycle. A renderer snapshot must expose
+        // each durable terminal exactly once even when its runtime is absent.
+        let terminal_ids = snapshot["terminals"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|terminal| terminal["id"].as_str().expect("terminal id"))
+            .collect::<HashSet<_>>();
+        assert_eq!(terminal_ids.len(), snapshot["terminals"].as_array().unwrap().len());
     }
 
     #[test]

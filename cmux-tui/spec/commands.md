@@ -162,6 +162,17 @@ controller. Omitting `client` and `exclusive` releases any owner and freezes
 the terminal. For browsers, the same command retains the legacy include,
 exclude, and exclusive reducer controls.
 
+### Relay attachment sizing boundary
+
+The Rust `chatmux-relay` wrapper can have several relay viewers for one
+terminal. When its local owner leaves, disconnects, or receives an
+unsuccessful report response, the wrapper closes that attachment and does not
+issue a replacement claim from another relay socket. The core server has no
+generation token for ordering such a cross-socket hand-off, so geometry stays
+frozen until a newly attached relay viewer makes an explicit report and
+`set-client-sizing` claim. This relay boundary preserves the core server rule;
+it does not elect a survivor implicitly.
+
 Frontends report their grid after a surface becomes visible and whenever that viewport changes. They release the report when the surface becomes hidden, even if its attach stream remains cached. A frontend must not re-report merely because another client changed the authoritative surface size. See [`render.md`](render.md#sizing-and-multi-client-presentation) for presentation guidance.
 
 ## Implemented Commands
@@ -1097,7 +1108,7 @@ Example:
 | status | implemented |
 | since | protocol 5 |
 
-Creates a new PTY tab in a pane and makes it the active tab. If `pane` is absent, the active pane of the active screen is used. If the selected workspace exists but has no screens, the command materializes its first screen, pane, and terminal and preserves `cwd`. If the session has no workspaces, the command creates a workspace containing the tab; that legacy fallback ignores `cwd`. The new tab inherits the active surface working directory of the target pane when `cwd` is absent. Initial dimensions follow [Sizing](#sizing).
+Creates a new PTY tab in a pane and makes it the active tab. If `pane` is absent, the active pane of the active screen is used. If the selected workspace exists but has no screens, the command materializes its first screen, pane, and terminal and preserves `cwd`. If the session has no workspaces, the command creates a workspace containing the tab; that legacy fallback ignores `cwd`. The new tab inherits the active surface working directory of the target pane when `cwd` is absent. When there is nothing to inherit, the terminal starts in the directory the session daemon was launched from, and falls back to the user home directory only when that directory no longer exists. Initial dimensions follow [Sizing](#sizing).
 
 Params:
 
@@ -1850,19 +1861,27 @@ CLI mapping: verb `zoom-pane`; flags `[--pane <id>] [--mode toggle|on|off]`; pla
 | status | implemented |
 | since | protocol 6 |
 
-Returns PTY child metadata for a surface.
+Returns PTY child metadata for a surface. `pid`, `command`, and `cwd` are
+recorded spawn and shell-reported metadata. `foreground_cwd` is read live at
+request time: it is the working directory of the process group leader that
+currently owns the PTY (the `tcgetpgrp` value of the child's controlling
+terminal), so it tracks a foreground subshell that changed directory. It is
+null whenever the lookup fails: no live child, the leader exited, the child
+detached from the terminal, the platform denied the read, or an unsupported
+platform. The field is additive within protocol 12; current daemons always
+emit it, and clients treat a missing field from an older daemon as null.
 
 Params: `object{surface:Id}`.
 
 Result:
 
 ```text
-object{pid:uint32|null,command:string|null,cwd:string|null}
+object{pid:uint32|null,command:string|null,cwd:string|null,foreground_cwd?:string|null}
 ```
 
 Errors: `unknown surface <id>`, `browser surface does not support PTY/VT socket commands`, `bad request: ...`.
 
-CLI mapping: verb `process-info`; flags `--surface <id>`; plain stdout prints `pid=<v> command=<v> cwd=<v>`; JSON stdout prints the exact result object.
+CLI mapping: verb `process-info`; flags `--surface <id>`; plain stdout prints `pid=<v> command=<v> cwd=<v> foreground_cwd=<v>`; JSON stdout prints the exact result object.
 
 ### set-default-colors
 
@@ -2760,6 +2779,65 @@ Example:
 {"id":25,"cmd":"select-workspace","index":0}
 {"id":25,"ok":true,"data":{}}
 ```
+
+### report-focus
+
+| Field | Value |
+| --- | --- |
+| name | `report-focus` |
+| status | implemented |
+| since | protocol 12, capability `client-focus-v1` |
+
+Reports one client's focus. Records it as the session's last reported focus (the adoption default a later `client-focus` query falls back to) and remembers it per `client_id` so that client's own later `client-focus` query restores it. A report only writes this memory; it never moves the live session focus, so clients that are already attached stay where they are. The memory is in-process and bounded; a server restart degrades to the tree's own focus.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `client_id` | `string` | required | 1-128 bytes, ASCII graphic |
+| `pane` | `Id` | required | Must be a live pane |
+| `tab` | `usize` | default null | Tab index within the pane |
+
+Result:
+
+```text
+object{}
+```
+
+Errors:
+
+| Error | Condition |
+| --- | --- |
+| `bad request: invalid client_id` | Empty, oversized, or non-graphic id |
+| `unknown pane ...` | Pane is not alive |
+
+### client-focus
+
+| Field | Value |
+| --- | --- |
+| name | `client-focus` |
+| status | implemented |
+| since | protocol 12, capability `client-focus-v1` |
+
+The focus last reported by `client_id` via `report-focus`, falling back to the session's last reported focus from any client, or nulls when neither exists or the pane no longer does.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `client_id` | `string` | required | 1-128 bytes, ASCII graphic |
+
+Result:
+
+```text
+object{pane: Id | null, tab: usize | null}
+```
+
+Errors:
+
+| Error | Condition |
+| --- | --- |
+| `bad request: invalid client_id` | Empty, oversized, or non-graphic id |
 
 ### move-tab
 

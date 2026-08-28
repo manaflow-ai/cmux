@@ -54,6 +54,7 @@
     "community": "Społeczność",
     "docs": "Dokumentacja",
     "changelog": "Dziennik zmian",
+    "support": "Pomoc",
     "privacy": "Prywatność",
     "terms": "Regulamin",
     "eula": "EULA",
@@ -1022,7 +1023,8 @@
         "browser": {
           "defaultSearchEngine": "Domyślna wyszukiwarka dla wpisów w pasku adresu przeglądarki, które nie są URL-ami. Użyj custom z customSearchEngineURLTemplate dla innych dostawców.",
           "customSearchEngineName": "Nazwa wyświetlana, gdy defaultSearchEngine ma wartość custom.",
-          "customSearchEngineURLTemplate": "URL wyszukiwania używany, gdy defaultSearchEngine ma wartość custom. Dodaj symbol zastępczy zapytania lub %s dla zakodowanego zapytania. Bez symbolu zastępczego cmux doda q= do URL."
+          "customSearchEngineURLTemplate": "URL wyszukiwania używany, gdy defaultSearchEngine ma wartość custom. Dodaj symbol zastępczy zapytania lub %s dla zakodowanego zapytania. Bez symbolu zastępczego cmux doda q= do URL.",
+          "urlAllowlist": "Wzorce hostów lub adresów URL ograniczające nawigację w osadzonej przeglądarce. Ustawienia sugerują lokalne źródła deweloperskie; zapisanie listy włącza opcjonalne ograniczenie. Usuń wpisy, aby je zablokować, albo pozostaw wartość użytkownika pustą bez zarządzanej zasady, aby wyłączyć ograniczenie."
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "Globalna wartość domyślna określająca, gdzie Cmd-N w grupie, przycisk + w nagłówku grupy i skonfigurowane akcje grupy umieszczają nowy workspace: `afterCurrent` (po aktywnym workspace w grupie, z fallbackiem do top), `top` (druga pozycja, tuż za kotwicą) albo `end` (po ostatnim członku).",
@@ -3669,6 +3671,52 @@
       "secondaryCta": "Pakiet Debiana (.deb)",
       "requirements": "Linux · x64",
       "installBody": "Uruchom raz instalator dla bieżącego użytkownika. Zainstaluje cmux w ~/.local bez uprawnień roota i włączy podpisane aktualizacje w aplikacji. Jeśli chcesz, aby aktualizacjami zarządzał menedżer pakietów, wybierz zamiast niego pakiet Debiana."
+    }
+  },
+  "support": {
+    "metaTitle": "Pomoc | cmux",
+    "metaDescription": "Uzyskaj pomoc z cmux. Wyślij nam wiadomość, a odpowiemy e-mailem, albo skontaktuj się z nami przez Discord i GitHub.",
+    "section": "Pomoc",
+    "title": "Uzyskaj pomoc z cmux.",
+    "body": "Wyślij nam wiadomość, a odpowiemy e-mailem. Opisz, co robiłeś, czego oczekiwałeś i co wydarzyło się zamiast tego — dzięki temu pomożemy szybciej.",
+    "channels": {
+      "docs": {
+        "label": "Dokumentacja",
+        "description": "Przewodniki dotyczące szybkiego startu, konfiguracji i rozwiązywania problemów."
+      },
+      "discord": {
+        "label": "Discord",
+        "description": "Pytaj społeczność i zespół w czasie rzeczywistym."
+      },
+      "github": {
+        "label": "Zgłoszenia na GitHub",
+        "description": "Zgłaszaj błędy i proponuj nowe funkcje publicznie."
+      },
+      "email": {
+        "label": "founders@manaflow.com",
+        "description": "Wolisz e-mail? Napisz do nas bezpośrednio."
+      }
+    },
+    "formAriaLabel": "Formularz kontaktowy pomocy",
+    "form": {
+      "name": "Imię i nazwisko",
+      "email": "Adres e-mail",
+      "topic": "Temat",
+      "message": "W czym możemy pomóc?",
+      "selectPlaceholder": "Wybierz opcję",
+      "topicOptions": [
+        "Zgłoszenie błędu",
+        "Rozliczenia lub subskrypcja",
+        "Konto lub logowanie",
+        "Cloud VMs",
+        "Prośba o funkcję",
+        "Inne"
+      ],
+      "privacy": "Twojego adresu e-mail używamy wyłącznie po to, aby odpowiedzieć na Twoje zgłoszenie. Nie sprzedajemy danych kontaktowych.",
+      "submit": "Wyślij wiadomość",
+      "submitting": "Wysyłanie…",
+      "success": "Dziękujemy. Otrzymaliśmy Twoją wiadomość i odpowiemy na Twój e-mail z adresu founders@manaflow.com.",
+      "error": "Coś poszło nie tak. Spróbuj ponownie lub napisz na founders@manaflow.com."
     }
   },
   "emails": {

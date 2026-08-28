@@ -1,4 +1,10 @@
 {
+  "vmDesktop": {
+    "invalidTitle": "This desktop link isn't valid",
+    "invalidBody": "The link is missing its session or points somewhere cmux won't frame. Reopen the desktop from cmux: right-click {machine} in the Machines panel and choose Open Desktop.",
+    "expiredTitle": "This desktop session expired",
+    "expiredBody": "{machine} and everything on it are fine — only this link's session ended. Reopen the desktop from cmux (right-click the machine, then Open Desktop) to get a fresh one."
+  },
   "ios": {
     "metaTitle": "cmux iOS — your terminals on iPhone and iPad",
     "metaDescription": "The cmux iOS app mirrors your Mac terminals to iPhone and iPad in realtime, over your own Tailscale or local network. Drive your coding agents from anywhere.",
@@ -405,6 +411,7 @@
     "pricing": "Pricing",
     "docs": "Docs",
     "changelog": "Changelog",
+    "support": "Support",
     "companyInformation": "Company information",
     "privacy": "Privacy",
     "terms": "Terms",
@@ -1518,6 +1525,38 @@
       "recoveryReset": "Reset: explicitly create a new Base generation. cmux keeps the old generation retained; permanent deletion should be a separate confirmation step.",
       "recoverySupport": "Feedback: include the VM id, elapsed time, and last non-secret error so support can tell whether the failure is auth, service readiness, terminal endpoint, or local client state."
     },
+    "managedPolicies": {
+      "title": "Managed Device Policies (MDM)",
+      "metaTitle": "Managed device policies (MDM)",
+      "metaDescription": "Deploy MDM-enforceable policies for cmux on managed Macs: disable the embedded browser and iOS remote control with a configuration profile targeting com.cmuxterm.app.",
+      "intro": "cmux supports MDM-enforceable policies for managed Macs. Administrators deliver them as forced preference values through a macOS configuration profile (a Custom Settings payload). Forced values are tier 0: they win over environment variables, user settings, ~/.config/cmux/cmux.json imports, and built-in defaults.",
+      "lockSummary": "Forced values cannot be changed from inside the app: the Settings UI shows the control as “Managed by your organization”, the command palette hides the matching commands, and the cmux CLI refuses with a managed-policy error.",
+      "domainTitle": "Payload domain",
+      "domainDesc": "Target the preference domain of the release app:",
+      "domainChannels": "Channel builds (debug, nightly, staging) run under their own bundle identifiers but also honor profiles targeting com.cmuxterm.app, so one profile governs every channel. A value forced in the app's own domain wins over the release-domain fallback.",
+      "keysTitle": "Policy keys",
+      "keyHeader": "Key",
+      "typeHeader": "Type",
+      "defaultHeader": "Default",
+      "behaviorHeader": "Behavior when forced to true",
+      "booleanType": "Boolean",
+      "browserKeyDesc": "Disables every embedded-browser surface: browser panes and tabs, terminal-link interception, browser creation from automation, layouts, and session restore. Live browser panes are closed when the policy activates; links open in the system default browser instead. WebKit-based local viewers riding the same gate (the diff viewer, agent-chat pane, in-app upgrade pages) are also unavailable, and the Mac stops advertising browser capabilities to the iOS app.",
+      "remoteKeyDesc": "Disables the Mac acting as a remote view/control host for the cmux iOS app: the Iroh host runtime (including its local-network advertisement), the legacy TCP pairing listener, connection admission, and device pairing. Live phone connections are closed when the policy activates, and the pairing trust broker refuses to mint new pair grants. Outbound-only notification forwarding, app updates, the local automation socket, and Mac-as-client SSH remain unaffected.",
+      "noteBoolean": "Values must be Boolean. A key forced to false (or to a non-Boolean value) does not enforce the policy, but the key still counts as managed for write-locking purposes.",
+      "noteForcedOnly": "Only forced (profile-delivered) values are honored as policy. A plain defaults write of these keys has no effect.",
+      "noteTiming": "Policies apply at app launch, on preference changes, on app activation, and on a periodic re-check (about once a minute) while cmux runs — a profile pushed mid-session takes effect within roughly a minute even if the user never leaves the app.",
+      "lockTitle": "Lockability",
+      "lockDesc": "Configuration-profile forced values are locked by macOS itself: no user-level write (including Reset All Settings) can change the effective value, and removing the profile restores normal behavior. cmux additionally suppresses its own writers: the cmux.json importer skips every profile-forced key, and for the browser and remote-control controls the Settings UI shows the managed state, the command palette hides the matching commands, and the CLI refuses with a managed-policy error — including when an administrator forces the user-level browserDisabledOverride key directly.",
+      "supportTitle": "Supported platforms and versions",
+      "supportMacos": "macOS 14 (Sonoma) and later, matching the cmux system requirements.",
+      "supportVersions": "cmux for macOS builds that include this feature (see the changelog entry that shipped it). All release channels honor the release payload domain.",
+      "supportIos": "These are macOS-side controls. The iOS app needs no separate policy: a Mac with DisableRemoteControl enforced refuses admission and pairing, so the phone cannot attach to it.",
+      "sampleTitle": "Sample configuration profile",
+      "sampleDesc": "Deploy via your MDM as a Custom Settings payload for com.cmuxterm.app, or install the profile below manually for testing (System Settings → General → Device Management).",
+      "verifyTitle": "Verifying on a managed Mac",
+      "verifyDesc": "Read the effective forced values and the CLI's managed state:",
+      "verifyUi": "In cmux, Settings → Browser shows the enable toggle disabled with “Managed by your organization”, and Settings → Mobile shows “Remote control from the iOS app is disabled by your organization.”"
+    },
     "remoteTmux": {
       "title": "Remote tmux",
       "metaTitle": "Remote tmux (beta)",
@@ -1835,6 +1874,7 @@
           "globalFontMagnification": "Scales cmux-owned terminals, tab titles, sidebars, settings, overlays, and app chrome by this percentage. Rendered browser page content is excluded."
         },
         "terminal": {
+          "adaptiveDefaultTheme": "When true (the default), cmux supplies its managed light/dark palette only when the Ghostty config contains no directives. When false, an untouched Ghostty config uses Ghostty's fixed built-in palette. Any Ghostty directive suppresses the managed palette; Ghostty theme = light:X,dark:Y remains appearance-adaptive.",
           "agentHibernation": "Routine Agent Hibernation settings. cmux kills idle background agent processes to free RAM and CPU, then resumes them with their saved session when their tab is visited. Routine hibernation requires a restorable coding agent whose lifecycle reports idle, an off-screen terminal, a live-terminal count above the configured limit, and unchanged output through the idle and confirmation windows. Independently, during critical memory pressure cmux may hibernate a bounded batch of safe idle background agents even when enabled is false; visible, running, needs-input, recently changed, and unprotectable agents remain excluded. The placeholder Resume button is a manual fallback.",
           "agentHibernationEnabled": "Enable routine Agent Hibernation based on the live-terminal limit. Critical-pressure safety hibernation remains active when false.",
           "copyOnSelect": "When true, copy selected terminal text to the system clipboard when the selection is committed. When false, cmux does not emit a Ghostty copy-on-select override; Ghostty config and defaults control selection-clipboard behavior.",
@@ -1860,7 +1900,8 @@
           "customSearchEngineName": "Display name used when defaultSearchEngine is custom.",
           "customSearchEngineURLTemplate": "Search URL used when defaultSearchEngine is custom. Include the query placeholder or %s for the encoded query. If omitted, cmux appends q= to the URL.",
           "defaultZoomLevel": "Default page zoom factor applied to newly opened browser pages (1 = 100%). Zoom In, Zoom Out, and Actual Size still adjust each page.",
-          "askWhereToSaveDownloads": "Show a save panel for browser downloads instead of saving directly to Downloads."
+          "askWhereToSaveDownloads": "Show a save panel for browser downloads instead of saving directly to Downloads.",
+          "urlAllowlist": "Host or URL patterns that restrict embedded-browser navigation. The Settings UI suggests local development origins; saving a list opts into the optional restriction. Remove entries to block them, or leave the user value empty to disable it when no managed policy applies."
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "Global default for where Cmd-N inside a group, the group header + button, and configured group actions place the new workspace: `afterCurrent` (after the active in-group workspace, falling back to top), `top` (second slot, just after the anchor), or `end` (after the last member).",
@@ -2245,7 +2286,11 @@
       "hooksIntro": "<config>cmux.json</config> can define notification hooks that receive every notification policy as JSON on stdin. Each hook returns JSON on stdout. Hooks are off by default; cmux only runs them when <hooksMode>notifications.hooks</hooksMode> contains at least one enabled hook. cmux applies the returned notification text and effects, so hooks can filter banners, keep or skip sidebar history, run sounds, or stop later hooks.",
       "hooksJsonTitle": "cmux.json",
       "hooksIOTitle": "Hook input and output",
-      "hooksDetails": "Hooks are inherited from global <globalConfig>~/.config/cmux/cmux.json</globalConfig> and project <projectConfig>.cmux/cmux.json</projectConfig> files from parent directories to the current workspace. Project hooks use the same trust prompt as other project <config>cmux.json</config> commands before they run. Feed approval banners also pass through these hooks; disabling <desktop>desktop</desktop> suppresses the native banner while keeping the Feed item available in cmux. Set <hooksMode>notifications.hooksMode</hooksMode> to <replace>replace</replace> in a project config to ignore inherited hooks. If a hook fails, times out, or returns invalid JSON, cmux uses the default notification behavior and posts a hook failure alert."
+      "hooksDetails": "Hooks are inherited from global <globalConfig>~/.config/cmux/cmux.json</globalConfig> and project <projectConfig>.cmux/cmux.json</projectConfig> files from parent directories to the current workspace. Project hooks use the same trust prompt as other project <config>cmux.json</config> commands before they run. Feed approval banners also pass through these hooks; disabling <desktop>desktop</desktop> suppresses the native banner while keeping the Feed item available in cmux. Set <hooksMode>notifications.hooksMode</hooksMode> to <replace>replace</replace> in a project config to ignore inherited hooks. If a hook fails, times out, or returns invalid JSON, cmux uses the default notification behavior and posts a hook failure alert.",
+      "hooksAgentTitle": "Agent-event context",
+      "hooksAgentIntro": "Notifications that originate from an agent completion signal carry a read-only <agent>agent</agent> object: <kind>kind</kind> is the stable lowercase agent slug (claude, codex, grok, …), <category>category</category> is turn-complete, needs-permission, or idle-reminder, <pending>pending</pending> is true when the turn ended with background work still running, and <isSubagent>isSubagent</isSubagent> is true for nested subagent sessions. The object is omitted for non-agent notifications, and the same values are exported to the hook process as CMUX_NOTIFICATION_AGENT_KIND, CMUX_NOTIFICATION_AGENT_CATEGORY, CMUX_NOTIFICATION_AGENT_PENDING, and CMUX_NOTIFICATION_AGENT_IS_SUBAGENT. For example, this hook silences the banner, sound, and pane flash for subagent completions while leaving everything else untouched:",
+      "hooksAgentExampleTitle": "Silence subagent completions",
+      "hooksAgentDetails": "With no hooks configured, notification behavior is exactly cmux's built-in default — configuring a hook is the explicit opt-in that hands the delivery decision to your script. Note that cmux's built-in subagent suppression (<suppressSetting>automation.suppressSubagentNotifications</suppressSetting>, on by default) drops subagent completion events before they reach hooks; turn it off if your hook should see subagent events and make its own decision."
     },
     "browserAutomation": {
       "title": "Browser Automation",
@@ -2678,6 +2723,7 @@
       "skills": "Skills",
       "notifications": "Notifications",
       "ssh": "SSH",
+      "managedPolicies": "Managed Policies (MDM)",
       "remoteTmux": "Remote tmux",
       "agentIntegrations": "Agent Integrations",
       "claudeCodeTeams": "Claude Code Teams",
@@ -3140,6 +3186,10 @@
       "metaDescription": "Guides comparing cmux with other macOS terminals, how it is built on Ghostty, and how to run Claude Code, Codex, and OpenCode in cmux.",
       "title": "Guides",
       "intro": "Comparisons, background, and use-case guides for cmux. For product documentation, see the docs."
+    },
+    "managedPolicies": {
+      "title": "Managed Device Policies (MDM)",
+      "metaDescription": "MDM-enforceable policies for cmux on managed Macs: disable the embedded browser and iOS remote control with a configuration profile."
     },
     "remoteTmux": {
       "title": "Remote tmux",
@@ -4662,6 +4712,7 @@
       "cursorCli": "A terminal for Cursor CLI",
       "keyboardShortcuts": "Keyboard shortcuts",
       "browserAutomation": "Browser automation",
+      "managedPolicies": "Managed Policies (MDM)",
       "remoteTmux": "Remote tmux",
       "compare": "Compare cmux"
     },
@@ -4863,6 +4914,52 @@
       "submit": "Submit",
       "submitting": "Submitting...",
       "success": "Thanks. We received your request and will reply from founders@manaflow.com.",
+      "error": "Something went wrong. Please try again or email founders@manaflow.com."
+    }
+  },
+  "support": {
+    "metaTitle": "Support | cmux",
+    "metaDescription": "Get help with cmux. Send us a message and we will reply by email, or reach us on Discord and GitHub.",
+    "section": "Support",
+    "title": "Get help with cmux.",
+    "body": "Send us a message and we will reply by email. Include what you were doing, what you expected, and what happened instead so we can help faster.",
+    "channels": {
+      "docs": {
+        "label": "Documentation",
+        "description": "Guides for getting started, configuration, and troubleshooting."
+      },
+      "discord": {
+        "label": "Discord",
+        "description": "Ask the community and the team in real time."
+      },
+      "github": {
+        "label": "GitHub issues",
+        "description": "Report bugs and request features in the open."
+      },
+      "email": {
+        "label": "founders@manaflow.com",
+        "description": "Prefer email? Write to us directly."
+      }
+    },
+    "formAriaLabel": "Support contact form",
+    "form": {
+      "name": "Name",
+      "email": "Email address",
+      "topic": "Topic",
+      "message": "How can we help?",
+      "selectPlaceholder": "Select one",
+      "topicOptions": [
+        "Bug report",
+        "Billing or subscription",
+        "Account or sign-in",
+        "Cloud VMs",
+        "Feature request",
+        "Other"
+      ],
+      "privacy": "We use your email address only to reply to your support request. We do not sell contact information.",
+      "submit": "Send message",
+      "submitting": "Sending...",
+      "success": "Thanks. We received your message and will reply to your email from founders@manaflow.com.",
       "error": "Something went wrong. Please try again or email founders@manaflow.com."
     }
   },

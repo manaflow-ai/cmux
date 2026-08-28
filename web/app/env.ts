@@ -234,6 +234,10 @@ export const env = createEnv({
     // /api/enterprise/contact route falls back to the waitlist webhook, then
     // skips Slack if neither is set.
     SLACK_ENTERPRISE_WEBHOOK_URL: z.string().url().optional(),
+    // Slack Incoming Webhook for support requests. Optional: the
+    // /api/support/contact route falls back to the enterprise webhook, then
+    // the waitlist webhook, then skips Slack if none is set.
+    SLACK_SUPPORT_WEBHOOK_URL: z.string().url().optional(),
     // Temporary retirement credentials for DB-mapped tenants created before
     // hosted Stack onboarding. Remove after subrouter_tenants is empty.
     SUBROUTER_BASE_URL: z.string().url().optional(),
@@ -324,6 +328,12 @@ export const env = createEnv({
     // Optional dedicated rule. Preferences deliberately fall back to the token
     // rule so existing deployments keep one shared account-scoped limiter.
     CMUX_RELAY_PREFERENCES_RATE_LIMIT_ID: z.string().min(1).optional(),
+    // Shared secret for the relay fleet's per-connection access-control hook
+    // (POST /api/relay/allow). Optional: when unset the route answers 503 and
+    // the fleet fails closed for new endpoint admissions. Same base64 shape as
+    // CMUX_IROH_MINT_HMAC_SECRET_B64.
+    CMUX_RELAY_ALLOW_HMAC_SECRET_B64:
+      z.string().max(512).regex(/^[A-Za-z0-9+/]{43,}={0,2}$/).optional(),
   },
   client: {
     NEXT_PUBLIC_STACK_PROJECT_ID: z.string().min(1),
@@ -379,6 +389,7 @@ export const env = createEnv({
     CMUX_VM_ALERT_EXPIRED_LEASES: trimEnv(process.env.CMUX_VM_ALERT_EXPIRED_LEASES),
     SLACK_WAITLIST_WEBHOOK_URL: trimEnv(process.env.SLACK_WAITLIST_WEBHOOK_URL),
     SLACK_ENTERPRISE_WEBHOOK_URL: trimEnv(process.env.SLACK_ENTERPRISE_WEBHOOK_URL),
+    SLACK_SUPPORT_WEBHOOK_URL: trimEnv(process.env.SLACK_SUPPORT_WEBHOOK_URL),
     SUBROUTER_BASE_URL: trimEnv(process.env.SUBROUTER_BASE_URL),
     SUBROUTER_ADMIN_TOKEN: trimEnv(process.env.SUBROUTER_ADMIN_TOKEN),
     SUBROUTER_HOSTED_URL: trimEnv(process.env.SUBROUTER_HOSTED_URL),
@@ -420,6 +431,9 @@ export const env = createEnv({
     CMUX_RELAY_TOKEN_RATE_LIMIT_ID: trimEnv(process.env.CMUX_RELAY_TOKEN_RATE_LIMIT_ID),
     CMUX_RELAY_PREFERENCES_RATE_LIMIT_ID: trimEnv(
       process.env.CMUX_RELAY_PREFERENCES_RATE_LIMIT_ID,
+    ),
+    CMUX_RELAY_ALLOW_HMAC_SECRET_B64: trimEnv(
+      process.env.CMUX_RELAY_ALLOW_HMAC_SECRET_B64,
     ),
     NEXT_PUBLIC_STACK_PROJECT_ID: stackEnv(
       process.env.NEXT_PUBLIC_STACK_PROJECT_ID,

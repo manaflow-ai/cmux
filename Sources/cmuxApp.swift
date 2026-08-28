@@ -571,6 +571,9 @@ struct cmuxApp: App {
                     Button("Browser Import Hint Debug…") {
                         BrowserImportHintDebugWindowController.shared.show()
                     }
+                    Button("Cloud Tree Style Gallery…") {
+                        CloudTreeStyleGalleryWindowController.shared.show()
+                    }
                     Button(
                         String(
                             localized: "debug.menu.browserProfilePopoverDebug",
@@ -745,7 +748,7 @@ struct cmuxApp: App {
                             debugSource: "menu.newWorkspace"
                         )
                     } else {
-                        activeTabManager.addWorkspace()
+                        activeTabManager.addWorkspaceIfActive()
                     }
                 }
 
@@ -759,7 +762,7 @@ struct cmuxApp: App {
                         // Last-resort fallback for a missing AppDelegate; keep
                         // the browser-availability gate identical to the
                         // shared action path.
-                        activeTabManager.addWorkspace(initialSurface: .browser)
+                        activeTabManager.addWorkspaceIfActive(initialSurface: .browser)
                     }
                 }
 
@@ -1164,6 +1167,7 @@ struct cmuxApp: App {
     }
 
     private func bootstrapMainWindowScene() {
+        appDelegate.adoptInitialMainWindowBootstrapManager(tabManager)
         appDelegate.scheduleInitialMainWindowBootstrap(debugSource: "swiftUIBootstrap")
         appDelegate.installReloadConfigurationMenuItemAction()
         applyAppearance()
@@ -1537,6 +1541,7 @@ private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.sidebarDebug",
     "cmux.menubarDebug",
     "cmux.spinnerGallery",
+    "cmux.cloudTreeStyleGallery",
     "cmux.backgroundDebug",
     "cmux.startupAppearanceDebug",
     "cmux.bonsplitTabBarDebug",

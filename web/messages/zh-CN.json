@@ -54,6 +54,7 @@
     "community": "社区",
     "docs": "文档",
     "changelog": "更新日志",
+    "support": "支持",
     "privacy": "隐私政策",
     "terms": "服务条款",
     "eula": "EULA",
@@ -1021,7 +1022,8 @@
         "browser": {
           "defaultSearchEngine": "浏览器地址栏输入不是 URL 时使用的默认搜索引擎。对于任意提供商，请使用 custom 和 customSearchEngineURLTemplate。",
           "customSearchEngineName": "defaultSearchEngine 为 custom 时使用的显示名称。",
-          "customSearchEngineURLTemplate": "defaultSearchEngine 为 custom 时使用的搜索 URL。使用查询占位符或 %s 表示已编码的查询。如果没有占位符，cmux 会向 URL 添加 q=。"
+          "customSearchEngineURLTemplate": "defaultSearchEngine 为 custom 时使用的搜索 URL。使用查询占位符或 %s 表示已编码的查询。如果没有占位符，cmux 会向 URL 添加 q=。",
+          "urlAllowlist": "限制内嵌浏览器导航的主机或 URL 模式。设置界面会建议本地开发来源；保存列表后会启用可选限制。删除条目即可阻止这些来源；没有托管策略时，将用户值留空可禁用限制。"
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "组内 Cmd-N、组标题中的 + 按钮以及已配置的组操作放置新 workspace 的全局默认位置：`afterCurrent`（在当前活动的组内 workspace 后面，没有时回退到 top）、`top`（第二个位置，紧跟锚点之后）或 `end`（最后一个成员之后）。",
@@ -3669,6 +3671,52 @@
       "secondaryCta": "Debian 软件包（.deb）",
       "requirements": "Linux · x64",
       "installBody": "运行一次用户级安装程序。它会将 cmux 安装到 ~/.local，无需 root 权限，并启用已签名的应用内更新。如果希望由软件包管理器管理更新，请改选 Debian 软件包。"
+    }
+  },
+  "support": {
+    "metaTitle": "支持 | cmux",
+    "metaDescription": "获取 cmux 帮助。给我们发消息，我们会通过邮件回复；也可以在 Discord 和 GitHub 上联系我们。",
+    "section": "支持",
+    "title": "获取 cmux 帮助。",
+    "body": "给我们发一条消息，我们会通过邮件回复。请说明你当时在做什么、期望的结果以及实际发生了什么，这样我们能更快地帮到你。",
+    "channels": {
+      "docs": {
+        "label": "文档",
+        "description": "涵盖入门、配置和故障排除的指南。"
+      },
+      "discord": {
+        "label": "Discord",
+        "description": "实时向社区和团队提问。"
+      },
+      "github": {
+        "label": "GitHub issues",
+        "description": "公开报告 bug 和提出功能请求。"
+      },
+      "email": {
+        "label": "founders@manaflow.com",
+        "description": "更喜欢用邮件？直接写信给我们。"
+      }
+    },
+    "formAriaLabel": "支持联系表单",
+    "form": {
+      "name": "姓名",
+      "email": "邮箱地址",
+      "topic": "主题",
+      "message": "我们能帮你什么？",
+      "selectPlaceholder": "请选择",
+      "topicOptions": [
+        "Bug 报告",
+        "账单或订阅",
+        "账户或登录",
+        "Cloud VMs",
+        "功能请求",
+        "其他"
+      ],
+      "privacy": "我们只会使用你的邮箱地址回复你的支持请求，不会出售联系信息。",
+      "submit": "发送消息",
+      "submitting": "正在发送…",
+      "success": "谢谢。我们已收到你的消息，会从 founders@manaflow.com 回复到你的邮箱。",
+      "error": "出了点问题。请重试，或发邮件到 founders@manaflow.com。"
     }
   },
   "emails": {

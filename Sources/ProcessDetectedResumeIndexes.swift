@@ -6,20 +6,31 @@ struct ProcessDetectedResumeIndexes: Sendable {
 
     static func load(
         homeDirectory: String = NSHomeDirectory(),
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        ttyDeviceBindings: [SurfaceResumeBindingIndex.PanelKey: Int64] = [:]
     ) async -> ProcessDetectedResumeIndexes {
         await Task.detached(priority: .utility) {
-            loadSynchronously(homeDirectory: homeDirectory, fileManager: fileManager, maximumSnapshotAge: 5)
+            loadSynchronously(
+                homeDirectory: homeDirectory,
+                fileManager: fileManager,
+                maximumSnapshotAge: 5,
+                ttyDeviceBindings: ttyDeviceBindings
+            )
         }.value
     }
 
     /// Loads current hook stores and captures an uncached process snapshot off-main.
     static func loadFresh(
         homeDirectory: String = NSHomeDirectory(),
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        ttyDeviceBindings: [SurfaceResumeBindingIndex.PanelKey: Int64] = [:]
     ) async -> ProcessDetectedResumeIndexes {
         await Task.detached(priority: .utility) {
-            loadFreshSynchronously(homeDirectory: homeDirectory, fileManager: fileManager)
+            loadFreshSynchronously(
+                homeDirectory: homeDirectory,
+                fileManager: fileManager,
+                ttyDeviceBindings: ttyDeviceBindings
+            )
         }.value
     }
 
@@ -27,9 +38,14 @@ struct ProcessDetectedResumeIndexes: Sendable {
     /// Main-actor lifecycle paths must call ``loadFresh(homeDirectory:fileManager:)``.
     static func loadFreshSynchronously(
         homeDirectory: String = NSHomeDirectory(),
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        ttyDeviceBindings: [SurfaceResumeBindingIndex.PanelKey: Int64] = [:]
     ) -> ProcessDetectedResumeIndexes {
-        loadSynchronously(homeDirectory: homeDirectory, fileManager: fileManager)
+        loadSynchronously(
+            homeDirectory: homeDirectory,
+            fileManager: fileManager,
+            ttyDeviceBindings: ttyDeviceBindings
+        )
     }
 
     /// Returns the last published agent index without filesystem or process capture.
@@ -49,7 +65,8 @@ struct ProcessDetectedResumeIndexes: Sendable {
         homeDirectory: String = NSHomeDirectory(),
         fileManager: FileManager = .default,
         maximumSnapshotAge: TimeInterval? = nil,
-        cachedRestorableAgentIndex: RestorableAgentSessionIndex? = nil
+        cachedRestorableAgentIndex: RestorableAgentSessionIndex? = nil,
+        ttyDeviceBindings: [SurfaceResumeBindingIndex.PanelKey: Int64] = [:]
     ) -> ProcessDetectedResumeIndexes {
         let capturedAt = Date().timeIntervalSince1970
         let processSnapshot = if let maximumSnapshotAge {
@@ -83,7 +100,8 @@ struct ProcessDetectedResumeIndexes: Sendable {
         let detectedBindings = SurfaceResumeBindingIndex.processDetectedTmuxBindings(
             fileManager: fileManager,
             processSnapshot: processSnapshot,
-            capturedAt: capturedAt
+            capturedAt: capturedAt,
+            ttyDeviceBindings: ttyDeviceBindings
         )
         return ProcessDetectedResumeIndexes(
             restorableAgentIndex: restorableAgentIndex,

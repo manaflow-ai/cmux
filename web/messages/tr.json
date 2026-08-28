@@ -54,6 +54,7 @@
     "community": "Topluluk",
     "docs": "Belgeler",
     "changelog": "Değişiklik Günlüğü",
+    "support": "Destek",
     "privacy": "Gizlilik",
     "terms": "Koşullar",
     "eula": "EULA",
@@ -1021,7 +1022,8 @@
         "browser": {
           "defaultSearchEngine": "Tarayıcı adres çubuğundaki URL olmayan sorgular için varsayılan arama motoru. Diğer sağlayıcılar için custom ile customSearchEngineURLTemplate kullanın.",
           "customSearchEngineName": "defaultSearchEngine custom olduğunda kullanılan görünen ad.",
-          "customSearchEngineURLTemplate": "defaultSearchEngine custom olduğunda kullanılan arama URL’si. Kodlanmış sorgu için sorgu yer tutucusunu veya %s ekleyin. Yer tutucu yoksa cmux URL’ye q= ekler."
+          "customSearchEngineURLTemplate": "defaultSearchEngine custom olduğunda kullanılan arama URL’si. Kodlanmış sorgu için sorgu yer tutucusunu veya %s ekleyin. Yer tutucu yoksa cmux URL’ye q= ekler.",
+          "urlAllowlist": "Yerleşik tarayıcıda gezinmeyi kısıtlayan ana bilgisayar veya URL kalıpları. Ayarlar yerel geliştirme kaynaklarını önerir; bir listeyi kaydetmek isteğe bağlı kısıtlamayı etkinleştirir. Girişleri kaldırarak engelleyin veya yönetilen bir politika yoksa kısıtlamayı devre dışı bırakmak için kullanıcı değerini boş bırakın."
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "Bir grup içindeki Cmd-N, grup başlığındaki + düğmesi ve yapılandırılmış grup eylemlerinin yeni workspace’i nereye yerleştireceğine dair genel varsayılan: `afterCurrent` (gruptaki aktif workspace’ten sonra, yoksa top), `top` (ankordan hemen sonraki ikinci konum) veya `end` (son üyeden sonra).",
@@ -3667,6 +3669,52 @@
       "secondaryCta": "Debian paketi (.deb)",
       "requirements": "Linux · x64",
       "installBody": "Kullanıcıya özel yükleyiciyi bir kez çalıştırın. cmux'u root yetkisi gerektirmeden ~/.local altına kurar ve imzalı uygulama içi güncellemeleri etkinleştirir. Güncellemelerin paket yöneticiniz tarafından yönetilmesini istiyorsanız bunun yerine Debian paketini seçin."
+    }
+  },
+  "support": {
+    "metaTitle": "Destek | cmux",
+    "metaDescription": "cmux ile ilgili yardım alın. Bize bir mesaj gönderin, e-postayla yanıtlayalım; ayrıca Discord ve GitHub üzerinden de bize ulaşabilirsiniz.",
+    "section": "Destek",
+    "title": "cmux ile ilgili yardım alın.",
+    "body": "Bize bir mesaj gönderin, e-postayla yanıtlayalım. Daha hızlı yardımcı olabilmemiz için ne yaptığınızı, ne beklediğinizi ve bunun yerine ne olduğunu yazın.",
+    "channels": {
+      "docs": {
+        "label": "Belgeler",
+        "description": "Başlarken, yapılandırma ve sorun giderme kılavuzları."
+      },
+      "discord": {
+        "label": "Discord",
+        "description": "Topluluğa ve ekibe gerçek zamanlı soru sorun."
+      },
+      "github": {
+        "label": "GitHub Issues",
+        "description": "Hataları bildirin, özellik isteklerinizi herkese açık şekilde iletin."
+      },
+      "email": {
+        "label": "founders@manaflow.com",
+        "description": "E-postayı mı tercih ediyorsunuz? Doğrudan bize yazın."
+      }
+    },
+    "formAriaLabel": "Destek iletişim formu",
+    "form": {
+      "name": "Ad",
+      "email": "E-posta adresi",
+      "topic": "Konu",
+      "message": "Size nasıl yardımcı olabiliriz?",
+      "selectPlaceholder": "Birini seçin",
+      "topicOptions": [
+        "Hata bildirimi",
+        "Faturalandırma veya abonelik",
+        "Hesap veya oturum açma",
+        "Cloud VMs",
+        "Özellik isteği",
+        "Diğer"
+      ],
+      "privacy": "E-posta adresinizi yalnızca destek talebinize yanıt vermek için kullanırız. İletişim bilgilerini satmayız.",
+      "submit": "Mesaj gönder",
+      "submitting": "Gönderiliyor…",
+      "success": "Teşekkürler. Mesajınızı aldık; founders@manaflow.com adresinden e-postanıza yanıt vereceğiz.",
+      "error": "Bir şeyler ters gitti. Lütfen tekrar deneyin veya founders@manaflow.com adresine e-posta gönderin."
     }
   },
   "emails": {
