@@ -598,9 +598,8 @@ impl ClientConnection {
                 actual: active_session.generation(),
             });
         }
-        let prepared = current
-            .prepare_reconnect_to(Arc::new(link), &daemon_resume, generation)
-            .await?;
+        let prepared =
+            current.prepare_reconnect_to(Arc::new(link), &daemon_resume, generation).await?;
         // The transaction has not changed shared reliability state yet. Once
         // this gate is acquired, `commit` and all wrapper publication below
         // contain no await points, so close cannot observe a half-published

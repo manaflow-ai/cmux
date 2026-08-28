@@ -1491,11 +1491,8 @@ mod tests {
     #[tokio::test]
     async fn cancelled_prepared_reconnect_leaves_shared_state_unchanged() {
         let (old_link, old_peer) = test_support::pair(128 * 1024);
-        let session = ReliableSession::new(
-            SessionId([17; 16]),
-            Arc::new(old_link),
-            SessionLimits::default(),
-        );
+        let session =
+            ReliableSession::new(SessionId([17; 16]), Arc::new(old_link), SessionLimits::default());
         session
             .send(Lane::Control, 1, Bytes::from_static(b"keep me"), FrameFlags::empty())
             .await
@@ -1509,10 +1506,8 @@ mod tests {
             let session = session.clone();
             let candidate = candidate.clone();
             async move {
-                let prepared = session
-                    .prepare_reconnect_to(candidate, &BTreeMap::new(), 1)
-                    .await
-                    .unwrap();
+                let prepared =
+                    session.prepare_reconnect_to(candidate, &BTreeMap::new(), 1).await.unwrap();
                 prepared_tx.send(()).unwrap();
                 std::future::pending::<()>().await;
                 let _ = prepared.commit();
