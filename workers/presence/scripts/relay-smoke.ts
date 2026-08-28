@@ -8,7 +8,8 @@
 // the missed frames). Exits non-zero on any failed check.
 //
 // Env: RELAY_BASE_URL, STACK_PROJECT_ID, STACK_PUBLISHABLE_CLIENT_KEY,
-//      CMUX_SMOKE_EMAIL, CMUX_SMOKE_PASSWORD, optional STACK_API_URL.
+//      CMUX_SMOKE_EMAIL, CMUX_SMOKE_PASSWORD, optional STACK_API_URL and
+//      RELAY_SOAK_MINUTES (keeps the resumed legs continuously engaged).
 
 const BASE = required("RELAY_BASE_URL").replace(/\/$/, "");
 const STACK_API_URL = (process.env.STACK_API_URL ?? "https://api.stack-auth.com").replace(/\/$/, "");
@@ -16,6 +17,11 @@ const PROJECT_ID = required("STACK_PROJECT_ID");
 const CLIENT_KEY = required("STACK_PUBLISHABLE_CLIENT_KEY");
 const EMAIL = required("CMUX_SMOKE_EMAIL");
 const PASSWORD = required("CMUX_SMOKE_PASSWORD");
+const SOAK_MINUTES = Number(process.env.RELAY_SOAK_MINUTES ?? "0");
+if (!Number.isFinite(SOAK_MINUTES) || SOAK_MINUTES < 0) {
+  console.error("RELAY_SOAK_MINUTES must be a non-negative number");
+  process.exit(2);
+}
 
 const MAC = `smoke-mac-${Date.now()}`;
 const PHONE = "smoke-phone-1";
@@ -277,6 +283,69 @@ check(
 );
 await waitControl(resumed, (frame) => frame.t === "peer.online");
 check("phone notified host is back", true);
+
+// ---- optional engaged soak on the same resumed legs ----
+// This intentionally does not redial. Any interruption fails the next frame,
+// pong, or auth-refresh wait instead of hiding instability behind recovery.
+if (SOAK_MINUTES > 0) {
+  const startedAt = Date.now();
+  const deadline = startedAt + SOAK_MINUTES * 60_000;
+  let tick = 0;
+  let uploadSeq = 5;
+  let downloadSeq = 3;
+  console.log(`starting ${SOAK_MINUTES}-minute engaged relay soak`);
+
+  while (Date.now() < deadline) {
+    tick += 1;
+    uploadSeq += 1;
+    downloadSeq += 1;
+
+    const uploadPayload = `soak-up-${uploadSeq}`;
+    resumed.ws.send(dataFrame(0, uploadSeq, uploadPayload));
+    const upload = await waitData(hostBack, 1);
+    check(
+      `soak ${tick}: phone→host`,
+      upload[0]!.payload === uploadPayload && upload[0]!.legId === phone.legId,
+    );
+
+    const downloadPayload = `soak-down-${downloadSeq}`;
+    hostBack.ws.send(dataFrame(phone.legId, downloadSeq, downloadPayload));
+    const download = await waitData(resumed, 1);
+    check(
+      `soak ${tick}: host→phone`,
+      download[0]!.payload === downloadPayload && download[0]!.seq === downloadSeq,
+    );
+
+    const pingStarted = performance.now();
+    hostBack.ws.send(JSON.stringify({ t: "ping", ts: Date.now() }));
+    await waitControl(hostBack, (frame) => frame.t === "pong");
+    check(`soak ${tick}: ping/pong`, true, `${(performance.now() - pingStarted).toFixed(0)}ms RTT`);
+
+    if (tick % 12 === 0) {
+      hostBack.ws.send(JSON.stringify({ t: "auth.refresh", token }));
+      resumed.ws.send(JSON.stringify({ t: "auth.refresh", token }));
+      const [hostAuth, phoneAuth] = await Promise.all([
+        waitControl(hostBack, (frame) => frame.t === "auth.ok"),
+        waitControl(resumed, (frame) => frame.t === "auth.ok"),
+      ]);
+      check(
+        `soak ${tick}: in-band auth refresh`,
+        typeof hostAuth.deadline === "number" && typeof phoneAuth.deadline === "number",
+      );
+    }
+
+    const elapsedSeconds = Math.round((Date.now() - startedAt) / 1000);
+    console.log(`soak progress ${elapsedSeconds}s/${Math.round(SOAK_MINUTES * 60)}s`);
+    const remainingMs = deadline - Date.now();
+    if (remainingMs > 0) await new Promise((resolve) => setTimeout(resolve, Math.min(25_000, remainingMs)));
+  }
+
+  check(
+    "engaged relay soak completed",
+    resumed.ws.readyState === WebSocket.OPEN && hostBack.ws.readyState === WebSocket.OPEN,
+    `${Math.round((Date.now() - startedAt) / 1000)}s`,
+  );
+}
 
 // ---- teardown ----
 resumed.ws.close(1000, "smoke done");
