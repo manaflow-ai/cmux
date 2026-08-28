@@ -35,6 +35,7 @@ const VM_ENV_KEYS = [
   "CMUX_VM_PLAN_PRO_MAX_MEMORY_MB",
   "CMUX_VM_PLAN_PRO_DEFAULT_MEMORY_MB",
   "CMUX_VM_REQUIRE_PRO",
+  "CMUX_VM_DEFAULT_PROVIDER",
   "VERCEL",
   "VERCEL_ENV",
 ] as const;
@@ -404,6 +405,7 @@ describe("VM REST auth", () => {
       id: "provider-vm-1",
       provider: "freestyle",
       image: "snapshot-test",
+      kind: "base",
       createdAt: 1_777_000_000_000,
     });
     expect(createVm).toHaveBeenCalledWith(expect.objectContaining({
@@ -420,6 +422,126 @@ describe("VM REST auth", () => {
     }));
     expect(listTeams).not.toHaveBeenCalled();
     expect(runVmWorkflow).toHaveBeenCalled();
+  });
+
+  test("rejects an unknown `kind` on create and base open before touching workflows", async () => {
+    getUser.mockResolvedValue(authedStackUser());
+
+    const create = await POST(
+      new Request("https://cmux.test/api/vm", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+        body: JSON.stringify({ kind: "gpu" }),
+      }),
+    );
+    expect(create.status).toBe(400);
+    expect(await create.json()).toMatchObject({
+      error: "vm_invalid_request",
+      details: { field: "kind", allowedKinds: ["desktop", "base"] },
+    });
+
+    const open = await baseOpenRoute.POST(
+      new Request("https://cmux.test/api/vm/base/open", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+        body: JSON.stringify({ kind: 7 }),
+      }),
+    );
+    expect(open.status).toBe(400);
+    expect(await open.json()).toMatchObject({
+      error: "vm_invalid_request",
+      details: { field: "kind" },
+    });
+    expect(runVmWorkflow).not.toHaveBeenCalled();
+  });
+
+  test("creates by kind without an image and echoes the resolved kind", async () => {
+    getUser.mockResolvedValue(authedStackUser());
+    runVmWorkflow.mockResolvedValue({
+      providerVmId: "provider-vm-kind",
+      provider: "freestyle",
+      image: "sh-b3jqa6o88qe6l738dw9z",
+      imageVersion: "freestyle-signedadmin-20260625b",
+      createdAt: 1_777_000_000_000,
+    });
+
+    const response = await POST(
+      new Request("https://cmux.test/api/vm", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+        body: JSON.stringify({ provider: "freestyle", kind: "base" }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ id: "provider-vm-kind", kind: "base" });
+    expect(createVm).toHaveBeenCalledWith(expect.objectContaining({
+      provider: "freestyle",
+      image: "sh-b3jqa6o88qe6l738dw9z",
+      imageVersion: "freestyle-signedadmin-20260625b",
+    }));
+  });
+
+  test("a kind the provider cannot serve fails with an actionable image config error", async () => {
+    getUser.mockResolvedValue(authedStackUser());
+
+    const create = await POST(
+      new Request("https://cmux.test/api/vm", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+        body: JSON.stringify({ provider: "freestyle", kind: "desktop" }),
+      }),
+    );
+    expect(create.status).toBe(503);
+    const createPayload = await create.json();
+    expect(createPayload).toMatchObject({
+      error: "vm_image_config_error",
+      message: "No desktop Cloud VM image is available in this environment.",
+      details: {
+        imageRequested: false,
+        kind: "desktop",
+        source: "default",
+        allowedKinds: ["base"],
+      },
+    });
+    expectNoCloudVmImplementationLeaks(createPayload);
+
+    const open = await baseOpenRoute.POST(
+      new Request("https://cmux.test/api/vm/base/open", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+        body: JSON.stringify({ provider: "freestyle", kind: "desktop" }),
+      }),
+    );
+    expect(open.status).toBe(503);
+    expect(await open.json()).toMatchObject({
+      error: "vm_image_config_error",
+      details: { imageRequested: false, kind: "desktop", source: "default" },
+    });
+    expect(runVmWorkflow).not.toHaveBeenCalled();
+  });
+
+  test("lists the kinds the default provider can serve alongside plan limits", async () => {
+    getUser.mockResolvedValue(authedStackUser());
+    runVmWorkflow.mockResolvedValue([
+      { providerVmId: "desk", provider: "blaxel", image: "sandbox/cmux-devbox:latest", imageVersion: "v", status: "running", createdAt: 1_777_000_000_000 },
+      { providerVmId: "base", provider: "blaxel", image: "blaxel/base-image:latest", imageVersion: null, status: "running", createdAt: 1_777_000_000_000 },
+    ]);
+
+    const response = await GET(new Request("https://cmux.test/api/vm"));
+    expect(response.status).toBe(200);
+    const payload = await response.json() as {
+      vms: Array<{ id: string; kind: string }>;
+      limits: { imageKinds: Array<{ kind: string; image: string }> };
+    };
+    expect(payload.vms).toMatchObject([{ id: "desk", kind: "desktop" }, { id: "base", kind: "base" }]);
+    const { listVmImageKinds } = await import("../services/vms/images/resolver");
+    const { defaultProviderId } = await import("../services/vms/drivers");
+    expect(payload.limits.imageKinds).toEqual(listVmImageKinds(defaultProviderId()));
+    for (const entry of payload.limits.imageKinds) {
+      expect(["desktop", "base"]).toContain(entry.kind);
+      expect(typeof entry.image).toBe("string");
+    }
   });
 
   test("passes configured plan active VM limits into the create workflow", async () => {
@@ -574,7 +696,7 @@ describe("VM REST auth", () => {
         { id: "newer", freeAccessExpiresAt: 1_777_100_000_000 + sevenDaysMs },
       ],
       limits: {
-        maxActiveVms: 1,
+        maxActiveVms: 0,
         planId: "free",
         freeAccessWindowDays: 7,
         freeAccessExpiresAt: 1_777_000_000_000 + sevenDaysMs,
@@ -697,7 +819,7 @@ describe("VM REST auth", () => {
       billingCustomerType: "team",
       billingTeamId: "team-2",
       billingPlanId: "free",
-      maxActiveVms: 1,
+      maxActiveVms: 0,
     }));
     expect(listTeams).toHaveBeenCalledTimes(1);
   });
@@ -754,7 +876,7 @@ describe("VM REST auth", () => {
       billingCustomerType: "team",
       billingTeamId: "team-2",
       billingPlanId: "free",
-      maxActiveVms: 1,
+      maxActiveVms: 0,
     }));
   });
 
@@ -1322,6 +1444,50 @@ describe("VM REST auth", () => {
     }
   });
 
+  test("maps a provider image-not-found on create to a non-retryable vm_image_unavailable", async () => {
+    getUser.mockResolvedValue(authedStackUser());
+    const originalError = console.error;
+    console.error = mock(() => {}) as unknown as typeof console.error;
+    try {
+      const providerCause = new Error(
+        "POST https://api.blaxel.ai/v0/sandboxes -> 400: {\"code\":\"IMAGE_NOT_FOUND\",\"message\":\"Image 'sandbox/cmux-devbox:latest' not found. Create and deploy a template sandbox.\"}",
+      );
+      const response = await withAuthedVmApiRoute(
+        new Request("https://cmux.test/api/vm", {
+          method: "POST",
+          headers: { origin: "https://cmux.test", "content-type": "application/json" },
+          body: JSON.stringify({ kind: "desktop" }),
+        }),
+        "/api/vm",
+        { "cmux.vm.operation": "create" },
+        "/api/vm failed",
+        async () => {
+          throw new VmProviderOperationError({
+            provider: "blaxel",
+            operation: "create",
+            cause: providerCause,
+          });
+        },
+      );
+
+      expect(response.status).toBe(503);
+      expect(response.headers.get("retry-after")).toBeNull();
+      const payload = await response.json();
+      expect(payload).toMatchObject({
+        error: "vm_image_unavailable",
+        phase: "create",
+        retryable: false,
+        details: { operation: "create", retryable: false, providerCode: "provider_image_not_found" },
+        ui: { title: "Cloud VM image unavailable", retryable: false },
+      });
+      expectNoCloudVmImplementationLeaks(payload);
+      const consoleErrorCalls = (console.error as unknown as { mock: { calls: unknown[][] } }).mock.calls;
+      expect(consoleErrorCalls.some((call) => call[0] === "[vm-image-unavailable]")).toBe(true);
+    } finally {
+      console.error = originalError;
+    }
+  });
+
   test("maps attach provider internal errors to concise retryable VM state", async () => {
     getUser.mockResolvedValue(authedStackUser());
     const originalError = console.error;
@@ -1766,6 +1932,67 @@ describe("VM REST auth", () => {
     expect(createVm).toHaveBeenCalledWith(expect.objectContaining({
       image: "sh-6ch5p9k23xrcx24056n8",
       imageVersion: "freestyle-rpclease-20260502a",
+    }));
+  });
+
+  test("explicit manifest image resolves its own provider when the deployment default disagrees", async () => {
+    // Regression for the 2026-08-26 outage: the CLI sends Blaxel image ids with
+    // no provider override, and prod still had CMUX_VM_DEFAULT_PROVIDER=freestyle,
+    // so the image was looked up under freestyle and every create 503ed.
+    process.env.VERCEL = "1";
+    process.env.VERCEL_ENV = "preview";
+    process.env.CMUX_VM_DEFAULT_PROVIDER = "freestyle";
+    process.env.FREESTYLE_SANDBOX_SNAPSHOT = "sh-6ch5p9k23xrcx24056n8";
+    getUser.mockResolvedValue(authedStackUser());
+    runVmWorkflow.mockResolvedValue({
+      providerVmId: "provider-vm-blaxel",
+      provider: "blaxel",
+      image: "blaxel/xfce-vnc:latest",
+      imageVersion: "blaxel-bootstrap-20260820a",
+      createdAt: 1_777_000_000_000,
+    });
+
+    const response = await POST(
+      new Request("https://cmux.test/api/vm", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+        body: JSON.stringify({ image: "blaxel/xfce-vnc:latest" }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(createVm).toHaveBeenCalledWith(expect.objectContaining({
+      provider: "blaxel",
+      image: "blaxel/xfce-vnc:latest",
+      imageVersion: "blaxel-bootstrap-20260820a",
+    }));
+  });
+
+  test("the shell-only base image the CLI sends for `vm new --base` is manifest-listed", async () => {
+    process.env.VERCEL = "1";
+    process.env.VERCEL_ENV = "preview";
+    process.env.CMUX_VM_DEFAULT_PROVIDER = "freestyle";
+    getUser.mockResolvedValue(authedStackUser());
+    runVmWorkflow.mockResolvedValue({
+      providerVmId: "provider-vm-blaxel-base",
+      provider: "blaxel",
+      image: "blaxel/base-image:latest",
+      imageVersion: "blaxel-base-bootstrap-20260824a",
+      createdAt: 1_777_000_000_000,
+    });
+
+    const response = await POST(
+      new Request("https://cmux.test/api/vm", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+        body: JSON.stringify({ image: "blaxel/base-image:latest" }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(createVm).toHaveBeenCalledWith(expect.objectContaining({
+      provider: "blaxel",
+      image: "blaxel/base-image:latest",
     }));
   });
 });

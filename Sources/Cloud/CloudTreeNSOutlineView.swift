@@ -7,6 +7,10 @@ import CmuxFoundation
 final class CloudTreeNSOutlineView: NSOutlineView {
     static let leadingMargin: CGFloat = 8
 
+    /// The active visual preset; the coordinator keeps this in step with the
+    /// style it lays rows out with (chevron centering depends on it).
+    var treeStyle: CloudTreeStyle = CloudTreeStyleStore.current
+
     var onOpenSelection: (() -> Void)?
     var onMoveSelection: ((Int) -> Void)?
     var onDisclosure: ((RightSidebarKeyboardNavigation.DisclosureAction) -> Void)?
@@ -127,14 +131,15 @@ final class CloudTreeNSOutlineView: NSOutlineView {
     override func frameOfOutlineCell(atRow row: Int) -> NSRect {
         var frame = super.frameOfOutlineCell(atRow: row)
         frame.origin.x += Self.leadingMargin
-        if let node = item(atRow: row) as? CloudTreeNode, node.isMachineRow {
+        if treeStyle.machineRowLayout == .twoLine,
+           let node = item(atRow: row) as? CloudTreeNode, node.isMachineRow {
             // Multi-line machine rows: the chevron centers on the name line (first
             // line, after the row's top padding), not on the row's vertical middle,
             // so it reads with the name and the status dot. NSTableView is flipped.
             let rowFrame = rect(ofRow: row)
             let nameLineCenter = rowFrame.minY
-                + GlobalFontMagnification.scaledSize(CloudTreeRowGrid.machineVerticalPadding)
-                + GlobalFontMagnification.scaledSize(CloudTreeRowGrid.machineNameLineHeight) / 2
+                + GlobalFontMagnification.scaledSize(treeStyle.machineVerticalPadding)
+                + GlobalFontMagnification.scaledSize(treeStyle.machineNameLineHeight) / 2
             frame.origin.y = (nameLineCenter - frame.height / 2).rounded()
         }
         return frame

@@ -139,13 +139,35 @@ public actor IrxBrokerService {
                 refreshToken: pair.refresh
             )
         })
+        let dir = configuration.cacheDirectory
+        bindingCache = IrxDiskCache(fileURL: dir.appendingPathComponent("binding.json"))
+        // Warm launches skip register() for speed, but register() is what
+        // arms per-request binding-proof signing; an unarmed client sends
+        // proofless mints that the broker 403s (binding_request_proof_required)
+        // - the 08-27 INTERNAL wedge. Reconstruct the authorization offline
+        // from the cached binding and the identity key, so every request is
+        // signed from the first call regardless of registration order.
+        var retainedAuthorization: CmxIrohBindingRequestAuthorization?
+        if let snapshot = bindingCache.load(),
+            snapshot.endpointIDHex == identity.endpointIDHex,
+            let secretKey = try? CmxIrohSecretKey(bytes: identity.privateKeyData),
+            let material = try? CmxIrohIdentityMaterial(
+                secretKey: secretKey, generation: configuration.identityGeneration),
+            let endpointID = try? CmxIrohPeerIdentity(endpointID: identity.endpointIDHex)
+        {
+            retainedAuthorization = try? CmxIrohBindingRequestAuthorization(
+                bindingID: snapshot.bindingID,
+                clientNamespace: configuration.clientNamespace,
+                identity: material,
+                endpointID: endpointID
+            )
+        }
         client = try CmxIrohTrustBrokerClient(
             baseURL: configuration.baseURL,
             tokenSource: tokenSource,
-            clientNamespace: configuration.clientNamespace
+            clientNamespace: configuration.clientNamespace,
+            bindingAuthorization: retainedAuthorization
         )
-        let dir = configuration.cacheDirectory
-        bindingCache = IrxDiskCache(fileURL: dir.appendingPathComponent("binding.json"))
         trustCache = IrxDiskCache(fileURL: dir.appendingPathComponent("trust.json"))
         credentialCache = IrxDiskCache(fileURL: dir.appendingPathComponent("relay-credentials.json"))
         grantCache = IrxDiskCache(fileURL: dir.appendingPathComponent("grants.json"))
@@ -318,15 +340,42 @@ public actor IrxBrokerService {
         return snapshot.usable(at: Date())
     }
 
+    /// A broker proof rejection means the retained binding or its signing
+    /// authorization is stale server-side. Drop the cached binding so the
+    /// next provisioning attempt takes the full register() path (which
+    /// re-arms signing on this client) instead of retrying into the same
+    /// rejection forever.
+    private func invalidateBindingOnProofRejection(_ error: any Error) {
+        guard case let .rejected(statusCode, code)? = error as? CmxIrohTrustBrokerClientError,
+            statusCode == 403,
+            code == "binding_request_proof_required" || code == "invalid_binding_request_proof"
+        else { return }
+        bindingCache.clear()
+        journal.record(
+            "broker", "binding-invalidated-on-proof-rejection",
+            ["code": code ?? "-"]
+        )
+    }
+
     /// Mints fresh endpoint-bound relay credentials. Only relay URLs present
     /// in the authenticated discovery fleet are accepted, so a corrupted
     /// credential response can never point the endpoint at a foreign relay.
     public func mintRelayCredentials() async throws -> [IrxRelayCredential] {
         let startedAt = DispatchTime.now()
         let endpointID = try CmxIrohPeerIdentity(endpointID: identity.endpointIDHex)
-        let bootstrap = try await issueRelayBootstrapRetryingStaleConnection(
-            endpointID: endpointID
-        )
+        // Union of both mint hardenings: the stale-pooled-connection retry
+        // (first POST after idle dies on a dead keep-alive socket) wraps the
+        // call, and a proof rejection still invalidates the cached binding so
+        // the next attempt re-registers instead of looping unsigned.
+        let bootstrap: CmxIrohRelayBootstrapResponse
+        do {
+            bootstrap = try await issueRelayBootstrapRetryingStaleConnection(
+                endpointID: endpointID
+            )
+        } catch {
+            invalidateBindingOnProofRejection(error)
+            throw error
+        }
         guard let tokenResponse = bootstrap.relayToken else {
             journal.record("broker", "relay-mint-empty")
             throw IrxBrokerServiceError.noCredentialsIssued
@@ -483,10 +532,16 @@ public actor IrxBrokerService {
         guard let binding = cachedBinding() else {
             throw IrxBrokerServiceError.notRegistered
         }
-        let response = try await client.issuePairGrant(
-            initiatorBindingID: binding.bindingID,
-            acceptorBindingID: acceptorBindingID
-        )
+        let response: CmxIrohPairGrantResponse
+        do {
+            response = try await client.issuePairGrant(
+                initiatorBindingID: binding.bindingID,
+                acceptorBindingID: acceptorBindingID
+            )
+        } catch {
+            invalidateBindingOnProofRejection(error)
+            throw error
+        }
         let iso = ISO8601DateFormatter()
         let fractional = ISO8601DateFormatter()
         fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]

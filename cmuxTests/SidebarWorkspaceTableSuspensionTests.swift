@@ -8,6 +8,44 @@ import Testing
 @Suite
 @MainActor
 struct SidebarWorkspaceTableSuspensionTests {
+    private final class MockDraggingInfo: NSObject, NSDraggingInfo {
+        let draggingDestinationWindow: NSWindow?
+        let draggingSourceOperationMask: NSDragOperation = .move
+        let draggingLocation: NSPoint
+        let draggedImageLocation: NSPoint
+        let draggedImage: NSImage? = nil
+        nonisolated(unsafe) let draggingPasteboard: NSPasteboard
+        nonisolated(unsafe) let draggingSource: Any? = nil
+        let draggingSequenceNumber: Int = 1
+        var draggingFormation: NSDraggingFormation = .default
+        var animatesToDestination = false
+        var numberOfValidItemsForDrop = 1
+        let springLoadingHighlight: NSSpringLoadingHighlight = .none
+
+        init(window: NSWindow, location: NSPoint, pasteboard: NSPasteboard) {
+            draggingDestinationWindow = window
+            draggingLocation = location
+            draggedImageLocation = location
+            draggingPasteboard = pasteboard
+        }
+
+        func slideDraggedImage(to screenPoint: NSPoint) {}
+
+        func enumerateDraggingItems(
+            options enumOpts: NSDraggingItemEnumerationOptions = [],
+            for view: NSView?,
+            classes classArray: [AnyClass],
+            searchOptions: [NSPasteboard.ReadingOptionKey: Any] = [:],
+            using block: (NSDraggingItem, Int, UnsafeMutablePointer<ObjCBool>) -> Void
+        ) {}
+
+        func resetSpringLoading() {}
+
+        override func namesOfPromisedFilesDropped(atDestination dropDestination: URL) -> [String]? {
+            nil
+        }
+    }
+
     @Test
     func rowHeightCacheMeasuresAgainAfterPayloadSuspension() {
         let cache = SidebarWorkspaceTableRowHeightCache()
@@ -314,6 +352,116 @@ struct SidebarWorkspaceTableSuspensionTests {
         controller.setPresentationActive(false, workspaceIds: workspaceIds)
 
         #expect(indicatorClears == 1)
+    }
+
+    @Test
+    func reconstructedNativeTableSourceRetainsItsCompletionAction() async {
+        let controller = SidebarWorkspaceTableController()
+        let container = controller.makeContainerView()
+        let row = makeRowConfiguration()
+        var completionCount = 0
+
+        controller.apply(
+            rows: [row],
+            actions: makeTableActions(endWorkspaceDrag: { completionCount += 1 }),
+            workspaceIds: [row.workspaceId],
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+
+        // This brackets the real production seam: AppKit has accepted the
+        // table as its source, then SwiftUI reconstructs the table before the
+        // terminal draggingSession(_:endedAt:operation:) callback arrives.
+        controller.workspaceDragSessionDidBegin()
+        controller.dismantleContainerView(container)
+        #expect(container.tableView.delegate === controller)
+
+        controller.workspaceDragSessionDidEnd()
+
+        #expect(completionCount == 1)
+        #expect(container.tableView.delegate == nil)
+    }
+
+    @Test
+    func dismantlingActiveSourcePreservesDeferredReorderUntilTargetsArrive() async throws {
+        let controller = SidebarWorkspaceTableController()
+        let container = controller.makeContainerView()
+        let row = makeRowConfiguration()
+        let workspaceId = row.workspaceId
+        let pasteboard = NSPasteboard(
+            name: NSPasteboard.Name("sidebar-table-deferred-\(UUID().uuidString)")
+        )
+        pasteboard.clearContents()
+        pasteboard.setString(
+            "\(SidebarTabDragPayload.prefix)\(workspaceId.uuidString)",
+            forType: SidebarWorkspaceReorderDropOverlay.pasteboardType
+        )
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = container
+        defer {
+            window.contentView = nil
+            window.close()
+            pasteboard.clearContents()
+        }
+
+        var pendingCommitCount = 0
+        let actions = makeTableActions(
+            performPendingWorkspaceDrop: { pending, _ in
+                pendingCommitCount += 1
+                return pending.workspaceId == workspaceId
+            }
+        )
+        controller.apply(
+            rows: [row],
+            actions: actions,
+            workspaceIds: [workspaceId],
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+        container.layoutSubtreeIfNeeded()
+        controller.workspaceDragSessionDidBegin()
+        // Keep the target snapshot empty so the drop view parks the operation
+        // instead of taking the direct release path; production may fill this
+        // bridge asynchronously during a reconstruction.
+        container.reorderDropView.setWorkspaceDropTargetCollectionActive = { _ in }
+        container.reorderDropView.targets = []
+
+        let sender = MockDraggingInfo(
+            window: window,
+            location: NSPoint(x: 40, y: 40),
+            pasteboard: pasteboard
+        )
+        #expect(container.reorderDropView.performDragOperation(sender))
+        container.reorderDropView.concludeDragOperation(sender)
+
+        controller.dismantleContainerView(container)
+        // Native source completion can arrive before the asynchronous target
+        // bridge updates the reconstructed drop view. It must not erase the
+        // pending operation or release the retained container early.
+        controller.workspaceDragSessionDidEnd()
+        #expect(pendingCommitCount == 0)
+
+        let target = SidebarWorkspaceReorderDropOverlay.Target(
+            workspaceId: workspaceId,
+            groupId: nil,
+            isGroupHeader: false,
+            frame: CGRect(x: 0, y: 0, width: 200, height: 24)
+        )
+        container.reorderDropView.targets = [target]
+        container.reorderDropView.targetsDidUpdate()
+
+        #expect(
+            pendingCommitCount == 1,
+            "A deferred reorder must survive table teardown until its target snapshot arrives."
+        )
+        #expect(container.tableView.activeWorkspaceDragController == nil)
     }
 
     @Test
@@ -640,6 +788,8 @@ struct SidebarWorkspaceTableSuspensionTests {
             [SidebarWorkspaceReorderDropOverlay.Target],
             UUID?
         ) -> SidebarWorkspaceTableReorderDropUpdate? = { _, _, _ in nil },
+        endWorkspaceDrag: @escaping () -> Void = {},
+        performPendingWorkspaceDrop: ((SidebarWorkspaceReorderPendingDrop, [SidebarWorkspaceReorderDropOverlay.Target]) -> Bool)? = nil,
         clearWorkspaceDropIndicator: @escaping () -> Void = {}
     ) -> SidebarWorkspaceTableActions {
         SidebarWorkspaceTableActions(
@@ -649,10 +799,11 @@ struct SidebarWorkspaceTableSuspensionTests {
             createEmptyWorkspaceGroup: {},
             beginWorkspaceDrag: { _ in },
             movingWorkspaceCount: { _ in 1 },
-            endWorkspaceDrag: {},
+            endWorkspaceDrag: endWorkspaceDrag,
             isValidWorkspaceDrag: { true },
             updateWorkspaceDrag: updateWorkspaceDrag,
             performWorkspaceDrop: { _, _, _ in false },
+            performPendingWorkspaceDrop: performPendingWorkspaceDrop,
             commitWorkspaceDropPlan: { _ in false },
             clearWorkspaceDropIndicator: clearWorkspaceDropIndicator,
             currentDropIndicator: { nil },

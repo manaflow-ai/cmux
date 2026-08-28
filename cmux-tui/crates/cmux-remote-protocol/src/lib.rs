@@ -36,3 +36,9 @@ pub use rpc::{
 /// Maximum serialized server-to-client message accepted by remote session
 /// transports. Render attach and VT replay responses share this budget.
 pub const REMOTE_SESSION_MESSAGE_MAX_BYTES: usize = 32 * 1024 * 1024;
+
+/// Maximum serialized client-to-server JSON message accepted by Unix
+/// JSON-lines and relay mux transports. The line delimiter is not included.
+/// Keep this separate from [`REMOTE_SESSION_MESSAGE_MAX_BYTES`], because
+/// render attach responses need the larger server-to-client budget.
+pub const REMOTE_CLIENT_MESSAGE_MAX_BYTES: usize = 16 * 1024 * 1024;
