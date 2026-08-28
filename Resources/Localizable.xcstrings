@@ -125188,19 +125188,19 @@
         }
       }
     },
-    "machines.agent.error.noWorkspace": {
+    "machines.agent.operation.starting": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open a workspace first, then start the cloud agent."
+            "value": "Starting %@…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "先にワークスペースを開いてから、クラウドエージェントを開始してください。"
+            "value": "%@ を起動しています…"
           }
         }
       }

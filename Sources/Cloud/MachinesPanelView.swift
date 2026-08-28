@@ -260,7 +260,7 @@ struct MachinesPanelView: View {
         Menu {
             ForEach(CloudAgentSkillLauncher.CodingAgent.allCases, id: \.rawValue) { agent in
                 Button(agent.displayName) {
-                    runCloudAgentAction { try CloudAgentSkillLauncher.openAgent(agent) }
+                    launchCloudAgent(agent)
                 }
             }
             Divider()
@@ -287,6 +287,21 @@ struct MachinesPanelView: View {
             try action()
         } catch {
             viewModel.noteTreeFailure(error.localizedDescription)
+        }
+    }
+
+    private func launchCloudAgent(_ agent: CloudAgentSkillLauncher.CodingAgent) {
+        viewModel.beginOperation(String(
+            format: String(localized: "machines.agent.operation.starting", defaultValue: "Starting %@\u{2026}"),
+            agent.displayName
+        ))
+        Task { @MainActor [weak viewModel] in
+            do {
+                _ = try await CloudAgentSkillLauncher.openAgent(agent)
+            } catch {
+                viewModel?.noteTreeFailure(error.localizedDescription)
+            }
+            viewModel?.endOperation()
         }
     }
 

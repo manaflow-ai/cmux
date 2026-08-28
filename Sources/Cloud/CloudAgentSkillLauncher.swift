@@ -3,14 +3,17 @@ import Foundation
 
 /// One shared path for "give me a coding agent that knows cmux Cloud".
 ///
-/// The Machines panel menu launches a local terminal running the chosen agent
-/// with a kickoff prompt, and "Copy Cloud Prompt" puts the same prompt on the
-/// clipboard for any other terminal. Both first install the bundled skill file
-/// at a stable path under `~/.config/cmux/skills/` so the prompt's file
-/// reference resolves for any agent, with no network access.
+/// The Machines panel menu and the `vm.cloud_agent_open` socket method both
+/// launch a local terminal through `TerminalController.surfaceNewTerminal`
+/// running the chosen agent with a kickoff prompt; "Copy Cloud Prompt" and
+/// `vm.cloud_prompt` expose the same prompt for any other terminal. Every
+/// entrypoint first installs the bundled skill file at a stable path under
+/// `~/.config/cmux/skills/` so the prompt's file reference resolves for any
+/// agent, with no network access.
 enum CloudAgentSkillLauncher {
     /// Agents the launcher can start locally. Raw values are the executable
-    /// names resolved through the user's login shell PATH.
+    /// names resolved through the user's login shell PATH, and are also the
+    /// `agent` parameter accepted by `vm.cloud_agent_open`.
     enum CodingAgent: String, CaseIterable {
         case claude
         case codex
@@ -29,6 +32,7 @@ enum CloudAgentSkillLauncher {
 
         /// Interactive-session argv carrying the kickoff prompt. claude and
         /// codex take a positional initial prompt; opencode uses `--prompt`.
+        /// Elements are argv words; the local provider shell-quotes them.
         func argv(prompt: String) -> [String] {
             switch self {
             case .claude: return ["claude", prompt]
@@ -40,7 +44,6 @@ enum CloudAgentSkillLauncher {
 
     enum LauncherError: LocalizedError {
         case skillResourceMissing
-        case noSelectedWorkspace
 
         var errorDescription: String? {
             switch self {
@@ -48,11 +51,6 @@ enum CloudAgentSkillLauncher {
                 return String(
                     localized: "machines.agent.error.missingSkill",
                     defaultValue: "This build is missing the bundled cmux Cloud skill file."
-                )
-            case .noSelectedWorkspace:
-                return String(
-                    localized: "machines.agent.error.noWorkspace",
-                    defaultValue: "Open a workspace first, then start the cloud agent."
                 )
             }
         }
@@ -101,29 +99,26 @@ enum CloudAgentSkillLauncher {
         """
     }
 
-    /// The full shell command for a terminal pane running `agent`.
-    static func shellCommand(agent: CodingAgent, prompt: String) -> String {
-        agent.argv(prompt: prompt)
-            .map(SurfaceResumeCommandCanonicalizer.shellQuoted)
-            .joined(separator: " ")
+    /// Installs the skill file and returns the prompt plus the path it names.
+    static func promptPayload() throws -> (prompt: String, skillPath: String) {
+        let url = try installSkillFile()
+        return (kickoffPrompt(skillPath: url.path), url.path)
     }
 
-    /// Installs the skill file and opens a local terminal pane in the selected
-    /// workspace running the agent with the kickoff prompt.
-    @MainActor
-    static func openAgent(
-        _ agent: CodingAgent,
-        selectedWorkspaceID: UUID? = nil
-    ) throws {
-        let skillURL = try installSkillFile()
-        guard let workspaceID = selectedWorkspaceID ?? AppDelegate.shared?.tabManager?.selectedTabId else {
-            throw LauncherError.noSelectedWorkspace
-        }
-        let command = shellCommand(agent: agent, prompt: kickoffPrompt(skillPath: skillURL.path))
-        _ = try SurfacePaneFactory.makeTerminalPane(
-            initialCommand: command,
-            workingDirectory: nil,
-            at: .workspace(id: workspaceID, placement: .split),
+    /// Installs the skill file and opens a local terminal pane running the
+    /// agent with the kickoff prompt, through the same shared path as
+    /// `surface.new_terminal` (the pane lands split in the selected
+    /// workspace). Returns the created surface payload.
+    @discardableResult
+    static func openAgent(_ agent: CodingAgent) async throws -> [String: Any] {
+        let payload = try promptPayload()
+        return try await TerminalController.surfaceNewTerminal(
+            machine: .local,
+            command: agent.argv(prompt: payload.prompt),
+            cwd: nil,
+            name: agent.displayName,
+            remoteWorkspaceID: nil,
+            destination: nil,
             focus: true
         )
     }
@@ -131,9 +126,9 @@ enum CloudAgentSkillLauncher {
     /// Installs the skill file and puts the kickoff prompt on the clipboard.
     @MainActor
     static func copyPrompt() throws {
-        let skillURL = try installSkillFile()
+        let payload = try promptPayload()
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
-        pasteboard.setString(kickoffPrompt(skillPath: skillURL.path), forType: .string)
+        pasteboard.setString(payload.prompt, forType: .string)
     }
 }

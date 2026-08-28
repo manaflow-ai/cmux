@@ -36,14 +36,6 @@ final class CloudAgentSkillLauncherTests: XCTestCase {
         )
     }
 
-    func testShellCommandQuotesThePrompt() {
-        let command = CloudAgentSkillLauncher.shellCommand(
-            agent: .claude,
-            prompt: "read the file; it's important"
-        )
-        XCTAssertEqual(command, "claude 'read the file; it'\\''s important'")
-    }
-
     func testInstallSkillFileWritesUnderTheGivenHome() throws {
         let home = FileManager.default.temporaryDirectory
             .appendingPathComponent("cloud-agent-skill-tests-\(UUID().uuidString)", isDirectory: true)
