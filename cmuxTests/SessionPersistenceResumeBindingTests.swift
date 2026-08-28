@@ -174,6 +174,7 @@ import Testing
         #expect(startupInput.contains("SUBROUTER_CODEX_BIN="), "\(startupInput)")
         #expect(startupInput.contains("CMUX_CODEX_WRAPPER_SHIM"), "\(startupInput)")
         #expect(startupInput.contains("CMUX_CUSTOM_CODEX_PATH=/opt/company/bin/codex"), "\(startupInput)")
+        #expect(startupInput.contains("/bin/sh -c"), "\(startupInput)")
     }
 
     @Test func restoreBindingAuthorizationRejectsUnownedOrUnboundCommands() throws {
