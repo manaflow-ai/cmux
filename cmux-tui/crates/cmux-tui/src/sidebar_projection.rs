@@ -524,7 +524,7 @@ mod tests {
         let rows = rows(
             &spec(vec![SidebarResourceKind::Workspaces, SidebarResourceKind::Agents]),
             &tree,
-            &agents
+            &agents,
             &HashSet::new(),
             0,
             &HashSet::new(),
@@ -550,7 +550,7 @@ mod tests {
         let rows = rows(
             &spec(vec![SidebarResourceKind::Workspaces, SidebarResourceKind::Panes]),
             &tree,
-            &[]
+            &[],
             &HashSet::new(),
             0,
             &collapsed,
@@ -570,7 +570,7 @@ mod tests {
                 SidebarResourceKind::Tabs,
             ]),
             &tree,
-            &[]
+            &[],
             &HashSet::new(),
             0,
             &HashSet::new(),
