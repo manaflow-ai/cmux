@@ -69,6 +69,39 @@ struct SocketStartupWaiterTests {
         #expect(observedRemainingTime == 0.25)
     }
 
+    @Test("An operation budget shorter than the relay connect bound is passed through unchanged")
+    func preservesShortOperationDeadline() {
+        var currentTime: TimeInterval = 10
+        var observedRemainingTime: TimeInterval?
+        let waiter = SocketStartupWaiter(
+            initialRetryDelay: 0.001,
+            maximumRetryDelay: 0.001,
+            monotonicTime: {
+                defer { currentTime += 0.01 }
+                return currentTime
+            },
+            eventQueueFactory: { -1 }
+        )
+
+        do {
+            let _: String = try waiter.wait(
+                timeout: 0.05,
+                resolvePath: { "/tmp/cmux-short-operation.sock" },
+                attemptConnection: { _, remainingTime in
+                    observedRemainingTime = remainingTime
+                    return nil
+                }
+            )
+            Issue.record("Expected the short operation budget to time out")
+        } catch is SocketStartupWaitTimeout {
+            // Expected.
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+
+        #expect(observedRemainingTime == 0.04)
+    }
+
     @Test func retriesWhenEventQueueIsUnavailable() throws {
         let socketPath = "/tmp/cmux-startup-wait-no-kqueue.sock"
         var currentTime: TimeInterval = 0
