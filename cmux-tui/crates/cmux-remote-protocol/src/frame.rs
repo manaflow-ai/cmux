@@ -121,7 +121,7 @@ impl SessionId {
             return Err("session ID contains a non-hexadecimal character".into());
         }
         let mut bytes = [0_u8; 16];
-        for (index, chunk) in value.as_bytes().chunks_exact(2).enumerate() {
+        for (index, chunk) in value.as_bytes().as_chunks::<2>().0.iter().enumerate() {
             let encoded = std::str::from_utf8(chunk).expect("ASCII was checked above");
             bytes[index] = u8::from_str_radix(encoded, 16)
                 .map_err(|_| "session ID contains a non-hexadecimal character".to_string())?;
