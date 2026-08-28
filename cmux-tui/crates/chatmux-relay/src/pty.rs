@@ -2443,6 +2443,7 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
     use std::sync::{Arc as TestArc, Barrier, Mutex as StdMutex, mpsc::sync_channel};
     use std::thread;
+    use std::time::Duration;
 
     static NEXT_TEST_DIRECTORY: AtomicU64 = AtomicU64::new(0);
 
