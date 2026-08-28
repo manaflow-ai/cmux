@@ -8,8 +8,13 @@ import CmuxSwiftRender
 final class RenderNodeContextMenuView: NSView {
     var nodes: [RenderNode] = []
     var dispatch: SidebarActionDispatch = .noop
+    /// Mirrors the SwiftUI `isEnabled` environment at the overlay's position:
+    /// `.disabled(true)` on the row or an ancestor suppresses the context
+    /// menu entirely, matching how SwiftUI treats a disabled row's menu.
+    var isMenuEnabled = true
 
     override func hitTest(_ point: NSPoint) -> NSView? {
+        guard isMenuEnabled else { return nil }
         let local = convert(point, from: superview)
         guard bounds.contains(local), let event = NSApp.currentEvent else { return nil }
         switch event.type {
@@ -52,11 +57,11 @@ final class RenderNodeContextMenuView: NSView {
         NSMenu.popUpContextMenu(menu, with: event, for: self)
     }
 
-    /// The on-demand menu, or nil when the IR yields nothing presentable
-    /// (no nodes, or separators only).
+    /// The on-demand menu, or nil when the row is disabled or the IR yields
+    /// nothing presentable (no nodes, or separators only).
     func menuForPresentation() -> NSMenu? {
-        guard !nodes.isEmpty else { return nil }
-        let menu = makeRenderNodeContextMenu(nodes: nodes, dispatch: dispatch)
+        guard isMenuEnabled, !nodes.isEmpty else { return nil }
+        let menu = RenderNodeContextMenuBuilder(dispatch: dispatch).makeMenu(nodes: nodes)
         guard menu.items.contains(where: { !$0.isSeparatorItem }) else { return nil }
         return menu
     }
@@ -67,25 +72,29 @@ final class RenderNodeContextMenuView: NSView {
     /// other overlay found there belongs to a descendant `.contextMenu`.
     func deeperOverlayClaims(_ point: NSPoint) -> Bool {
         guard let superview else { return false }
-        return Self.subtreeContainsClaimingOverlay(superview, excluding: self, point: point, space: superview)
+        return subtreeContainsClaimingOverlay(superview, excluding: self, point: point, space: superview)
     }
+}
 
-    private static func subtreeContainsClaimingOverlay(
-        _ root: NSView,
-        excluding excluded: NSView,
-        point: NSPoint,
-        space: NSView
-    ) -> Bool {
-        for subview in root.subviews {
-            if subview === excluded || subview.isHidden { continue }
-            if let overlay = subview as? RenderNodeContextMenuView {
-                let local = overlay.convert(point, from: space)
-                if overlay.bounds.contains(local), !overlay.nodes.isEmpty { return true }
-            }
-            if subtreeContainsClaimingOverlay(subview, excluding: excluded, point: point, space: space) {
-                return true
-            }
+/// Depth-first search for another ``RenderNodeContextMenuView`` under `root`
+/// whose bounds contain `point` (expressed in `space`'s coordinates) and
+/// whose menu IR is non-empty.
+@MainActor
+private func subtreeContainsClaimingOverlay(
+    _ root: NSView,
+    excluding excluded: NSView,
+    point: NSPoint,
+    space: NSView
+) -> Bool {
+    for subview in root.subviews {
+        if subview === excluded || subview.isHidden { continue }
+        if let overlay = subview as? RenderNodeContextMenuView {
+            let local = overlay.convert(point, from: space)
+            if overlay.bounds.contains(local), overlay.isMenuEnabled, !overlay.nodes.isEmpty { return true }
         }
-        return false
+        if subtreeContainsClaimingOverlay(subview, excluding: excluded, point: point, space: space) {
+            return true
+        }
     }
+    return false
 }

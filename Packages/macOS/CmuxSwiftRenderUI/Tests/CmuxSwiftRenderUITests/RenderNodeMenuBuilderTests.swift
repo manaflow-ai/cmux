@@ -26,7 +26,7 @@ struct RenderNodeMenuBuilderTests {
             RenderNode(kind: .button, text: "Pin", action: pin),
         ]
 
-        let menu = makeRenderNodeContextMenu(nodes: nodes, dispatch: capturingDispatch(box))
+        let menu = RenderNodeContextMenuBuilder(dispatch: capturingDispatch(box)).makeMenu(nodes: nodes)
 
         #expect(menu.items.count == 3)
         #expect(menu.items[0].title == "Focus")
@@ -51,7 +51,7 @@ struct RenderNodeMenuBuilderTests {
             ]),
         ]
 
-        let menu = makeRenderNodeContextMenu(nodes: nodes, dispatch: capturingDispatch(box))
+        let menu = RenderNodeContextMenuBuilder(dispatch: capturingDispatch(box)).makeMenu(nodes: nodes)
 
         #expect(menu.items.count == 1)
         #expect(menu.items[0].title == "Color")
@@ -74,7 +74,7 @@ struct RenderNodeMenuBuilderTests {
                        action: action),
         ]
 
-        let menu = makeRenderNodeContextMenu(nodes: nodes, dispatch: .noop)
+        let menu = RenderNodeContextMenuBuilder(dispatch: .noop).makeMenu(nodes: nodes)
 
         #expect(!menu.items[0].isEnabled)
         #expect(menu.items[0].action == nil)
@@ -102,7 +102,7 @@ struct RenderNodeMenuBuilderTests {
             RenderNode(kind: .button, text: "Outside", action: action),
         ]
 
-        let menu = makeRenderNodeContextMenu(nodes: nodes, dispatch: .noop)
+        let menu = RenderNodeContextMenuBuilder(dispatch: .noop).makeMenu(nodes: nodes)
 
         #expect(menu.items.map(\.title) == ["Delete", "Rename", "Color", "Outside"])
         #expect(!menu.items[0].isEnabled)
@@ -127,7 +127,7 @@ struct RenderNodeMenuBuilderTests {
             ], action: open),
         ]
 
-        let menu = makeRenderNodeContextMenu(nodes: nodes, dispatch: capturingDispatch(box))
+        let menu = RenderNodeContextMenuBuilder(dispatch: capturingDispatch(box)).makeMenu(nodes: nodes)
 
         #expect(menu.items[0].title == "Open PR")
         #expect(menu.items[0].image != nil)
@@ -142,7 +142,7 @@ struct RenderNodeMenuBuilderTests {
             RenderNode(kind: .label, text: "Status", systemName: "bolt"),
         ]
 
-        let menu = makeRenderNodeContextMenu(nodes: nodes, dispatch: .noop)
+        let menu = RenderNodeContextMenuBuilder(dispatch: .noop).makeMenu(nodes: nodes)
 
         #expect(menu.items.map(\.title) == ["3 agents running", "Status"])
         #expect(menu.items.allSatisfy { !$0.isEnabled && $0.action == nil })
@@ -160,7 +160,7 @@ struct RenderNodeMenuBuilderTests {
             ]),
         ]
 
-        let menu = makeRenderNodeContextMenu(nodes: nodes, dispatch: .noop)
+        let menu = RenderNodeContextMenuBuilder(dispatch: .noop).makeMenu(nodes: nodes)
 
         #expect(menu.items.map(\.title) == ["A", "More", "B"])
         #expect(!menu.items[1].isEnabled)
@@ -179,7 +179,7 @@ struct RenderNodeMenuBuilderTests {
             ]),
         ]
 
-        let menu = makeRenderNodeContextMenu(nodes: nodes, dispatch: .noop)
+        let menu = RenderNodeContextMenuBuilder(dispatch: .noop).makeMenu(nodes: nodes)
 
         #expect(menu.items.map(\.title) == ["kept"])
     }
@@ -200,7 +200,7 @@ struct RenderNodeMenuBuilderTests {
                        action: ButtonAction(commands: [.log("copy")])),
         ]
 
-        let menu = makeRenderNodeContextMenu(nodes: nodes, dispatch: .noop)
+        let menu = RenderNodeContextMenuBuilder(dispatch: .noop).makeMenu(nodes: nodes)
 
         #expect(menu.items[0].keyEquivalent == "\r")
         #expect(menu.items[1].keyEquivalent == "c")
@@ -222,6 +222,11 @@ struct RenderNodeMenuBuilderTests {
                                  action: ButtonAction(commands: [.log("focus")]))]
         let menu = try! #require(view.menuForPresentation())
         #expect(menu.items.map(\.title) == ["Focus"])
+
+        // A disabled row (SwiftUI `isEnabled` environment false) offers no
+        // menu on any path, mouse or accessibility.
+        view.isMenuEnabled = false
+        #expect(view.menuForPresentation() == nil)
     }
 
     @Test("accessibility handle presents through the mounted view and drops it weakly")
@@ -285,7 +290,7 @@ struct RenderNodeMenuBuilderTests {
         let children = try! #require(node?.modifiers.first { $0.name == "contextMenu" }?.children)
 
         let box = MenuActionCapture()
-        let menu = makeRenderNodeContextMenu(nodes: children, dispatch: capturingDispatch(box))
+        let menu = RenderNodeContextMenuBuilder(dispatch: capturingDispatch(box)).makeMenu(nodes: children)
 
         #expect(menu.items.count == 3)
         #expect(menu.items[0].title == "Focus")
