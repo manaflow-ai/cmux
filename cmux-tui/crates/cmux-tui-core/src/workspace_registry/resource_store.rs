@@ -1356,14 +1356,20 @@ impl WorkspaceRegistry {
                     && record.previous_resource_revision == Some(indexed_revision - 1),
                 "indexed resource event revision does not match its journal record"
             );
+            let mut changes = record
+                .payload
+                .get("changes")
+                .cloned()
+                .context("resource journal record omitted changes")?;
+            // The table migration only repairs current resource rows. Older
+            // journal payloads remain client-visible when a consumer replays
+            // from an old cursor, so apply the same boundary to the decoded
+            // historical event before returning it.
+            sanitize_resource_label_values(&mut changes);
             batches.push(ResourceEventBatch {
                 previous_revision: indexed_revision - 1,
                 revision: indexed_revision,
-                changes: record
-                    .payload
-                    .get("changes")
-                    .cloned()
-                    .context("resource journal record omitted changes")?,
+                changes,
             });
             expected_revision = expected_revision.saturating_add(1);
         }
