@@ -352,7 +352,6 @@ impl WatchRegistry {
                     wire::WorkspaceErrorCode::WatchLimit,
                     &format!("this machine already streams {WATCH_MAX_SESSIONS} watches"),
                 );
-                return;
             }
         }
     }
