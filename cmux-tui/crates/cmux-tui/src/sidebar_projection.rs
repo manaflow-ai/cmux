@@ -470,6 +470,7 @@ mod tests {
             width: 22,
             max_width: 0,
             collapse_priority: 20,
+            row_lines: 1,
             scope: SidebarViewScope::Workspace,
         }
     }

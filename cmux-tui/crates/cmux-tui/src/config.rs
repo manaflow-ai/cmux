@@ -37,7 +37,8 @@
 //!         "id": "workspace-agents",
 //!         "levels": ["workspaces", "agents"],
 //!         "actions": ["new-workspace"],
-//!         "width": 28
+//!         "width": 28,
+//!         "row_lines": 1
 //!       }
 //!     ],
 //!     "plugin": {
@@ -559,6 +560,9 @@ struct RawSidebarView {
     /// follows the selected workspace; `"all"` lists every workspace, and
     /// agents order chronologically by their last status change.
     scope: Option<String>,
+    /// Rows per agent entry: 2 (default for agents views) renders the state
+    /// dot and title above a dim agent-type line; 1 is the compact mode.
+    row_lines: Option<u8>,
     /// Turns this entry into a split group instead of a leaf view:
     /// `"vertical"` stacks `panes` top to bottom, `"horizontal"` places them
     /// side by side. Split groups nest.
@@ -1124,6 +1128,9 @@ pub struct SidebarViewSpec {
     /// Resource scope for flat tabs/agents views. `All` lists every
     /// workspace; agents then order chronologically by last status change.
     pub scope: SidebarViewScope,
+    /// Rows each agent entry occupies (herdr-style two-line rows by
+    /// default; 1 is the compact mode). Non-agent rows are always one line.
+    pub row_lines: u8,
 }
 
 /// Which workspaces feed a flat tabs/agents view.
@@ -1279,6 +1286,7 @@ impl SidebarViewSpec {
             max_width,
             collapse_priority,
             scope: SidebarViewScope::Workspace,
+            row_lines: default_sidebar_row_lines(&levels),
         }
     }
 
@@ -1813,6 +1821,7 @@ fn resolve_sidebar_leaf_view(
         width: 0,
         max_width: 0,
         collapse_priority: 0,
+        row_lines: 1,
         scope,
     }
     .legacy_kind();
@@ -1879,8 +1888,25 @@ fn resolve_sidebar_leaf_view(
         width: view.width.unwrap_or(default_width).clamp(10, 60),
         max_width: view.max_width.unwrap_or(default_max_width),
         scope,
+        row_lines: match view.row_lines {
+            None => default_sidebar_row_lines(&levels),
+            Some(lines @ 1..=2) => lines,
+            Some(lines) => {
+                crate::client_log::stderr_log!(
+                    "config",
+                    "cmux-tui: ignoring row_lines {lines} in {owner} view {id:?}; expected 1 or 2"
+                );
+                default_sidebar_row_lines(&levels)
+            }
+        },
     });
     Some(state.views.len() - 1)
+}
+
+/// Agent rows default to herdr-style two-line entries (state dot + title
+/// above a dim agent-type line); every other view stays single-line.
+fn default_sidebar_row_lines(levels: &[SidebarResourceKind]) -> u8 {
+    if levels.contains(&SidebarResourceKind::Agents) { 2 } else { 1 }
 }
 
 #[derive(Debug, Clone)]
@@ -8986,6 +9012,7 @@ mod tests {
             max_width: None,
             collapse_priority: None,
             scope: None,
+            row_lines: None,
             split: None,
             panes: None,
             weight: None,
@@ -9016,6 +9043,7 @@ mod tests {
             max_width: None,
             collapse_priority: None,
             scope: None,
+            row_lines: None,
             split: None,
             panes: None,
             weight: None,
@@ -9056,6 +9084,35 @@ mod tests {
             node => panic!("expected a split column, got {node:?}"),
         }
         assert_eq!(resolved.layout[1], SidebarLayoutNode::Leaf(2));
+    }
+
+    #[test]
+    fn agents_view_priority_rows_default_to_two_lines_with_a_compact_knob() {
+        let raw: RawConfig = serde_json::from_value(json!({
+            "sidebar": {
+                "views": [
+                    {"id": "agents", "levels": ["agents"], "scope": "all"},
+                    {"id": "compact", "levels": ["workspaces", "agents"], "row_lines": 1},
+                    {"id": "tabs", "levels": ["tabs"]},
+                    {"id": "bad", "levels": ["agents"], "row_lines": 7}
+                ]
+            }
+        }))
+        .unwrap();
+        let resolved = resolve_sidebar_view_specs(
+            &raw.sidebar.views.unwrap(),
+            22,
+            0,
+            22,
+            0,
+            "sidebar",
+            &[],
+        )
+        .views;
+        assert_eq!(resolved[0].row_lines, 2, "agents views default to two-line rows");
+        assert_eq!(resolved[1].row_lines, 1, "row_lines: 1 opts into compact rows");
+        assert_eq!(resolved[2].row_lines, 1, "non-agent views stay single-line");
+        assert_eq!(resolved[3].row_lines, 2, "invalid row_lines falls back to the default");
     }
 
     #[test]
