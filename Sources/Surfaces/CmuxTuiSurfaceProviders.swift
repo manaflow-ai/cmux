@@ -268,8 +268,18 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             guard let tabID = tabByTerminal[id.key], Self.isSelectorNotFound(error) else { throw error }
             _ = try await link.run(arguments: CloudTuiCommandLine.closeTabArguments(socketPath: connected.socketPath, tabID: tabID))
         }
+        closeLocalPanes(showing: [id])
         catalog.remove(id)
         scheduleRefresh()
+    }
+
+    /// A closed terminal has no pane to show any more: every local pane that projected it
+    /// goes too, instead of lingering as a dead attach the person has to close by hand.
+    private func closeLocalPanes(showing ids: [SurfaceResourceID]) {
+        let wanted = Set(ids)
+        for projection in catalog.snapshot.projections where wanted.contains(projection.resource) {
+            SurfacePaneFactory.close(panelID: projection.panelID, in: projection.workspaceID)
+        }
     }
 
     /// `workspace <id> close`: its tabs go with it. A terminal also viewed from another
@@ -278,10 +288,25 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     func closeRemoteWorkspace(id: String) async throws {
         let connected = try await links.connected(machineID: machineID)
         guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
-        _ = try await link.run(arguments: CloudTuiCommandLine.closeWorkspaceArguments(socketPath: connected.socketPath, workspaceID: id))
-        for resource in catalog.snapshot.resources(on: machine) {
+        // "Close Workspace" ends what is in it. cmux-tui's `workspace close` only drops
+        // the tabs and leaves every terminal's process running with no tab — the
+        // "detached" rows that used to pile up in the pool — so the terminals that live
+        // only in this workspace are closed first; one viewed from another workspace
+        // stays alive there.
+        let owned = catalog.snapshot.resources(on: machine).filter { resource in
             let views = resource.remoteWorkspaces
-            guard !views.isEmpty, views.allSatisfy({ $0.id == id }) else { continue }
+            return !views.isEmpty && views.allSatisfy { $0.id == id }
+        }
+        for terminal in owned where terminal.kind == .terminal {
+            do {
+                _ = try await link.run(arguments: CloudTuiCommandLine.closeTerminalArguments(socketPath: connected.socketPath, terminalID: terminal.id.key))
+            } catch {
+                guard Self.isSelectorNotFound(error) else { throw error }
+            }
+        }
+        _ = try await link.run(arguments: CloudTuiCommandLine.closeWorkspaceArguments(socketPath: connected.socketPath, workspaceID: id))
+        closeLocalPanes(showing: owned.map(\.id))
+        for resource in owned {
             catalog.remove(resource.id)
         }
         info.remoteWorkspaces = info.remoteWorkspaces?.filter { $0.id != id }

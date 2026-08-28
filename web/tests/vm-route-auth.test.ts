@@ -718,6 +718,20 @@ describe("VM REST auth", () => {
     });
   });
 
+  test("every listed machine carries its provider's capabilities (Blaxel: no checkpoint/fork)", async () => {
+    // The app hides Checkpoint/Fork when these are false instead of offering verbs
+    // that can only answer 502 "not implemented".
+    getUser.mockResolvedValue(authedStackUser());
+    runVmWorkflow.mockResolvedValue([
+      { providerVmId: "desk", provider: "blaxel", image: "sandbox/cmux-devbox:latest", imageVersion: "v", status: "running", createdAt: 1_777_000_000_000 },
+    ]);
+    const response = await GET(new Request("https://cmux.test/api/vm"));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      vms: [{ id: "desk", capabilities: { snapshot: false, restore: false, fork: false } }],
+    });
+  });
+
   test("includes original failed create cause in the idempotency failure response", async () => {
     getUser.mockResolvedValue(authedStackUser());
     rejectRunVmWorkflowWith(
