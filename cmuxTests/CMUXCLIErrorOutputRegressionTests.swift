@@ -1480,6 +1480,107 @@ import Testing
         ])
     }
 
+    @Test func testCursorHookBoundsRelayEstablishmentBeforeItsOperationDeadline() throws {
+        let cliPath = try bundledCLIPath()
+        let relayID = "relay-\(UUID().uuidString.lowercased())"
+        let responder = try RelaySocketResponder(
+            relayID: relayID,
+            responses: ["PONG"],
+            startListening: false
+        )
+        defer { responder.stop() }
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SOCKET_PATH"] = responder.endpoint
+        environment["CMUX_RELAY_ID"] = relayID
+        environment["CMUX_RELAY_TOKEN"] = String(repeating: "11", count: 32)
+
+        // Cursor shell hooks give connect(deadline:) a three-second operation
+        // budget. A bound-but-not-listening relay must still fail at the
+        // 350 ms establishment bound, rather than consume that full budget.
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "cursor", "shell-exec"],
+            environment: environment,
+            timeout: 2
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.diagnostics))
+        #expect(result.status != 0, Comment(rawValue: result.diagnostics))
+    }
+
+    @Test func testRelayAuthenticationRetainsItsOperationDeadlineAfterConnect() throws {
+        let cliPath = try bundledCLIPath()
+        let relayID = "relay-\(UUID().uuidString.lowercased())"
+        let responder = try RelaySocketResponder(
+            relayID: relayID,
+            responses: ["PONG"],
+            challengeDelay: 0.6
+        )
+        defer { responder.stop() }
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SOCKET_PATH"] = responder.endpoint
+        environment["CMUX_RELAY_ID"] = relayID
+        environment["CMUX_RELAY_TOKEN"] = String(repeating: "11", count: 32)
+
+        // The normal relay operation deadline is fifteen seconds. Delaying
+        // only the challenge beyond the 350 ms connect bound proves that the
+        // short establishment deadline was not reused for authentication.
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["ping"],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.diagnostics))
+        #expect(result.status == 0, Comment(rawValue: result.diagnostics))
+        #expect(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines) == "PONG")
+    }
+
+    @Test func testEventsHonorsOperationDeadlineShorterThanRelayConnectBound() throws {
+        let cliPath = try bundledCLIPath()
+        let relayID = "relay-\(UUID().uuidString.lowercased())"
+        let responder = try RelaySocketResponder(
+            relayID: relayID,
+            responses: ["PONG"],
+            startListening: false
+        )
+        defer { responder.stop() }
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SOCKET_PATH"] = responder.endpoint
+        environment["CMUX_RELAY_ID"] = relayID
+        environment["CMUX_RELAY_TOKEN"] = String(repeating: "11", count: 32)
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["events", "--timeout", "0.05"],
+            environment: environment,
+            timeout: 2
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.diagnostics))
+        #expect(result.status != 0, Comment(rawValue: result.diagnostics))
+        #expect(
+            result.combinedOutput.localizedCaseInsensitiveContains("timed out"),
+            Comment(rawValue: result.diagnostics)
+        )
+    }
+
     @Test(arguments: ["pi", "grok"])
     func testRestorePrefersCallerTTYOverStaleAmbientRouting(kind: String) throws {
         let cliPath = try bundledCLIPath()
@@ -4492,6 +4593,8 @@ final class RelaySocketResponder {
     let endpoint: String
     private let relayID: String
     private let responses: [String]
+    private let challengeDelay: TimeInterval
+    private let authResponseDelay: TimeInterval
     private let queue = DispatchQueue(label: "com.cmux.tests.relay-socket-responder")
     private let lock = NSLock()
     private var stopped = false
@@ -4501,7 +4604,9 @@ final class RelaySocketResponder {
     init(
         relayID: String,
         responses: [String],
-        startListening: Bool = true
+        startListening: Bool = true,
+        challengeDelay: TimeInterval = 0,
+        authResponseDelay: TimeInterval = 0
     ) throws {
         guard !responses.isEmpty else {
             throw NSError(
@@ -4512,6 +4617,8 @@ final class RelaySocketResponder {
         }
         self.relayID = relayID
         self.responses = responses
+        self.challengeDelay = challengeDelay
+        self.authResponseDelay = authResponseDelay
 
         let fd = socket(AF_INET, SOCK_STREAM, 0)
         guard fd >= 0 else { throw Self.posixError("socket") }
@@ -4620,7 +4727,13 @@ final class RelaySocketResponder {
             socklen_t(MemoryLayout<Int32>.size)
         )
         let challenge = #"{"protocol":"cmux-relay-auth","version":1,"relay_id":"\#(relayID)","nonce":"test-nonce"}"#
+        if challengeDelay > 0 {
+            Thread.sleep(forTimeInterval: challengeDelay)
+        }
         guard writeLine(challenge, to: clientFD), readLine(from: clientFD) != nil else { return }
+        if authResponseDelay > 0 {
+            Thread.sleep(forTimeInterval: authResponseDelay)
+        }
         guard writeLine(#"{"ok":true}"#, to: clientFD),
               let request = readLine(from: clientFD) else { return }
 
