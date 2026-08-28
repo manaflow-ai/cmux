@@ -8,6 +8,7 @@ pub(super) const RESOURCE_MUTATION_REPLAY_CAPACITY: usize = 4096;
 pub(super) const RESOURCE_MUTATION_PRUNE_INTERVAL: u64 = 128;
 const RESOURCE_EVENT_PAGE_SIZE: usize = 1024;
 pub(super) const AGENT_HOOK_RETRY_PAGE_SIZE: i64 = 64;
+pub(super) const AGENT_HOOK_MAX_ATTEMPTS: i64 = 8;
 pub(crate) const AGENT_HOOK_MAX_RETRY_PAGES_PER_WAKE: usize = 16;
 
 pub(super) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
@@ -633,20 +634,23 @@ impl WorkspaceRegistry {
         let mut statement = self.connection.prepare(
             "SELECT producer_id, origin, idempotency_key, event_sequence, ingress_json
              FROM resource_agent_hook_pending
-             WHERE terminal_id = ?1
+             WHERE terminal_id = ?1 AND attempt < ?2
              ORDER BY event_sequence ASC, idempotency_key ASC
-             LIMIT ?2",
+             LIMIT ?3",
         )?;
         let rows = statement
-            .query_map(params![terminal_id.as_str(), AGENT_HOOK_RETRY_PAGE_SIZE], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, i64>(3)?,
-                    row.get::<_, String>(4)?,
-                ))
-            })?
+            .query_map(
+                params![terminal_id.as_str(), AGENT_HOOK_MAX_ATTEMPTS, AGENT_HOOK_RETRY_PAGE_SIZE],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, i64>(3)?,
+                        row.get::<_, String>(4)?,
+                    ))
+                },
+            )?
             .collect::<Result<Vec<_>, _>>()?;
         drop(statement);
         let mut pending = Vec::with_capacity(rows.len());
@@ -680,13 +684,19 @@ impl WorkspaceRegistry {
         let mut statement = self.connection.prepare(
             "SELECT producer_id, origin, idempotency_key, event_sequence, ingress_json
              FROM resource_agent_hook_pending
-             WHERE event_sequence > ?1 OR (event_sequence = ?1 AND idempotency_key > ?2)
+             WHERE attempt < ?1
+               AND (event_sequence > ?2 OR (event_sequence = ?2 AND idempotency_key > ?3))
              ORDER BY event_sequence ASC, idempotency_key ASC
-             LIMIT ?3",
+             LIMIT ?4",
         )?;
         let rows = statement
             .query_map(
-                params![i64::try_from(after_sequence)?, after_key, AGENT_HOOK_RETRY_PAGE_SIZE],
+                params![
+                    AGENT_HOOK_MAX_ATTEMPTS,
+                    i64::try_from(after_sequence)?,
+                    after_key,
+                    AGENT_HOOK_RETRY_PAGE_SIZE
+                ],
                 |row| {
                     Ok((
                         row.get::<_, String>(0)?,

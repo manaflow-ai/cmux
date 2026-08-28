@@ -5402,27 +5402,32 @@ impl Mux {
         let Some(surface) = self.resource_surface_for_terminal(&terminal_id) else {
             anyhow::bail!("terminal {terminal_id} is not available for agent hook projection")
         };
+        // Serialize the sequence check, projection commit, and sequence
+        // update as one operation. The projection path takes registry, state,
+        // then agent-record locks, so teardown acquires sequence before those
+        // locks as well.
+        let mut fences = self.agent_hook_fences.lock().unwrap();
         let agent_session_id = ingress
             .payload
             .get("normalized")
             .and_then(|value| value.get("agent_session_id"))
             .and_then(Value::as_str)
             .map(str::to_owned)
-            .unwrap_or_else(|| format!("legacy:{terminal_id}"));
-        // Serialize the sequence check, projection commit, and sequence
-        // update as one operation. The projection path takes registry, state,
-        // then agent-record locks, so teardown acquires sequence before those
-        // locks as well.
-        let mut fences = self.agent_hook_fences.lock().unwrap();
-        if fences.get(&terminal_id).is_some_and(|fence| fence.session_id != agent_session_id)
-            && ingress.kind != "agent.session.started"
-        {
-            return Ok(());
-        }
-        if fences.get(&terminal_id).is_some_and(|fence| fence.ended)
-            && ingress.kind != "agent.session.started"
-        {
-            return Ok(());
+            .or_else(|| {
+                fences
+                    .get(&terminal_id)
+                    .filter(|fence| !fence.ended)
+                    .map(|fence| fence.session_id.clone())
+            })
+            .unwrap_or_else(|| format!("legacy:{terminal_id}:{sequence}"));
+        if let Some(fence) = fences.get(&terminal_id) {
+            if fence.session_id == agent_session_id {
+                if fence.ended || sequence <= fence.sequence {
+                    return Ok(());
+                }
+            } else if ingress.kind != "agent.session.started" || !fence.ended {
+                return Ok(());
+            }
         }
         if fences.get(&terminal_id).is_some_and(|fence| sequence <= fence.sequence) {
             return Ok(());
@@ -22441,6 +22446,52 @@ mod tests {
                 .get(&terminal_id)
                 .is_some_and(|fence| fence.ended)
         );
+    }
+
+    #[test]
+    fn delayed_old_hook_session_start_cannot_replace_active_session() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().unwrap();
+        let ingress = |event: &str, session_id: &str| {
+            crate::agent_hooks::agent_hook_journal_ingress(
+                "claude",
+                event,
+                Some(&terminal_id.to_string()),
+                serde_json::json!({"session_id": session_id}),
+            )
+            .unwrap()
+        };
+        mux.apply_agent_hook_record(&ingress("SessionStart", "old"), 1).unwrap();
+        mux.apply_agent_hook_record(&ingress("SessionEnd", "old"), 2).unwrap();
+        mux.apply_agent_hook_record(&ingress("SessionStart", "new"), 3).unwrap();
+        mux.apply_agent_hook_record(&ingress("SessionStart", "old"), 4).unwrap();
+        assert_eq!(mux.list_agents(Some(surface.id), None)[0].state, AgentState::Idle);
+        assert_eq!(mux.agent_hook_fences.lock().unwrap()[&terminal_id].session_id, "new");
+    }
+
+    #[test]
+    fn sessionless_hook_lifecycles_get_distinct_fence_identity() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().unwrap();
+        let ingress = |event: &str| {
+            crate::agent_hooks::agent_hook_journal_ingress(
+                "claude",
+                event,
+                Some(&terminal_id.to_string()),
+                serde_json::json!({}),
+            )
+            .unwrap()
+        };
+        mux.apply_agent_hook_record(&ingress("SessionStart"), 1).unwrap();
+        let first = mux.agent_hook_fences.lock().unwrap()[&terminal_id].session_id.clone();
+        mux.apply_agent_hook_record(&ingress("SessionEnd"), 2).unwrap();
+        mux.apply_agent_hook_record(&ingress("SessionStart"), 3).unwrap();
+        let second = mux.agent_hook_fences.lock().unwrap()[&terminal_id].session_id.clone();
+        assert_ne!(first, second);
+        mux.apply_agent_hook_record(&ingress("UserPromptSubmit"), 4).unwrap();
+        assert_eq!(mux.list_agents(Some(surface.id), None)[0].state, AgentState::Working);
     }
 
     #[test]
