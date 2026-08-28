@@ -447,7 +447,7 @@ mod tests {
         live.extend(live_ids.iter().map(String::as_str));
         builds.store(0, Ordering::Relaxed);
 
-        tracker.retain_terminals(&live);
+        tracker.retain_terminals(|terminal_id| live.contains(terminal_id));
 
         assert_eq!(
             builds.load(Ordering::Relaxed),
