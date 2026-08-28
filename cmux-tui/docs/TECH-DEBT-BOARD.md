@@ -1,8 +1,8 @@
 # cmux-tui technical-debt board
 
-## Wave 85 current state: main `1e09970237f21686b8c0e6853b51a89819623803`
+## Wave 85 current state: main `0ab1edc814b7aaae23e458a3b73e34adfcd60438`
 
-Snapshot: 2026-08-28T09:23:20Z. Merged work and open gates use exact source and target heads.
+Snapshot: 2026-08-28T09:47:54Z. Merged work and open gates use exact source and target heads.
 
 | Debt | Evidence | Exit condition |
 | --- | --- | --- |
@@ -11,11 +11,11 @@ Snapshot: 2026-08-28T09:23:20Z. Merged work and open gates use exact source and 
 | Second retained-tab scan | [#11056](https://github.com/manaflow-ai/cmux/pull/11056), source `433e1f5ec237476077e7a50eceeb1c39547fc0ff`, merge `102aa3d63086bf0617a6b5a34d5cb2465f2a74a7` | One-pass reindexing is merged. Keep duplicate-ID and active-index clamp behavior covered. |
 | Fixed synchronization waits | [#10988](https://github.com/manaflow-ai/cmux/pull/10988), source `e12ce402fc760a9d51dceee2faba1331f59855cd`, merge `e7584a4c4a25b2e4fe400b67ab19b7c7ec3a5f11` | Fixed waits were removed and timeout scaling was corrected. Rollback is `git revert e7584a4c4a25b2e4fe400b67ab19b7c7ec3a5f11`. |
 | Intent-board synchronization | [#10987](https://github.com/manaflow-ai/cmux/pull/10987), source `4cbf023af8e4552fa0f6aa95755ea7d7a0336798`, merge `7da4c0f6ce14e5ddf71e90f05dc67d29980fda69` | Board state was refreshed through #10985. Rollback is `git revert 7da4c0f6ce14e5ddf71e90f05dc67d29980fda69`. |
-| Hook ordering and terminal tombstones | [#11024](https://github.com/manaflow-ai/cmux/pull/11024) at `44df14444fce5420570cc9b54eaf0a9cdfeba5c2`, open and mergeable on `main` at `1e09970237f21686b8c0e6853b51a89819623803`, checks pending | Exact review and hosted crash/restart, stale-hook, and public-snapshot tests pass. |
-| Projection rail pointer routing | [#11025](https://github.com/manaflow-ai/cmux/pull/11025) at `685c924e866113d1457e89a2bd9469e5fb219e6a`, open and mergeable on `main` at `1e09970237f21686b8c0e6853b51a89819623803`, checks pending | Exact review and pointer-routing tests pass. |
+| Hook ordering and terminal tombstones | [#11024](https://github.com/manaflow-ai/cmux/pull/11024) at `9dcf978bda0ed1675f88d20e76198ebc1033c986`, open on base `fa77ad23364aa12993644b357b425513d61ca632` | Exact review and hosted crash/restart, stale-hook, and public-snapshot tests pass. |
+| Projection rail pointer routing | [#11025](https://github.com/manaflow-ai/cmux/pull/11025) at `685c924e866113d1457e89a2bd9469e5fb219e6a`, open on base `1e09970237f21686b8c0e6853b51a89819623803` | Exact review and pointer-routing tests pass. |
 | Unicode glyph invariants | [#11028](https://github.com/manaflow-ai/cmux/pull/11028) at `5ca760526fed25225b135f99b238a9a0fd7ac7e9`, open and mergeable on stale base `102aa3d63086bf0617a6b5a34d5cb2465f2a74a7`, checks unstable | Exact review and hosted conformance test pass. |
-| Private config replacement | [#10990](https://github.com/manaflow-ai/cmux/pull/10990) at `2608c8ca279f26c188723e95f31e6ac287439423`, open and mergeable on `main` at `1e09970237f21686b8c0e6853b51a89819623803`, checks pending | Exact review and hosted privacy, collision, durability, and locale tests pass. |
-| Allocation-free graphics projection | [#11055](https://github.com/manaflow-ai/cmux/pull/11055) at `85ce43a3bf9cdbe56b86fd2d069ec886915001d5`, open and mergeable on `main` at `1e09970237f21686b8c0e6853b51a89819623803`, checks pending | Run the dirty-surface hosted test. |
+| Private config replacement | [#10990](https://github.com/manaflow-ai/cmux/pull/10990) at `2608c8ca279f26c188723e95f31e6ac287439423`, merged at `fa77ad23364aa12993644b357b425513d61ca632` | Keep privacy, collision, durability, and locale evidence. |
+| Allocation-free graphics projection | [#11055](https://github.com/manaflow-ai/cmux/pull/11055) at `8f2287a00a490a6e00d09140cccb69a75f58e2e4`, open on base `fa77ad23364aa12993644b357b425513d61ca632` | Run the dirty-surface hosted test. |
 | Reducer, CDP, and drag behavior | [#11002](https://github.com/manaflow-ai/cmux/pull/11002), [#11068](https://github.com/manaflow-ai/cmux/pull/11068), [#11013](https://github.com/manaflow-ai/cmux/pull/11013), [#11078](https://github.com/manaflow-ai/cmux/pull/11078), [#11063](https://github.com/manaflow-ai/cmux/pull/11063), and [#10401](https://github.com/manaflow-ai/cmux/pull/10401) | Rebase old or stacked branches, resolve identity and privacy findings, publish the Harbor tree, and prove drag-into-terminal without text insertion. Current states: #11002/#11068/#11013 are open, mergeable, and clean on stale bases; #11078 and #10401 are conflicting and dirty; #11063 is open, mergeable, and clean on a stale base. |
 
 Strict session accounting: confirmed turns `0`; total `unknown`. The five documented owner workstreams are the practical evidence floor. The audit retains a conservative lower bound of 50 and a historical ledger of at least 258 named substantive turns. Neither is a total, and no 10,000-session claim is made.

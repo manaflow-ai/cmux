@@ -1,10 +1,10 @@
 # cmux-tui current state
 
-Snapshot: 2026-08-28T09:23:20Z.
+Snapshot: 2026-08-28T09:47:54Z.
 
 ## Main
 
-Current `origin/main` is `1e09970237f21686b8c0e6853b51a89819623803`.
+Current `origin/main` is `0ab1edc814b7aaae23e458a3b73e34adfcd60438`.
 
 Recent merged TUI work:
 
@@ -20,11 +20,11 @@ Recent merged TUI work:
 
 ## Gates in progress
 
-- [#11024](https://github.com/manaflow-ai/cmux/pull/11024), head `44df14444fce5420570cc9b54eaf0a9cdfeba5c2`, is open and mergeable on `main` at `1e09970237f21686b8c0e6853b51a89819623803`, with checks pending. Exact review and focused restart, stale-hook, and public-projection tests remain required.
-- [#11025](https://github.com/manaflow-ai/cmux/pull/11025), head `685c924e866113d1457e89a2bd9469e5fb219e6a`, is open and mergeable on `main` at `1e09970237f21686b8c0e6853b51a89819623803`, with checks pending. Exact review and focused pointer-routing tests remain required.
-- [#11028](https://github.com/manaflow-ai/cmux/pull/11028), head `5ca760526fed25225b135f99b238a9a0fd7ac7e9`, is open and mergeable on stale base `102aa3d63086bf0617a6b5a34d5cb2465f2a74a7`, with checks unstable. Exact review and the hosted Unicode conformance test remain required.
-- [#10990](https://github.com/manaflow-ai/cmux/pull/10990), head `2608c8ca279f26c188723e95f31e6ac287439423`, is open and mergeable on `main` at `1e09970237f21686b8c0e6853b51a89819623803`, with checks unstable. Exact review and the hosted privacy test remain required.
-- [#11055](https://github.com/manaflow-ai/cmux/pull/11055), head `85ce43a3bf9cdbe56b86fd2d069ec886915001d5`, is open and mergeable on `main` at `1e09970237f21686b8c0e6853b51a89819623803`, with checks pending. Run the dirty-surface hosted test.
+- [#11024](https://github.com/manaflow-ai/cmux/pull/11024), head `9dcf978bda0ed1675f88d20e76198ebc1033c986`, is open on base `fa77ad23364aa12993644b357b425513d61ca632`; exact review and focused restart, stale-hook, and public-projection tests remain required.
+- [#11025](https://github.com/manaflow-ai/cmux/pull/11025), head `685c924e866113d1457e89a2bd9469e5fb219e6a`, is open on base `1e09970237f21686b8c0e6853b51a89819623803`; exact review and focused pointer-routing tests remain required.
+- [#11028](https://github.com/manaflow-ai/cmux/pull/11028), head `5ca760526fed25225b135f99b238a9a0fd7ac7e9`, is open on stale base `102aa3d63086bf0617a6b5a34d5cb2465f2a74a7`; exact review and the hosted Unicode conformance test remain required.
+- [#11055](https://github.com/manaflow-ai/cmux/pull/11055), head `8f2287a00a490a6e00d09140cccb69a75f58e2e4`, is open on base `fa77ad23364aa12993644b357b425513d61ca632`; run the dirty-surface hosted test.
+- [#10990](https://github.com/manaflow-ai/cmux/pull/10990), head `2608c8ca279f26c188723e95f31e6ac287439423`, merged at `fa77ad23364aa12993644b357b425513d61ca632`; retain its privacy and durability evidence.
 
 ## Blocked or deliberately deferred
 
@@ -32,7 +32,7 @@ Recent merged TUI work:
 - [#11068](https://github.com/manaflow-ai/cmux/pull/11068), head `b3eca00fd03dd76763bd5273066df2779c236abc`, is open, mergeable, and clean on stale base `ed19cfa5cb88d6e0fae683bbe4a733bd4e2d062c`; it has unresolved identity, retention, snapshot, ordering, and agent-parity findings.
 - [#11013](https://github.com/manaflow-ai/cmux/pull/11013), head `5f4083e33374416f1a6290bbd495319ce97f5199`, is open, mergeable, and clean on stale base `f8eb151b589892f0e9dea96e5735c6afaea20d9f`; it still has raw CDP error paths outside the ACK overflow patch.
 - [#11078](https://github.com/manaflow-ai/cmux/pull/11078), head `46fe5348e2631769c4e9482e1127ad0c75a8dbff`, is conflicting and dirty on stacked base `5f4083e33374416f1a6290bbd495319ce97f5199`. Use its clean commit only after retargeting.
-- [#10994](https://github.com/manaflow-ai/cmux/pull/10994), head `f334fdc95394f952d8f30690f5c0560286e03ad2`, is open and mergeable on `main` at `1e09970237f21686b8c0e6853b51a89819623803`; it requires a fresh exact-head gate.
+- [#10994](https://github.com/manaflow-ai/cmux/pull/10994), head `f334fdc95394f952d8f30690f5c0560286e03ad2`, is open on base `1e09970237f21686b8c0e6853b51a89819623803`; it requires a fresh exact-head gate.
 - [#10401](https://github.com/manaflow-ai/cmux/pull/10401), head `46590bacaed87fba46d4ceb5cdacadcafad07833`, is conflicting and dirty on stale base `2c6fd70ecceeed63fdb549882737c6563fb3f52d`; it still lacks drag-into-terminal behavior.
 - [#11063](https://github.com/manaflow-ai/cmux/pull/11063), head `bd5d47b03facb3e20eff1b8aba8d697f1f96c9d6`, is open, mergeable, and clean on stale base `ba64d22c81aa716f79fedb95bc758fc8f7b7c29b`; it is a round-1 flat Harbor panel, not the requested hierarchical tree.
 

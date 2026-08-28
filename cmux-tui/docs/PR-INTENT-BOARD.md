@@ -1,8 +1,8 @@
 # cmux TUI PR intent and merge board
 
-## Wave 85 current state: main `1e09970237f21686b8c0e6853b51a89819623803`
+## Wave 85 current state: main `0ab1edc814b7aaae23e458a3b73e34adfcd60438`
 
-Snapshot: 2026-08-28T09:23:20Z.
+Snapshot: 2026-08-28T09:47:54Z.
 
 | Merged PR | Author | Source head | Merge SHA | Intent result |
 | --- | --- | --- | --- | --- |
@@ -14,11 +14,11 @@ Snapshot: 2026-08-28T09:23:20Z.
 
 | Open gate | Author | Exact head and state | Required next action |
 | --- | --- | --- | --- |
-| [#11024](https://github.com/manaflow-ai/cmux/pull/11024) | Lawrence Chen | `44df14444fce5420570cc9b54eaf0a9cdfeba5c2`, open, mergeable on `main` at `1e09970237f21686b8c0e6853b51a89819623803`; checks pending | Finish exact review and focused restart, stale-hook, and public-projection tests. |
-| [#11025](https://github.com/manaflow-ai/cmux/pull/11025) | Lawrence Chen | `685c924e866113d1457e89a2bd9469e5fb219e6a`, open, mergeable on `main` at `1e09970237f21686b8c0e6853b51a89819623803`; checks pending | Finish exact review and focused pointer-routing tests. |
-| [#11028](https://github.com/manaflow-ai/cmux/pull/11028) | Lawrence Chen | `5ca760526fed25225b135f99b238a9a0fd7ac7e9`, open, mergeable on stale base `102aa3d63086bf0617a6b5a34d5cb2465f2a74a7`; checks unstable | Finish exact review and hosted Unicode conformance. |
-| [#10990](https://github.com/manaflow-ai/cmux/pull/10990) | Lawrence Chen | `2608c8ca279f26c188723e95f31e6ac287439423`, open, mergeable on `main` at `1e09970237f21686b8c0e6853b51a89819623803`; checks unstable | Finish exact review and hosted privacy behavior. |
-| [#11055](https://github.com/manaflow-ai/cmux/pull/11055) | Lawrence Chen | `85ce43a3bf9cdbe56b86fd2d069ec886915001d5`, open, mergeable on `main` at `1e09970237f21686b8c0e6853b51a89819623803`; checks pending | Run the dirty-surface hosted test. |
+| [#11024](https://github.com/manaflow-ai/cmux/pull/11024) | Lawrence Chen | `9dcf978bda0ed1675f88d20e76198ebc1033c986`, open on base `fa77ad23364aa12993644b357b425513d61ca632` | Finish exact review and focused restart, stale-hook, and public-projection tests. |
+| [#11025](https://github.com/manaflow-ai/cmux/pull/11025) | Lawrence Chen | `685c924e866113d1457e89a2bd9469e5fb219e6a`, open on base `1e09970237f21686b8c0e6853b51a89819623803` | Finish exact review and focused pointer-routing tests. |
+| [#11028](https://github.com/manaflow-ai/cmux/pull/11028) | Lawrence Chen | `5ca760526fed25225b135f99b238a9a0fd7ac7e9`, open on stale base `102aa3d63086bf0617a6b5a34d5cb2465f2a74a7` | Finish exact review and hosted Unicode conformance. |
+| [#10990](https://github.com/manaflow-ai/cmux/pull/10990) | Lawrence Chen | `2608c8ca279f26c188723e95f31e6ac287439423`, merged at `fa77ad23364aa12993644b357b425513d61ca632` | Retain the merged privacy and durability evidence. |
+| [#11055](https://github.com/manaflow-ai/cmux/pull/11055) | Lawrence Chen | `8f2287a00a490a6e00d09140cccb69a75f58e2e4`, open on base `fa77ad23364aa12993644b357b425513d61ca632` | Run the dirty-surface hosted test. |
 
 Blocked or deferred: [#11002](https://github.com/manaflow-ai/cmux/pull/11002) and [#11068](https://github.com/manaflow-ai/cmux/pull/11068) are open, mergeable, and clean on stale bases `c582b8d74ab82e404f18b14ad4e97f2d4cc04fa9` and `ed19cfa5cb88d6e0fae683bbe4a733bd4e2d062c`; they need the reducer ownership and parity findings resolved. [#11013](https://github.com/manaflow-ai/cmux/pull/11013) is open, mergeable, and clean on stale base `f8eb151b589892f0e9dea96e5735c6afaea20d9` and has incomplete CDP privacy coverage. Stacked [#11078](https://github.com/manaflow-ai/cmux/pull/11078), head `46fe5348e2631769c4e9482e1127ad0c75a8dbff`, is conflicting on base `5f4083e33374416f1a6290bbd495319ce97f5199`. [#10994](https://github.com/manaflow-ai/cmux/pull/10994), head `f334fdc95394f952d8f30690f5c0560286e03ad2`, is open and mergeable on `main` at `1e09970237f21686b8c0e6853b51a89819623803`. [#11063](https://github.com/manaflow-ai/cmux/pull/11063), head `bd5d47b03facb3e20eff1b8aba8d697f1f96c9d6`, is open, mergeable, and clean on stale base `ba64d22c81aa716f79fedb95bc758fc8f7b7c29b`, and is round 1 only. [#10401](https://github.com/manaflow-ai/cmux/pull/10401), head `46590bacaed87fba46d4ceb5cdacadcafad07833`, is conflicting and dirty on stale base `2c6fd70ecceeed63fdb549882737c6563fb3f52d` and still lacks drag-into-terminal behavior.
 
