@@ -43,7 +43,7 @@ extension CMUXCLI {
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
         process.arguments = [
             "-c",
-            "nohup \"$0\" hooks codex stop < \"$1\" >/dev/null 2>&1 & rm -f \"$1\"",
+            "nohup /bin/sh -c '\"$0\" hooks codex stop < \"$1\" >/dev/null 2>&1; rm -f \"$1\"' \"$0\" \"$1\" >/dev/null 2>&1 &",
             selfPath,
             payloadURL.path,
         ]
