@@ -10,13 +10,14 @@ struct WorkspaceListTable: UIViewControllerRepresentable {
     let items: [WorkspaceListTableItem]
     let workspacesByID: [MobileWorkspacePreview.ID: MobileWorkspacePreview]
     let groupsByID: [MobileWorkspaceGroupPreview.ID: MobileWorkspaceGroupPreview]
-    let groupHasUnreadByID: [MobileWorkspaceGroupPreview.ID: Bool]
+    let groupUnreadByID: [MobileWorkspaceGroupPreview.ID: MobileWorkspaceUnreadState]
     let filter: MobileWorkspaceListFilter
     let selectedWorkspaceID: MobileWorkspacePreview.ID?
     let navigationStyle: WorkspaceNavigationStyle
     let wrapWorkspaceTitles: Bool
     let previewLineLimit: Int
     let unreadIndicatorLeftShift: Double
+    let unreadBadgeDiameter: Double
     let connectionStatus: MobileMacConnectionStatus
     /// Whether the connected Mac advertises `workspace.changes.v1`.
     let workspaceChangesCapable: Bool

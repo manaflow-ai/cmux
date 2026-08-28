@@ -50,11 +50,7 @@ impl WireOperation {
 
     pub fn name(&self) -> Result<String, UsageError> {
         match self {
-            Self::Typed(operation) => serde_json::to_value(operation)
-                .map_err(|error| UsageError::new(format!("cannot encode operation: {error}")))?
-                .as_str()
-                .map(str::to_owned)
-                .ok_or_else(|| UsageError::new("operation did not encode as a string")),
+            Self::Typed(operation) => Ok(operation.wire_name().to_owned()),
             Self::Raw { name, .. } => Ok(name.clone()),
         }
     }
@@ -184,6 +180,7 @@ pub(super) fn parse(args: &[String]) -> Result<CommandPlan, UsageError> {
 fn parse_server(words: &[String], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
     let action = match strs(words).as_slice() {
         ["status"] => super::lifecycle::ServerAction::Status,
+        ["ensure"] => super::lifecycle::ServerAction::Ensure,
         ["stop"] => super::lifecycle::ServerAction::Stop { force: flags.boolean("force") },
         ["reload-config"] => super::lifecycle::ServerAction::ReloadConfig,
         ["start"] => {
@@ -195,7 +192,7 @@ fn parse_server(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usag
             let messages = &crate::localization::catalog().local_server;
             return Err(UsageError::new(messages.unknown_server_action(
                 action,
-                super::suggestion(action, &["start", "status", "stop", "reload-config"]),
+                super::suggestion(action, &["start", "ensure", "status", "stop", "reload-config"]),
             )));
         }
         _ => {

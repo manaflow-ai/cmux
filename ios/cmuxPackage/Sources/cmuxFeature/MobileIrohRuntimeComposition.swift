@@ -165,6 +165,22 @@ public final class MobileIrohRuntimeComposition:
     /// Broker-verified personal-account Mac routes and live discovery candidates.
     public let routeCatalog: MobileIrohRouteCatalog
 
+    /// Identity material handoff for the irx runtime (identity adoption):
+    /// the same Keychain/dev-store identity, app-instance scope, and durable
+    /// device ID the legacy stack registers with, so the irx binding is a
+    /// refresh-in-place of the existing slot and every stored route and pair
+    /// grant stays valid.
+    func irxAdoptedIdentity(
+        accountID: String,
+        tag: String
+    ) async throws -> (material: CmxIrohIdentityMaterial, appInstanceID: String, deviceID: String)? {
+        guard let durable = await deviceID() else { return nil }
+        let appInstanceID = try await appInstances.appInstanceID(accountID: accountID, tag: tag)
+        let material = try await identities.identity(
+            accountID: accountID, appInstanceID: appInstanceID)
+        return (material, appInstanceID, cmxCanonicalDeviceID(durable))
+    }
+
     private let appInstances: CmxIrohAppInstanceRepository
     private let identities: CmxIrohIdentityRepository
     private let brokerCredentials: CmxIrohBrokerCredentialRepository

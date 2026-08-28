@@ -573,6 +573,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         tabDragTransferRegistryStorage = registry
         return registry
     }
+    /// Caches live pane-transfer resolution for pointer hit-testing paths.
+    lazy var liveTabDragCapabilityResolver = LiveTabDragCapabilityResolver(
+        registryProvider: { [weak self] in self?.tabDragTransferRegistry }
+    )
     private let systemAppearanceObserver = SystemAppearanceObserver()
     private static let reloadConfigurationMenuItemIdentifier = NSUserInterfaceItemIdentifier("com.cmux.reloadConfiguration")
     private static let cachedIsRunningUnderXCTest = MacSentryStartupPolicy.isRunningUnderXCTest(
@@ -857,6 +861,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var splitButtonTooltipRefreshScheduled = false
     private var didScheduleGhosttyCrashBreadcrumbCheck = false
     private var ghosttyCrashBreadcrumbTask: Task<Void, Never>?
+    /// Shared result for the one crash-artifact scan used by both the
+    /// diagnostic notification and the rare missing-primary recovery probe.
+    private var pendingCrashScanTask: Task<GhosttyCrashBreadcrumb.PendingCrash?, Never>?
+    private var isWaitingForStartupCrashRecoveryProbe = false
+    private var deferredInitialMainWindowBootstrapDebugSource: String?
     struct PendingConfiguredShortcutChord {
         let firstStroke: ShortcutStroke
         let windowNumber: Int?
@@ -1091,6 +1100,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var lastCascadePoint = NSPoint.zero
     private(set) var startupSessionSnapshot: AppSessionSnapshot?
     private var didPrepareStartupSessionSnapshot = false
+    /// Classification of the process that preceded this launch. Captured before
+    /// the current run arms its sentinel so a crash can recover a missing primary
+    /// snapshot from the immutable `-previous` copy.
+    private var previousSessionLaunchWasUnclean = false
+    private var didCaptureSessionLaunchState = false
+    private var didArmSessionLaunchSentinel = false
     var didAttemptStartupSessionRestore = false
     var isApplyingSessionRestore = false
     /// Durable navigation links that arrived before startup restore registered
@@ -1291,7 +1306,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 )
             }
         )
-        super.init(); Self.shared = self
+        super.init()
+        // Capture the prior process before composition-root wiring begins. The
+        // later configure/didFinish hooks remain idempotent fallbacks for
+        // delegate lifecycles that bypass the normal SwiftUI path.
+        captureSessionLaunchStateIfNeeded()
+        Self.shared = self
         mainThreadHangWatchdog.start()
         AgentChatThemeSync.start()
         // Inverts the surface registry's legacy AppDelegate.shared reach-up:
@@ -1393,6 +1413,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Composition root for surfaces: this Mac's panes and every cloud machine's
+        // cmux-tui session feed one catalog, and the sidebar, drag/drop, socket and CLI all
+        // open through `SurfaceCatalog.project`.
+        SurfaceCatalog.shared.register(LocalSurfaceProvider.shared)
+        SurfaceCatalog.shared.focusProjection = { projection in
+            SurfacePaneFactory.focus(panelID: projection.panelID, in: projection.workspaceID)
+        }
+        CmuxTuiSurfaceProviderRegistry.shared.start(catalog: .shared)
         let env = ProcessInfo.processInfo.environment
         let telemetryEnabled = TelemetrySettings.enabledForCurrentLaunch
         let sentryStartupPolicy = MacSentryStartupPolicy(
@@ -1622,6 +1650,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         NSApp.servicesProvider = self
 
         StartupBreadcrumbLog.append("appDelegate.didFinish.bootstrap.begin")
+        // Cover delegate lifecycles where SwiftUI has not called configure yet;
+        // both methods are idempotent and the snapshot probe remains gated to
+        // the missing-primary case.
+        captureSessionLaunchStateIfNeeded(environment: env)
+        prepareStartupSessionSnapshotIfNeeded()
         scheduleInitialMainWindowBootstrap(debugSource: "didFinishLaunching")
         StartupBreadcrumbLog.append("appDelegate.didFinish.complete")
 #if DEBUG
@@ -2288,11 +2321,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         BrowserProfileStore.shared.flushPendingSaves()
         ghosttyCrashBreadcrumbTask?.cancel()
         ghosttyCrashBreadcrumbTask = nil
+        pendingCrashScanTask?.cancel()
+        pendingCrashScanTask = nil
         notificationStore?.clearAll()
         GhosttyCrashBreadcrumb.markCleanExit()
         unregisterDisplayReconfigurationCallbackIfNeeded()
         StartupBreadcrumbLog.append("appDelegate.willTerminate.complete")
         enableSuddenTerminationIfNeeded()
+        // Remove the unclean-launch sentinel only after the full termination
+        // tail has completed; a teardown crash must remain recoverable next run.
+        if didArmSessionLaunchSentinel {
+            GhosttyCrashBreadcrumb.markSessionCleanExit()
+        }
     }
 
     func applicationWillResignActive(_ notification: Notification) {
@@ -2320,6 +2360,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         settingsRuntime: SettingsRuntime,
         auth: MacAuthComposition
     ) {
+        captureSessionLaunchStateIfNeeded()
         self.tabManager = tabManager
         if let tabDragTransferRegistryStorage {
             precondition(
@@ -2419,13 +2460,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
     }
 
+    private func pendingCrashScanTaskIfNeeded() -> Task<GhosttyCrashBreadcrumb.PendingCrash?, Never> {
+        if let pendingCrashScanTask {
+            return pendingCrashScanTask
+        }
+        let task = Task {
+            await GhosttyCrashBreadcrumb.pendingCrashFromDefaultStorage()
+        }
+        pendingCrashScanTask = task
+        return task
+    }
+
     private func scheduleGhosttyCrashBreadcrumbIfNeeded(notificationStore: TerminalNotificationStore) {
         guard !didScheduleGhosttyCrashBreadcrumbCheck else { return }
         didScheduleGhosttyCrashBreadcrumbCheck = true
+        let pendingCrashScanTask = pendingCrashScanTaskIfNeeded()
 
-        ghosttyCrashBreadcrumbTask = Task { [weak self, weak notificationStore] in
+        ghosttyCrashBreadcrumbTask = Task { @MainActor [weak self, weak notificationStore] in
             defer { self?.ghosttyCrashBreadcrumbTask = nil }
-            guard let pendingCrash = await GhosttyCrashBreadcrumb.pendingCrashFromDefaultStorage(),
+            guard let pendingCrash = await pendingCrashScanTask.value,
                   !Task.isCancelled,
                   let notificationStore else { return }
             notificationStore.addNotification(
@@ -3501,14 +3554,88 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 #endif
 
+    private func captureSessionLaunchStateIfNeeded(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) {
+        guard !didCaptureSessionLaunchState else { return }
+        didCaptureSessionLaunchState = true
+        // Test processes must not leave a production lifecycle sentinel behind;
+        // this also keeps isolated unit-test app delegates from affecting the
+        // user's next launch.
+        guard !isRunningUnderXCTest(environment), !isRunningUnderXCTestCached else { return }
+        previousSessionLaunchWasUnclean = GhosttyCrashBreadcrumb.captureSessionLaunchState(
+            environment: environment
+        )
+        didArmSessionLaunchSentinel = true
+#if DEBUG
+        cmuxDebugLog(
+            "session.launchState previousUnclean=\(previousSessionLaunchWasUnclean ? 1 : 0)"
+        )
+#endif
+    }
+
     private func prepareStartupSessionSnapshotIfNeeded() {
         guard !didPrepareStartupSessionSnapshot else { return }
         didPrepareStartupSessionSnapshot = true
         Self.removeLegacyPersistedWindowGeometry()
-        syncManualRestoreSnapshotCachePruningCrashDiagnostics()
+        if shouldAwaitCrashRecoveryProbe() {
+            isWaitingForStartupCrashRecoveryProbe = true
+            let pendingCrashScanTask = pendingCrashScanTaskIfNeeded()
+            Task { @MainActor [weak self] in
+                let pendingCrash = await pendingCrashScanTask.value
+                guard let self, !Task.isCancelled, !self.isTerminatingApp else { return }
+                if pendingCrash != nil {
+                    self.previousSessionLaunchWasUnclean = true
+                }
+#if DEBUG
+                cmuxDebugLog(
+                    "session.restore.crashProbe pending=\(pendingCrash != nil ? 1 : 0)"
+                )
+#endif
+                self.isWaitingForStartupCrashRecoveryProbe = false
+                self.finishPreparingStartupSessionSnapshot()
+                self.resumeDeferredInitialMainWindowBootstrapIfNeeded()
+            }
+            return
+        }
+        finishPreparingStartupSessionSnapshot()
+    }
+
+    /// A missing primary with a backup is ambiguous until the asynchronous
+    /// crash-artifact probe completes. Defer cleanup and window bootstrap only
+    /// for that rare case; normal launches never wait on crash-file I/O.
+    private func shouldAwaitCrashRecoveryProbe() -> Bool {
+        guard SessionRestorePolicy.shouldAttemptRestore(),
+              !didHandleExplicitOpenIntentAtStartup,
+              !isRunningUnderXCTest(ProcessInfo.processInfo.environment),
+              !previousSessionLaunchWasUnclean,
+              !Self.hasCrashOnlyPrimarySnapshotRemovalMarker(),
+              let primaryURL = sessionSnapshotStore.defaultSnapshotFileURL(),
+              let backupURL = sessionSnapshotStore.manualRestoreSnapshotFileURL() else {
+            return false
+        }
+        return !FileManager.default.fileExists(atPath: primaryURL.path)
+            && FileManager.default.fileExists(atPath: backupURL.path)
+    }
+
+    private func finishPreparingStartupSessionSnapshot() {
+        syncManualRestoreSnapshotCachePruningCrashDiagnostics(
+            preserveExistingBackup: previousSessionLaunchWasUnclean
+        )
         let sanitizedStartupSnapshot = loadStartupSessionSnapshotPruningCrashDiagnostics()
-        guard SessionRestorePolicy.shouldAttemptRestore() else { return }
+        guard SessionRestorePolicy.shouldAttemptRestore(),
+              !didHandleExplicitOpenIntentAtStartup else { return }
         startupSessionSnapshot = sanitizedStartupSnapshot
+    }
+
+    private func resumeDeferredInitialMainWindowBootstrapIfNeeded() {
+        guard !didHandleExplicitOpenIntentAtStartup,
+              let debugSource = deferredInitialMainWindowBootstrapDebugSource else {
+            deferredInitialMainWindowBootstrapDebugSource = nil
+            return
+        }
+        deferredInitialMainWindowBootstrapDebugSource = nil
+        scheduleInitialMainWindowBootstrap(debugSource: debugSource)
     }
 
     private func loadStartupSessionSnapshotPruningCrashDiagnostics() -> AppSessionSnapshot? {
@@ -3522,7 +3649,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             return loadManualRestoreSessionSnapshotPruningCrashDiagnostics()
         case .missing:
-            if Self.hasCrashOnlyPrimarySnapshotRemovalMarker() {
+            if Self.shouldRecoverMissingPrimarySessionSnapshot(
+                previousLaunchWasUnclean: previousSessionLaunchWasUnclean,
+                crashOnlyPrimarySnapshotRemovalMarker: Self.hasCrashOnlyPrimarySnapshotRemovalMarker()
+            ) {
                 return loadManualRestoreSessionSnapshotPruningCrashDiagnostics()
             }
             return nil
@@ -5602,6 +5732,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @discardableResult
+    /// Every workspace whose panes are local surface resources, across all main windows.
+    func surfaceCatalogWorkspaces() -> [Workspace] {
+        var managers: [TabManager] = mainWindowContexts.values.map(\.tabManager)
+        if let tabManager, !managers.contains(where: { $0 === tabManager }) {
+            managers.append(tabManager)
+        }
+        return managers.flatMap(\.tabs)
+    }
+
     func moveBonsplitTab(
         tabId: UUID,
         toWorkspace targetWorkspaceId: UUID,
@@ -7845,6 +7984,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         didScheduleInitialMainWindowBootstrap = true
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
+            if self.didHandleExplicitOpenIntentAtStartup {
+                self.didScheduleInitialMainWindowBootstrap = false
+                return
+            }
+            if self.isWaitingForStartupCrashRecoveryProbe {
+                self.didScheduleInitialMainWindowBootstrap = false
+                if self.deferredInitialMainWindowBootstrapDebugSource == nil {
+                    self.deferredInitialMainWindowBootstrapDebugSource = debugSource
+                }
+                return
+            }
             if self.shouldDeferInitialMainWindowBootstrapForExternalConfirmation { self.didScheduleInitialMainWindowBootstrap = false; return }
             self.bootstrapInitialMainWindowIfNeeded(debugSource: debugSource)
         }
@@ -8364,14 +8514,86 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             ) else { return false }
             workspace = createdWorkspace
             context.tabManager.setPinned(workspace, pinned: true)
+            // First Base is a real choice (screen or shell-only), so ask before
+            // provisioning. Once Base exists the open reuses it and no sheet
+            // appears; if the fleet can't be read, open directly and let the
+            // CLI report the real error in the loading panel.
+            let launchWindow = resolvedWindow(for: context) ?? preferredWindow
+            let tabManager = context.tabManager
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                let page = await Self.cloudVMFleetPage()
+                if page?.vms.contains(where: { $0.base != nil }) != false {
+                    _ = self.launchCloudVMBaseOpen(
+                        workspace: workspace,
+                        socketPath: socketPath,
+                        preferredWindow: launchWindow,
+                        arguments: ["vm", "base", "open", "--workspace", workspace.id.uuidString],
+                        onCompletion: onCompletion
+                    )
+                    return
+                }
+                let model = NewMachineModel(
+                    mode: .base(workspaceID: workspace.id),
+                    plan: MachineSnapshotBuilder.planSnapshot(activeCount: page?.vms.count ?? 0, limits: page?.limits),
+                    imageKinds: page?.limits?.imageKinds ?? [],
+                    launch: { [weak self] arguments, completion in
+                        guard let self else { return false }
+                        return self.launchCloudVMBaseOpen(
+                            workspace: workspace,
+                            socketPath: socketPath,
+                            preferredWindow: launchWindow,
+                            arguments: arguments,
+                            onCompletion: { result in
+                                completion(result)
+                                onCompletion?(result)
+                            }
+                        )
+                    }
+                )
+                model.onFinished = { outcome in
+                    guard outcome == .cancelled else { return }
+                    // Nothing was provisioned: take the placeholder workspace back down.
+                    tabManager.closeWorkspace(workspace, recordHistory: false)
+                    onCompletion?(CloudVMActionLauncher.Completion(terminationStatus: 1, output: "", workspaceId: nil))
+                }
+                NewMachineSheetPresenter.shared.present(model: model, preferredWindow: launchWindow)
+            }
+            return true
         }
+        return launchCloudVMBaseOpen(
+            workspace: workspace,
+            socketPath: socketPath,
+            preferredWindow: resolvedWindow(for: context) ?? preferredWindow,
+            arguments: ["vm", "base", "open", "--workspace", workspace.id.uuidString],
+            onCompletion: onCompletion
+        )
+    }
+
+    /// The fleet as `GET /api/vm` reports it; nil when signed out or unreachable.
+    private static func cloudVMFleetPage() async -> VMListPage? {
+        guard let client = VMClient.shared else { return nil }
+        return try? await client.listPage()
+    }
+
+    /// Runs `cmux vm base open …` against `workspace`'s loading panel: the one
+    /// place the Base open CLI is launched, whether the sheet or a plain open
+    /// triggered it. Failures land in the loading panel and in `onCompletion`.
+    @discardableResult
+    private func launchCloudVMBaseOpen(
+        workspace: Workspace,
+        socketPath: String,
+        preferredWindow: NSWindow?,
+        arguments: [String],
+        onCompletion: ((CloudVMActionLauncher.Completion) -> Void)?
+    ) -> Bool {
         if let loadingPanel = workspace.panels.values.first(where: { $0.panelType == .cloudVMLoading }) as? CloudVMLoadingPanel {
             loadingPanel.resetLoading()
         }
         let didStart = CloudVMActionLauncher.shared.start(
             socketPath: socketPath,
-            preferredWindow: resolvedWindow(for: context) ?? preferredWindow,
-            arguments: ["vm", "base", "open", "--workspace", workspace.id.uuidString],
+            preferredWindow: preferredWindow,
+            arguments: arguments,
             presentsFailureAlert: false,
             environmentOverrides: [
                 "CMUX_CLOUD_ATTACH_RETRY_LIMIT": "12",
@@ -8398,6 +8620,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func existingCloudVMWorkspace(in tabManager: TabManager) -> Workspace? {
         tabManager.tabs.first { workspace in
             if workspace.panels.values.contains(where: { $0.panelType == .cloudVMLoading }) {
+                return true
+            }
+            // Base opened through the cmux-tui daemon: the pane owns the session, so the
+            // workspace carries a binding instead of a remote configuration.
+            if workspace.cloudVMBinding?.isBase == true {
                 return true
             }
             guard let remote = workspace.remoteConfiguration else { return false }
@@ -8558,14 +8785,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         for manager in managers {
             let doomed = manager.tabs.filter { workspace in
-                workspace.remoteConfiguration?.managedCloudVMID?
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                    .lowercased() == target
+                workspace.cloudVMID?.lowercased() == target
             }
             for workspace in doomed {
                 manager.closeWorkspace(workspace)
             }
         }
+        // The sidebar's headless link to that machine has nothing left to talk to.
+        CmuxTuiSurfaceProviderRegistry.shared.machineWasDeleted(vmID.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    /// The local workspace attached to a cloud machine, through either transport: the
+    /// legacy remote configuration or the cmux-tui binding. Base wins over other
+    /// workspaces of the same machine.
+    func workspace(forCloudVMID vmID: String) -> Workspace? {
+        let target = vmID.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !target.isEmpty else { return nil }
+        let candidates = liveWorkspaceIdentityTabManagers(preferredTabManager: tabManager)
+            .flatMap(\.tabs)
+            .filter { $0.cloudVMID?.lowercased() == target }
+        return candidates.first(where: { $0.cloudVMBinding?.isBase == true }) ?? candidates.first
+    }
+
+    /// The workspace that currently hosts a surface, across every window.
+    func workspace(containingSurfaceID surfaceID: UUID) -> Workspace? {
+        for manager in liveWorkspaceIdentityTabManagers(preferredTabManager: tabManager) {
+            if let workspace = manager.tabs.first(where: { $0.panels[surfaceID] != nil }) {
+                return workspace
+            }
+        }
+        return nil
     }
 
     /// Tear down every local Cloud VM attachment before the auth session is
@@ -8614,13 +8863,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func currentCloudVMId(tabManager: TabManager) -> String? {
         guard let workspaceId = tabManager.selectedTabId,
-              let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }),
-              let vmID = workspace.remoteConfiguration?.managedCloudVMID?
-                .trimmingCharacters(in: .whitespacesAndNewlines),
-              !vmID.isEmpty else {
+              let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else {
             return nil
         }
-        return vmID
+        return workspace.cloudVMID
     }
 
     private func promptForCloudVMSnapshotId(preferredWindow: NSWindow?) -> String? {

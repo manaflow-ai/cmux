@@ -36,6 +36,7 @@ import {
   vmWorkflowErrorCause,
 } from "../services/vms/errors";
 import { accountDeletionUserHash } from "../services/account/deletionLock";
+import { isVmAttachTransportUnsupportedError } from "../services/vms/errors";
 import {
   createVm,
   destroyVm,
@@ -43,6 +44,7 @@ import {
   listUserVms,
   openBaseVm,
   openAttachEndpoint,
+  openVmSession,
   openSshEndpoint,
   revokeExpiredIdentityLeases,
   revokeUserIdentityLeasesForAccountDeletion,
@@ -1086,6 +1088,69 @@ describe("VM Effect workflows", () => {
     expect(statusCalls).toBe(1);
     expect(resumeCalls).toBe(0);
     expect(usageEvents).toHaveLength(1);
+  });
+
+  test("openAttachEndpoint and openVmSession refuse the legacy transport on a cmux-tui-only provider", async () => {
+    // Blaxel machines run only the cmux-tui remote daemon: the legacy websocket/SSH
+    // attach must fail closed before the provider is asked (no wake, no lease, no
+    // identity churn) with a typed error the route maps to 409.
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000115",
+      userId: "user-workflow-attach-unsupported",
+      billingTeamId: "team-workflow-attach-unsupported",
+      provider: "blaxel",
+      providerVmId: "provider-vm-attach-unsupported",
+      status: "running",
+    });
+    const usageEvents: RecordedUsageEvent[] = [];
+    const leases: RecordedLease[] = [];
+    const repo = testWorkflowRepo({ vm, usageEvents, leases });
+    let attachCalls = 0;
+    let statusCalls = 0;
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      attachTransports: () => ["cmux-remote"] as const,
+      openAttach: () =>
+        Effect.suspend(() => {
+          attachCalls += 1;
+          return Effect.succeed(testAttachEndpoint());
+        }),
+      getStatus: () =>
+        Effect.sync(() => {
+          statusCalls += 1;
+          return "running" as const;
+        }),
+    };
+
+    const attachError = await Effect.runPromise(
+      openAttachEndpoint({
+        userId: "user-workflow-attach-unsupported",
+        teamIds: ["team-workflow-attach-unsupported"],
+        providerVmId: "provider-vm-attach-unsupported",
+        options: { requireDaemon: true },
+      }).pipe(Effect.flip, Effect.provide(workflowLayer(repo, provider))),
+    );
+    expect(isVmAttachTransportUnsupportedError(attachError)).toBe(true);
+    expect(attachError).toMatchObject({
+      provider: "blaxel",
+      vmId: "provider-vm-attach-unsupported",
+      requested: "websocket",
+      supported: ["cmux-remote"],
+    });
+
+    const sessionError = await Effect.runPromise(
+      openVmSession({
+        userId: "user-workflow-attach-unsupported",
+        teamIds: ["team-workflow-attach-unsupported"],
+        providerVmId: "provider-vm-attach-unsupported",
+      }).pipe(Effect.flip, Effect.provide(workflowLayer(repo, provider))),
+    );
+    expect(isVmAttachTransportUnsupportedError(sessionError)).toBe(true);
+
+    expect(attachCalls).toBe(0);
+    expect(statusCalls).toBe(0);
+    expect(leases).toHaveLength(0);
+    expect(usageEvents).toHaveLength(0);
   });
 
   test("openAttachEndpoint preflight-resumes a paused VM before minting", async () => {

@@ -129,6 +129,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::io::{Read, Write};
+use std::ops::Deref;
 #[cfg(unix)]
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
@@ -208,6 +209,7 @@ struct RawConfig {
 struct RawServer {
     ws: Option<String>,
     ws_token: Option<String>,
+    detached_owner: Option<bool>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -3034,6 +3036,35 @@ pub struct Config {
     pub commands: Vec<UserCommandConfig>,
 }
 
+/// Configuration resolved once for the process startup path.
+///
+/// The snapshot is consumed by the selected startup mode. Interactive reloads
+/// intentionally call [`load`] again after startup and replace the app state.
+#[derive(Debug)]
+pub(crate) struct StartupConfigSnapshot(Config);
+
+impl StartupConfigSnapshot {
+    pub(crate) fn load() -> Self {
+        Self::from_loader(load)
+    }
+
+    fn from_loader(loader: impl FnOnce() -> Config) -> Self {
+        Self(loader())
+    }
+
+    pub(crate) fn into_config(self) -> Config {
+        self.0
+    }
+}
+
+impl Deref for StartupConfigSnapshot {
+    type Target = Config;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 /// The maximum configurable pane padding, in cells per side.
 pub const MAX_PANE_PADDING: u16 = 4;
 
@@ -3180,10 +3211,20 @@ pub struct UserCommandConfig {
     pub cwd: Option<String>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Server {
     pub ws: Option<String>,
     pub ws_token: Option<String>,
+    /// Plain interactive launches connect through a detached headless
+    /// session owner so the session survives every client detaching.
+    /// `false` restores hosting the session inside the first TUI process.
+    pub detached_owner: bool,
+}
+
+impl Default for Server {
+    fn default() -> Self {
+        Self { ws: None, ws_token: None, detached_owner: true }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -3763,6 +3804,9 @@ pub fn load() -> Config {
     }
     config.server.ws = raw.server.ws.filter(|value| !value.trim().is_empty());
     config.server.ws_token = raw.server.ws_token.filter(|value| !value.trim().is_empty());
+    if let Some(detached_owner) = raw.server.detached_owner {
+        config.server.detached_owner = detached_owner;
+    }
     config.keys.apply(&raw.keys);
     bind_user_command_chords(&mut config.keys, &user_commands, &user_command_keys);
     config.commands = user_commands;
@@ -5353,6 +5397,7 @@ fn overlay_ghostty_defaults(defaults: &mut DefaultColors, overrides: DefaultColo
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::Cell;
 
     #[test]
     fn config_diagnostics_do_not_echo_parser_details() {
@@ -5368,6 +5413,20 @@ mod tests {
     /// Config env vars are process-global state; tests that set them must not
     /// run concurrently with each other.
     static CONFIG_ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn startup_snapshot_invokes_loader_once() {
+        let loads = Cell::new(0);
+        let snapshot = StartupConfigSnapshot::from_loader(|| {
+            loads.set(loads.get() + 1);
+            Config::default()
+        });
+
+        assert!(snapshot.server.detached_owner);
+        assert!(snapshot.server.detached_owner);
+        let _config = snapshot.into_config();
+        assert_eq!(loads.get(), 1);
+    }
     static NEXT_TEST_DIRECTORY: AtomicU64 = AtomicU64::new(0);
 
     struct TestDirectory {
