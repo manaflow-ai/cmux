@@ -249,7 +249,17 @@ import Testing
                 ],
             ],
         ])
-        let responder = try UnixSocketResponder(path: socketPath, response: response)
+        let directCommand = "codex resume direct-session -- 'discuss SUBROUTER_CODEX_USER_EMAIL and model_provider=subrouter'"
+        let directResponse = try jsonResponse(result: [
+            "resume_binding": [
+                "command": directCommand,
+                "environment": ["PATH": "/usr/bin:/bin"],
+            ],
+        ])
+        let responder = try UnixSocketResponder(
+            path: socketPath,
+            responses: [response, response, directResponse]
+        )
         defer { responder.stop() }
 
         var environment = ProcessInfo.processInfo.environment
@@ -294,6 +304,16 @@ import Testing
         #expect(plainResult.stdout.trimmingCharacters(in: .whitespacesAndNewlines) == "null")
         #expect(plainResult.stdout.contains("private@example.test") == false)
         #expect(plainResult.stdout.contains("router.example.test") == false)
+
+        let directResult = runProcess(
+            executablePath: cliPath,
+            arguments: ["surface", "resume", "show"],
+            environment: environment,
+            timeout: 5
+        )
+        #expect(!directResult.timedOut, Comment(rawValue: directResult.diagnostics))
+        #expect(directResult.status == 0, Comment(rawValue: directResult.diagnostics))
+        #expect(directResult.stdout.trimmingCharacters(in: .whitespacesAndNewlines) == directCommand)
     }
 
     @Test func testIOSContextFromTerminalFallsBackToWorkspaceSimulator() throws {

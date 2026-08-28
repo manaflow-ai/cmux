@@ -438,6 +438,23 @@ struct AgentResumeArgvTests {
         )
     }
 
+    @Test("Public Subrouter arguments redact config without nulling prompt text")
+    func publicSubrouterArgumentsAreStructurallyRedacted() {
+        #expect(SubrouterCodexResumeRouting().removingPrivateRoutingArguments(from: [
+            "codex",
+            "discuss SUBROUTER_CODEX_USER_EMAIL and model_provider=subrouter",
+            "-c", "model_provider=\"subrouter\"",
+            "--config=model_providers.subrouter.base_url=https://router.example.test/v1",
+            "--",
+            "--config=model_provider=subrouter",
+        ]) == [
+            "codex",
+            "discuss SUBROUTER_CODEX_USER_EMAIL and model_provider=subrouter",
+            "--",
+            "--config=model_provider=subrouter",
+        ])
+    }
+
     @Test("Subrouter routing proof survives prompt sanitization")
     func subrouterRoutingProofSurvivesPromptSanitization() {
         let router = SubrouterCodexResumeRouting()
