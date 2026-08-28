@@ -457,7 +457,7 @@ enum AgentResumeCommandBuilder {
         includeWorkingDirectoryPrefix: Bool
     ) -> String {
         var commandParts: [String] = []
-        let environmentParts = launchEnvironmentParts(kind: kind, environment: launchCommand?.environment)
+        let environmentParts = launchEnvironmentParts(kind: kind, launchCommand: launchCommand)
         if !environmentParts.isEmpty {
             commandParts.append("env")
             commandParts.append(contentsOf: environmentParts)
@@ -537,15 +537,21 @@ enum AgentResumeCommandBuilder {
 
     private static func launchEnvironmentParts(
         kind: RestorableAgentKind,
-        environment: [String: String]?
+        launchCommand: AgentLaunchCommandSnapshot?
     ) -> [String] {
+        let environment = launchCommand?.environment
         guard let environment, !environment.isEmpty else {
             return []
         }
 
         var environmentParts: [String] = []
         var preservedClaudeAuthSelectionEnvironmentKeys: [String] = []
-        var selectedEnvironment = AgentLaunchEnvironmentPolicy().selectedEnvironment(from: environment, kind: kind.rawValue)
+        var selectedEnvironment = AgentLaunchEnvironmentPolicy().selectedReplayEnvironment(
+            from: environment,
+            kind: kind.rawValue,
+            launcher: launchCommand?.launcher,
+            arguments: launchCommand?.arguments ?? []
+        )
         let piFamilyUsesCapturedPath = kind == .pi
             || kind.customAgentID == "pi"
             || kind.customAgentID == "omp"

@@ -207,6 +207,25 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
         return selected
     }
 
+    /// Returns replay-safe environment values for a rendered resume command.
+    /// Routed Codex resumes retain their bounded account/server inputs after
+    /// the metadata-only launcher marker has selected the explicit `sr` argv.
+    public func selectedReplayEnvironment(
+        from env: [String: String],
+        kind: String?,
+        launcher: String?,
+        arguments: [String]
+    ) -> [String: String] {
+        var selected = selectedRestoreRecordEnvironment(
+            from: env,
+            kind: kind,
+            launcher: launcher,
+            arguments: arguments
+        )
+        selected.removeValue(forKey: SubrouterCodexResumeRouting.environmentKey)
+        return selected
+    }
+
     /// Returns a replay-safe value for a single environment variable, or `nil` when it should drop.
     public func sanitizedValue(key: String, value: String?) -> String? {
         guard Self.safeEnvironmentKeys.contains(key) else { return nil }
