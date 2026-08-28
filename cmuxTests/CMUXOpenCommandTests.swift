@@ -1642,6 +1642,7 @@ final class CMUXOpenCommandTests: XCTestCase {
 
         let workspaceId = UUID().uuidString.lowercased()
         let surfaceId = UUID().uuidString.lowercased()
+        let sessionId = "session-untracked-baseline"
         let socketPath = makeSocketPath("hook-diff")
         let listenerFD = try bindUnixSocket(at: socketPath)
         let state = MockSocketServerState()
@@ -1682,7 +1683,15 @@ final class CMUXOpenCommandTests: XCTestCase {
                 "CMUX_AGENT_HOOK_STATE_DIR": stateURL.path,
                 "PWD": repoURL.path
             ],
-            currentDirectoryURL: repoURL
+            currentDirectoryURL: repoURL,
+            stdinText: String(
+                data: try JSONSerialization.data(withJSONObject: [
+                    "session_id": sessionId,
+                    "cwd": repoURL.path,
+                    "hook_event_name": "UserPromptSubmit",
+                ], options: [.sortedKeys]),
+                encoding: .utf8
+            )
         )
 
         wait(for: [serverHandled], timeout: 5)
@@ -1736,6 +1745,7 @@ final class CMUXOpenCommandTests: XCTestCase {
 
         let workspaceId = UUID().uuidString.lowercased()
         let surfaceId = UUID().uuidString.lowercased()
+        let sessionId = "session-unborn-baseline"
         let socketPath = makeSocketPath("hook-empty")
         let listenerFD = try bindUnixSocket(at: socketPath)
         let state = MockSocketServerState()
@@ -1776,7 +1786,15 @@ final class CMUXOpenCommandTests: XCTestCase {
                 "CMUX_AGENT_HOOK_STATE_DIR": stateURL.path,
                 "PWD": repoURL.path
             ],
-            currentDirectoryURL: repoURL
+            currentDirectoryURL: repoURL,
+            stdinText: String(
+                data: try JSONSerialization.data(withJSONObject: [
+                    "session_id": sessionId,
+                    "cwd": repoURL.path,
+                    "hook_event_name": "UserPromptSubmit",
+                ], options: [.sortedKeys]),
+                encoding: .utf8
+            )
         )
 
         wait(for: [serverHandled], timeout: 5)
@@ -1881,7 +1899,7 @@ final class CMUXOpenCommandTests: XCTestCase {
             return result
         }
 
-        func runPromptSubmit() throws -> ProcessRunResult {
+        func runPromptSubmit(turnId: String) throws -> ProcessRunResult {
             try runHook(
                 subcommand: "prompt-submit",
                 input: [
@@ -1910,12 +1928,12 @@ final class CMUXOpenCommandTests: XCTestCase {
             return try XCTUnwrap(store?["records"] as? [[String: Any]])
         }
 
-        let firstHook = try runPromptSubmit()
+        let firstHook = try runPromptSubmit(turnId: turnId)
         XCTAssertFalse(firstHook.timedOut, firstHook.stderr)
         XCTAssertEqual(firstHook.status, 0, firstHook.stderr)
         try "one\ntwo\n".write(to: fileURL, atomically: true, encoding: .utf8)
 
-        let duplicateHook = try runPromptSubmit()
+        let duplicateHook = try runPromptSubmit(turnId: turnId)
         XCTAssertFalse(duplicateHook.timedOut, duplicateHook.stderr)
         XCTAssertEqual(duplicateHook.status, 0, duplicateHook.stderr)
 
@@ -1940,13 +1958,16 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertEqual(stopHook.status, 0, stopHook.stderr)
         try "one\ntwo\nthree\n".write(to: fileURL, atomically: true, encoding: .utf8)
 
-        let nextHook = try runPromptSubmit()
+        let nextTurnId = "turn-next"
+        let nextHook = try runPromptSubmit(turnId: nextTurnId)
         XCTAssertFalse(nextHook.timedOut, nextHook.stderr)
         XCTAssertEqual(nextHook.status, 0, nextHook.stderr)
 
         let refreshedRecords = try diffBaselineRecords()
         XCTAssertEqual(refreshedRecords.filter { $0["turnId"] as? String == turnId }.count, 1)
-        let refreshedBaseCommit = try XCTUnwrap(refreshedRecords.first?["baseCommit"] as? String)
+        let refreshedBaseCommit = try XCTUnwrap(
+            refreshedRecords.first { $0["turnId"] as? String == nextTurnId }?["baseCommit"] as? String
+        )
         XCTAssertNotEqual(refreshedBaseCommit, duplicateBaseCommit)
     }
 
