@@ -1388,6 +1388,7 @@ jobs:
           python3 tests/test_issue_8093_ghostty_ssh_binary_path.py
           python3 tests/test_issue_6714_zsh_shim_noclobber.py
           python3 tests/test_issue_9356_bash_shim_noclobber.py
+          python3 tests/test_issue_10926_watcher_pid_reuse_guard.py
           python3 tests/test_issue_8953_zsh_prompt_wrap_guard.py
           python3 tests/test_nushell_shim_path_refront.py
           python3 tests/test_nushell_resume_command_dialect.py

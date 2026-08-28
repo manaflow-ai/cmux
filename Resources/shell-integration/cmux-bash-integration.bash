@@ -1436,6 +1436,7 @@ _cmux_watcher_parent_start_time() {
     raw="$(TZ=UTC LC_ALL=C /bin/ps -o lstart= -p "$pid" 2>/dev/null)" || return 1
     case "$raw" in *$'\n'*) return 1 ;; esac
     local -a words=()
+    local IFS=$' \t\n'
     read -r -a words <<< "$raw" || true
     (( ${#words[@]} == 5 )) || return 1
     case "${words[0]}" in Mon|Tue|Wed|Thu|Fri|Sat|Sun) ;; *) return 1 ;; esac
