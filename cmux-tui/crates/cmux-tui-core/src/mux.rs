@@ -5326,10 +5326,7 @@ impl Mux {
     /// are its only writers, so the journal fully determines it. Best
     /// effort by design: a hook may outlive its terminal, and a journal
     /// append must never start failing because a view cannot update.
-    fn fold_agent_roster(
-        &self,
-        commit: &crate::JournalAppendCommit,
-    ) {
+    fn fold_agent_roster(&self, commit: &crate::JournalAppendCommit) {
         use crate::journal_reducers::{
             AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION, RosterEvent,
             SOCKET_REPORT_ADAPTER,
@@ -5464,17 +5461,17 @@ impl Mux {
         });
         let failed = self
             .commit_agent_report(
-            AgentReportTarget::Surface(surface),
-            state,
-            source,
-            session,
-            None,
-            &mutation,
-            &fingerprint,
-            AgentReportOrigin::RosterFold,
-            agent_adapter,
-        )
-        .is_err();
+                AgentReportTarget::Surface(surface),
+                state,
+                source,
+                session,
+                None,
+                &mutation,
+                &fingerprint,
+                AgentReportOrigin::RosterFold,
+                agent_adapter,
+            )
+            .is_err();
         if failed {
             return true;
         }
@@ -5577,7 +5574,8 @@ impl Mux {
             correlation_id: None,
         };
         let idempotency_key = format!("screen-detect-{}", crate::workspace_registry::new_uuid_v4());
-        if let Err(_error) = self.append_journal_ingress(&ingress, "screen-detect", &idempotency_key)
+        if let Err(_error) =
+            self.append_journal_ingress(&ingress, "screen-detect", &idempotency_key)
         {
             self.report_diagnostic_code("screen_detection.journal_failed");
         }
@@ -9050,9 +9048,8 @@ impl Mux {
         // Arbitration reads the durable projection under the registry lock
         // held by this commit, which keeps concurrent reports serialized;
         // the roster converges on the same outcome through the echo fold.
-        let existing = registry
-            .public_agent_projection_for_terminal(&terminal_id)?
-            .filter(|projection| {
+        let existing =
+            registry.public_agent_projection_for_terminal(&terminal_id)?.filter(|projection| {
                 (projection.source == AgentSource::Hook.as_str()
                     || projection.source == AgentSource::Detected.as_str())
                     && projection.state != AgentState::Done.as_str()
