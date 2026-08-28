@@ -707,13 +707,18 @@ pub enum CryptoError {
     PayloadTooLarge(usize),
     MissingRemoteStatic,
     UnexpectedEof,
-    DaemonKeyMismatch { expected: String, actual: String },
+    DaemonKeyMismatch {
+        expected: String,
+        actual: String,
+    },
     Unauthorized(String),
     /// The peer accepted the transport but did not complete the prelude and
     /// Noise exchange within the handshake deadline. Terminal, not a carrier
     /// availability failure: retrying a dial that connects and then stays
     /// silent would hold the endpoint open forever.
-    HandshakeTimeout { timeout: Duration },
+    HandshakeTimeout {
+        timeout: Duration,
+    },
 }
 
 impl fmt::Display for CryptoError {
