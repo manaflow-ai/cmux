@@ -91,14 +91,11 @@ pub(super) fn restore_public_projections(
             // Older projections predate the internal ended marker. Keep
             // their terminal fenced after restart so a late socket report
             // cannot resurrect the completed session.
-            agent_hook_fences.insert(
-                agent.terminal_id.clone(),
-                super::HookFence {
-                    session_id: format!("legacy:{}", agent.terminal_id),
-                    sequence: 0,
-                    ended: true,
-                },
-            );
+            agent_hook_fences.entry(agent.terminal_id.clone()).or_insert(super::HookFence {
+                session_id: format!("legacy:{}", agent.terminal_id),
+                sequence: 0,
+                ended: true,
+            });
             continue;
         }
         let previous = agent_records.insert(
