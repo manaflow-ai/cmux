@@ -36,6 +36,10 @@ final class ShortcutListModel {
     @ObservationIgnored let errorLog: SettingsErrorLog
     @ObservationIgnored let onShortcutsChanged: @MainActor () -> Void
     @ObservationIgnored let canRegisterSystemWideHotkey: @MainActor (StoredShortcut) -> Bool
+    /// Host-owned, value-typed factory defaults. Each model retains its own
+    /// resolver, so separate settings windows and previews cannot overwrite
+    /// one another's defaults.
+    @ObservationIgnored let defaultShortcutResolver: ShortcutDefaultResolver
     @ObservationIgnored private let bindingsDriver = SettingReadDriver<ShortcutBindingsSnapshot>()
     @ObservationIgnored private let legacyBindingsDriver = SettingReadDriver<[String: StoredShortcut]>()
     @ObservationIgnored private let whenDriver = SettingReadDriver<[String: String]>()
@@ -52,6 +56,7 @@ final class ShortcutListModel {
         canRegisterSystemWideHotkey: @escaping @MainActor (StoredShortcut) -> Bool = {
             ShortcutAction.showHideAllWindows.shortcutBindingPolicyResult(for: $0) == .accepted
         },
+        defaultShortcutResolver: ShortcutDefaultResolver = .builtIn,
         onShortcutsChanged: @escaping @MainActor () -> Void = {}
     ) {
         self.jsonStore = jsonStore
@@ -60,6 +65,7 @@ final class ShortcutListModel {
         self.catalog = catalog
         self.errorLog = errorLog
         self.canRegisterSystemWideHotkey = canRegisterSystemWideHotkey
+        self.defaultShortcutResolver = defaultShortcutResolver
         self.onShortcutsChanged = onShortcutsChanged
     }
 

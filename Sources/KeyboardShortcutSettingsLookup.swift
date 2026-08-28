@@ -37,6 +37,7 @@ extension KeyboardShortcutSettings {
         }
         return settingsAction.effectivePersistedShortcutResolvingLegacyConflicts(
             nil,
+            defaultShortcut: action.defaultShortcut.cmuxSettingsStoredShortcut,
             explicitlyConfiguredShortcut: { settingsConfiguredAction in
                 guard let configuredAction = Action(rawValue: settingsConfiguredAction.rawValue) else {
                     return nil

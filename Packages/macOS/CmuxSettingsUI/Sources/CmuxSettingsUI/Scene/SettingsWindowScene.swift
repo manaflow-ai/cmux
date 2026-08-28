@@ -507,7 +507,8 @@ public struct SettingsWindowRoot: View {
             defaultsStore: defaultsStore,
             jsonStore: jsonStore,
             catalog: catalog, errorLog: runtime.errorLog,
-            hostActions: hostActions
+            hostActions: hostActions,
+            defaultShortcutResolver: runtime.shortcutDefaultResolver
         )
         .id(anchorID(for: .globalHotkey))
 
@@ -515,7 +516,8 @@ public struct SettingsWindowRoot: View {
             jsonStore: jsonStore, userDefaultsStore: defaultsStore,
             catalog: catalog,
             errorLog: runtime.errorLog,
-            hostActions: hostActions
+            hostActions: hostActions,
+            defaultShortcutResolver: runtime.shortcutDefaultResolver
         )
         .id(anchorID(for: .keyboardShortcuts))
 

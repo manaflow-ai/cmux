@@ -24,6 +24,22 @@ extension ShortcutAction {
         }
     }
 
+    /// Returns this action's factory default using a host-owned resolver.
+    ///
+    /// Chords are package-owned and therefore do not consult the resolver.
+    /// A resolver may return ``ShortcutDefaultResolver.Result/stroke(_:)`` with
+    /// `nil` to explicitly make an action unbound for the host. When it returns
+    /// ``ShortcutDefaultResolver.Result/useBuiltIn``, this method falls back to
+    /// the package table.
+    public func defaultShortcut(using resolver: ShortcutDefaultResolver) -> StoredShortcut? {
+        switch self {
+        case .diffViewerScrollToTop, .diffViewerNextFile, .diffViewerPreviousFile:
+            return defaultShortcut
+        default:
+            return defaultStroke(using: resolver).map { StoredShortcut(first: $0) }
+        }
+    }
+
     /// The factory-default ``ShortcutStroke`` for this action.
     ///
     /// Mirrors the table in
@@ -33,16 +49,20 @@ extension ShortcutAction {
     /// UI can restore a row by writing the default stroke through
     /// the JSON store.
     ///
-    /// A host-installed ``ShortcutDefaultOverrides`` provider takes
-    /// precedence: cmux computes the right-sidebar digit defaults
-    /// positionally from the visible tab order, which this package
-    /// cannot read. The static values below for those actions are the
-    /// factory tab-order fallback used when no provider is installed.
+    /// The package-owned default table. Hosts with dynamic defaults should use
+    /// ``defaultStroke(using:)`` and pass their resolver explicitly.
     public var defaultStroke: ShortcutStroke? {
-        if case .stroke(let stroke) = ShortcutDefaultOverrides.result(for: self) {
+        return builtInDefaultStroke
+    }
+
+    /// Returns this action's stroke after applying a host-owned resolver.
+    public func defaultStroke(using resolver: ShortcutDefaultResolver) -> ShortcutStroke? {
+        switch resolver.result(for: self) {
+        case .useBuiltIn:
+            return builtInDefaultStroke
+        case .stroke(let stroke):
             return stroke
         }
-        return builtInDefaultStroke
     }
 
     private var builtInDefaultStroke: ShortcutStroke? {
