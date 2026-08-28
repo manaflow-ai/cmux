@@ -6768,6 +6768,9 @@ struct GraphicsSceneCache {
     projection_rebuilds: HashMap<SurfaceId, usize>,
 }
 
+#[cfg(test)]
+type TimeoutDrainHook = Box<dyn FnOnce(&mut App) + Send>;
+
 impl GraphicsSceneCache {
     fn invalidate(&mut self) {
         self.context = None;
@@ -6990,7 +6993,7 @@ pub struct App {
     active_pointer_buttons: HashSet<MouseButton>,
     ignored_pty_mouse_buttons: HashSet<MouseButton>,
     #[cfg(test)]
-    timeout_drain_hook: Option<Box<dyn FnOnce(&mut Self) + Send>>,
+    timeout_drain_hook: Option<TimeoutDrainHook>,
     encoder: KeyEncoder,
     encode_buf: Vec<u8>,
     quit: bool,
