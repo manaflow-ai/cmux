@@ -55,5 +55,15 @@ struct CloudLinkTelemetryTests {
         #expect(throttle.shouldSend(key: "vm-1|socket_wait", now: start.addingTimeInterval(301)))
         #expect(!throttle.shouldSend(key: "vm-1|socket_wait", now: start.addingTimeInterval(302)))
     }
+
+    @Test("machine correlation identifiers are launch-scoped and do not expose the input")
+    func machineCorrelationIdentifiersDoNotExposeMachineIDs() {
+        let secret = "vm-with-private-user-data"
+        let first = CloudLinkTelemetry.machineCorrelationID(secret)
+        #expect(first != secret)
+        #expect(first.count == 20)
+        #expect(first == CloudLinkTelemetry.machineCorrelationID(secret))
+        #expect(first != CloudLinkTelemetry.machineCorrelationID("another-machine"))
+    }
 }
 #endif
