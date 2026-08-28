@@ -54,6 +54,7 @@
     "community": "Fellesskap",
     "docs": "Dokumentasjon",
     "changelog": "Endringslogg",
+    "support": "Support",
     "privacy": "Personvern",
     "terms": "Vilkår",
     "eula": "EULA",
@@ -3667,6 +3668,52 @@
       "secondaryCta": "Debian-pakke (.deb)",
       "requirements": "Linux · x64",
       "installBody": "Kjør installasjonsprogrammet for brukeren én gang. Det installerer cmux under ~/.local uten root-tilgang og aktiverer signerte oppdateringer i appen. Velg Debian-pakken i stedet hvis du vil at oppdateringene skal administreres av pakkebehandleren."
+    }
+  },
+  "support": {
+    "metaTitle": "Support | cmux",
+    "metaDescription": "Få hjelp med cmux. Send oss en melding, så svarer vi på e-post, eller nå oss på Discord og GitHub.",
+    "section": "Support",
+    "title": "Få hjelp med cmux.",
+    "body": "Send oss en melding, så svarer vi på e-post. Fortell hva du gjorde, hva du forventet, og hva som skjedde i stedet, så kan vi hjelpe deg raskere.",
+    "channels": {
+      "docs": {
+        "label": "Dokumentasjon",
+        "description": "Veiledninger for å komme i gang, konfigurasjon og feilsøking."
+      },
+      "discord": {
+        "label": "Discord",
+        "description": "Spør fellesskapet og teamet i sanntid."
+      },
+      "github": {
+        "label": "GitHub-issues",
+        "description": "Rapporter feil og kom med funksjonsønsker i full åpenhet."
+      },
+      "email": {
+        "label": "founders@manaflow.com",
+        "description": "Foretrekker du e-post? Skriv direkte til oss."
+      }
+    },
+    "formAriaLabel": "Kontaktskjema for support",
+    "form": {
+      "name": "Navn",
+      "email": "E-postadresse",
+      "topic": "Emne",
+      "message": "Hva kan vi hjelpe med?",
+      "selectPlaceholder": "Velg ett alternativ",
+      "topicOptions": [
+        "Feilrapport",
+        "Fakturering eller abonnement",
+        "Konto eller pålogging",
+        "Cloud VMs",
+        "Funksjonsønske",
+        "Annet"
+      ],
+      "privacy": "Vi bruker e-postadressen din kun til å svare på supporthenvendelsen din. Vi selger ikke kontaktinformasjon.",
+      "submit": "Send melding",
+      "submitting": "Sender…",
+      "success": "Takk. Vi har mottatt meldingen din og svarer deg på e-post fra founders@manaflow.com.",
+      "error": "Noe gikk galt. Prøv igjen, eller send en e-post til founders@manaflow.com."
     }
   },
   "emails": {

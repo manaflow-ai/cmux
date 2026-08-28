@@ -649,10 +649,17 @@ pub(crate) fn public_session_snapshot_with_journal_head(
             }
         }
         for (host_id, terminal_id) in &terminal_resources_by_host {
-            anyhow::ensure!(
-                terminals_by_id.contains_key(host_id.as_str()),
-                "terminal {terminal_id} references missing {host_id}"
-            );
+            if !terminals_by_id.contains_key(host_id.as_str()) {
+                // A resource row whose durable host vanished (a close that
+                // tombstoned the registry but not the resource row, or a crash
+                // between the two writes) must not fail the whole snapshot:
+                // every client renders a failed snapshot as "machine
+                // unreachable". Skip the dangling row; the close path owns the
+                // repair.
+                eprintln!(
+                    "cmux-tui: snapshot skipping terminal {terminal_id} referencing missing {host_id}"
+                );
+            }
         }
 
         let terminals = terminal_order

@@ -987,6 +987,13 @@ fn enqueue_pending(
     }
     let total = pool.pending.iter().map(|entry| entry.records.len()).sum::<usize>();
     if total < MAX_BATCH_RECORDS {
+        // During an in-flight POST the completion path re-arms the debounce
+        // for any leftover pending records (flush_cycle reads the total under
+        // the same lock that clears `flushing`), so waking here would only
+        // store a spurious permit — the exact wake the deferral pin forbids.
+        if pool.flushing {
+            return;
+        }
         drop(pool);
         shared.flush_wake.notify_one();
         return;
