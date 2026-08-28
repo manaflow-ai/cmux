@@ -182,6 +182,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
 
         let routingEnvironment = [
+            "CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
             "SUBROUTER_CODEX_ACCOUNT_ID": "team-codex-1",
             "SUBROUTER_CODEX_BASE_URL": "https://router.example.test/v1",
             "SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
@@ -201,10 +202,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let binding = try XCTUnwrap(fixture.binding.snapshot())
         XCTAssertTrue((binding["command"] as? String)?.contains("'sr' 'codex' 'resume' '\(sessionID)'") == true)
         let publishedEnvironment = try XCTUnwrap(binding["environment"] as? [String: String])
-        for (key, value) in routingEnvironment where key != "SUBROUTER_CODEX_RESUME_COMMAND" {
+        for (key, value) in routingEnvironment
+            where key != "SUBROUTER_CODEX_RESUME_COMMAND"
+                && key != "CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND" {
             XCTAssertEqual(publishedEnvironment[key], value, key)
         }
         XCTAssertNil(publishedEnvironment["SUBROUTER_CODEX_RESUME_COMMAND"])
+        XCTAssertNil(publishedEnvironment["CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND"])
     }
 
     func testCodexTUISessionCanRebindAnOlderVerifiedTUICheckpoint() throws {

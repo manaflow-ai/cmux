@@ -29,9 +29,19 @@ public struct SubrouterCodexResumeRouting: Sendable, Equatable {
     /// Returns the canonical marker when the captured environment contains the
     /// exact supported command, or `nil` for absent or untrusted values.
     public func capturedMarker(in environment: [String: String]?) -> String? {
-        guard let rawValue = environment?[Self.environmentKey] else {
+        canonicalMarker(environment?[Self.environmentKey])
+    }
+
+    private func capturedLaunchBoundMarker(in environment: [String: String]?) -> String? {
+        guard let marker = capturedMarker(in: environment),
+              canonicalMarker(environment?[Self.launchBoundEnvironmentKey]) == marker else {
             return nil
         }
+        return marker
+    }
+
+    private func canonicalMarker(_ rawValue: String?) -> String? {
+        guard let rawValue else { return nil }
         let tokens = rawValue.split(whereSeparator: \Character.isWhitespace).map(String.init)
         guard Self.expectedMarkerTokens.contains(tokens) else { return nil }
         return tokens.joined(separator: " ")
@@ -70,9 +80,10 @@ public struct SubrouterCodexResumeRouting: Sendable, Equatable {
     /// Returns the trusted marker and its bounded routing inputs for durable
     /// hook capture, or an empty environment when the marker is absent.
     public func capturedEnvironment(in environment: [String: String]?) -> [String: String] {
-        guard let marker = capturedMarker(in: environment) else { return [:] }
+        guard let marker = capturedLaunchBoundMarker(in: environment) else { return [:] }
         var selected = capturedRoutingEnvironment(in: environment)
         selected[Self.environmentKey] = marker
+        selected[Self.launchBoundEnvironmentKey] = marker
         return selected
     }
 
@@ -88,7 +99,7 @@ public struct SubrouterCodexResumeRouting: Sendable, Equatable {
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
         guard normalizedLauncher == nil || normalizedLauncher == "codex",
-              let marker = capturedMarker(in: environment),
+              let marker = capturedLaunchBoundMarker(in: environment),
               launchArgumentsContainSubrouterProvider(launchArguments) else {
             return nil
         }

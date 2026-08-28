@@ -148,6 +148,7 @@ import Testing
                 environment: [
                     "SUBROUTER_CODEX_ACCOUNT_ID": "team-codex-1",
                     "SUBROUTER_CODEX_BASE_URL": "https://router.example.test/v1",
+                    "CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
                     "SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
                     "SUBROUTER_CODEX_SERVER": "team",
                     "SUBROUTER_CODEX_USER_EMAIL": "operator@example.test",
@@ -190,7 +191,10 @@ import Testing
                 executablePath: "/opt/bin/codex",
                 arguments: ["/opt/bin/codex", "-c", "model_provider=subrouter"],
                 workingDirectory: "/tmp/project",
-                environment: ["SUBROUTER_CODEX_RESUME_COMMAND": "\(command) codex resume"]
+                environment: [
+                    "CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND": "\(command) codex resume",
+                    "SUBROUTER_CODEX_RESUME_COMMAND": "\(command) codex resume",
+                ]
             ),
             preparedArguments: nil,
             observedPermissionMode: nil
@@ -223,6 +227,7 @@ import Testing
                 arguments: ["/opt/bin/codex", "-c", "model_provider=subrouter"],
                 workingDirectory: "/tmp/project",
                 environment: [
+                    "CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
                     "SUBROUTER_CODEX_BIN": "/opt/bin/codex",
                     "SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
                 ]
@@ -261,6 +266,7 @@ import Testing
                 arguments: ["/opt/custom/codex", "-c", "model_provider=subrouter"],
                 workingDirectory: "/tmp/project",
                 environment: [
+                    "CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
                     "CMUX_CUSTOM_CODEX_PATH": "/opt/custom/codex",
                     "SUBROUTER_CODEX_BIN": "/shim/codex",
                     "SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
@@ -308,6 +314,7 @@ import Testing
                     "SUBROUTER_CODEX_ACCOUNT_ID": "captured-account",
                     "SUBROUTER_CODEX_BASE_URL": "https://captured.example.test/v1",
                     "SUBROUTER_CODEX_BIN": "/opt/bin/codex",
+                    "CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
                     "SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
                     "SUBROUTER_CODEX_SERVER": "captured-server",
                     "SUBROUTER_CODEX_USER_EMAIL": "captured@example.test",

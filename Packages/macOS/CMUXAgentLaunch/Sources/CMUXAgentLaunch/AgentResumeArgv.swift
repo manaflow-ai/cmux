@@ -78,6 +78,16 @@ public struct AgentResumeArgv: Sendable, Equatable {
     public static let codexWrapperShellExecutableToken =
         "\"$([ -x \"${CMUX_CODEX_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CODEX_WRAPPER_SHIM\" || printf codex)\""
 
+    /// The managed Codex wrapper token with a captured executable as its fallback.
+    ///
+    /// Remote restore shells can lack the `bash` required by `cmux-codex-wrapper`,
+    /// or a previously installed shim can disappear. In those cases a routed
+    /// restore must retain the captured Codex executable instead of assuming a
+    /// separate `codex` is available on `PATH`.
+    public static func codexWrapperShellExecutableToken(fallbackExecutable: String) -> String {
+        "\"$([ -x \"${CMUX_CODEX_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CODEX_WRAPPER_SHIM\" || printf '%s' \(posixSingleQuoted(fallbackExecutable)))\""
+    }
+
     /// The shell token that resolves cmux's Hermes wrapper at restore time.
     ///
     /// Restored Hermes sessions must pass through the per-surface wrapper so its

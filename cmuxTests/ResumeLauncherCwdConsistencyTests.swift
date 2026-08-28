@@ -159,6 +159,7 @@ struct ResumeLauncherCwdConsistencyTests {
                 arguments: ["/opt/custom/codex", "-c", "model_provider=subrouter"],
                 workingDirectory: "/home/dev/repo",
                 environment: [
+                    "CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
                     "SUBROUTER_CODEX_BIN": "/opt/custom/codex",
                     "SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
                 ],

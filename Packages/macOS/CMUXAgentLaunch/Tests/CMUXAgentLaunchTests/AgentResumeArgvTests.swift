@@ -3,6 +3,13 @@ import Testing
 
 @Suite("AgentResumeArgv")
 struct AgentResumeArgvTests {
+    private func boundSubrouterMarker(_ command: String = "sr codex resume") -> [String: String] {
+        [
+            SubrouterCodexResumeRouting.environmentKey: command,
+            SubrouterCodexResumeRouting.launchBoundEnvironmentKey: command,
+        ]
+    }
+
     @Test("Built-in --option style kinds", arguments: [
         ("claude", "claude", ["claude", "--resume", "SID"]),
         ("grok", "grok", ["grok", "-r", "SID"]),
@@ -293,7 +300,7 @@ struct AgentResumeArgvTests {
                 sessionId: "SID",
                 executablePath: "/opt/bin/codex",
                 arguments: routedArguments,
-                environment: ["SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume"]
+                environment: boundSubrouterMarker()
             ) == .resolved(["sr", "codex", "resume", "SID"] + preserved)
         )
 
@@ -304,7 +311,7 @@ struct AgentResumeArgvTests {
                     sessionId: "SID",
                     executablePath: "/opt/bin/codex",
                     arguments: routedArguments,
-                    environment: ["SUBROUTER_CODEX_RESUME_COMMAND": "\(command) codex resume"]
+                    environment: boundSubrouterMarker("\(command) codex resume")
                 ) == .resolved([command, "codex", "resume", "SID"] + preserved)
             )
         }
@@ -315,7 +322,7 @@ struct AgentResumeArgvTests {
                 sessionId: "SID",
                 executablePath: "/opt/bin/codex",
                 arguments: ["/opt/bin/codex", "--config=model_provider=\"subrouter\""],
-                environment: ["SUBROUTER_CODEX_RESUME_COMMAND": "  sr   codex resume  "]
+                environment: boundSubrouterMarker("  sr   codex resume  ")
             ) == .resolved([
                 "sr", "codex", "resume", "SID",
                 "-c", "check_for_update_on_startup=false",
@@ -342,7 +349,7 @@ struct AgentResumeArgvTests {
                     "-c", "model_provider=subrouter",
                     "-c", "model_provider=openai",
                 ],
-                environment: ["SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume"]
+                environment: boundSubrouterMarker()
             ) == .passthrough
         )
 
@@ -356,7 +363,7 @@ struct AgentResumeArgvTests {
                     "-c", "model_provider=openai",
                     "--config=model_provider='subrouter'",
                 ],
-                environment: ["SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume"]
+                environment: boundSubrouterMarker()
             ) == .resolved([
                 "sr", "codex", "resume", "SID",
                 "-c", "check_for_update_on_startup=false",
@@ -369,7 +376,7 @@ struct AgentResumeArgvTests {
                 sessionId: "SID",
                 executablePath: "/opt/bin/codex",
                 arguments: ["/opt/bin/codex"],
-                environment: ["SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume"]
+                environment: boundSubrouterMarker()
             ) == .passthrough
         )
 
@@ -379,7 +386,7 @@ struct AgentResumeArgvTests {
                 sessionId: "SID",
                 executablePath: "/opt/bin/codex",
                 arguments: routedArguments,
-                environment: ["SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume; echo unsafe"]
+                environment: boundSubrouterMarker("sr codex resume; echo unsafe")
             ) == .passthrough
         )
 
@@ -389,14 +396,14 @@ struct AgentResumeArgvTests {
                 sessionId: "SID",
                 executablePath: "/opt/bin/codex",
                 arguments: routedArguments,
-                environment: ["SUBROUTER_CODEX_RESUME_COMMAND": "router codex resume"]
+                environment: boundSubrouterMarker("router codex resume")
             ) == .passthrough
         )
     }
 
     @Test("Subrouter routing proof and filtering stop at the option terminator")
     func subrouterRoutingStopsAtOptionTerminator() {
-        let marker = ["SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume"]
+        let marker = boundSubrouterMarker()
 
         #expect(
             AgentResumeArgv().launcherResolution(
@@ -434,7 +441,7 @@ struct AgentResumeArgvTests {
     @Test("Subrouter routing proof survives prompt sanitization")
     func subrouterRoutingProofSurvivesPromptSanitization() {
         let router = SubrouterCodexResumeRouting()
-        let marker = ["SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume"]
+        let marker = boundSubrouterMarker()
 
         #expect(router.retainingRoutingProof(
             in: ["codex"],
@@ -499,11 +506,15 @@ struct AgentResumeArgvTests {
         )
     }
 
-    @Test("Codex wrapper token resolves CMUX_CODEX_WRAPPER_SHIM, degrading to bare codex")
+    @Test("Codex wrapper token resolves CMUX_CODEX_WRAPPER_SHIM with an explicit fallback")
     func codexWrapperShellExecutableToken() {
         #expect(
             AgentResumeArgv.codexWrapperShellExecutableToken
                 == "\"$([ -x \"${CMUX_CODEX_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CODEX_WRAPPER_SHIM\" || printf codex)\""
+        )
+        #expect(
+            AgentResumeArgv.codexWrapperShellExecutableToken(fallbackExecutable: "/opt/team's codex")
+                == "\"$([ -x \"${CMUX_CODEX_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CODEX_WRAPPER_SHIM\" || printf '%s' '/opt/team'\\''s codex')\""
         )
     }
 

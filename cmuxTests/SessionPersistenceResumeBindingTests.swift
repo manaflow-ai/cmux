@@ -159,6 +159,7 @@ import Testing
                 arguments: ["/opt/company/bin/codex", "-c", "model_provider=subrouter"],
                 workingDirectory: "/tmp/project",
                 environment: [
+                    "CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
                     "SUBROUTER_CODEX_BIN": "/opt/company/bin/codex",
                     "SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
                 ],
@@ -190,6 +191,7 @@ import Testing
                 arguments: ["/opt/custom/codex", "-c", "model_provider=subrouter"],
                 workingDirectory: "/tmp/project",
                 environment: [
+                    "CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
                     "CMUX_CUSTOM_CODEX_PATH": "/opt/custom/codex",
                     "SUBROUTER_CODEX_BIN": "${CMUX_CODEX_WRAPPER_SHIM:-codex}",
                     "SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",

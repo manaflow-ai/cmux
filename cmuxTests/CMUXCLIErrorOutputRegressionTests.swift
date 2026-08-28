@@ -268,6 +268,7 @@ import Testing
         #expect(!result.timedOut, Comment(rawValue: result.diagnostics))
         #expect(result.status == 0, Comment(rawValue: result.diagnostics))
         #expect(result.stdout.contains("SUBROUTER_CODEX_") == false)
+        #expect(result.stdout.contains("model_provider=subrouter") == false)
         #expect(result.stdout.contains("private@example.test") == false)
         #expect(result.stdout.contains("router.example.test") == false)
         let payload = try #require(

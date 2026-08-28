@@ -205,6 +205,7 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
             routingValue
         }
         selected[SubrouterCodexResumeRouting.environmentKey] = marker
+        selected[SubrouterCodexResumeRouting.launchBoundEnvironmentKey] = marker
         return selected
     }
 
@@ -224,6 +225,7 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
             arguments: arguments
         )
         selected.removeValue(forKey: SubrouterCodexResumeRouting.environmentKey)
+        selected.removeValue(forKey: SubrouterCodexResumeRouting.launchBoundEnvironmentKey)
         return selected
     }
 

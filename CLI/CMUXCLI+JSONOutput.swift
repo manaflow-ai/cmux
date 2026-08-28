@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Foundation
 
 extension CMUXCLI {
@@ -5,7 +6,9 @@ extension CMUXCLI {
         switch object {
         case let dictionary as [String: Any]:
             var selected: [String: Any] = [:]
-            for (key, value) in dictionary where !key.hasPrefix("SUBROUTER_CODEX_") {
+            for (key, value) in dictionary
+                where !key.hasPrefix("SUBROUTER_CODEX_")
+                    && key != SubrouterCodexResumeRouting.launchBoundEnvironmentKey {
                 selected[key] = publicSurfaceResumePayload(value)
             }
             return selected
@@ -13,6 +16,7 @@ extension CMUXCLI {
             return array.map(publicSurfaceResumePayload)
         case let value as String
             where value.contains("SUBROUTER_CODEX_")
+                || value.contains("model_provider=subrouter")
                 || value.contains("model_providers.subrouter."):
             return "[private routing metadata]"
         default:

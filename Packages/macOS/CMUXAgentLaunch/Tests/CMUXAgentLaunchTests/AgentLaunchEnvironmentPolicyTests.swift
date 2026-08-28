@@ -53,6 +53,7 @@ struct AgentLaunchEnvironmentPolicyTests {
                 "SUBROUTER_CODEX_BASE_URL": "https://router.example.test/v1",
                 "SUBROUTER_CODEX_BIN": "/opt/codex/bin/codex",
                 "SUBROUTER_CODEX_RESUME_COMMAND": "\(command) codex resume",
+                "CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND": "\(command) codex resume",
                 "SUBROUTER_CODEX_SERVER": "team",
                 "SUBROUTER_CODEX_USER_EMAIL": "operator@example.test",
             ],
@@ -66,6 +67,7 @@ struct AgentLaunchEnvironmentPolicyTests {
             "SUBROUTER_CODEX_BASE_URL": "https://router.example.test/v1",
             "SUBROUTER_CODEX_BIN": "/opt/codex/bin/codex",
             "SUBROUTER_CODEX_RESUME_COMMAND": "\(command) codex resume",
+            "CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND": "\(command) codex resume",
             "SUBROUTER_CODEX_SERVER": "team",
             "SUBROUTER_CODEX_USER_EMAIL": "operator@example.test",
         ])
@@ -83,6 +85,7 @@ struct AgentLaunchEnvironmentPolicyTests {
                 "SUBROUTER_CODEX_ACCOUNT_ID": "team\ncodex",
                 "SUBROUTER_CODEX_BASE_URL": "https://user:secret@router.example.test/v1",
                 "SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
+                "CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
                 "SUBROUTER_CODEX_SERVER": "team\nstaging",
                 "SUBROUTER_CODEX_USER_EMAIL": "operator@example.test\nX-Injected: yes",
             ],
@@ -93,6 +96,7 @@ struct AgentLaunchEnvironmentPolicyTests {
 
         #expect(selected == [
             "SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
+            "CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
         ])
     }
 
@@ -102,6 +106,7 @@ struct AgentLaunchEnvironmentPolicyTests {
             from: [
                 "SUBROUTER_CODEX_BASE_URL": "https://router.example.test/t/srt_secret/v1",
                 "SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
+                "CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
                 "SUBROUTER_CODEX_SERVER": "team",
             ],
             kind: "codex",
@@ -111,6 +116,7 @@ struct AgentLaunchEnvironmentPolicyTests {
 
         #expect(selected == [
             "SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
+            "CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
             "SUBROUTER_CODEX_SERVER": "team",
         ])
     }
@@ -122,6 +128,7 @@ struct AgentLaunchEnvironmentPolicyTests {
             "SUBROUTER_CODEX_BASE_URL": "https://router.example.test/v1",
             "SUBROUTER_CODEX_BIN": "/opt/codex/bin/codex",
             "SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
+            "CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
             "SUBROUTER_CODEX_SERVER": "team",
             "SUBROUTER_CODEX_USER_EMAIL": "operator@example.test",
         ])
@@ -131,6 +138,7 @@ struct AgentLaunchEnvironmentPolicyTests {
             "SUBROUTER_CODEX_BASE_URL": "https://router.example.test/v1",
             "SUBROUTER_CODEX_BIN": "/opt/codex/bin/codex",
             "SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
+            "CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
             "SUBROUTER_CODEX_SERVER": "team",
             "SUBROUTER_CODEX_USER_EMAIL": "operator@example.test",
         ])
@@ -145,6 +153,7 @@ struct AgentLaunchEnvironmentPolicyTests {
                 "SUBROUTER_CODEX_BASE_URL": "https://router.example.test/v1",
                 "SUBROUTER_CODEX_BIN": "/opt/codex/bin/codex",
                 "SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
+                "CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
                 "SUBROUTER_CODEX_SERVER": "team",
                 "SUBROUTER_CODEX_USER_EMAIL": "operator@example.test",
             ],
