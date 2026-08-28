@@ -690,6 +690,9 @@ impl MachineConnectionHub {
                     };
                     if self.inner.closed.load(Ordering::Acquire) {
                         slot.state = MachineConnectionState::Disconnected;
+                        if let Ok(connection) = &result {
+                            connection.session.begin_shutdown();
+                        }
                         self.inner.changed.notify_all();
                         anyhow::bail!(crate::localization::catalog().sidebar.no_active_session);
                     }
