@@ -32901,7 +32901,9 @@ export default CMUXSessionRestore;
         telemetry: CLISocketSentryTelemetry,
         socketPassword: String? = nil,
         rawInputOverride: String? = nil,
-        hookDeadline: Date? = nil
+        hookDeadline: Date? = nil,
+        codexStopDecisionOverride: CodexTurnLedgerDecision? = nil,
+        skipCodexLegacyPromptStop: Bool = false
     ) throws {
         let env = ProcessInfo.processInfo.environment
         let subcommand = commandArgs.first?.lowercased() ?? ""
@@ -34111,6 +34113,26 @@ export default CMUXSessionRestore;
                     detail: decision.ownership == .foreground ? nil : "child-lifecycle-nested"
                 )
             }
+            if case .codexSubagentStop = action,
+               decision.ownership == .foreground,
+               decision.settlement == .settled,
+               decision.shouldNotify {
+                // A parent Stop can arrive before its last child exits. Reuse
+                // the normal stop publication path with the already-authoritative
+                // ledger decision so completion is emitted exactly once.
+                try runGenericAgentHook(
+                    def: def,
+                    commandArgs: ["stop"],
+                    client: client,
+                    telemetry: telemetry,
+                    socketPassword: socketPassword,
+                    rawInputOverride: rawInput,
+                    hookDeadline: hookDeadline,
+                    codexStopDecisionOverride: decision,
+                    skipCodexLegacyPromptStop: true
+                )
+                return
+            }
 
         case .sessionStart:
             let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
@@ -34722,6 +34744,9 @@ export default CMUXSessionRestore;
                       let codexLifecycle else {
                     return nil
                 }
+                if let codexStopDecisionOverride {
+                    return codexStopDecisionOverride
+                }
                 return codexLifecycle.observe(
                     sessionID: sessionId,
                     workspaceID: resolvedDirectWorkspaceArg ?? mapped?.workspaceId,
@@ -34876,7 +34901,9 @@ export default CMUXSessionRestore;
                 terminalActivePromptTurnIdsForStop = []
             }
             let nestedPromptStop: Bool
-            if def.name == "codex", codexStopDecision?.settlement == .settled {
+            if skipCodexLegacyPromptStop {
+                nestedPromptStop = false
+            } else if def.name == "codex", codexStopDecision?.settlement == .settled {
                 // The ledger admitted this exact terminal boundary; do not let
                 // a prior pending Stop's tombstone make it look nested.
                 nestedPromptStop = false
@@ -34911,12 +34938,16 @@ export default CMUXSessionRestore;
             if def.name == "codex",
                !nestedPromptStop,
                let codexLifecycle {
-                codexStopDecision = codexLifecycle.stop(
-                    sessionID: sessionId,
-                    turnID: input.turnId,
-                    workspaceID: workspaceId,
-                    surfaceID: surfaceId
-                )
+                if let codexStopDecisionOverride {
+                    codexStopDecision = codexStopDecisionOverride
+                } else {
+                    codexStopDecision = codexLifecycle.stop(
+                        sessionID: sessionId,
+                        turnID: input.turnId,
+                        workspaceID: workspaceId,
+                        surfaceID: surfaceId
+                    )
+                }
             }
             if def.name == "codex",
                !nestedPromptStop,
