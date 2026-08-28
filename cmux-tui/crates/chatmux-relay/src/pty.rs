@@ -1043,7 +1043,13 @@ impl Inner {
             return;
         };
         let _operation = attachment.operation_gate.lock().expect("attachment operation lock");
-        if !self.attachment_is_authorized(pty_id, &attachment, &auth, context) {
+        // The state lock is only the authorization linearization point. Do
+        // not keep it while backpressure or the send callback runs.
+        let authorized = {
+            let _state = self.tunnel_state.lock().expect("tunnel state lock");
+            self.attachment_is_authorized(pty_id, &attachment, &auth, context)
+        };
+        if !authorized {
             drop(_operation);
             self.handle_authorization_failure(pty_id, &attachment, &auth, context, "output");
             return;
@@ -1090,7 +1096,11 @@ impl Inner {
             return;
         };
         let _operation = attachment.operation_gate.lock().expect("attachment operation lock");
-        if !self.attachment_is_authorized(pty_id, &attachment, &auth, context) {
+        let authorized = {
+            let _state = self.tunnel_state.lock().expect("tunnel state lock");
+            self.attachment_is_authorized(pty_id, &attachment, &auth, context)
+        };
+        if !authorized {
             drop(_operation);
             self.handle_authorization_failure(pty_id, &attachment, &auth, context, "exit");
             return;
@@ -1107,6 +1117,8 @@ impl Inner {
             return;
         }
         attachment.closing.store(true, Ordering::SeqCst);
+        // Exit publication crosses the transport boundary. Release the
+        // lifecycle state before invoking the callback.
         drop(_operation);
         (auth.send)(json!({
             "version": PTY_PROTOCOL_VERSION,
@@ -1160,7 +1172,13 @@ impl Inner {
         let Some(attachment) = self.attachment(pty_id) else { return };
         let operation_gate = Arc::clone(&attachment.operation_gate);
         let _operation = operation_gate.lock().expect("attachment operation lock");
-        if !self.attachment_is_authorized(pty_id, &attachment, &auth, context) {
+        // The state lock is only the authorization linearization point. The
+        // control operation can block on a child that does not read stdin.
+        let authorized = {
+            let _state = self.tunnel_state.lock().expect("tunnel state lock");
+            self.attachment_is_authorized(pty_id, &attachment, &auth, context)
+        };
+        if !authorized {
             drop(_operation);
             self.handle_authorization_failure(pty_id, &attachment, &auth, context, action);
             return;
@@ -1202,7 +1220,11 @@ impl Inner {
         let Some(auth) = self.auth_for_transport(context) else { return };
         let Some(attachment) = self.attachment(pty_id) else { return };
         let _operation = attachment.operation_gate.lock().expect("attachment operation lock");
-        if !self.attachment_is_authorized(pty_id, &attachment, &auth, context) {
+        let authorized = {
+            let _state = self.tunnel_state.lock().expect("tunnel state lock");
+            self.attachment_is_authorized(pty_id, &attachment, &auth, context)
+        };
+        if !authorized {
             drop(_operation);
             self.handle_authorization_failure(pty_id, &attachment, &auth, context, "close");
             return;
@@ -1217,6 +1239,9 @@ impl Inner {
         };
         if removed {
             attachment.closing.store(true, Ordering::SeqCst);
+            // Killing a PTY can acquire a platform mutex. Keep it outside the
+            // lifecycle barrier and the per-attachment operation gate.
+            drop(_operation);
             attachment.control.kill();
         }
     }
@@ -1285,7 +1310,10 @@ impl Inner {
     }
 
     fn retire_attachment(&self, attachment: Attachment) {
-        let _operation = attachment.operation_gate.lock().expect("attachment operation lock");
+        // Revocation must not wait for an admitted PTY write. The operation
+        // was linearized before removal from the attachment map; killing the
+        // control concurrently closes that admitted operation when the
+        // platform permits it, while this transition remains bounded.
         attachment.closing.store(true, Ordering::SeqCst);
         attachment.control.kill();
     }
@@ -1361,7 +1389,10 @@ impl Inner {
 
     fn tunnel_authority_generation_current(&self, context: &FrameContext) -> bool {
         context.auth_generation.is_none_or(|generation| {
-            generation >= self.tunnel_authority_generation.load(Ordering::Acquire)
+            // A frame is valid only for the exact published generation. A
+            // future generation has not passed the authority publication
+            // boundary and must fail closed as well as an old generation.
+            generation == self.tunnel_authority_generation.load(Ordering::Acquire)
         })
     }
 
@@ -3301,6 +3332,56 @@ mod tests {
         release.wait();
         slow_thread.join().unwrap();
         fast_thread.join().unwrap();
+    }
+
+    #[test]
+    fn tunnel_revocation_does_not_wait_for_a_blocking_operation() {
+        let h = harness(None, None);
+        let inner = Arc::clone(&h.manager.inner);
+        let entered = Arc::new(Barrier::new(2));
+        let release = Arc::new(Barrier::new(2));
+        let owner = TransportOwner { id: Some("tunnel-a".to_owned()), kind: TransportKind::Tunnel };
+        {
+            let mut attachments = inner.attachments.lock().unwrap();
+            attachments.insert(
+                "p1".to_owned(),
+                Attachment {
+                    closing: Arc::new(AtomicBool::new(false)),
+                    operation_gate: Arc::new(Mutex::new(())),
+                    control: Arc::new(BlockingControl {
+                        entered: Arc::clone(&entered),
+                        release: Arc::clone(&release),
+                    }),
+                    actor_id: "user_owner".to_owned(),
+                    owner: owner.clone(),
+                },
+            );
+        }
+        let mut context = h.context_with_transport("supervised", h.owner.clone(), Some("tunnel-a"));
+        context.transport_kind = TransportKind::Tunnel;
+        inner.cache_transport_auth(&context);
+
+        let operation_inner = Arc::clone(&inner);
+        let operation_context = context.clone();
+        let operation = thread::spawn(move || {
+            operation_inner.with_authorized("p1", &operation_context, "input", |attachment| {
+                attachment.control.write(b"blocked");
+            });
+        });
+        entered.wait();
+
+        let (done_tx, done_rx) = sync_channel(1);
+        let revoke_inner = Arc::clone(&inner);
+        let revoke = thread::spawn(move || {
+            revoke_inner.detach_tunnel_transports();
+            done_tx.send(()).unwrap();
+        });
+        let completed_without_waiting = done_rx.recv_timeout(Duration::from_millis(250)).is_ok();
+        release.wait();
+        operation.join().unwrap();
+        revoke.join().unwrap();
+        assert!(completed_without_waiting, "revocation must not wait for PTY I/O");
+        assert!(!h.manager.has_attachment("p1"));
     }
 
     #[test]
