@@ -832,7 +832,11 @@ class GhosttyApp {
                 )
             }
         }
-        runtimeConfig.write_clipboard_cb = { _, location, content, len, _ in
+        runtimeConfig.write_clipboard_cb = { userdata, location, content, len, _ in
+            if GhosttyApp.callbackContext(from: userdata)?.surfaceView?
+                .suppressingSyntheticMouseReleaseSideEffects == true {
+                return
+            }
             guard let content = content, len > 0 else { return }
             let buffer = UnsafeBufferPointer(start: content, count: Int(len))
             let decoder = TerminalClipboardRepresentationDecoder()
@@ -3410,6 +3414,11 @@ class GhosttyApp {
                 return true
             }
         case GHOSTTY_ACTION_OPEN_URL:
+            if surfaceView.suppressingSyntheticMouseReleaseSideEffects {
+                // Lifecycle cancellation may still traverse Ghostty's release
+                // action path; do not turn that cleanup into a link launch.
+                return true
+            }
             let openUrl = action.action.open_url
             guard let cstr = openUrl.url else { return false }
             let urlString = String(
@@ -3970,6 +3979,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// The captured session tokens keep the task safe across a new press or
     /// native runtime generation.
     private var deferredGhosttyMouseRepairTask: Task<Void, Never>?
+    /// Set while a lifecycle repair closes a native gesture. Ghostty's normal
+    /// left release can copy selections or invoke link/prompt actions; those
+    /// side effects do not belong to a focus/portal cancellation.
+    fileprivate var suppressingSyntheticMouseReleaseSideEffects = false
     let imageTransferPreparation: TerminalImageTransferPreparationService?
 #if DEBUG
     private var lastSizeSkipSignature: String?
@@ -6858,6 +6871,30 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
     }
 
+    private func sendSyntheticGhosttyMouseRelease(
+        _ surface: ghostty_surface_t,
+        button: ghostty_input_mouse_button_e,
+        mods: ghostty_input_mods_e
+    ) -> Bool {
+        let wasSuppressing = suppressingSyntheticMouseReleaseSideEffects
+        suppressingSyntheticMouseReleaseSideEffects = true
+        defer { suppressingSyntheticMouseReleaseSideEffects = wasSuppressing }
+
+        // Leave the terminal viewport before a cancelled left gesture is
+        // released. This prevents prompt-click/link hover state from being
+        // interpreted as a user click while preserving the existing selection
+        // for the next explicit interaction.
+        if button == GHOSTTY_MOUSE_LEFT {
+            ghostty_surface_mouse_pos(surface, -1, -1, mods)
+        }
+        return sendGhosttyMouseButton(
+            surface,
+            state: GHOSTTY_MOUSE_RELEASE,
+            button: button,
+            mods: mods
+        )
+    }
+
 #if DEBUG
     @discardableResult
     private func sendTimedGhosttyKey(
@@ -7121,7 +7158,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             surface: surface,
             surfaceIdentity: surfaceIdentity,
             physicalButtons: physicalButtons,
-            forcedSessions: forcedSessions
+            forcedSessions: forcedSessions,
+            suppressSideEffects: false
         )
     }
 
@@ -7130,8 +7168,21 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         surface: ghostty_surface_t,
         surfaceIdentity: GhosttyMouseSessionLedger.SurfaceIdentity,
         physicalButtons: Int?,
-        forcedSessions: Set<GhosttyMouseSessionLedger.Session>
+        forcedSessions: Set<GhosttyMouseSessionLedger.Session>,
+        suppressSideEffects: Bool
     ) {
+        guard let terminalSurface,
+              let validatedSurface = terminalSurface.liveSurfaceForGhosttyAccess(
+                  reason: "mouseRepair.\(reason)"
+              ),
+              UInt(bitPattern: validatedSurface) == surfaceIdentity.nativeAddress,
+              UInt(bitPattern: validatedSurface) == UInt(bitPattern: surface) else {
+            // `surface` can be a stale wrapper even when its pointer bits have
+            // not changed. The owning model's liveness seam quarantines that
+            // case; clear our session/monitor mirror before returning.
+            resetGhosttyMouseButtonTracking()
+            return
+        }
         guard currentGhosttyMouseSurfaceIdentity == surfaceIdentity,
               ghosttyMouseSessionLedger.activeSurface == surfaceIdentity else {
             synchronizeGhosttyMouseSurfaceIdentity()
@@ -7167,12 +7218,20 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 for: session.button,
                 on: surfaceIdentity
             ) == session else { continue }
-            _ = sendGhosttyMouseButton(
-                surface,
-                state: GHOSTTY_MOUSE_RELEASE,
-                button: session.button.ghosttyButton,
-                mods: pointer?.mods ?? GHOSTTY_MODS_NONE
-            )
+            if suppressSideEffects {
+                _ = sendSyntheticGhosttyMouseRelease(
+                    surface,
+                    button: session.button.ghosttyButton,
+                    mods: pointer?.mods ?? GHOSTTY_MODS_NONE
+                )
+            } else {
+                _ = sendGhosttyMouseButton(
+                    surface,
+                    state: GHOSTTY_MOUSE_RELEASE,
+                    button: session.button.ghosttyButton,
+                    mods: pointer?.mods ?? GHOSTTY_MODS_NONE
+                )
+            }
             _ = finishGhosttyMouseSession(session)
         }
     }
@@ -7228,7 +7287,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 surface: surface,
                 surfaceIdentity: surfaceIdentity,
                 physicalButtons: forceAll ? nil : NSEvent.pressedMouseButtons,
-                forcedSessions: forcedSessions
+                forcedSessions: forcedSessions,
+                suppressSideEffects: true
             )
         }
     }
@@ -7251,7 +7311,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             surface: surface,
             surfaceIdentity: surfaceIdentity,
             physicalButtons: nil,
-            forcedSessions: sessions
+            forcedSessions: sessions,
+            suppressSideEffects: true
         )
         resetGhosttyMouseButtonTracking()
     }
@@ -8283,8 +8344,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // pointer (ghostty ignores a same-cell mouse_pos with new mods), so a
         // helper that synthesized the forwarding itself would keep passing
         // with the handler broken.
-        guard let cmdDown = debugFlagsChangedEvent(commandDown: true, at: clampedPoint),
-              let cmdUp = debugFlagsChangedEvent(commandDown: false, at: clampedPoint) else {
+        guard let cmdDown = makeFlagsChangedEvent(commandDown: true, at: clampedPoint),
+              let cmdUp = makeFlagsChangedEvent(commandDown: false, at: clampedPoint) else {
             return ["error": "Failed to construct flagsChanged events"]
         }
 
@@ -8311,7 +8372,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         ]
     }
 
-    private func debugFlagsChangedEvent(commandDown: Bool, at pointInView: NSPoint) -> NSEvent? {
+    private func makeFlagsChangedEvent(commandDown: Bool, at pointInView: NSPoint) -> NSEvent? {
         // ghostty_input_action_e.modifierActionForFlagsChanged distinguishes left-Cmd
         // presses by the device-side bit, so a bare .command is read as a
         // release.
