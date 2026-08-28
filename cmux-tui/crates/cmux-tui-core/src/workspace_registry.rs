@@ -443,7 +443,9 @@ pub struct PersistentSessionStateResetter {
 impl PersistentSessionStateResetter {
     /// Creates a reset owner for one durable workspace state root.
     pub fn new(state_root: impl Into<PathBuf>) -> Self {
-        Self { state_root: state_root.into() }
+        Self {
+            state_root: platform::normalize_filesystem_path(state_root.into()),
+        }
     }
 
     /// Returns the workspace state root this reset owner can mutate.
@@ -2301,6 +2303,8 @@ impl WorkspaceRegistry {
     }
 
     pub fn open(root: &Path, session_name: &str) -> anyhow::Result<Self> {
+        let normalized_root = platform::normalize_filesystem_path(root.to_path_buf());
+        let root = normalized_root.as_path();
         let session_dir = root.join(session_storage_component(session_name));
         let db_path = session_dir.join(WORKSPACE_REGISTRY_FILE);
         if db_path.is_file()

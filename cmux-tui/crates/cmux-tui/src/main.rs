@@ -1982,7 +1982,7 @@ fn run_server(
         None
     } else {
         Some(match args.state {
-            Some(path) => path,
+            Some(path) => cmux_tui_core::platform::normalize_filesystem_path(path),
             None => cmux_tui_core::platform::workspace_state_dir()
                 .ok_or_else(|| anyhow::anyhow!("cannot determine durable state directory"))?,
         })
@@ -2368,7 +2368,10 @@ fn start_detached_owner_session(
         session: args.session.clone(),
         socket: socket_path.clone(),
         socket_is_derived: args.socket.is_none(),
-        state: args.state.clone(),
+        state: args
+            .state
+            .clone()
+            .map(cmux_tui_core::platform::normalize_filesystem_path),
         term: args.term.clone(),
     };
     let deadline = std::time::Instant::now() + local_owner::ENSURE_DEADLINE;

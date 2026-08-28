@@ -195,36 +195,175 @@ pub fn invalid_runtime_dir() -> PathBuf {
 /// ledgers live here across daemon and machine reboots.
 pub fn workspace_state_dir() -> Option<PathBuf> {
     if let Some(path) = env_path("CMUX_TUI_STATE_DIR") {
-        return Some(path);
+        return Some(normalize_filesystem_path(path));
     }
     #[cfg(target_os = "macos")]
     {
         home_dir().map(|home| {
-            home.join("Library").join("Application Support").join("cmux-tui").join("sessions")
+            normalize_filesystem_path(
+                home.join("Library").join("Application Support").join("cmux-tui").join("sessions"),
+            )
         })
     }
     #[cfg(target_os = "linux")]
     {
-        env_path("XDG_STATE_HOME").map(|state| state.join("cmux-tui").join("sessions")).or_else(
-            || {
-                home_dir()
-                    .map(|home| home.join(".local").join("state").join("cmux-tui").join("sessions"))
-            },
-        )
+        env_path("XDG_STATE_HOME")
+            .map(|state| normalize_filesystem_path(state.join("cmux-tui").join("sessions")))
+            .or_else(|| {
+                home_dir().map(|home| {
+                    normalize_filesystem_path(
+                        home.join(".local").join("state").join("cmux-tui").join("sessions"),
+                    )
+                })
+            })
     }
     #[cfg(windows)]
     {
-        return env_path("LOCALAPPDATA").map(|dir| dir.join("cmux-tui").join("sessions"));
+        return env_path("LOCALAPPDATA")
+            .map(|dir| normalize_filesystem_path(dir.join("cmux-tui").join("sessions")));
     }
     #[cfg(all(not(target_os = "macos"), not(target_os = "linux"), not(windows)))]
     {
-        env_path("XDG_STATE_HOME").map(|state| state.join("cmux-tui").join("sessions")).or_else(
-            || {
-                home_dir()
-                    .map(|home| home.join(".local").join("state").join("cmux-tui").join("sessions"))
-            },
-        )
+        env_path("XDG_STATE_HOME")
+            .map(|state| normalize_filesystem_path(state.join("cmux-tui").join("sessions")))
+            .or_else(|| {
+                home_dir().map(|home| {
+                    normalize_filesystem_path(
+                        home.join(".local").join("state").join("cmux-tui").join("sessions"),
+                    )
+                })
+            })
     }
+}
+
+/// Return a path that every state-file owner can use without hitting the
+/// legacy Windows MAX_PATH boundary. Windows' verbatim namespace is applied
+/// only to long, absolute drive or UNC paths. Short paths keep their existing
+/// spelling so callers and persisted diagnostics remain compatible.
+pub fn normalize_filesystem_path(path: PathBuf) -> PathBuf {
+    #[cfg(windows)]
+    {
+        use std::ffi::OsString;
+        use std::os::windows::ffi::{OsStrExt, OsStringExt};
+
+        const WINDOWS_PATH_HEADROOM: usize = 240;
+        let path = if path.is_absolute() {
+            path
+        } else {
+            match std::env::current_dir() {
+                Ok(current) => current.join(path),
+                Err(_) => return path,
+            }
+        };
+        let mut wide = path.as_os_str().encode_wide().collect::<Vec<_>>();
+        if wide.len() < WINDOWS_PATH_HEADROOM {
+            return path;
+        }
+        for unit in &mut wide {
+            if *unit == b'/' as u16 {
+                *unit = b'\\' as u16;
+            }
+        }
+        if has_windows_device_prefix(&wide) {
+            return path;
+        }
+        let Some(normalized) = normalize_windows_absolute_path(&wide) else {
+            return path;
+        };
+        let is_unc = normalized.starts_with(&[b'\\' as u16, b'\\' as u16]);
+        let mut prefixed = if is_unc {
+            // `\\server\\share` becomes `\\?\\UNC\\server\\share`.
+            vec![
+                b'\\' as u16,
+                b'\\' as u16,
+                b'?' as u16,
+                b'\\' as u16,
+                b'U' as u16,
+                b'N' as u16,
+                b'C' as u16,
+                b'\\' as u16,
+            ]
+        } else {
+            vec![b'\\' as u16, b'\\' as u16, b'?' as u16, b'\\' as u16]
+        };
+        prefixed.extend_from_slice(if is_unc { &normalized[2..] } else { &normalized });
+        PathBuf::from(OsString::from_wide(&prefixed))
+    }
+    #[cfg(not(windows))]
+    {
+        path
+    }
+}
+
+#[cfg(windows)]
+fn has_windows_device_prefix(path: &[u16]) -> bool {
+    path.starts_with(&[b'\\' as u16, b'\\' as u16, b'?' as u16, b'\\' as u16])
+        || path.starts_with(&[b'\\' as u16, b'\\' as u16, b'.' as u16, b'\\' as u16])
+        || path.starts_with(&[b'\\' as u16, b'?' as u16, b'?' as u16, b'\\' as u16])
+}
+
+#[cfg(windows)]
+fn normalize_windows_absolute_path(path: &[u16]) -> Option<Vec<u16>> {
+    let is_drive = path.len() >= 3
+        && path[0] <= 0x7f
+        && (path[0] as u8).is_ascii_alphabetic()
+        && path[1] == b':' as u16
+        && path[2] == b'\\' as u16;
+    let (root, rest, root_has_separator) = if is_drive {
+        (&path[..3], &path[3..], true)
+    } else if path.starts_with(&[b'\\' as u16, b'\\' as u16]) {
+        let mut index = 2;
+        let server_start = index;
+        while index < path.len() && path[index] != b'\\' as u16 {
+            index += 1;
+        }
+        if index == server_start {
+            return None;
+        }
+        while index < path.len() && path[index] == b'\\' as u16 {
+            index += 1;
+        }
+        let share_start = index;
+        while index < path.len() && path[index] != b'\\' as u16 {
+            index += 1;
+        }
+        if index == share_start {
+            return None;
+        }
+        let root_end = index;
+        let rest_start = (index < path.len()).then_some(index + 1).unwrap_or(index);
+        (&path[..root_end], &path[rest_start..], false)
+    } else {
+        return None;
+    };
+
+    let mut segments = Vec::<Vec<u16>>::new();
+    let mut segment_start = 0;
+    for index in 0..=rest.len() {
+        if index != rest.len() && rest[index] != b'\\' as u16 {
+            continue;
+        }
+        let segment = &rest[segment_start..index];
+        if segment.is_empty() || segment == [b'.' as u16] {
+            // Repeated separators and current-directory components do not
+            // change the path and must not survive the verbatim prefix.
+        } else if segment == [b'.' as u16, b'.' as u16] {
+            // An absolute path cannot walk above its root.
+            let _ = segments.pop();
+        } else {
+            segments.push(segment.to_vec());
+        }
+        segment_start = index.saturating_add(1);
+    }
+
+    let mut output = root.to_vec();
+    for segment in segments {
+        if !root_has_separator || output.last() != Some(&(b'\\' as u16)) {
+            output.push(b'\\' as u16);
+        }
+        output.extend_from_slice(&segment);
+    }
+    Some(output)
 }
 
 /// Path of the client's bounded rolling log file: the `cmux-tui` state root
@@ -1149,6 +1288,25 @@ mod tests {
         sync_directory(&root).unwrap();
 
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn normalize_long_windows_state_paths_uses_the_verbatim_namespace() {
+        let path = PathBuf::from(format!(r"C:\{}\..\state", "segment".repeat(42)));
+        let normalized = normalize_filesystem_path(path);
+        let text = normalized.to_string_lossy();
+        assert!(text.starts_with(r"\\?\C:\"), "{text}");
+        assert!(!text.contains(r"\..\"), "{text}");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn normalize_long_windows_unc_paths_preserves_the_share_boundary() {
+        let path = PathBuf::from(format!(r"\\server\share\{}", "segment".repeat(42)));
+        let normalized = normalize_filesystem_path(path);
+        let text = normalized.to_string_lossy();
+        assert!(text.starts_with(r"\\?\UNC\server\share\"), "{text}");
     }
 
     #[test]
