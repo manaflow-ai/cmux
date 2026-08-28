@@ -198,7 +198,21 @@ impl WorkspaceRegistry {
         terminal: Option<&TerminalPublicId>,
         state: Option<&str>,
     ) -> anyhow::Result<Vec<RegistryAgentProjection>> {
-        self.durable_agents(terminal, state)
+        let mut agents = self.durable_agents(terminal, state)?;
+        agents.retain(|agent| {
+            !agent
+                .source_session
+                .as_deref()
+                .is_some_and(|value| value.starts_with("cmux-hook-ended:"))
+        });
+        for agent in &mut agents {
+            if agent.source_session.as_deref().is_some_and(|value| {
+                value.starts_with("cmux-hook-sequence:") || value.starts_with("cmux-hook-ended:")
+            }) {
+                agent.source_session = None;
+            }
+        }
+        Ok(agents)
     }
 
     fn live_terminal_public_ids(&self) -> anyhow::Result<HashSet<TerminalPublicId>> {

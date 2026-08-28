@@ -8770,7 +8770,14 @@ impl Mux {
         {
             anyhow::bail!("agent session ended for terminal {terminal_id}");
         }
-        let persisted_source_session = source_session.clone();
+        let hook_marker = (source == AgentSource::Socket).then(|| {
+            self.agent_hook_sequences
+                .lock()
+                .unwrap()
+                .get(&terminal_id)
+                .map(|sequence| format!("cmux-hook-sequence:{sequence}"))
+        });
+        let persisted_source_session = hook_marker.flatten().or(source_session.clone());
         let source_session = source_session.filter(|value| {
             !value.starts_with("cmux-hook-sequence:") && !value.starts_with("cmux-hook-ended:")
         });
@@ -21837,6 +21844,49 @@ mod tests {
             mux.report_agent(surface.id, AgentState::Working, AgentSource::Socket, None).is_err()
         );
         assert!(mux.list_agents(Some(surface.id), None).is_empty());
+        assert!(
+            mux.workspace_registry
+                .lock()
+                .unwrap()
+                .public_agent_projections(None, None)
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn socket_report_preserves_hook_sequence_marker() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = mux.with_state(|state| {
+            match state.resource_indexes.content_ids.get(&surface.id).unwrap() {
+                ContentPublicId::Terminal(id) => id.clone(),
+                ContentPublicId::Browser(_) => panic!("workspace opened a browser"),
+            }
+        });
+        let hook = crate::agent_hooks::agent_hook_journal_ingress(
+            "claude",
+            "UserPromptSubmit",
+            Some(&terminal_id.to_string()),
+            serde_json::json!({}),
+        )
+        .unwrap();
+        mux.apply_agent_hook_record(&hook, 4);
+        mux.report_agent(
+            surface.id,
+            AgentState::Working,
+            AgentSource::Socket,
+            Some("raw-session".into()),
+        )
+        .unwrap();
+        let projections = mux.workspace_registry.lock().unwrap().public_projections().unwrap();
+        let projection =
+            projections.agents.into_iter().find(|agent| agent.terminal_id == terminal_id).unwrap();
+        assert_eq!(projection.source_session.as_deref(), Some("cmux-hook-sequence:4"));
+        let public_agents =
+            mux.workspace_registry.lock().unwrap().public_agent_projections(None, None).unwrap();
+        assert_eq!(public_agents.len(), 1);
+        assert_eq!(public_agents[0].source_session, None);
     }
 
     #[test]
