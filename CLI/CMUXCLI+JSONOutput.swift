@@ -11,6 +11,10 @@ extension CMUXCLI {
             return selected
         case let array as [Any]:
             return array.map(publicSurfaceResumePayload)
+        case let value as String
+            where value.contains("SUBROUTER_CODEX_")
+                || value.contains("model_providers.subrouter."):
+            return "[private routing metadata]"
         default:
             return object
         }
