@@ -8,6 +8,7 @@ import {
 } from "../../../services/vms/auth";
 import {
   defaultProviderId,
+  isProviderId,
   type ProviderId,
 } from "../../../services/vms/drivers";
 import { assertVmCreateEnabled } from "../../../services/vms/config";
@@ -30,7 +31,16 @@ import {
 } from "../../../services/vms/entitlements";
 import {
   imageUsesBakedFreestyleSignedAdmin,
+  inferVmProviderForImage,
   resolveVmImage,
+} from "../../../services/vms/images/resolver";
+import {
+  reportVmImageConfigError,
+  isVmImageKind,
+  listVmImageKinds,
+  VM_IMAGE_KINDS,
+  vmImageKindFor,
+  type VmImageKind,
 } from "../../../services/vms/images/resolver";
 import { reconcileProPlanMetadata } from "../../../services/billing/pro";
 import { getStackServerApp, isStackConfigured } from "../../lib/stack";
@@ -43,6 +53,7 @@ import {
   vmActiveLimitExceededResponse,
   vmRequiresProResponse,
 } from "../../../services/vms/routeHelpers";
+import { captureVmProvisionOutcome } from "../../../services/vms/observability";
 import {
   createVm,
   listUserVms,
@@ -113,6 +124,7 @@ export async function GET(request: Request): Promise<Response> {
         status: entry.status,
         image: entry.image,
         imageVersion: entry.imageVersion,
+        kind: vmImageKindFor(entry.provider, entry.image),
         createdAt: entry.createdAt,
         displayName: entry.displayName,
         // Server-authoritative expiry of the free access window for this machine
@@ -133,6 +145,9 @@ export async function GET(request: Request): Promise<Response> {
               : earliest === null ? vm.freeAccessExpiresAt : Math.min(earliest, vm.freeAccessExpiresAt),
             null,
           ),
+          // Kinds a client may request (and the image each resolves to) for the
+          // default provider, so a "new machine" dialog offers only kinds that work.
+          imageKinds: listVmImageKinds(defaultProviderId()),
         }
         : undefined;
       return jsonResponse({ vms, limits });
@@ -149,7 +164,10 @@ export async function POST(request: Request): Promise<Response> {
     async ({ user: initialUser, span, authDurationMs, routeStartedAtMs, setResponseFinalizer }) => {
       const timing = new VmTimingRecorder(span, "create", { startedAt: routeStartedAtMs });
       timing.record("auth", authDurationMs);
-      setResponseFinalizer((response) => timing.finish({ status: response.status }));
+      setResponseFinalizer((response) => {
+        timing.finish({ status: response.status });
+        captureVmProvisionOutcome({ userId: initialUser.id, operation: "create", response, span });
+      });
       let user: AuthedUser = initialUser;
       {
         // Runtime-validate the payload before we call a paid provider. An invalid `provider`
@@ -198,6 +216,15 @@ export async function POST(request: Request): Promise<Response> {
             details: { field: "image" },
           });
         }
+        if (candidate.kind !== undefined && !isVmImageKind(candidate.kind)) {
+          return vmErrorResponse({
+            error: "vm_invalid_request",
+            status: 400,
+            message: `\`kind\` must be one of ${VM_IMAGE_KINDS.join(", ")} when provided.`,
+            action: "Remove `kind` to use the default Cloud VM image, or pass `desktop` or `base`.",
+            details: { field: "kind", allowedKinds: VM_IMAGE_KINDS },
+          });
+        }
         if (candidate.provider !== undefined) {
           if (typeof candidate.provider !== "string") {
             return vmErrorResponse({
@@ -208,7 +235,7 @@ export async function POST(request: Request): Promise<Response> {
               details: { field: "provider" },
             });
           }
-          if (candidate.provider !== "e2b" && candidate.provider !== "freestyle" && candidate.provider !== "daytona" && candidate.provider !== "blaxel") {
+          if (!isProviderId(candidate.provider)) {
             return vmErrorResponse({
               error: "vm_invalid_provider",
               status: 400,
@@ -258,16 +285,20 @@ export async function POST(request: Request): Promise<Response> {
         if (requestHasBlankVmTeamId(request)) {
           return invalidTeamIdResponse();
         }
-        const body: { image?: string; provider?: ProviderId; billingTeamId?: string } = {
+        const body: { image?: string; kind?: VmImageKind; provider?: ProviderId; billingTeamId?: string } = {
           image: typeof candidate.image === "string" ? candidate.image : undefined,
+          kind: isVmImageKind(candidate.kind) ? candidate.kind : undefined,
           provider: candidate.provider as ProviderId | undefined,
           billingTeamId: typeof bodyBillingTeamId === "string" ? bodyBillingTeamId.trim() : undefined,
         };
-        const provider = body.provider ?? defaultProviderId();
+        // An explicit manifest image names its own provider: the CLI sends
+        // provider-specific image ids without a provider field, and the
+        // deployment default must not reroute them under the wrong provider.
+        const provider = body.provider ?? inferVmProviderForImage(body.image) ?? defaultProviderId();
         let imageSelection;
         try {
           assertVmCreateEnabled(provider);
-          imageSelection = resolveVmImage(provider, body.image);
+          imageSelection = resolveVmImage(provider, body.image, process.env, { kind: body.kind });
         } catch (err) {
           if (isVmCreateDisabledError(err)) {
             return vmErrorResponse({
@@ -279,13 +310,20 @@ export async function POST(request: Request): Promise<Response> {
             });
           }
           if (isVmImageConfigError(err)) {
+            const described = reportVmImageConfigError(err);
             return vmErrorResponse({
               error: "vm_image_config_error",
               status: 503,
-              message: "The requested Cloud VM image is not available in this environment.",
-              action: "Retry without `image` to use the default Cloud VM image, or ask an admin to configure a supported image.",
+              message: described.message,
+              action: described.action,
               reason: "Cloud VM image configuration is unavailable.",
-              details: { imageRequested: err.image !== undefined },
+              details: described.details,
+              diagnostics: {
+                provider,
+                image: err.image,
+                envVar: err.envVar,
+                configReason: err.reason,
+              },
             });
           }
           throw err;
@@ -456,6 +494,7 @@ export async function POST(request: Request): Promise<Response> {
           provider: created.provider,
           image: created.image,
           imageVersion: created.imageVersion,
+          kind: imageSelection.kind,
           createdAt: created.createdAt,
         });
       }

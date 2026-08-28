@@ -74,6 +74,13 @@ use crate::{
 
 pub type SurfaceResizeReporter = Arc<dyn Fn(SurfaceId, (u16, u16), Option<u64>) + Send + Sync>;
 
+/// Receives diagnostics that must not be written to a frontend's terminal.
+///
+/// The core can report from reconnect worker threads while a client owns a
+/// raw terminal. The frontend supplies a durable sink, such as its client
+/// log, so the core does not need to know how diagnostics are persisted.
+pub type DiagnosticReporter = Arc<dyn Fn(&str) + Send + Sync + 'static>;
+
 struct SignaledMutex<T> {
     value: Mutex<T>,
     release_epoch: Mutex<u64>,
@@ -2015,12 +2022,18 @@ pub struct Mux {
     /// reread SQLite by cursor, so missed or coalesced notifications are safe.
     journal_event_epoch: Mutex<u64>,
     journal_event_changed: Condvar,
-    /// True once a skipped terminal-host reconnect checkpoint has been
-    /// surfaced as a status event. A machine resume reconnects every hosted
-    /// terminal at once, so per-terminal reporting would toast N times for
-    /// one underlying condition. Cleared when a reconnect checkpoint
-    /// succeeds again.
+    /// True once a skipped terminal-host reconnect checkpoint has been logged.
+    /// A machine resume reconnects every hosted terminal at once, so
+    /// per-terminal reporting would emit N warnings for one underlying
+    /// condition. Cleared when a reconnect checkpoint succeeds again.
     reconnect_checkpoint_skip_reported: AtomicBool,
+    /// Frontend-owned sink for diagnostics emitted by background core work.
+    /// `OnceLock` keeps the callback immutable after startup and avoids a
+    /// mutex on the reconnect hot path. Startup can adopt a hosted surface
+    /// before the frontend installs the sink, so one diagnostic is retained
+    /// in a per-mux slot until the first reporter arrives.
+    diagnostic_reporter: OnceLock<DiagnosticReporter>,
+    pending_diagnostic: Mutex<Option<String>>,
     #[cfg(test)]
     journal_segment_prepare_hook: Mutex<Option<Box<dyn FnOnce() + Send>>>,
     terminal_exit_waiters: TerminalExitWaiters,
@@ -2382,6 +2395,8 @@ impl Mux {
             journal_event_epoch: Mutex::new(0),
             journal_event_changed: Condvar::new(),
             reconnect_checkpoint_skip_reported: AtomicBool::new(false),
+            diagnostic_reporter: OnceLock::new(),
+            pending_diagnostic: Mutex::new(None),
             #[cfg(test)]
             journal_segment_prepare_hook: Mutex::new(None),
             terminal_exit_waiters: TerminalExitWaiters::default(),
@@ -5237,7 +5252,7 @@ impl Mux {
         Ok(())
     }
 
-    /// Reports a skipped terminal-host reconnect checkpoint at most once
+    /// Logs a skipped terminal-host reconnect checkpoint at most once
     /// until a later reconnect checkpoint succeeds. A checkpoint is a
     /// journal-replay optimization: skipping one only moves the next replay
     /// boundary back, so repeated skips are daemon-log noise, not per-toast
@@ -5251,10 +5266,42 @@ impl Mux {
             "skipped terminal {terminal_id} reconnect checkpoint (replay starts from the previous boundary): {error:#}"
         );
         if self.reconnect_checkpoint_skip_reported.swap(true, Ordering::AcqRel) {
-            eprintln!("cmux-tui: {message}");
-        } else {
-            self.emit(MuxEvent::Status(message));
+            return;
         }
+        if let Some(reporter) = self.diagnostic_reporter.get().cloned() {
+            reporter(&message);
+            return;
+        }
+
+        // Mux construction can start hosted-surface readers before the
+        // frontend has a chance to install its reporter. Recheck under the
+        // pending slot lock so a concurrent setter cannot leave this message
+        // stranded between the initial lookup and the store.
+        let mut pending = self.pending_diagnostic.lock().unwrap();
+        if let Some(reporter) = self.diagnostic_reporter.get().cloned() {
+            drop(pending);
+            reporter(&message);
+        } else {
+            *pending = Some(message);
+        }
+    }
+
+    /// Installs the frontend-owned sink for diagnostics emitted by the mux.
+    ///
+    /// A mux has one owner for its lifetime, so accepting the first reporter
+    /// avoids replacing a sink while a reconnect worker is reporting. A
+    /// caller that tries to install a second sink receives `false` and must
+    /// keep the original owner unchanged.
+    pub fn set_diagnostic_reporter(&self, reporter: DiagnosticReporter) -> bool {
+        let pending_reporter = reporter.clone();
+        if self.diagnostic_reporter.set(reporter).is_err() {
+            return false;
+        }
+        let pending = self.pending_diagnostic.lock().unwrap().take();
+        if let Some(message) = pending {
+            pending_reporter(&message);
+        }
+        true
     }
 
     pub(crate) fn note_reconnect_checkpoint_captured(&self) {
@@ -16608,6 +16655,20 @@ fn fence_layout_undo_for_tab_membership(state: &mut State, panes: &[PaneId]) {
 /// split ownership or positional indexes changed. Runs under the state lock.
 fn remove_surface(mux: &Mux, state: &mut State, target: SurfaceId) -> (Option<Arc<Surface>>, bool) {
     let previous_active = state.active_pane();
+    // Capture the placement and its screen before removing reverse indexes.
+    // Teardown often removes many last-tab panes in a row, so resolving these
+    // relationships from the topology after index deletion would repeatedly
+    // scan every pane and split tree.
+    let pane_id = state
+        .resource_indexes
+        .tab_pane
+        .get(&target)
+        .copied()
+        .filter(|pane| state.panes.get(pane).is_some_and(|pane| pane.tabs.contains(&target)))
+        .or_else(|| {
+            state.panes.values().find(|pane| pane.tabs.contains(&target)).map(|pane| pane.id)
+        });
+    let screen_location = pane_id.and_then(|pane| state.screen_of(pane));
     let removed = state.surfaces.remove(&target);
     if let Some(tab_id) = state.resource_indexes.tab_ids.remove(&target) {
         state.resource_indexes.tabs.remove(&tab_id);
@@ -16626,7 +16687,7 @@ fn remove_surface(mux: &Mux, state: &mut State, target: SurfaceId) -> (Option<Ar
         }
     }
     state.resource_indexes.tab_pane.remove(&target);
-    let Some(pane_id) = state.pane_of(target) else {
+    let Some(pane_id) = pane_id else {
         return (removed, false);
     };
     let pane = state.panes.get_mut(&pane_id).expect("pane_of returned live id");
@@ -16642,7 +16703,7 @@ fn remove_surface(mux: &Mux, state: &mut State, target: SurfaceId) -> (Option<Ar
 
     // Last tab gone: the pane collapses out of its screen.
     state.remove_pane(pane_id);
-    let Some((wi, si)) = state.screen_of(pane_id) else {
+    let Some((wi, si)) = screen_location else {
         return (removed, false);
     };
     let (was_active, screen_remains) = {
@@ -16804,14 +16865,21 @@ mod tests {
         Mux::new_for_test("test", SurfaceOptions::default())
     }
 
-    /// A machine resume reconnects every hosted terminal at once. When
-    /// checkpoint capture keeps losing its consistency race on a busy
-    /// session, the skip must surface as one status event, not one toast per
-    /// terminal per reconnect. A later successful checkpoint re-arms the
-    /// report.
+    /// A machine resume reconnects every hosted terminal at once. Checkpoint
+    /// capture can lose its consistency race while those reconnects append to
+    /// the journal, but the skipped optimization is recovered by replaying
+    /// from the previous boundary. It must stay out of the user-facing status
+    /// stream even when it repeats or a later successful checkpoint re-arms
+    /// diagnostic logging.
     #[test]
-    fn reconnect_checkpoint_skip_status_is_reported_once_until_recovery() {
+    fn reconnect_checkpoint_skip_does_not_emit_status() {
         let mux = test_mux();
+        let diagnostics = Arc::new(Mutex::new(Vec::<String>::new()));
+        let diagnostics_for_reporter = Arc::clone(&diagnostics);
+        assert!(mux.set_diagnostic_reporter(Arc::new(move |message| {
+            diagnostics_for_reporter.lock().unwrap().push(message.to_string());
+        })));
+        assert!(!mux.set_diagnostic_reporter(Arc::new(|_| {})));
         let events = mux.subscribe();
         let skip_statuses = |events: &MuxEventReceiver| {
             events
@@ -16829,16 +16897,74 @@ mod tests {
         mux.report_skipped_reconnect_checkpoint("term_one", &error);
         assert_eq!(
             skip_statuses(&events),
-            1,
-            "repeated checkpoint skips must collapse into one status event"
+            0,
+            "recoverable checkpoint skips must not enter the status stream"
         );
 
         mux.note_reconnect_checkpoint_captured();
         mux.report_skipped_reconnect_checkpoint("term_three", &error);
         assert_eq!(
             skip_statuses(&events),
-            1,
-            "a skip after a successful checkpoint is a new condition and reports again"
+            0,
+            "re-armed diagnostic logging must remain out of the status stream"
+        );
+        assert_eq!(
+            &*diagnostics.lock().unwrap(),
+            &vec![
+                "skipped terminal term_one reconnect checkpoint (replay starts from the previous boundary): session changed during checkpoint capture".to_string(),
+                "skipped terminal term_three reconnect checkpoint (replay starts from the previous boundary): session changed during checkpoint capture".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn diagnostic_reporters_are_scoped_to_each_mux_and_first_writer_wins() {
+        let first = test_mux();
+        let second = test_mux();
+        let first_reports = Arc::new(Mutex::new(Vec::<String>::new()));
+        let second_reports = Arc::new(Mutex::new(Vec::<String>::new()));
+
+        let first_reports_sink = Arc::clone(&first_reports);
+        assert!(first.set_diagnostic_reporter(Arc::new(move |message| {
+            first_reports_sink.lock().unwrap().push(message.to_string());
+        })));
+        assert!(!first.set_diagnostic_reporter(Arc::new(|_| {})));
+
+        let second_reports_sink = Arc::clone(&second_reports);
+        assert!(second.set_diagnostic_reporter(Arc::new(move |message| {
+            second_reports_sink.lock().unwrap().push(message.to_string());
+        })));
+
+        let error = anyhow::anyhow!("checkpoint race");
+        first.report_skipped_reconnect_checkpoint("first", &error);
+        second.report_skipped_reconnect_checkpoint("second", &error);
+
+        assert_eq!(
+            &*first_reports.lock().unwrap(),
+            &["skipped terminal first reconnect checkpoint (replay starts from the previous boundary): checkpoint race".to_string()]
+        );
+        assert_eq!(
+            &*second_reports.lock().unwrap(),
+            &["skipped terminal second reconnect checkpoint (replay starts from the previous boundary): checkpoint race".to_string()]
+        );
+    }
+
+    #[test]
+    fn diagnostic_reporter_receives_skip_reported_before_installation() {
+        let mux = test_mux();
+        let diagnostics = Arc::new(Mutex::new(Vec::<String>::new()));
+        let error = anyhow::anyhow!("startup checkpoint race");
+
+        mux.report_skipped_reconnect_checkpoint("startup", &error);
+        assert!(diagnostics.lock().unwrap().is_empty());
+
+        let diagnostics_for_reporter = Arc::clone(&diagnostics);
+        assert!(mux.set_diagnostic_reporter(Arc::new(move |message| {
+            diagnostics_for_reporter.lock().unwrap().push(message.to_string());
+        })));
+        assert_eq!(
+            &*diagnostics.lock().unwrap(),
+            &["skipped terminal startup reconnect checkpoint (replay starts from the previous boundary): startup checkpoint race".to_string()]
         );
     }
 
@@ -23345,6 +23471,79 @@ mod tests {
             };
             assert!((*ratio - (0.75 / 1.15)).abs() < 0.0001);
         });
+    }
+
+    #[test]
+    fn removing_many_tabs_preserves_reverse_indexes_and_tab_order() {
+        let mux = test_mux();
+        let first =
+            mux.new_browser_tab("about:blank#index-stress-0".into(), None, Some((80, 24))).unwrap();
+        let pane = mux.with_state(|state| state.pane_of(first.id).expect("first tab has a pane"));
+        let mut surfaces = vec![first];
+        for index in 1..96 {
+            surfaces.push(
+                mux.new_browser_tab(
+                    format!("about:blank#index-stress-{index}"),
+                    Some(pane),
+                    Some((80, 24)),
+                )
+                .unwrap(),
+            );
+        }
+
+        let expected = surfaces.iter().map(|surface| surface.id).collect::<Vec<_>>();
+        mux.with_state(|state| {
+            assert_eq!(state.resource_indexes.tab_pane.len(), surfaces.len());
+            assert!(state.resource_indexes.pane_screen.contains_key(&pane));
+        });
+        for target in surfaces.iter().skip(1).step_by(2) {
+            let mut state = mux.state.lock().unwrap();
+            let (removed, split_index_dirty) = remove_surface(&mux, &mut state, target.id);
+            assert!(removed.is_some(), "stress target should be present");
+            if split_index_dirty {
+                Mux::rebuild_split_screen_index(&mut state);
+            }
+            assert_eq!(state.resource_indexes.tab_pane.get(&target.id), None);
+            assert_eq!(state.resource_indexes.tab_ids.get(&target.id), None);
+            assert_eq!(state.resource_indexes.content_ids.get(&target.id), None);
+            let remaining = expected
+                .iter()
+                .copied()
+                .filter(|surface| state.surfaces.contains_key(surface))
+                .collect::<Vec<_>>();
+            assert_eq!(state.panes[&pane].tabs, remaining);
+            for (surface, indexed_pane) in &state.resource_indexes.tab_pane {
+                assert_eq!(*indexed_pane, pane);
+                assert!(state.panes[&pane].tabs.contains(surface));
+            }
+            assert_eq!(
+                state.resource_indexes.pane_screen.get(&pane).copied(),
+                state.screen_of(pane).map(|(wi, si)| state.workspaces[wi].screens[si].id)
+            );
+        }
+
+        for target in surfaces.iter().skip(2).step_by(2) {
+            let mut state = mux.state.lock().unwrap();
+            let (removed, split_index_dirty) = remove_surface(&mux, &mut state, target.id);
+            assert!(removed.is_some(), "stress target should be present");
+            if split_index_dirty {
+                Mux::rebuild_split_screen_index(&mut state);
+            }
+        }
+        let mut state = mux.state.lock().unwrap();
+        let (removed, split_index_dirty) = remove_surface(&mux, &mut state, surfaces[0].id);
+        assert!(removed.is_some(), "final stress target should be present");
+        if split_index_dirty {
+            Mux::rebuild_split_screen_index(&mut state);
+        }
+        assert!(!state.panes.contains_key(&pane));
+        assert!(!state.resource_indexes.pane_screen.contains_key(&pane));
+        assert!(state.workspaces.iter().all(|workspace| workspace.screens.is_empty()));
+        drop(state);
+        for surface in surfaces {
+            surface.kill();
+        }
+        mux.shutdown();
     }
 
     #[cfg(unix)]

@@ -144,6 +144,13 @@ final class LocalSurfaceProvider: SurfaceProvider {
         catalog.remove(projection.resource)
     }
 
+    /// Local materialization moves an existing pane instead of creating one. A late result
+    /// therefore must not close that pane through the shared discard implementation.
+    @discardableResult
+    func discardMaterialization(_ projection: SurfaceProjection) -> Bool {
+        true
+    }
+
     // MARK: SurfaceProvider
 
     func refresh() async {

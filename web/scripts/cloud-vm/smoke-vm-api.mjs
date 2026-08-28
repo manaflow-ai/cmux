@@ -13,7 +13,7 @@ import {
   requireEnvKeys,
 } from "./projects.mjs";
 
-const usage = "Usage: smoke-vm-api.mjs [web-dir] <staging|production> [--create] [--provider e2b|freestyle|daytona] [--url https://preview.example] [--vercel-curl] [--skip-attach]";
+const usage = "Usage: smoke-vm-api.mjs [web-dir] <staging|production> [--create] [--provider e2b|freestyle|daytona|blaxel|default] [--url https://preview.example] [--vercel-curl] [--skip-attach]";
 const args = process.argv.slice(2);
 const { webDir, target, project, rest } = parseWebDirAndTarget(args, usage);
 const shouldCreate = rest.includes("--create");
@@ -23,8 +23,17 @@ const provider = optionValue(rest, "--provider") ?? "e2b";
 const targetUrl = optionValue(rest, "--url") ?? project.url;
 const REQUEST_TIMEOUT_MS = 45_000;
 
-if (shouldCreate && provider !== "e2b" && provider !== "freestyle" && provider !== "daytona") {
-  console.error("--provider must be e2b, freestyle, or daytona");
+// "default" omits the provider from the create body, exercising the same
+// server-side default-provider path real clients (CLI, Mac app) use.
+if (
+  shouldCreate &&
+  provider !== "e2b" &&
+  provider !== "freestyle" &&
+  provider !== "daytona" &&
+  provider !== "blaxel" &&
+  provider !== "default"
+) {
+  console.error("--provider must be e2b, freestyle, daytona, blaxel, or default");
   process.exit(2);
 }
 
@@ -153,14 +162,14 @@ try {
     const create = await fetchWithTimeout(`${targetUrl}/api/vm`, {
       method: "POST",
       headers: { ...authHeaders, "content-type": "application/json", "idempotency-key": `smoke-${suffix}` },
-      body: JSON.stringify({ provider }),
+      body: JSON.stringify(provider === "default" ? {} : { provider }),
     });
     const createDurationMs = Math.round(performance.now() - createStartedAt);
     const createText = await create.text();
     if (create.status !== 200) throw new Error(`POST /api/vm expected 200, got ${create.status}: ${createText}`);
     const created = JSON.parse(createText);
     if (!created.id) throw new Error("create response missing id");
-    if (created.provider !== provider) {
+    if (provider !== "default" && created.provider !== provider) {
       throw new Error(`POST /api/vm returned provider ${created.provider}, expected ${provider}`);
     }
     vmId = created.id;

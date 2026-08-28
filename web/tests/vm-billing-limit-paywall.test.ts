@@ -13,16 +13,17 @@ async function body(response: Response): Promise<Record<string, unknown>> {
 }
 
 describe("free plan VM allowance", () => {
-  test("free users get one full-size Cloud VM by default", () => {
-    expect(maxActiveVmsForPlan("free", {})).toBe(1);
+  test("free users get no Cloud VMs by default — machines are a paid feature", () => {
+    expect(maxActiveVmsForPlan("free", {})).toBe(0);
   });
 
   test("pro gets five machines by default", () => {
     expect(maxActiveVmsForPlan("pro", {})).toBe(5);
   });
 
-  test("the free allowance stays env-overridable", () => {
+  test("the free allowance stays env-overridable, including back to a demo allowance", () => {
     expect(maxActiveVmsForPlan("free", { CMUX_VM_FREE_MAX_ACTIVE_VMS: "7" })).toBe(7);
+    expect(maxActiveVmsForPlan("free", { CMUX_VM_FREE_MAX_ACTIVE_VMS: "0" })).toBe(0);
   });
 });
 
@@ -48,6 +49,23 @@ describe("Cloud VM memory allowance", () => {
 });
 
 describe("active-limit response as the paywall moment", () => {
+  test("a zero-allowance free plan is told Cloud VMs require a cmux Pro subscription", async () => {
+    const response = vmActiveLimitExceededResponse({
+      limit: 0,
+      planId: "free",
+      retryAction: "delete one first",
+    });
+    expect(response.status).toBe(402);
+    const payload = await body(response);
+    expect(payload.error).toBe("vm_active_limit_exceeded");
+    expect(payload.message).toBe("Cloud VMs require a cmux Pro subscription.");
+    expect(String(payload.action)).toContain("Subscribe to cmux Pro");
+    expect(String(payload.action)).toContain("up to 5 active machines");
+    expect(String(payload.action)).not.toContain("cmux vm rm");
+    expect(payload.upgradeRequired).toBe(true);
+    expect(payload.upgradeUrl).toBe("https://cmux.com/pricing");
+  });
+
   test("a free plan over the limit is prompted to upgrade to Pro", async () => {
     const response = vmActiveLimitExceededResponse({
       limit: 3,

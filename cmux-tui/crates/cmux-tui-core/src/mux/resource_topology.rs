@@ -2181,6 +2181,7 @@ impl Mux {
                     screen: Some(state.workspaces[workspace_index].screens[screen_index].id),
                     pane: Some(pane),
                     tab: Some(surface),
+                    terminal: None,
                 })
             },
         )?;
@@ -2191,25 +2192,28 @@ impl Mux {
 
     pub(crate) fn commit_resource_terminal_close_effect(
         &self,
-        surface: SurfaceId,
+        terminal_id: &TerminalPublicId,
         idempotency_key: &str,
         operation_name: &str,
         fingerprint: &Value,
     ) -> anyhow::Result<ResourcePatchCommit> {
         let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
         let _creation_fence = self.resource_creation_execution.lock().unwrap();
+        let terminal_id = terminal_id.clone();
         let committed = self.commit_resource_close_with(
             ResourceOperation::TerminalClose,
             None,
             idempotency_key,
             operation_name,
             fingerprint,
-            move |state| {
-                anyhow::ensure!(
-                    state.terminal_runtime_by_id(surface).is_some(),
-                    "terminal disappeared"
-                );
-                Ok(EffectSlots { workspace: None, screen: None, pane: None, tab: Some(surface) })
+            move |_| {
+                Ok(EffectSlots {
+                    workspace: None,
+                    screen: None,
+                    pane: None,
+                    tab: None,
+                    terminal: Some(terminal_id),
+                })
             },
         )?;
         drop(_creation_fence);
@@ -2259,48 +2263,53 @@ impl Mux {
             return Err(terminal_close_state_error("terminal resource changed hosts"));
         }
         let content_id = ContentPublicId::Terminal(public_id.clone());
-        let (target, mut plan) = if let Some(runtime) =
-            state.terminal_catalog.get(&public_id).cloned()
-        {
-            let host = self.resource_terminal_host_identity(&runtime).ok_or_else(|| {
-                terminal_close_state_error("terminal runtime omitted its durable host identity")
-            })?;
-            if host.terminal_id != terminal_id {
-                return Err(terminal_close_state_error("terminal resource changed hosts"));
-            }
-            if let Some(expected) = expected_incarnation {
-                anyhow::ensure!(host.incarnation == expected, "terminal_incarnation_mismatch");
-            }
-            let target = state.placements_of_content(&content_id).first().copied();
-            let plan = self.resource_close_plan_locked(
-                ResourceOperation::TerminalClose,
-                EffectSlots { workspace: None, screen: None, pane: None, tab: Some(runtime.id) },
-                &registry,
-                &state,
-                &notifications,
-            )?;
-            (target, plan)
-        } else {
-            if !state.placements_of_content(&content_id).is_empty() {
-                return Err(terminal_close_state_error(format!(
-                    "live terminal resource {public_id} has views but no runtime owner"
-                )));
-            }
-            (
-                None,
-                ResourceClosePlan {
-                    state: state.clone(),
-                    removed: Vec::new(),
-                    terminal_runtime: None,
-                    closed_terminal_public_id: Some(public_id.clone()),
-                    terminal_batch: Vec::new(),
-                    workspace_close: None,
-                    delta: None,
-                    changed_screens: Vec::new(),
-                    selection_resync: false,
-                },
-            )
-        };
+        let (target, mut plan) =
+            if let Some(runtime) = state.terminal_catalog.get(&public_id).cloned() {
+                let host = self.resource_terminal_host_identity(&runtime).ok_or_else(|| {
+                    terminal_close_state_error("terminal runtime omitted its durable host identity")
+                })?;
+                if host.terminal_id != terminal_id {
+                    return Err(terminal_close_state_error("terminal resource changed hosts"));
+                }
+                if let Some(expected) = expected_incarnation {
+                    anyhow::ensure!(host.incarnation == expected, "terminal_incarnation_mismatch");
+                }
+                let target = state.placements_of_content(&content_id).first().copied();
+                let plan = self.resource_close_plan_locked(
+                    ResourceOperation::TerminalClose,
+                    EffectSlots {
+                        workspace: None,
+                        screen: None,
+                        pane: None,
+                        tab: None,
+                        terminal: Some(public_id.clone()),
+                    },
+                    &registry,
+                    &state,
+                    &notifications,
+                )?;
+                (target, plan)
+            } else {
+                if !state.placements_of_content(&content_id).is_empty() {
+                    return Err(terminal_close_state_error(format!(
+                        "live terminal resource {public_id} has views but no runtime owner"
+                    )));
+                }
+                (
+                    None,
+                    ResourceClosePlan {
+                        state: state.clone(),
+                        removed: Vec::new(),
+                        terminal_runtime: None,
+                        closed_terminal_public_id: Some(public_id.clone()),
+                        terminal_batch: Vec::new(),
+                        workspace_close: None,
+                        delta: None,
+                        changed_screens: Vec::new(),
+                        selection_resync: false,
+                    },
+                )
+            };
         let mut projection =
             self.resource_effect_projection_locked(&registry, &mut plan.state, json!({}))?;
         if !projection.patch.changes.iter().any(|change| {
@@ -2628,8 +2637,16 @@ impl Mux {
         }
         let mut plan =
             self.resource_close_plan_locked(operation, slots, &registry, &state, &notifications)?;
-        let projection =
+        let mut projection =
             self.resource_effect_projection_locked(&registry, &mut plan.state, json!({}))?;
+        // Full projection derives terminal tombstones from detached tabs, but
+        // an exited terminal receipt has zero tabs. Explicit close must still
+        // retire that receipt.
+        if let Some(terminal_id) = plan.closed_terminal_public_id.as_ref() {
+            let expected_incarnation =
+                plan.terminal_batch.first().and_then(|(_, incarnation)| incarnation.as_deref());
+            projection.ensure_terminal_close(terminal_id, expected_incarnation)?;
+        }
         #[cfg(test)]
         if let Some(hook) = self.resource_projection_before_commit.lock().unwrap().clone() {
             hook();
@@ -2715,7 +2732,7 @@ impl Mux {
         &self,
         operation: ResourceOperation,
         slots: EffectSlots,
-        _registry: &WorkspaceRegistry,
+        registry: &WorkspaceRegistry,
         state: &State,
         notifications: &HashMap<SurfaceId, SurfaceNotification>,
     ) -> anyhow::Result<ResourceClosePlan> {
@@ -2803,29 +2820,40 @@ impl Mux {
                 }
             }
             ResourceOperation::TerminalClose => {
-                let surface = slots.tab.context("terminal disappeared")?;
-                let runtime = state
-                    .terminal_runtime_by_id(surface)
-                    .cloned()
-                    .context("terminal disappeared")?;
-                let public_id = runtime
-                    .terminal_public_id()
-                    .cloned()
-                    .context("terminal catalog entry omitted its public identity")?;
-                let host = self
-                    .resource_terminal_host_identity(&runtime)
-                    .context("terminal omitted its durable host identity")?;
+                let public_id = slots.terminal.clone().context("terminal disappeared")?;
+                let host_id = registry
+                    .terminal_host_id(&public_id)?
+                    .with_context(|| format!("terminal {public_id} has no durable host"))?;
+                let terminal = registry
+                    .terminal_record(&host_id)?
+                    .with_context(|| format!("terminal {public_id} has no durable receipt"))?;
+                // An exited terminal is a durable receipt with no runtime and
+                // no views; explicit close is the one operation that retires
+                // it. A live terminal still requires its catalog runtime.
+                let runtime = state.terminal_catalog.get(&public_id).cloned();
+                if let Some(runtime) = runtime.as_ref() {
+                    let host = self
+                        .resource_terminal_host_identity(runtime)
+                        .context("terminal omitted its durable host identity")?;
+                    anyhow::ensure!(host.terminal_id == host_id, "terminal changed durable hosts");
+                }
                 let placements = state
                     .placements_of_content(&ContentPublicId::Terminal(public_id.clone()))
                     .to_vec();
+                if runtime.is_none() {
+                    anyhow::ensure!(
+                        placements.is_empty(),
+                        "live terminal resource {public_id} has views but no runtime owner"
+                    );
+                }
                 let screens = unique_screen_ids(
                     placements.iter().filter_map(|surface| surface_screen_id(state, *surface)),
                 );
                 ResourceCloseInputs {
                     surface_ids: placements,
                     changed_screens: screens,
-                    terminal_runtime: Some(runtime),
-                    terminal_batch: vec![(host.terminal_id, Some(host.incarnation))],
+                    terminal_runtime: runtime,
+                    terminal_batch: vec![(host_id, terminal.incarnation)],
                     terminal_public_id: Some(public_id),
                     ..Default::default()
                 }
@@ -2838,13 +2866,14 @@ impl Mux {
         if let Some(public_id) = &terminal_public_id {
             let (removed_runtime, terminal_views, changed) =
                 remove_terminal_content_from_state(self, &mut projected, public_id);
-            anyhow::ensure!(
-                removed_runtime
-                    .as_ref()
-                    .zip(terminal_runtime.as_ref())
-                    .is_some_and(|(removed, planned)| removed.shares_terminal_runtime(planned)),
-                "terminal close lost its catalog runtime"
-            );
+            match (removed_runtime.as_ref(), terminal_runtime.as_ref()) {
+                (Some(removed), Some(planned)) => anyhow::ensure!(
+                    removed.shares_terminal_runtime(planned),
+                    "terminal close changed its catalog runtime"
+                ),
+                (None, None) => {}
+                _ => anyhow::bail!("terminal close lost its catalog runtime"),
+            }
             removed = terminal_views;
             split_index_changed = changed;
             for surface in surface_ids {
@@ -3850,7 +3879,7 @@ impl Mux {
                     .with_context(|| format!("tab {id} disappeared"))
             })
             .transpose()?;
-        Ok(EffectSlots { workspace, screen, pane, tab })
+        Ok(EffectSlots { workspace, screen, pane, tab, terminal: path.terminal.clone() })
     }
 
     pub(super) fn created_resource_path(&self, surface: SurfaceId) -> anyhow::Result<Value> {
@@ -4414,12 +4443,13 @@ impl Mux {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 struct EffectSlots {
     workspace: Option<WorkspaceId>,
     screen: Option<ScreenId>,
     pane: Option<PaneId>,
     tab: Option<SurfaceId>,
+    terminal: Option<TerminalPublicId>,
 }
 
 enum ResourceCreationEvidence {
@@ -5048,11 +5078,7 @@ fn parse_direction(value: &str) -> anyhow::Result<Direction> {
 }
 
 fn operation_name(operation: ResourceOperation) -> String {
-    serde_json::to_value(operation)
-        .expect("resource operations serialize")
-        .as_str()
-        .expect("resource operations serialize as strings")
-        .to_string()
+    operation.wire_name().to_owned()
 }
 
 fn required_str<'a>(fields: &'a Map<String, Value>, name: &str) -> anyhow::Result<&'a str> {

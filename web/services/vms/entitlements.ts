@@ -1,6 +1,6 @@
 import type { AuthedUser } from "./auth";
 import type { BillingCustomerType } from "./billingGateway";
-import { PRO_PLAN_ID, TEAM_PLAN_ID } from "../billing/pro";
+import { FOUNDERS_PLAN_ID, PRO_PLAN_ID, TEAM_PLAN_ID } from "../billing/pro";
 
 export type VmEntitlements = {
   readonly planId: string;
@@ -195,10 +195,10 @@ export function isVmFreeAccessExpired(
   return nowMs - createdMs > windowDays * 24 * 60 * 60 * 1000;
 }
 
-/** A paid Cloud VM plan is Pro or Team; everything else (free) is not. */
+/** A paid Cloud VM plan is Pro, Team, or Founder's Edition; everything else (free) is not. */
 export function isPaidVmPlan(planId: string): boolean {
   const normalized = normalizedPlanId(planId);
-  return normalized === PRO_PLAN_ID || normalized === TEAM_PLAN_ID;
+  return normalized === PRO_PLAN_ID || normalized === TEAM_PLAN_ID || normalized === FOUNDERS_PLAN_ID;
 }
 
 /**
@@ -245,10 +245,12 @@ function activeVmLimitForPlan(planId: string, env: Record<string, string | undef
   if (specific?.trim()) return positiveInteger(specific, `CMUX_VM_PLAN_${planKey}_MAX_ACTIVE_VMS`);
 
   if (planId === "free") {
-    // Free users get one full-size machine; the second machine is the upgrade
-    // prompt (vmActiveLimitExceededResponse renders the paywall variant for
-    // unpaid plans), and access to the first expires after the free window.
-    return positiveInteger(env.CMUX_VM_FREE_MAX_ACTIVE_VMS ?? "1", "CMUX_VM_FREE_MAX_ACTIVE_VMS");
+    // Cloud machines are a paid feature: free plans start at zero. Every
+    // create is the upgrade prompt (vmActiveLimitExceededResponse renders the
+    // paywall variant for unpaid plans, and the app's New Machine button opens
+    // the Pro flow at the ceiling). CMUX_VM_FREE_MAX_ACTIVE_VMS re-opens a
+    // demo allowance without a deploy.
+    return nonNegativeInteger(env.CMUX_VM_FREE_MAX_ACTIVE_VMS ?? "0", "CMUX_VM_FREE_MAX_ACTIVE_VMS");
   }
 
   return positiveInteger(env.CMUX_VM_PAID_MAX_ACTIVE_VMS ?? "5", "CMUX_VM_PAID_MAX_ACTIVE_VMS");
@@ -269,5 +271,13 @@ function positiveInteger(raw: string, key: string): number {
   if (!/^\d+$/.test(value)) throw new Error(`${key} must be a positive integer`);
   const parsed = Number(value);
   if (!Number.isSafeInteger(parsed) || parsed <= 0) throw new Error(`${key} must be a positive integer`);
+  return parsed;
+}
+
+function nonNegativeInteger(raw: string, key: string): number {
+  const value = raw.trim();
+  if (!/^\d+$/.test(value)) throw new Error(`${key} must be a non-negative integer`);
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 0) throw new Error(`${key} must be a non-negative integer`);
   return parsed;
 }

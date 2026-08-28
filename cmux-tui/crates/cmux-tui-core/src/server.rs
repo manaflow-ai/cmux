@@ -82,7 +82,7 @@ use crate::{
 
 pub const ATTACH_INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
 /// Maximum JSON payload accepted on the Unix JSON-lines control socket.
-const MAX_JSON_LINE_BYTES: usize = 16 * 1024 * 1024;
+const MAX_JSON_LINE_BYTES: usize = crate::REMOTE_CLIENT_MESSAGE_MAX_BYTES;
 const WORKSPACE_REGISTRY_CAPABILITY: &str = "workspace-registry-v1";
 pub const GUARDED_BROWSER_POINTER_CAPABILITY: &str = "browser-pointer-frame-guard-v1";
 pub const DAEMON_HANDOFF_FORCE_CAPABILITY: &str = "daemon-handoff-force-v1";
@@ -5819,11 +5819,7 @@ fn trusted_local_resource_client(
     if mux.control_clients.is_unix(client) {
         Ok(())
     } else {
-        let operation = serde_json::to_value(operation)
-            .expect("resource operations serialize")
-            .as_str()
-            .expect("resource operations serialize as strings")
-            .to_string();
+        let operation = operation.wire_name().to_owned();
         Err(ResourceError::operation_failed(
             operation,
             "operation requires a trusted local connection",

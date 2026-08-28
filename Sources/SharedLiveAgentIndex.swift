@@ -1474,7 +1474,8 @@ final class SharedLiveAgentIndex {
             || hasPendingForkValidations
             || result.liveAgentProcessFingerprint != liveAgentProcessFingerprint
             || result.processScopeFingerprint != processScopeFingerprint
-            || index?.isComplete != result.index.isComplete {
+            || index?.isComplete != result.index.isComplete
+            || index?.completionFingerprint != result.index.completionFingerprint {
             applyReloadedIndex(
                 result.index,
                 loadedAt: loadedAt,
