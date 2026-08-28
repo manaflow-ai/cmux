@@ -1669,6 +1669,11 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
       set_plist_env "$INFO_PLIST" CMUX_API_BASE_URL "$CMUX_DEV_API_BASE_URL_VALUE"
       set_plist_env "$INFO_PLIST" CMUX_VM_API_BASE_URL "$CMUX_DEV_API_BASE_URL_VALUE"
       set_plist_env "$INFO_PLIST" CMUX_IROH_BROKER_BASE_URL "$CMUX_IROH_BROKER_BASE_URL_VALUE"
+      if [[ -n "${CMUX_PRESENCE_BASE_URL:-}" ]]; then
+        # Point the presence subscriber AND the dot relay legs (they share
+        # this origin) at an isolated dev worker for this tag.
+        set_plist_env "$INFO_PLIST" CMUX_PRESENCE_BASE_URL "$CMUX_PRESENCE_BASE_URL"
+      fi
       if [[ "$PROD_AUTH" -eq 1 ]]; then
         set_plist_env "$INFO_PLIST" CMUX_AUTH_ENVIRONMENT production
       fi

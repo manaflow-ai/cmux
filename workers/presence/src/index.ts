@@ -29,6 +29,8 @@ import {
   type AuthEnv,
 } from "./auth";
 import { MAX_SUBSCRIBE_AGE_MS, TeamPresence } from "./do";
+import { MacRelay } from "./relayDo";
+import { RELAY_MAX_SUBSCRIBE_AGE_MS, validOpaqueId } from "./relayProtocol";
 import {
   isConnectivityPublisherAuthorized,
   parseConnectivityInvalidation,
@@ -44,9 +46,11 @@ import {
 } from "./replies";
 
 export { TeamPresence };
+export { MacRelay };
 
 export interface Env extends AuthEnv {
   TEAM_PRESENCE: DurableObjectNamespace<TeamPresence>;
+  MAC_RELAY: DurableObjectNamespace<MacRelay>;
   CONNECTIVITY_INVALIDATION_SECRET?: string;
 }
 
@@ -89,6 +93,45 @@ export default {
 
     if (url.pathname === "/healthz") {
       return json({ ok: true, service: "cmux-presence" });
+    }
+
+    // dot/1 data-plane relay: the Mac parks a standing "host" leg on its own
+    // relay DO; phones connect legs to the same object. Auth happens HERE, at
+    // the edge, and the DO id is derived from the VERIFIED user id, so an
+    // unauthenticated caller can never materialize (or even address) a relay.
+    if (url.pathname === "/v1/relay/host" || url.pathname === "/v1/relay/connect") {
+      if (request.method !== "GET") return json({ error: "method_not_allowed" }, 405);
+      if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
+        return json({ error: "websocket_required" }, 426);
+      }
+      const user = await verifyRequest(request, env);
+      if (!user) return unauthorized();
+      const mac = url.searchParams.get("mac")?.trim() ?? "";
+      const device = url.searchParams.get("device")?.trim() ?? "";
+      if (!validOpaqueId(mac) || !validOpaqueId(device)) {
+        return json({ error: "invalid_request" }, 400);
+      }
+      const role = url.pathname.endsWith("/host") ? "host" : "phone";
+      // The host leg's own device IS the Mac the relay is named for; a host
+      // claiming someone else's slot within the account is refused.
+      if (role === "host" && device !== mac) {
+        return json({ error: "host_device_mismatch" }, 403);
+      }
+      const token = bearerToken(request);
+      const expiresAt = cacheDeadline(
+        Date.now(),
+        token ? tokenExpiryMs(token) : null,
+        RELAY_MAX_SUBSCRIBE_AGE_MS,
+      );
+      const headers = new Headers(request.headers);
+      headers.set("x-relay-role", role);
+      headers.set("x-relay-user-id", user.id);
+      headers.set("x-relay-device", device);
+      headers.set("x-relay-expires-at", String(Math.floor(expiresAt)));
+      const stub = env.MAC_RELAY.get(
+        env.MAC_RELAY.idFromName(`relay:user:${user.id}:mac:${mac}`),
+      );
+      return stub.fetch(new Request(request.url, { method: "GET", headers }));
     }
 
     if (url.pathname === "/v1/connectivity/subscribe") {

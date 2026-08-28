@@ -1,5 +1,4 @@
 import Darwin
-import Dispatch
 import Foundation
 
 extension GitMetadataService {
@@ -55,11 +54,7 @@ extension GitMetadataService {
     ) -> GitTrackedChangesResolution {
         let indexPath = Self.joinedPath(root: repository.gitDirectory, relativePath: "index")
         let indexURL = URL(fileURLWithPath: indexPath)
-        let indexReadResult = GitIndexDataReader().read(
-            at: indexURL,
-            maximumByteCount: safetyConfiguration.directIndexByteCount
-        )
-        if let header = indexReadResult.header {
+        if let header = Self.gitIndexHeaderSummary(indexPath: indexPath) {
             if header.entryCount > safetyConfiguration.directFileStatusEntryCount {
                 return gitStatusFallbackSnapshot(
                     repository: repository,
@@ -87,21 +82,17 @@ extension GitMetadataService {
                 )
             }
         }
-        guard let indexData = indexReadResult.data,
-              let indexSnapshot = GitIndexSnapshotParser().parse(data: indexData) else {
-            return gitStatusFallbackSnapshot(
-                repository: repository,
-                indexSignature: indexReadResult.data.flatMap {
-                    GitIndexSnapshotParser().signature(data: $0)
-                } ?? Self.gitIndexFileSignature(indexURL: indexURL),
-                indexContentSignature: nil,
-                reason: .unreadableIndex
+        guard let indexSnapshot = Self.gitIndexSnapshot(indexURL: indexURL) else {
+            return GitTrackedChangesResolution(
+                snapshot: GitTrackedChangesSnapshot(
+                    isDirty: false,
+                    indexSignature: Self.gitIndexFileSignature(indexURL: indexURL),
+                    indexContentSignature: nil
+                )
             )
         }
 
         let scanStart = ContinuousClock.now
-        let directScanDeadline = DispatchTime.now()
-            + (Double(safetyConfiguration.directFileStatusDurationMilliseconds) / 1_000)
         for entry in indexSnapshot.entries {
             if WorkspaceChangesCancellationSignal.isCurrentCancelled {
                 return GitTrackedChangesResolution(
@@ -122,52 +113,12 @@ extension GitMetadataService {
                     )
                 )
             }
-            guard DispatchTime.now() < directScanDeadline else {
-                return gitStatusFallbackSnapshot(
-                    repository: repository,
-                    indexSignature: nil,
-                    indexContentSignature: nil,
-                    reason: .directScanDuration(
-                        milliseconds: safetyConfiguration.directFileStatusDurationMilliseconds
-                    )
-                )
-            }
             let gitlinkMode: UInt32 = 0o160000
             if (entry.mode & 0o170000) == gitlinkMode {
-                let gitlinkPath = Self.joinedPath(
-                    root: repository.workTreeRoot,
-                    relativePath: entry.path
-                )
-                guard let submoduleRepository = Self.resolveGitRepository(
-                    containing: gitlinkPath,
-                    deadline: directScanDeadline
-                ),
-                      submoduleRepository.workTreeRoot == gitlinkPath else {
-                    return GitTrackedChangesResolution(
-                        snapshot: GitTrackedChangesSnapshot(
-                            isDirty: true,
-                            indexSignature: indexSnapshot.signature,
-                            indexContentSignature: indexSnapshot.contentSignature
-                        )
-                    )
-                }
-                if referenceReader.requiresGitPlumbing(
-                    repository: submoduleRepository,
-                    deadline: directScanDeadline
-                ) {
-                    return gitStatusFallbackSnapshot(
-                        repository: repository,
-                        indexSignature: nil,
-                        indexContentSignature: nil,
-                        reason: .submoduleReferenceBackend
-                    )
-                }
-                guard let submoduleCommit = referenceReader
-                    .snapshot(
-                        repository: submoduleRepository,
-                        deadline: directScanDeadline
-                    )
-                    .currentCommit else {
+                guard let submoduleCommit = Self.gitlinkWorktreeCommit(
+                    parentRepository: repository,
+                    gitlinkPath: entry.path
+                ) else {
                     return GitTrackedChangesResolution(
                         snapshot: GitTrackedChangesSnapshot(
                             isDirty: true,
@@ -258,11 +209,108 @@ extension GitMetadataService {
     /// and skip-worktree exclusion, and entry padding. Returns `nil` for an
     /// absent, truncated, or unsupported-version index.
     nonisolated static func gitIndexSnapshot(indexURL: URL) -> GitIndexSnapshot? {
-        let result = GitIndexDataReader().read(
-            at: indexURL,
-            maximumByteCount: 32 * 1_024 * 1_024
+        guard let data = try? Data(contentsOf: indexURL), data.count >= 32 else {
+            return nil
+        }
+        let bytes = [UInt8](data)
+        guard bytes[0] == 0x44, bytes[1] == 0x49, bytes[2] == 0x52, bytes[3] == 0x43 else {
+            return nil
+        }
+        let version = readBigEndianUInt32(bytes, at: 4)
+        guard version == 2 || version == 3 || version == 4 else {
+            return nil
+        }
+        let entryCount = Int(readBigEndianUInt32(bytes, at: 8))
+        let contentEnd = bytes.count - 20
+        var offset = 12
+        var entries: [GitIndexEntryStat] = []
+        var contentEntries: [GitIndexEntryStat] = []
+        entries.reserveCapacity(min(entryCount, 1024))
+        contentEntries.reserveCapacity(min(entryCount, 1024))
+        var previousPathBytes: [UInt8] = []
+
+        for _ in 0..<entryCount {
+            guard offset + 62 <= contentEnd else { return nil }
+            let entryStart = offset
+            let mtimeSeconds = readBigEndianUInt32(bytes, at: offset + 8)
+            let mtimeNanoseconds = readBigEndianUInt32(bytes, at: offset + 12)
+            let mode = readBigEndianUInt32(bytes, at: offset + 24)
+            let size = readBigEndianUInt32(bytes, at: offset + 36)
+            let objectID = gitIndexHexString(bytes[(offset + 40)..<(offset + 60)])
+            let flags = readBigEndianUInt16(bytes, at: offset + 60)
+            let pathLength = Int(flags & 0x0fff)
+            let hasExtendedFlags = version >= 3 && (flags & 0x4000) != 0
+            var extendedFlags: UInt16 = 0
+            offset += 62
+            if hasExtendedFlags {
+                guard offset + 2 <= contentEnd else { return nil }
+                extendedFlags = readBigEndianUInt16(bytes, at: offset)
+                offset += 2
+            }
+
+            let pathBytes: [UInt8]
+            if version == 4 {
+                guard let stripLength = readGitIndexV4PathStripLength(bytes, offset: &offset),
+                      stripLength <= previousPathBytes.count else {
+                    return nil
+                }
+                let suffixStart = offset
+                while offset < contentEnd, bytes[offset] != 0 {
+                    offset += 1
+                }
+                guard offset < contentEnd else { return nil }
+                pathBytes = Array(previousPathBytes.dropLast(stripLength)) + Array(bytes[suffixStart..<offset])
+            } else {
+                let pathStart = offset
+                if pathLength < 0x0fff {
+                    offset += pathLength
+                    guard offset < contentEnd else { return nil }
+                } else {
+                    while offset < contentEnd, bytes[offset] != 0 {
+                        offset += 1
+                    }
+                    guard offset < contentEnd else { return nil }
+                }
+                pathBytes = Array(bytes[pathStart..<offset])
+            }
+
+            let pathData = Data(pathBytes)
+            guard let path = String(data: pathData, encoding: .utf8), !path.isEmpty,
+                  isValidIndexEntryPath(path) else {
+                return nil
+            }
+            previousPathBytes = pathBytes
+            let entryStat = GitIndexEntryStat(
+                path: path,
+                mode: mode,
+                objectID: objectID,
+                mtimeSeconds: mtimeSeconds,
+                mtimeNanoseconds: mtimeNanoseconds,
+                size: size
+            )
+            contentEntries.append(entryStat)
+
+            let assumeUnchangedFlag: UInt16 = 0x8000
+            let skipWorktreeExtendedFlag: UInt16 = 0x4000
+            if (flags & assumeUnchangedFlag) == 0,
+               (extendedFlags & skipWorktreeExtendedFlag) == 0 {
+                entries.append(entryStat)
+            }
+
+            offset += 1
+            if version != 4 {
+                let entryLength = offset - entryStart
+                let padding = (8 - (entryLength % 8)) % 8
+                offset += padding
+            }
+        }
+
+        let checksum = gitIndexHexString(bytes[(bytes.count - 20)..<bytes.count])
+        return GitIndexSnapshot(
+            entries: entries,
+            signature: checksum,
+            contentSignature: gitIndexContentSignature(entries: contentEntries)
         )
-        return result.data.flatMap { GitIndexSnapshotParser().parse(data: $0) }
     }
 
     /// An FNV-1a content signature over each entry's path, mode, and object ID
@@ -321,6 +369,23 @@ extension GitMetadataService {
         return String(decoding: encoded, as: UTF8.self)
     }
 
+    /// The submodule's currently checked-out commit for a parent gitlink entry,
+    /// or `nil` when the submodule cannot be resolved.
+    nonisolated static func gitlinkWorktreeCommit(
+        parentRepository: ResolvedGitRepository,
+        gitlinkPath: String
+    ) -> String? {
+        let gitlinkPath = joinedPath(
+            root: parentRepository.workTreeRoot,
+            relativePath: gitlinkPath
+        )
+        guard let submoduleRepository = resolveGitRepository(containing: gitlinkPath),
+              submoduleRepository.workTreeRoot == gitlinkPath else {
+            return nil
+        }
+        return gitCurrentCommit(repository: submoduleRepository)
+    }
+
     /// Maps a stat mode to the git index mode word for comparison
     /// (regular/executable file or symlink), or `nil` for other file types.
     nonisolated static func gitIndexComparableMode(for statMode: mode_t) -> UInt32? {
@@ -352,16 +417,11 @@ extension GitMetadataService {
     /// is absent/too small. Used as a fallback signature when the index cannot
     /// be parsed into entries.
     nonisolated static func gitIndexFileSignature(indexURL: URL) -> String? {
-        let descriptor = Darwin.open(indexURL.path, O_RDONLY | O_NONBLOCK | O_CLOEXEC)
+        let descriptor = Darwin.open(indexURL.path, O_RDONLY | O_CLOEXEC)
         guard descriptor >= 0 else { return nil }
         defer { Darwin.close(descriptor) }
         var status = stat()
-        guard Darwin.fstat(descriptor, &status) == 0,
-              status.st_mode & mode_t(S_IFMT) == mode_t(S_IFREG),
-              status.st_size >= 20 else { return nil }
-        var filesystem = statfs()
-        guard Darwin.fstatfs(descriptor, &filesystem) == 0,
-              (UInt64(filesystem.f_flags) & UInt64(MNT_LOCAL)) != 0 else { return nil }
+        guard Darwin.fstat(descriptor, &status) == 0, status.st_size >= 20 else { return nil }
         var bytes = [UInt8](repeating: 0, count: 20)
         let readCount = bytes.withUnsafeMutableBytes { buffer in
             Darwin.pread(descriptor, buffer.baseAddress, buffer.count, status.st_size - 20)

@@ -12,9 +12,10 @@ public struct WorkspacePullRequestCandidate: Sendable {
     /// GitHub `owner/name` slugs to search, in preference order; empty when the
     /// directory has no GitHub remote (an unsupported repository).
     public let repoSlugs: [String]
-    /// Whether local branch or remote metadata could not be verified. Such a
-    /// candidate resolves as a transient failure so an existing badge is kept
-    /// rather than re-matched against a possibly stale projection.
+    /// Whether the directory's checked-out branch could not be verified
+    /// (repository present but `HEAD` unreadable/malformed). Such a candidate
+    /// resolves as a transient failure so an existing badge is kept rather
+    /// than re-matched against a possibly stale projected branch.
     public let branchReadFailed: Bool
 
     /// Creates a resolved candidate.

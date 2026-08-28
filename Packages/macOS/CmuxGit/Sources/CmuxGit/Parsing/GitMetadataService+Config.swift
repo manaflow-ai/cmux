@@ -1,4 +1,3 @@
-import Dispatch
 import Foundation
 
 extension GitMetadataService {
@@ -19,10 +18,13 @@ extension GitMetadataService {
         return lines.isEmpty ? nil : lines.joined()
     }
 
-    /// The repository's top-level config files, including a linked worktree's
-    /// `config.worktree` when that bounded regular file is present.
+    /// The repository's top-level config files (common directory, then git
+    /// directory).
     nonisolated static func gitRootConfigURLs(repository: ResolvedGitRepository) -> [URL] {
-        GitWorktreeConfigEnablementReader().rootConfigURLs(repository: repository)
+        [
+            URL(fileURLWithPath: repository.commonDirectory).appendingPathComponent("config"),
+            URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("config"),
+        ]
     }
 
     /// Every config file reachable from the repository roots, following
@@ -337,9 +339,7 @@ extension GitMetadataService {
     nonisolated static func gitConfigIncludeIfConditionMatches(
         _ condition: String,
         repository: ResolvedGitRepository,
-        configURL: URL,
-        branchContext: GitConfigBranchContext = .fileBacked,
-        deadline: DispatchTime? = nil
+        configURL: URL
     ) -> Bool {
         let lowercasedCondition = condition.lowercased()
         if lowercasedCondition.hasPrefix("gitdir/i:") {
@@ -361,7 +361,7 @@ extension GitMetadataService {
             if pattern.hasSuffix("/") {
                 pattern.append("**")
             }
-            guard let branch = branchContext.branchName(for: repository, deadline: deadline) else { return false }
+            guard let branch = gitBranchName(repository: repository) else { return false }
             return gitConfigGlobMatches(branch, pattern: pattern, caseInsensitive: false)
         }
         return false
