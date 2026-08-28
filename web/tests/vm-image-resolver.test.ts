@@ -58,7 +58,7 @@ describe("VM image resolver: request by kind", () => {
     // desktop used to 503; now the manifest default desktop image serves it.
     expect(resolveVmImage("blaxel", undefined, deployed, { kind: "desktop" })).toMatchObject({
       image: "sandbox/cmux-devbox:latest",
-      imageVersion: "blaxel-cmux-devbox-20260826a",
+      imageVersion: "blaxel-cmux-devbox-20260827a",
       kind: "desktop",
     });
     // Without a kind, the legacy contract still requires the env selector.
