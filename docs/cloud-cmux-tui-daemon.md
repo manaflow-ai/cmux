@@ -274,7 +274,7 @@ Socket (worker lane, like `vm.*`):
 The `vm.tree`, `vm.terminal_open`, `vm.terminal_new`, `vm.desktop_open`,
 `vm.port_open` and `vm.link_socket` verbs keep their shapes and are wrappers
 over the same catalog (`vm.tree` is the catalog restricted to cloud machines;
-`vm.desktop_open` projects `<id>/screen/display:1`; `vm.port_open` projects
+`vm.desktop_open` projects `<id>/display/display:1`; `vm.port_open` projects
 `<id>/browser/port:<n>`, registering the port first when the probe has not
 seen it). CLI: `cmux surface ls|open|new-terminal` and `cmux vm tree|open`.
 
