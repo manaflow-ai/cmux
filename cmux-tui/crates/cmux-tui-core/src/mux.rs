@@ -2592,9 +2592,8 @@ impl Mux {
                         .is_ok()
                     {
                         applied += 1;
-                        let _ = self.workspace_registry.lock().unwrap().advance_agent_hook_apply_cursor(sequence);
                     } else {
-                        eprintln!("cmux-tui: agent hook retry cleanup deferred");
+                        self.report_internal_diagnostic("agent hook retry cleanup deferred");
                     }
                 }
                 Err(error) if agent_hook_terminal_gone(&error) => {
@@ -2607,7 +2606,7 @@ impl Mux {
                     {
                         applied += 1;
                     } else {
-                        eprintln!("cmux-tui: agent hook retry cleanup deferred");
+                        self.report_internal_diagnostic("agent hook retry cleanup deferred");
                     }
                 }
                 Err(error) => {
@@ -2626,7 +2625,7 @@ impl Mux {
                         )
                         .is_err()
                     {
-                        eprintln!("cmux-tui: agent hook retry bookkeeping deferred");
+                        self.report_internal_diagnostic("agent hook retry bookkeeping deferred");
                     }
                 }
             }
@@ -3886,8 +3885,6 @@ impl Mux {
         drop(registry);
         if !commit.replayed {
             self.publish_resource_event();
-        } else {
-            let _ = self.workspace_registry.lock().unwrap().advance_agent_hook_apply_cursor(commit.sequence);
         }
         Ok(commit)
     }
@@ -5434,7 +5431,7 @@ impl Mux {
                     .unwrap()
                     .clear_agent_hook_pending(&ingress.producer_id, origin, idempotency_key)
                 {
-                    eprintln!("cmux-tui: terminal-gone agent hook cleanup deferred");
+                    self.report_internal_diagnostic("terminal-gone agent hook cleanup deferred");
                 }
             } else {
                 if let Err(_bookkeeping_error) =
@@ -5448,8 +5445,8 @@ impl Mux {
                         agent_hook_retry_class(&error),
                     )
                 {
-                    eprintln!(
-                        "cmux-tui: durable agent hook receipt remains staged after retry bookkeeping failure"
+                    self.report_internal_diagnostic(
+                        "durable agent hook receipt remains staged after retry bookkeeping failure",
                     );
                 }
             }
@@ -5459,8 +5456,8 @@ impl Mux {
             .unwrap()
             .clear_agent_hook_pending(&ingress.producer_id, origin, idempotency_key)
         {
-            eprintln!(
-                "cmux-tui: agent hook projection applied; retry bookkeeping cleanup deferred"
+            self.report_internal_diagnostic(
+                "agent hook projection applied; retry bookkeeping cleanup deferred",
             );
         }
         Ok(commit)
@@ -5577,6 +5574,7 @@ impl Mux {
             Some(marker),
             true,
             Some(hook_state),
+            Some(sequence),
         )?;
         fences.insert(
             terminal_id.clone(),
@@ -5684,22 +5682,11 @@ impl Mux {
         Ok(())
     }
 
-    /// Logs a skipped terminal-host reconnect checkpoint at most once
-    /// until a later reconnect checkpoint succeeds. A checkpoint is a
-    /// journal-replay optimization: skipping one only moves the next replay
-    /// boundary back, so repeated skips are daemon-log noise, not per-toast
-    /// news.
-    pub(crate) fn report_skipped_reconnect_checkpoint(
-        &self,
-        terminal_id: impl fmt::Display,
-        error: &anyhow::Error,
-    ) {
-        let message = format!(
-            "skipped terminal {terminal_id} reconnect checkpoint (replay starts from the previous boundary): {error:#}"
-        );
-        if self.reconnect_checkpoint_skip_reported.swap(true, Ordering::AcqRel) {
-            return;
-        }
+    /// Sends a diagnostic to the frontend-owned sink without writing to a
+    /// frontend terminal. One message is retained when startup races sink
+    /// installation.
+    fn report_internal_diagnostic(&self, message: impl Into<String>) {
+        let message = message.into();
         if let Some(reporter) = self.diagnostic_reporter.get().cloned() {
             reporter(&message);
             return;
@@ -5716,6 +5703,25 @@ impl Mux {
         } else {
             *pending = Some(message);
         }
+    }
+
+    /// Logs a skipped terminal-host reconnect checkpoint at most once
+    /// until a later reconnect checkpoint succeeds. A checkpoint is a
+    /// journal-replay optimization: skipping one only moves the next replay
+    /// boundary back, so repeated skips are daemon-log noise, not per-toast
+    /// news.
+    pub(crate) fn report_skipped_reconnect_checkpoint(
+        &self,
+        terminal_id: impl fmt::Display,
+        error: &anyhow::Error,
+    ) {
+        let message = format!(
+            "skipped terminal {terminal_id} reconnect checkpoint (replay starts from the previous boundary): {error:#}"
+        );
+        if self.reconnect_checkpoint_skip_reported.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        self.report_internal_diagnostic(message);
     }
 
     /// Installs the frontend-owned sink for diagnostics emitted by the mux.
@@ -8940,7 +8946,7 @@ impl Mux {
         source: AgentSource,
         session: Option<String>,
     ) -> anyhow::Result<AgentRecord> {
-        self.report_agent_with_sequence_lock(surface, state, source, session, false, None)
+        self.report_agent_with_sequence_lock(surface, state, source, session, false, None, None)
     }
 
     fn report_agent_with_sequence_lock(
@@ -8951,6 +8957,7 @@ impl Mux {
         session: Option<String>,
         sequence_lock_held: bool,
         hook_state: Option<crate::workspace_registry::AgentHookProjectionState>,
+        journal_sequence: Option<u64>,
     ) -> anyhow::Result<AgentRecord> {
         let mutation = WorkspaceMutation::new(
             format!("raw-agent-{}", crate::workspace_registry::new_uuid_v4()),
@@ -8973,6 +8980,7 @@ impl Mux {
             &fingerprint,
             sequence_lock_held,
             hook_state.as_ref(),
+            journal_sequence,
         )?;
         let record = record.context("fresh raw agent report unexpectedly replayed")?;
         if source != AgentSource::Hook {
@@ -9012,6 +9020,7 @@ impl Mux {
             &fingerprint,
             false,
             None,
+            None,
         );
         if result.is_ok() && source != AgentSource::Hook {
             let _ = self.retry_pending_agent_hooks_for_terminal(terminal_id);
@@ -9031,6 +9040,7 @@ impl Mux {
         fingerprint: &Value,
         sequence_lock_held: bool,
         hook_state: Option<&crate::workspace_registry::AgentHookProjectionState>,
+        journal_sequence: Option<u64>,
     ) -> anyhow::Result<(ResourcePatchCommit, Option<AgentRecord>)> {
         // Hook replay already owns this guard to serialize sequence checks and
         // projection commits. Other report sources acquire it before the
@@ -9041,6 +9051,11 @@ impl Mux {
         if let Some(replay) =
             registry.replay_resource_patch(mutation, "agent.report", fingerprint)?
         {
+            if let Some(sequence) = journal_sequence {
+                // The projection transaction committed before this replay was
+                // observed. Repair the durable apply watermark separately.
+                registry.advance_agent_hook_apply_cursor(sequence)?;
+            }
             return Ok((replay, None));
         }
         let mut state = self.state.lock().unwrap();
@@ -9201,15 +9216,27 @@ impl Mux {
                 "value":public_value,
             }])
         };
-        let commit = registry.commit_agent_projection_with_hook_state(
-            mutation,
-            fingerprint,
-            expected_revision,
-            &terminal_id,
-            &value,
-            &deltas,
-            effective_hook_state,
-        )?;
+        let commit = match journal_sequence {
+            Some(sequence) => registry.commit_agent_projection_with_hook_state_and_sequence(
+                mutation,
+                fingerprint,
+                expected_revision,
+                &terminal_id,
+                &value,
+                &deltas,
+                effective_hook_state,
+                sequence,
+            )?,
+            None => registry.commit_agent_projection_with_hook_state(
+                mutation,
+                fingerprint,
+                expected_revision,
+                &terminal_id,
+                &value,
+                &deltas,
+                effective_hook_state,
+            )?,
+        };
         if !commit.replayed {
             if let (Some(direct_state), Some(sequence_guard)) =
                 (direct_hook_state.as_ref(), sequence_guard.as_mut())
@@ -9274,7 +9301,7 @@ impl Mux {
             registry.purge_agent_hook_pending_for_terminal(terminal_id)
         };
         if pending_cleanup.is_err() {
-            eprintln!("cmux-tui: terminal agent hook cleanup deferred");
+            self.report_internal_diagnostic("terminal agent hook cleanup deferred");
         }
         // The registry guard is dropped before acquiring the fence guard.
         self.agent_hook_fences.lock().unwrap().remove(terminal_id);
@@ -22357,7 +22384,12 @@ mod tests {
     #[test]
     fn unavailable_terminal_hook_is_retained_for_projection_retry() {
         let mux = test_mux();
-        let terminal_id = TerminalPublicId::random().unwrap();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+        // Keep the durable terminal in its Running lifecycle while removing
+        // the in-memory catalog entry, which models a recoverable adoption
+        // gap rather than a terminal that can never return.
+        assert!(mux.remove_terminal_catalog_for_test(&terminal_id).is_some());
         let ingress = crate::agent_hooks::agent_hook_journal_ingress(
             "claude",
             "UserPromptSubmit",
@@ -22382,7 +22414,9 @@ mod tests {
     #[test]
     fn unavailable_terminal_hook_retries_without_consuming_attempt_budget() {
         let mux = test_mux();
-        let terminal_id = TerminalPublicId::random().unwrap();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+        assert!(mux.remove_terminal_catalog_for_test(&terminal_id).is_some());
         let ingress = crate::agent_hooks::agent_hook_journal_ingress(
             "claude",
             "UserPromptSubmit",
@@ -22978,6 +23012,37 @@ mod tests {
         assert!(restored.agent_hook_fences[&terminal_id].ended);
         drop(mux);
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn failed_hook_projection_does_not_consume_sequence_and_replay_succeeds() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+        let ingress = crate::agent_hooks::agent_hook_journal_ingress(
+            "claude",
+            "UserPromptSubmit",
+            Some(&terminal_id.to_string()),
+            serde_json::json!({}),
+        )
+        .unwrap();
+
+        mux.workspace_registry.lock().unwrap().set_resource_patch_failure(true).unwrap();
+        let error = mux.apply_agent_hook_record(&ingress, 7).unwrap_err();
+        assert!(error.to_string().contains("forced resource patch failure"));
+        assert_eq!(mux.workspace_registry.lock().unwrap().agent_hook_apply_cursor().unwrap(), 0);
+        assert!(mux.agent_hook_fences.lock().unwrap().get(&terminal_id).is_none());
+
+        mux.workspace_registry.lock().unwrap().set_resource_patch_failure(false).unwrap();
+        mux.apply_agent_hook_record(&ingress, 7).unwrap();
+        assert_eq!(mux.workspace_registry.lock().unwrap().agent_hook_apply_cursor().unwrap(), 7);
+        assert_eq!(mux.agent_hook_fences.lock().unwrap()[&terminal_id].sequence, 7);
+        assert_eq!(mux.list_agents(Some(surface.id), None).len(), 1);
+
+        // A replay of the committed sequence is an idempotent no-op.
+        mux.apply_agent_hook_record(&ingress, 7).unwrap();
+        assert_eq!(mux.workspace_registry.lock().unwrap().agent_hook_apply_cursor().unwrap(), 7);
+        assert_eq!(mux.list_agents(Some(surface.id), None).len(), 1);
     }
 
     #[test]

@@ -170,7 +170,11 @@ pub(super) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::R
            ended INTEGER NOT NULL CHECK(ended IN (0, 1)),
            committed_revision INTEGER NOT NULL CHECK(committed_revision >= 0)
          );
-           CREATE TABLE IF NOT EXISTS resource_agent_hook_pending (
+         CREATE TABLE IF NOT EXISTS resource_agent_hook_apply_cursor (
+           id INTEGER PRIMARY KEY CHECK(id = 1),
+           sequence INTEGER NOT NULL CHECK(sequence >= 0)
+         );
+         CREATE TABLE IF NOT EXISTS resource_agent_hook_pending (
            producer_id TEXT NOT NULL,
            origin TEXT NOT NULL,
            idempotency_key TEXT NOT NULL,
@@ -213,22 +217,22 @@ pub(super) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::R
                attempt INTEGER NOT NULL CHECK(attempt >= 0),
                PRIMARY KEY(producer_id, origin, idempotency_key)
              );
-         CREATE TABLE IF NOT EXISTS resource_agent_hook_apply_cursor (
-           id INTEGER PRIMARY KEY CHECK(id = 1),
-           sequence INTEGER NOT NULL CHECK(sequence >= 0)
-         );
-         INSERT OR IGNORE INTO resource_agent_hook_apply_cursor(id, sequence) VALUES(1, 0);
              INSERT INTO resource_agent_hook_pending(
                producer_id, origin, idempotency_key, terminal_id, event_sequence, ingress_json, error, attempt
-             ) SELECT '', '', idempotency_key,
+             ) SELECT COALESCE(NULLIF(json_extract(ingress_json, '$.producer_id'), ''), 'cmux_agent'),
+               'agent-hook', idempotency_key,
                (SELECT json_extract(value, '$.id')
                 FROM json_each(resource_agent_hook_pending_legacy.ingress_json, '$.subjects')
                 WHERE json_extract(value, '$.kind') = 'terminal' LIMIT 1),
                event_sequence, ingress_json, error, attempt
              FROM resource_agent_hook_pending_legacy;
              DROP TABLE resource_agent_hook_pending_legacy;",
-        )?;
+         )?;
     }
+    transaction.execute(
+        "INSERT OR IGNORE INTO resource_agent_hook_apply_cursor(id, sequence) VALUES(1, 0)",
+        [],
+    )?;
     let has_pending_terminal_id = transaction
         .prepare("PRAGMA table_info(resource_agent_hook_pending)")?
         .query_map([], |row| row.get::<_, String>(1))?
@@ -506,23 +510,39 @@ pub(super) fn migrate_resource_browser_metadata(
     Ok(())
 }
 
+fn advance_agent_hook_apply_cursor_transaction(
+    transaction: &Transaction<'_>,
+    sequence: u64,
+) -> anyhow::Result<()> {
+    let sequence = i64::try_from(sequence).context("agent hook sequence exceeds SQLite range")?;
+    let changed = transaction.execute(
+        "UPDATE resource_agent_hook_apply_cursor
+         SET sequence = CASE WHEN sequence < ?1 THEN ?1 ELSE sequence END
+         WHERE id = 1",
+        [sequence],
+    )?;
+    anyhow::ensure!(changed == 1, "agent hook apply cursor row is missing");
+    Ok(())
+}
+
 impl WorkspaceRegistry {
-    /// Return the highest journal sequence whose hook projection has been
-    /// durably considered. This is a recovery watermark, not an admission
-    /// cursor. It advances only after the projection transaction commits.
+    /// Return the highest journal sequence committed with a hook projection.
+    /// This recovery watermark is not an admission cursor. It advances only
+    /// after the projection transaction commits.
     pub fn agent_hook_apply_cursor(&self) -> anyhow::Result<u64> {
         self.connection
-            .query_row("SELECT sequence FROM resource_agent_hook_apply_cursor WHERE id = 1", [], |row| row.get::<_, i64>(0))
+            .query_row(
+                "SELECT sequence FROM resource_agent_hook_apply_cursor WHERE id = 1",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
             .map(|value| u64::try_from(value).context("agent hook apply cursor is negative"))?
     }
 
     pub fn advance_agent_hook_apply_cursor(&mut self, sequence: u64) -> anyhow::Result<()> {
-        self.connection.execute(
-            "UPDATE resource_agent_hook_apply_cursor
-             SET sequence = CASE WHEN sequence < ?1 THEN ?1 ELSE sequence END
-             WHERE id = 1",
-            [i64::try_from(sequence).context("agent hook sequence exceeds SQLite range")?],
-        )?;
+        let tx = self.connection.transaction()?;
+        advance_agent_hook_apply_cursor_transaction(&tx, sequence)?;
+        tx.commit()?;
         Ok(())
     }
     pub(super) fn stage_agent_hook_pending(
@@ -821,6 +841,30 @@ impl WorkspaceRegistry {
             result,
             deltas,
             hook_state,
+            None,
+        )
+    }
+
+    pub fn commit_agent_projection_with_hook_state_and_sequence(
+        &mut self,
+        mutation: &WorkspaceMutation,
+        fingerprint: &Value,
+        expected_revision: Option<u64>,
+        terminal_id: &TerminalPublicId,
+        result: &Value,
+        deltas: &Value,
+        hook_state: Option<&AgentHookProjectionState>,
+        journal_sequence: u64,
+    ) -> anyhow::Result<ResourcePatchCommit> {
+        self.commit_agent_projection_inner(
+            mutation,
+            fingerprint,
+            expected_revision,
+            terminal_id,
+            result,
+            deltas,
+            hook_state,
+            Some(journal_sequence),
         )
     }
 
@@ -854,6 +898,7 @@ impl WorkspaceRegistry {
             result,
             deltas,
             None,
+            None,
         )
     }
 
@@ -867,6 +912,7 @@ impl WorkspaceRegistry {
         result: &Value,
         deltas: &Value,
         hook_state: Option<&AgentHookProjectionState>,
+        journal_sequence: Option<u64>,
     ) -> anyhow::Result<ResourcePatchCommit> {
         const OPERATION: &str = "agent.report";
         validate_identifier("mutation id", &mutation.id)?;
@@ -879,6 +925,10 @@ impl WorkspaceRegistry {
         let result_json = canonical_json(result)?;
         let tx = self.connection.transaction()?;
         if let Some(replayed) = resource_patch_replay(&tx, mutation, OPERATION, &fingerprint)? {
+            if let Some(sequence) = journal_sequence {
+                advance_agent_hook_apply_cursor_transaction(&tx, sequence)?;
+                tx.commit()?;
+            }
             return Ok(replayed);
         }
         let terminal_is_live = tx
@@ -963,6 +1013,9 @@ impl WorkspaceRegistry {
             deltas,
         )?;
         prune_resource_mutations(&tx)?;
+        if let Some(sequence) = journal_sequence {
+            advance_agent_hook_apply_cursor_transaction(&tx, sequence)?;
+        }
         tx.commit()?;
         Ok(ResourcePatchCommit { revision, result: result.clone(), replayed: false })
     }
