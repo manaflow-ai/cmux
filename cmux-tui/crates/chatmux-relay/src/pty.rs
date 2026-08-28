@@ -1003,7 +1003,7 @@ impl Inner {
         action: &str,
     ) -> Option<Attachment> {
         let attachment = self.attachments.lock().expect("attach lock").get(pty_id)?.clone();
-        if !Arc::ptr_eq(&attachment.auth, auth_state) {
+        if context.transport_id.is_some() && !Arc::ptr_eq(&attachment.auth, auth_state) {
             // A sink or frame from another transport must never act on this
             // attachment, even if both transports currently have identical
             // trust values.
@@ -1017,7 +1017,8 @@ impl Inner {
         if allowed {
             Some(attachment)
         } else {
-            self.close_matching(pty_id, context.transport_id.as_deref(), Some(auth_state));
+            let expected_auth = context.transport_id.is_some().then_some(auth_state);
+            self.close_matching(pty_id, context.transport_id.as_deref(), expected_auth);
             send_pty_error(context, pty_id, "trust_revoked", &format!("PTY {action} refused after trust change"));
             None
         }
@@ -1025,7 +1026,8 @@ impl Inner {
 
     fn close_authorized(&self, pty_id: &str, context: &FrameContext) {
         if let Some(attachment) = self.authorize(pty_id, context, "close") {
-            self.close_matching(pty_id, context.transport_id.as_deref(), Some(&attachment.auth));
+            let expected_auth = context.transport_id.is_some().then_some(&attachment.auth);
+            self.close_matching(pty_id, context.transport_id.as_deref(), expected_auth);
         }
     }
 }
