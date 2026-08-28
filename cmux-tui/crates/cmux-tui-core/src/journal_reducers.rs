@@ -171,10 +171,10 @@ impl AgentRoster {
                 let Some(state) = event.normalized("state").and_then(agent_state_from_str) else {
                     return Vec::new();
                 };
-                let source = event
-                    .normalized("source")
-                    .and_then(agent_source_from_str)
-                    .unwrap_or(AgentSource::Socket);
+                // The socket adapter is authoritative about origin. Do not
+                // trust the user-controlled normalized source field, or it
+                // could bypass hook-over-socket precedence.
+                let source = AgentSource::Socket;
                 let updated_at_ms = event
                     .normalized("updated_at_ms")
                     .and_then(|value| value.parse::<u64>().ok())
@@ -315,6 +315,25 @@ mod tests {
         let deltas =
             roster.apply(&hook_event(3, "agent.state.changed", &subjects, &socket_payload));
         assert!(deltas.is_empty());
+        assert_eq!(roster.entries["term_a"].source, "hook");
+    }
+
+    #[test]
+    fn socket_echo_cannot_spoof_hook_source() {
+        let subjects = terminal_subject("term_a");
+        let hook_payload = json!({"adapter": {"id": "claude", "version": 1}});
+        let socket_payload = json!({
+            "adapter": {"id": SOCKET_REPORT_ADAPTER, "version": 1},
+            "normalized": {"state": "idle", "source": "hook"}
+        });
+        let mut roster = AgentRoster::default();
+        roster.apply(&hook_event(1, "agent.turn.started", &subjects, &hook_payload));
+        assert!(
+            roster
+                .apply(&hook_event(2, "agent.state.changed", &subjects, &socket_payload))
+                .is_empty()
+        );
+        assert_eq!(roster.entries["term_a"].state, "working");
         assert_eq!(roster.entries["term_a"].source, "hook");
     }
 
