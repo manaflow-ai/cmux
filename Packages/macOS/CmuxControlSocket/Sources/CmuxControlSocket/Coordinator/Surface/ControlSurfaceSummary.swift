@@ -6,8 +6,8 @@ public import Foundation
 /// Mirrors the legacy per-surface dictionary the `v2SurfaceList` body built. The
 /// coordinator mints the surface and pane refs itself and writes the optional
 /// fields with `null` defaults exactly as the legacy `v2OrNull` writes did. The
-/// browser/terminal-only extras are carried as optionals: they are emitted only
-/// when present, matching the legacy `if let` conditional key writes.
+/// Browser, terminal, and file-backed extras are carried as optionals: they are
+/// emitted only when present, matching the legacy conditional key writes.
 public struct ControlSurfaceSummary: Sendable, Equatable {
     /// The surface's panel identifier.
     public let surfaceID: UUID
@@ -15,6 +15,8 @@ public struct ControlSurfaceSummary: Sendable, Equatable {
     public let typeRawValue: String
     /// The resolved display title.
     public let title: String
+    /// The absolute file path represented by a file-preview or Markdown surface.
+    public let filePath: String?
     /// Whether this surface is the workspace's focused surface.
     public let isFocused: Bool
     /// The enclosing pane's identifier, if it resolved.
@@ -59,6 +61,7 @@ public struct ControlSurfaceSummary: Sendable, Equatable {
     ///   - surfaceID: The surface's panel identifier.
     ///   - typeRawValue: The panel type's raw value.
     ///   - title: The resolved display title.
+    ///   - filePath: The absolute path represented by a file-backed surface.
     ///   - isFocused: Whether this surface is focused.
     ///   - paneID: The enclosing pane's identifier, if resolved.
     ///   - indexInPane: The surface's index within its pane, if resolved.
@@ -74,6 +77,7 @@ public struct ControlSurfaceSummary: Sendable, Equatable {
         surfaceID: UUID,
         typeRawValue: String,
         title: String,
+        filePath: String? = nil,
         isFocused: Bool,
         paneID: UUID?,
         indexInPane: Int?,
@@ -94,6 +98,7 @@ public struct ControlSurfaceSummary: Sendable, Equatable {
         self.surfaceID = surfaceID
         self.typeRawValue = typeRawValue
         self.title = title
+        self.filePath = filePath
         self.isFocused = isFocused
         self.paneID = paneID
         self.indexInPane = indexInPane

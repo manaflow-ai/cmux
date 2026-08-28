@@ -297,6 +297,48 @@ struct ControlCommandCoordinatorSurfaceTests {
         #expect(row["state"] == .string("Booted"))
     }
 
+    @Test func surfaceListIncludesFilePathWhenAvailable() throws {
+        let context = FakeSurfaceControlCommandContext()
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let filePath = "/tmp/project/nested/source.swift"
+        context.surfaceListSnapshot = ControlSurfaceListSnapshot(
+            workspaceID: workspaceID,
+            windowID: nil,
+            surfaces: [ControlSurfaceSummary(
+                surfaceID: surfaceID,
+                typeRawValue: "filepreview",
+                title: "source.swift",
+                filePath: filePath,
+                isFocused: true,
+                paneID: nil,
+                indexInPane: nil,
+                selectedInPane: nil,
+                developerToolsVisible: nil,
+                requestedWorkingDirectory: nil,
+                initialCommand: nil,
+                tmuxStartCommand: nil,
+                isTerminal: false,
+                resumeBinding: nil
+            )]
+        )
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.list",
+            params: ["workspace_id": .string(workspaceID.uuidString)]
+        ))
+
+        guard case let .ok(.object(payload)) = result,
+              case let .array(rows)? = payload["surfaces"],
+              case let .object(row)? = rows.first else {
+            Issue.record("Expected a file-preview surface row")
+            return
+        }
+        #expect(row["file_path"] == .string(filePath))
+    }
+
     @Test func surfaceResumePendingApprovalReturnsRetryableBusyError() {
         let context = FakeSurfaceControlCommandContext()
         let message = "Resume approval data is still loading. Retry the request."
