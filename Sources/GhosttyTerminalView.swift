@@ -4350,11 +4350,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         // path. In particular, command-click release routing needs to run on
         // ``mouseUp(with:)``; repairing here would consume the release before
         // that path can resolve links. The next non-drag event reconciles a
-        if event.window == window {
+        if event.window == window, button == .left {
             // Keep the event for command-click handling, then verify the same
             // generation on the next main-actor turn. If the responder or
             // overlay drops the up, the token is still active and is released;
-            // a normally handled up has already consumed the token.
+            // a normally handled up has already consumed the token. Right
+            // button releases are deliberately excluded: AppKit may enter
+            // menu tracking immediately after the down, and a deferred
+            // synthetic release must not run before `didEndTracking`.
             deferGhosttyMouseButtonRepair(
                 reason: "localMouseUp.postDispatch.\(button.rawValue)",
                 forceButtons: Set([button])
