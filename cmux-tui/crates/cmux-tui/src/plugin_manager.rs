@@ -305,10 +305,13 @@ fn install_command(positionals: &[String], options: &CliOptions) -> Result<Value
                 if selected {
                     let command = resolved_run_command(&manifest, &target)?;
                     let cwd = canonical_path(&target)?;
-                    config::write_sidebar_plugin(Some(&SidebarPluginConfig {
+                    let outcome = config::write_sidebar_plugin(Some(&SidebarPluginConfig {
                         command,
                         cwd: Some(cwd.display().to_string()),
                     }))?;
+                    if let Some(error) = outcome.into_unsynced_error() {
+                        return Err(error);
+                    }
                 }
                 Ok(())
             },
@@ -828,7 +831,7 @@ fn read_install_journal(path: &Path) -> anyhow::Result<Vec<u8>> {
         use std::os::unix::fs::OpenOptionsExt as _;
         options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
     }
-    let mut file = options.open(path)?;
+    let file = options.open(path)?;
     let metadata = file.metadata()?;
     anyhow::ensure!(metadata.is_file(), "install journal is not a regular file");
     #[cfg(unix)]
@@ -1088,7 +1091,7 @@ fn commit_marker_matches(path: &Path, owner_token: &str) -> anyhow::Result<bool>
         use std::os::unix::fs::OpenOptionsExt as _;
         options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
     }
-    let mut file = match options.open(path) {
+    let file = match options.open(path) {
         Ok(file) => file,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
         Err(error) => return Err(error.into()),
@@ -1172,14 +1175,9 @@ fn reconcile_install_transactions(install_root: &Path) -> anyhow::Result<()> {
             match journal.phase {
                 InstallJournalPhase::Prepared => {
                     if let Some(snapshot) = &journal.config_snapshot {
-                        let legacy_target = journal
-                            .expected_sidebar_plugin
-                            .is_none()
-                            .then(|| install_root.join(&journal.name));
                         restore_config_snapshot(
                             snapshot,
                             journal.expected_sidebar_plugin.as_ref(),
-                            legacy_target.as_deref(),
                         )?;
                     }
                     if journal.target_existed {
@@ -1306,8 +1304,11 @@ fn cleanup_orphan_commit_markers(
 fn restore_config_snapshot(
     snapshot: &ConfigSnapshot,
     expected_sidebar_plugin: Option<&Value>,
-    legacy_target: Option<&Path>,
 ) -> anyhow::Result<()> {
+    // Journals written before the exact value was recorded cannot prove that
+    // the current selection belongs to this transaction. Fail closed before
+    // reading or locking the config, so recovery never guesses from a cwd.
+    let Some(expected_sidebar_plugin) = expected_sidebar_plugin else { return Ok(()) };
     config::with_config_file_lock(&snapshot.path, || {
         let mut root = match fs::read_to_string(&snapshot.path) {
             Ok(text) if text.trim().is_empty() => json!({}),
@@ -1316,20 +1317,11 @@ fn restore_config_snapshot(
             Err(error) => return Err(error.into()),
         };
         let current = root.get("sidebar").and_then(|sidebar| sidebar.get("plugin"));
-        let current_is_transaction = expected_sidebar_plugin
-            .is_some_and(|expected| current == Some(expected))
-            || expected_sidebar_plugin.is_none()
-                && legacy_target.is_some_and(|target| {
-                    current
-                        .and_then(|plugin| plugin.get("cwd"))
-                        .and_then(Value::as_str)
-                        .is_some_and(|cwd| same_path(Path::new(cwd), target))
-                });
+        let current_is_transaction = current == Some(expected_sidebar_plugin);
         if !current_is_transaction {
             // The user or another cmux process selected a different plugin after
             // this transaction started. Leave that newer state untouched. A
-            // legacy journal has no exact value, so its target cwd is the
-            // narrow compatibility predicate.
+            // journal without an exact value was handled above.
             return Ok(());
         }
         let Some(root_object) = root.as_object_mut() else {
@@ -1529,6 +1521,11 @@ fn replace_installed_plugin_with_fs<F: InstallFilesystem, C: FnOnce() -> anyhow:
             &journal_path,
             &InstallJournal { phase: InstallJournalPhase::Committed, ..journal.clone() },
         )?;
+        // Keep the committed journal and the installed directory entry
+        // durable before cleanup can remove the recovery evidence.
+        let journal_parent = journal_path.parent().unwrap_or_else(|| Path::new("."));
+        sync_directory(journal_parent)?;
+        sync_directory(install_root)?;
         Ok(())
     })();
 
@@ -1565,12 +1562,9 @@ fn replace_installed_plugin_with_fs<F: InstallFilesystem, C: FnOnce() -> anyhow:
             }
         }
         if let Some(snapshot) = &journal.config_snapshot {
-            let legacy_target = journal.expected_sidebar_plugin.is_none().then(|| target.clone());
-            if let Err(rollback_error) = restore_config_snapshot(
-                snapshot,
-                journal.expected_sidebar_plugin.as_ref(),
-                legacy_target.as_deref(),
-            ) {
+            if let Err(rollback_error) =
+                restore_config_snapshot(snapshot, journal.expected_sidebar_plugin.as_ref())
+            {
                 rollback_errors.push(format!("config restore: {rollback_error}"));
             }
         }
@@ -2094,53 +2088,39 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
 
-    #[cfg(unix)]
     #[test]
-    fn reconciliation_migrates_a_legacy_journal_without_overwriting_newer_config() {
-        use std::os::unix::fs::PermissionsExt;
-
-        let (root, target, temp_dir, metadata_temp) = replacement_fixture("legacy-journal");
-        let metadata_path = registry_metadata_path(&root, "demo");
-        let target_backup = root.join(".demo.recovery.plugin-backup");
-        let metadata_backup = root.join(".registry/.demo.recovery.metadata-backup.json");
-        fs::rename(&target, &target_backup).unwrap();
-        fs::rename(&metadata_path, &metadata_backup).unwrap();
-        fs::rename(&temp_dir, &target).unwrap();
-
+    fn legacy_config_snapshot_fails_closed_without_exact_expected_value() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-plugin-legacy-config-{}-{}",
+            std::process::id(),
+            now_nanos()
+        ));
+        fs::create_dir_all(&root).unwrap();
         let config_path = root.join("config.json");
         let current_config = json!({
             "sidebar": {
                 "plugin": {
                     "command": ["new"],
-                    "cwd": target.canonicalize().unwrap().display().to_string()
+                    "cwd": root.join("demo").display().to_string()
                 }
-            }
+            },
+            "theme": {"name": "keep"}
         });
         fs::write(&config_path, serde_json::to_vec(&current_config).unwrap()).unwrap();
-        let journal_path = install_journal_path(&root, "demo");
-        let legacy = json!({
-            "name": "demo",
-            "target_backup": target_backup,
-            "metadata_backup": metadata_backup,
-            "temp_dir": temp_dir,
-            "metadata_temp": metadata_temp,
-            "target_existed": true,
-            "metadata_existed": true,
-            "config_snapshot": {
-                "path": config_path,
-                "sidebar_plugin": {"command": ["old"]}
-            },
-            "phase": "prepared"
-        });
-        fs::write(&journal_path, serde_json::to_vec(&legacy).unwrap()).unwrap();
-        fs::set_permissions(&journal_path, fs::Permissions::from_mode(0o644)).unwrap();
+        let snapshot = ConfigSnapshot {
+            path: config_path.clone(),
+            config_existed: Some(true),
+            sidebar_plugin: Some(json!({"command": ["old"]})),
+            original_non_object: None,
+        };
 
-        reconcile_install_transactions(&root).unwrap();
-        assert_eq!(fs::read_to_string(target.join("marker")).unwrap(), "old");
-        let restored: Value =
-            serde_json::from_str(&fs::read_to_string(root.join("config.json")).unwrap()).unwrap();
-        assert_eq!(restored["sidebar"]["plugin"]["command"], json!(["old"]));
-        assert!(!journal_path.exists());
+        // A legacy journal has no exact value for the plugin it wrote. Even
+        // when its cwd matches, recovery must leave the current selection.
+        restore_config_snapshot(&snapshot, None).unwrap();
+        let after: Value =
+            serde_json::from_str(&fs::read_to_string(&config_path).unwrap()).unwrap();
+        assert_eq!(after, current_config);
+        assert!(!config_path.with_file_name(".config.json.lock").exists());
         fs::remove_dir_all(root).unwrap();
     }
 

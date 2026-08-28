@@ -4144,7 +4144,7 @@ pub(crate) fn with_config_file_lock<T>(
     options.create(true).read(true).write(true);
     #[cfg(unix)]
     {
-        use std::os::unix::fs::{MetadataExt as _, OpenOptionsExt as _, PermissionsExt as _};
+        use std::os::unix::fs::OpenOptionsExt as _;
         options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC).mode(0o600);
     }
     let file = options.open(&lock_path)?;
