@@ -5246,9 +5246,11 @@ impl Mux {
             }
             commit
         };
-        if !commit.replayed {
-            self.apply_agent_hook_record(ingress, commit.sequence);
-        }
+        // Replayed journal commits still need projection reconciliation. A
+        // process can crash after the durable journal commit and before the
+        // in-memory/resource projection update. The sequence guard makes this
+        // a no-op for already-applied events while allowing restart repair.
+        self.apply_agent_hook_record(ingress, commit.sequence);
         Ok(commit)
     }
 
