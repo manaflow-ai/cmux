@@ -962,8 +962,7 @@ impl Inner {
             let mut opening = self.opening_state.lock().expect("opening state lock");
             let cancelled = opening.cancelled.get(&pty_id) == Some(&reservation_owner);
             let authority_changed = !self.tunnel_authority_generation_current(context);
-            let reservation_owned =
-                opening.reservations.get(&pty_id) == Some(&reservation_owner);
+            let reservation_owned = opening.reservations.get(&pty_id) == Some(&reservation_owner);
             if !reservation_owned || cancelled || auth_changed || authority_changed {
                 if reservation_owned {
                     opening.reservations.remove(&pty_id);
@@ -1103,9 +1102,9 @@ impl Inner {
         let removed = {
             let _state = self.tunnel_state.lock().expect("tunnel state lock");
             let mut attachments = self.attachments.lock().expect("attach lock");
-            let same = attachments
-                .get(pty_id)
-                .is_some_and(|current| Arc::ptr_eq(&current.operation_gate, &attachment.operation_gate));
+            let same = attachments.get(pty_id).is_some_and(|current| {
+                Arc::ptr_eq(&current.operation_gate, &attachment.operation_gate)
+            });
             if same { attachments.remove(pty_id).is_some() } else { false }
         };
         if !removed {
@@ -1144,13 +1143,8 @@ impl Inner {
     /// transport may not act on it. A `None` caller owns everything (legacy).
     fn transport_owns(&self, pty_id: &str, context: &FrameContext) -> bool {
         let Some(transport_id) = context.transport_id.as_deref() else { return true };
-        if let Some(owner) = self
-            .opening_state
-            .lock()
-            .expect("opening state lock")
-            .reservations
-            .get(pty_id)
-            .cloned()
+        if let Some(owner) =
+            self.opening_state.lock().expect("opening state lock").reservations.get(pty_id).cloned()
         {
             return owner.owner.id.as_deref() == Some(transport_id)
                 && owner.owner.kind == context.transport_kind;
@@ -1220,9 +1214,9 @@ impl Inner {
         let removed = {
             let _state = self.tunnel_state.lock().expect("tunnel state lock");
             let mut attachments = self.attachments.lock().expect("attach lock");
-            let same = attachments
-                .get(pty_id)
-                .is_some_and(|current| Arc::ptr_eq(&current.operation_gate, &attachment.operation_gate));
+            let same = attachments.get(pty_id).is_some_and(|current| {
+                Arc::ptr_eq(&current.operation_gate, &attachment.operation_gate)
+            });
             if same { attachments.remove(pty_id).is_some() } else { false }
         };
         if removed {
@@ -1232,9 +1226,11 @@ impl Inner {
     }
 
     fn attachment_is_current(&self, pty_id: &str, attachment: &Attachment) -> bool {
-        self.attachments.lock().expect("attach lock").get(pty_id).is_some_and(|current| {
-            Arc::ptr_eq(&current.operation_gate, &attachment.operation_gate)
-        })
+        self.attachments
+            .lock()
+            .expect("attach lock")
+            .get(pty_id)
+            .is_some_and(|current| Arc::ptr_eq(&current.operation_gate, &attachment.operation_gate))
     }
 
     fn transport_auth_is_current(&self, context: &FrameContext, auth: &AuthSnapshot) -> bool {
@@ -1282,9 +1278,9 @@ impl Inner {
         let removed = {
             let _state = self.tunnel_state.lock().expect("tunnel state lock");
             let mut attachments = self.attachments.lock().expect("attach lock");
-            let same = attachments
-                .get(pty_id)
-                .is_some_and(|current| Arc::ptr_eq(&current.operation_gate, &attachment.operation_gate));
+            let same = attachments.get(pty_id).is_some_and(|current| {
+                Arc::ptr_eq(&current.operation_gate, &attachment.operation_gate)
+            });
             if same { attachments.remove(pty_id) } else { None }
         };
         if let Some(removed) = removed {
@@ -3254,14 +3250,10 @@ mod tests {
             spawn_cwd: PathBuf::new(),
             spawn_term: String::new(),
         };
-        let owner_a = TransportOwner {
-            id: Some("tunnel-a".to_owned()),
-            kind: TransportKind::Tunnel,
-        };
-        let owner_b = TransportOwner {
-            id: Some("tunnel-b".to_owned()),
-            kind: TransportKind::Tunnel,
-        };
+        let owner_a =
+            TransportOwner { id: Some("tunnel-a".to_owned()), kind: TransportKind::Tunnel };
+        let owner_b =
+            TransportOwner { id: Some("tunnel-b".to_owned()), kind: TransportKind::Tunnel };
         {
             let mut attachments = inner.attachments.lock().unwrap();
             attachments.insert(
@@ -3285,8 +3277,10 @@ mod tests {
                 },
             );
         }
-        let mut context_a = h.context_with_transport("supervised", h.owner.clone(), Some("tunnel-a"));
-        let mut context_b = h.context_with_transport("supervised", h.owner.clone(), Some("tunnel-b"));
+        let mut context_a =
+            h.context_with_transport("supervised", h.owner.clone(), Some("tunnel-a"));
+        let mut context_b =
+            h.context_with_transport("supervised", h.owner.clone(), Some("tunnel-b"));
         context_a.transport_kind = TransportKind::Tunnel;
         context_b.transport_kind = TransportKind::Tunnel;
         inner.cache_transport_auth(&context_a);
@@ -3322,16 +3316,10 @@ mod tests {
         let inner = Arc::clone(&h.manager.inner);
         let id = "reused".to_owned();
         let owner_a = OpeningOwner {
-            owner: TransportOwner {
-                id: Some("tunnel-a".to_owned()),
-                kind: TransportKind::Tunnel,
-            },
+            owner: TransportOwner { id: Some("tunnel-a".to_owned()), kind: TransportKind::Tunnel },
         };
         let owner_b = OpeningOwner {
-            owner: TransportOwner {
-                id: Some("tunnel-b".to_owned()),
-                kind: TransportKind::Tunnel,
-            },
+            owner: TransportOwner { id: Some("tunnel-b".to_owned()), kind: TransportKind::Tunnel },
         };
         let old = OpeningReservation {
             inner: Arc::clone(&inner),
