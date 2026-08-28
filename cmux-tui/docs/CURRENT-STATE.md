@@ -1,5 +1,9 @@
 # cmux-tui current state
 
+## Wave 90 snapshot
+
+UTC timestamp: 2026-08-28T10:00:00Z. Current main is `eae7f14c2dc1a3afb83d98ed0ad9e97fab3d6689`. Merged TUI work includes #10990, #11056, and #11072. Live heads and blockers are tracked in `PR-INTENT-BOARD.md`; session count remains unknown.
+
 Snapshot: 2026-08-28T09:47:54Z.
 
 ## Main

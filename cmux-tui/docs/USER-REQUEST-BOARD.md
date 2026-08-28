@@ -1,5 +1,9 @@
 # cmux-tui user request board
 
+## Wave 90 snapshot
+
+UTC timestamp: 2026-08-28T10:00:00Z. Main `eae7f14c2dc1a3afb83d98ed0ad9e97fab3d6689`; merged #10990, #11056, and #11072 are included. Unresolved requests remain open unless behavior evidence says otherwise. Session count remains unknown.
+
 ## Wave 85 current state: main `0ab1edc814b7aaae23e458a3b73e34adfcd60438`
 
 Snapshot: 2026-08-28T09:47:54Z. The latest merge and gate states are pinned to exact heads.

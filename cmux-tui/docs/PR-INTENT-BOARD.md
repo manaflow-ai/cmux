@@ -1,5 +1,9 @@
 # cmux TUI PR intent and merge board
 
+## Wave 90 live reconciliation
+
+Snapshot: 2026-08-28T10:00:00Z. Main: `eae7f14c2dc1a3afb83d98ed0ad9e97fab3d6689`. Merged #10990 `2608c8ca279f26c188723e95f31e6ac287439423` -> `fa77ad23364aa12993644b357b425513d61ca632`, #11056 `433e1f5ec237476077e7a50eceeb1c39547fc0ff` -> `102aa3d63086bf0617a6b5a34d5cb2465f2a74a7`, and #11072 `7cf4ed0b96fb1bc22b2a2823dc81d3164ebbd60d` -> `253df2472973a5654e1a3d7fee13764a177c7a79`. Open heads: #11024 `af704da816ae03268c0b9e8f52125aead38c0fe2`, #11025 `3fa7ca2bfa328cd4a7efde9d9ddc220e1e1a2ec0`, #11028 `5597886950825ea955c6335b63aee5d3dc405a40`, #11055 `b55c52708c159651d49674361a1c37d004b63402`, #11013 `153da71049bedd0be81490330ffbc8f83e0f924b`, #10994 `f184e4afbc94eaf451844dfb9cf6ece8b78dd0da`. Deferred blockers remain #11002, #11068, #11078, #11063, and #10401. Session count remains unknown.
+
 ## Wave 85 current state: main `0ab1edc814b7aaae23e458a3b73e34adfcd60438`
 
 Snapshot: 2026-08-28T09:47:54Z.
