@@ -2428,30 +2428,24 @@ struct ContentView: View {
                 guard let workspace else { return }
                 do {
                     let localURL = try await fileExplorerStore.materializeRemoteFileForPreview(path: filePath)
-                    let opened = workspace.openFileSurfaces(
+                    _ = workspace.openFileSurfaces(
                         inPane: paneId,
                         filePaths: [localURL.path],
                         focus: true,
                         reuseExisting: true
                     )
-                    if let panel = opened.first {
-                        workspace.handKeyboardFocusFromRightSidebarAfterFileOpen(to: panel)
-                    }
                 } catch {
                     NSSound.beep()
                 }
             }
             return
         }
-        let opened = workspace.openFileSurfaces(
+        _ = workspace.openFileSurfaces(
             inPane: paneId,
             filePaths: [filePath],
             focus: true,
             reuseExisting: true
         )
-        if let panel = opened.first {
-            workspace.handKeyboardFocusFromRightSidebarAfterFileOpen(to: panel)
-        }
     }
 
     private func syncFileExplorerDirectory() {

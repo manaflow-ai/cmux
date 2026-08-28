@@ -12308,12 +12308,16 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 targetIndex: index
             ).isEmpty
         case .split(let paneId, let orientation, let insertFirst):
-            return splitPaneWithFileSurface(
+            guard let panel = splitPaneWithFileSurface(
                 targetPane: paneId,
                 orientation: orientation,
                 insertFirst: insertFirst,
                 filePath: entry.filePath
-            ) != nil
+            ) else {
+                return false
+            }
+            handKeyboardFocusFromRightSidebarAfterFileOpen(to: panel)
+            return true
         }
     }
 
@@ -12330,15 +12334,14 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 
         switch request.destination {
         case .insert(let paneId, let index):
-            let opened = openFileSurfaces(
+            // openFileSurfaces(focus: true) performs the sidebar focus
+            // handoff itself.
+            return !openFileSurfaces(
                 inPane: paneId,
                 filePaths: entries.map(\.filePath),
                 focus: true,
                 targetIndex: index
-            )
-            guard let firstPanel = opened.first else { return false }
-            handKeyboardFocusFromRightSidebarAfterFileOpen(to: firstPanel)
-            return true
+            ).isEmpty
 
         case .split(let sourcePaneId, let orientation, let insertFirst):
             guard let first = entries.first,
