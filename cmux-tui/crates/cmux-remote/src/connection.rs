@@ -1352,7 +1352,9 @@ mod tests {
         });
         let closed = tokio::time::timeout(Duration::from_millis(250), &mut closing).await;
         release.notify_waiters();
-        let _ = tokio::time::timeout(Duration::from_secs(1), &mut closing).await;
+        if closed.is_err() {
+            let _ = tokio::time::timeout(Duration::from_secs(1), &mut closing).await;
+        }
         let _ = tokio::time::timeout(Duration::from_secs(1), send).await;
         assert!(closed.is_ok(), "close waited for a provider resolver after shutdown began");
     }
