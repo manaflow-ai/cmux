@@ -22,4 +22,19 @@ nonisolated struct GitReferenceSnapshot: Equatable, Sendable {
 
     /// Whether this snapshot used storage-independent Git plumbing.
     let usesGitPlumbing: Bool = false
+
+    /// Creates a resolved reference snapshot.
+    init(
+        checkedOutBranch: GitCheckedOutBranch,
+        headSignature: String?,
+        currentCommit: String?,
+        storageWatchPaths: [String] = [],
+        usesGitPlumbing: Bool = false
+    ) {
+        self.checkedOutBranch = checkedOutBranch
+        self.headSignature = headSignature
+        self.currentCommit = currentCommit
+        self.storageWatchPaths = storageWatchPaths
+        self.usesGitPlumbing = usesGitPlumbing
+    }
 }

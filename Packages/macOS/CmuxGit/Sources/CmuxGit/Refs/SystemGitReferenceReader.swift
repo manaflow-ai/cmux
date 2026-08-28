@@ -149,13 +149,13 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
         guard directSnapshot.currentCommit == nil || directSnapshot.branchName == ".invalid" else {
             return directSnapshot
         }
-        let configuredStorage = configuredStorage
+        let resolvedStorage = configuredStorage
             ?? referenceStorageName(
                 repository: repository,
                 branchContext: .resolved(directSnapshot.branchName),
                 deadline: deadline
             )
-        if let configuredStorage, configuredStorage != "files" {
+        if let resolvedStorage, resolvedStorage != "files" {
             return plumbingSnapshot(
                 repository: repository,
                 deadline: deadline,
