@@ -14,8 +14,8 @@ use crate::resource_mutation::ResourceMutationPlan;
 use crate::server::MAX_CREATION_SELECTOR_FALLBACKS;
 use crate::workspace_registry::{
     RegistryPane, RegistryScreen, RegistryViewportColumn, ResourceCreationPreparation,
-    ResourceCreationRecovery, ResourcePatchCommit, ResourceWorkspaceClose,
-    ResourceWorkspaceLedger, TerminalLifecycle, TerminalOnExit, TerminalResourceCloseCommit,
+    ResourceCreationRecovery, ResourcePatchCommit, ResourceWorkspaceClose, ResourceWorkspaceLedger,
+    TerminalLifecycle, TerminalOnExit, TerminalResourceCloseCommit,
 };
 use crate::{ResolvedResourcePath, ResourceSelectors, ResourceTarget, SurfaceKind};
 
