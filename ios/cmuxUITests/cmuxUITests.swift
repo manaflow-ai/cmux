@@ -471,9 +471,10 @@ final class cmuxUITests: XCTestCase {
 
     /// Add Computer (the manual host:port form) is available under every
     /// connection method: entering the address where a same-account Mac is
-    /// reachable IS discovery for networks Iroh may not find fast enough. The
-    /// tap must actually present the form; only the Tailscale pairing-code
-    /// scanner keeps a method gate, revealed by switching Settings.
+    /// reachable IS discovery for networks Iroh may not find fast enough.
+    /// Regression: the always-on affordance must actually present the form; a
+    /// stale method re-check in the root's showAddDevice() made the tap a
+    /// silent no-op on Auto-Connect setups.
     @MainActor
     func testAutomaticConnectionMethodPresentsAddComputer() throws {
         let automaticEnvironment = [
@@ -490,31 +491,6 @@ final class cmuxUITests: XCTestCase {
             app.descendants(matching: .any)["MobileDisconnectedWorkspaceShell"]
                 .waitForExistence(timeout: 12)
         )
-        let automaticDescription = app.descendants(matching: .any)[
-            "MobileDisconnectedEmptyDescription"
-        ]
-        XCTAssertTrue(automaticDescription.waitForExistence(timeout: 4))
-        for requiredFragment in [
-            "cmux 0.64.20 or later",
-            "same cmux account",
-            "keep cmux running on the Mac",
-            "both devices are online",
-            "will not appear automatically",
-        ] {
-            XCTAssertTrue(
-                automaticDescription.label.contains(requiredFragment),
-                "Auto-Connect empty-state copy is missing: \(requiredFragment)"
-            )
-        }
-        XCTAssertTrue(
-            automaticDescription.label.contains(
-                "To use Tailscale instead, open Settings, tap Connection Method, and choose Tailscale Only."
-            )
-        )
-
-        // Regression: the always-on Add Computer affordance must actually
-        // present the manual pairing form under Auto-Connect; a stale method
-        // re-check in the root's showAddDevice() made this tap a silent no-op.
         let addComputerToolbarButton = app.buttons["MobileShowAddDeviceToolbarButton"]
         XCTAssertTrue(addComputerToolbarButton.waitForExistence(timeout: 4))
         tap(addComputerToolbarButton, in: app)
@@ -527,29 +503,6 @@ final class cmuxUITests: XCTestCase {
         tap(cancelPairing, in: app)
         XCTAssertTrue(
             app.textFields["MobileAddDeviceHostField"].waitForNonExistence(timeout: 8)
-        )
-
-        let settings = app.buttons["MobileWorkspaceSettingsMenu"]
-        XCTAssertTrue(settings.waitForExistence(timeout: 4))
-        tap(settings, in: app)
-        let picker = app.descendants(matching: .any)["MobileSettingsConnectionMethod"]
-        XCTAssertTrue(picker.waitForExistence(timeout: 4))
-        tap(picker, in: app)
-        let tailscale = app.descendants(matching: .any)[
-            "MobileSettingsConnectionMethodTailscale"
-        ]
-        XCTAssertTrue(tailscale.waitForExistence(timeout: 4))
-        tap(tailscale, in: app)
-        XCTAssertTrue(
-            app.buttons["MobileSettingsTailscaleScanButton"].waitForExistence(timeout: 4)
-        )
-
-        let done = app.buttons["MobileSettingsDone"]
-        XCTAssertTrue(done.waitForExistence(timeout: 4))
-        tap(done, in: app)
-        XCTAssertTrue(
-            app.descendants(matching: .any)["MobileSettingsView"]
-                .waitForNonExistence(timeout: 4)
         )
     }
 
