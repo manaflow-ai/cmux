@@ -135,7 +135,11 @@ enum HarborAttachCommand {
         case .local:
             return local
         case .ssh(let destination):
-            return "exec ssh -t \(shellQuote(destination)) -- \(shellQuote(local))"
+            // The daemon PTY exports TERM=xterm-ghostty, which most remote
+            // hosts have no terminfo entry for (screen refuses to start,
+            // tmux garbles). Downgrade TERM for the remote command only;
+            // Ghostty renders xterm-256color output fine.
+            return "exec ssh -t \(shellQuote(destination)) -- \(shellQuote("TERM=xterm-256color " + local))"
         }
     }
 

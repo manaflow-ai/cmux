@@ -98,7 +98,7 @@ struct HarborAttachCommandTests {
         let command = HarborAttachCommand.shellCommand(
             for: session(.tmux, source: .ssh(destination: "lawrence@devbox"))
         )
-        #expect(command == "exec ssh -t 'lawrence@devbox' -- 'exec tmux attach-session -t '\\''dev'\\'''")
+        #expect(command == "exec ssh -t 'lawrence@devbox' -- 'TERM=xterm-256color exec tmux attach-session -t '\\''dev'\\'''")
     }
 
     @Test func quotesHostileSessionNames() {
