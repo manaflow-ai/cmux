@@ -758,6 +758,10 @@ extension CMUXCLI {
         Usage:
           cmux vm workspace new <machine> [--name <name>]      Create a workspace on the machine (its ⌘N) and open it here.
           cmux vm workspace open <machine> <workspace-id>     Open a machine workspace as a new local workspace, one pane per terminal.
+              [--here] [--tabs] [--workspace <local>] [--pane <id|ref> [--left|--right|--up|--down]]
+                                                              --here: into the current (or --workspace) local workspace instead — one pane
+                                                              at the destination, the rest as tabs in it ("Open All Here"); --tabs: all as
+                                                              tabs of the focused (or --pane) pane ("Open All in New Tabs").
           cmux vm workspace close <machine> <workspace-id>    Close a machine workspace and every terminal in it.
 
         Workspace ids come from `cmux vm tree`. Add --json for the raw result.
@@ -792,11 +796,34 @@ extension CMUXCLI {
             print("OK workspace=\(local) remote_workspace=\(remote) machine=\(machine)")
         case "open":
             guard positional.count >= 2 else { throw CLIError(message: Self.vmWorkspaceUsage) }
-            let response = try client.sendV2(method: "vm.workspace_open", params: ["id": machine, "workspace_id": positional[1]], responseTimeout: 240)
+            var params: [String: Any] = ["id": machine, "workspace_id": positional[1]]
+            // "Open All Here" / "Open All in New Tabs" / a drop on a pane edge: the same
+            // destination flags `surface open` takes, on top of the remote workspace.
+            let (localWorkspace, r1) = parseOption(tail, name: "--workspace")
+            let (pane, r2) = parseOption(r1, name: "--pane")
+            let sides: [String: String] = ["--left": "left", "--right": "right", "--up": "up", "--down": "down"]
+            let direction = r2.compactMap { sides[$0] }.first
+            let tabs = hasFlag(r2, name: "--tabs")
+            let here = hasFlag(r2, name: "--here") || tabs || pane != nil || localWorkspace != nil
+            let known = Set(sides.keys).union(["--here", "--tabs", "--json"])
+            if let unknown = r2.first(where: { $0.hasPrefix("-") && !known.contains($0) }) {
+                throw CLIError(message: "vm workspace open: unknown flag '\(unknown)'\n\n\(Self.vmWorkspaceUsage)")
+            }
+            if direction != nil, pane == nil {
+                throw CLIError(message: "vm workspace open: --left/--right/--up/--down need --pane <id|ref>\n\n\(Self.vmWorkspaceUsage)")
+            }
+            if here {
+                params["here"] = true
+                if let localWorkspace { params["target_workspace_id"] = localWorkspace }
+                if let pane { params["pane_id"] = pane }
+                if let direction { params["direction"] = direction }
+                if tabs { params["placement"] = "tab" }
+            }
+            let response = try client.sendV2(method: "vm.workspace_open", params: params, responseTimeout: 240)
             if jsonOutput { print(jsonString(response)); return }
             let local = (response["workspace_id"] as? String) ?? "?"
             let opened = (response["opened"] as? Int) ?? 0
-            print("OK workspace=\(local) opened=\(opened) machine=\(machine)")
+            print("OK workspace=\(local) opened=\(opened) machine=\(machine)\(here ? " here" : "")")
         case "close":
             guard positional.count >= 2 else { throw CLIError(message: Self.vmWorkspaceUsage) }
             let response = try client.sendV2(method: "vm.workspace_close", params: ["id": machine, "workspace_id": positional[1]], responseTimeout: 120)
