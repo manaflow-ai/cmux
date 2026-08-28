@@ -48,6 +48,9 @@ final class SessionDragSessionSource: NSObject, NSDraggingSource {
         )
 #endif
         finishDrag()
+        // AppKit can retain the tab-transfer UTI after the source ends. Clear
+        // only this registration's capability so a newer drag is untouched.
+        transferRegistration.clearResidualCapability(from: NSPasteboard(name: .drag))
     }
 
     func finishDrag() {

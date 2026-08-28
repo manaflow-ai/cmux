@@ -1665,6 +1665,7 @@ jobs:
             CmuxControlSocket
             CmuxFoundation
             CmuxGit
+            CmuxMobileTerminalKit
             CmuxMobileWorkspace
             CmuxNotifications
             CmuxSettings
@@ -2324,6 +2325,7 @@ jobs:
           ./scripts/install-prebuilt-ghostty-cli-helper.sh \
             ghostty-cli-helper/ghostty \
             build-universal/Build/Products/Release/cmux.app
+          ./scripts/install-cmux-tui-client.sh build-universal/Build/Products/Release/cmux.app
 
       - name: Validate Release artifact slices
         run: |
@@ -2334,6 +2336,9 @@ jobs:
           DIFF_SIDECAR="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux-diff-sidecar"
           test -x "$APP_BINARY"
           test -x "$CLI_BINARY"
+          TUI_CLIENT="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux-tui"
+          test -x "$TUI_CLIENT"
+          lipo "$TUI_CLIENT" -verify_arch arm64 x86_64
           test -x "$HELPER_BINARY"
           test -x "$DIFF_SIDECAR"
           file "$APP_BINARY" "$CLI_BINARY" "$HELPER_BINARY" "$DIFF_SIDECAR"
