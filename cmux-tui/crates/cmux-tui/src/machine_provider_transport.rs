@@ -875,17 +875,16 @@ mod tests {
             "{}::command_connector_does_not_inherit_provider_capability_secrets",
             module_path!()
         );
-        let output = Command::new(
-            std::env::current_exe().expect("locate provider environment test binary"),
-        )
-        .arg("--exact")
-        .arg(&helper_test)
-        .arg("--nocapture")
-        .env(CHILD_MARKER, "1")
-        .env("CMUX_MACHINE_PROVIDER_TOKEN", "provider-token-test")
-        .env("CMUX_PROVIDER_WORKSPACE_AUTHORITY", "provider-authority-test")
-        .output()
-        .expect("run provider environment test helper");
+        let output =
+            Command::new(std::env::current_exe().expect("locate provider environment test binary"))
+                .arg("--exact")
+                .arg(&helper_test)
+                .arg("--nocapture")
+                .env(CHILD_MARKER, "1")
+                .env("CMUX_MACHINE_PROVIDER_TOKEN", "provider-token-test")
+                .env("CMUX_PROVIDER_WORKSPACE_AUTHORITY", "provider-authority-test")
+                .output()
+                .expect("run provider environment test helper");
         assert!(
             output.status.success(),
             "provider environment test helper failed:\nstdout:\n{}\nstderr:\n{}",
