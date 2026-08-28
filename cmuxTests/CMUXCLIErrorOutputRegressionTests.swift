@@ -232,7 +232,7 @@ import Testing
                 "kind": "codex",
                 "launch_command": [
                     "arguments": [
-                        "codex", "-c", "model_provider=subrouter",
+                        "codex", "-c", "model_provider=\"subrouter\"",
                         "-c", "model_providers.subrouter.base_url=https://router.example.test/v1",
                     ],
                     "environment": [
@@ -272,7 +272,7 @@ import Testing
         #expect(result.stdout.contains("CMUX_CUSTOM_CODEX_PATH") == false)
         #expect(result.stdout.contains("/private/custom/codex") == false)
         #expect(result.stdout.contains("[private routing metadata]") == false)
-        #expect(result.stdout.contains("model_provider=subrouter") == false)
+        #expect(result.stdout.contains("model_provider") == false)
         #expect(result.stdout.contains("private@example.test") == false)
         #expect(result.stdout.contains("router.example.test") == false)
         let payload = try #require(
