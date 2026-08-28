@@ -93,11 +93,7 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
            directSnapshot.branchName != ".invalid" {
             switch quickProbe {
             case .complete(let storage):
-                if let storage,
-                   storage != "files",
-                   (storage != "unknown"
-                        || directSnapshot.currentCommit == nil
-                        || directSnapshot.branchName == ".invalid") {
+                if let storage, storage != "files" {
                     return plumbingSnapshot(
                         repository: repository,
                         deadline: deadline,
@@ -115,11 +111,7 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
                     branchContext: .resolved(directSnapshot.branchName),
                     deadline: deadline
                 )
-                if let storage,
-                   storage != "files",
-                   (storage != "unknown"
-                        || directSnapshot.currentCommit == nil
-                        || directSnapshot.branchName == ".invalid") {
+                if let storage, storage != "files" {
                     return plumbingSnapshot(
                         repository: repository,
                         deadline: deadline,
