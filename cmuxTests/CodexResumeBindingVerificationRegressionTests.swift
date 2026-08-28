@@ -170,6 +170,43 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
     }
 
+    func testSubrouterCodexBindingPublishesCapturedRoutingEnvironment() throws {
+        let sessionID = "019ff9c1-d827-7831-960d-fd9bdf7d54e2"
+        let fixture = try makeCodexBindingFixture(name: "subrouter-routing", existingCheckpoint: nil)
+        defer { fixture.cleanup() }
+        try writeCodexRollout(
+            fixture: fixture,
+            sessionID: sessionID,
+            source: "cli",
+            originator: "codex-tui"
+        )
+
+        let routingEnvironment = [
+            "SUBROUTER_CODEX_ACCOUNT_ID": "team-codex-1",
+            "SUBROUTER_CODEX_BASE_URL": "https://router.example.test/v1",
+            "SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
+            "SUBROUTER_CODEX_SERVER": "team",
+            "SUBROUTER_CODEX_USER_EMAIL": "operator@example.test",
+        ]
+        let result = runCodexBindingHook(
+            fixture: fixture,
+            sessionID: sessionID,
+            inputEvent: "SessionStart",
+            launchArguments: ["/usr/local/bin/codex", "-c", "model_provider=subrouter"],
+            additionalEnvironment: routingEnvironment
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let binding = try XCTUnwrap(fixture.binding.snapshot())
+        XCTAssertTrue((binding["command"] as? String)?.contains("'sr' 'codex' 'resume' '\(sessionID)'") == true)
+        let publishedEnvironment = try XCTUnwrap(binding["environment"] as? [String: String])
+        for (key, value) in routingEnvironment where key != "SUBROUTER_CODEX_RESUME_COMMAND" {
+            XCTAssertEqual(publishedEnvironment[key], value, key)
+        }
+        XCTAssertNil(publishedEnvironment["SUBROUTER_CODEX_RESUME_COMMAND"])
+    }
+
     func testCodexTUISessionCanRebindAnOlderVerifiedTUICheckpoint() throws {
         let oldSessionID = "019ff98a-d827-7831-960d-fd9bdf7d54e2"
         let newSessionID = "019ff9c0-d827-7831-960d-fd9bdf7d54e2"
@@ -415,7 +452,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
         fixture: CodexBindingFixture,
         sessionID: String,
         inputEvent: String,
-        includeCodexHome: Bool = true
+        includeCodexHome: Bool = true,
+        launchArguments: [String] = ["/usr/local/bin/codex"],
+        additionalEnvironment: [String: String] = [:]
     ) -> ProcessRunResult {
         let state = fixture.state
         let serverHandled = startMockServer(listenerFD: fixture.listenerFD, state: state) { [self] line in
@@ -478,8 +517,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_AGENT_LAUNCH_KIND"] = "codex"
         environment["CMUX_AGENT_LAUNCH_EXECUTABLE"] = "/usr/local/bin/codex"
-        environment["CMUX_AGENT_LAUNCH_ARGV_B64"] = base64NULSeparated(["/usr/local/bin/codex"])
+        environment["CMUX_AGENT_LAUNCH_ARGV_B64"] = base64NULSeparated(launchArguments)
         environment["CMUX_AGENT_LAUNCH_CWD"] = fixture.root.path
+        for (key, value) in additionalEnvironment {
+            environment[key] = value
+        }
 
         let result = runProcess(
             executablePath: fixture.cliPath,
