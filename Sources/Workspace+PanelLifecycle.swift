@@ -463,7 +463,12 @@ extension Workspace {
         // A manual-IO pump follows its surface: a detach transfer keeps the
         // surface (and pump) alive; every other discard stops the relay. The
         // daemon-side terminal stays alive in the machine's session.
-        if closePanel, !preservesTerminalForTransfer {
+        // A respawn replaces the panel object while retaining its logical
+        // surface id. Retire the old relay before that id is reused, or the
+        // registry can route reconnect actions and overlay state to a dead
+        // process. Detach transfers remain the only path that preserves it.
+        let replacingPanel = origin == "terminal_respawn"
+        if !preservesTerminalForTransfer, (closePanel || replacingPanel) {
             TuiManualIOPumpRegistry.shared.stopAndRemove(surfaceID: panelId)
         }
         if closePanel {
