@@ -170,7 +170,7 @@ extension GitMetadataService {
         } else {
             gitConfigURLs(repository: repository).map(\.path)
         }
-        [
+        return [
             joinedPath(root: repository.gitDirectory, relativePath: "HEAD"),
             joinedPath(root: repository.gitDirectory, relativePath: "index"),
             joinedPath(root: repository.gitDirectory, relativePath: "refs"),
