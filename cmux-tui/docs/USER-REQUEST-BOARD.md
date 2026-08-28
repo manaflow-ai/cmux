@@ -1,5 +1,34 @@
 # cmux-tui user request board
 
+## Wave 84 current state: main `305519d149c1ca61d4be4838e18b0a59f8e69b2a`
+
+Snapshot: 2026-08-28T07:43:00Z. This board separates merged fixes from requests that still lack an acceptance proof.
+
+| Request | Status | Acceptance proof |
+| --- | --- | --- |
+| Order hook records and suppress ended agents | [#11024](https://github.com/manaflow-ai/cmux/pull/11024) open at `d3bb50772cdca64586304e5afcfec5f3a222fe1a` | Restart, stale-hook, tombstone, and sanitized-public-snapshot tests pass on the exact head. |
+| Remove avoidable TUI allocations and scans | [#11055](https://github.com/manaflow-ai/cmux/pull/11055), [#11056](https://github.com/manaflow-ai/cmux/pull/11056) open | Focused hosted tests pass after current-main rebases. |
+| Keep config replacement files private | [#10990](https://github.com/manaflow-ai/cmux/pull/10990) open | Atomic private staging, collision retry, durability behavior, and English/Japanese strings pass. |
+| Make agent detection reliable | [#11002](https://github.com/manaflow-ai/cmux/pull/11002), [#11068](https://github.com/manaflow-ai/cmux/pull/11068) open and stacked | Durable cursor, fail-closed identity, parity matrix, and reconnect tests pass. |
+| Keep CDP failures useful but safe | [#11013](https://github.com/manaflow-ai/cmux/pull/11013), [#11078](https://github.com/manaflow-ai/cmux/pull/11078) open | Public wire text has no endpoint/internal queue details; diagnostics remain private. |
+| Replace Harbor flat panel with a tree | [#11063](https://github.com/manaflow-ai/cmux/pull/11063) round 1 | Tree ownership, drag, cloud manual I/O, reconnect, and no-nested-TUI proof. |
+| Drag an agent into a terminal | [#10401](https://github.com/manaflow-ai/cmux/pull/10401) conflicting | Shared drag payload opens the intended session and never injects text. |
+
+Strict session count remains `unknown`; the older 258 named-turn lower bound is not a total and does not prove 10,000 sessions.
+
+## Wave 83 follow-up: main `989293cdb9058500f51d6c9b8e4f3795e67997ce`
+
+Snapshot: 2026-08-28T06:56:33Z. Current main merges [#11066](https://github.com/manaflow-ai/cmux/pull/11066) by Abdulaziz Albahar (`8a7b4b5c4a7ad4af2851303b27bd17327d15d7d8`), [#11000](https://github.com/manaflow-ai/cmux/pull/11000) by Lawrence Chen (`8910e6360e3b1d8b05b875cbe44e1901e8c7fc60`), [#11018](https://github.com/manaflow-ai/cmux/pull/11018) by Abdulaziz Albahar (`ed19cfa5cb88d6e0fae683bbe4a733bd4e2d062c`), [#10838](https://github.com/manaflow-ai/cmux/pull/10838) by Austin Wang (`c1e7f094cea7b1a1dbe21b48bc43e01c41b2d1c4`), and [#10326](https://github.com/manaflow-ai/cmux/pull/10326) by Austin Wang (`989293cdb9058500f51d6c9b8e4f3795e67997ce`). Strict session count remains `unknown`; 258 named turns is an older lower bound, not a total.
+
+| Intent | Evidence and status | Next proof |
+| --- | --- | --- |
+| Harbor filesystem-tree redesign | Claude `~/.claude/history.jsonl:91032`, session `9a24a8c7-e7e4-4385-9742-aa20f8475b66`; [#11063](https://github.com/manaflow-ai/cmux/pull/11063), Lawrence Chen, head `bd5d47b03facb3e20eff1b8aba8d697f1f96c9d6`, base `feat-tui-manual-io`, open and mergeable. The user rejected the flat panel and requested a host, tool, session, workspace, window/tab, and terminal tree, draggable terminals, cloud manual I/O through remote API or control-mode equivalents, and no nested TUI. This is round 1 only; no redesign PR or completion receipt exists. | Publish the redesign as a follow-up and prove attach, detach, reconnect, raw/echo restoration, and terminal drag behavior without nested TUI rendering. |
+| Herdr/Codex parity remains partial | Claude `~/.claude/history.jsonl:91027,91029`, session `e5f4a11b-ca0c-4d74-8520-debf0fe5671b`; [#11068](https://github.com/manaflow-ai/cmux/pull/11068), Lawrence Chen, head `04380edc86d1f5033b71341ddc97cb4738c26e4f`, open; GitHub mergeability changed during the audit, and checks and review remain pending. CodeRabbit submitted eight actionable comments at 2026-08-28T06:14:55Z, covering authoritative identity, lowercase-region reuse, live-terminal `HashSet` retention, monotonic snapshots, maintained attention ordering, and Grok/Qwen rules. Seen-bit, wait-for-state, manifest refresh, filters, visible-blocker, wrapper identity, Windows, and OSC gaps remain. | Fix each review finding, then run an exact-head parity matrix for all supported agents, exits, reconnects, and attention ordering. |
+| Post-audit cmux-TUI security sweep | Codex `~/.codex/history.jsonl:18868-18869`, session `01a04659-67b5-7e73-af85-20019325aae6`, transcript `~/.codex/sessions/2026/08/27/rollout-2026-08-27T20-10-59-01a04659-67b5-7e73-af85-20019325aae6.jsonl`; the asks are to check TUI PRs after prior security audits. The latest plain status at 2026-08-28T06:14:43Z says post-audit TUI PR screening is in progress. No final result or PR link exists. | Finish the review, publish exact findings and fixes with exact-head checks, and keep secrets out of logs. |
+| Drag agents into terminals remains a #10401 gap | [#10401](https://github.com/manaflow-ai/cmux/pull/10401), Lawrence Chen, head `46590bacaed87fba46d4ceb5cdacadcafad07833`, open and conflicting. Its body keeps drag-into-terminal as a follow-up requiring a UTType, `.draggable`, and terminal drop route. Claude history `~/.claude/history.jsonl:90390,90392` and `21824,21911` asks for this interaction and records failed terminal drops. | Rebase the follow-up, implement one shared drag payload and terminal drop action, preserve working-directory context, and prove a dropped session opens the intended terminal without text insertion. |
+
+Pattern references: Tokio [`watch`](https://docs.rs/tokio/latest/tokio/sync/watch/) retains only the latest value, [`broadcast`](https://docs.rs/tokio/latest/tokio/sync/broadcast/) delivers each lifecycle value, and Ratatui [`Terminal`](https://docs.rs/ratatui/latest/ratatui/struct.Terminal.html) owns render buffers and cursor state.
+
 ## Current reconciliation: main `2c6fd70ecceeed63fdb549882737c6563fb3f52d`
 
 Post-snapshot intent rows (2026-08-28) are evidence-linked below. Main now also

@@ -1,5 +1,33 @@
 # cmux-tui user-intent board
 
+## Wave 84 current state: main `305519d149c1ca61d4be4838e18b0a59f8e69b2a`
+
+Snapshot: 2026-08-28T07:43:00Z.
+
+| User intent | Current proof | Remaining work |
+| --- | --- | --- |
+| Agent status stays ordered across restart and end | [#11024](https://github.com/manaflow-ai/cmux/pull/11024) at `d3bb50772cdca64586304e5afcfec5f3a222fe1a` | Finish exact review and hosted restart/late-event checks. |
+| TUI does less allocation and scanning | [#11055](https://github.com/manaflow-ai/cmux/pull/11055), [#11056](https://github.com/manaflow-ai/cmux/pull/11056) | Rebase current heads and accept only behavior-preserving focused tests. |
+| Config writes do not expose replacement contents | [#10990](https://github.com/manaflow-ai/cmux/pull/10990) | Complete exact review and hosted privacy checks. |
+| Agent roster detects real tools and screens | [#11002](https://github.com/manaflow-ai/cmux/pull/11002), [#11068](https://github.com/manaflow-ai/cmux/pull/11068) | Resolve durable replay and parity findings before integration. |
+| Browser transport errors are safe for users | [#11013](https://github.com/manaflow-ai/cmux/pull/11013), [#11078](https://github.com/manaflow-ai/cmux/pull/11078) | Cover every raw CDP error path and retarget the redaction patch. |
+| Harbor shows a useful hierarchy and supports direct interaction | [#11063](https://github.com/manaflow-ai/cmux/pull/11063) is round 1 only | Ship the tree/drag/manual-I/O follow-up without a nested TUI. |
+
+The source receipts are retained in the older sections below. Strict session count is `unknown`; no 10,000-session result is claimed.
+
+## Wave 83 follow-up: main `989293cdb9058500f51d6c9b8e4f3795e67997ce`
+
+Snapshot: 2026-08-28T06:56:33Z. Main now includes [#11066](https://github.com/manaflow-ai/cmux/pull/11066) (`8a7b4b5c4a7ad4af2851303b27bd17327d15d7d8`), [#11000](https://github.com/manaflow-ai/cmux/pull/11000) (`8910e6360e3b1d8b05b875cbe44e1901e8c7fc60`), [#11018](https://github.com/manaflow-ai/cmux/pull/11018) (`ed19cfa5cb88d6e0fae683bbe4a733bd4e2d062c`), [#10838](https://github.com/manaflow-ai/cmux/pull/10838) (`c1e7f094cea7b1a1dbe21b48bc43e01c41b2d1c4`), and [#10326](https://github.com/manaflow-ai/cmux/pull/10326) (`989293cdb9058500f51d6c9b8e4f3795e67997ce`). Strict session count remains `unknown`; the retained 258 named-turn figure is an older lower bound.
+
+| Intent | Source receipt | Current status and acceptance proof |
+| --- | --- | --- |
+| Harbor filesystem-tree redesign | Claude `~/.claude/history.jsonl:91032`, session `9a24a8c7-e7e4-4385-9742-aa20f8475b66`; [#11063](https://github.com/manaflow-ai/cmux/pull/11063), Lawrence Chen, head `bd5d47b03facb3e20eff1b8aba8d697f1f96c9d6`, base `feat-tui-manual-io`, open and mergeable. | Replace the flat round-1 panel with a host, tool, session, workspace, window/tab, and terminal tree. Support draggable terminals and cloud manual I/O through remote API or control-mode equivalents. Do not render a nested TUI. No redesign PR or completion receipt exists; local control-mode probing works and raw/echo repair is in progress. |
+| Herdr/Codex parity remains partial | Claude `~/.claude/history.jsonl:91027,91029`, session `e5f4a11b-ca0c-4d74-8520-debf0fe5671b`; [#11068](https://github.com/manaflow-ai/cmux/pull/11068), Lawrence Chen, head `04380edc86d1f5033b71341ddc97cb4738c26e4f`, open; GitHub mergeability changed during the audit, and checks and review remain pending. | CodeRabbit's 2026-08-28T06:14:55Z review has eight actionable comments: fail-closed identity, lowercase-region reuse, `HashSet` retention, monotonic snapshot writes, maintained attention ordering, and Grok/Qwen rules. Seen-bit, wait-for-state, manifest refresh, filters, visible-blocker, wrapper identity, Windows, and OSC gaps still need proof. |
+| Post-audit cmux-TUI security sweep | Codex `~/.codex/history.jsonl:18868-18869`, session `01a04659-67b5-7e73-af85-20019325aae6`; transcript `~/.codex/sessions/2026/08/27/rollout-2026-08-27T20-10-59-01a04659-67b5-7e73-af85-20019325aae6.jsonl`. | The user requested review of TUI PRs landed after prior security audits. Latest plain status at 2026-08-28T06:14:43Z says screening is in progress. No final result or PR link exists. Acceptance is an exact-head finding and fix report with secret-safe logs. |
+| Drag agents into terminals remains a #10401 gap | [#10401](https://github.com/manaflow-ai/cmux/pull/10401), Lawrence Chen, head `46590bacaed87fba46d4ceb5cdacadcafad07833`, open and conflicting; Claude `~/.claude/history.jsonl:90390,90392,21824,21911`. | The PR body leaves drag-into-terminal as follow-up work requiring a UTType, `.draggable`, and terminal drop route. Acceptance is a shared payload and drop action that opens the intended session, preserves working-directory context, and does not insert text into the terminal. |
+
+Primary pattern references: Tokio [`watch`](https://docs.rs/tokio/latest/tokio/sync/watch/) for latest-state projections, [`broadcast`](https://docs.rs/tokio/latest/tokio/sync/broadcast/) for lifecycle delivery, and Ratatui [`Terminal`](https://docs.rs/ratatui/latest/ratatui/struct.Terminal.html) for one render owner.
+
 ## Post-snapshot intent refresh: main `2c6fd70ecceeed63fdb549882737c6563fb3f52d`
 
 These six rows come from direct Codex and Claude asks after the prior audit.

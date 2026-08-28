@@ -1,5 +1,37 @@
 # cmux TUI PR intent and merge board
 
+## Wave 84 current state: main `305519d149c1ca61d4be4838e18b0a59f8e69b2a`
+
+Snapshot: 2026-08-28T07:43:00Z. Merged TUI work includes [#11072](https://github.com/manaflow-ai/cmux/pull/11072) by Lawrence Chen (`253df2472973a5654e1a3d7fee13764a177c7a79`), [#11041](https://github.com/manaflow-ai/cmux/pull/11041) by Lawrence Chen (`305519d149c1ca61d4be4838e18b0a59f8e69b2a`), [#11000](https://github.com/manaflow-ai/cmux/pull/11000) by Lawrence Chen (`8910e6360e3b1d8b05b875cbe44e1901e8c7fc60`), [#11045](https://github.com/manaflow-ai/cmux/pull/11045) by Lawrence Chen (`8d71d72e6de027074828d7d81443b1f8ec825283`), and [#11044](https://github.com/manaflow-ai/cmux/pull/11044) by Lawrence Chen (`c33d38ab80166e7ca525d197faf93d1f918f55f2`).
+
+| Intent | PR and author | Exact head and state | Required next action |
+| --- | --- | --- | --- |
+| Ordered agent lifecycle and restart-safe suppression | [#11024](https://github.com/manaflow-ai/cmux/pull/11024), Lawrence Chen | `d3bb50772cdca64586304e5afcfec5f3a222fe1a`, open, mergeable, exact review and hosted gate running | Finish exact-head review, then require the focused restart, stale-hook, and public-projection checks before merge. |
+| Allocation-free graphics projection | [#11055](https://github.com/manaflow-ai/cmux/pull/11055), Lawrence Chen | `eea8a5c16f45de1417599d626b00c1f5fae83c39`, open, current base rebase pending | Rebase onto current main, review the one-file change, and run the dirty-surface hosted test. |
+| One-pass retained sidebar filtering | [#11056](https://github.com/manaflow-ai/cmux/pull/11056), Lawrence Chen | `bd633d481f64baef38de9ca657e57d19543053ee`, open, exact gate in progress | Confirm out-of-range and duplicate-ID behavior in the hosted test, then merge if the exact review is clean. |
+| Private config replacement | [#10990](https://github.com/manaflow-ai/cmux/pull/10990), Lawrence Chen | `69241f5f7a044bc797cf579b84c5fb546b4601db`, open, mergeable; hosted gate pending | Complete exact review and verify locale, collision retry, and parent durability behavior. |
+| Journal reducer foundation | [#11002](https://github.com/manaflow-ai/cmux/pull/11002), Lawrence Chen | `8da5643df4d89ecf4b3a0abad5809241c57e6b1d`, open, based on an old foundation | Do not merge until the durable cursor, tombstone filtering, crash recovery, and bounded replay design is resolved. |
+| Screen-detection parity | [#11068](https://github.com/manaflow-ai/cmux/pull/11068), Lawrence Chen | `b3eca00fd03dd76763bd5273066df2779c236abc`, open, stacked on old reducer; review findings pending | Rebase after the reducer decision, resolve the eight CodeRabbit findings, and add exact parity tests. |
+| Bounded CDP outbound queue | [#11013](https://github.com/manaflow-ai/cmux/pull/11013), Lawrence Chen | `5f4083e33374416f1a6290bbd495319ce97f5199`, open, clean but broad privacy work remains | Separate public error text from diagnostics across all raw CDP paths, then run an exact transport test. |
+| ACK overflow redaction | [#11078](https://github.com/manaflow-ai/cmux/pull/11078), Lawrence Chen | `46fe5348e2631769c4e9482e1127ad0c75a8dbff`, open, conflicting stacked branch | Retarget or transplant the clean one-line fix onto #11013; do not merge the conflicting stack. |
+| Harbor tree and drag interaction | [#11063](https://github.com/manaflow-ai/cmux/pull/11063), Lawrence Chen | `bd5d47b03facb3e20eff1b8aba8d697f1f96c9d6`, open, round 1 flat panel | Build a follow-up tree with explicit host/tool/session/workspace/window/terminal ownership, drag payloads, cloud manual I/O, and no nested TUI. |
+| Drag agent into terminal | [#10401](https://github.com/manaflow-ai/cmux/pull/10401), Lawrence Chen | `46590bacaed87fba46d4ceb5cdacadcafad07833`, open, conflicting | Rebase the follow-up and prove a dropped session opens the target terminal without text injection. |
+
+Strict session count is `unknown`; the retained 258 named-turn figure is only an older lower bound. No 10,000-session claim is supported.
+
+## Wave 83 follow-up: main `989293cdb9058500f51d6c9b8e4f3795e67997ce`
+
+Snapshot: 2026-08-28T06:56:33Z. Recent merged PRs are [#11066](https://github.com/manaflow-ai/cmux/pull/11066) by Abdulaziz Albahar, source `553f1a471d8451eb695d4a6e414d68eaba550c6d`, merge `8a7b4b5c4a7ad4af2851303b27bd17327d15d7d8`; [#11000](https://github.com/manaflow-ai/cmux/pull/11000) by Lawrence Chen, source `d83a0ec65f3fa5d064fa342a6d13c519696cba0e`, merge `8910e6360e3b1d8b05b875cbe44e1901e8c7fc60`; [#11018](https://github.com/manaflow-ai/cmux/pull/11018) by Abdulaziz Albahar, source `070fd65f127cb3cd00f8efebf3adbcb99c39f5b8`, merge `ed19cfa5cb88d6e0fae683bbe4a733bd4e2d062c`; [#10838](https://github.com/manaflow-ai/cmux/pull/10838) by Austin Wang, source `0afec52b7c248445b08d337e766d71cfa612b9fc`, merge `c1e7f094cea7b1a1dbe21b48bc43e01c41b2d1c4`; and [#10326](https://github.com/manaflow-ai/cmux/pull/10326) by Austin Wang, source `a1826532091fed085768dcf5c0469f2423fa1a84`, merge `989293cdb9058500f51d6c9b8e4f3795e67997ce`.
+
+| Intent | PR and author | Exact head and state | Required next action |
+| --- | --- | --- | --- |
+| Harbor filesystem-tree redesign | [#11063](https://github.com/manaflow-ai/cmux/pull/11063), Lawrence Chen | `bd5d47b03facb3e20eff1b8aba8d697f1f96c9d6` on `feat-tui-manual-io`, open and mergeable; round 1 only | Open a redesign follow-up for the host, tool, session, workspace, window/tab, terminal tree, draggable terminals, cloud manual I/O, and no nested TUI rendering. |
+| Herdr/Codex parity | [#11068](https://github.com/manaflow-ai/cmux/pull/11068), Lawrence Chen | `04380edc86d1f5033b71341ddc97cb4738c26e4f`, open; GitHub mergeability changed during the audit, and checks and review are pending; CodeRabbit review at 2026-08-28T06:14:55Z reports eight actionable comments | Resolve fail-closed identity, lowercase-region reuse, `HashSet` retention, monotonic snapshots, maintained attention ordering, Grok priority, Qwen working detection, and the remaining seen-bit, wait-for-state, manifest refresh, filter, visible-blocker, wrapper identity, Windows, and OSC gaps. |
+| Post-audit cmux-TUI security sweep | No dedicated PR yet | Codex session `01a04659-67b5-7e73-af85-20019325aae6`; user receipts `~/.codex/history.jsonl:18868-18869`; screening remains in progress, with no final result or PR link | Finish the post-audit review of TUI PRs, publish exact findings and fixes, and attach exact-head checks with secret-safe logs. |
+| Drag agents into terminals | [#10401](https://github.com/manaflow-ai/cmux/pull/10401), Lawrence Chen | `46590bacaed87fba46d4ceb5cdacadcafad07833`, open and conflicting | Rebase and implement the follow-up UTType, `.draggable`, and terminal drop route. Preserve working-directory context and reject text insertion when a session is dropped over the terminal. |
+
+Design references: Tokio [`watch`](https://docs.rs/tokio/latest/tokio/sync/watch/) retains only the newest value, [`broadcast`](https://docs.rs/tokio/latest/tokio/sync/broadcast/) delivers each value to receivers, and Ratatui [`Terminal`](https://docs.rs/ratatui/latest/ratatui/struct.Terminal.html) owns draw and buffer-diff state.
+
 ## Current reconciliation: main `2c6fd70ecceeed63fdb549882737c6563fb3f52d`
 
 Snapshot: 2026-08-28T05:18:38Z. Current main includes these recent merges,

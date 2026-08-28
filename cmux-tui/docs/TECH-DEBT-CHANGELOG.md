@@ -1,5 +1,42 @@
 # cmux-tui aggregate change log
 
+## Wave 84, current main `305519d149c1ca61d4be4838e18b0a59f8e69b2a`
+
+Snapshot: 2026-08-28T07:43:00Z.
+
+| Change | Result | Revert pointer |
+| --- | --- | --- |
+| [#11072](https://github.com/manaflow-ai/cmux/pull/11072), `253df2472973a5654e1a3d7fee13764a177c7a79` | Runtime shutdown cleanup is deduplicated with preserved teardown order. | `git revert -m 1 253df2472973a5654e1a3d7fee13764a177c7a79` after checking dependent shutdown changes. |
+| [#11041](https://github.com/manaflow-ai/cmux/pull/11041), `305519d149c1ca61d4be4838e18b0a59f8e69b2a` | Paste repro harnesses and analyzer audit are on main. | `git revert -m 1 305519d149c1ca61d4be4838e18b0a59f8e69b2a` only if the test infrastructure must be removed. |
+| [#11000](https://github.com/manaflow-ai/cmux/pull/11000), `8910e6360e3b1d8b05b875cbe44e1901e8c7fc60` | Surface-exit indexing avoids repeated scans and repairs stale indexes. | `git revert -m 1 8910e6360e3b1d8b05b875cbe44e1901e8c7fc60` with the index consumers reviewed. |
+| [#11044](https://github.com/manaflow-ai/cmux/pull/11044), `c33d38ab80166e7ca525d197faf93d1f918f55f2` | Resource operation wire names use one contract. | `git revert -m 1 c33d38ab80166e7ca525d197faf93d1f918f55f2` only with protocol compatibility checks. |
+| [#11045](https://github.com/manaflow-ai/cmux/pull/11045), `8d71d72e6de027074828d7d81443b1f8ec825283` | Remote transport loss is explicit and localized. | `git revert -m 1 8d71d72e6de027074828d7d81443b1f8ec825283` with client behavior checks. |
+
+Open work remains gated by exact current heads in `PR-INTENT-BOARD.md`. Session accounting is honest: strict count `unknown`, older named-turn lower bound 258, no 10,000-session evidence.
+
+## Wave 83, exact state at main `989293cdb9058500f51d6c9b8e4f3795e67997ce`
+
+Snapshot: 2026-08-28T06:56:33Z. Current merged references:
+
+| Merged PR | Author | Source head | Merge SHA | Debt disposition |
+| --- | --- | --- | --- | --- |
+| [#11066](https://github.com/manaflow-ai/cmux/pull/11066) | Abdulaziz Albahar | `553f1a471d8451eb695d4a6e414d68eaba550c6d` | `8a7b4b5c4a7ad4af2851303b27bd17327d15d7d8` | Namespaced state directory reaches the macOS build; unrelated to the four new TUI follow-ups. |
+| [#11000](https://github.com/manaflow-ai/cmux/pull/11000) | Lawrence Chen | `d83a0ec65f3fa5d064fa342a6d13c519696cba0e` | `8910e6360e3b1d8b05b875cbe44e1901e8c7fc60` | Cached surface exits now use an index; this is the current direct-TUI baseline. |
+| [#11018](https://github.com/manaflow-ai/cmux/pull/11018) | Abdulaziz Albahar | `070fd65f127cb3cd00f8efebf3adbcb99c39f5b8` | `ed19cfa5cb88d6e0fae683bbe4a733bd4e2d062c` | iOS unread badge spacing; no closure for TUI intent rows. |
+| [#10838](https://github.com/manaflow-ai/cmux/pull/10838) | Austin Wang | `0afec52b7c248445b08d337e766d71cfa612b9fc` | `c1e7f094cea7b1a1dbe21b48bc43e01c41b2d1c4` | Codex completion notification timing; no closure for the parity or security rows. |
+| [#10326](https://github.com/manaflow-ai/cmux/pull/10326) | Austin Wang | `a1826532091fed085768dcf5c0469f2423fa1a84` | `989293cdb9058500f51d6c9b8e4f3795e67997ce` | Sidebar reftable metadata fix; latest main tip, not a TUI intent closure. |
+
+New evidence rows:
+
+| Debt | Evidence | Disposition and next proof |
+| --- | --- | --- |
+| Harbor filesystem-tree redesign is still a follow-up. | Claude `~/.claude/history.jsonl:91032`, session `9a24a8c7-e7e4-4385-9742-aa20f8475b66`; [#11063](https://github.com/manaflow-ai/cmux/pull/11063), Lawrence Chen, head `bd5d47b03facb3e20eff1b8aba8d697f1f96c9d6`, open and mergeable. | Keep #11063 marked round 1. Create a separate redesign row for the host, tool, session, workspace, window/tab, terminal tree, drag-out, cloud manual I/O, and no nested TUI rendering. |
+| Herdr/Codex parity is not complete. | Claude `~/.claude/history.jsonl:91027,91029`, session `e5f4a11b-ca0c-4d74-8520-debf0fe5671b`; [#11068](https://github.com/manaflow-ai/cmux/pull/11068), Lawrence Chen, head `04380edc86d1f5033b71341ddc97cb4738c26e4f`, open; GitHub mergeability changed during the audit, and checks and review remain pending. CodeRabbit review at 2026-08-28T06:14:55Z reports eight actionable comments, including fail-closed identity, lowercase-region reuse, live-terminal `HashSet`, monotonic snapshots, maintained attention order, and Grok/Qwen rules. | Keep open until those findings and the remaining seen-bit, wait-for-state, manifest refresh, filter, visible-blocker, wrapper identity, Windows, and OSC gaps have exact-head tests. |
+| Post-audit cmux-TUI security sweep is in progress. | Codex `~/.codex/history.jsonl:18868-18869`, session `01a04659-67b5-7e73-af85-20019325aae6`; transcript `~/.codex/sessions/2026/08/27/rollout-2026-08-27T20-10-59-01a04659-67b5-7e73-af85-20019325aae6.jsonl`. Latest plain status at 2026-08-28T06:14:43Z reports screening of post-audit TUI PRs; no final result or PR link exists. | Do not mark complete. Publish exact findings, fixes, reviewed heads, and required checks with secret-safe evidence. |
+| #10401 drag-into-terminal remains open debt. | [#10401](https://github.com/manaflow-ai/cmux/pull/10401), Lawrence Chen, head `46590bacaed87fba46d4ceb5cdacadcafad07833`, open and conflicting; its body lists UTType, `.draggable`, and terminal drop routing as follow-up. Claude `~/.claude/history.jsonl:90390,90392,21824,21911` records the request and failed drops. | Keep the gap visible. Rebase the follow-up, implement one shared drag payload and drop action, preserve cwd and resume metadata, and prove no text insertion. |
+
+Session accounting remains honest: strict auditable turns are `unknown`. The retained 258 named-turn figure is an older lower bound, and these receipts do not establish a total. Tokio [`watch`](https://docs.rs/tokio/latest/tokio/sync/watch/), [`broadcast`](https://docs.rs/tokio/latest/tokio/sync/broadcast/), and Ratatui [`Terminal`](https://docs.rs/ratatui/latest/ratatui/struct.Terminal.html) remain the primary state and render references.
+
 ## Wave 82, exact state at main `2c6fd70ecceeed63fdb549882737c6563fb3f52d`
 
 Receipt paths: Codex `~/.codex/sessions/2026/08/27/` JSONL receipts; Claude

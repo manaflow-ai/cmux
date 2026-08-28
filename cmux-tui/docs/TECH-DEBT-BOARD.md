@@ -1,5 +1,35 @@
 # cmux-tui technical-debt board
 
+## Wave 84 current state: main `305519d149c1ca61d4be4838e18b0a59f8e69b2a`
+
+Snapshot: 2026-08-28T07:43:00Z. The shutdown, paste-harness, surface-index, wire-name, and transport-loss changes are merged. The remaining debt is tracked by exact PR head, not by stale branch labels.
+
+| Debt | Evidence | Exit condition |
+| --- | --- | --- |
+| Hook ordering and terminal tombstones | [#11024](https://github.com/manaflow-ai/cmux/pull/11024) at `d3bb50772cdca64586304e5afcfec5f3a222fe1a` | Exact review and hosted crash/restart, stale-hook, and public-snapshot tests pass. |
+| Journal replay foundation | [#11002](https://github.com/manaflow-ai/cmux/pull/11002) at `8da5643df4d89ecf4b3a0abad5809241c57e6b1d` | Durable cursor and tombstone semantics are transactionally atomic, bounded, and covered by restart tests. |
+| Screen-detection parity | [#11068](https://github.com/manaflow-ai/cmux/pull/11068) at `b3eca00fd03dd76763bd5273066df2779c236abc` | Resolve review findings for identity, retention, snapshots, ordering, Grok/Qwen rules, Windows, and OSC behavior. |
+| CDP error privacy | [#11013](https://github.com/manaflow-ai/cmux/pull/11013) plus [#11078](https://github.com/manaflow-ai/cmux/pull/11078) | Public responses contain stable safe categories while raw transport details remain diagnostic-only. |
+| Harbor ownership model | [#11063](https://github.com/manaflow-ai/cmux/pull/11063) and the unsubmitted tree follow-up | One shared ownership tree drives attach, detach, reconnect, drag, and manual I/O without nested rendering. |
+| Agent drag and drop | [#10401](https://github.com/manaflow-ai/cmux/pull/10401) | UTType payload and one shared drop action preserve cwd/resume metadata and reject text insertion. |
+
+Simplification rule: one source of truth per lifecycle, one shared action per entry point, bounded replay instead of full scans, and public projections that never expose internal markers.
+
+Strict session count is `unknown`; no 10,000-session claim is supported.
+
+## Wave 83 follow-up: main `989293cdb9058500f51d6c9b8e4f3795e67997ce`
+
+Snapshot: 2026-08-28T06:56:33Z. Current main merges [#11066](https://github.com/manaflow-ai/cmux/pull/11066) (`8a7b4b5c4a7ad4af2851303b27bd17327d15d7d8`), [#11000](https://github.com/manaflow-ai/cmux/pull/11000) (`8910e6360e3b1d8b05b875cbe44e1901e8c7fc60`), [#11018](https://github.com/manaflow-ai/cmux/pull/11018) (`ed19cfa5cb88d6e0fae683bbe4a733bd4e2d062c`), [#10838](https://github.com/manaflow-ai/cmux/pull/10838) (`c1e7f094cea7b1a1dbe21b48bc43e01c41b2d1c4`), and [#10326](https://github.com/manaflow-ai/cmux/pull/10326) (`989293cdb9058500f51d6c9b8e4f3795e67997ce`). Strict session count remains `unknown`; 258 named turns is an older lower bound.
+
+| Debt | Evidence | Owner and exit condition |
+| --- | --- | --- |
+| Harbor's flat panel does not meet the filesystem-tree intent. | Claude `~/.claude/history.jsonl:91032`, session `9a24a8c7-e7e4-4385-9742-aa20f8475b66`; [#11063](https://github.com/manaflow-ai/cmux/pull/11063), Lawrence Chen, head `bd5d47b03facb3e20eff1b8aba8d697f1f96c9d6`, open and mergeable. The round-1 PR has no redesign follow-up or completion receipt. | Harbor owner. Publish the host, tool, session, workspace, window/tab, terminal tree with drag-out and cloud manual I/O, prove reconnect and raw/echo cleanup, and keep nested TUI rendering out. |
+| Herdr/Codex detection and roster parity is incomplete. | Claude `~/.claude/history.jsonl:91027,91029`, session `e5f4a11b-ca0c-4d74-8520-debf0fe5671b`; [#11068](https://github.com/manaflow-ai/cmux/pull/11068), Lawrence Chen, head `04380edc86d1f5033b71341ddc97cb4738c26e4f`, open; GitHub mergeability changed during the audit, and checks and review remain pending. CodeRabbit's 2026-08-28T06:14:55Z review reports eight actionable comments and lists identity, cache, retention, snapshot, ordering, Grok, and Qwen defects; other state and platform gaps remain. | Agent-roster owner. Resolve all eight comments, close the listed seen-bit, wait-for-state, manifest refresh, filter, visible-blocker, wrapper identity, Windows, and OSC gaps, then run exact-head parity and exit/reconnect tests. |
+| Post-audit cmux-TUI security review has no completion artifact. | Codex `~/.codex/history.jsonl:18868-18869`, session `01a04659-67b5-7e73-af85-20019325aae6`, transcript `~/.codex/sessions/2026/08/27/rollout-2026-08-27T20-10-59-01a04659-67b5-7e73-af85-20019325aae6.jsonl`. Latest plain status at 2026-08-28T06:14:43Z says post-audit TUI PR screening is in progress; no finding report or PR link exists. | Security-sweep owner. Publish exact findings and fixes, pin the reviewed heads, run the required checks, and redact secrets from evidence. |
+| Dragging an agent into a terminal remains unimplemented. | [#10401](https://github.com/manaflow-ai/cmux/pull/10401), Lawrence Chen, head `46590bacaed87fba46d4ceb5cdacadcafad07833`, open and conflicting. The PR body marks a UTType, `.draggable`, and terminal drop route as follow-up work. Claude `~/.claude/history.jsonl:90390,90392,21824,21911` records the requested interaction and failed terminal drops. | Sidebar owner. Rebase the follow-up, add one shared payload and drop action, preserve cwd and resume metadata, and prove the target session opens instead of injecting text. |
+
+Pattern references: Tokio [`watch`](https://docs.rs/tokio/latest/tokio/sync/watch/) keeps the latest state, [`broadcast`](https://docs.rs/tokio/latest/tokio/sync/broadcast/) carries every lifecycle value, and Ratatui [`Terminal`](https://docs.rs/ratatui/latest/ratatui/struct.Terminal.html) owns render buffers and cursor synchronization.
+
 ## Current reconciliation: main `2c6fd70ecceeed63fdb549882737c6563fb3f52d`
 
 Snapshot: 2026-08-28T05:18:39Z. Recent merged SHAs are recorded with authors:
