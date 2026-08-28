@@ -2734,7 +2734,7 @@ pub(super) fn run_session_reset_state(global: GlobalArgs, plan: SessionResetStat
     }
     let state_root =
         match plan.state.map(PathBuf::from).or_else(cmux_tui_core::platform::workspace_state_dir) {
-            Some(path) => path,
+            Some(path) => cmux_tui_core::platform::normalize_filesystem_path(path),
             None => {
                 return super::wire::print_local_error(
                     &json!({
