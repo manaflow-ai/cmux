@@ -63,7 +63,6 @@ impl Listener for AdmissionListener {
                         address,
                     );
                 }
-                Err(error) if is_connection_error(&error) => continue,
                 Err(_) => {
                     // Back off transient listener failures without a busy loop. The sleep
                     // future is cancellation-safe: dropping the listener drops this future.
@@ -238,15 +237,6 @@ impl AsyncWrite for AdmissionStream {
     ) -> Poll<Result<(), io::Error>> {
         Pin::new(&mut self.inner).poll_shutdown(context)
     }
-}
-
-fn is_connection_error(error: &io::Error) -> bool {
-    matches!(
-        error.kind(),
-        io::ErrorKind::ConnectionRefused
-            | io::ErrorKind::ConnectionAborted
-            | io::ErrorKind::ConnectionReset
-    )
 }
 
 #[cfg(test)]
