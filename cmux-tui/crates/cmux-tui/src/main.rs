@@ -2620,9 +2620,7 @@ fn run_tui_once(
         colors,
         surface_only,
         owner_mux,
-        machine_ui,
-        machine_controller,
-        config,
+        app::MachineUpdateOptions { machine_ui, machine_controller, startup_config: config },
     )
 }
 

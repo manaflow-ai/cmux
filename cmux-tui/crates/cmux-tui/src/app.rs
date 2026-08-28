@@ -2079,6 +2079,10 @@ impl OrderedSession {
         self.inner.tree()
     }
 
+    fn transport_disconnect_reason(&self) -> Option<String> {
+        self.inner.transport_disconnect_reason()
+    }
+
     fn report_focus(
         &self,
         previous: Option<crate::session::ClientFocus>,
@@ -8152,6 +8156,12 @@ pub enum RunOutcome {
     Machine(MachineRequest),
 }
 
+pub(crate) struct MachineUpdateOptions {
+    pub(crate) machine_ui: Option<MachineUiState>,
+    pub(crate) machine_controller: Option<Box<dyn MachineController>>,
+    pub(crate) startup_config: crate::config::StartupConfigSnapshot,
+}
+
 struct MachineUpdatePump {
     stop: Arc<AtomicBool>,
     provider: Option<JoinHandle<()>>,
@@ -8721,9 +8731,7 @@ pub fn run_with_machine_updates(
     default_colors: cmux_tui_core::DefaultColors,
     surface_only: Option<SurfaceId>,
     owner_mux: Option<Arc<Mux>>,
-    machine_ui: Option<MachineUiState>,
-    machine_controller: Option<Box<dyn MachineController>>,
-    startup_config: crate::config::StartupConfigSnapshot,
+    options: MachineUpdateOptions,
 ) -> anyhow::Result<RunOutcome> {
     type PanicHook = dyn for<'a> Fn(&std::panic::PanicHookInfo<'a>) + Send + Sync + 'static;
     let previous_panic_hook: Arc<PanicHook> = Arc::from(std::panic::take_hook());
@@ -8745,9 +8753,7 @@ pub fn run_with_machine_updates(
             default_colors,
             surface_only,
             owner_mux,
-            machine_ui,
-            machine_controller,
-            startup_config,
+            options,
         )
     }));
     let _ = std::panic::take_hook();
@@ -8770,10 +8776,9 @@ fn run_with_machine_updates_inner(
     default_colors: cmux_tui_core::DefaultColors,
     surface_only: Option<SurfaceId>,
     owner_mux: Option<Arc<Mux>>,
-    machine_ui: Option<MachineUiState>,
-    machine_controller: Option<Box<dyn MachineController>>,
-    startup_config: crate::config::StartupConfigSnapshot,
+    options: MachineUpdateOptions,
 ) -> anyhow::Result<RunOutcome> {
+    let MachineUpdateOptions { machine_ui, machine_controller, startup_config } = options;
     if let Session::Local(mux) = &session {
         install_mux_diagnostic_logger(mux);
     }
@@ -14811,6 +14816,12 @@ impl App {
                 Ok(self.apply_machine_controller_completion(*completion))
             }
             AppEvent::Mux(MuxEvent::Empty) => {
+                if let Some(reason) = self.session.transport_disconnect_reason() {
+                    crate::client_log::warn(
+                        "session",
+                        &format!("remote transport disconnected: {reason}"),
+                    );
+                }
                 if self.request_current_machine_session() {
                     return Ok(RenderAction::Draw);
                 }
