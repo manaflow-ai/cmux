@@ -2592,6 +2592,7 @@ impl Mux {
                         .is_ok()
                     {
                         applied += 1;
+                        let _ = self.workspace_registry.lock().unwrap().advance_agent_hook_apply_cursor(sequence);
                     } else {
                         eprintln!("cmux-tui: agent hook retry cleanup deferred");
                     }
@@ -3885,6 +3886,8 @@ impl Mux {
         drop(registry);
         if !commit.replayed {
             self.publish_resource_event();
+        } else {
+            let _ = self.workspace_registry.lock().unwrap().advance_agent_hook_apply_cursor(commit.sequence);
         }
         Ok(commit)
     }
@@ -22964,6 +22967,10 @@ mod tests {
         .unwrap();
         let commit = mux.append_journal_ingress(&ingress, "test", "watermark-end").unwrap();
         assert!(commit.sequence > 0);
+        assert_eq!(
+            mux.workspace_registry.lock().unwrap().agent_hook_apply_cursor().unwrap(),
+            commit.sequence
+        );
         let projections = mux.workspace_registry.lock().unwrap().public_projections().unwrap();
         let restored =
             mux.with_state(|state| restore_public_projections(state, projections)).unwrap();

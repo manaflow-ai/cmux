@@ -170,7 +170,7 @@ pub(super) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::R
            ended INTEGER NOT NULL CHECK(ended IN (0, 1)),
            committed_revision INTEGER NOT NULL CHECK(committed_revision >= 0)
          );
-         CREATE TABLE IF NOT EXISTS resource_agent_hook_pending (
+           CREATE TABLE IF NOT EXISTS resource_agent_hook_pending (
            producer_id TEXT NOT NULL,
            origin TEXT NOT NULL,
            idempotency_key TEXT NOT NULL,
@@ -213,6 +213,11 @@ pub(super) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::R
                attempt INTEGER NOT NULL CHECK(attempt >= 0),
                PRIMARY KEY(producer_id, origin, idempotency_key)
              );
+         CREATE TABLE IF NOT EXISTS resource_agent_hook_apply_cursor (
+           id INTEGER PRIMARY KEY CHECK(id = 1),
+           sequence INTEGER NOT NULL CHECK(sequence >= 0)
+         );
+         INSERT OR IGNORE INTO resource_agent_hook_apply_cursor(id, sequence) VALUES(1, 0);
              INSERT INTO resource_agent_hook_pending(
                producer_id, origin, idempotency_key, terminal_id, event_sequence, ingress_json, error, attempt
              ) SELECT '', '', idempotency_key,
@@ -502,6 +507,24 @@ pub(super) fn migrate_resource_browser_metadata(
 }
 
 impl WorkspaceRegistry {
+    /// Return the highest journal sequence whose hook projection has been
+    /// durably considered. This is a recovery watermark, not an admission
+    /// cursor. It advances only after the projection transaction commits.
+    pub fn agent_hook_apply_cursor(&self) -> anyhow::Result<u64> {
+        self.connection
+            .query_row("SELECT sequence FROM resource_agent_hook_apply_cursor WHERE id = 1", [], |row| row.get::<_, i64>(0))
+            .map(|value| u64::try_from(value).context("agent hook apply cursor is negative"))?
+    }
+
+    pub fn advance_agent_hook_apply_cursor(&mut self, sequence: u64) -> anyhow::Result<()> {
+        self.connection.execute(
+            "UPDATE resource_agent_hook_apply_cursor
+             SET sequence = CASE WHEN sequence < ?1 THEN ?1 ELSE sequence END
+             WHERE id = 1",
+            [i64::try_from(sequence).context("agent hook sequence exceeds SQLite range")?],
+        )?;
+        Ok(())
+    }
     pub(super) fn stage_agent_hook_pending(
         transaction: &Transaction<'_>,
         producer_id: &str,
