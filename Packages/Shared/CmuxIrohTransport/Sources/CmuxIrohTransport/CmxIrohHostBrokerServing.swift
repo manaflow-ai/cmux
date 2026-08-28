@@ -1,6 +1,6 @@
 /// Trust-broker operations required by a Mac host runtime.
 public protocol CmxIrohHostBrokerServing: CmxIrohDiscoveryServing,
-    CmxIrohRelayTokenServing, CmxIrohBindingRevoking
+    CmxIrohBindingRevoking
 {
     /// Checks a caller-owned broker floor without performing network work.
     func preflight(operation: CmxIrohBrokerOperation) async throws

@@ -3,13 +3,13 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: scripts/run-iroh-release-gate.sh --mode <automatic|relay-only|relay-expiry|direct-only|private-path> --tag <tag>
+Usage: scripts/run-iroh-release-gate.sh --mode <automatic|relay-only|direct-only|private-path> --tag <tag>
        [--staging-base-url <url>] [--presence-base-url <url>]
        [--skip-build] [--keep-simulator]
        [--report-output <path>] [--print-plan]
        [--production [--stack-env-file <secure-path>]]
 
-Automatic, relay-only, and relay-expiry build a tagged Mac app plus an isolated iOS Simulator
+Automatic and relay-only build a tagged Mac app plus an isolated iOS Simulator
 app, sign both into the same staging account, pair only over Iroh, and verify
 the app RPC surface. Direct-only runs a deterministic two-Iroh-endpoint proof
 inside an isolated iOS Simulator with relays disabled. Private-path runs a
@@ -78,11 +78,10 @@ if [[ "$PRODUCTION" -eq 1 ]]; then
 fi
 
 case "$MODE" in
-  automatic) RAW_MODE="automatic"; GATE_SCENARIO="standard"; GATE_PLAN="app-rpc" ;;
-  relay-only) RAW_MODE="relayOnly"; GATE_SCENARIO="relay_rollover"; GATE_PLAN="app-rpc" ;;
-  relay-expiry) RAW_MODE="relayOnly"; GATE_SCENARIO="relay_expiry"; GATE_PLAN="app-rpc" ;;
-  direct-only) RAW_MODE="directOnly"; GATE_SCENARIO="standard"; GATE_PLAN="simulator-direct-transport" ;;
-  private-path) RAW_MODE=""; GATE_SCENARIO="standard"; GATE_PLAN="host-private-path-transport" ;;
+  automatic) RAW_MODE="automatic"; GATE_PLAN="app-rpc" ;;
+  relay-only) RAW_MODE="relayOnly"; GATE_PLAN="app-rpc" ;;
+  direct-only) RAW_MODE="directOnly"; GATE_PLAN="simulator-direct-transport" ;;
+  private-path) RAW_MODE=""; GATE_PLAN="host-private-path-transport" ;;
   *) echo "error: invalid mode '$MODE'" >&2; exit 2 ;;
 esac
 
@@ -663,8 +662,6 @@ if [[ "$PRODUCTION" -eq 1 ]]; then
 fi
 CMUX_ATTACH_MINT_MAX_ATTEMPTS=600 \
 CMUX_ATTACH_READY_TIMEOUT_SECONDS="${CMUX_IROH_RELEASE_GATE_ATTACH_READY_TIMEOUT_SECONDS:-90}" \
-CMUX_IROH_RELEASE_GATE_SCENARIO="$GATE_SCENARIO" \
-CMUX_IROH_DISABLE_RELAY_CREDENTIAL_REFRESH="$([[ "$GATE_SCENARIO" == "relay_expiry" ]] && printf 1 || printf 0)" \
 ./scripts/mobile-dev-launch.sh "${MOBILE_LAUNCH_ARGS[@]}" \
   2>&1 | sed -E \
     -e 's/^(==> dev sign-in account:).*/\1 [redacted]/' \
@@ -699,7 +696,7 @@ if [[ -n "$REPORT_OUTPUT" ]]; then
   fi
 fi
 
-REPORT_PATH="$REPORT_PATH" EXPECTED_MODE="$RAW_MODE" EXPECTED_SCENARIO="$GATE_SCENARIO" /usr/bin/python3 <<'PY'
+REPORT_PATH="$REPORT_PATH" EXPECTED_MODE="$RAW_MODE" /usr/bin/python3 <<'PY'
 import json
 import os
 
@@ -707,11 +704,9 @@ with open(os.environ["REPORT_PATH"], encoding="utf-8") as handle:
     report = json.load(handle)
 
 expected_mode = os.environ["EXPECTED_MODE"]
-expected_scenario = os.environ["EXPECTED_SCENARIO"]
 allowed_keys = {
     "schemaVersion",
     "mode",
-    "scenario",
     "passed",
     "hostStatusVerified",
     "rpcMethodInventoryVerified",
@@ -721,14 +716,6 @@ allowed_keys = {
     "notificationReconcileVerified",
     "chatSessionsVerified",
     "artifactScanCountVerified",
-    "relayCredentialRolloverVerified",
-    "endpointContinuityVerified",
-    "connectionContinuityVerified",
-    "controlStreamContinuityVerified",
-    "independentEventsContinuityVerified",
-    "artifactLaneVerified",
-    "unrefreshedExpiryDisconnectVerified",
-    "soakDurationSeconds",
     "routeKind",
     "selectedPath",
     "failure",
@@ -755,12 +742,10 @@ problems = []
 unexpected_keys = set(report) - allowed_keys
 if unexpected_keys:
     problems.append("report contained unexpected fields")
-if report.get("schemaVersion") != 4:
+if report.get("schemaVersion") != 5:
     problems.append("unexpected schemaVersion")
 if report.get("mode") != expected_mode:
     problems.append("mode mismatch")
-if report.get("scenario") != expected_scenario:
-    problems.append("scenario mismatch")
 if report.get("routeKind") != "iroh":
     problems.append("route was not Iroh")
 if report.get("selectedPath") not in allowed_paths[expected_mode]:
@@ -768,22 +753,6 @@ if report.get("selectedPath") not in allowed_paths[expected_mode]:
 for key in required_true:
     if report.get(key) is not True:
         problems.append(f"{key} was not true")
-if expected_scenario == "relay_rollover":
-    for key in (
-        "relayCredentialRolloverVerified",
-        "endpointContinuityVerified",
-        "connectionContinuityVerified",
-        "controlStreamContinuityVerified",
-        "independentEventsContinuityVerified",
-        "artifactLaneVerified",
-    ):
-        if report.get(key) is not True:
-            problems.append(f"{key} was not true")
-    if report.get("soakDurationSeconds", 0) < 330:
-        problems.append("rollover soak was shorter than 330 seconds")
-elif expected_scenario == "relay_expiry":
-    if report.get("unrefreshedExpiryDisconnectVerified") is not True:
-        problems.append("unrefreshedExpiryDisconnectVerified was not true")
 
 redacted_report = {key: report.get(key) for key in sorted(allowed_keys) if key in report}
 print(json.dumps(redacted_report, sort_keys=True))

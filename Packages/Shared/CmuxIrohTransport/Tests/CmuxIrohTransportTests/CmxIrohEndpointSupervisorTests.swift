@@ -177,20 +177,16 @@ struct CmxIrohEndpointSupervisorTests {
             configuration: initialConfiguration
         )
         _ = try await supervisor.activate()
-        let replacement = try relayConfiguration(
-            url: "https://usw1-1.relay.lawrence.cmux.iroh.link/",
-            token: "bbbb"
-        )
 
         await #expect(throws: TestIrohTransportError.relayUpdateFailed) {
-            try await supervisor.replaceRelays([replacement])
+            try await supervisor.replaceRelayProfile(try replacementProfile())
         }
         await supervisor.deactivate()
         _ = try await supervisor.activate()
 
         let configurations = await factory.observedConfigurations()
         #expect(configurations.count == 2)
-        #expect(configurations[1].relays == initialConfiguration.relays)
+        #expect(configurations[1].relayProfile == initialConfiguration.relayProfile)
     }
 
     @Test
@@ -207,12 +203,8 @@ struct CmxIrohEndpointSupervisorTests {
             configuration: initial
         )
         _ = try await supervisor.activate()
-        let replacement = try relayConfiguration(
-            url: "https://usw1-1.relay.lawrence.cmux.iroh.link/",
-            token: "bbbb"
-        )
 
-        try await supervisor.replaceRelays([replacement])
+        try await supervisor.replaceRelayProfile(try replacementProfile())
         await supervisor.deactivate()
         _ = try await supervisor.activate()
 
@@ -247,12 +239,8 @@ struct CmxIrohEndpointSupervisorTests {
             }
         }
         _ = try await supervisor.activate()
-        let replacement = try relayConfiguration(
-            url: "https://usw1-1.relay.lawrence.cmux.iroh.link/",
-            token: "bbbb"
-        )
 
-        try await supervisor.replaceRelays([replacement])
+        try await supervisor.replaceRelayProfile(try replacementProfile())
 
         let emittedChange = await changes.waitForRefresh(timeout: .seconds(1))
         #expect(
@@ -263,7 +251,7 @@ struct CmxIrohEndpointSupervisorTests {
         await supervisor.deactivate()
     }
 
-    @Test("relay credential rotation does not republish an unchanged address")
+    @Test("relay profile replacement does not republish an unchanged address")
     func unchangedRelayAddressDoesNotPublishNetworkChange() async throws {
         let endpoint = TestIrohEndpoint(identity: identity)
         let supervisor = CmxIrohEndpointSupervisor(
@@ -280,17 +268,13 @@ struct CmxIrohEndpointSupervisorTests {
             }
         }
         _ = try await supervisor.activate()
-        let replacement = try relayConfiguration(
-            url: "https://usw1-1.relay.lawrence.cmux.iroh.link/",
-            token: "bbbb"
-        )
 
-        try await supervisor.replaceRelays([replacement])
+        try await supervisor.replaceRelayProfile(try replacementProfile())
 
         let emittedChange = await changes.waitForRefresh(timeout: .milliseconds(50))
         #expect(
             !emittedChange,
-            "Rotating credentials without changing the published address must not refresh policy"
+            "Replacing relays without changing the published address must not refresh policy"
         )
         observation.cancel()
         await supervisor.deactivate()
@@ -342,12 +326,8 @@ struct CmxIrohEndpointSupervisorTests {
         )
         _ = try await supervisor.activate()
         var updateEvents = await firstEndpoint.updateEvents().makeAsyncIterator()
-        let replacement = try relayConfiguration(
-            url: "https://usw1-1.relay.lawrence.cmux.iroh.link/",
-            token: "bbbb"
-        )
         let refresh = Task {
-            try await supervisor.replaceRelays([replacement])
+            try await supervisor.replaceRelayProfile(try replacementProfile())
         }
         _ = await updateEvents.next()
 
@@ -362,7 +342,7 @@ struct CmxIrohEndpointSupervisorTests {
 
         let configurations = await factory.observedConfigurations()
         #expect(configurations.count == 3)
-        #expect(configurations[2].relays == initialConfiguration.relays)
+        #expect(configurations[2].relayProfile == initialConfiguration.relayProfile)
     }
 
     @Test("an already-online generation replays relay readiness")
@@ -497,33 +477,20 @@ struct CmxIrohEndpointSupervisorTests {
     private func endpointConfiguration(
         bindPolicy: CmxIrohEndpointBindPolicy = .ephemeral
     ) throws -> CmxIrohEndpointConfiguration {
-        let relay = try relayConfiguration(
-            url: "https://use1-1.relay.lawrence.cmux.iroh.link/",
-            token: "aaaa"
-        )
-        return try CmxIrohEndpointConfiguration(
+        try CmxIrohEndpointConfiguration(
             secretKey: CmxIrohSecretKey(bytes: Data(repeating: 7, count: 32)),
             alpns: [CmxIrohProtocolConfiguration.cmuxMobileV1.alpn],
             bindPolicy: bindPolicy,
             managedRelayURLs: [
-                relay.url,
+                "https://use1-1.relay.lawrence.cmux.iroh.link/",
                 "https://usw1-1.relay.lawrence.cmux.iroh.link/",
-            ],
-            relays: [relay]
+            ]
         )
     }
 
-    private func relayConfiguration(
-        url: String,
-        token: String
-    ) throws -> CmxIrohRelayConfiguration {
-        let now = Date(timeIntervalSince1970: 1_000)
-        return try CmxIrohRelayConfiguration(
-            url: url,
-            token: token,
-            expiresAt: now.addingTimeInterval(24 * 60 * 60),
-            refreshAfter: now.addingTimeInterval(12 * 60 * 60),
-            now: now
+    private func replacementProfile() throws -> CmxIrohEndpointRelayProfile {
+        try CmxIrohEndpointRelayProfile(
+            managedRelayURLs: ["https://usw1-1.relay.lawrence.cmux.iroh.link/"]
         )
     }
 }

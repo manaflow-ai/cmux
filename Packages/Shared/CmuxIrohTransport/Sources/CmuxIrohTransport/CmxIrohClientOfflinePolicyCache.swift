@@ -80,13 +80,21 @@ public actor CmxIrohClientOfflinePolicyCache {
                     )) != nil else {
                     continue
                 }
-                retained.append(.init(binding: fresh, pairGrant: stored.pairGrant))
+                retained.append(.init(
+                    binding: fresh,
+                    pairGrant: stored.pairGrant,
+                    establishedSessionAt: stored.establishedSessionAt
+                ))
             }
         }
 
         let candidate = CmxIrohStoredClientPolicyTarget(
             binding: targetBinding,
-            pairGrant: pairGrant
+            pairGrant: pairGrant,
+            establishedSessionAt: retained.first(where: {
+                $0.binding.endpointID == targetBinding.endpointID
+                    && $0.binding.bindingID == targetBinding.bindingID
+            })?.establishedSessionAt
         )
         var merged = [candidate]
         merged.append(contentsOf: retained.filter {
@@ -237,6 +245,90 @@ public actor CmxIrohClientOfflinePolicyCache {
         )
     }
 
+    /// Records or clears the established-session marker for one stored target.
+    ///
+    /// A set marker lets a later launch dial the target credential-less
+    /// (allowlist admission) with zero pair-grant fetches; clearing it forces
+    /// the next dial back onto the bootstrap grant path. A missing record or
+    /// unknown target is a silent no-op: the marker is an optimization, never
+    /// an authority.
+    public func setSessionEstablished(
+        _ established: Bool,
+        targetEndpointID: CmxIrohPeerIdentity,
+        for expectation: CmxIrohClientOfflinePolicyExpectation,
+        confirmedLocalBinding: CmxIrohBrokerBinding?,
+        now: Date
+    ) async throws {
+        let epoch = try beginOperation()
+        guard var record = try await loadRecord(
+            for: expectation,
+            confirmedLocalBinding: confirmedLocalBinding,
+            epoch: epoch
+        ) else {
+            try requireCurrent(epoch)
+            return
+        }
+        var changed = false
+        var targets = record.targets
+        for index in targets.indices
+            where targets[index].binding.endpointID == targetEndpointID {
+            let value: Date? = established ? now : nil
+            if targets[index].establishedSessionAt != value {
+                targets[index].establishedSessionAt = value
+                changed = true
+            }
+        }
+        guard changed else {
+            try requireCurrent(epoch)
+            return
+        }
+        record = CmxIrohStoredClientPolicyRecord(
+            version: record.version,
+            scopeDigest: record.scopeDigest,
+            localBinding: record.localBinding,
+            relayFleet: record.relayFleet,
+            grantVerificationKeys: record.grantVerificationKeys,
+            lanRendezvous: record.lanRendezvous,
+            targets: targets
+        )
+        try await persistOrDelete(record, epoch: epoch)
+        try requireCurrent(epoch)
+    }
+
+    /// Returns targets whose pairing this phone has already exercised with a
+    /// fully admitted session, after the same signature reverification the
+    /// offline fallback applies.
+    public func establishedTargetEndpointIDs(
+        for expectation: CmxIrohClientOfflinePolicyExpectation,
+        confirmedLocalBinding: CmxIrohBrokerBinding?,
+        now: Date
+    ) async throws -> Set<CmxIrohPeerIdentity> {
+        let epoch = try beginOperation()
+        guard var record = try await loadRecord(
+            for: expectation,
+            confirmedLocalBinding: confirmedLocalBinding,
+            epoch: epoch
+        ) else {
+            try requireCurrent(epoch)
+            return []
+        }
+        try requireCurrent(epoch)
+        record = try reverifiedRecord(
+            record,
+            localBinding: confirmedLocalBinding ?? record.localBinding,
+            currentTargets: record.targets.map(\.binding),
+            keys: record.grantVerificationKeys,
+            lanRendezvous: record.lanRendezvous,
+            now: now
+        )
+        try requireCurrent(epoch)
+        return Set(
+            record.targets
+                .filter { $0.establishedSessionAt != nil }
+                .map(\.binding.endpointID)
+        )
+    }
+
     /// Removes every active-account client policy during account/app teardown.
     public func deactivate() async throws {
         lifecycleEpoch &+= 1
@@ -305,7 +397,11 @@ public actor CmxIrohClientOfflinePolicyCache {
                 )) != nil else {
                 continue
             }
-            targets.append(.init(binding: current, pairGrant: stored.pairGrant))
+            targets.append(.init(
+                binding: current,
+                pairGrant: stored.pairGrant,
+                establishedSessionAt: stored.establishedSessionAt
+            ))
         }
         return CmxIrohStoredClientPolicyRecord(
             version: record.version,

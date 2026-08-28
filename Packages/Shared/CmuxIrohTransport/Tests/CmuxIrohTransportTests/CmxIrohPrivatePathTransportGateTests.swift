@@ -89,7 +89,7 @@ struct CmxIrohPrivatePathTransportGateTests {
                     && $0.privacyScope == .privateNetwork
                     && $0.networkProfile == profile
             })
-            #expect(context.credential.kind == .pairGrant)
+            #expect(context.credential?.kind == .pairGrant)
 
             let authorizer = admissionController(
                 fixture: fixture,
@@ -323,8 +323,7 @@ struct CmxIrohPrivatePathTransportGateTests {
         let configuration = try CmxIrohEndpointConfiguration(
             secretKey: CmxIrohSecretKey(bytes: fixture.privateKey.rawRepresentation),
             alpns: [CmxIrohProtocolConfiguration.cmuxMobileV1.alpn],
-            managedRelayURLs: [fixture.relayURL],
-            relays: []
+            managedRelayURLs: [fixture.relayURL]
         )
         let supervisor = CmxIrohEndpointSupervisor(
             factory: CmxIrohLibEndpointFactory(transportVerificationMode: .directOnly),
@@ -364,8 +363,7 @@ struct CmxIrohPrivatePathTransportGateTests {
             secretKey: CmxIrohSecretKey(bytes: fixture.acceptorSecretKey),
             alpns: [CmxIrohProtocolConfiguration.cmuxMobileV1.alpn],
             bindPolicy: .required(CmxIrohBindAddress(ipAddress: ipAddress, port: port)),
-            managedRelayURLs: [fixture.relayURL],
-            relays: []
+            managedRelayURLs: [fixture.relayURL]
         )
         return try await CmxIrohLibEndpointFactory(
             transportVerificationMode: .directOnly
@@ -426,7 +424,8 @@ struct CmxIrohPrivatePathTransportGateTests {
         endpoint: any CmxIrohEndpoint,
         authorizer: CmxIrohAdmissionController
     ) async throws -> CmxIrohServerSession {
-        let connection = try #require(try await endpoint.accept())
+        let incoming = try #require(try await endpoint.accept())
+        let connection = try await incoming.establish()
         let session = try CmxIrohServerSession(
             connection: connection,
             authorizer: authorizer

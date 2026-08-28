@@ -34,6 +34,14 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
     let verifier: CmxIrohGrantVerifier
     let now: @Sendable () -> Date
     var grantCache: [CmxIrohPeerIdentity: CmxIrohRegistryGrantCache] = [:]
+    /// Macs this phone has completed at least one fully admitted session
+    /// with. A member's warm dial carries no credential (allowlist admission)
+    /// and performs zero pair-grant fetches.
+    var establishedPeers: Set<CmxIrohPeerIdentity> = []
+    /// Macs whose last credential-less admission was refused (allowlist miss
+    /// or eviction). Their next context carries a pair grant again.
+    var credentialRequiredPeers: Set<CmxIrohPeerIdentity> = []
+    private var hydratedEstablishedPeers = false
     var pairGrantRetryDeadline: (code: String?, date: Date)?
     var lanAuthorities: [CmxIrohPeerIdentity: CmxIrohRegistryLANAuthority] = [:]
     private var verifiedDiscoverySnapshot: VerifiedDiscoverySnapshot?
@@ -193,6 +201,35 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
                 )
                 usedFreshDiscovery = true
             } catch {
+                try Task.checkCancellation()
+                // The refresh failed. For the transient class (connectivity,
+                // broker cooldown, availability blips) dialing with the last
+                // verified snapshot beats not dialing at all (cmux#9724): the
+                // staleness mark survives, so the next attempt still
+                // refetches once the broker recovers. Every other failure is
+                // a trust signal (rollback/equivocation detection, a
+                // non-transient rejection, invalid authentication, a
+                // malformed authority response) and fails closed toward
+                // re-discovery instead of being masked by stale identity
+                // data.
+                if CmxIrohTrustBrokerClientError
+                    .preservesVerifiedStateDuringRefresh(error),
+                    let lastGood = authoritativeDiscovery {
+                    do {
+                        return try await resolveContext(
+                            for: request,
+                            targetIdentity: targetIdentity,
+                            routeHints: routeHints,
+                            discovery: lastGood,
+                            at: clock
+                        )
+                    } catch is CancellationError {
+                        throw CancellationError()
+                    } catch {
+                        // The last-good snapshot no longer authorizes this
+                        // peer; fall through to the offline cache.
+                    }
+                }
                 guard Self.isConnectivity(error),
                       let cached = try await cachedPolicy(
                           for: request,
@@ -302,6 +339,20 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
             throw CmxIrohRegistryContextError.targetNotPairable
         }
         replaceLANAuthorities(with: discovery)
+        // Already-paired Mac: dial credential-less and let the Mac's
+        // persisted allowlist admit the TLS-proven EndpointID. Zero grant
+        // HTTP calls on this hot path; a refusal falls back through
+        // noteAllowlistAdmissionRefused to the grant fetch below.
+        if !credentialRequiredPeers.contains(targetIdentity),
+           await isEstablished(targetIdentity) {
+            return try await context(
+                targetBinding: targetBinding,
+                routeHints: routeHints,
+                directOnly: request.irohDirectOnlyDialCandidates,
+                pairGrantToken: nil,
+                at: clock
+            )
+        }
         let initiator = CmxIrohGrantPeer(binding: localBinding)
         let acceptor = CmxIrohGrantPeer(binding: targetBinding)
         let pairGrant: CmxIrohPairGrantResponse
@@ -371,6 +422,9 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
             authoritativeDiscovery = nil
             staleDiscoveryPeers.removeAll(keepingCapacity: false)
             staleDiscoveryDeviceIDs.removeAll(keepingCapacity: false)
+            establishedPeers.removeAll(keepingCapacity: false)
+            credentialRequiredPeers.removeAll(keepingCapacity: false)
+            hydratedEstablishedPeers = false
         }
         self.localBindingExpectation = localBindingExpectation
         self.managedRelayURLs = managedRelayURLs
@@ -565,7 +619,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         targetBinding: CmxIrohBrokerBinding,
         routeHints: [CmxIrohPathHint],
         directOnly: [CmxIrohDirectDialCandidate]? = nil,
-        pairGrantToken: String,
+        pairGrantToken: String?,
         at clock: Date
     ) async throws -> CmxIrohClientContext {
         if let directOnly {
@@ -621,7 +675,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         }
         return CmxIrohClientContext(
             dialPlan: dialPlan,
-            credential: try .pairGrant(pairGrantToken),
+            credential: try pairGrantToken.map(CmxIrohAdmissionCredential.pairGrant),
             privateFallbackAuthorization: fallbackAuthorization
         )
     }
@@ -647,7 +701,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
     private func directOnlyContext(
         candidates: [CmxIrohDirectDialCandidate],
         targetBinding: CmxIrohBrokerBinding,
-        pairGrantToken: String,
+        pairGrantToken: String?,
         at clock: Date
     ) throws -> CmxIrohClientContext {
         let peerAlias = DiagnosticCorrelation().handle(for: targetBinding.deviceID)
@@ -711,7 +765,7 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         ))
         return CmxIrohClientContext(
             dialPlan: dialPlan,
-            credential: try .pairGrant(pairGrantToken),
+            credential: try pairGrantToken.map(CmxIrohAdmissionCredential.pairGrant),
             privateFallbackAuthorization: nil
         )
     }
@@ -1009,6 +1063,64 @@ public actor CmxIrohRegistryContextProvider: CmxIrohClientContextProvider {
         }) else {
             throw CmxIrohPrivateFallbackValidationError.profileUnavailable
         }
+    }
+
+    /// Records one fully admitted session: later warm dials to this Mac go
+    /// credential-less and skip the pair-grant fetch entirely. The marker is
+    /// also persisted through the offline policy cache so it survives
+    /// relaunch; persistence failure only costs the fast path.
+    public func noteAdmissionSucceeded(for request: CmxByteTransportRequest) async {
+        guard request.route.kind == .iroh,
+              case let .peer(targetIdentity, _) = request.route.endpoint else {
+            return
+        }
+        credentialRequiredPeers.remove(targetIdentity)
+        guard !establishedPeers.contains(targetIdentity) else { return }
+        establishedPeers.insert(targetIdentity)
+        guard let offlinePolicy else { return }
+        try? await offlinePolicy.cache.setSessionEstablished(
+            true,
+            targetEndpointID: targetIdentity,
+            for: offlinePolicy.expectation,
+            confirmedLocalBinding: offlinePolicy.localBinding,
+            now: now()
+        )
+    }
+
+    /// Records a refused credential-less admission: the Mac has no (or a
+    /// stale) allowlist entry for this phone, so the next context must carry
+    /// a pair grant again. The persisted marker is cleared so a relaunch does
+    /// not retry the refused path first.
+    public func noteAllowlistAdmissionRefused(
+        for request: CmxByteTransportRequest
+    ) async {
+        guard request.route.kind == .iroh,
+              case let .peer(targetIdentity, _) = request.route.endpoint else {
+            return
+        }
+        establishedPeers.remove(targetIdentity)
+        credentialRequiredPeers.insert(targetIdentity)
+        guard let offlinePolicy else { return }
+        try? await offlinePolicy.cache.setSessionEstablished(
+            false,
+            targetEndpointID: targetIdentity,
+            for: offlinePolicy.expectation,
+            confirmedLocalBinding: offlinePolicy.localBinding,
+            now: now()
+        )
+    }
+
+    private func isEstablished(_ identity: CmxIrohPeerIdentity) async -> Bool {
+        if establishedPeers.contains(identity) { return true }
+        guard !hydratedEstablishedPeers, let offlinePolicy else { return false }
+        hydratedEstablishedPeers = true
+        let persisted = (try? await offlinePolicy.cache.establishedTargetEndpointIDs(
+            for: offlinePolicy.expectation,
+            confirmedLocalBinding: offlinePolicy.localBinding,
+            now: now()
+        )) ?? []
+        establishedPeers.formUnion(persisted)
+        return establishedPeers.contains(identity)
     }
 
     public func invalidateGrant(for identity: CmxIrohPeerIdentity? = nil) {

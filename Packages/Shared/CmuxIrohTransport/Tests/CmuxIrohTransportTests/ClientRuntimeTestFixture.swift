@@ -45,14 +45,6 @@ struct ClientRuntimeTestFixture {
         )
     }
 
-    func relayResponse() -> CmxIrohRelayTokenResponse {
-        CmxIrohRelayTokenResponse(
-            token: "testrelaytoken",
-            expiresAt: "2027-07-10T12:00:00.000Z",
-            refreshAfter: "2027-07-10T11:00:00.000Z",
-            relayFleet: Self.relayURLs
-        )
-    }
 
     func pendingRevocations() -> CmxIrohPendingRevocationOutbox {
         CmxIrohPendingRevocationOutbox(

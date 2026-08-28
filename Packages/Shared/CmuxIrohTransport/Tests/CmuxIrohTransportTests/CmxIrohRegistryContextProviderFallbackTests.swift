@@ -120,8 +120,8 @@ extension CmxIrohRegistryContextProviderTests {
 
         #expect(context.dialPlan.publicPaths == [managedRelay])
         #expect(context.dialPlan.privateFallbackPaths == [tailscale])
-        #expect(context.credential.kind == .pairGrant)
-        #expect(context.credential.pairGrantToken == response.grant)
+        #expect(context.credential?.kind == .pairGrant)
+        #expect(context.credential?.pairGrantToken == response.grant)
         let authorization = try #require(context.privateFallbackAuthorization)
         #expect(authorization.networkPathSnapshot == pathSnapshot)
         #expect(authorization.pathHints == [tailscale])
@@ -274,12 +274,12 @@ extension CmxIrohRegistryContextProviderTests {
         )
         let request = try fixture.request(hints: [])
 
-        #expect(try await provider.context(for: request).credential.pairGrantToken == first.grant)
-        #expect(try await provider.context(for: request).credential.pairGrantToken == first.grant)
+        #expect(try await provider.context(for: request).credential?.pairGrantToken == first.grant)
+        #expect(try await provider.context(for: request).credential?.pairGrantToken == first.grant)
         #expect(await broker.pairGrantRequestCount() == 1)
 
         clock.set(refreshedAt)
-        #expect(try await provider.context(for: request).credential.pairGrantToken == second.grant)
+        #expect(try await provider.context(for: request).credential?.pairGrantToken == second.grant)
         #expect(await broker.pairGrantRequestCount() == 2)
     }
 
