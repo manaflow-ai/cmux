@@ -246,6 +246,7 @@ struct AgentResumeArgvTests {
                 launcher: "claude", sessionId: "SID", executablePath: nil, arguments: ["claude"]
             ) == .passthrough
         )
+
         #expect(
             AgentResumeArgv().launcherResolution(
                 launcher: nil, sessionId: "SID", executablePath: nil, arguments: []
@@ -274,6 +275,17 @@ struct AgentResumeArgvTests {
             "--model", "gpt-test",
             "-c", "model_reasoning_effort=high",
         ]
+
+        #expect(
+            AgentResumeArgv().launcherResolution(
+                launcher: "codex",
+                sessionId: "SID",
+                executablePath: "/opt/bin/codex",
+                arguments: routedArguments,
+                environment: ["SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume"]
+            ) == .passthrough,
+            "An inherited raw marker without wrapper-bound proof must not reroute a direct Codex restore"
+        )
 
         #expect(
             AgentResumeArgv().launcherResolution(

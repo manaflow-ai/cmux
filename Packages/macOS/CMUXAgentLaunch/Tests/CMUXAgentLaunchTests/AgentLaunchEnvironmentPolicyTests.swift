@@ -170,6 +170,12 @@ struct AgentLaunchEnvironmentPolicyTests {
             from: ["SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume"],
             kind: "codex",
             launcher: "codex",
+            arguments: ["codex", "-c", "model_provider=subrouter"]
+        ).isEmpty)
+        #expect(policy.selectedRestoreRecordEnvironment(
+            from: ["SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume"],
+            kind: "codex",
+            launcher: "codex",
             arguments: ["codex"]
         ).isEmpty)
         #expect(policy.selectedRestoreRecordEnvironment(

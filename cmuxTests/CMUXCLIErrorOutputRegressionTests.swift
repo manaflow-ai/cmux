@@ -241,6 +241,7 @@ import Testing
                         "SUBROUTER_CODEX_BASE_URL": "https://router.example.test/v1",
                         "SUBROUTER_CODEX_BIN": "/opt/bin/codex",
                         "SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
+                        "CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
                         "SUBROUTER_CODEX_SERVER": "private-server",
                         "SUBROUTER_CODEX_USER_EMAIL": "private@example.test",
                     ],
