@@ -40,6 +40,50 @@ struct AgentLaunchEnvironmentPolicyTests {
         ])
     }
 
+    @Test(
+        "Restore records retain only trusted Subrouter Codex routing metadata",
+        arguments: ["sr", "subrouter", "cx"]
+    )
+    func restoreRecordsRetainTrustedSubrouterCodexMetadata(command: String) {
+        let policy = AgentLaunchEnvironmentPolicy()
+        let selected = policy.selectedRestoreRecordEnvironment(
+            from: [
+                "OPENAI_API_KEY": "secret-should-not-cross-socket",
+                "SUBROUTER_CODEX_RESUME_COMMAND": "\(command) codex resume",
+            ],
+            kind: "codex",
+            launcher: "codex",
+            arguments: ["codex", "-c", "model_provider=subrouter"]
+        )
+
+        #expect(selected == [
+            "SUBROUTER_CODEX_RESUME_COMMAND": "\(command) codex resume",
+        ])
+        #expect(
+            policy.selectedRestoreEnvironment(from: selected, kind: "codex")[
+                "SUBROUTER_CODEX_RESUME_COMMAND"
+            ] == nil
+        )
+    }
+
+    @Test("Restore records reject unproved or noncanonical Subrouter metadata")
+    func restoreRecordsRejectUntrustedSubrouterMetadata() {
+        let policy = AgentLaunchEnvironmentPolicy()
+
+        #expect(policy.selectedRestoreRecordEnvironment(
+            from: ["SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume"],
+            kind: "codex",
+            launcher: "codex",
+            arguments: ["codex"]
+        ).isEmpty)
+        #expect(policy.selectedRestoreRecordEnvironment(
+            from: ["SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume; echo unsafe"],
+            kind: "codex",
+            launcher: "codex",
+            arguments: ["codex", "-c", "model_provider=subrouter"]
+        ).isEmpty)
+    }
+
     @Test("Preserves Campfire config roots and drops Pi-managed env")
     func preservesCampfireConfigRootsAndDropsManagedPackageDir() {
         let selected = AgentLaunchEnvironmentPolicy().selectedEnvironment(
