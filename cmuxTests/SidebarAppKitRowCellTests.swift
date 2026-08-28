@@ -2114,4 +2114,64 @@ struct SidebarPinnedIndicatorColorTests {
 
         #expect(groupPin.contentTintColor == workspacePin.contentTintColor)
     }
+
+    @Test
+    func secondaryClickClassifierMatchesRightAndControlClick() throws {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 40, height: 40),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.close() }
+        func mouseEvent(
+            _ type: NSEvent.EventType,
+            flags: NSEvent.ModifierFlags = []
+        ) throws -> NSEvent {
+            try #require(NSEvent.mouseEvent(
+                with: type,
+                location: NSPoint(x: 8, y: 8),
+                modifierFlags: flags,
+                timestamp: 0,
+                windowNumber: window.windowNumber,
+                context: nil,
+                eventNumber: 1,
+                clickCount: 1,
+                pressure: 1
+            ))
+        }
+        #expect(SidebarSecondaryClick.isActive(try mouseEvent(.rightMouseDown)))
+        #expect(SidebarSecondaryClick.isActive(try mouseEvent(.leftMouseDown, flags: [.control])))
+        #expect(!SidebarSecondaryClick.isActive(try mouseEvent(.leftMouseDown)))
+    }
+
+    @Test
+    func workspaceRowMenuIncludesPinRenameAndColor() throws {
+        let cell = Self.configuredCell(model: Self.makeModel())
+        let event = try #require(NSEvent.mouseEvent(
+            with: .rightMouseDown,
+            location: NSPoint(x: 16, y: 16),
+            modifierFlags: [],
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            eventNumber: 1,
+            clickCount: 1,
+            pressure: 1
+        ))
+        let menu = cell.menu(for: event)
+        let titles = menu?.items.map(\.title) ?? []
+        #expect(titles.contains(String(
+            localized: "contextMenu.pinWorkspace",
+            defaultValue: "Pin Workspace"
+        )))
+        #expect(titles.contains(String(
+            localized: "contextMenu.renameWorkspace",
+            defaultValue: "Rename Workspace…"
+        )))
+        #expect(titles.contains(String(
+            localized: "contextMenu.workspaceColor",
+            defaultValue: "Workspace Color"
+        )))
+    }
 }

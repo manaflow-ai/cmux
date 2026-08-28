@@ -177,6 +177,27 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
 
     override var isFlipped: Bool { true }
 
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let hit = super.hitTest(point)
+        guard SidebarSecondaryClick.isActive(NSApp.currentEvent) else { return hit }
+        if let hit, ownsContextMenu(hit) { return hit }
+        let local = convert(point, from: superview)
+        guard !isHidden, alphaValue > 0.01, bounds.contains(local) else { return hit }
+        return self
+    }
+
+    private func ownsContextMenu(_ hit: NSView) -> Bool {
+        hit is SidebarRowChecklistItemLine || hit.isDescendant(of: checklistSection)
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        if let menu = menu(for: event) {
+            NSMenu.popUpContextMenu(menu, with: event, for: self)
+            return
+        }
+        super.rightMouseDown(with: event)
+    }
+
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         identifier = Self.reuseIdentifier
