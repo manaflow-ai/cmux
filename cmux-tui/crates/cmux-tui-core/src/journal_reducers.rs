@@ -27,8 +27,15 @@ use crate::{AgentSource, AgentState, JournalSubject};
 
 pub(crate) const AGENT_ROSTER_REDUCER_ID: &str = "agent_roster";
 /// Bump to discard persisted snapshots and re-fold from the journal head.
-/// Version 2 added the agent adapter id to roster entries.
-pub(crate) const AGENT_ROSTER_REDUCER_VERSION: u32 = 2;
+/// Version 2 added the agent adapter id to roster entries. Version 3
+/// added screen-detected events and hook/screen/socket arbitration.
+pub(crate) const AGENT_ROSTER_REDUCER_VERSION: u32 = 3;
+
+/// A hook-owned roster entry younger than this cannot be overwritten by a
+/// screen-detected state: live hooks are stronger evidence than screen
+/// scraping. An agent whose hooks stopped reporting for this long (dead
+/// helper, uninstalled hooks) falls back to screen detection.
+pub(crate) const STALE_HOOK_MS: u64 = 30_000;
 
 /// The adapter id and native event the socket report path uses for its echo
 /// journal events. The echo carries the explicit state in `normalized`, so
@@ -107,6 +114,10 @@ impl<'a> RosterEvent<'a> {
         self.payload.get("adapter")?.get("id")?.as_str()
     }
 
+    fn native_event(&self) -> Option<&str> {
+        self.payload.get("native_event")?.as_str()
+    }
+
     fn normalized(&self, field: &str) -> Option<&str> {
         self.payload.get("normalized")?.get(field)?.as_str()
     }
@@ -181,20 +192,50 @@ impl AgentRoster {
                     .unwrap_or(event.committed_at_ms);
                 let session = event.normalized("source_session").map(str::to_string);
                 (state, source, session, None, updated_at_ms)
+            } else if event.native_event() == Some(crate::screen_detect::SCREEN_DETECT_NATIVE_EVENT)
+            {
+                // Screen detection: the daemon parsed the terminal tail.
+                // Explicit state like the socket echo, but the adapter is
+                // the detected agent and the source is `detected`.
+                let Some(state) = event.normalized("state").and_then(agent_state_from_str) else {
+                    return Vec::new();
+                };
+                let agent = event.adapter_id().map(str::to_string);
+                (state, AgentSource::Detected, None, agent, event.committed_at_ms)
             } else {
                 let Some(state) = state_for_hook_kind(event.kind) else { return Vec::new() };
                 let agent = event.adapter_id().map(str::to_string);
                 (state, AgentSource::Hook, None, agent, event.committed_at_ms)
             };
-        if source == AgentSource::Socket
-            && self
-                .entries
-                .get(terminal_id)
-                .is_some_and(|entry| entry.agent_source() == AgentSource::Hook)
-        {
-            // Hook state is live agent truth; socket reports cannot
-            // overwrite it (mirrors the projection commit precedence).
-            return Vec::new();
+        // Source arbitration: hook > screen > socket per terminal. Hook
+        // events always win. Screen detection may not overwrite an entry a
+        // live hook owns (fresher than STALE_HOOK_MS), and its exit removal
+        // only applies to entries screen detection itself established.
+        // Socket reports lose to both stronger sources.
+        match source {
+            AgentSource::Hook => {}
+            AgentSource::Detected => {
+                if let Some(existing) = self.entries.get(terminal_id) {
+                    let existing_source = existing.agent_source();
+                    if existing_source == AgentSource::Hook
+                        && updated_at_ms.saturating_sub(existing.updated_at_ms) < STALE_HOOK_MS
+                    {
+                        return Vec::new();
+                    }
+                    if state == AgentState::Done && existing_source != AgentSource::Detected {
+                        return Vec::new();
+                    }
+                }
+            }
+            AgentSource::Socket => {
+                if self
+                    .entries
+                    .get(terminal_id)
+                    .is_some_and(|entry| entry.agent_source() != AgentSource::Socket)
+                {
+                    return Vec::new();
+                }
+            }
         }
         if state == AgentState::Done {
             // An ended agent leaves the roster entirely; the done state is
