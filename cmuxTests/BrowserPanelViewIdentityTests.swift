@@ -92,15 +92,21 @@ import WebKit
         webView.layoutPassCount = 0
 
         portal.forceRefreshWebView(withId: ObjectIdentifier(webView), reason: "test")
-        await waitForNextMainActorTurn()
-        await waitForNextMainActorTurn()
 
-        #expect(webView.layoutPassCount > 0, "The deferred refresh must still flush the portal-owned WebKit subtree.")
+        // Observe the synchronous boundary before yielding to AppKit's display
+        // cycle. Once the run loop spins, a dirty NSHostingView may be laid out
+        // by the window system independently of the portal's deferred WebKit
+        // refresh, so that later pass cannot be attributed to this call.
         #expect(
             referenceView.layoutPassCount == 0,
             "A portal presentation refresh must not synchronously lay out SwiftUI's hosting view."
         )
         #expect(referenceView.needsLayout)
+
+        await waitForNextMainActorTurn()
+        await waitForNextMainActorTurn()
+
+        #expect(webView.layoutPassCount > 0, "The deferred refresh must still flush the portal-owned WebKit subtree.")
     }
 
     @Test func portalAnchorInstallationDefersLayoutToAppKit() throws {
