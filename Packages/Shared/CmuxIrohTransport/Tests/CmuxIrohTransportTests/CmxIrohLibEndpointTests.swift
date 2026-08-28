@@ -19,8 +19,7 @@ struct CmxIrohLibEndpointTests {
                 configuration: try CmxIrohEndpointConfiguration(
                     secretKey: CmxIrohSecretKey(bytes: Data(repeating: 7, count: 32)),
                     alpns: [CmxIrohProtocolConfiguration.cmuxMobileV1.alpn],
-                    managedRelayURLs: [],
-                    relays: []
+                    managedRelayURLs: []
                 ),
                 socketAddress: nil,
                 relayMap: RelayMap.empty(),
@@ -47,8 +46,7 @@ struct CmxIrohLibEndpointTests {
             configuration: try CmxIrohEndpointConfiguration(
                 secretKey: CmxIrohSecretKey(bytes: Data(repeating: 7, count: 32)),
                 alpns: [CmxIrohProtocolConfiguration.cmuxMobileV1.alpn],
-                managedRelayURLs: [],
-                relays: []
+                managedRelayURLs: []
             ),
             socketAddress: nil,
             relayMap: RelayMap.empty()
@@ -217,7 +215,7 @@ struct CmxIrohLibEndpointTests {
         #expect(await endpoint.identity() == identity)
 
         try await endpoint.replaceRelayProfile(
-            CmxIrohEndpointRelayProfile(managedRelayURLs: [], relays: [])
+            CmxIrohEndpointRelayProfile(managedRelayURLs: [])
         )
         await #expect(throws: CmxIrohLibError.unmanagedRelayURL(customURL)) {
             _ = try await concrete.endpointAddresses(
@@ -425,8 +423,7 @@ struct CmxIrohLibEndpointTests {
             secretKey: CmxIrohSecretKey(bytes: Data((0 ..< 32).map(UInt8.init))),
             alpns: [CmxIrohProtocolConfiguration.cmuxMobileV1.alpn],
             bindPolicy: bindPolicy,
-            managedRelayURLs: managedRelayURLs,
-            relays: []
+            managedRelayURLs: managedRelayURLs
         )
         return try await CmxIrohLibEndpointFactory(
             transportVerificationMode: transportVerificationMode
@@ -439,8 +436,7 @@ struct CmxIrohLibEndpointTests {
         let configuration = try CmxIrohEndpointConfiguration(
             secretKey: CmxIrohSecretKey(bytes: Data((0 ..< 32).map(UInt8.init))),
             alpns: [CmxIrohProtocolConfiguration.cmuxMobileV1.alpn],
-            managedRelayURLs: [],
-            relays: []
+            managedRelayURLs: []
         )
         let driver = try await Endpoint.bind(
             options: CmxIrohLibEndpointFactory.endpointOptions(

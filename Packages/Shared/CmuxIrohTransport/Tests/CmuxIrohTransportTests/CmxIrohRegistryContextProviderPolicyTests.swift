@@ -111,7 +111,7 @@ extension CmxIrohRegistryContextProviderTests {
             expectedPeerDeviceID: fixture.acceptor.deviceID.uppercased()
         ))
 
-        #expect(context.credential.pairGrantToken == response.grant)
+        #expect(context.credential?.pairGrantToken == response.grant)
         #expect(await broker.pairGrantRequestCount() == 1)
     }
 
@@ -183,7 +183,7 @@ extension CmxIrohRegistryContextProviderTests {
 
         let context = try await provider.context(for: fixture.request(hints: []))
 
-        #expect(context.credential.pairGrantToken == grant.grant)
+        #expect(context.credential?.pairGrantToken == grant.grant)
         #expect(await store.readCount() > 0)
     }
 
@@ -228,7 +228,7 @@ extension CmxIrohRegistryContextProviderTests {
 
         let context = try await provider.context(for: fixture.request(hints: []))
 
-        #expect(context.credential.pairGrantToken == grant.grant)
+        #expect(context.credential?.pairGrantToken == grant.grant)
         #expect(await broker.pairGrantRequestCount() == 1)
     }
 
@@ -275,7 +275,7 @@ extension CmxIrohRegistryContextProviderTests {
 
         let context = try await provider.context(for: fixture.request(hints: []))
 
-        #expect(context.credential.pairGrantToken == grant.grant)
+        #expect(context.credential?.pairGrantToken == grant.grant)
         #expect(await broker.discoveryRequestCount() == 1)
         #expect(await broker.pairGrantRequestCount() == 1)
         #expect(await store.readCount() > 0)
@@ -309,7 +309,6 @@ extension CmxIrohRegistryContextProviderTests {
 
         for testCase in cases {
             let seeded = try await seededOfflinePolicy(fixture: fixture)
-            let readsBeforeDial = await seeded.store.readCount()
             let broker = TestIrohRegistryBroker(
                 discovery: testCase.discovery,
                 pairGrantResponses: [],
@@ -324,6 +323,12 @@ extension CmxIrohRegistryContextProviderTests {
                 offlinePolicy: seeded.policy,
                 now: { fixture.now }
             )
+            await provider.noteDialFailure(
+                for: try fixture.request(hints: []),
+                dialPlan: try testIrohDialPlan(publicPaths: []),
+                failure: .timedOut
+            )
+            let readsBeforeDial = await seeded.store.readCount()
 
             do {
                 _ = try await provider.context(for: fixture.request(hints: []))
@@ -362,7 +367,6 @@ extension CmxIrohRegistryContextProviderTests {
     func pairGrantUnauthorizedNeverConsultsOfflinePolicy() async throws {
         let fixture = try RegistryFixture()
         let seeded = try await seededOfflinePolicy(fixture: fixture)
-        let readsBeforeDial = await seeded.store.readCount()
         let rejection = CmxIrohTrustBrokerClientError.rejected(
             statusCode: 401,
             code: "unauthorized"
@@ -381,13 +385,25 @@ extension CmxIrohRegistryContextProviderTests {
             offlinePolicy: seeded.policy,
             now: { fixture.now }
         )
+        // Staleness evidence forces the fresh-discovery path (a cache-first
+        // dial would be served before any grant mint could be rejected).
+        await provider.noteDialFailure(
+            for: try fixture.request(hints: []),
+            dialPlan: try testIrohDialPlan(publicPaths: []),
+            failure: .timedOut
+        )
+        let readsBeforeDial = await seeded.store.readCount()
 
         await #expect(throws: rejection) {
             try await provider.context(for: fixture.request(hints: []))
         }
 
         #expect(await broker.pairGrantRequestCount() == 1)
-        #expect(await seeded.store.readCount() == readsBeforeDial)
+        // Exactly one extra store read is allowed: the one-time hydration of
+        // the established-session markers for allowlist admission. The cached
+        // GRANT itself is still never consulted after an unauthorized
+        // rejection (no cached-policy dial, no new record writes).
+        #expect(await seeded.store.readCount() == readsBeforeDial + 1)
         #expect(await seeded.store.recordCount() == 1)
     }
 
@@ -409,7 +425,6 @@ extension CmxIrohRegistryContextProviderTests {
             for: expectation,
             now: fixture.now
         )
-        let readsBeforeDial = await store.readCount()
         let broker = TestIrohRegistryBroker(
             discovery: discovery,
             pairGrantResponses: [],
@@ -431,6 +446,12 @@ extension CmxIrohRegistryContextProviderTests {
             ),
             now: { fixture.now }
         )
+        await provider.noteDialFailure(
+            for: try fixture.request(hints: []),
+            dialPlan: try testIrohDialPlan(publicPaths: []),
+            failure: .timedOut
+        )
+        let readsBeforeDial = await store.readCount()
 
         await #expect(throws: CmxIrohTrustBrokerClientError.rejected(
             statusCode: 401,
@@ -463,7 +484,6 @@ extension CmxIrohRegistryContextProviderTests {
             TestRegistryBrokerFailure.tls,
             TestRegistryBrokerFailure.decode,
         ] {
-            let readsBeforeDial = await store.readCount()
             let broker = TestIrohRegistryBroker(
                 discovery: discovery,
                 pairGrantResponses: [],
@@ -482,6 +502,12 @@ extension CmxIrohRegistryContextProviderTests {
                 ),
                 now: { fixture.now }
             )
+            await provider.noteDialFailure(
+                for: try fixture.request(hints: []),
+                dialPlan: try testIrohDialPlan(publicPaths: []),
+                failure: .timedOut
+            )
+            let readsBeforeDial = await store.readCount()
 
             do {
                 _ = try await provider.context(for: fixture.request(hints: []))

@@ -13,7 +13,8 @@ public actor CmxIrohClientSession {
     private let dialPhaseTimeout: Duration
     private let targetIdentity: CmxIrohPeerIdentity
     private let dialPlan: CmxIrohDialPlan
-    private let credential: CmxIrohAdmissionCredential
+    /// `nil` requests allowlist admission with no in-band credential.
+    private let credential: CmxIrohAdmissionCredential?
     private let privateFallbackAuthorization: CmxIrohPrivateFallbackAuthorization?
     private let privateFallbackValidator: (any CmxIrohPrivateFallbackValidating)?
     private let privateFallbackContextProvider: PrivateFallbackContextProvider?
@@ -49,7 +50,7 @@ public actor CmxIrohClientSession {
         endpoint: any CmxIrohEndpoint,
         targetIdentity: CmxIrohPeerIdentity,
         dialPlan: CmxIrohDialPlan,
-        credential: CmxIrohAdmissionCredential,
+        credential: CmxIrohAdmissionCredential?,
         privateFallbackAuthorization: CmxIrohPrivateFallbackAuthorization? = nil,
         privateFallbackValidator: (any CmxIrohPrivateFallbackValidating)? = nil,
         privateFallbackContextProvider: PrivateFallbackContextProvider? = nil,
@@ -431,56 +432,81 @@ public actor CmxIrohClientSession {
 
         do {
             try Task.checkCancellation()
-            guard await establishedConnection.remoteIdentity() == targetIdentity else {
-                throw CmxIrohClientSessionError.remoteIdentityMismatch
-            }
-            try await establishedConnection.setIncomingStreamLimits(
-                maximumBidirectionalStreamCount: 0,
-                maximumUnidirectionalStreamCount: 0
-            )
-            let stream = try await establishedConnection.openBidirectionalStream()
-            let header = try CmxIrohStreamHeader(
-                lane: .control,
-                credential: credential
-            )
-            try await stream.sendStream.send(headerCodec.encode(header))
-            let admission = try await readAdmissionFrame(from: stream.receiveStream)
-            switch admission.frame {
-            case .acceptedPendingNatTraversal, .acceptedRelayOnly:
-                if admission.frame == .acceptedPendingNatTraversal {
-                    try Task.checkCancellation()
-                    try await establishedConnection.authorizeNatTraversal()
+            // A half-ready peer can accept the QUIC connection and then never
+            // serve the admission frames. Bound the whole barrier like a dial
+            // phase so a silent peer hands control back to recovery instead
+            // of holding the redial owner open-endedly (cmux#9724). The
+            // barrier's stream I/O sits in FFI calls that ignore task
+            // cancellation, so the deadline aborts at the transport boundary:
+            // closing the connection is what actually ends a stalled read.
+            return try await boundedByDialPhase(
+                abortOnDeadline: {
+                    await establishedConnection.close(
+                        errorCode: 1,
+                        reason: "admission_timeout"
+                    )
                 }
-                try Task.checkCancellation()
-                try await stream.sendStream.send(
-                    admissionCodec.encodeFrame(.clientReady)
+            ) { [weak self] in
+                guard let self else { throw CancellationError() }
+                return try await self.performAdmissionBarrier(
+                    on: establishedConnection
                 )
-                let confirmation = try await readAdmissionFrame(
-                    from: stream.receiveStream,
-                    initialBuffer: admission.trailingBytes
-                )
-                switch confirmation.frame {
-                case .serverReady:
-                    break
-                case let .denied(code):
-                    throw CmxIrohClientSessionError.admissionDenied(code: code)
-                case .acceptedPendingNatTraversal, .acceptedRelayOnly, .clientReady:
-                    throw CmxIrohClientSessionError.invalidAdmissionFrame
-                }
-                try Task.checkCancellation()
-                return CmxIrohConnectedControl(
-                    connection: establishedConnection,
-                    stream: stream,
-                    initialReceiveBuffer: confirmation.trailingBytes
-                )
-            case let .denied(code):
-                throw CmxIrohClientSessionError.admissionDenied(code: code)
-            case .clientReady, .serverReady:
-                throw CmxIrohClientSessionError.invalidAdmissionFrame
             }
         } catch {
             await establishedConnection.close(errorCode: 1, reason: "admission_failed")
             throw error
+        }
+    }
+
+    private func performAdmissionBarrier(
+        on establishedConnection: any CmxIrohConnection
+    ) async throws -> CmxIrohConnectedControl {
+        guard await establishedConnection.remoteIdentity() == targetIdentity else {
+            throw CmxIrohClientSessionError.remoteIdentityMismatch
+        }
+        try await establishedConnection.setIncomingStreamLimits(
+            maximumBidirectionalStreamCount: 0,
+            maximumUnidirectionalStreamCount: 0
+        )
+        let stream = try await establishedConnection.openBidirectionalStream()
+        let header = try CmxIrohStreamHeader(
+            lane: .control,
+            credential: credential
+        )
+        try await stream.sendStream.send(headerCodec.encode(header))
+        let admission = try await readAdmissionFrame(from: stream.receiveStream)
+        switch admission.frame {
+        case .acceptedPendingNatTraversal, .acceptedRelayOnly:
+            if admission.frame == .acceptedPendingNatTraversal {
+                try Task.checkCancellation()
+                try await establishedConnection.authorizeNatTraversal()
+            }
+            try Task.checkCancellation()
+            try await stream.sendStream.send(
+                admissionCodec.encodeFrame(.clientReady)
+            )
+            let confirmation = try await readAdmissionFrame(
+                from: stream.receiveStream,
+                initialBuffer: admission.trailingBytes
+            )
+            switch confirmation.frame {
+            case .serverReady:
+                break
+            case let .denied(code):
+                throw CmxIrohClientSessionError.admissionDenied(code: code)
+            case .acceptedPendingNatTraversal, .acceptedRelayOnly, .clientReady:
+                throw CmxIrohClientSessionError.invalidAdmissionFrame
+            }
+            try Task.checkCancellation()
+            return CmxIrohConnectedControl(
+                connection: establishedConnection,
+                stream: stream,
+                initialReceiveBuffer: confirmation.trailingBytes
+            )
+        case let .denied(code):
+            throw CmxIrohClientSessionError.admissionDenied(code: code)
+        case .clientReady, .serverReady:
+            throw CmxIrohClientSessionError.invalidAdmissionFrame
         }
     }
 
@@ -498,22 +524,43 @@ public actor CmxIrohClientSession {
     ) async throws -> any CmxIrohConnection {
         let endpoint = endpoint
         let alpn = protocolConfiguration.alpn
+        return try await boundedByDialPhase {
+            try await endpoint.connect(to: address, alpn: alpn)
+        }
+    }
+
+    /// Races one dial-phase operation against the injected phase bound.
+    ///
+    /// The deadline must not depend on the operation observing cooperative
+    /// cancellation: the FFI driver suspends Swift callers on polled Rust
+    /// futures that `Task.cancel()` never resumes, and the task group still
+    /// awaits the losing child on scope exit. When the timer wins,
+    /// `abortOnDeadline` first terminates the operation at the transport
+    /// boundary (closing the QUIC connection fails every pending stream
+    /// call), so the phase reliably fails typed and the redial machinery
+    /// supersedes it instead of wedging behind it (cmux#8531, cmux#9724).
+    /// The endpoint dial phase passes no abort hook because the endpoint
+    /// already bridges cancellation across the FFI boundary through the
+    /// fork's cancellable `ConnectAttempt`.
+    private func boundedByDialPhase<Value: Sendable>(
+        abortOnDeadline: (@Sendable () async -> Void)? = nil,
+        _ operation: @escaping @Sendable () async throws -> Value
+    ) async throws -> Value {
         let bound = dialPhaseTimeout
-        return try await withThrowingTaskGroup(
-            of: (any CmxIrohConnection)?.self
-        ) { group in
+        return try await withThrowingTaskGroup(of: Value?.self) { group in
             group.addTask {
-                try await endpoint.connect(to: address, alpn: alpn)
+                try await operation()
             }
             group.addTask {
                 try await ContinuousClock().sleep(for: bound)
                 return nil
             }
             defer { group.cancelAll() }
-            guard let first = try await group.next(), let connection = first else {
+            guard let first = try await group.next(), let value = first else {
+                await abortOnDeadline?()
                 throw CmxIrohClientSessionError.dialTimedOut
             }
-            return connection
+            return value
         }
     }
 

@@ -15,6 +15,7 @@ import {
   verifyEndpointAttestation,
   verifyEndpointRegistrationSignature,
   verifyPairGrant,
+  verifySelfProofRegistrationSignature,
   type EndpointAttestationClaims,
   type IrohBindingRequestProof,
   type PairGrantClaims,
@@ -37,22 +38,21 @@ import {
 import {
   IROH_ALPN,
   IROH_CHALLENGE_LIFETIME_MS,
+  IROH_SELF_PROOF_MAX_SKEW_MS,
   IROH_ENDPOINT_ATTESTATION_LIFETIME_SECONDS,
   IROH_ENDPOINT_ATTESTATION_SCOPE,
   IROH_ENDPOINT_ATTESTATION_VERSION,
   IROH_PAIR_GRANT_LIFETIME_SECONDS,
   IROH_PAIR_SCOPE,
-  IROH_RELAY_TOKEN_LIFETIME_SECONDS,
-  IROH_RELAY_TOKEN_REFRESH_SECONDS,
   assertChallengeMatchesPayload,
   decodeRegistrationPayload,
   parseBindingIdBody,
+  parsePublishEndpointRecordBody,
   parseRevokeBindingBody,
   parseChallengeRequest,
   parseIrohPathHint,
   parsePairGrantRequest,
   parseRegisterRequest,
-  sha256,
   type IrohPathHint,
 } from "./model";
 import { canIOSBindingUseMac } from "./buildCompatibility";
@@ -60,6 +60,7 @@ import {
   IrohRepository,
   IrohRepositoryLive,
   type IrohBindingRecord,
+  type IrohRegistrationCommit,
   type IrohRepositoryShape,
 } from "./repository";
 import {
@@ -67,11 +68,6 @@ import {
   legacyIrohDiscoveryRequest,
   parseIrohDiscoveryRequest,
 } from "./discoveryPagination";
-import {
-  IrohRelayMinter,
-  IrohRelayMinterLive,
-  type IrohRelayMinterShape,
-} from "./relayMinter";
 import {
   defaultRelayPreference,
   type RelayPreference,
@@ -84,6 +80,7 @@ import {
 import {
   MANAGED_RELAY_URLS,
   accountPrivateIrohPathHints,
+  isPublishableAttachedRelayURL,
 } from "./publicationPolicy";
 import {
   discoveryScopeMatchesRegistration,
@@ -131,6 +128,13 @@ export type IrohTrustBrokerShape = {
     clientNamespace?: string,
     bindingProof?: IrohBindingRequestProof,
   ) => Effect.Effect<unknown, IrohExpectedError>;
+  readonly publishEndpointRecord: (
+    userId: string,
+    raw: unknown,
+    now?: Date,
+    clientNamespace?: string,
+    bindingProof?: IrohBindingRequestProof,
+  ) => Effect.Effect<unknown, IrohExpectedError>;
   readonly issuePairGrant: (
     userId: string,
     raw: unknown,
@@ -139,13 +143,6 @@ export type IrohTrustBrokerShape = {
     bindingProof?: IrohBindingRequestProof,
   ) => Effect.Effect<unknown, IrohExpectedError>;
   readonly issueEndpointAttestation: (
-    userId: string,
-    raw: unknown,
-    now?: Date,
-    clientNamespace?: string,
-    bindingProof?: IrohBindingRequestProof,
-  ) => Effect.Effect<unknown, IrohExpectedError>;
-  readonly issueRelayToken: (
     userId: string,
     raw: unknown,
     now?: Date,
@@ -161,7 +158,6 @@ export class IrohTrustBroker extends Context.Tag("cmux/IrohTrustBroker")<
 
 export function makeIrohTrustBroker(
   repository: IrohRepositoryShape,
-  relayMinter: IrohRelayMinterShape,
   config: IrohTrustBrokerConfigShape,
   relayPreferences: Pick<RelayRepositoryShape, "getPreference"> = {
     getPreference: () => Effect.succeed({
@@ -208,73 +204,6 @@ export function makeIrohTrustBroker(
       nowSeconds: Math.floor(now.getTime() / 1_000),
     }));
     return binding;
-  });
-
-  const issueRelayTokenForBinding = (
-    userId: string,
-    binding: IrohBindingRecord,
-    now: Date,
-  ): Effect.Effect<unknown, IrohExpectedError> => Effect.gen(function* () {
-    const reservation = yield* repository.reserveRelayIssuance({
-      userId,
-      bindingId: binding.id,
-      clientNamespace: binding.clientNamespace,
-      now,
-    });
-    const minted = yield* relayMinter.mint({
-      endpointId: reservation.binding.endpointId,
-      lifetimeSeconds: IROH_RELAY_TOKEN_LIFETIME_SECONDS,
-      now,
-    }).pipe(
-      Effect.matchEffect({
-        onFailure: (error) => repository.failRelayIssuance({
-          userId,
-          issuanceId: reservation.issuanceId,
-          completedAt: new Date(),
-          failureCode: error._tag === "IrohRelayMintError" ? error.code : "not_configured",
-        }).pipe(
-          Effect.catchAll(() => Effect.void),
-          Effect.flatMap(() => Effect.fail(error)),
-        ),
-        onSuccess: Effect.succeed,
-      }),
-    );
-    const completedAt = new Date();
-    const completed = yield* repository.completeRelayIssuance({
-      userId,
-      issuanceId: reservation.issuanceId,
-      bindingId: reservation.binding.id,
-      endpointId: reservation.binding.endpointId,
-      tokenHash: sha256(minted.token),
-      completedAt,
-      expiresAt: minted.expiresAt,
-    });
-    if (!completed) return yield* Effect.fail(new IrohNotFoundError({ resource: "binding" }));
-    return {
-      token: minted.token,
-      expires_at: minted.expiresAt.toISOString(),
-      refresh_after: new Date(now.getTime() + IROH_RELAY_TOKEN_REFRESH_SECONDS * 1_000).toISOString(),
-      relay_fleet: MANAGED_RELAY_URLS,
-    };
-  });
-
-  const issueRelayToken = (
-    userId: string,
-    raw: unknown,
-    now = new Date(),
-    clientNamespace = "legacy",
-    bindingProof?: IrohBindingRequestProof,
-  ): Effect.Effect<unknown, IrohExpectedError> => Effect.gen(function* () {
-    const { bindingId } = yield* parseEffect(() => parseBindingIdBody(raw));
-    const caller = yield* authorizeBinding(userId, bindingProof, clientNamespace, now);
-    if (caller && caller.id !== bindingId) {
-      return yield* Effect.fail(new IrohNotFoundError({ resource: "binding" }));
-    }
-    const binding = caller ?? (yield* repository.findActiveBindings(userId, [bindingId]))[0];
-    if (!binding || (!caller && binding.clientNamespace !== "legacy")) {
-      return yield* Effect.fail(new IrohNotFoundError({ resource: "binding" }));
-    }
-    return yield* issueRelayTokenForBinding(userId, binding, now);
   });
 
   const discover = (
@@ -451,17 +380,6 @@ export function makeIrohTrustBroker(
           new IrohForbiddenError({ code: "client_namespace_mismatch" }),
         );
       }
-      const challenge = yield* repository.findChallenge(userId, request.challengeId);
-      if (!challenge) return yield* Effect.fail(new IrohNotFoundError({ resource: "challenge" }));
-      if (challenge.consumedAt) return yield* Effect.fail(new IrohConflictError({ code: "challenge_replayed" }));
-      if (challenge.expiresAt <= now) return yield* Effect.fail(new IrohForbiddenError({ code: "challenge_expired" }));
-      if (!hashesEqual(challenge.payloadSha256, decoded.sha256)) {
-        return yield* Effect.fail(new IrohForbiddenError({ code: "payload_hash_mismatch" }));
-      }
-      if (!hashesEqual(challenge.nonceHash, nonceHash(request.nonce))) {
-        return yield* Effect.fail(new IrohForbiddenError({ code: "invalid_challenge_nonce" }));
-      }
-      yield* parseEffect(() => assertChallengeMatchesPayload(challenge, decoded.payload));
       if (
         request.discoveryScope
         && !discoveryScopeMatchesRegistration(
@@ -473,41 +391,91 @@ export function makeIrohTrustBroker(
           code: "invalid_discovery_scope",
         }));
       }
-      yield* parseEffect(() => verifyEndpointRegistrationSignature({
-        endpointId: decoded.payload.endpointId,
-        challengeId: request.challengeId,
-        nonce: request.nonce,
-        payloadSha256: decoded.sha256,
-        signature: request.signature,
-      }));
       const relayPreference = yield* accountRelayPreference(userId);
       const savedCustomRelayURLs = customRelayURLs(relayPreference);
-      const registration = yield* repository.consumeChallengeAndRegister({
-        userId,
-        challengeId: challenge.id,
-        nonceHash: nonceHash(request.nonce),
-        payload: {
-          ...decoded.payload,
-          pathHints: accountPrivateIrohPathHints(
-            decoded.payload.pathHints,
-            savedCustomRelayURLs,
-          ),
-        },
-        now,
-      });
-
-      // New registration is already committed before relay minting starts.
-      // Refreshes keep their existing credential and use the dedicated relay
-      // route when it expires, so path-hint churn cannot consume mint quotas.
-      const relay = registration.created
-        ? yield* issueRelayTokenForBinding(
+      const registrationPayload = {
+        ...decoded.payload,
+        pathHints: accountPrivateIrohPathHints(
+          decoded.payload.pathHints,
+          savedCustomRelayURLs,
+        ),
+      };
+      let registration: IrohRegistrationCommit;
+      if (request.challengeId !== undefined) {
+        const challengeId = request.challengeId;
+        const challenge = yield* repository.findChallenge(userId, challengeId);
+        if (!challenge) return yield* Effect.fail(new IrohNotFoundError({ resource: "challenge" }));
+        if (challenge.consumedAt) return yield* Effect.fail(new IrohConflictError({ code: "challenge_replayed" }));
+        if (challenge.expiresAt <= now) return yield* Effect.fail(new IrohForbiddenError({ code: "challenge_expired" }));
+        if (!hashesEqual(challenge.payloadSha256, decoded.sha256)) {
+          return yield* Effect.fail(new IrohForbiddenError({ code: "payload_hash_mismatch" }));
+        }
+        if (!hashesEqual(challenge.nonceHash, nonceHash(request.nonce))) {
+          return yield* Effect.fail(new IrohForbiddenError({ code: "invalid_challenge_nonce" }));
+        }
+        yield* parseEffect(() => assertChallengeMatchesPayload(challenge, decoded.payload));
+        yield* parseEffect(() => verifyEndpointRegistrationSignature({
+          endpointId: decoded.payload.endpointId,
+          challengeId,
+          nonce: request.nonce,
+          payloadSha256: decoded.sha256,
+          signature: request.signature,
+        }));
+        registration = yield* repository.consumeChallengeAndRegister({
           userId,
-          registration.binding,
+          challengeId: challenge.id,
+          nonceHash: nonceHash(request.nonce),
+          payload: registrationPayload,
           now,
-        ).pipe(
-          Effect.map((value) => ({ status: "issued" as const, ...value as object })),
-          Effect.catchAll(() => Effect.succeed({ status: "unavailable" as const })),
-        )
+        });
+      } else {
+        // One-round self-contained proof: freshness comes from the signed
+        // timestamp (the same ±5-minute window binding-request proofs get),
+        // one-use comes from the atomic nonce dedupe inside
+        // registerWithSelfProof.
+        const issuedAtSeconds = request.issuedAtSeconds;
+        if (issuedAtSeconds === undefined) {
+          return yield* Effect.fail(new IrohInvalidInputError({
+            code: "invalid_issued_at",
+          }));
+        }
+        if (
+          Math.abs(now.getTime() - issuedAtSeconds * 1_000)
+            > IROH_SELF_PROOF_MAX_SKEW_MS
+        ) {
+          return yield* Effect.fail(
+            new IrohForbiddenError({ code: "self_proof_expired" }),
+          );
+        }
+        yield* parseEffect(() => verifySelfProofRegistrationSignature({
+          endpointId: decoded.payload.endpointId,
+          issuedAtSeconds,
+          nonce: request.nonce,
+          payloadSha256: decoded.sha256,
+          signature: request.signature,
+        }));
+        registration = yield* repository.registerWithSelfProof({
+          userId,
+          nonceHash: nonceHash(request.nonce),
+          payloadSha256: decoded.sha256,
+          payload: registrationPayload,
+          now,
+          // The consumed dedupe row must outlive the proof's entire
+          // acceptance window (a future-dated issuedAt stays valid until
+          // issuedAt + skew), plus a boundary second.
+          dedupeExpiresAt: new Date(
+            issuedAtSeconds * 1_000 + IROH_SELF_PROOF_MAX_SKEW_MS + 1_000,
+          ),
+        });
+      }
+
+      // Registration never mints a relay credential: relay admission is the
+      // relay's allow hook against the proven endpoint key, so no client
+      // credential exists at all. "unavailable" preserves the response shape
+      // the pre-registry bootstrap produced when the removed n0-hosted minter
+      // was unconfigured, which production always was.
+      const relay = registration.created
+        ? { status: "unavailable" as const }
         : { status: "not_requested" as const };
       const discovery = request.discoveryScope
         ? (yield* discoverScoped(
@@ -580,6 +548,46 @@ export function makeIrohTrustBroker(
         revision: result.accountRevision,
         lan_rendezvous_rotated: true,
       };
+    }),
+
+    // Stores the caller's own signed pkarr record on its binding. Write
+    // admission only: the binding-request proof authenticates the caller,
+    // and the record's embedded public key must equal the caller's endpoint
+    // id. The ed25519 record signature is verified by every reader, so this
+    // storage stays untrusted (any cache or replica may serve it).
+    publishEndpointRecord: (
+      userId,
+      raw,
+      now = new Date(),
+      clientNamespace = "legacy",
+      bindingProof,
+    ) => Effect.gen(function* () {
+      const request = yield* parseEffect(() => parsePublishEndpointRecordBody(raw));
+      const caller = yield* authorizeBinding(userId, bindingProof, clientNamespace, now);
+      // Unlike legacy read paths, record publication always requires the
+      // binding-request proof: an account credential alone must not be able
+      // to overwrite another device's published addresses.
+      if (!caller || caller.id !== request.bindingId) {
+        return yield* Effect.fail(
+          new IrohForbiddenError({ code: "binding_request_proof_required" }),
+        );
+      }
+      if (caller.endpointId !== request.recordEndpointId) {
+        return yield* Effect.fail(
+          new IrohForbiddenError({ code: "endpoint_record_key_mismatch" }),
+        );
+      }
+      const result = yield* repository.publishEndpointRecord({
+        userId,
+        bindingId: request.bindingId,
+        endpointId: request.recordEndpointId,
+        record: request.record,
+        now,
+      });
+      if (!result.published) {
+        return yield* Effect.fail(new IrohNotFoundError({ resource: "binding" }));
+      }
+      return { published: true };
     }),
 
     issuePairGrant: (
@@ -722,8 +730,6 @@ export function makeIrohTrustBroker(
         grant_verification_keys: verificationKeys.keySet,
       };
     }),
-
-    issueRelayToken,
   };
 }
 
@@ -732,15 +738,10 @@ export const IrohTrustBrokerLive = Layer.effect(
   Effect.gen(function* () {
     return makeIrohTrustBroker(
       yield* IrohRepository,
-      yield* IrohRelayMinter,
       yield* IrohTrustBrokerConfig,
       yield* RelayRepository,
     );
   }),
-);
-
-const IrohRelayMinterWithConfig = IrohRelayMinterLive.pipe(
-  Layer.provide(IrohTrustBrokerConfigLive),
 );
 
 export const IrohTrustBrokerRuntime = IrohTrustBrokerLive.pipe(
@@ -748,7 +749,6 @@ export const IrohTrustBrokerRuntime = IrohTrustBrokerLive.pipe(
     IrohRepositoryLive,
     RelayRepositoryLive,
     IrohTrustBrokerConfigLive,
-    IrohRelayMinterWithConfig,
   )),
 );
 
@@ -788,15 +788,90 @@ function publicBinding(
             ...(binding.directPortV6 === null ? {} : { ipv6: binding.directPortV6 }),
           },
         }),
-    path_hints: accountPrivateIrohPathHints(binding.pathHints.flatMap((hint): IrohPathHint[] => {
+    path_hints: bindingPathHints(binding, now, savedCustomRelayURLs),
+    last_seen_at: binding.lastSeenAt.toISOString(),
+    // Opaque signed pkarr record; readers verify its ed25519 signature
+    // themselves, so publication needs no server-side laundering beyond the
+    // write-admission checks in publishEndpointRecord.
+    ...(binding.endpointRecord === null
+      ? {}
+      : { endpoint_record: binding.endpointRecord }),
+  };
+}
+
+/**
+ * Serves the relay-reported attach route ahead of endpoint-published hints.
+ *
+ * The fleet reports attach/detach per admitted connection (cmux-relay
+ * attach reporting), so `relayAttachedUrl` is live server-side truth and the
+ * phone learns "reachable via relay Y" without the Mac's client-side
+ * post-attach republish. The synthesized hint reuses the standard path-hint
+ * shape so existing clients dial it unchanged; the client-published hint for
+ * the same URL is dropped as redundant, and every other client hint stays a
+ * fallback while pre-attach-reporting fleet relays remain deployed.
+ */
+function bindingPathHints(
+  binding: IrohBindingRecord,
+  now: Date,
+  savedCustomRelayURLs: ReadonlySet<string>,
+): IrohPathHint[] {
+  const clientHints = accountPrivateIrohPathHints(
+    binding.pathHints.flatMap((hint): IrohPathHint[] => {
       try {
         return [parseIrohPathHint(hint, now)];
       } catch {
         return [];
       }
-    }), savedCustomRelayURLs),
-    last_seen_at: binding.lastSeenAt.toISOString(),
+    }),
+    savedCustomRelayURLs,
+  );
+  const attachedURL = binding.relayAttachedUrl;
+  if (
+    attachedURL === null ||
+    !isPublishableAttachedRelayURL(attachedURL, savedCustomRelayURLs) ||
+    !attachmentCorroborated(binding, now)
+  ) {
+    return clientHints;
+  }
+  const serverHint: IrohPathHint = {
+    kind: "relay_url",
+    value: attachedURL,
+    source: "native",
+    privacy_scope: "public_internet",
+    // Attachment is current as of this read; clients bound hint freshness to
+    // observed_at + 1h, and every discovery read re-serves the live state.
+    observed_at: now.toISOString(),
+    expires_at: new Date(now.getTime() + SERVER_RELAY_HINT_TTL_MS).toISOString(),
   };
+  return [
+    serverHint,
+    ...clientHints.filter((hint) =>
+      !(hint.kind === "relay_url" && hint.value === attachedURL)),
+  ];
+}
+
+/** Half the model's 1h hint-lifetime cap; refreshed by every discovery read. */
+const SERVER_RELAY_HINT_TTL_MS = 30 * 60 * 1_000;
+
+/**
+ * Detach reports are fire-and-forget, so a relay that dies together with its
+ * report leaves `relayAttachedUrl` behind; without a liveness bound that dead
+ * route would be re-served as fresh forever. An attachment is served only
+ * while some live evidence is younger than this window: the attach report
+ * itself, or the binding's `lastSeenAt` (a live Mac re-registers at least
+ * hourly to keep its ≤1h path hints and binding freshness lease current,
+ * and a Mac that outlives its relay reattaches elsewhere, which overwrites
+ * the URL). A Mac that goes dark with its relay stops refreshing both, so
+ * the stale route ages out within this window.
+ */
+const SERVER_RELAY_ATTACH_LIVENESS_MS = 60 * 60 * 1_000;
+
+function attachmentCorroborated(binding: IrohBindingRecord, now: Date): boolean {
+  const freshestEvidence = Math.max(
+    binding.relayAttachReportedAt?.getTime() ?? 0,
+    binding.lastSeenAt.getTime(),
+  );
+  return now.getTime() - freshestEvidence <= SERVER_RELAY_ATTACH_LIVENESS_MS;
 }
 
 function customRelayURLs(preference: RelayPreference): ReadonlySet<string> {
@@ -834,4 +909,3 @@ function bindingPlatform(binding: IrohBindingRecord): "mac" | "ios" {
 // Stack bearer authentication alone is never sufficient to mutate path hints.
 // Until the dedicated endpoint-signed monotonic update route lands, clients
 // refresh watch_addr output only through a new signed registration challenge.
-export const IROH_SIGNED_PATH_HINT_UPDATE_FOLLOWUP = "endpoint-signed-monotonic-watch-addr-update-v1";

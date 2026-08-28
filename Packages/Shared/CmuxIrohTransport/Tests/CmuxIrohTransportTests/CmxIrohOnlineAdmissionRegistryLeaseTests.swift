@@ -159,8 +159,7 @@ extension CmxIrohOnlineAdmissionRegistryTests {
             configuration: try CmxIrohEndpointConfiguration(
                 secretKey: CmxIrohSecretKey(bytes: Data(repeating: 6, count: 32)),
                 alpns: [CmxIrohProtocolConfiguration.cmuxMobileV1.alpn],
-                managedRelayURLs: [fixture.relayURL],
-                relays: []
+                managedRelayURLs: [fixture.relayURL]
             )
         )
         _ = try await supervisor.activate()

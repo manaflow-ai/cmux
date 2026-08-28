@@ -24,7 +24,7 @@ export type IrohRouteOperation =
   | "endpoint_attestation"
   | "revoke"
   | "pair_grant"
-  | "relay_token";
+  | "publish_record";
 
 type RouteDependencies = {
   readonly verify?: typeof verifyRequest;
@@ -221,8 +221,8 @@ function invoke(
       return broker.revoke(userId, body, undefined, clientNamespace, bindingProof);
     case "pair_grant":
       return broker.issuePairGrant(userId, body, undefined, clientNamespace, bindingProof);
-    case "relay_token":
-      return broker.issueRelayToken(userId, body, undefined, clientNamespace, bindingProof);
+    case "publish_record":
+      return broker.publishEndpointRecord(userId, body, undefined, clientNamespace, bindingProof);
   }
 }
 
@@ -336,7 +336,9 @@ async function readBoundedJson(request: Request): Promise<
 }
 
 function successStatus(operation: IrohRouteOperation): number {
-  return operation === "discover" || operation === "revoke" ? 200 : 201;
+  return operation === "discover" || operation === "revoke" || operation === "publish_record"
+    ? 200
+    : 201;
 }
 
 function expectedErrorResponse(error: ReturnType<typeof irohExpectedError> & object): Response {
@@ -352,17 +354,6 @@ function expectedErrorResponse(error: ReturnType<typeof irohExpectedError> & obj
   }
   if (tag === "IrohConflictError") {
     return jsonResponse({ error: (error as { code: string }).code }, 409);
-  }
-  if (tag === "IrohQuotaExceededError") {
-    const quota = error as { code: string; retryAfterSeconds: number };
-    return irohJsonResponse(
-      { error: quota.code, retry_after_seconds: quota.retryAfterSeconds },
-      429,
-      { "retry-after": String(quota.retryAfterSeconds) },
-    );
-  }
-  if (tag === "IrohConfigurationError" || tag === "IrohRelayMintError") {
-    return jsonResponse({ error: "iroh_service_unavailable" }, 503);
   }
   return jsonResponse({ error: "iroh_service_unavailable" }, 503);
 }

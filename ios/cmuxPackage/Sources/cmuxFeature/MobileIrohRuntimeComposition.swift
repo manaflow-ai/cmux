@@ -194,7 +194,10 @@ public final class MobileIrohRuntimeComposition:
     private let networkPathSnapshotComposer: CmxIrohNetworkPathSnapshotComposer
     private let relayPolicyTrustRoot: CmxIrohRelayPolicyTrustRoot?
     private let endpointFactoryProvider:
-        @MainActor (CmxIrohTransportVerificationMode) -> any CmxIrohEndpointFactory
+        @MainActor (
+            CmxIrohTransportVerificationMode,
+            (any CmxIrohAddressLookupServing)?
+        ) -> any CmxIrohEndpointFactory
     private var transportVerificationMode: CmxIrohTransportVerificationMode
     private let automaticRelayCredentialRefreshEnabled: Bool
     /// The app defaults handle, retained under its existing DEBUG-era name.
@@ -270,6 +273,15 @@ public final class MobileIrohRuntimeComposition:
     private var lastKnownBindingTag: String?
     private var lastKnownBindingID: String?
     private var lifecycleRevision: UInt64 = 0
+    /// True while the in-flight activation adopted the relay-only cache-first
+    /// policy source; consumed by the reconcile failure path below.
+    private var relayOnlyActivationUsedCachedPolicy = false
+    /// The account whose last relay-only cache-first activation FAILED. That
+    /// account's next activation falls back to the blocking policy refresh,
+    /// so a stale cached fleet (every cached relay dead) cannot trap
+    /// relay-only activation in a cache-restore retry loop. Cleared by the
+    /// next successful activation.
+    private var relayOnlyCacheFirstFailureAccountID: String?
     private var signOutPhase = SignOutPhase.idle
     private var signOutObservedAuthClear = false
     private var signOutAuthRevisionAtPreparation: UInt64?
@@ -412,8 +424,11 @@ public final class MobileIrohRuntimeComposition:
             endpointFactory: CmxIrohLibEndpointFactory(
                 transportVerificationMode: transportVerificationMode
             ),
-            endpointFactoryProvider: { mode in
-                CmxIrohLibEndpointFactory(transportVerificationMode: mode)
+            endpointFactoryProvider: { mode, addressLookup in
+                CmxIrohLibEndpointFactory(
+                    transportVerificationMode: mode,
+                    addressLookup: addressLookup
+                )
             },
             transportVerificationMode: transportVerificationMode,
             automaticRelayCredentialRefreshEnabled: automaticRelayCredentialRefreshEnabled,
@@ -476,7 +491,10 @@ public final class MobileIrohRuntimeComposition:
         relayPolicyTrustRoot: CmxIrohRelayPolicyTrustRoot? = nil,
         endpointFactory: any CmxIrohEndpointFactory,
         endpointFactoryProvider: (
-            @MainActor (CmxIrohTransportVerificationMode) -> any CmxIrohEndpointFactory
+            @MainActor (
+                CmxIrohTransportVerificationMode,
+                (any CmxIrohAddressLookupServing)?
+            ) -> any CmxIrohEndpointFactory
         )? = nil,
         transportVerificationMode: CmxIrohTransportVerificationMode = .automatic,
         automaticRelayCredentialRefreshEnabled: Bool = true,
@@ -516,7 +534,7 @@ public final class MobileIrohRuntimeComposition:
         self.customPrivatePaths = customPrivatePaths
         self.networkPathSnapshotComposer = networkPathSnapshotComposer
         self.relayPolicyTrustRoot = relayPolicyTrustRoot
-        self.endpointFactoryProvider = endpointFactoryProvider ?? { _ in endpointFactory }
+        self.endpointFactoryProvider = endpointFactoryProvider ?? { _, _ in endpointFactory }
         self.transportVerificationMode = transportVerificationMode
         self.automaticRelayCredentialRefreshEnabled = automaticRelayCredentialRefreshEnabled
         self.debugDefaults = debugDefaults
@@ -1693,10 +1711,20 @@ public final class MobileIrohRuntimeComposition:
         do {
             try await activate(accountID: targetAccountID, revision: revision)
             clearActivationRetryBackoff()
+            relayOnlyActivationUsedCachedPolicy = false
+            relayOnlyCacheFirstFailureAccountID = nil
             return .ready
         } catch is CancellationError {
             return .inactive
         } catch {
+            if relayOnlyActivationUsedCachedPolicy {
+                // The cache-first policy could not carry this activation
+                // (for example every cached relay is gone, so the relay-only
+                // readiness barrier timed out). Retry with the blocking live
+                // refresh instead of restoring the same dead catalog.
+                relayOnlyCacheFirstFailureAccountID = targetAccountID
+                relayOnlyActivationUsedCachedPolicy = false
+            }
             diagnosticLog?.record(DiagnosticEvent(
                 .endpointFailed,
                 a: DiagnosticTransportKind.iroh.rawValue,
@@ -1742,8 +1770,32 @@ public final class MobileIrohRuntimeComposition:
         activationFailureKind = nil
     }
 
+    /// Whether a relay-only activation may restore the verified cached policy
+    /// instead of blocking on the live refresh. Requires the verified cached
+    /// broker binding (the same proof that keeps managed relays installed at
+    /// bind), and backs off to the blocking refresh for the account whose
+    /// previous cache-first activation failed, so a dead cached fleet cannot
+    /// trap relay-only activation in a restore loop.
+    nonisolated static func shouldAttemptRelayOnlyCacheFirstActivation(
+        hasVerifiedCachedBinding: Bool,
+        accountID: String,
+        cacheFirstFailureAccountID: String?
+    ) -> Bool {
+        hasVerifiedCachedBinding && cacheFirstFailureAccountID != accountID
+    }
+
+    /// A restored policy supports relay-only activation only when it yields
+    /// relays the endpoint can actually dial; an unavailable or empty restore
+    /// falls back to the blocking refresh.
+    nonisolated static func relayOnlyRestoredPolicyIsUsable(
+        _ policy: CmxIrohEffectiveRelayPolicy
+    ) -> Bool {
+        policy.endpointRelayProfile.hasDialableRelays
+    }
+
     private func activate(accountID: String, revision: UInt64) async throws {
         guard let auth else { throw CmxIrohClientRuntimeError.inactive }
+        relayOnlyActivationUsedCachedPolicy = false
         // Resolve the durable device id BEFORE any iroh identity exists. The
         // device-id resolver's continuity probe treats a device-local iroh
         // identity as proof the install continues on this hardware; creating
@@ -1783,35 +1835,15 @@ public final class MobileIrohRuntimeComposition:
                 && $0.endpointID == endpointID
                 && $0.identityGeneration == identity.generation
         } ?? false
-        let cachedManagedRelayURLs: Set<String>
-        if let relayPolicyTrustRoot,
-           let cachedPolicy = try? await relayPolicyCache.load(
-               trustRoot: relayPolicyTrustRoot,
-               now: now()
-           ) {
-            cachedManagedRelayURLs = Set(cachedPolicy.relays.map(\.url))
-        } else {
-            cachedManagedRelayURLs = []
-        }
-        let cachedRelay: CmxIrohRelayTokenResponse?
         if let cachedBinding, bindingMatches {
             lastKnownBindingID = cachedBinding.bindingID
             lastKnownBindingAccountID = accountID
             lastKnownBindingTag = tag
-            cachedRelay = try await brokerCredentials.loadRelayCredential(
+        } else if cachedBinding != nil {
+            try? await brokerCredentials.deleteBinding(
                 accountID: accountID,
-                binding: cachedBinding,
-                expectedRelayFleet: cachedManagedRelayURLs,
-                now: now()
+                appInstanceID: appInstanceID
             )
-        } else {
-            if cachedBinding != nil {
-                try? await brokerCredentials.deleteBinding(
-                    accountID: accountID,
-                    appInstanceID: appInstanceID
-                )
-            }
-            cachedRelay = nil
         }
 
         // Pin the activation's broker to the session identity that owns
@@ -1855,7 +1887,6 @@ public final class MobileIrohRuntimeComposition:
         let managedRelayURLs: Set<String>
         let resolvedPolicyService: CmxIrohRelayPolicyService?
         let resolvedEffectivePolicy: CmxIrohEffectiveRelayPolicy?
-        var freshRelayCredential: CmxIrohRelayTokenResponse?
         var relayPolicyNeedsImmediateRefresh = false
         if let relayPolicyTrustRoot {
             let service = CmxIrohRelayPolicyService(
@@ -1873,34 +1904,58 @@ public final class MobileIrohRuntimeComposition:
                 effective = await service.restore(
                     accountID: accountID,
                     trustRoot: relayPolicyTrustRoot,
-                    relayCredential: cachedRelay,
                     now: now()
                 )
                 relayPolicyNeedsImmediateRefresh = true
             } else {
-                diagnosticLog?.record(DiagnosticEvent(.relayPolicyRefreshStarted))
-                do {
-                    let outcome = try await service.refreshWithCredential(
-                        endpointID: endpointID,
+                // Relay-only historically blocked activation on this live
+                // policy refresh (F3 decomposition: the largest fixed cost of
+                // a warm cold start). A warm client — verified cached binding
+                // AND a restored policy with usable relays — activates on the
+                // verified cached policy exactly like automatic mode; the
+                // immediate refresh scheduled below fails closed per the
+                // shared taxonomy. A FRESH endpoint (no verified cached
+                // binding) keeps the blocking refresh: it withholds managed
+                // relays until its registration is acknowledged (#10857) and
+                // relay-only cannot become active without a current fleet.
+                var restored: CmxIrohEffectiveRelayPolicy?
+                if Self.shouldAttemptRelayOnlyCacheFirstActivation(
+                    hasVerifiedCachedBinding: bindingMatches,
+                    accountID: accountID,
+                    cacheFirstFailureAccountID: relayOnlyCacheFirstFailureAccountID
+                ) {
+                    restored = await service.restore(
                         accountID: accountID,
                         trustRoot: relayPolicyTrustRoot,
                         now: now()
                     )
-                    effective = outcome.effective
-                    freshRelayCredential = outcome.relayCredential
-                    diagnosticLog?.record(DiagnosticEvent(.relayPolicyRefreshSucceeded))
-                } catch {
-                    diagnosticLog?.record(DiagnosticEvent(
-                        .relayPolicyRefreshFailed,
-                        b: Self.diagnosticFailureKind(for: error).rawValue
-                    ))
-                    effective = await service.restore(
-                        accountID: accountID,
-                        trustRoot: relayPolicyTrustRoot,
-                        relayCredential: cachedRelay,
-                        now: now()
-                    )
+                }
+                if let restored,
+                   Self.relayOnlyRestoredPolicyIsUsable(restored) {
+                    effective = restored
                     relayPolicyNeedsImmediateRefresh = true
+                    relayOnlyActivationUsedCachedPolicy = true
+                } else {
+                    diagnosticLog?.record(DiagnosticEvent(.relayPolicyRefreshStarted))
+                    do {
+                        effective = try await service.refresh(
+                            accountID: accountID,
+                            trustRoot: relayPolicyTrustRoot,
+                            now: now()
+                        )
+                        diagnosticLog?.record(DiagnosticEvent(.relayPolicyRefreshSucceeded))
+                    } catch {
+                        diagnosticLog?.record(DiagnosticEvent(
+                            .relayPolicyRefreshFailed,
+                            b: Self.diagnosticFailureKind(for: error).rawValue
+                        ))
+                        effective = await service.restore(
+                            accountID: accountID,
+                            trustRoot: relayPolicyTrustRoot,
+                            now: now()
+                        )
+                        relayPolicyNeedsImmediateRefresh = true
+                    }
                 }
             }
             endpointRelayProfile = effective.endpointRelayProfile
@@ -1923,12 +1978,6 @@ public final class MobileIrohRuntimeComposition:
             resolvedPolicyService = nil
             resolvedEffectivePolicy = nil
         }
-        let compatibleCachedRelay = cachedRelay.flatMap { relay in
-            Set(relay.relayFleet) == managedRelayURLs ? relay : nil
-        }
-        let freshCompatibleRelay = freshRelayCredential.flatMap { relay in
-            Set(relay.relayFleet) == managedRelayURLs ? relay : nil
-        }
         let configuration = CmxIrohClientRuntimeConfiguration(
             accountID: accountID,
             deviceID: deviceID,
@@ -1940,20 +1989,42 @@ public final class MobileIrohRuntimeComposition:
             capabilities: Self.capabilities,
             managedRelayURLs: managedRelayURLs,
             endpointRelayProfile: endpointRelayProfile,
-            cachedRelayCredential: freshCompatibleRelay ?? compatibleCachedRelay,
             cachedBinding: bindingMatches ? cachedBinding : nil
         )
         let credentialRepository = brokerCredentials
         let routeCatalog = routeCatalog
         let lanPeerDiscovery = lanPeerDiscovery
         let clock = now
-        let activeRelayPolicyService = resolvedPolicyService
         let transportVerificationMode = transportVerificationMode
         let customPrivatePaths = customPrivatePaths
         let networkPathSnapshotComposer = networkPathSnapshotComposer
         let platformNetworkPathSnapshot = networkPathSnapshot
+        // Debug-flagged custom discovery A/B (default OFF): the endpoint
+        // builder gets the registry address lookup while hint dials remain
+        // untouched (magicsock merges `Source::AddressLookup` records next to
+        // `Source::App` hints). Flag OFF passes a nil lookup, which leaves the
+        // bind options byte-identical. The relay allowlist mirrors the
+        // hint-dial filter: debug override first, then the endpoint
+        // generation's own profile (frozen per generation, like hint dials).
+        let addressLookup: CmxIrohRegistryAddressLookup?
+        if CmxIrohDebugAddressLookupFlag.isEnabled() {
+            let allowlistProfile = endpointRelayProfile
+            let allowlistManaged = managedRelayURLs
+            addressLookup = CmxIrohRegistryAddressLookup(
+                broker: broker,
+                allowedRelayURLs: {
+                    if let overrideURL =
+                        CmxIrohDebugRelayOverrideDiagnostics().activeRelayURL {
+                        return [overrideURL]
+                    }
+                    return allowlistProfile?.allowedRelayURLs ?? allowlistManaged
+                }
+            )
+        } else {
+            addressLookup = nil
+        }
         let runtime = try CmxIrohClientRuntime(
-            factory: endpointFactoryProvider(transportVerificationMode),
+            factory: endpointFactoryProvider(transportVerificationMode, addressLookup),
             broker: broker,
             configuration: configuration,
             pendingRevocations: pendingRevocations,
@@ -2022,7 +2093,6 @@ public final class MobileIrohRuntimeComposition:
                     accountID: accountID
                 )
             },
-            automaticRelayCredentialRefreshEnabled: automaticRelayCredentialRefreshEnabled,
             handleBinding: { [weak self] binding, discovery in
                 guard await self?.allowsPersistence(
                     accountID: accountID,
@@ -2057,21 +2127,6 @@ public final class MobileIrohRuntimeComposition:
                     revision: revision
                 ) == true else { return }
                 await routeCatalog.replaceCachedBindings(bindings, scope: revision)
-            },
-            handleRelayCredential: { [weak self] response, binding in
-                guard await self?.allowsPersistence(
-                    accountID: accountID,
-                    revision: revision
-                ) == true else { return }
-                let expectedRelayFleet = await activeRelayPolicyService?.managedPolicy()
-                    .map { Set($0.relays.map(\.url)) } ?? managedRelayURLs
-                try? await credentialRepository.saveRelayCredential(
-                    response,
-                    accountID: accountID,
-                    binding: CmxIrohBrokerBindingMetadata(binding: binding),
-                    expectedRelayFleet: expectedRelayFleet,
-                    now: clock()
-                )
             },
             handleLocalDeactivation: { [appInstances, identities, brokerCredentials] in
                 await routeCatalog.deactivate(scope: revision)
@@ -2771,7 +2826,6 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
         diagnosticLog?.record(DiagnosticEvent(.relayPolicyRefreshStarted))
         do {
             let effective = try await context.service.refresh(
-                endpointID: context.endpointID,
                 accountID: context.accountID,
                 trustRoot: context.trustRoot,
                 now: now()
@@ -2936,7 +2990,6 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
                 self.diagnosticLog?.record(DiagnosticEvent(.relayPolicyRefreshStarted))
                 do {
                     let effective = try await service.refresh(
-                        endpointID: endpointID,
                         accountID: accountID,
                         trustRoot: trustRoot,
                         now: self.now()
@@ -2985,9 +3038,8 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
         }
     }
 
-    /// The signed policy bootstrap includes a fresh relay credential. Tests
-    /// that suspend automatic credential renewal must therefore suspend this
-    /// lane as well as the credential coordinator's timer.
+    /// Tests that suspend automatic relay refresh suspend this signed-policy
+    /// refresh lane (the env knob keeps its historical name).
     nonisolated static func shouldScheduleRelayPolicyRefresh(
         automaticRelayCredentialRefreshEnabled: Bool,
         serviceAvailable: Bool,
@@ -3054,7 +3106,6 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
     ) async {
         do {
             let effective = try await context.service.refresh(
-                endpointID: context.endpointID,
                 accountID: context.accountID,
                 trustRoot: context.trustRoot,
                 now: now()

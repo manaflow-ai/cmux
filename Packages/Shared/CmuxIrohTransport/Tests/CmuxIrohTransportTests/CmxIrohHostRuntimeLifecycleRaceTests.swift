@@ -46,10 +46,15 @@ extension CmxIrohHostRuntimeTests {
             }
         )
         try await runtime.start()
+        // Native iroh reports the home relay online once the configured relay
+        // connects; the address then carries the relay URL and the readiness
+        // gate publishes only after this.
+        await endpoint.setPathHints([relayHint])
+        await endpoint.emit(.online)
 
         let republished = await broker.waitForRegistrationCount(
             2,
-            timeout: .seconds(1)
+            timeout: .seconds(5)
         )
         #expect(
             republished,
@@ -75,14 +80,16 @@ extension CmxIrohHostRuntimeTests {
         #expect(initialDirectPorts == expectedDirectPorts)
         #expect(refreshedDirectPorts == expectedDirectPorts)
 
+        // The pre-relay state is never published; exactly one publication
+        // carries the newly usable relay address.
+        await runtime.waitForInitialPublicationForTesting()
         let published = await publications.values()
-        #expect(published.count == 2)
-        #expect(published[0].registration.pathHints.isEmpty)
-        #expect(published[0].discovered.pathHints.isEmpty)
-        #expect(published[1].registration.pathHints == [relayHint])
-        #expect(published[1].discovered.pathHints == [relayHint])
-        #expect(published[1].registration.endpointID == fixture.endpointID)
-        #expect(published[1].registration.bindingID == fixture.binding.bindingID)
+        let publication = try #require(published.first)
+        #expect(published.count == 1)
+        #expect(publication.registration.pathHints == [relayHint])
+        #expect(publication.discovered.pathHints == [relayHint])
+        #expect(publication.registration.endpointID == fixture.endpointID)
+        #expect(publication.registration.bindingID == fixture.binding.bindingID)
 
         let snapshot = await runtime.snapshot()
         #expect(snapshot.state == .active)
@@ -93,37 +100,9 @@ extension CmxIrohHostRuntimeTests {
     }
 
     @Test
-    func validatedBindingPublishesBeforeRelayCredentialInstallationCompletes() async throws {
-        let fixture = try HostRuntimeFixture()
-        let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
-        let gate = HostRuntimeSuspensionGate()
-        let bindings = HostRuntimeBindingRecorder()
-        let runtime = CmxIrohHostRuntime(
-            factory: TestIrohEndpointFactory(endpoints: [endpoint]),
-            broker: TestIrohHostBroker(
-                registrationBinding: fixture.binding,
-                discovery: fixture.discovery,
-                relayIssueHook: { await gate.suspend() }
-            ),
-            configuration: fixture.configuration,
-            pendingRevocations: fixture.pendingRevocations(),
-            handleTransport: { session, _ in await session.close() },
-            handleBinding: { _, _, _ in await bindings.record() }
-        )
-        let start = Task { try await runtime.start() }
-        await gate.waitUntilSuspended()
-
-        #expect(await bindings.count() == 1)
-
-        await gate.resume()
-        try await start.value
-        await runtime.stop()
-    }
-
-    @Test
     func validatedBindingPublishesBeforeLANAdvertisementCompletes() async throws {
         let fixture = try HostRuntimeFixture()
-        let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        let endpoint = try fixture.relayReadyEndpoint()
         let gate = HostRuntimeSuspensionGate()
         let bindings = HostRuntimeBindingRecorder()
         let runtime = CmxIrohHostRuntime(

@@ -30,7 +30,7 @@ extension CmxIrohHostRuntimeTests {
             )
         )
 
-        let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        let endpoint = try fixture.relayReadyEndpoint()
         let broker = TestIrohHostBroker(
             registrationBinding: fixture.binding,
             discovery: fixture.discovery
@@ -91,7 +91,7 @@ extension CmxIrohHostRuntimeTests {
     func unchangedReachabilityRenewsRegistrationBeforeHintExpiry() async throws {
         let now = Date(timeIntervalSince1970: 1_800_000_000)
         let fixture = try HostRuntimeFixture(now: now, publicHintLifetime: 60 * 60)
-        let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        let endpoint = try fixture.relayReadyEndpoint()
         let broker = TestIrohHostBroker(
             registrationBinding: fixture.binding,
             discovery: fixture.discovery
@@ -125,7 +125,7 @@ extension CmxIrohHostRuntimeTests {
     func registrationRenewalHonorsBrokerRetryAfterFloor() async throws {
         let now = Date(timeIntervalSince1970: 1_800_000_000)
         let fixture = try HostRuntimeFixture(now: now, publicHintLifetime: 60 * 60)
-        let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        let endpoint = try fixture.relayReadyEndpoint()
         let broker = TestIrohHostBroker(
             registrationBinding: fixture.binding,
             discovery: fixture.discovery,
@@ -160,7 +160,7 @@ extension CmxIrohHostRuntimeTests {
     func registrationRenewalBacksOffConsecutiveFailures() async throws {
         let now = Date(timeIntervalSince1970: 1_800_000_000)
         let fixture = try HostRuntimeFixture(now: now, publicHintLifetime: 60 * 60)
-        let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        let endpoint = try fixture.relayReadyEndpoint()
         let broker = TestIrohHostBroker(
             registrationBinding: fixture.binding,
             discovery: fixture.discovery,
@@ -201,7 +201,7 @@ extension CmxIrohHostRuntimeTests {
     func successfulRegistrationRenewalResetsBackoff() async throws {
         let now = Date(timeIntervalSince1970: 1_800_000_000)
         let fixture = try HostRuntimeFixture(now: now, publicHintLifetime: 60 * 60)
-        let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        let endpoint = try fixture.relayReadyEndpoint()
         let broker = TestIrohHostBroker(
             registrationBinding: fixture.binding,
             discovery: fixture.discovery,
@@ -284,7 +284,13 @@ extension CmxIrohHostRuntimeTests {
         #expect(configurations.count == 1)
         #expect(configurations.first?.secretKey == fixture.identity.secretKey)
         #expect(configurations.first?.bindPolicy == .ephemeral)
-        #expect(configurations.first?.managedRelayURLs == fixture.managedRelays)
+        // A fresh host binds relay-less and installs the managed relays
+        // exactly once, after its registration is acknowledged, so the first
+        // relay dial cannot race the relay's admission hook.
+        #expect(configurations.first?.managedRelayURLs == [])
+        let relayUpdates = await endpoint.observedRelayProfileUpdates()
+        #expect(relayUpdates.count == 1)
+        #expect(relayUpdates.first?.allowedRelayURLs == fixture.managedRelays)
         let lan = try #require(await runtime.lanAdvertisementContext())
         #expect(lan.binding == CmxIrohBrokerBindingMetadata(binding: fixture.binding))
         #expect(lan.rendezvous == fixture.discovery.lanRendezvous)
@@ -403,7 +409,7 @@ extension CmxIrohHostRuntimeTests {
     @Test
     func failedSignOutPersistenceClosesHostAndQuarantinesLocalState() async throws {
         let fixture = try HostRuntimeFixture()
-        let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        let endpoint = try fixture.relayReadyEndpoint()
         let store = TestControllableSecureCredentialStore()
         let pendingRevocations = CmxIrohPendingRevocationOutbox(secureStore: store)
         let deactivations = HostRuntimeDeactivationRecorder()
@@ -447,7 +453,7 @@ extension CmxIrohHostRuntimeTests {
     @Test
     func successfulSignOutClearsRegistrationPublicationState() async throws {
         let fixture = try HostRuntimeFixture()
-        let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        let endpoint = try fixture.relayReadyEndpoint()
         let store = TestControllableSecureCredentialStore()
         let runtime = CmxIrohHostRuntime(
             factory: TestIrohEndpointFactory(endpoints: [endpoint]),
@@ -474,7 +480,7 @@ extension CmxIrohHostRuntimeTests {
     @Test
     func requiredBindPolicyIsForwardedToTheEndpointGeneration() async throws {
         let fixture = try HostRuntimeFixture()
-        let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        let endpoint = try fixture.relayReadyEndpoint()
         let factory = TestIrohEndpointFactory(endpoints: [endpoint])
         let broker = TestIrohHostBroker(
             registrationBinding: fixture.binding,
@@ -504,17 +510,20 @@ extension CmxIrohHostRuntimeTests {
     }
 
     @Test
-    func connectivityFailureUsesVerifiedCacheOnlyAfterOnlineAttempt() async throws {
+    func cacheFirstActivationBecomesActiveDespiteBrokerConnectivityFailure() async throws {
         let fixture = try HostRuntimeFixture()
         let cachedFixture = try fixture.cachedPolicyFixture()
         let now = cachedFixture.now
         let cachedPolicy = try cachedFixture.policy()
-        let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        let endpoint = try fixture.relayReadyEndpoint()
         let factory = TestIrohEndpointFactory(endpoints: [endpoint])
         let broker = TestIrohHostBroker(
             registrationBinding: fixture.binding,
             discovery: fixture.discovery,
-            registrationError: .connectivity
+            registrationError: .connectivity,
+            subsequentRegistrationErrors: [
+                .connectivity, .connectivity, .connectivity,
+            ]
         )
         let bindings = HostRuntimeBindingRecorder()
         let runtime = CmxIrohHostRuntime(
@@ -527,11 +536,17 @@ extension CmxIrohHostRuntimeTests {
             handleBinding: { _, _, _ in await bindings.record() }
         )
 
+        // The verified cache activates admission immediately; the failed
+        // background reconcile keeps cached authority active without a fresh
+        // publication until a live round succeeds.
         try await runtime.start()
 
-        #expect(await broker.observedRegistrationCount() == 1)
+        #expect(await runtime.snapshot().state == .active)
         #expect(await runtime.snapshot().bindingID == cachedPolicy.binding.bindingID)
         #expect(await runtime.lanAdvertisementContext()?.rendezvous == cachedPolicy.lanRendezvous)
+        await runtime.waitForInitialPublicationForTesting()
+        #expect(await broker.waitForRegistrationCount(1, timeout: .seconds(5)))
+        #expect(await runtime.snapshot().state == .active)
         #expect(await bindings.count() == 0)
         await runtime.stop()
     }
@@ -564,7 +579,7 @@ extension CmxIrohHostRuntimeTests {
             configuration: fixture.configuration(cachedHostPolicy: cachedPolicy),
             pendingRevocations: fixture.pendingRevocations(),
             now: { now },
-            registrationClock: ImmediateHostActivationClock(),
+            registrationClock: HostRegistrationRenewalClock(now: now),
             handleTransport: { session, _ in await session.close() },
             handleRoute: { binding, pathHints in
                 await routes.record(binding: binding, pathHints: pathHints)
@@ -573,7 +588,6 @@ extension CmxIrohHostRuntimeTests {
 
         try await runtime.start()
 
-        #expect(await broker.observedRegistrationCount() == 1)
         #expect(await runtime.snapshot().state == .active)
         #expect(await runtime.snapshot().bindingID == cachedPolicy.binding.bindingID)
         #expect(await routes.values() == [
@@ -588,8 +602,7 @@ extension CmxIrohHostRuntimeTests {
         let cachedFixture = try fixture.cachedPolicyFixture()
         let now = cachedFixture.now
         let currentPort: UInt16 = 55_123
-        let endpoint = TestIrohEndpoint(
-            identity: fixture.endpointID,
+        let endpoint = try fixture.relayReadyEndpoint(
             directAddresses: ["0.0.0.0:\(currentPort)"]
         )
         let factory = TestIrohEndpointFactory(endpoints: [endpoint])
@@ -682,7 +695,7 @@ extension CmxIrohHostRuntimeTests {
     @Test
     func endpointNetworkChangeRequestsImmediateLANRefresh() async throws {
         let fixture = try HostRuntimeFixture()
-        let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        let endpoint = try fixture.relayReadyEndpoint()
         let recorder = HostRuntimeLANRefreshRecorder()
         let runtime = CmxIrohHostRuntime(
             factory: TestIrohEndpointFactory(endpoints: [endpoint]),
@@ -707,7 +720,7 @@ extension CmxIrohHostRuntimeTests {
     @Test
     func repeatedUnchangedNetworkEventsDoNotContactBroker() async throws {
         let fixture = try HostRuntimeFixture()
-        let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        let endpoint = try fixture.relayReadyEndpoint()
         let broker = TestIrohHostBroker(
             registrationBinding: fixture.binding,
             discovery: fixture.discovery
@@ -742,7 +755,7 @@ extension CmxIrohHostRuntimeTests {
     @Test
     func changedDirectPortPublishesImmediately() async throws {
         let fixture = try HostRuntimeFixture()
-        let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        let endpoint = try fixture.relayReadyEndpoint()
         let broker = TestIrohHostBroker(
             registrationBinding: fixture.binding,
             discovery: fixture.discovery
@@ -768,7 +781,7 @@ extension CmxIrohHostRuntimeTests {
     @Test
     func endpointOnlineRequestsImmediateReachabilityRefresh() async throws {
         let fixture = try HostRuntimeFixture()
-        let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        let endpoint = try fixture.relayReadyEndpoint()
         let recorder = HostRuntimeLANRefreshRecorder()
         let runtime = CmxIrohHostRuntime(
             factory: TestIrohEndpointFactory(endpoints: [endpoint]),
@@ -809,7 +822,7 @@ extension CmxIrohHostRuntimeTests {
         _ failure: CmxIrohTrustBrokerClientError
     ) async throws {
         let fixture = try HostRuntimeFixture()
-        let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        let endpoint = try fixture.relayReadyEndpoint()
         let broker = TestIrohHostBroker(
             registrationBinding: fixture.binding,
             discovery: fixture.discovery,

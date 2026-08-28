@@ -207,18 +207,15 @@ struct MobileIrohReleaseGateRunnerTests {
     }
 
     @Test
-    func probeFailurePreservesTheVerifiedIrohRouteAndPath() async throws {
-        let configuration = try temporaryConfiguration(
-            mode: .relayOnly,
-            scenario: .relayRollover
-        )
+    func probeFailureReportsTheBoundedFailureCase() async throws {
+        let configuration = try temporaryConfiguration(mode: .relayOnly)
         var capturedReport: MobileIrohReleaseGateRunner.Report?
         let runner = MobileIrohReleaseGateRunner(
             configuration: configuration,
             dependencies: .init(
                 readinessUpdates: { _ in Self.readyReadinessUpdates() },
                 runProbe: { _, _ in
-                    throw MobileIrohReleaseGateProbeFailure.artifactCommandNotCompleted
+                    throw MobileIrohReleaseGateProbeFailure.terminalRoundTripFailed
                 },
                 settingsUpdates: { Self.managedRelaySettingsUpdates() },
                 writeReport: { report, url in
@@ -235,8 +232,8 @@ struct MobileIrohReleaseGateRunnerTests {
         let report = try #require(capturedReport)
         #expect(report.passed == false)
         #expect(report.routeKind == CmxAttachTransportKind.iroh.rawValue)
-        #expect(report.selectedPath == "managed_relay")
-        #expect(report.failure == MobileIrohReleaseGateProbeFailure.artifactCommandNotCompleted.rawValue)
+        #expect(report.selectedPath == nil)
+        #expect(report.failure == MobileIrohReleaseGateProbeFailure.terminalRoundTripFailed.rawValue)
     }
 
     @Test
@@ -266,35 +263,6 @@ struct MobileIrohReleaseGateRunnerTests {
     }
 
     @Test
-    func rolloverScenarioRequiresEveryContinuityProof() async throws {
-        let incomplete = try await runScenario(
-            .relayRollover,
-            probe: Self.successfulProbe
-        )
-        #expect(incomplete.passed == false)
-
-        let complete = try await runScenario(
-            .relayRollover,
-            probe: Self.successfulRolloverProbe
-        )
-        #expect(complete.passed)
-        #expect(complete.scenario == "relay_rollover")
-        #expect(complete.soakDurationSeconds == 330)
-    }
-
-    @Test
-    func expiryScenarioAcceptsOnlyTheExpectedDisconnectProof() async throws {
-        let report = try await runScenario(
-            .relayExpiry,
-            probe: Self.successfulExpiryProbe
-        )
-
-        #expect(report.passed)
-        #expect(report.scenario == "relay_expiry")
-        #expect(report.unrefreshedExpiryDisconnectVerified)
-    }
-
-    @Test
     func configurationRequiresAnExplicitSupportedMode() throws {
         let cache = URL(fileURLWithPath: "/tmp/iroh-gate-tests", isDirectory: true)
 
@@ -312,24 +280,7 @@ struct MobileIrohReleaseGateRunnerTests {
             cachesDirectory: cache
         ))
         #expect(configuration.mode == .relayOnly)
-        #expect(configuration.scenario == .standard)
         #expect(configuration.reportURL.lastPathComponent == "cmux-iroh-release-gate.json")
-
-        let rollover = try #require(MobileIrohReleaseGateRunner.Configuration(
-            environment: [
-                "CMUX_IROH_RELEASE_GATE_MODE": "relayOnly",
-                "CMUX_IROH_RELEASE_GATE_SCENARIO": "relay_rollover",
-            ],
-            cachesDirectory: cache
-        ))
-        #expect(rollover.scenario == .relayRollover)
-        #expect(MobileIrohReleaseGateRunner.Configuration(
-            environment: [
-                "CMUX_IROH_RELEASE_GATE_MODE": "automatic",
-                "CMUX_IROH_RELEASE_GATE_SCENARIO": "relay_expiry",
-            ],
-            cachesDirectory: cache
-        ) == nil)
     }
 
     @Test(arguments: [
@@ -371,9 +322,8 @@ struct MobileIrohReleaseGateRunnerTests {
     @Test
     func encodedReportContainsNoTopologyOrIdentityFields() throws {
         let report = MobileIrohReleaseGateRunner.Report(
-            schemaVersion: 4,
+            schemaVersion: 5,
             mode: "relayOnly",
-            scenario: "relay_rollover",
             passed: true,
             hostStatusVerified: true,
             rpcMethodInventoryVerified: true,
@@ -383,14 +333,6 @@ struct MobileIrohReleaseGateRunnerTests {
             notificationReconcileVerified: true,
             chatSessionsVerified: true,
             artifactScanCountVerified: true,
-            relayCredentialRolloverVerified: true,
-            endpointContinuityVerified: true,
-            connectionContinuityVerified: true,
-            controlStreamContinuityVerified: true,
-            independentEventsContinuityVerified: true,
-            artifactLaneVerified: true,
-            unrefreshedExpiryDisconnectVerified: false,
-            soakDurationSeconds: 330,
             routeKind: "iroh",
             selectedPath: "managed_relay",
             failure: nil,
@@ -403,7 +345,6 @@ struct MobileIrohReleaseGateRunnerTests {
         #expect(Set(object.keys) == [
             "schemaVersion",
             "mode",
-            "scenario",
             "passed",
             "hostStatusVerified",
             "rpcMethodInventoryVerified",
@@ -413,14 +354,6 @@ struct MobileIrohReleaseGateRunnerTests {
             "notificationReconcileVerified",
             "chatSessionsVerified",
             "artifactScanCountVerified",
-            "relayCredentialRolloverVerified",
-            "endpointContinuityVerified",
-            "connectionContinuityVerified",
-            "controlStreamContinuityVerified",
-            "independentEventsContinuityVerified",
-            "artifactLaneVerified",
-            "unrefreshedExpiryDisconnectVerified",
-            "soakDurationSeconds",
             "routeKind",
             "selectedPath",
             "lastDiagnosticEventCode",
@@ -491,39 +424,8 @@ struct MobileIrohReleaseGateRunnerTests {
         artifactScanCountVerified: true
     )
 
-    private static let successfulRolloverProbe = MobileIrohReleaseGateProbeResult(
-        hostStatusVerified: true,
-        rpcMethodInventoryVerified: true,
-        terminalRoundTripVerified: true,
-        workspaceMutationVerified: true,
-        independentEventsVerified: true,
-        notificationReconcileVerified: true,
-        chatSessionsVerified: true,
-        artifactScanCountVerified: true,
-        relayCredentialRolloverVerified: true,
-        endpointContinuityVerified: true,
-        connectionContinuityVerified: true,
-        controlStreamContinuityVerified: true,
-        independentEventsContinuityVerified: true,
-        artifactLaneVerified: true,
-        soakDurationSeconds: 330
-    )
-
-    private static let successfulExpiryProbe = MobileIrohReleaseGateProbeResult(
-        hostStatusVerified: true,
-        rpcMethodInventoryVerified: true,
-        terminalRoundTripVerified: true,
-        workspaceMutationVerified: true,
-        independentEventsVerified: true,
-        notificationReconcileVerified: true,
-        chatSessionsVerified: true,
-        artifactScanCountVerified: true,
-        unrefreshedExpiryDisconnectVerified: true
-    )
-
     private func temporaryConfiguration(
-        mode: CmxIrohTransportVerificationMode,
-        scenario: MobileIrohReleaseGateScenario = .standard
+        mode: CmxIrohTransportVerificationMode
     ) throws -> MobileIrohReleaseGateRunner.Configuration {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -534,38 +436,9 @@ struct MobileIrohReleaseGateRunnerTests {
         return try #require(MobileIrohReleaseGateRunner.Configuration(
             environment: [
                 MobileIrohReleaseGateRunner.Configuration.modeEnvironmentKey: mode.rawValue,
-                MobileIrohReleaseGateRunner.Configuration.scenarioEnvironmentKey: scenario.rawValue,
             ],
             cachesDirectory: directory
         ))
-    }
-
-    private func runScenario(
-        _ scenario: MobileIrohReleaseGateScenario,
-        probe: MobileIrohReleaseGateProbeResult
-    ) async throws -> MobileIrohReleaseGateRunner.Report {
-        let configuration = try temporaryConfiguration(
-            mode: .relayOnly,
-            scenario: scenario
-        )
-        var capturedReport: MobileIrohReleaseGateRunner.Report?
-        let runner = MobileIrohReleaseGateRunner(
-            configuration: configuration,
-            dependencies: .init(
-                readinessUpdates: { _ in Self.readyReadinessUpdates() },
-                runProbe: { _, _ in probe },
-                settingsUpdates: { Self.managedRelaySettingsUpdates() },
-                writeReport: { report, url in
-                    capturedReport = report
-                    try Self.write(report: report, to: url)
-                },
-                postReportReady: {},
-                timeout: .seconds(1)
-            )
-        )
-
-        await runner.run(store: CMUXMobileShellStore.preview())
-        return try #require(capturedReport)
     }
 
     private func runLatePathFailure(

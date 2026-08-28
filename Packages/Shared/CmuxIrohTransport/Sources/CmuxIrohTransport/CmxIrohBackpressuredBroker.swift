@@ -1,4 +1,5 @@
 public import CMUXMobileCore
+public import Foundation
 
 /// Operation-gated client broker used by an account-owned runtime.
 public struct CmxIrohBackpressuredClientBroker:
@@ -74,18 +75,6 @@ public struct CmxIrohBackpressuredClientBroker:
         }
     }
 
-    public func issueRelayToken(
-        bindingID: String,
-        endpointID: CmxIrohPeerIdentity
-    ) async throws -> CmxIrohRelayTokenResponse {
-        try await gate.perform(accountID: accountID, operation: .relayCredential) {
-            try await broker.issueRelayToken(
-                bindingID: bindingID,
-                endpointID: endpointID
-            )
-        }
-    }
-
     public func revoke(bindingID: String) async throws {
         try await gate.perform(accountID: accountID, operation: .revocation) {
             try await broker.revoke(bindingID: bindingID)
@@ -103,6 +92,24 @@ public struct CmxIrohBackpressuredClientBroker:
     public func forgetMac(bindingID: String) async throws {
         try await gate.perform(accountID: accountID, operation: .revocation) {
             try await broker.forgetMac(bindingID: bindingID)
+        }
+    }
+}
+
+extension CmxIrohBackpressuredClientBroker: CmxIrohEndpointRecordBroker {
+    public func fetchEndpointRecords() async throws -> [Data] {
+        try await discover().bindings.compactMap(\.endpointRecord)
+    }
+
+    public func publishEndpointRecord(_ record: Data) async throws {
+        // The runtime check keeps the record surface off every existing
+        // `CmxIrohClientBrokerServing` conformer (test fakes included); only
+        // a wrapped broker that actually publishes records participates.
+        guard let recordBroker = broker as? any CmxIrohEndpointRecordBroker else {
+            throw CmxIrohTrustBrokerClientError.missingAuthentication
+        }
+        try await gate.perform(accountID: accountID, operation: .endpointRecord) {
+            try await recordBroker.publishEndpointRecord(record)
         }
     }
 }
@@ -167,18 +174,6 @@ public struct CmxIrohBackpressuredHostBroker:
         }
     }
 
-    public func issueRelayToken(
-        bindingID: String,
-        endpointID: CmxIrohPeerIdentity
-    ) async throws -> CmxIrohRelayTokenResponse {
-        try await gate.perform(accountID: accountID, operation: .relayCredential) {
-            try await broker.issueRelayToken(
-                bindingID: bindingID,
-                endpointID: endpointID
-            )
-        }
-    }
-
     public func revoke(bindingID: String) async throws {
         try await gate.perform(accountID: accountID, operation: .revocation) {
             try await broker.revoke(bindingID: bindingID)
@@ -209,11 +204,10 @@ public struct CmxIrohBackpressuredRelayPolicyBroker: CmxIrohRelayPolicyServing, 
         self.accountID = accountID
     }
 
-    public func issueRelayBootstrap(
-        endpointID: CmxIrohPeerIdentity
-    ) async throws -> CmxIrohRelayBootstrapResponse {
+    /// Fetches the signed relay policy through the shared account gate.
+    public func fetchRelayPolicy() async throws -> CmxIrohRelayPolicyResponse {
         try await gate.perform(accountID: accountID, operation: .relayCredential) {
-            try await broker.issueRelayBootstrap(endpointID: endpointID)
+            try await broker.fetchRelayPolicy()
         }
     }
 
@@ -228,6 +222,22 @@ public struct CmxIrohBackpressuredRelayPolicyBroker: CmxIrohRelayPolicyServing, 
     ) async throws -> CmxIrohRelayPreferenceResponse {
         try await gate.perform(accountID: accountID, operation: .relayPreference) {
             try await broker.updateRelayPreference(request)
+        }
+    }
+}
+
+extension CmxIrohBackpressuredHostBroker: CmxIrohEndpointRecordBroker {
+    public func fetchEndpointRecords() async throws -> [Data] {
+        try await discover().bindings.compactMap(\.endpointRecord)
+    }
+
+    public func publishEndpointRecord(_ record: Data) async throws {
+        // See the client-broker twin above for why this is a runtime check.
+        guard let recordBroker = broker as? any CmxIrohEndpointRecordBroker else {
+            throw CmxIrohTrustBrokerClientError.missingAuthentication
+        }
+        try await gate.perform(accountID: accountID, operation: .endpointRecord) {
+            try await recordBroker.publishEndpointRecord(record)
         }
     }
 }

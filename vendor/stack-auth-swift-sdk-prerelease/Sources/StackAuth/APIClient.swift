@@ -73,18 +73,36 @@ func isTokenExpired(_ accessToken: String?) -> Bool {
     return payload.expiresInMillis <= 0
 }
 
+/// Refresh this long before the token's real expiry, so callers never hold a
+/// token that dies mid-request. Clamped to half the token's total lifetime so
+/// short-lived tokens (e.g. a 90s TTL) are not refreshed on every request.
+let tokenRefreshMarginSeconds: TimeInterval = 300
+
 /// Check if token should NOT be refreshed (is "fresh enough").
-/// Returns TRUE if token expires in > 20 seconds AND was issued < 75 seconds ago.
-func isTokenFreshEnough(_ accessToken: String?) -> Bool {
+///
+/// Fresh means more than `tokenRefreshMarginSeconds` remain before the `exp`
+/// claim (clamped to half the token's `exp - iat` lifetime, floored at 20s).
+/// Refresh schedules off the token's REAL expiry: an earlier issued-age
+/// heuristic ("issued < 75s ago") forced a network refresh every ~75s of
+/// token age forever for any caller that requests tokens periodically, even
+/// while the token was valid for a full hour (cmux#10897).
+///
+/// `now` is injected for deterministic tests; production callers use the
+/// default wall clock.
+func isTokenFreshEnough(_ accessToken: String?, now: Date = Date()) -> Bool {
     guard let token = accessToken,
           let payload = decodeJWTPayload(token) else {
         return false  // Can't decode, should refresh
     }
-    
-    let expiresInMoreThan20s = payload.expiresInMillis > 20_000
-    let issuedLessThan75sAgo = payload.issuedMillisAgo < 75_000
-    
-    return expiresInMoreThan20s && issuedLessThan75sAgo
+    guard let exp = payload.exp else {
+        return true  // No expiry claim: nothing to refresh against
+    }
+    var margin = tokenRefreshMarginSeconds
+    if let iat = payload.iat, exp > iat {
+        margin = min(margin, (exp - iat) / 2)
+    }
+    margin = max(margin, 20)
+    return exp - now.timeIntervalSince1970 > margin
 }
 
 // MARK: - Refresh Lock Manager
@@ -475,9 +493,10 @@ actor APIClient {
                     // Network/server hiccup. PRESERVE the refresh token so a retry
                     // after recovery succeeds, and never silently sign the user out.
                     // Return the original access token only if it is still usable;
-                    // a proactive refresh fires every 75s of token age (see
-                    // `isTokenFreshEnough`) while the token is valid for ~1h, so the
-                    // common transient-failure case still has a good token. When the
+                    // a proactive refresh fires `tokenRefreshMarginSeconds` before
+                    // the real expiry (see `isTokenFreshEnough`) while the token is
+                    // valid for ~1h, so the common transient-failure case still has
+                    // a good token. When the
                     // token is genuinely expired, return nil access + non-nil refresh
                     // so the caller can classify "recoverable" without decoding a JWT.
                     let usableAccessToken = isTokenExpired(originalAccessToken) ? nil : originalAccessToken

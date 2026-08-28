@@ -3,23 +3,26 @@ public struct CmxIrohStreamHeader: Equatable, Sendable {
     /// The application lane carried by the stream.
     public let lane: CmxIrohLane
 
-    /// The admission proof, present only on the first control stream.
+    /// The admission proof carried only on the first control stream.
+    ///
+    /// `nil` on a control lane requests allowlist admission: the Mac may admit
+    /// the TLS-proven EndpointID directly from its persisted paired-peer
+    /// allowlist, with no in-band credential.
     public let credential: CmxIrohAdmissionCredential?
 
     /// Creates a validated stream header.
     ///
     /// - Parameters:
     ///   - lane: The lane this stream will carry.
-    ///   - credential: The control-stream admission proof.
+    ///   - credential: The control-stream admission proof, or `nil` for
+    ///     allowlist admission of an already-paired endpoint.
     /// - Throws: ``CmxIrohStreamHeaderError`` for an invalid lane and credential combination.
     public init(
         lane: CmxIrohLane,
         credential: CmxIrohAdmissionCredential? = nil
     ) throws {
         switch (lane, credential) {
-        case (.control, nil):
-            throw CmxIrohStreamHeaderError.missingControlCredential
-        case (.control, .some):
+        case (.control, _):
             break
         case (_, .some):
             throw CmxIrohStreamHeaderError.credentialOnNonControlLane
