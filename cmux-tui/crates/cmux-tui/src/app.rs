@@ -29326,6 +29326,12 @@ mod tests {
         app.replace_tree(browser_completion_tree(surface_id, surface_id));
         app.sidebar_visible = false;
         let area = browser_completion_area(surface_id);
+        // `commit_rendered_pointer_frame` intentionally clears the frame for
+        // an unmeasured app. Give this fixture the same non-zero viewport that
+        // the event loop has after its first layout pass, so the admission
+        // assertion exercises the pointer token rather than the zero-size
+        // guard.
+        app.outer_size = (area.rect.width, area.rect.height);
         app.pane_areas = vec![area];
         app.rendered_pane_content_generations
             .insert(surface_id, PaneContentGeneration::Browser(41));
