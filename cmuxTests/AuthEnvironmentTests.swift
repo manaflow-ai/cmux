@@ -586,4 +586,16 @@ private func isLocalePathSegment(_ segment: String) -> Bool {
     return parts.dropFirst().allSatisfy { subtag in
         (2...4).contains(subtag.count) && subtag.allSatisfy(\.isLetter)
     }
+
+    @Test("release builds use cmux.com for the account API, the same origin as the VM API")
+    func releaseAPIBaseIsCmuxCom() {
+        // api.cmux.sh points at the retired manaflow Render service (maintenance mode
+        // since 2026-08): billing/plan, client-config, devices all live on cmux.com now,
+        // where iOS and CmuxAuthRuntime already go.
+        #expect(AuthEnvironment.resolvedDefaultAPIBaseURL(environment: [:], isDebugBuild: false) == "https://cmux.com")
+        #expect(AuthEnvironment.resolvedDefaultAPIBaseURL(environment: ["CMUX_API_BASE_URL": " https://cmux-staging.vercel.app "], isDebugBuild: false)
+                == "https://cmux-staging.vercel.app")
+        #expect(AuthEnvironment.resolvedDefaultAPIBaseURL(environment: ["CMUX_API_BASE_URL": ""], isDebugBuild: false) == "https://cmux.com")
+        #expect(AuthEnvironment.resolvedDefaultAPIBaseURL(environment: ["CMUX_PORT": "3777"], isDebugBuild: true) == "http://localhost:3777")
+    }
 }
