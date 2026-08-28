@@ -10,6 +10,7 @@ pub(super) struct RestoredPublicProjections {
     pub(super) next_notification_id: u64,
     pub(super) agent_records: HashMap<TerminalPublicId, TerminalAgentRecord>,
     pub(super) agent_hook_sequences: HashMap<TerminalPublicId, u64>,
+    pub(super) agent_hook_sessions: HashMap<TerminalPublicId, String>,
     pub(super) agent_hook_tombstones: HashSet<TerminalPublicId>,
     pub(super) terminal_notifications: HashMap<TerminalPublicId, SurfaceNotification>,
     pub(super) notification_ledger: VecDeque<ResourceNotification>,
@@ -62,7 +63,15 @@ pub(super) fn restore_public_projections(
 
     let mut agent_records = HashMap::with_capacity(projections.agents.len());
     let mut agent_hook_sequences = HashMap::new();
+    let mut agent_hook_sessions = HashMap::new();
     let mut agent_hook_tombstones = HashSet::new();
+    for hook_state in projections.agent_hook_states {
+        agent_hook_sequences.insert(hook_state.terminal_id.clone(), hook_state.applied_sequence);
+        agent_hook_sessions.insert(hook_state.terminal_id.clone(), hook_state.agent_session_id);
+        if hook_state.ended {
+            agent_hook_tombstones.insert(hook_state.terminal_id);
+        }
+    }
     for agent in projections.agents {
         let state = agent_state(&agent.state)?;
         let internal_marker = agent.source_session.as_deref().is_some_and(|value| {
@@ -107,6 +116,7 @@ pub(super) fn restore_public_projections(
         next_notification_id,
         agent_records,
         agent_hook_sequences,
+        agent_hook_sessions,
         agent_hook_tombstones,
         terminal_notifications,
         notification_ledger,
@@ -204,6 +214,7 @@ mod tests {
                 updated_at_ms: 1,
                 source_session: None,
             }],
+            agent_hook_states: Vec::new(),
             terminal_defaults: None,
             frontend_projections: Vec::new(),
         };
@@ -233,6 +244,7 @@ mod tests {
                 unread: true,
             }],
             agents: Vec::new(),
+            agent_hook_states: Vec::new(),
             terminal_defaults: None,
             frontend_projections: Vec::new(),
         };
@@ -256,6 +268,7 @@ mod tests {
                 unread: true,
             }],
             agents: Vec::new(),
+            agent_hook_states: Vec::new(),
             terminal_defaults: None,
             frontend_projections: Vec::new(),
         };
@@ -279,6 +292,7 @@ mod tests {
                 updated_at_ms: 1,
                 source_session: None,
             }],
+            agent_hook_states: Vec::new(),
             terminal_defaults: None,
             frontend_projections: Vec::new(),
         };
@@ -300,6 +314,7 @@ mod tests {
                 updated_at_ms: 1,
                 source_session: Some("cmux-hook-sequence:12".into()),
             }],
+            agent_hook_states: Vec::new(),
             terminal_defaults: None,
             frontend_projections: Vec::new(),
         };
@@ -321,6 +336,7 @@ mod tests {
                 updated_at_ms: 3,
                 source_session: Some("socket-session".into()),
             }],
+            agent_hook_states: Vec::new(),
             terminal_defaults: None,
             frontend_projections: Vec::new(),
         };

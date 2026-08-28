@@ -150,6 +150,14 @@ pub(super) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::R
              )
            )
          );
+         CREATE TABLE IF NOT EXISTS resource_agent_hook_state (
+           terminal_id TEXT PRIMARY KEY NOT NULL
+             REFERENCES resource_terminals(public_id) ON DELETE CASCADE,
+           agent_session_id TEXT NOT NULL,
+           applied_sequence INTEGER NOT NULL CHECK(applied_sequence >= 0),
+           ended INTEGER NOT NULL CHECK(ended IN (0, 1)),
+           committed_revision INTEGER NOT NULL CHECK(committed_revision >= 0)
+         );
          DROP TRIGGER IF EXISTS resource_agent_projection_terminal_tombstone;
          CREATE INDEX IF NOT EXISTS resource_mutations_by_operation_revision
            ON resource_mutations(operation, committed_revision DESC);
@@ -274,6 +282,13 @@ pub(super) fn resource_tabs_needs_multiview_normalization(
         }
     }
     Ok(!saw_browser_view_index)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AgentHookProjectionState {
+    pub agent_session_id: String,
+    pub applied_sequence: u64,
+    pub ended: bool,
 }
 
 pub(super) fn migrate_resource_agent_projections(
@@ -408,6 +423,27 @@ pub(super) fn migrate_resource_browser_metadata(
 }
 
 impl WorkspaceRegistry {
+    pub fn commit_agent_projection_with_hook_state(
+        &mut self,
+        mutation: &WorkspaceMutation,
+        fingerprint: &Value,
+        expected_revision: Option<u64>,
+        terminal_id: &TerminalPublicId,
+        result: &Value,
+        deltas: &Value,
+        hook_state: Option<&AgentHookProjectionState>,
+    ) -> anyhow::Result<ResourcePatchCommit> {
+        self.commit_agent_projection_inner(
+            mutation,
+            fingerprint,
+            expected_revision,
+            terminal_id,
+            result,
+            deltas,
+            hook_state,
+        )
+    }
+
     pub fn replay_resource_patch(
         &self,
         mutation: &WorkspaceMutation,
@@ -429,6 +465,28 @@ impl WorkspaceRegistry {
         terminal_id: &TerminalPublicId,
         result: &Value,
         deltas: &Value,
+    ) -> anyhow::Result<ResourcePatchCommit> {
+        self.commit_agent_projection_inner(
+            mutation,
+            fingerprint,
+            expected_revision,
+            terminal_id,
+            result,
+            deltas,
+            None,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn commit_agent_projection_inner(
+        &mut self,
+        mutation: &WorkspaceMutation,
+        fingerprint: &Value,
+        expected_revision: Option<u64>,
+        terminal_id: &TerminalPublicId,
+        result: &Value,
+        deltas: &Value,
+        hook_state: Option<&AgentHookProjectionState>,
     ) -> anyhow::Result<ResourcePatchCommit> {
         const OPERATION: &str = "agent.report";
         validate_identifier("mutation id", &mutation.id)?;
@@ -475,6 +533,27 @@ impl WorkspaceRegistry {
                committed_revision = excluded.committed_revision",
             params![terminal_id.as_str(), result_json, sqlite_revision],
         )?;
+        if let Some(hook_state) = hook_state {
+            let applied_sequence = i64::try_from(hook_state.applied_sequence)
+                .context("agent hook sequence exceeds SQLite range")?;
+            tx.execute(
+                "INSERT INTO resource_agent_hook_state(
+                   terminal_id, agent_session_id, applied_sequence, ended, committed_revision
+                 ) VALUES(?1, ?2, ?3, ?4, ?5)
+                 ON CONFLICT(terminal_id) DO UPDATE SET
+                   agent_session_id = excluded.agent_session_id,
+                   applied_sequence = excluded.applied_sequence,
+                   ended = excluded.ended,
+                   committed_revision = excluded.committed_revision",
+                params![
+                    terminal_id.as_str(),
+                    hook_state.agent_session_id,
+                    applied_sequence,
+                    hook_state.ended,
+                    sqlite_revision,
+                ],
+            )?;
+        }
         tx.execute(
             "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
             [revision.to_string()],
