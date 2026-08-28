@@ -3375,54 +3375,53 @@ mod tests {
     }
 
     #[test]
-    fn authority_revocation_waits_for_a_validated_operation() {
+    fn tunnel_revocation_does_not_wait_for_a_blocking_operation() {
         let h = harness(None, None);
         let inner = Arc::clone(&h.manager.inner);
         let entered = Arc::new(Barrier::new(2));
         let release = Arc::new(Barrier::new(2));
-        let control: Arc<dyn PtyControl> = Arc::new(BlockingControl {
-            entered: Arc::clone(&entered),
-            release: Arc::clone(&release),
-        });
         let owner = TransportOwner { id: Some("tunnel-a".to_owned()), kind: TransportKind::Tunnel };
         {
-            inner.attachments.lock().unwrap().insert(
+            let mut attachments = inner.attachments.lock().unwrap();
+            attachments.insert(
                 "p1".to_owned(),
                 Attachment {
                     closing: Arc::new(AtomicBool::new(false)),
                     operation_gate: Arc::new(Mutex::new(())),
-                    control,
+                    control: Arc::new(BlockingControl {
+                        entered: Arc::clone(&entered),
+                        release: Arc::clone(&release),
+                    }),
                     actor_id: "user_owner".to_owned(),
-                    owner,
+                    owner: owner.clone(),
                 },
             );
         }
-        let context = h.context_with_transport("supervised", h.owner.clone(), Some("tunnel-a"));
+        let mut context = h.context_with_transport("supervised", h.owner.clone(), Some("tunnel-a"));
+        context.transport_kind = TransportKind::Tunnel;
         inner.cache_transport_auth(&context);
 
         let operation_inner = Arc::clone(&inner);
         let operation_context = context.clone();
         let operation = thread::spawn(move || {
             operation_inner.with_authorized("p1", &operation_context, "input", |attachment| {
-                attachment.control.write(b"held until revocation boundary");
+                attachment.control.write(b"blocked");
             });
         });
         entered.wait();
 
-        let revoke_inner = Arc::clone(&inner);
         let (done_tx, done_rx) = sync_channel(1);
+        let revoke_inner = Arc::clone(&inner);
         let revoke = thread::spawn(move || {
-            revoke_inner.set_tunnel_authority_generation(1);
+            revoke_inner.detach_tunnel_transports();
             done_tx.send(()).unwrap();
         });
-        assert!(
-            done_rx.recv_timeout(Duration::from_millis(50)).is_err(),
-            "revocation must not pass a validated operation still in progress"
-        );
+        let completed_without_waiting = done_rx.recv_timeout(Duration::from_millis(250)).is_ok();
         release.wait();
         operation.join().unwrap();
-        assert!(done_rx.recv_timeout(Duration::from_secs(1)).is_ok());
         revoke.join().unwrap();
+        assert!(completed_without_waiting, "revocation must not wait for PTY I/O");
+        assert!(!h.manager.has_attachment("p1"));
     }
 
     #[test]

@@ -657,6 +657,7 @@ async fn handle_client_frame(
                     }
                 },
             };
+            let context = connection.frame_context();
             let mut open = json!({
                 "version": PTY_PROTOCOL_VERSION,
                 "type": "pty_open",
@@ -665,10 +666,14 @@ async fn handle_client_frame(
                 "cols": cols,
                 "rows": rows,
             });
+            // The manager's observe policy is owner-bound. Carry the actor
+            // from the locally reconciled authority, never from tunnel input.
+            if let Some(actor) = context.owner_user_id.clone() {
+                open["actorId"] = Value::from(actor);
+            }
             if let Some(surface) = surface {
                 open["surface"] = Value::from(surface);
             }
-            let context = connection.frame_context();
             // Run the open in its own task. Dropping an in-flight
             // `handle_frame` future from `timeout` can abandon work while it
             // owns manager resources. An explicit abort, followed by the
