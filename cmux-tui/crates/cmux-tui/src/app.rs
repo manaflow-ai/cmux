@@ -43108,7 +43108,7 @@ mod tests {
         let result = app.handle(AppEvent::Mux(MuxEvent::Empty));
 
         let error = result.expect_err("a lost event transport must not report an empty session");
-        assert_eq!(error.to_string(), "session connection lost");
+        assert_eq!(error.to_string(), "session connection lost. Reconnect and retry.");
         assert!(!error.to_string().contains(reason));
         assert!(!app.quit, "a lost transport must not use the clean-quit path");
     }
@@ -43126,7 +43126,7 @@ mod tests {
         let result = app.handle(AppEvent::Mux(MuxEvent::Empty));
 
         let error = result.expect_err("machine authority must not hide a lost transport");
-        assert_eq!(error.to_string(), "session connection lost");
+        assert_eq!(error.to_string(), "session connection lost. Reconnect and retry.");
         assert!(!error.to_string().contains(reason));
         assert!(!app.quit);
         let machine = app.machine_ui.as_ref().unwrap();
