@@ -7095,6 +7095,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     ) {
         guard currentGhosttyMouseSurfaceIdentity == surfaceIdentity,
               ghosttyMouseSessionLedger.activeSurface == surfaceIdentity else {
+            synchronizeGhosttyMouseSurfaceIdentity()
             return
         }
         let sessions = ghosttyMouseSessionLedger.sessionsNeedingRepair(
@@ -7173,9 +7174,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             // hierarchy reconciliation. This is a cancellable, identity-bound
             // lifecycle handoff rather than a poll or retry.
             await Task.yield()
-            guard !Task.isCancelled,
-                  let self,
-                  let surface = self.surface else { return }
+            guard !Task.isCancelled, let self else { return }
+            guard let surface = self.surface else {
+                self.resetGhosttyMouseButtonTracking()
+                return
+            }
+            guard self.currentGhosttyMouseSurfaceIdentity == surfaceIdentity,
+                  self.ghosttyMouseSessionLedger.activeSurface == surfaceIdentity else {
+                self.synchronizeGhosttyMouseSurfaceIdentity()
+                return
+            }
             self.performGhosttyMouseRepair(
                 reason: reason,
                 surface: surface,
