@@ -36,6 +36,18 @@ enum SurfacePaneFactory {
         try create(typeRaw: "terminal", url: nil, initialCommand: initialCommand, workingDirectory: workingDirectory, at: destination, focus: focus)
     }
 
+    /// A manual-IO terminal pane for one cloud cmux-tui terminal: the pane's
+    /// Ghostty surface parses daemon bytes fed by an `attach --pipe-io` relay
+    /// (no local process), placed with the same tab/split semantics as
+    /// ``makeTerminalPane(initialCommand:workingDirectory:at:focus:)``.
+    static func makeCloudTuiTerminalPane(
+        attach: CloudTuiManualIOAttach,
+        at destination: SurfaceDestination,
+        focus: Bool
+    ) throws -> (workspaceID: UUID, panelID: UUID) {
+        try create(typeRaw: "terminal", url: nil, initialCommand: nil, workingDirectory: nil, at: destination, focus: focus, cloudTuiManualIOAttach: attach)
+    }
+
     /// A browser pane loading `url` at the destination.
     static func makeBrowserPane(url: URL, at destination: SurfaceDestination, focus: Bool) throws -> (workspaceID: UUID, panelID: UUID) {
         try create(typeRaw: "browser", url: url.absoluteString, initialCommand: nil, workingDirectory: nil, at: destination, focus: focus)
@@ -129,7 +141,8 @@ enum SurfacePaneFactory {
         initialCommand: String?,
         workingDirectory: String?,
         at destination: SurfaceDestination,
-        focus: Bool
+        focus: Bool,
+        cloudTuiManualIOAttach: CloudTuiManualIOAttach? = nil
     ) throws -> (workspaceID: UUID, panelID: UUID) {
         let workspaceID = destination.workspaceID
         guard let workspace = workspace(id: workspaceID) else { throw FactoryError.workspaceNotFound(workspaceID) }
@@ -138,14 +151,14 @@ enum SurfacePaneFactory {
         switch destination {
         case .tab(_, let paneID, _):
             guard let requestedPane = UUID(uuidString: paneID) else { throw FactoryError.paneNotFound(paneID) }
-            return try tab(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, workingDirectory: workingDirectory, requestedPane: requestedPane, focus: focus)
+            return try tab(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, workingDirectory: workingDirectory, requestedPane: requestedPane, focus: focus, cloudTuiManualIOAttach: cloudTuiManualIOAttach)
         case .workspace(_, .tab):
-            return try tab(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, workingDirectory: workingDirectory, requestedPane: nil, focus: focus)
+            return try tab(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, workingDirectory: workingDirectory, requestedPane: nil, focus: focus, cloudTuiManualIOAttach: cloudTuiManualIOAttach)
         case .split(_, let paneID, let direction):
             let anchor = try anchorSurface(paneID: paneID, in: workspace)
-            return try split(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, workingDirectory: workingDirectory, direction: direction, anchor: anchor, focus: focus)
+            return try split(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, workingDirectory: workingDirectory, direction: direction, anchor: anchor, focus: focus, cloudTuiManualIOAttach: cloudTuiManualIOAttach)
         case .workspace(_, .split):
-            return try split(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, workingDirectory: workingDirectory, direction: .right, anchor: nil, focus: focus)
+            return try split(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, workingDirectory: workingDirectory, direction: .right, anchor: nil, focus: focus, cloudTuiManualIOAttach: cloudTuiManualIOAttach)
         }
     }
 
@@ -157,7 +170,8 @@ enum SurfacePaneFactory {
         initialCommand: String?,
         workingDirectory: String?,
         requestedPane: UUID?,
-        focus: Bool
+        focus: Bool,
+        cloudTuiManualIOAttach: CloudTuiManualIOAttach? = nil
     ) throws -> (workspaceID: UUID, panelID: UUID) {
         let resolution = controller.controlSurfaceCreate(
             routing: routing,
@@ -176,7 +190,8 @@ enum SurfacePaneFactory {
                 // the drop index, so it is not honored here either.
                 requestedPaneID: requestedPane,
                 requestedFocus: focus
-            )
+            ),
+            cloudTuiManualIOAttach: cloudTuiManualIOAttach
         )
         if case .created(_, let createdWorkspaceID, _, let surfaceID, _) = resolution {
             return (createdWorkspaceID, surfaceID)
@@ -193,7 +208,8 @@ enum SurfacePaneFactory {
         workingDirectory: String?,
         direction: SurfaceSplitDirection,
         anchor: UUID?,
-        focus: Bool
+        focus: Bool,
+        cloudTuiManualIOAttach: CloudTuiManualIOAttach? = nil
     ) throws -> (workspaceID: UUID, panelID: UUID) {
         let resolution = controller.controlSurfaceSplit(
             routing: routing,
@@ -211,7 +227,8 @@ enum SurfacePaneFactory {
                 clientUnsupportedRemoteTmuxOptions: [],
                 requestedFocus: focus,
                 initialDividerPosition: nil
-            )
+            ),
+            cloudTuiManualIOAttach: cloudTuiManualIOAttach
         )
         if case .created(_, let createdWorkspaceID, _, let surfaceID, _) = resolution {
             return (createdWorkspaceID, surfaceID)
