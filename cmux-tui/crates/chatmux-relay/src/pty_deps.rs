@@ -9,8 +9,10 @@
 #![cfg(unix)]
 
 use std::collections::{HashMap, VecDeque};
+use std::ffi::CString;
 use std::io::{Read, Write};
-use std::mem::{offset_of, size_of};
+use std::mem::{MaybeUninit, offset_of, size_of};
+use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -898,6 +900,12 @@ struct SocketFingerprint {
     inode: u64,
 }
 
+fn socket_lock_path(path: &Path) -> PathBuf {
+    let mut name = path.file_name().unwrap_or_default().to_os_string();
+    name.push(".spawn-lock");
+    path.with_file_name(name)
+}
+
 fn socket_fingerprint(path: &Path) -> Option<SocketFingerprint> {
     use std::os::unix::fs::MetadataExt;
 
@@ -905,14 +913,79 @@ fn socket_fingerprint(path: &Path) -> Option<SocketFingerprint> {
     Some(SocketFingerprint { device: metadata.dev(), inode: metadata.ino() })
 }
 
-/// Remove a socket only when its device/inode is the one observed from the
-/// daemon we started. A pathname can be replaced by a racing daemon, so a
-/// blind `remove_file` during cancellation would disconnect an unrelated
-/// session.
-fn remove_socket_if_owned(path: &Path, expected: Option<SocketFingerprint>) {
-    if expected.is_some_and(|expected| socket_fingerprint(path) == Some(expected)) {
-        let _ = std::fs::remove_file(path);
+fn socket_fingerprint_at(dir_fd: libc::c_int, name: &std::ffi::OsStr) -> Option<SocketFingerprint> {
+    use std::os::unix::ffi::OsStrExt;
+
+    let name = CString::new(name.as_bytes()).ok()?;
+    let mut stat = MaybeUninit::<libc::stat>::uninit();
+    // SAFETY: `name` is NUL terminated and `stat` points to writable storage.
+    let result = unsafe {
+        libc::fstatat(
+            dir_fd,
+            name.as_ptr(),
+            stat.as_mut_ptr(),
+            libc::AT_SYMLINK_NOFOLLOW,
+        )
+    };
+    if result != 0 {
+        return None;
     }
+    // SAFETY: fstatat initialized `stat` when it returned zero.
+    let stat = unsafe { stat.assume_init() };
+    if (stat.st_mode as libc::mode_t) & libc::S_IFMT != libc::S_IFSOCK {
+        return None;
+    }
+    Some(SocketFingerprint { device: stat.st_dev as u64, inode: stat.st_ino as u64 })
+}
+
+/// Try to take the same private startup lock that cmux-tui-core uses. Cleanup
+/// skips unlinking when another starter owns the lock. Leaving a stale socket
+/// is safe; unlinking a replacement socket is not.
+fn try_lock_socket_start_file(path: &Path) -> Option<std::fs::File> {
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
+
+    let mut options = std::fs::OpenOptions::new();
+    options.create(true).append(true).read(true);
+    options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC).mode(0o600);
+    let file = options.open(path).ok()?;
+    let metadata = file.metadata().ok()?;
+    let uid = unsafe { libc::getuid() };
+    if !metadata.is_file() || metadata.uid() != uid || metadata.permissions().mode() & 0o022 != 0 {
+        return None;
+    }
+    // SAFETY: `file` remains open for the lock lifetime.
+    if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+        return None;
+    }
+    Some(file)
+}
+
+/// Remove a socket only when its device/inode is the one observed from the
+/// daemon we started. The shared startup lock is held while a directory fd
+/// performs the identity check and unlink. All cmux-tui starters use this
+/// lock, so a cooperating daemon cannot replace the pathname in that window.
+fn remove_socket_if_owned(path: &Path, expected: Option<SocketFingerprint>) {
+    let Some(expected) = expected else { return };
+    let Some(_lock) = try_lock_socket_start_file(&socket_lock_path(path)) else { return };
+    let Some(parent) = path.parent() else { return };
+    let Some(name) = path.file_name() else { return };
+    use std::os::unix::fs::OpenOptionsExt;
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true).custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC);
+    let Ok(directory) = options.open(parent) else { return };
+    let current = socket_fingerprint_at(directory.as_raw_fd(), name);
+    if current != Some(expected) {
+        return;
+    }
+    let name = match CString::new({
+        use std::os::unix::ffi::OsStrExt;
+        name.as_bytes()
+    }) {
+        Ok(name) => name,
+        Err(_) => return,
+    };
+    // SAFETY: `directory` is an open directory fd and `name` is NUL terminated.
+    let _ = unsafe { libc::unlinkat(directory.as_raw_fd(), name.as_ptr(), 0) };
 }
 
 /// The cmux-tui core uses `<socket>.spawn-lock` for its probe/unlink/bind
@@ -932,9 +1005,7 @@ async fn acquire_daemon_start_lock(
     use std::os::fd::AsRawFd;
     use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 
-    let mut name = path.file_name().unwrap_or_default().to_os_string();
-    name.push(".spawn-lock");
-    let lock_path = path.with_file_name(name);
+    let lock_path = socket_lock_path(path);
     if let Some(parent) = lock_path.parent() {
         tokio::fs::create_dir_all(parent)
             .await
@@ -1475,13 +1546,15 @@ mod tests {
 
     #[test]
     fn socket_cleanup_requires_the_observed_inode() {
+        use std::os::unix::net::UnixListener;
+
         static NEXT_FIXTURE: AtomicUsize = AtomicUsize::new(0);
         let path = std::env::temp_dir().join(format!(
             "cmux-relay-socket-fingerprint-{}-{}",
             std::process::id(),
             NEXT_FIXTURE.fetch_add(1, AtomicOrdering::Relaxed)
         ));
-        std::fs::write(&path, b"socket placeholder").expect("create fingerprint fixture");
+        let _listener = UnixListener::bind(&path).expect("create fingerprint fixture");
         let observed = socket_fingerprint(&path).expect("fixture fingerprint");
         let wrong = SocketFingerprint { device: observed.device, inode: observed.inode + 1 };
         remove_socket_if_owned(&path, Some(wrong));

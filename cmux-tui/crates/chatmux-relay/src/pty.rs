@@ -1039,15 +1039,15 @@ impl Inner {
             return;
         };
         let _operation = attachment.operation_gate.lock().expect("attachment operation lock");
-        // Keep the shared authority read guard through validation and the
-        // send. A revocation takes the write guard, so it cannot remove the
-        // snapshot between this check and the visible output frame.
-        let _state = self.tunnel_state.read().expect("tunnel state lock");
-        let Some(auth) = self.auth_for_transport(context) else {
-            return;
+        let Some(auth) = self.auth_for_transport(context) else { return };
+        // Hold the authority barrier only through the authorization decision.
+        // Backpressure probes and the send callback cross the transport and
+        // can block, so they must not delay revocation of other attachments.
+        let authorized = {
+            let _state = self.tunnel_state.read().expect("tunnel state lock");
+            self.attachment_is_authorized(pty_id, &attachment, &auth, context)
         };
-        if !self.attachment_is_authorized(pty_id, &attachment, &auth, context) {
-            drop(_state);
+        if !authorized {
             drop(_operation);
             self.handle_authorization_failure(pty_id, &attachment, &auth, context, "output");
             return;
@@ -1062,11 +1062,9 @@ impl Inner {
         // frame exactly at the cap, but must reject one that would push the
         // buffered amount over the cap.
         if buffered.saturating_add(chunk.len() as u64) > self.output_cap {
-            // `retire_if_current` takes the write side of this barrier. Drop
-            // the read guard first, while keeping the attachment operation
-            // gate held so another operation cannot reuse this attachment in
-            // the small removal window.
-            drop(_state);
+            // `retire_if_current` takes the write side of the barrier. The
+            // authorization guard is already out of scope, while the
+            // attachment gate remains held for the removal window.
             let removed = self.remove_if_current(pty_id, &attachment);
             drop(_operation);
             if let Some(removed) = removed {
@@ -1119,6 +1117,9 @@ impl Inner {
             return;
         }
         attachment.closing.store(true, Ordering::SeqCst);
+        // The queue callback must run outside the exclusive state barrier.
+        drop(_state);
+        drop(_operation);
         (auth.send)(json!({
             "version": PTY_PROTOCOL_VERSION,
             "type": "pty_exit",
@@ -1170,13 +1171,14 @@ impl Inner {
         let Some(attachment) = self.attachment(pty_id) else { return };
         let operation_gate = Arc::clone(&attachment.operation_gate);
         let _operation = operation_gate.lock().expect("attachment operation lock");
-        // Shared readers keep independent attachments concurrent. The
-        // exclusive authority transition waits for every validated operation
-        // to finish before it removes the transport snapshot.
-        let _state = self.tunnel_state.read().expect("tunnel state lock");
         let Some(auth) = self.auth_for_transport(context) else { return };
-        if !self.attachment_is_authorized(pty_id, &attachment, &auth, context) {
-            drop(_state);
+        // The control operation is synchronous and may block on a child that
+        // does not read stdin. Release the global barrier before running it.
+        let authorized = {
+            let _state = self.tunnel_state.read().expect("tunnel state lock");
+            self.attachment_is_authorized(pty_id, &attachment, &auth, context)
+        };
+        if !authorized {
             drop(_operation);
             self.handle_authorization_failure(pty_id, &attachment, &auth, context, action);
             return;
@@ -1236,6 +1238,8 @@ impl Inner {
         drop(attachments);
         if removed {
             attachment.closing.store(true, Ordering::SeqCst);
+            drop(_state);
+            drop(_operation);
             attachment.control.kill();
         }
     }
@@ -1307,7 +1311,9 @@ impl Inner {
     }
 
     fn retire_attachment(&self, attachment: Attachment) {
-        let _operation = attachment.operation_gate.lock().expect("attachment operation lock");
+        // Revocation must not wait for an admitted PTY write. The operation
+        // was linearized before removal from the attachment map; kill the
+        // control concurrently and keep the transition bounded.
         attachment.closing.store(true, Ordering::SeqCst);
         attachment.control.kill();
     }
