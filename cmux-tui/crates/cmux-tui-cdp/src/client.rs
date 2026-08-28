@@ -1420,9 +1420,7 @@ fn reserve_outbound_bytes(inner: &Inner, bytes: usize) -> anyhow::Result<()> {
     let bytes = u64::try_from(bytes).unwrap_or(u64::MAX);
     loop {
         let current = inner.outbound_bytes.load(Ordering::Acquire);
-        let next = current
-            .checked_add(bytes)
-            .ok_or_else(outbound_byte_budget_error)?;
+        let next = current.checked_add(bytes).ok_or_else(outbound_byte_budget_error)?;
         if next > inner.outbound_byte_budget as u64 {
             return Err(outbound_byte_budget_error());
         }
@@ -1580,7 +1578,9 @@ fn handle_text(inner: &Arc<Inner>, text: &str) {
                 let Some(ack_id) = params.get("sessionId").and_then(|value| value.as_u64()) else {
                     return;
                 };
-                ack_screencast_frame(inner, target_session, ack_id);
+                ack_screencast_frame(inner, target_session, ack_id, |message| {
+                    eprintln!("{message}");
+                });
                 let (
                     frame_epoch,
                     navigation_epoch,
@@ -1841,7 +1841,14 @@ fn dispatch_event(inner: &Arc<Inner>, event: CdpEvent) {
     }
 }
 
-fn ack_screencast_frame(inner: &Arc<Inner>, target_session: &str, frame_session: u64) {
+const CDP_ACK_REJECTED_DIAGNOSTIC: &str = "cmux-tui-cdp: screencast acknowledgment rejected";
+
+fn ack_screencast_frame(
+    inner: &Arc<Inner>,
+    target_session: &str,
+    frame_session: u64,
+    report: impl FnOnce(&str),
+) {
     let id = inner.next_id.fetch_add(1, Ordering::Relaxed);
     let msg = json!({
         "id": id,
@@ -1850,8 +1857,10 @@ fn ack_screencast_frame(inner: &Arc<Inner>, target_session: &str, frame_session:
         "params": { "sessionId": frame_session },
     });
     let Ok(text) = serde_json::to_string(&msg) else { return };
-    if let Err(error) = reserve_outbound_bytes(inner, text.len()) {
-        eprintln!("cmux-tui-cdp: screencast acknowledgment rejected: {error:#}");
+    if reserve_outbound_bytes(inner, text.len()).is_err() {
+        // Keep queue and protocol details out of stderr. The close event
+        // carries the stable recovery message to callers.
+        report(CDP_ACK_REJECTED_DIAGNOSTIC);
         close_inner(inner, CDP_CONNECTION_UNAVAILABLE_MESSAGE);
         return;
     }
@@ -2178,7 +2187,10 @@ mod tests {
         let client = CdpClient { inner };
 
         let error = client.send_value(&json!({"payload": "0123456789"})).unwrap_err();
-        assert_eq!(error.to_string(), "browser connection unavailable; retry the command");
+        let public = error.to_string();
+        assert_eq!(public, "browser connection unavailable; retry the command");
+        assert!(!public.contains("ws://"));
+        assert!(!public.contains("CDP outbound queue byte budget exceeded"));
         assert!(format!("{error:#}").contains("CDP outbound queue byte budget exceeded"));
     }
 
@@ -2223,7 +2235,10 @@ mod tests {
     #[test]
     fn screencast_ack_byte_budget_closure_hides_internal_reason() {
         let (inner, _outbound_rx) = test_inner_with_limits(1, 1);
-        ack_screencast_frame(&inner, "session-1", 7);
+        let mut diagnostics = Vec::new();
+        ack_screencast_frame(&inner, "session-1", 7, |message| {
+            diagnostics.push(message.to_string());
+        });
 
         let (event_tx, event_rx) = sync_channel(1);
         inner.events.drain_into(&event_tx).unwrap();
@@ -2232,6 +2247,9 @@ mod tests {
         };
         assert_eq!(reason, "browser connection unavailable; retry the command");
         assert!(!reason.contains("CDP"));
+        assert_eq!(diagnostics, vec![CDP_ACK_REJECTED_DIAGNOSTIC.to_string()]);
+        assert!(!diagnostics[0].contains("ws://"));
+        assert!(!diagnostics[0].contains("queue byte budget"));
     }
 
     #[test]
@@ -2258,7 +2276,7 @@ mod tests {
     #[test]
     fn screencast_ack_queue_overflow_closes_the_connection() {
         let (inner, _outbound_rx) = test_inner_with_capacity(0);
-        ack_screencast_frame(&inner, "session-1", 7);
+        ack_screencast_frame(&inner, "session-1", 7, |_| {});
         assert!(inner.closed.load(Ordering::Acquire));
     }
 
