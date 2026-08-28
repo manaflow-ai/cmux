@@ -648,7 +648,11 @@ impl PtyDeps for RealPtyDeps {
         let socket_path = session_socket_path(socket_dir, self.uid, session)?;
         if socket_exists(&socket_path).await {
             let ready = match connect_control(&socket_path, CONTROL_TIMEOUT_MS).await {
-                Ok(control) => control_ready(&control, session).await,
+                Ok(control) => {
+                    let ready = control_ready(&control, session).await;
+                    control.end();
+                    ready
+                }
                 Err(_) => false,
             };
             if ready {
@@ -686,9 +690,13 @@ impl PtyDeps for RealPtyDeps {
                 // Probe a control round-trip before declaring readiness.
                 while Instant::now() < deadline {
                     match connect_control(&socket_path, CONTROL_TIMEOUT_MS).await {
-                        Ok(control) if control_ready(&control, session).await => {
-                            process_guard.disarm();
-                            return Ok(EnsureDaemon { created: true, socket_path });
+                        Ok(control) => {
+                            let ready = control_ready(&control, session).await;
+                            control.end();
+                            if ready {
+                                process_guard.disarm();
+                                return Ok(EnsureDaemon { created: true, socket_path });
+                            }
                         }
                         _ => tokio::time::sleep(Duration::from_millis(50)).await,
                     }

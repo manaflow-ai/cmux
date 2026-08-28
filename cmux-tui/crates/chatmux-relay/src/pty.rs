@@ -2360,6 +2360,7 @@ impl Inner {
         let Ok(control) = self.deps.connect_control(socket_path).await else {
             return Vec::new();
         };
+        let mut control_guard = ControlEndOnDrop::new(Arc::clone(&control));
         let identify = control.request("identify", json!({})).await;
         let protocol = identify
             .as_ref()
@@ -2424,6 +2425,7 @@ impl Inner {
             out.push((reference, title.chars().take(200).collect()));
         }
         control.end();
+        control_guard.disarm();
         out
     }
 }
