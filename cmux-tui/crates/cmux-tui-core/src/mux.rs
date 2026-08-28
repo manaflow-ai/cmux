@@ -21927,10 +21927,24 @@ mod tests {
         )
         .unwrap();
         mux.workspace_registry.lock().unwrap().set_resource_patch_failure(true).unwrap();
-        assert!(mux.apply_agent_hook_record(&ingress, 7).is_err());
+        let receipt = mux.append_journal_ingress(&ingress, "test", "hook-pending-retry").unwrap();
+        assert!(receipt.sequence > 0);
+        assert_eq!(
+            mux.workspace_registry.lock().unwrap().pending_agent_hook_projections().unwrap().len(),
+            1
+        );
         assert!(mux.list_agents(Some(surface.id), None).is_empty());
         mux.workspace_registry.lock().unwrap().set_resource_patch_failure(false).unwrap();
-        mux.apply_agent_hook_record(&ingress, 7).unwrap();
+        let replay = mux.append_journal_ingress(&ingress, "test", "hook-pending-retry").unwrap();
+        assert!(replay.replayed);
+        assert!(
+            mux.workspace_registry
+                .lock()
+                .unwrap()
+                .pending_agent_hook_projections()
+                .unwrap()
+                .is_empty()
+        );
         assert_eq!(mux.list_agents(Some(surface.id), None)[0].state, AgentState::Working);
     }
 

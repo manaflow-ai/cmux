@@ -437,7 +437,9 @@ impl WorkspaceRegistry {
         ingress: &crate::JournalIngress,
         error: &str,
     ) -> anyhow::Result<()> {
+        const MAX_ERROR_CHARS: usize = 1_024;
         let ingress_json = serde_json::to_string(ingress)?;
+        let bounded_error = error.chars().take(MAX_ERROR_CHARS).collect::<String>();
         self.connection.execute(
             "INSERT INTO resource_agent_hook_pending(
                idempotency_key, event_sequence, ingress_json, error, attempt
@@ -447,7 +449,7 @@ impl WorkspaceRegistry {
                ingress_json = excluded.ingress_json,
                error = excluded.error,
                attempt = resource_agent_hook_pending.attempt + 1",
-            params![idempotency_key, i64::try_from(sequence)?, ingress_json, error],
+            params![idempotency_key, i64::try_from(sequence)?, ingress_json, bounded_error],
         )?;
         Ok(())
     }
