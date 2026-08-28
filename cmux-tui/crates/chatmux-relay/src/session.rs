@@ -44,7 +44,7 @@ use crate::trust::{
     has_yolo_confirmation, relay_trust,
 };
 #[cfg(unix)]
-use crate::tunnel_terminal::{TunnelAuth, TunnelAuthState};
+use crate::tunnel_terminal::{TunnelAuth, TunnelAuthState, TunnelAuthority};
 use crate::wire::{
     CLI_VERSION, EXEC_PROTOCOL_VERSION, FRAME_VERSION, HelloFrame, PTY_PROTOCOL_VERSION,
     ServerFrame, advertised_protocol, heartbeat_frame, parse_server_frame, set_trust_frame,
@@ -341,7 +341,7 @@ impl SessionRuntime {
             #[cfg(unix)]
             pty,
             #[cfg(unix)]
-            tunnel_auth: Arc::new(std::sync::RwLock::new(None)),
+            tunnel_auth: Arc::new(std::sync::RwLock::new(TunnelAuthority::default())),
         }
     }
 }
@@ -925,19 +925,36 @@ async fn relay_session(
                             snapshot.owner = config.owner_user_id.clone();
                             #[cfg(unix)]
                             if state.managed {
-                                // Trust and owner changes revoke all tunnel
-                                // attachments before the new snapshot is
-                                // published. This closes the old capability
-                                // at one clear lifecycle boundary.
-                                runtime.pty.detach_tunnel_transports();
-                                *runtime.tunnel_auth.write().expect("tunnel auth lock") =
-                                    Some(TunnelAuth {
+                                // Publish the new generation while holding the
+                                // authority lock, then detach old attachments
+                                // before releasing it. Existing tunnel
+                                // sockets therefore see one atomic generation
+                                // change and cannot open in an old-authority
+                                // gap.
+                                let mut authority =
+                                    runtime.tunnel_auth.write().expect("tunnel auth lock");
+                                *authority = TunnelAuthority::published(
+                                    authority.generation,
+                                    TunnelAuth {
                                         trust: snapshot.trust.clone(),
                                         local_roots: snapshot.roots.clone(),
                                         owner_user_id: snapshot.owner.clone(),
-                                    });
+                                    },
+                                );
+                                runtime.pty.detach_tunnel_transports();
                             }
                             workspace.set_local_observe(local_observe);
+                        }
+                        #[cfg(unix)]
+                        {
+                            // Replace the manager's connection snapshot only
+                            // at this authenticated reconciliation boundary.
+                            // An already-running open may still carry the old
+                            // frame context, but it cannot publish that stale
+                            // authority back into the manager.
+                            let snapshot = auth.lock().expect("auth lock").clone();
+                            let context = make_context(&out_tx, &pending, &snapshot, &transport_id);
+                            runtime.pty.update_transport_auth(&context);
                         }
                         let cadence = Duration::from_millis(hello.heartbeat_interval_ms);
                         let mut interval = tokio::time::interval(cadence);
@@ -991,6 +1008,12 @@ async fn relay_session(
                             save(config, config_path);
                         }
                         auth.lock().expect("auth lock").trust = ack.as_str().to_owned();
+                        #[cfg(unix)]
+                        {
+                            let snapshot = auth.lock().expect("auth lock").clone();
+                            let context = make_context(&out_tx, &pending, &snapshot, &transport_id);
+                            runtime.pty.update_transport_auth(&context);
+                        }
                         workspace.set_local_observe(ack == Trust::Observe);
                         println!("Trust level set to {ack}.");
                     }
@@ -1203,6 +1226,18 @@ async fn relay_session(
         }
     };
 
+    // Revoke the managed tunnel capability before any potentially slow
+    // cleanup. Waiting for workspace or provider tasks would leave old tunnel
+    // sockets authorized during that interval.
+    #[cfg(unix)]
+    {
+        {
+            let mut authority = runtime.tunnel_auth.write().expect("tunnel auth lock");
+            *authority = TunnelAuthority::revoked(authority.generation);
+        }
+        runtime.pty.detach_tunnel_transports();
+    }
+
     // Workspace requests own Git children. Give them a cooperative
     // cancellation window so each request can kill its process group and
     // await the direct child before the socket connection is dropped.
@@ -1226,14 +1261,7 @@ async fn relay_session(
     // managed tunnel listener's attachments are another transport's — a
     // reconnect must never detach them (docs/TERMINAL.md).
     #[cfg(unix)]
-    {
-        // Clear the listener's authority before releasing relay attachments.
-        // New tunnel opens fail closed during reconnect, and old tunnel
-        // attachments are revoked instead of inheriting the next session.
-        *runtime.tunnel_auth.write().expect("tunnel auth lock") = None;
-        runtime.pty.detach_tunnel_transports();
-        runtime.pty.detach_transport(&transport_id);
-    }
+    runtime.pty.detach_transport(&transport_id);
     result
 }
 

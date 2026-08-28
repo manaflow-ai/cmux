@@ -79,6 +79,9 @@ const FLOW_RESUME_BYTES: u64 = 32_768;
 /// while still making the total writer memory bound explicit.
 const TUNNEL_QUEUE_BYTES: u64 = MAX_TUNNEL_FRAME_BYTES as u64 + 64 * 1024;
 const TUNNEL_WRITER_QUEUE_ITEMS: usize = 256;
+/// Keep queue slots available for `opened`, `error`, and `exit` control
+/// frames. PTY output is rejected before it consumes the reserve.
+const TUNNEL_CONTROL_QUEUE_RESERVE_ITEMS: usize = 8;
 
 /// Authority published by the authenticated relay session for local tunnel
 /// connections. `None` means the relay is disconnected or has not completed
@@ -90,7 +93,29 @@ pub struct TunnelAuth {
     pub owner_user_id: Option<String>,
 }
 
-pub type TunnelAuthState = Arc<RwLock<Option<TunnelAuth>>>;
+/// A monotonically versioned authority slot. The generation changes whenever
+/// the relay reconnects or publishes a new trust snapshot, so a tunnel socket
+/// opened under an older capability cannot continue after that boundary.
+#[derive(Clone, Debug, Default)]
+pub struct TunnelAuthority {
+    pub generation: u64,
+    pub auth: Option<TunnelAuth>,
+}
+
+impl TunnelAuthority {
+    pub fn revoked(previous_generation: u64) -> Self {
+        Self { generation: previous_generation.saturating_add(1), auth: None }
+    }
+
+    pub fn published(previous_generation: u64, auth: TunnelAuth) -> Self {
+        Self {
+            generation: previous_generation.saturating_add(1),
+            auth: Some(auth),
+        }
+    }
+}
+
+pub type TunnelAuthState = Arc<RwLock<TunnelAuthority>>;
 
 /// Relay pty_error codes -> browser wire codes. Mirrors the Worker's
 /// browserErrorCode map (apps/backend/src/terminal/relay-pty.ts). KEEP IN
@@ -292,6 +317,8 @@ struct Connection {
     /// pty_flow requests from the writer's water marks (true = pause).
     flow_tx: mpsc::UnboundedSender<bool>,
     auth_state: TunnelAuthState,
+    /// Authority generation captured when this socket was accepted.
+    auth_generation: u64,
     /// Bytes queued toward the socket and not yet written.
     pending_out: AtomicU64,
     paused: AtomicBool,
@@ -309,7 +336,7 @@ impl Connection {
             self.finish();
             return;
         };
-        let _ = self.enqueue_frame(encoded);
+        let _ = self.enqueue_frame(encoded, true);
     }
 
     fn reserve_bytes(&self, length: usize) -> bool {
@@ -335,12 +362,17 @@ impl Connection {
         }
     }
 
-    fn enqueue_frame(&self, frame: Vec<u8>) -> bool {
+    fn enqueue_frame(&self, frame: Vec<u8>, control: bool) -> bool {
         let mut accepted = false;
         let mut reserved = 0_u64;
         {
             let _queue_gate = self.queue_gate.lock().expect("tunnel queue lock");
-            if !self.finished.load(Ordering::SeqCst) && self.reserve_bytes(frame.len()) {
+            let queue_has_room = control
+                || self.writer_tx.capacity() > TUNNEL_CONTROL_QUEUE_RESERVE_ITEMS;
+            if !self.finished.load(Ordering::SeqCst)
+                && queue_has_room
+                && self.reserve_bytes(frame.len())
+            {
                 reserved = frame.len() as u64;
                 if self.writer_tx.try_send(WriterMessage::Frame(frame)).is_ok() {
                     accepted = true;
@@ -419,7 +451,7 @@ impl Connection {
                     self.protocol_error("overflow");
                     return;
                 };
-                if !self.enqueue_frame(encoded) {
+                if !self.enqueue_frame(encoded, false) {
                     return;
                 }
                 // Socket-side congestion: pause the source through the
@@ -454,7 +486,12 @@ impl Connection {
     fn frame_context(self: &Arc<Self>) -> FrameContext {
         let sink = Arc::clone(self);
         let probe = Arc::clone(self);
-        let auth = self.auth_state.read().ok().and_then(|state| state.clone()).unwrap_or_default();
+        let authority = self.auth_state.read().ok().map(|state| state.clone()).unwrap_or_default();
+        let auth = if authority.generation == self.auth_generation {
+            authority.auth.unwrap_or_default()
+        } else {
+            TunnelAuth::default()
+        };
         FrameContext {
             send: Arc::new(move |frame: Value| sink.on_manager_frame(&frame)),
             buffered_amount: Arc::new(move || probe.pending_out.load(Ordering::SeqCst)),
@@ -464,10 +501,23 @@ impl Connection {
             transport_id: Some(self.pty_id.clone()),
         }
     }
+
+    fn authority_current(&self) -> bool {
+        self.auth_state
+            .read()
+            .ok()
+            .is_some_and(|authority| {
+                authority.generation == self.auth_generation && authority.auth.is_some()
+            })
+    }
 }
 
 async fn handle_client_frame(connection: &Arc<Connection>, frame: TunnelFrame) {
     if connection.finished.load(Ordering::SeqCst) {
+        return;
+    }
+    if !connection.authority_current() {
+        connection.protocol_error("trust_revoked");
         return;
     }
     if frame.kind == FRAME_KIND_PTY {
@@ -563,6 +613,10 @@ async fn serve_connection(
             return;
         }
     };
+    let auth_generation = auth_state
+        .read()
+        .map(|authority| authority.generation)
+        .unwrap_or_default();
     let connection = Arc::new(Connection {
         pty_id,
         manager: Arc::clone(&manager),
@@ -570,6 +624,7 @@ async fn serve_connection(
         queue_gate: std::sync::Mutex::new(()),
         flow_tx,
         auth_state,
+        auth_generation,
         pending_out: AtomicU64::new(0),
         paused: AtomicBool::new(false),
         open_sent: AtomicBool::new(false),
@@ -672,6 +727,11 @@ async fn serve_connection(
         }
     }
     connection.finish();
+    // Stop the independent flow task before removing the transport snapshot.
+    // Otherwise a queued pause/resume could enter `handle_frame` after the
+    // detach and recreate stale authorization for this connection.
+    flow.abort();
+    let _ = flow.await;
     // Detach, never kill: the owed close releases only this connection's
     // attachment (transport-fenced), and the session lives on.
     if connection.open_sent.load(Ordering::SeqCst) {
@@ -687,13 +747,11 @@ async fn serve_connection(
     // the peer disconnected before an attachment existed. Otherwise a busy
     // local tunnel endpoint could accumulate stale snapshots indefinitely.
     manager.detach_transport(&connection.pty_id);
-    flow.abort();
     // A peer that stopped reading can wedge the final flush forever; the
     // attachment is already released above, so cap the flush and reap.
     if tokio::time::timeout(Duration::from_secs(30), &mut writer).await.is_err() {
         writer.abort();
     }
-    let _ = flow.await;
 }
 
 /// Start the loopback listener. Managed mode only — the caller's managed
@@ -867,11 +925,14 @@ mod tests {
             1_048_576,
         ));
         let cancel = CancellationToken::new();
-        let auth_state = Arc::new(RwLock::new(Some(TunnelAuth {
-            trust: "supervised".to_owned(),
-            local_roots: None,
-            owner_user_id: None,
-        })));
+        let auth_state = Arc::new(RwLock::new(TunnelAuthority {
+            generation: 0,
+            auth: Some(TunnelAuth {
+                trust: "supervised".to_owned(),
+                local_roots: None,
+                owner_user_id: None,
+            }),
+        }));
         let port = start_tunnel_terminal_listener(
             Arc::clone(&manager),
             cancel.clone(),

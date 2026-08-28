@@ -292,6 +292,18 @@ struct AuthSnapshot {
     buffered_amount: Arc<dyn Fn() -> u64 + Send + Sync>,
 }
 
+impl AuthSnapshot {
+    fn from_context(context: &FrameContext) -> Self {
+        Self {
+            trust: context.trust.clone(),
+            local_roots: context.local_roots.clone(),
+            owner_user_id: context.owner_user_id.clone(),
+            send: Arc::clone(&context.send),
+            buffered_amount: Arc::clone(&context.buffered_amount),
+        }
+    }
+}
+
 /// Scrubbed env for interactive PTYs (actions.mjs base, real TERM).
 pub fn pty_env(base: &HashMap<String, String>) -> HashMap<String, String> {
     let mut env = scrubbed_env(base);
@@ -437,16 +449,20 @@ impl PtyManager {
 
     /// Handle one Worker -> relay PTY frame.
     pub async fn handle_frame(&self, frame: &Value, context: &FrameContext) {
-        self.inner.transport_auth.lock().expect("transport auth lock").insert(
-            context.transport_id.clone(),
-            AuthSnapshot {
-                trust: context.trust.clone(),
-                local_roots: context.local_roots.clone(),
-                owner_user_id: context.owner_user_id.clone(),
-                send: Arc::clone(&context.send),
-                buffered_amount: Arc::clone(&context.buffered_amount),
-            },
-        );
+        let snapshot = AuthSnapshot::from_context(context);
+        let mut transport_auth = self.inner.transport_auth.lock().expect("transport auth lock");
+        if context.transport_id.is_none() {
+            // Legacy whole-manager callers use `None` and provide the current
+            // trust on each frame. Keep that contract for non-transport code.
+            transport_auth.insert(context.transport_id.clone(), snapshot);
+        } else {
+            // A connection can have an open in flight while trust is
+            // renegotiated. Do not let that stale frame overwrite the
+            // authoritative snapshot; session code calls
+            // `update_transport_auth` at each reconciliation boundary.
+            transport_auth.entry(context.transport_id.clone()).or_insert(snapshot);
+        }
+        drop(transport_auth);
         let frame_type = frame.get("type").and_then(Value::as_str).unwrap_or_default();
         match frame_type {
             "pty_open" => self.inner.clone().open(frame, context).await,
@@ -505,6 +521,18 @@ impl PtyManager {
             "surface_list" => self.inner.clone().list_surfaces(frame, context).await,
             _ => {}
         }
+    }
+
+    /// Publish the authoritative snapshot for one live transport. This is
+    /// called only after the relay has reconciled trust, roots, and owner.
+    /// Network frames never get to replace an existing snapshot implicitly.
+    pub fn update_transport_auth(&self, context: &FrameContext) {
+        debug_assert!(context.transport_id.is_some(), "transport refresh needs an id");
+        self.inner
+            .transport_auth
+            .lock()
+            .expect("transport auth lock")
+            .insert(context.transport_id.clone(), AuthSnapshot::from_context(context));
     }
 
     /// True while `pty_id` has a live attachment. The tunnel listener uses
