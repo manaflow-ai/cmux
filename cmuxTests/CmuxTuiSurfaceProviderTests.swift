@@ -232,11 +232,13 @@ import Testing
         // Rename takes the name via --name (verified live; positional is usage.invalid).
         #expect(CloudTuiCommandLine.renameWorkspaceArguments(socketPath: "/k.sock", workspaceID: "ws_main", name: "backend work") ==
             ["--socket", "/k.sock", "--json", "workspace", "ws_main", "rename", "--name", "backend work"])
+        // Verified live: the flat `set-default-colors` verb is `usage.invalid` in the v2
+        // resource CLI; the session-scoped form below is the one machines accept.
         #expect(CloudTuiCommandLine.setDefaultColorsArguments(socketPath: "/k.sock", foreground: "#d8dee9", background: "#171b2e") ==
-            ["--socket", "/k.sock", "--json", "set-default-colors", "--fg", "#d8dee9", "--bg", "#171b2e"])
+            ["--socket", "/k.sock", "--json", "session", "current", "terminal", "defaults", "set", "--foreground", "#d8dee9", "--background", "#171b2e"])
         #expect(CloudTuiCommandLine.setDefaultColorsArguments(socketPath: "/k.sock", foreground: nil, background: "#171b2e") ==
-            ["--socket", "/k.sock", "--json", "set-default-colors", "--bg", "#171b2e"])
-        // No colors, no command: pushing an empty set-default-colors would be a no-op round trip.
+            ["--socket", "/k.sock", "--json", "session", "current", "terminal", "defaults", "set", "--background", "#171b2e"])
+        // No colors, no command: pushing an empty defaults update would be a no-op round trip.
         #expect(CloudTuiCommandLine.setDefaultColorsArguments(socketPath: "/k.sock", foreground: nil, background: nil) == nil)
     }
 
