@@ -165,6 +165,10 @@ mod tests {
     use crate::terminal_host_runtime::TerminalHostIdentity;
     use crate::workspace_registry::{RegistryAgentProjection, RegistryNotificationProjection};
 
+    fn terminal_id(value: u8) -> TerminalPublicId {
+        TerminalPublicId::parse(format!("term_{value:032x}")).unwrap()
+    }
+
     fn empty_state() -> State {
         State {
             workspaces: Vec::new(),
