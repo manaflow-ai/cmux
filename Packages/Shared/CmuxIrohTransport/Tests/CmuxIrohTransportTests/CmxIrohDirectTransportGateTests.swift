@@ -86,8 +86,7 @@ struct CmxIrohDirectTransportGateTests {
         let configuration = try CmxIrohEndpointConfiguration(
             secretKey: CmxIrohSecretKey(bytes: Data(repeating: secretByte, count: 32)),
             alpns: [alpn],
-            managedRelayURLs: [],
-            relays: []
+            managedRelayURLs: []
         )
         let options = CmxIrohLibEndpointFactory.endpointOptions(
             configuration: configuration,

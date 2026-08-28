@@ -274,15 +274,16 @@ struct MobileIrohRuntimeCompositionCooldownTests {
         #expect(await fixture.broker.totalRequestCount() == settled + 1)
     }
 
+    /// Activation resolves the signed policy once and never mints a relay
+    /// credential: the connect path is tokenless (relay allow hook).
     @Test
-    func freshRelayBootstrapCredentialAvoidsSecondMint() async throws {
+    func relayPolicyBootstrapMintsNothing() async throws {
         let fixture = try await MobileIrohCooldownFixture.makeSuccessfulBootstrap()
 
         await fixture.broker.waitForBootstrapRequest()
 
         #expect(fixture.composition.runtime != nil)
         #expect(await fixture.broker.bootstrapRequestCount() >= 1)
-        #expect(await fixture.broker.relayTokenRequestCount() == 0)
     }
 
     @Test
@@ -754,25 +755,11 @@ private struct MobileIrohCooldownRelayPolicyFixture {
         ])
     }
 
-    func bootstrap() throws -> CmxIrohRelayBootstrapResponse {
-        CmxIrohRelayBootstrapResponse(
-            relayToken: relayCredential(),
-            relayPolicy: try CmxIrohRelayPolicyResponse(
-                policy: signedPolicy(),
-                preference: .automatic,
-                preferenceRevision: 1
-            )
-        )
-    }
-
-    func relayCredential() -> CmxIrohRelayTokenResponse {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return CmxIrohRelayTokenResponse(
-            token: "aaaa",
-            expiresAt: formatter.string(from: now.addingTimeInterval(3_600)),
-            refreshAfter: formatter.string(from: now.addingTimeInterval(1_800)),
-            relayFleet: relayURLs
+    func bootstrap() throws -> CmxIrohRelayPolicyResponse {
+        try CmxIrohRelayPolicyResponse(
+            policy: signedPolicy(),
+            preference: .automatic,
+            preferenceRevision: 1
         )
     }
 
@@ -829,12 +816,11 @@ private actor MobileIrohCooldownBroker:
     private let discoveryError: (any Error)?
     private let registration: CmxIrohRegistrationResponse
     private let discoveryResponse: CmxIrohDiscoveryResponse
-    private let bootstrap: CmxIrohRelayBootstrapResponse?
+    private let bootstrap: CmxIrohRelayPolicyResponse?
     private var relayBootstrapRetryAfterSeconds: Int?
     private var totalRequests = 0
     private var discoveryRequests = 0
     private var bootstrapRequests = 0
-    private var relayTokenRequests = 0
     private var suspendRelayBootstrap: Bool
     private var relayBootstrapContinuation: CheckedContinuation<Void, Never>?
     private var bootstrapRequestWaiters: [CheckedContinuation<Void, Never>] = []
@@ -844,7 +830,7 @@ private actor MobileIrohCooldownBroker:
         discoveryError: (any Error)?,
         registration: CmxIrohRegistrationResponse,
         discovery: CmxIrohDiscoveryResponse,
-        bootstrap: CmxIrohRelayBootstrapResponse?,
+        bootstrap: CmxIrohRelayPolicyResponse?,
         suspendRelayBootstrap: Bool
     ) {
         self.registrationError = registrationError
@@ -883,25 +869,11 @@ private actor MobileIrohCooldownBroker:
         throw MobileIrohCooldownTestError.unavailable
     }
 
-    func issueRelayToken(
-        bindingID _: String,
-        endpointID _: CmxIrohPeerIdentity
-    ) throws -> CmxIrohRelayTokenResponse {
-        totalRequests += 1
-        relayTokenRequests += 1
-        guard let credential = bootstrap?.relayToken else {
-            throw MobileIrohCooldownTestError.unavailable
-        }
-        return credential
-    }
-
     func revoke(bindingID _: String) {
         totalRequests += 1
     }
 
-    func issueRelayBootstrap(
-        endpointID _: CmxIrohPeerIdentity
-    ) async throws -> CmxIrohRelayBootstrapResponse {
+    func fetchRelayPolicy() async throws -> CmxIrohRelayPolicyResponse {
         totalRequests += 1
         bootstrapRequests += 1
         let waiters = bootstrapRequestWaiters
@@ -943,7 +915,6 @@ private actor MobileIrohCooldownBroker:
     func totalRequestCount() -> Int { totalRequests }
     func discoveryRequestCount() -> Int { discoveryRequests }
     func bootstrapRequestCount() -> Int { bootstrapRequests }
-    func relayTokenRequestCount() -> Int { relayTokenRequests }
 
     func waitForBootstrapRequest() async {
         guard bootstrapRequests == 0 else { return }
@@ -988,7 +959,6 @@ private actor MobileIrohCooldownEndpoint: CmxIrohEndpoint {
     }
 
     func accept() -> (any CmxIrohConnection)? { nil }
-    func replaceRelays(_: [CmxIrohRelayConfiguration]) {}
 
     func healthEvents() -> AsyncStream<CmxIrohEndpointHealthEvent> {
         AsyncStream { $0.finish() }

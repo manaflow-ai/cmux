@@ -16,8 +16,7 @@ struct CmxIrohClientRuntimeEmptyFleetTests {
         let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
         let broker = TestIrohClientBroker(
             binding: fixture.binding,
-            discovery: fixture.discovery,
-            relay: fixture.relayResponse()
+            discovery: fixture.discovery
         )
         let recorder = ClientRuntimeTestRecorder()
         let configuration = CmxIrohClientRuntimeConfiguration(
@@ -43,8 +42,7 @@ struct CmxIrohClientRuntimeEmptyFleetTests {
             handleBinding: { _, _ in
                 await recorder.recordBinding()
                 return true
-            },
-            handleRelayCredential: { _, _ in await recorder.recordRelay() }
+            }
         )
 
         try await runtime.start()

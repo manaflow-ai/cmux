@@ -5,7 +5,6 @@ import Foundation
 actor TestIrohClientBroker: CmxIrohClientBrokerServing {
     private let registration: CmxIrohRegistrationResponse
     private let discoveryResponse: CmxIrohDiscoveryResponse
-    private let relayResponse: CmxIrohRelayTokenResponse
     private let pairGrantResponse: CmxIrohPairGrantResponse?
     private let bindingAuthorizationAvailable: Bool
     private let revokeError: (any Error)?
@@ -15,7 +14,6 @@ actor TestIrohClientBroker: CmxIrohClientBrokerServing {
     private var registrationErrorsByCount: [Int: any Error] = [:]
     private var preparedRegistrations: [CmxIrohPreparedRegistration] = []
     private var revokedBindingIDs: [String] = []
-    private var relayIssueCount = 0
     private var discoveryCount = 0
     private var discoveryErrorsByCount: [Int: any Error] = [:]
     private var registrationCountWaiters: [
@@ -28,10 +26,8 @@ actor TestIrohClientBroker: CmxIrohClientBrokerServing {
     init(
         binding: CmxIrohBrokerBinding,
         discovery: CmxIrohDiscoveryResponse,
-        relay: CmxIrohRelayTokenResponse,
         pairGrant: CmxIrohPairGrantResponse? = nil,
         bindingAuthorizationAvailable: Bool = true,
-        issueRelayAtRegistration: Bool = true,
         registrationError: (any Error)? = nil,
         discoveryErrorsByCount: [Int: any Error] = [:],
         revokeError: (any Error)? = nil,
@@ -40,10 +36,9 @@ actor TestIrohClientBroker: CmxIrohClientBrokerServing {
     ) {
         registration = CmxIrohRegistrationResponse(
             binding: binding,
-            relay: issueRelayAtRegistration ? .issued(relay) : .unavailable
+            relay: .unavailable
         )
         discoveryResponse = discovery
-        relayResponse = relay
         pairGrantResponse = pairGrant
         self.bindingAuthorizationAvailable = bindingAuthorizationAvailable
         self.revokeError = revokeError
@@ -107,14 +102,6 @@ actor TestIrohClientBroker: CmxIrohClientBrokerServing {
         return pairGrantResponse
     }
 
-    func issueRelayToken(
-        bindingID _: String,
-        endpointID _: CmxIrohPeerIdentity
-    ) -> CmxIrohRelayTokenResponse {
-        relayIssueCount += 1
-        return relayResponse
-    }
-
     func revoke(bindingID: String) throws {
         revokedBindingIDs.append(bindingID)
         if let revokeError { throw revokeError }
@@ -134,10 +121,6 @@ actor TestIrohClientBroker: CmxIrohClientBrokerServing {
 
     func observedRevokedBindingIDs() -> [String] {
         revokedBindingIDs
-    }
-
-    func observedRelayIssueCount() -> Int {
-        relayIssueCount
     }
 
     func observedDiscoveryCount() -> Int {

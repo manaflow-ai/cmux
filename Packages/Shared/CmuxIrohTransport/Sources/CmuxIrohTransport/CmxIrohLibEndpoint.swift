@@ -149,11 +149,6 @@ actor CmxIrohLibEndpoint: CmxIrohEndpoint {
         return try CmxIrohLibConnection(driver: await accepting.connect())
     }
 
-    func replaceRelays(_ relays: [CmxIrohRelayConfiguration]) async throws {
-        let profile = try relayProfile.replacingManagedRelays(relays)
-        try await replaceRelayProfile(profile)
-    }
-
     func replaceRelayProfile(_ profile: CmxIrohEndpointRelayProfile) async throws {
         if transportVerificationMode == .directOnly {
             relayProfile = profile
@@ -163,13 +158,9 @@ actor CmxIrohLibEndpoint: CmxIrohEndpoint {
         let next = Dictionary(
             uniqueKeysWithValues: profile.activeRelays.map { ($0.url, $0) }
         )
-        let now = Date()
         for relay in profile.activeRelays {
             guard profile.allowedRelayURLs.contains(relay.url) else {
                 throw CmxIrohLibError.unmanagedRelayURL(relay.url)
-            }
-            guard relay.isUsable(at: now) else {
-                throw CmxIrohLibError.expiredRelayCredential(relay.url)
             }
         }
 

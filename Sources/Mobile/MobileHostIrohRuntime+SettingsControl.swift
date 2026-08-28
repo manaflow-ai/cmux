@@ -198,7 +198,6 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
         diagnosticLog.record(DiagnosticEvent(.relayPolicyRefreshStarted))
         do {
             let effective = try await context.service.refresh(
-                endpointID: context.endpointID,
                 accountID: context.accountID,
                 trustRoot: context.trustRoot,
                 now: Date()
@@ -348,7 +347,6 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
                 self.diagnosticLog.record(DiagnosticEvent(.relayPolicyRefreshStarted))
                 do {
                     let effective = try await service.refresh(
-                        endpointID: endpointID,
                         accountID: accountID,
                         trustRoot: trustRoot,
                         now: Date()
@@ -460,7 +458,6 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
     ) async {
         do {
             let effective = try await context.service.refresh(
-                endpointID: context.endpointID,
                 accountID: context.accountID,
                 trustRoot: context.trustRoot,
                 now: Date()

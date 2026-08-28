@@ -62,8 +62,7 @@ private struct LibEndpointCancellationFixture {
         let configuration = try CmxIrohEndpointConfiguration(
             secretKey: CmxIrohSecretKey(bytes: Data(repeating: 7, count: 32)),
             alpns: [CmxIrohProtocolConfiguration.cmuxMobileV1.alpn],
-            managedRelayURLs: [],
-            relays: []
+            managedRelayURLs: []
         )
         endpoint = CmxIrohLibEndpoint(
             driver: AttemptOnlyEndpoint(attempt: attempt),

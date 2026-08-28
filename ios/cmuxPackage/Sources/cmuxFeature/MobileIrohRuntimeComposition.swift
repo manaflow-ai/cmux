@@ -1783,35 +1783,15 @@ public final class MobileIrohRuntimeComposition:
                 && $0.endpointID == endpointID
                 && $0.identityGeneration == identity.generation
         } ?? false
-        let cachedManagedRelayURLs: Set<String>
-        if let relayPolicyTrustRoot,
-           let cachedPolicy = try? await relayPolicyCache.load(
-               trustRoot: relayPolicyTrustRoot,
-               now: now()
-           ) {
-            cachedManagedRelayURLs = Set(cachedPolicy.relays.map(\.url))
-        } else {
-            cachedManagedRelayURLs = []
-        }
-        let cachedRelay: CmxIrohRelayTokenResponse?
         if let cachedBinding, bindingMatches {
             lastKnownBindingID = cachedBinding.bindingID
             lastKnownBindingAccountID = accountID
             lastKnownBindingTag = tag
-            cachedRelay = try await brokerCredentials.loadRelayCredential(
+        } else if cachedBinding != nil {
+            try? await brokerCredentials.deleteBinding(
                 accountID: accountID,
-                binding: cachedBinding,
-                expectedRelayFleet: cachedManagedRelayURLs,
-                now: now()
+                appInstanceID: appInstanceID
             )
-        } else {
-            if cachedBinding != nil {
-                try? await brokerCredentials.deleteBinding(
-                    accountID: accountID,
-                    appInstanceID: appInstanceID
-                )
-            }
-            cachedRelay = nil
         }
 
         // Pin the activation's broker to the session identity that owns
@@ -1855,7 +1835,6 @@ public final class MobileIrohRuntimeComposition:
         let managedRelayURLs: Set<String>
         let resolvedPolicyService: CmxIrohRelayPolicyService?
         let resolvedEffectivePolicy: CmxIrohEffectiveRelayPolicy?
-        var freshRelayCredential: CmxIrohRelayTokenResponse?
         var relayPolicyNeedsImmediateRefresh = false
         if let relayPolicyTrustRoot {
             let service = CmxIrohRelayPolicyService(
@@ -1873,21 +1852,17 @@ public final class MobileIrohRuntimeComposition:
                 effective = await service.restore(
                     accountID: accountID,
                     trustRoot: relayPolicyTrustRoot,
-                    relayCredential: cachedRelay,
                     now: now()
                 )
                 relayPolicyNeedsImmediateRefresh = true
             } else {
                 diagnosticLog?.record(DiagnosticEvent(.relayPolicyRefreshStarted))
                 do {
-                    let outcome = try await service.refreshWithCredential(
-                        endpointID: endpointID,
+                    effective = try await service.refresh(
                         accountID: accountID,
                         trustRoot: relayPolicyTrustRoot,
                         now: now()
                     )
-                    effective = outcome.effective
-                    freshRelayCredential = outcome.relayCredential
                     diagnosticLog?.record(DiagnosticEvent(.relayPolicyRefreshSucceeded))
                 } catch {
                     diagnosticLog?.record(DiagnosticEvent(
@@ -1897,7 +1872,6 @@ public final class MobileIrohRuntimeComposition:
                     effective = await service.restore(
                         accountID: accountID,
                         trustRoot: relayPolicyTrustRoot,
-                        relayCredential: cachedRelay,
                         now: now()
                     )
                     relayPolicyNeedsImmediateRefresh = true
@@ -1923,12 +1897,6 @@ public final class MobileIrohRuntimeComposition:
             resolvedPolicyService = nil
             resolvedEffectivePolicy = nil
         }
-        let compatibleCachedRelay = cachedRelay.flatMap { relay in
-            Set(relay.relayFleet) == managedRelayURLs ? relay : nil
-        }
-        let freshCompatibleRelay = freshRelayCredential.flatMap { relay in
-            Set(relay.relayFleet) == managedRelayURLs ? relay : nil
-        }
         let configuration = CmxIrohClientRuntimeConfiguration(
             accountID: accountID,
             deviceID: deviceID,
@@ -1940,14 +1908,12 @@ public final class MobileIrohRuntimeComposition:
             capabilities: Self.capabilities,
             managedRelayURLs: managedRelayURLs,
             endpointRelayProfile: endpointRelayProfile,
-            cachedRelayCredential: freshCompatibleRelay ?? compatibleCachedRelay,
             cachedBinding: bindingMatches ? cachedBinding : nil
         )
         let credentialRepository = brokerCredentials
         let routeCatalog = routeCatalog
         let lanPeerDiscovery = lanPeerDiscovery
         let clock = now
-        let activeRelayPolicyService = resolvedPolicyService
         let transportVerificationMode = transportVerificationMode
         let customPrivatePaths = customPrivatePaths
         let networkPathSnapshotComposer = networkPathSnapshotComposer
@@ -2022,7 +1988,6 @@ public final class MobileIrohRuntimeComposition:
                     accountID: accountID
                 )
             },
-            automaticRelayCredentialRefreshEnabled: automaticRelayCredentialRefreshEnabled,
             handleBinding: { [weak self] binding, discovery in
                 guard await self?.allowsPersistence(
                     accountID: accountID,
@@ -2057,21 +2022,6 @@ public final class MobileIrohRuntimeComposition:
                     revision: revision
                 ) == true else { return }
                 await routeCatalog.replaceCachedBindings(bindings, scope: revision)
-            },
-            handleRelayCredential: { [weak self] response, binding in
-                guard await self?.allowsPersistence(
-                    accountID: accountID,
-                    revision: revision
-                ) == true else { return }
-                let expectedRelayFleet = await activeRelayPolicyService?.managedPolicy()
-                    .map { Set($0.relays.map(\.url)) } ?? managedRelayURLs
-                try? await credentialRepository.saveRelayCredential(
-                    response,
-                    accountID: accountID,
-                    binding: CmxIrohBrokerBindingMetadata(binding: binding),
-                    expectedRelayFleet: expectedRelayFleet,
-                    now: clock()
-                )
             },
             handleLocalDeactivation: { [appInstances, identities, brokerCredentials] in
                 await routeCatalog.deactivate(scope: revision)
@@ -2771,7 +2721,6 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
         diagnosticLog?.record(DiagnosticEvent(.relayPolicyRefreshStarted))
         do {
             let effective = try await context.service.refresh(
-                endpointID: context.endpointID,
                 accountID: context.accountID,
                 trustRoot: context.trustRoot,
                 now: now()
@@ -2936,7 +2885,6 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
                 self.diagnosticLog?.record(DiagnosticEvent(.relayPolicyRefreshStarted))
                 do {
                     let effective = try await service.refresh(
-                        endpointID: endpointID,
                         accountID: accountID,
                         trustRoot: trustRoot,
                         now: self.now()
@@ -2985,9 +2933,8 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
         }
     }
 
-    /// The signed policy bootstrap includes a fresh relay credential. Tests
-    /// that suspend automatic credential renewal must therefore suspend this
-    /// lane as well as the credential coordinator's timer.
+    /// Tests that suspend automatic relay refresh suspend this signed-policy
+    /// refresh lane (the env knob keeps its historical name).
     nonisolated static func shouldScheduleRelayPolicyRefresh(
         automaticRelayCredentialRefreshEnabled: Bool,
         serviceAvailable: Bool,
@@ -3054,7 +3001,6 @@ extension MobileIrohRuntimeComposition: CmxIrohSettingsControlling {
     ) async {
         do {
             let effective = try await context.service.refresh(
-                endpointID: context.endpointID,
                 accountID: context.accountID,
                 trustRoot: context.trustRoot,
                 now: now()

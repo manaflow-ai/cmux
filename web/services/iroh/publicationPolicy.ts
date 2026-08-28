@@ -26,14 +26,6 @@ type PathHintLike = {
   readonly privacy_scope?: string;
 };
 
-/** Keep only endpoint-reported managed relay URLs for server persistence. */
-export function serverPublishedIrohPathHints<T extends PathHintLike>(
-  hints: readonly T[],
-): T[] {
-  return hints.filter((hint) =>
-    hint.kind === "relay_url" && MANAGED_RELAY_URL_SET.has(hint.value));
-}
-
 /**
  * Keep only routes safe for the authenticated same-account broker.
  *
@@ -55,6 +47,19 @@ export function accountPrivateIrohPathHints<T extends PathHintLike>(
       hint.source === "native" &&
       hint.privacy_scope === "public_internet";
   });
+}
+
+/**
+ * May a server-observed relay attachment be published to the account's other
+ * devices? Same trust rule as endpoint-reported relay hints: only an exact
+ * managed-catalog URL or a relay the account has saved. Re-checked at read
+ * time so deleting a saved custom relay also stops serving its attach route.
+ */
+export function isPublishableAttachedRelayURL(
+  url: string,
+  savedCustomRelayURLs: ReadonlySet<string>,
+): boolean {
+  return MANAGED_RELAY_URL_SET.has(url) || savedCustomRelayURLs.has(url);
 }
 
 function plainRecord(value: unknown): Record<string, unknown> | null {

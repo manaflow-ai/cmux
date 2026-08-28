@@ -298,8 +298,11 @@ struct CmxIrohRelayPolicyTests {
         #expect(await store.recordCount() == 1)
     }
 
+    /// A verified managed selection installs tokenless: every selected relay
+    /// is active with no client credential, because relay admission is the
+    /// relay's server-side allow hook, not a token.
     @Test
-    func endpointProfileRequiresExactCredentialsForVerifiedSelection() throws {
+    func endpointProfileFromVerifiedSelectionIsTokenless() throws {
         let fixture = try Fixture()
         let policy = try CmxIrohRelayPolicyVerifier().verify(
             fixture.token(sequence: 7),
@@ -310,25 +313,11 @@ struct CmxIrohRelayPolicyTests {
             policy: policy,
             selection: .only(["cmux-eu"])
         )
-        let selected = try fixture.relayConfiguration(url: fixture.relayURLs[1])
-        let profile = try CmxIrohEndpointRelayProfile(
-            snapshot: snapshot,
-            relays: [selected]
-        )
+        let profile = try CmxIrohEndpointRelayProfile(snapshot: snapshot)
 
         #expect(profile.allowedRelayURLs == [fixture.relayURLs[1]])
-        #expect(profile.managedRelays == [selected])
-        #expect(throws: CmxIrohEndpointConfigurationError.incompleteManagedRelayCredentials) {
-            try CmxIrohEndpointRelayProfile(snapshot: snapshot, relays: [])
-        }
-        let substituted = try fixture.relayConfiguration(
-            url: "https://capture.example.com/"
-        )
-        #expect(
-            throws: CmxIrohEndpointConfigurationError.unmanagedRelayURL(substituted.url)
-        ) {
-            try CmxIrohEndpointRelayProfile(snapshot: snapshot, relays: [substituted])
-        }
+        #expect(profile.activeRelays.map(\.url) == [fixture.relayURLs[1]])
+        #expect(profile.activeRelays.allSatisfy { $0.authenticationToken == nil })
     }
 
     private struct Fixture {
@@ -424,16 +413,6 @@ struct CmxIrohRelayPolicyTests {
                 .replacingOccurrences(of: "+", with: "-")
                 .replacingOccurrences(of: "/", with: "_")
                 .replacingOccurrences(of: "=", with: "")
-        }
-
-        func relayConfiguration(url: String) throws -> CmxIrohRelayConfiguration {
-            try CmxIrohRelayConfiguration(
-                url: url,
-                token: "aaaa",
-                expiresAt: now.addingTimeInterval(3_600),
-                refreshAfter: now.addingTimeInterval(1_800),
-                now: now
-            )
         }
     }
 }

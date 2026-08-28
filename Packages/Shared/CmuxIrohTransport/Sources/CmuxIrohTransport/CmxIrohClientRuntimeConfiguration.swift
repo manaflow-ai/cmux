@@ -34,15 +34,18 @@ public struct CmxIrohClientRuntimeConfiguration: Equatable, Sendable {
     /// `nil` preserves automatic use of the complete managed fleet.
     public let endpointRelayProfile: CmxIrohEndpointRelayProfile?
 
-    /// A previously validated endpoint-scoped relay credential, when available.
-    public let cachedRelayCredential: CmxIrohRelayTokenResponse?
-
     /// The exact locally persisted binding tuple from a prior verified discovery.
     ///
     /// When it still appears exactly once in an authenticated connectivity
     /// snapshot, startup can install that snapshot while endpoint binding is in
     /// flight. A signed registration refresh follows after activation.
     public let cachedBinding: CmxIrohBrokerBindingMetadata?
+
+    /// Deadline for each dial phase (public paths, private fallback, and the
+    /// admission barrier) of every peer dial this runtime performs. A phase
+    /// that never answers fails typed at this bound and hands control back to
+    /// recovery instead of holding the reconnect owner (cmux#9724).
+    public let dialPhaseTimeout: Duration
 
     /// Creates an immutable iOS client lifecycle configuration.
     ///
@@ -58,8 +61,9 @@ public struct CmxIrohClientRuntimeConfiguration: Equatable, Sendable {
     ///   - capabilities: The advertised protocol capabilities.
     ///   - managedRelayURLs: The exact managed relay fleet.
     ///   - endpointRelayProfile: An optional local selection or custom override.
-    ///   - cachedRelayCredential: A validated cached relay capability.
     ///   - cachedBinding: A previously verified exact local binding tuple.
+    ///   - dialPhaseTimeout: The per-phase dial deadline, injectable so tests
+    ///     can shrink it.
     public init(
         accountID: String,
         deviceID: String,
@@ -71,8 +75,8 @@ public struct CmxIrohClientRuntimeConfiguration: Equatable, Sendable {
         capabilities: [String],
         managedRelayURLs: Set<String>,
         endpointRelayProfile: CmxIrohEndpointRelayProfile? = nil,
-        cachedRelayCredential: CmxIrohRelayTokenResponse? = nil,
-        cachedBinding: CmxIrohBrokerBindingMetadata? = nil
+        cachedBinding: CmxIrohBrokerBindingMetadata? = nil,
+        dialPhaseTimeout: Duration = .seconds(5)
     ) {
         self.accountID = accountID
         self.deviceID = cmxCanonicalDeviceID(deviceID)
@@ -84,7 +88,17 @@ public struct CmxIrohClientRuntimeConfiguration: Equatable, Sendable {
         self.capabilities = capabilities
         self.managedRelayURLs = managedRelayURLs
         self.endpointRelayProfile = endpointRelayProfile
-        self.cachedRelayCredential = cachedRelayCredential
         self.cachedBinding = cachedBinding
+        self.dialPhaseTimeout = dialPhaseTimeout
+    }
+}
+
+extension CmxIrohClientRuntimeConfiguration {
+    func resolvedEndpointRelayProfile(
+        debugOverride: CmxIrohEndpointRelayProfile? = CmxIrohDebugRelayOverride.activeProfile()
+    ) throws -> CmxIrohEndpointRelayProfile {
+        if let debugOverride { return debugOverride }
+        return try endpointRelayProfile
+            ?? CmxIrohEndpointRelayProfile(managedRelayURLs: managedRelayURLs)
     }
 }
