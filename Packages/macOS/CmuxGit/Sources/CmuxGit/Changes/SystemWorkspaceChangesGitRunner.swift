@@ -158,7 +158,7 @@ struct SystemWorkspaceChangesGitRunner: WorkspaceChangesGitRunning {
         let deadline = DispatchTime.now() + max(0, wallTimeLimit)
         let candidates = [executableURL] + fallbackExecutableURLs
         var lastResult: (exitCode: Int32, wasTruncated: Bool)?
-        var lastError: Error?
+        var lastError: (any Error)?
         for candidate in candidates {
             let now = DispatchTime.now()
             guard deadline > now else { break }

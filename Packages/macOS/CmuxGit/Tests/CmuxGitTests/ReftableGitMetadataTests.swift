@@ -62,14 +62,14 @@ private nonisolated struct NeverDirectoryProbe: GitReferenceStorageProbing {
 
     @Test func legacyReferenceProbeSkipsUnusableGitCandidate() throws {
         let first = FakeWorkspaceChangesGitRunner(results: [
-            ["rev-parse", "--show-ref-format"]: .result(exitCode: 1),
-            ["rev-parse", "--git-dir"]: .result(exitCode: 1),
-            ["marker"]: .result("stale"),
+            ["rev-parse", "--show-ref-format"]: FakeWorkspaceChangesGitRunner.result(exitCode: 1),
+            ["rev-parse", "--git-dir"]: FakeWorkspaceChangesGitRunner.result(exitCode: 1),
+            ["marker"]: FakeWorkspaceChangesGitRunner.result("stale"),
         ])
         let second = FakeWorkspaceChangesGitRunner(results: [
-            ["rev-parse", "--show-ref-format"]: .result(exitCode: 1),
-            ["rev-parse", "--git-dir"]: .result(".git\n"),
-            ["marker"]: .result("working"),
+            ["rev-parse", "--show-ref-format"]: FakeWorkspaceChangesGitRunner.result(exitCode: 1),
+            ["rev-parse", "--git-dir"]: FakeWorkspaceChangesGitRunner.result(".git\n"),
+            ["marker"]: FakeWorkspaceChangesGitRunner.result("working"),
         ])
         let selector = GitReferenceRunnerSelector(runners: [first, second])
         let repository = ResolvedGitRepository(
@@ -78,7 +78,9 @@ private nonisolated struct NeverDirectoryProbe: GitReferenceStorageProbing {
             commonDirectory: "/repo/.git"
         )
 
-        let selected = try #require(selector.select(repository: repository))
+        let selected = selector.select(repository: repository)
+        #expect(selected != nil)
+        guard let selected else { return }
         let marker = try selected.run(
             arguments: ["marker"],
             in: URL(fileURLWithPath: repository.workTreeRoot, isDirectory: true)

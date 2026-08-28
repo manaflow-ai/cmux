@@ -301,8 +301,9 @@ private nonisolated struct FixedGitReferenceReader: GitReferenceReading {
             encoding: .utf8
         )
 
+        let service = GitMetadataService()
         let descriptor = try #require(
-            await GitMetadataService().watchDescriptor(for: fixture.root.path)
+            await service.watchDescriptor(for: fixture.root.path)
         )
 
         #expect(descriptor.metadataSentinelPaths.contains(deferredInclude.path))

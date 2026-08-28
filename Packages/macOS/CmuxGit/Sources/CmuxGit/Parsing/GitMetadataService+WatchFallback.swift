@@ -3,7 +3,7 @@ import Foundation
 
 extension GitMetadataService {
     /// Keeps a conservative root watcher when an index format cannot be parsed.
-    private nonisolated func applyingForcedWorkTreeRoots(
+    nonisolated func applyingForcedWorkTreeRoots(
         _ descriptor: GitWorkspaceMetadataWatchDescriptor,
         repositories: Set<String>
     ) -> GitWorkspaceMetadataWatchDescriptor {
@@ -29,15 +29,19 @@ extension GitMetadataService {
                 ? safetyConfiguration.unfilteredWorkTreeEventThrottle
                 : descriptor.eventCoalescingInterval,
             eventFilterIdentity: rootIsForced ? nil : descriptor.eventFilterIdentity,
+            // Preserve a more specific degradation selected by the descriptor
+            // itself (for example, an oversized index's rate-limited mode).
+            // Forced roots add the unreadable-index safety valve only when no
+            // more precise reason is already available.
             degradation: anyForcedRoot
-                ? .unreadableIndex
+                ? (descriptor.degradation ?? .unreadableIndex)
                 : descriptor.degradation
         )
     }
 
     private nonisolated func isDirectory(atPath path: String) -> Bool {
         var metadata = stat()
-        return path.withCString { Darwin.stat($0, &metadata) == 0 }
+        return path.withCString { stat($0, &metadata) == 0 }
             && metadata.st_mode & mode_t(S_IFMT) == mode_t(S_IFDIR)
     }
 }

@@ -93,7 +93,11 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
            directSnapshot.branchName != ".invalid" {
             switch quickProbe {
             case .complete(let storage):
-                if let storage, storage != "files" {
+                if let storage,
+                   storage != "files",
+                   (storage != "unknown"
+                        || directSnapshot.currentCommit == nil
+                        || directSnapshot.branchName == ".invalid") {
                     return plumbingSnapshot(
                         repository: repository,
                         deadline: deadline,
@@ -111,7 +115,11 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
                     branchContext: .resolved(directSnapshot.branchName),
                     deadline: deadline
                 )
-                if let storage, storage != "files" {
+                if let storage,
+                   storage != "files",
+                   (storage != "unknown"
+                        || directSnapshot.currentCommit == nil
+                        || directSnapshot.branchName == ".invalid") {
                     return plumbingSnapshot(
                         repository: repository,
                         deadline: deadline,
@@ -149,13 +157,13 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
         guard directSnapshot.currentCommit == nil || directSnapshot.branchName == ".invalid" else {
             return directSnapshot
         }
-        let configuredStorage = configuredStorage
+        let effectiveConfiguredStorage = configuredStorage
             ?? referenceStorageName(
                 repository: repository,
                 branchContext: .resolved(directSnapshot.branchName),
                 deadline: deadline
             )
-        if let configuredStorage, configuredStorage != "files" {
+        if let effectiveConfiguredStorage, effectiveConfiguredStorage != "files" {
             return plumbingSnapshot(
                 repository: repository,
                 deadline: deadline,
@@ -226,7 +234,7 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
     ) -> Bool {
         let effectiveDeadline = deadline
             ?? (DispatchTime.now() + boundedCommandWallTimeLimit)
-        [repository.gitDirectory, repository.commonDirectory].contains { directory in
+        return [repository.gitDirectory, repository.commonDirectory].contains { directory in
             guard effectiveDeadline > DispatchTime.now() else { return false }
             let reftableDirectory = URL(fileURLWithPath: directory)
                 .appendingPathComponent("reftable", isDirectory: true)

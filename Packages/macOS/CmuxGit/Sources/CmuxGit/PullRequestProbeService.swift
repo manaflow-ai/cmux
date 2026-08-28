@@ -105,14 +105,15 @@ public struct PullRequestProbeService: Sendable {
             let checkedOutBranch: GitCheckedOutBranch
             let remoteReadFailed: Bool
             if let directory = seed.directory {
-                let discovery = if let cached = discoveryByDirectory[directory] {
-                    cached
+                let discovery: GitRepositoryDiscoverySnapshot
+                if let cached = discoveryByDirectory[directory] {
+                    discovery = cached
                 } else {
                     let resolved = await gitMetadata.repositoryDiscoverySnapshot(
                         forDirectory: directory
                     )
                     discoveryByDirectory[directory] = resolved
-                    resolved
+                    discovery = resolved
                 }
                 repoSlugs = discovery.repositorySlugs
                 checkedOutBranch = discovery.checkedOutBranch
