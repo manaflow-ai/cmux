@@ -79,6 +79,12 @@ pub(super) fn restore_public_projections(
             }
         }
         if state == AgentState::Done {
+            if agent.source == "hook" {
+                // Older projections predate the internal ended marker. Keep
+                // their terminal fenced after restart so a late socket report
+                // cannot resurrect the completed session.
+                agent_hook_tombstones.insert(agent.terminal_id.clone());
+            }
             continue;
         }
         let previous = agent_records.insert(
@@ -280,6 +286,7 @@ mod tests {
         };
         let restored = restore_public_projections(&empty_state(), projections).unwrap();
         assert!(restored.agent_records.is_empty());
+        assert!(restored.agent_hook_tombstones.contains(&terminal));
     }
 
     #[test]
