@@ -2,6 +2,20 @@ import Foundation
 
 /// One resolved view of a repository's checked-out ref and commit.
 nonisolated struct GitReferenceSnapshot: Equatable, Sendable {
+    init(
+        checkedOutBranch: GitCheckedOutBranch,
+        headSignature: String?,
+        currentCommit: String?,
+        storageWatchPaths: [String] = [],
+        usesGitPlumbing: Bool = false
+    ) {
+        self.checkedOutBranch = checkedOutBranch
+        self.headSignature = headSignature
+        self.currentCommit = currentCommit
+        self.storageWatchPaths = storageWatchPaths
+        self.usesGitPlumbing = usesGitPlumbing
+    }
+
     /// The branch, detached, or unreadable classification returned by Git or the file parser.
     let checkedOutBranch: GitCheckedOutBranch
 
