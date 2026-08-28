@@ -737,7 +737,9 @@ struct CMUXMobileRootView: View {
         case .acknowledgeAutoConnectMigration:
             autoConnectMigrationStore?.acknowledge()
         case .useAutoConnect:
-            connectionMethodStore?.method = .automatic
+            // The legacy migration's "keep auto-connect" choice maps to the
+            // relay, the successor default transport.
+            connectionMethodStore?.method = .relay
             autoConnectMigrationStore?.acknowledge()
         case let .setUpTailscale(requiresPairing):
             connectionMethodStore?.method = .tailscale
@@ -849,7 +851,7 @@ struct CMUXMobileRootView: View {
             context: .firstRun,
             isAuthenticated: isAuthenticated,
             connectionPhase: onboardingConnectionPhase,
-            connectionMethod: connectionMethodStore?.method ?? .automatic,
+            connectionMethod: connectionMethodStore?.method ?? .relay,
             onSelectConnectionMethod: { connectionMethodStore?.method = $0 },
             onEnablePush: { await pushCoordinator.enable(trigger: "onboarding") },
             onReachedConnection: markOnboardingReadyToConnect,
@@ -873,7 +875,7 @@ struct CMUXMobileRootView: View {
             connectionPhase: UITestConfig.onboardingConnectionFallbackEnabled
                 ? .fallback
                 : .searching,
-            connectionMethod: connectionMethodStore?.method ?? .automatic,
+            connectionMethod: connectionMethodStore?.method ?? .relay,
             onSelectConnectionMethod: { connectionMethodStore?.method = $0 },
             // The deterministic preview must never raise the OS alert.
             onEnablePush: { true },

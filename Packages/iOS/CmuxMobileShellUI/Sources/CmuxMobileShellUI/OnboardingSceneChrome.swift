@@ -12,7 +12,7 @@ struct OnboardingSceneChrome: Equatable {
         stage: OnboardingStage,
         isAuthenticated: Bool,
         connectionPhase: OnboardingConnectionPhase,
-        connectionMethod: MobileConnectionMethod = .automatic
+        connectionMethod: MobileConnectionMethod = .relay
     ) {
         showsBack = stage != .agents
         showsSkip = stage != .connect

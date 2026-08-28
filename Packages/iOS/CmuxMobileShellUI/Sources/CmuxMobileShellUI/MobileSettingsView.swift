@@ -63,405 +63,8 @@ struct MobileSettingsView: View {
         @Bindable var displaySettings = displaySettings
         return NavigationStack {
             Form {
-                MobileSettingsAccountSection(signOut: signOut)
-
-                // Directly under the account card so release notices stay
-                // discoverable after their one-time launch sheet is
-                // dismissed (HIG: keep skippable onboarding-style content
-                // findable in a settings area).
-                Section {
-                    NavigationLink {
-                        MobileWhatsNewListView()
-                    } label: {
-                        Label(
-                            L10n.string("mobile.settings.whatsNew", defaultValue: "What's New"),
-                            systemImage: "megaphone"
-                        )
-                    }
-                    .accessibilityIdentifier("MobileSettingsWhatsNewRow")
-                }
-
-                // Stack team switcher. Only shown when the user belongs to more than
-                // one team. Rendered as an INLINE picker — each team is a row with a
-                // checkmark on the current one — so every team is visible at a glance
-                // and one tap switches (clearer than a menu/navigation push for a
-                // small set). Selecting a team writes `selectedTeamID`, which the root
-                // view observes to re-scope the team-bound surfaces (paired Macs,
-                // presence, backup) to that team without dropping the live terminal.
-                if authManager.availableTeams.count > 1 {
-                    Section {
-                        Picker(selection: teamSelection) {
-                            ForEach(authManager.availableTeams) { team in
-                                Text(team.displayName).tag(team.id as String?)
-                            }
-                        } label: {
-                            EmptyView()
-                        }
-                        .pickerStyle(.inline)
-                        .accessibilityIdentifier("MobileSettingsTeamPicker")
-                    } header: {
-                        Label(
-                            L10n.string("mobile.settings.team", defaultValue: "Team"),
-                            systemImage: "person.2"
-                        )
-                    } footer: {
-                        Text(L10n.string(
-                            "mobile.settings.teamFooter",
-                            defaultValue: "Switches which cmux team's computers and devices this app shows."
-                        ))
-                    }
-                }
-
-                // Hidden when there is no live connection row to show, so the
-                // no-devices screen's reuse of this sheet does not render an
-                // empty header. Switching Macs lives in the workspace list's
-                // computer picker.
-                if hasConnectionRows {
-                    Section(L10n.string("mobile.settings.connection", defaultValue: "Connection")) {
-                        if let connections = store?.liveMacConnections,
-                           !connections.isEmpty {
-                            ForEach(connections) { connection in
-                                LabeledContent(
-                                    connection.displayName,
-                                    value: connection.role == .focused
-                                        ? L10n.string(
-                                            "mobile.settings.connectionFocused",
-                                            defaultValue: "Focused"
-                                        )
-                                        : L10n.string(
-                                            "mobile.settings.connectionReady",
-                                            defaultValue: "Ready"
-                                        )
-                                )
-                                .accessibilityIdentifier(
-                                    "MobileSettingsMacConnection-\(connection.macDeviceID)"
-                                )
-                            }
-                        } else if !connectedHostName.isEmpty {
-                            LabeledContent(
-                                L10n.string("mobile.settings.mac", defaultValue: "Connection"),
-                                value: connectedHostName
-                            )
-                        }
-                        if let store,
-                           store.connectionState == .connected,
-                           let routeKind = store.activeRoute?.kind {
-                            LabeledContent(
-                                L10n.string(
-                                    "mobile.settings.activeTransport",
-                                    defaultValue: "Active Transport"
-                                ),
-                                value: activeTransportName(routeKind)
-                            )
-                            .accessibilityIdentifier("MobileSettingsActiveTransport")
-                        }
-                    }
-                }
-                caffeineSettingsSection
-                if hasConnectionSection {
-                    Button {
-                        showingSetupHelp = true
-                    } label: {
-                        Label(
-                            L10n.string("mobile.settings.setUpYourMac", defaultValue: "Set Up Computer"),
-                            systemImage: "macbook.and.iphone"
-                        )
-                    }
-                    .accessibilityIdentifier("MobileSettingsSetUpYourMac")
-                    Button {
-                        showingOnboarding = true
-                    } label: {
-                        Label(
-                            L10n.string(
-                                "mobile.settings.viewIntroductionAgain",
-                                defaultValue: "View Introduction Again"
-                            ),
-                            systemImage: "sparkles"
-                        )
-                    }
-                    .accessibilityIdentifier("MobileSettingsHowPairingWorks")
-                }
-
-
-                Section(L10n.string("mobile.settings.terminal", defaultValue: "Terminal")) {
-                    Toggle(isOn: $displaySettings.showAltScreenNotice) {
-                        Text(L10n.string(
-                            "mobile.settings.altScreenNotice",
-                            defaultValue: "Full-Screen Sizing Notice"
-                        ))
-                    }
-                    .accessibilityIdentifier("MobileSettingsAltScreenNoticeToggle")
-
-                    Toggle(isOn: $displaySettings.terminalFolderTapEnabled) {
-                        Text(L10n.string(
-                            "mobile.settings.terminalFolderTap",
-                            defaultValue: "Open Folders on Tap"
-                        ))
-                    }
-                    .accessibilityIdentifier("MobileSettingsTerminalFolderTapToggle")
-
-                    Button {
-                        showingShortcuts = true
-                    } label: {
-                        Label(
-                            L10n.string("mobile.workspaces.terminalShortcuts", defaultValue: "Terminal Shortcuts"),
-                            systemImage: "keyboard"
-                        )
-                    }
-                    .accessibilityIdentifier("MobileSettingsTerminalShortcuts")
-                }
-
-                Section {
-                    Toggle(isOn: $displaySettings.hapticFeedbackEnabled) {
-                        Text(L10n.string(
-                            "mobile.settings.hapticFeedback",
-                            defaultValue: "Haptic Feedback"
-                        ))
-                    }
-                    .accessibilityIdentifier("MobileSettingsHapticFeedbackToggle")
-                } header: {
-                    Text(L10n.string("mobile.settings.haptics", defaultValue: "Haptics"))
-                } footer: {
-                    Text(L10n.string(
-                        "mobile.settings.hapticFeedbackFooter",
-                        defaultValue: "When off, cmux does not vibrate for actions, confirmations, warnings, or errors."
-                    ))
-                }
-
-                #if DEBUG
-                Section(L10n.string("mobile.settings.developer", defaultValue: "Developer")) {
-                    Button {
-                        showingToastGallery = true
-                    } label: {
-                        Label(
-                            L10n.string("mobile.settings.toastGallery", defaultValue: "Toast Gallery"),
-                            systemImage: "rectangle.portrait.topthird.inset.filled"
-                        )
-                    }
-                    .accessibilityIdentifier("MobileSettingsToastGallery")
-                    Button {
-                        ToastDemo.run(on: toasts, after: .seconds(toastDemoDelaySeconds))
-                        requestDismissal()
-                    } label: {
-                        Label(
-                            L10n.string("mobile.settings.toastDemo", defaultValue: "Run Toast Demo"),
-                            systemImage: "play.rectangle"
-                        )
-                    }
-                    .accessibilityIdentifier("MobileSettingsToastDemo")
-                    Stepper(value: $toastDemoDelaySeconds, in: 0...30) {
-                        HStack {
-                            Text(L10n.string(
-                                "mobile.settings.toastDemoDelay",
-                                defaultValue: "Toast Demo Delay"
-                            ))
-                            Spacer()
-                            Text(String.localizedStringWithFormat(
-                                L10n.string(
-                                    "mobile.settings.toastDemoDelayValueFormat",
-                                    defaultValue: "%d s"
-                                ),
-                                toastDemoDelaySeconds
-                            ))
-                            .monospacedDigit()
-                            .foregroundStyle(.secondary)
-                        }
-                    }
-                    .accessibilityIdentifier("MobileSettingsToastDemoDelay")
-
-                    debugLayoutSlider(
-                        title: L10n.string(
-                            "mobile.settings.unreadIndicatorLeftness",
-                            defaultValue: "Unread Indicator Leftness"
-                        ),
-                        value: $displaySettings.unreadIndicatorLeftShift,
-                        range: MobileDisplaySettings.unreadIndicatorLeftShiftRange,
-                        identifier: "MobileSettingsUnreadIndicatorLeftness"
-                    )
-
-                    Toggle(isOn: $displaySettings.forceRebuildKeyboardDock) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(L10n.string(
-                                "mobile.settings.rebuildKeyboardDock",
-                                defaultValue: "Rebuilt Keyboard Pinning"
-                            ))
-                            Text(L10n.string(
-                                "mobile.settings.rebuildKeyboardDockCaption",
-                                defaultValue: "Use the rebuilt keyboard path instead of the default (iOS 26 and earlier). Reopen the workspace to apply."
-                            ))
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                        }
-                    }
-                    .accessibilityIdentifier("MobileSettingsRebuildKeyboardDock")
-                }
-
-                Section(L10n.string(
-                    "mobile.settings.cmuxLabs",
-                    defaultValue: "CMUX Labs"
-                )) {
-                    NavigationLink {
-                        TaskComposerShellIconLabView()
-                    } label: {
-                        Label(
-                            L10n.string(
-                                "mobile.settings.shellIconLab",
-                                defaultValue: "Shell Icon Lab"
-                            ),
-                            systemImage: "terminal"
-                        )
-                    }
-                    .accessibilityIdentifier("MobileSettingsShellIconLab")
-
-                    NavigationLink {
-                        UnreadIndicatorLabView()
-                    } label: {
-                        Label(
-                            L10n.string(
-                                "mobile.settings.unreadIndicatorLab",
-                                defaultValue: "Unread Indicator Lab"
-                            ),
-                            systemImage: "circle.badge"
-                        )
-                    }
-                    .accessibilityIdentifier("MobileSettingsUnreadIndicatorLab")
-                }
-                #endif
-
-                Section(L10n.string("mobile.settings.display", defaultValue: "Display")) {
-                    Toggle(isOn: $displaySettings.showMissingFiles) {
-                        Text(L10n.string(
-                            "mobile.settings.showMissingFiles",
-                            defaultValue: "Show missing files"
-                        ))
-                    }
-                    .accessibilityIdentifier("MobileSettingsShowMissingFiles")
-
-                    Toggle(isOn: $displaySettings.wrapWorkspaceTitles) {
-                        Text(L10n.string("mobile.settings.wrapTitles", defaultValue: "Wrap Workspace Titles"))
-                    }
-                    .accessibilityIdentifier("MobileSettingsWrapTitles")
-
-                    Picker(selection: $displaySettings.workspacePreviewLineCount) {
-                        Text(L10n.string("mobile.settings.previewLines.one", defaultValue: "1 Line"))
-                            .tag(1)
-                        Text(L10n.string("mobile.settings.previewLines.two", defaultValue: "2 Lines"))
-                            .tag(2)
-                    } label: {
-                        Text(L10n.string("mobile.settings.previewLines", defaultValue: "Preview Lines"))
-                    }
-                    .accessibilityIdentifier("MobileSettingsPreviewLines")
-
-                    Picker(selection: $displaySettings.terminalScrollbackRows) {
-                        Text(L10n.string("mobile.settings.terminalScrollback.rows1k", defaultValue: "1,000 Rows"))
-                            .tag(1000)
-                        Text(L10n.string("mobile.settings.terminalScrollback.rows4k", defaultValue: "4,000 Rows"))
-                            .tag(4000)
-                        Text(L10n.string("mobile.settings.terminalScrollback.rows10k", defaultValue: "10,000 Rows"))
-                            .tag(10000)
-                        Text(L10n.string("mobile.settings.terminalScrollback.rows20k", defaultValue: "20,000 Rows"))
-                            .tag(20000)
-                    } label: {
-                        Text(L10n.string("mobile.settings.terminalScrollback", defaultValue: "Terminal Scrollback"))
-                    }
-                    .accessibilityIdentifier("MobileSettingsTerminalScrollback")
-                }
-
-                // Release builds keep the section to the single agent-alerts
-                // toggle the app always had; the delivery-status diagnostics,
-                // Mac forwarding controls, and test actions are a dev surface
-                // and stay DEBUG-only.
-                Section(L10n.string("mobile.settings.notifications", defaultValue: "Push Alerts")) {
-#if DEBUG
-                    MobilePushSettingsContent(
-                        readiness: pushCoordinator.readiness(
-                            macStatus: store?.phonePushMacStatus,
-                            macAccountMismatch: store?.connectionRequiresReauth == true
-                        ),
-                        phoneEnabled: $notificationsEnabled,
-                        macStatus: store?.phonePushMacStatus,
-                        supportsMacSettings: store?.supportsPhonePushSettings == true,
-                        supportsMacTest: store?.supportsPhonePushTest == true,
-                        canConnectMac: startPairingScanner != nil,
-                        onPhoneEnabledChange: updatePhonePushEnabled,
-                        onRepair: repairPhonePush,
-                        onMacMutation: updateMacPhonePush,
-                        onSendTest: sendPhonePushTest
-                    )
-                    Button {
-                        Task { @MainActor in
-                            debugReplyScheduled = await pushCoordinator
-                                .debugScheduleLocalReplyNotification()
-                        }
-                    } label: {
-                        Text(L10n.string(
-                            "mobile.settings.debugReplyTest",
-                            defaultValue: "Test Inline Reply (Local)"
-                        ))
-                    }
-                    .accessibilityIdentifier("MobileSettingsDebugReplyTestButton")
-                    if let debugReplyScheduled {
-                        Text(L10n.string(
-                            debugReplyScheduled
-                                ? "mobile.settings.debugReplyTest.scheduled"
-                                : "mobile.settings.debugReplyTest.failed",
-                            defaultValue: debugReplyScheduled
-                                ? "Scheduled: lock the phone; the notification fires in 5 seconds."
-                                : "Couldn't schedule: open a workspace and select a terminal first."
-                        ))
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                    }
-#else
-                    MobilePushToggle(
-                        isEnabled: $notificationsEnabled,
-                        applyEnabledIntent: setPhonePushEnabledIntent
-                    )
-#endif
-                }
-
-                Section {
-                    Toggle(isOn: $sendAnonymousTelemetry) {
-                        Text(L10n.string(
-                            Self.crashReportingEnabled
-                                ? "mobile.settings.telemetry"
-                                : "mobile.settings.telemetryAnalyticsOnly",
-                            defaultValue: Self.crashReportingEnabled
-                                ? "Share Analytics and Crash Reports"
-                                : "Share Anonymous Analytics"
-                        ))
-                    }
-                    .accessibilityIdentifier("MobileSettingsTelemetryToggle")
-                } header: {
-                    Text(L10n.string("mobile.settings.privacy", defaultValue: "Privacy"))
-                } footer: {
-                    Text(L10n.string(
-                        Self.crashReportingEnabled
-                            ? "mobile.settings.telemetryFooter"
-                            : "mobile.settings.telemetryAnalyticsOnlyFooter",
-                        defaultValue: Self.crashReportingEnabled
-                            ? "When off, cmux does not send iPhone or iPad product analytics or crash reports."
-                            : "When off, cmux does not send iPhone or iPad product analytics."
-                    ))
-                }
-
-                MobileSettingsDiagnosticsSection()
-
-                MobileSettingsLegalSupportSection()
-
-                Section(L10n.string("mobile.settings.about", defaultValue: "About")) {
-                    LabeledContent {
-                        Text(AppVersionInfo.current().displayString)
-                            .foregroundStyle(.secondary)
-                            .textSelection(.enabled)
-                    } label: {
-                        Label(
-                            L10n.string("mobile.settings.version", defaultValue: "Version"),
-                            systemImage: "info.circle"
-                        )
-                    }
-                    .accessibilityIdentifier("MobileSettingsVersionRow")
-                }
+                settingsSectionsTop
+                settingsSectionsBottom
             }
             .task {
                 notificationsEnabled = pushCoordinator.isEnabled
@@ -863,5 +466,418 @@ private struct MobileSettingsDiagnosticsSection: View {
             networkLogURLs = urls.1
         }
     }
+
+    /// First half of the settings sections. Split from the Form body because
+    /// the single inline expression exceeded the type checker's budget.
+    @ViewBuilder
+    private var settingsSectionsTop: some View {
+        @Bindable var displaySettings = displaySettings
+                MobileSettingsAccountSection(signOut: signOut)
+
+                // Directly under the account card so release notices stay
+                // discoverable after their one-time launch sheet is
+                // dismissed (HIG: keep skippable onboarding-style content
+                // findable in a settings area).
+                Section {
+                    NavigationLink {
+                        MobileWhatsNewListView()
+                    } label: {
+                        Label(
+                            L10n.string("mobile.settings.whatsNew", defaultValue: "What's New"),
+                            systemImage: "megaphone"
+                        )
+                    }
+                    .accessibilityIdentifier("MobileSettingsWhatsNewRow")
+                }
+
+                // Stack team switcher. Only shown when the user belongs to more than
+                // one team. Rendered as an INLINE picker — each team is a row with a
+                // checkmark on the current one — so every team is visible at a glance
+                // and one tap switches (clearer than a menu/navigation push for a
+                // small set). Selecting a team writes `selectedTeamID`, which the root
+                // view observes to re-scope the team-bound surfaces (paired Macs,
+                // presence, backup) to that team without dropping the live terminal.
+                if authManager.availableTeams.count > 1 {
+                    Section {
+                        Picker(selection: teamSelection) {
+                            ForEach(authManager.availableTeams) { team in
+                                Text(team.displayName).tag(team.id as String?)
+                            }
+                        } label: {
+                            EmptyView()
+                        }
+                        .pickerStyle(.inline)
+                        .accessibilityIdentifier("MobileSettingsTeamPicker")
+                    } header: {
+                        Label(
+                            L10n.string("mobile.settings.team", defaultValue: "Team"),
+                            systemImage: "person.2"
+                        )
+                    } footer: {
+                        Text(L10n.string(
+                            "mobile.settings.teamFooter",
+                            defaultValue: "Switches which cmux team's computers and devices this app shows."
+                        ))
+                    }
+                }
+
+                // Hidden when there is no live connection row to show, so the
+                // no-devices screen's reuse of this sheet does not render an
+                // empty header. Switching Macs lives in the workspace list's
+                // computer picker.
+                if hasConnectionRows {
+                    Section(L10n.string("mobile.settings.connection", defaultValue: "Connection")) {
+                        if let connections = store?.liveMacConnections,
+                           !connections.isEmpty {
+                            ForEach(connections) { connection in
+                                LabeledContent(
+                                    connection.displayName,
+                                    value: connection.role == .focused
+                                        ? L10n.string(
+                                            "mobile.settings.connectionFocused",
+                                            defaultValue: "Focused"
+                                        )
+                                        : L10n.string(
+                                            "mobile.settings.connectionReady",
+                                            defaultValue: "Ready"
+                                        )
+                                )
+                                .accessibilityIdentifier(
+                                    "MobileSettingsMacConnection-\(connection.macDeviceID)"
+                                )
+                            }
+                        } else if !connectedHostName.isEmpty {
+                            LabeledContent(
+                                L10n.string("mobile.settings.mac", defaultValue: "Connection"),
+                                value: connectedHostName
+                            )
+                        }
+                        if let store,
+                           store.connectionState == .connected,
+                           let routeKind = store.activeRoute?.kind {
+                            LabeledContent(
+                                L10n.string(
+                                    "mobile.settings.activeTransport",
+                                    defaultValue: "Active Transport"
+                                ),
+                                value: activeTransportName(routeKind)
+                            )
+                            .accessibilityIdentifier("MobileSettingsActiveTransport")
+                        }
+                    }
+                }
+                caffeineSettingsSection
+                if hasConnectionSection {
+                    Button {
+                        showingSetupHelp = true
+                    } label: {
+                        Label(
+                            L10n.string("mobile.settings.setUpYourMac", defaultValue: "Set Up Computer"),
+                            systemImage: "macbook.and.iphone"
+                        )
+                    }
+                    .accessibilityIdentifier("MobileSettingsSetUpYourMac")
+                    Button {
+                        showingOnboarding = true
+                    } label: {
+                        Label(
+                            L10n.string(
+                                "mobile.settings.viewIntroductionAgain",
+                                defaultValue: "View Introduction Again"
+                            ),
+                            systemImage: "sparkles"
+                        )
+                    }
+                    .accessibilityIdentifier("MobileSettingsHowPairingWorks")
+                }
+
+
+                Section(L10n.string("mobile.settings.terminal", defaultValue: "Terminal")) {
+                    Toggle(isOn: $displaySettings.showAltScreenNotice) {
+                        Text(L10n.string(
+                            "mobile.settings.altScreenNotice",
+                            defaultValue: "Full-Screen Sizing Notice"
+                        ))
+                    }
+                    .accessibilityIdentifier("MobileSettingsAltScreenNoticeToggle")
+
+                    Toggle(isOn: $displaySettings.terminalFolderTapEnabled) {
+                        Text(L10n.string(
+                            "mobile.settings.terminalFolderTap",
+                            defaultValue: "Open Folders on Tap"
+                        ))
+                    }
+                    .accessibilityIdentifier("MobileSettingsTerminalFolderTapToggle")
+
+                    Button {
+                        showingShortcuts = true
+                    } label: {
+                        Label(
+                            L10n.string("mobile.workspaces.terminalShortcuts", defaultValue: "Terminal Shortcuts"),
+                            systemImage: "keyboard"
+                        )
+                    }
+                    .accessibilityIdentifier("MobileSettingsTerminalShortcuts")
+                }
+
+                Section {
+                    Toggle(isOn: $displaySettings.hapticFeedbackEnabled) {
+                        Text(L10n.string(
+                            "mobile.settings.hapticFeedback",
+                            defaultValue: "Haptic Feedback"
+                        ))
+                    }
+                    .accessibilityIdentifier("MobileSettingsHapticFeedbackToggle")
+                } header: {
+                    Text(L10n.string("mobile.settings.haptics", defaultValue: "Haptics"))
+                } footer: {
+                    Text(L10n.string(
+                        "mobile.settings.hapticFeedbackFooter",
+                        defaultValue: "When off, cmux does not vibrate for actions, confirmations, warnings, or errors."
+                    ))
+                }
+
+                #if DEBUG
+                Section(L10n.string("mobile.settings.developer", defaultValue: "Developer")) {
+                    Button {
+                        showingToastGallery = true
+                    } label: {
+                        Label(
+                            L10n.string("mobile.settings.toastGallery", defaultValue: "Toast Gallery"),
+                            systemImage: "rectangle.portrait.topthird.inset.filled"
+                        )
+                    }
+                    .accessibilityIdentifier("MobileSettingsToastGallery")
+                    Button {
+                        ToastDemo.run(on: toasts, after: .seconds(toastDemoDelaySeconds))
+                        requestDismissal()
+                    } label: {
+                        Label(
+                            L10n.string("mobile.settings.toastDemo", defaultValue: "Run Toast Demo"),
+                            systemImage: "play.rectangle"
+                        )
+                    }
+                    .accessibilityIdentifier("MobileSettingsToastDemo")
+                    Stepper(value: $toastDemoDelaySeconds, in: 0...30) {
+                        HStack {
+                            Text(L10n.string(
+                                "mobile.settings.toastDemoDelay",
+                                defaultValue: "Toast Demo Delay"
+                            ))
+                            Spacer()
+                            Text(String.localizedStringWithFormat(
+                                L10n.string(
+                                    "mobile.settings.toastDemoDelayValueFormat",
+                                    defaultValue: "%d s"
+                                ),
+                                toastDemoDelaySeconds
+                            ))
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                        }
+                    }
+                    .accessibilityIdentifier("MobileSettingsToastDemoDelay")
+
+                    debugLayoutSlider(
+                        title: L10n.string(
+                            "mobile.settings.unreadIndicatorLeftness",
+                            defaultValue: "Unread Indicator Leftness"
+                        ),
+                        value: $displaySettings.unreadIndicatorLeftShift,
+                        range: MobileDisplaySettings.unreadIndicatorLeftShiftRange,
+                        identifier: "MobileSettingsUnreadIndicatorLeftness"
+                    )
+
+                    Toggle(isOn: $displaySettings.forceRebuildKeyboardDock) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(L10n.string(
+                                "mobile.settings.rebuildKeyboardDock",
+                                defaultValue: "Rebuilt Keyboard Pinning"
+                            ))
+                            Text(L10n.string(
+                                "mobile.settings.rebuildKeyboardDockCaption",
+                                defaultValue: "Use the rebuilt keyboard path instead of the default (iOS 26 and earlier). Reopen the workspace to apply."
+                            ))
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                        }
+                    }
+                    .accessibilityIdentifier("MobileSettingsRebuildKeyboardDock")
+                }
+
+    }
+
+    /// Second half of the settings sections (see `settingsSectionsTop`).
+    @ViewBuilder
+    private var settingsSectionsBottom: some View {
+        @Bindable var displaySettings = displaySettings
+                Section(L10n.string(
+                    "mobile.settings.cmuxLabs",
+                    defaultValue: "CMUX Labs"
+                )) {
+                    NavigationLink {
+                        TaskComposerShellIconLabView()
+                    } label: {
+                        Label(
+                            L10n.string(
+                                "mobile.settings.shellIconLab",
+                                defaultValue: "Shell Icon Lab"
+                            ),
+                            systemImage: "terminal"
+                        )
+                    }
+                    .accessibilityIdentifier("MobileSettingsShellIconLab")
+
+                    NavigationLink {
+                        UnreadIndicatorLabView()
+                    } label: {
+                        Label(
+                            L10n.string(
+                                "mobile.settings.unreadIndicatorLab",
+                                defaultValue: "Unread Indicator Lab"
+                            ),
+                            systemImage: "circle.badge"
+                        )
+                    }
+                    .accessibilityIdentifier("MobileSettingsUnreadIndicatorLab")
+                }
+                #endif
+
+                Section(L10n.string("mobile.settings.display", defaultValue: "Display")) {
+                    Toggle(isOn: $displaySettings.showMissingFiles) {
+                        Text(L10n.string(
+                            "mobile.settings.showMissingFiles",
+                            defaultValue: "Show missing files"
+                        ))
+                    }
+                    .accessibilityIdentifier("MobileSettingsShowMissingFiles")
+
+                    Toggle(isOn: $displaySettings.wrapWorkspaceTitles) {
+                        Text(L10n.string("mobile.settings.wrapTitles", defaultValue: "Wrap Workspace Titles"))
+                    }
+                    .accessibilityIdentifier("MobileSettingsWrapTitles")
+
+                    Picker(selection: $displaySettings.workspacePreviewLineCount) {
+                        Text(L10n.string("mobile.settings.previewLines.one", defaultValue: "1 Line"))
+                            .tag(1)
+                        Text(L10n.string("mobile.settings.previewLines.two", defaultValue: "2 Lines"))
+                            .tag(2)
+                    } label: {
+                        Text(L10n.string("mobile.settings.previewLines", defaultValue: "Preview Lines"))
+                    }
+                    .accessibilityIdentifier("MobileSettingsPreviewLines")
+
+                    Picker(selection: $displaySettings.terminalScrollbackRows) {
+                        Text(L10n.string("mobile.settings.terminalScrollback.rows1k", defaultValue: "1,000 Rows"))
+                            .tag(1000)
+                        Text(L10n.string("mobile.settings.terminalScrollback.rows4k", defaultValue: "4,000 Rows"))
+                            .tag(4000)
+                        Text(L10n.string("mobile.settings.terminalScrollback.rows10k", defaultValue: "10,000 Rows"))
+                            .tag(10000)
+                        Text(L10n.string("mobile.settings.terminalScrollback.rows20k", defaultValue: "20,000 Rows"))
+                            .tag(20000)
+                    } label: {
+                        Text(L10n.string("mobile.settings.terminalScrollback", defaultValue: "Terminal Scrollback"))
+                    }
+                    .accessibilityIdentifier("MobileSettingsTerminalScrollback")
+                }
+
+                // Release builds keep the section to the single agent-alerts
+                // toggle the app always had; the delivery-status diagnostics,
+                // Mac forwarding controls, and test actions are a dev surface
+                // and stay DEBUG-only.
+                Section(L10n.string("mobile.settings.notifications", defaultValue: "Push Alerts")) {
+#if DEBUG
+                    MobilePushSettingsContent(
+                        readiness: pushCoordinator.readiness(
+                            macStatus: store?.phonePushMacStatus,
+                            macAccountMismatch: store?.connectionRequiresReauth == true
+                        ),
+                        phoneEnabled: $notificationsEnabled,
+                        macStatus: store?.phonePushMacStatus,
+                        supportsMacSettings: store?.supportsPhonePushSettings == true,
+                        supportsMacTest: store?.supportsPhonePushTest == true,
+                        canConnectMac: startPairingScanner != nil,
+                        onPhoneEnabledChange: updatePhonePushEnabled,
+                        onRepair: repairPhonePush,
+                        onMacMutation: updateMacPhonePush,
+                        onSendTest: sendPhonePushTest
+                    )
+                    Button {
+                        Task { @MainActor in
+                            debugReplyScheduled = await pushCoordinator
+                                .debugScheduleLocalReplyNotification()
+                        }
+                    } label: {
+                        Text(L10n.string(
+                            "mobile.settings.debugReplyTest",
+                            defaultValue: "Test Inline Reply (Local)"
+                        ))
+                    }
+                    .accessibilityIdentifier("MobileSettingsDebugReplyTestButton")
+                    if let debugReplyScheduled {
+                        Text(L10n.string(
+                            debugReplyScheduled
+                                ? "mobile.settings.debugReplyTest.scheduled"
+                                : "mobile.settings.debugReplyTest.failed",
+                            defaultValue: debugReplyScheduled
+                                ? "Scheduled: lock the phone; the notification fires in 5 seconds."
+                                : "Couldn't schedule: open a workspace and select a terminal first."
+                        ))
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    }
+#else
+                    MobilePushToggle(
+                        isEnabled: $notificationsEnabled,
+                        applyEnabledIntent: setPhonePushEnabledIntent
+                    )
+#endif
+                }
+
+                Section {
+                    Toggle(isOn: $sendAnonymousTelemetry) {
+                        Text(L10n.string(
+                            Self.crashReportingEnabled
+                                ? "mobile.settings.telemetry"
+                                : "mobile.settings.telemetryAnalyticsOnly",
+                            defaultValue: Self.crashReportingEnabled
+                                ? "Share Analytics and Crash Reports"
+                                : "Share Anonymous Analytics"
+                        ))
+                    }
+                    .accessibilityIdentifier("MobileSettingsTelemetryToggle")
+                } header: {
+                    Text(L10n.string("mobile.settings.privacy", defaultValue: "Privacy"))
+                } footer: {
+                    Text(L10n.string(
+                        Self.crashReportingEnabled
+                            ? "mobile.settings.telemetryFooter"
+                            : "mobile.settings.telemetryAnalyticsOnlyFooter",
+                        defaultValue: Self.crashReportingEnabled
+                            ? "When off, cmux does not send iPhone or iPad product analytics or crash reports."
+                            : "When off, cmux does not send iPhone or iPad product analytics."
+                    ))
+                }
+
+                MobileSettingsDiagnosticsSection()
+
+                MobileSettingsLegalSupportSection()
+
+                Section(L10n.string("mobile.settings.about", defaultValue: "About")) {
+                    LabeledContent {
+                        Text(AppVersionInfo.current().displayString)
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                    } label: {
+                        Label(
+                            L10n.string("mobile.settings.version", defaultValue: "Version"),
+                            systemImage: "info.circle"
+                        )
+                    }
+                    .accessibilityIdentifier("MobileSettingsVersionRow")
+                }
+    }
+
 }
 #endif
