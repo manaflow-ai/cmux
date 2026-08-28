@@ -1596,9 +1596,10 @@ _cmux_watcher_parent_kernel_fields() {
     # Flatten od output without consulting the caller's IFS, validate one
     # complete LP64 `kinfo_proc` record, and return only its timestamp fields.
     # Apple exports `kp_proc.p_starttime` as a 16-byte timeval at byte 0 and
-    # `kp_proc.p_pid` at byte 40 on both arm64 and x86_64. Requiring the full
-    # 648-byte record (162 uint32 words), the PID anchor, and timeval padding
-    # prevents a short or unrelated prefix from being accepted as identity.
+    # `kp_proc.p_stat` at byte 36 and `kp_proc.p_pid` at byte 40 on both arm64
+    # and x86_64. Requiring the full 648-byte record (162 uint32 words), a live
+    # process state, the PID anchor, and timeval padding prevents a short,
+    # zombie, or unrelated prefix from being accepted as identity.
     local pid="${1:-}"
     /usr/bin/awk -v expected_pid="$pid" '
         {
@@ -1612,8 +1613,11 @@ _cmux_watcher_parent_kernel_fields() {
             # rather than trusting a partial stream, since identity is safety
             # critical and newer kernels may append fields to the record.
             if (malformed || count < 162) exit 1
-            # p_starttime is timeval words 1..4; p_pid is word 11.
-            if (values[11] != expected_pid || values[4] != 0) exit 1
+            # p_starttime is timeval words 1..4, p_stat is the low byte of
+            # word 10, and p_pid is word 11. Darwin states 1..4 are live;
+            # SZOMB is 5 and must not keep a watcher alive.
+            if (values[10] < 1 || values[10] > 4 ||
+                values[11] != expected_pid || values[4] != 0) exit 1
             if (values[1] !~ /^[0-9]+$/ || values[2] !~ /^[0-9]+$/ ||
                 values[3] !~ /^[0-9]+$/ || values[2] != 0 ||
                 values[1] < 1000000000 || values[1] > 3000000000 ||

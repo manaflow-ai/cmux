@@ -45,6 +45,8 @@ KINFO_PROC_WORD_COUNT = 162
 SYNTHETIC_KERNEL_SEC = 1700000000
 SYNTHETIC_KERNEL_USEC = 123456
 SYNTHETIC_KERNEL_TOKEN = "k1700000000123456"
+DARWIN_PROCESS_SLEEPING = 3
+DARWIN_PROCESS_ZOMBIE = 5
 
 
 def synthetic_kernel_record(
@@ -53,6 +55,7 @@ def synthetic_kernel_record(
     sec: int = SYNTHETIC_KERNEL_SEC,
     sec_high: int = 0,
     usec: int = SYNTHETIC_KERNEL_USEC,
+    process_state: int = DARWIN_PROCESS_SLEEPING,
     word_count: int = KINFO_PROC_WORD_COUNT,
     malformed_word: int | None = None,
 ) -> str:
@@ -64,6 +67,8 @@ def synthetic_kernel_record(
         words[1] = str(sec_high)
     if word_count > 2:
         words[2] = str(usec)
+    if word_count > 9:
+        words[9] = str(process_state)
     if word_count > 10:
         words[10] = str(pid)
     if malformed_word is not None and 0 <= malformed_word < word_count:
@@ -175,6 +180,7 @@ def shell_start_time(
 def kernel_stub(
     *,
     sec_high: int = 0,
+    process_state: int = DARWIN_PROCESS_SLEEPING,
     word_count: int = KINFO_PROC_WORD_COUNT,
     malformed_word: int | None = None,
 ) -> str:
@@ -184,6 +190,7 @@ def kernel_stub(
     record = synthetic_kernel_record(
         "$1",
         sec_high=sec_high,
+        process_state=process_state,
         word_count=word_count,
         malformed_word=malformed_word,
     )
@@ -230,7 +237,10 @@ def check_identity_provider_contract(
             'printf "TRUNCATED:%s:%s\\n" "$truncated" "$?"; '
             f'{kernel_stub(malformed_word=20)}'
             'malformed="$(_cmux_watcher_parent_start_time "$$" kernel)"; '
-            'printf "MALFORMED_RECORD:%s:%s\\n" "$malformed" "$?"'
+            'printf "MALFORMED_RECORD:%s:%s\\n" "$malformed" "$?"; '
+            f'{kernel_stub(process_state=DARWIN_PROCESS_ZOMBIE)}'
+            'zombie="$(_cmux_watcher_parent_start_time "$$" kernel)"; '
+            'printf "ZOMBIE:%s:%s\\n" "$zombie" "$?"'
         )
         layout = run_shell(shell_argv, layout_script, [str(integration)], env)
         if f"LAYOUT:{SYNTHETIC_KERNEL_TOKEN}" not in layout.stdout:
@@ -241,6 +251,8 @@ def check_identity_provider_contract(
             fail(f"[{name}] truncated kern.proc.pid record did not fail closed: {layout.stdout!r}")
         if "MALFORMED_RECORD::1" not in layout.stdout:
             fail(f"[{name}] malformed kern.proc.pid record did not fail closed: {layout.stdout!r}")
+        if "ZOMBIE::1" not in layout.stdout:
+            fail(f"[{name}] zombie kern.proc.pid record did not fail closed: {layout.stdout!r}")
 
         kernel = real_kernel or SYNTHETIC_KERNEL_TOKEN
         if real_kernel and (len(real_kernel) != 17 or not real_kernel.startswith("k") or not real_kernel[1:].isdigit()):
