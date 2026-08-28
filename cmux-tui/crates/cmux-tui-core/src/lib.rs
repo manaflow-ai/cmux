@@ -26,6 +26,7 @@ mod resource_api;
 mod resource_mutation;
 mod resource_router;
 mod resource_selector;
+mod screen_detect;
 mod short_id;
 mod sidebar_resource;
 mod surface;
