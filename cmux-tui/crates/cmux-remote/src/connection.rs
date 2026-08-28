@@ -502,7 +502,11 @@ impl ClientConnection {
         }
         let previous_state = self.diagnostics_state();
         self.set_diagnostics_state(ConnectionState::Reconnecting);
-        let result = self.reconnect_once(group).await;
+        let mut close_state = self.close_state.subscribe();
+        let result = tokio::select! {
+            _ = close_state.changed() => Err(ConnectionError::Closed),
+            result = self.reconnect_once(group) => result,
+        };
         // Explicit route replacement preserves the previously published
         // carrier when setup or replay of the candidate fails.
         if !self.closed.load(Ordering::Acquire) {
@@ -691,14 +695,17 @@ impl ClientConnection {
                             last: error.to_string(),
                         });
                     }
-                    if let Some(source) = &self.reconnect_groups
-                        && let Some(next) = resolve_reconnect_group(
-                            source.as_ref(),
-                            self.config.reconnect.attempt_timeout,
-                        )
-                        .await
-                    {
-                        group = next;
+                    if let Some(source) = &self.reconnect_groups {
+                        let next = tokio::select! {
+                            _ = close_state.changed() => return Err(ConnectionError::Closed),
+                            next = resolve_reconnect_group(
+                                source.as_ref(),
+                                self.config.reconnect.attempt_timeout,
+                            ) => next,
+                        };
+                        if let Some(next) = next {
+                            group = next;
+                        }
                     }
                     let retry_delay = self.config.reconnect.retry_delay(delay);
                     tokio::select! {
