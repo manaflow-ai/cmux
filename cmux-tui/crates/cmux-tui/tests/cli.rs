@@ -4153,6 +4153,11 @@ impl PipeIoRelay {
         self.stdin.as_mut().unwrap().write_all(line.as_bytes()).unwrap();
     }
 
+    fn send_claim(&mut self) {
+        let line = format!("{}\n", serde_json::json!({ "claim": { "geometry": true } }));
+        self.stdin.as_mut().unwrap().write_all(line.as_bytes()).unwrap();
+    }
+
     fn stdout_text(&self) -> String {
         String::from_utf8_lossy(&self.stdout.lock().unwrap()).into_owned()
     }
@@ -4380,6 +4385,54 @@ fn pipe_io_resize_reaches_the_daemon_pty() {
             relay.stderr_text()
         );
     }
+}
+
+/// Polls `stty size` through `relay` until `needle` (e.g. "30 100") shows,
+/// panicking with both streams on timeout. The daemon acknowledges resizes
+/// before the PTY winsize necessarily lands, hence the poll.
+#[cfg(unix)]
+fn wait_for_stty(relay: &mut PipeIoRelay, needle: &str, what: &str) {
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        relay.send_input(b"stty size\n");
+        let poll_deadline = Instant::now() + Duration::from_secs(2);
+        while Instant::now() < poll_deadline {
+            if relay.stdout_text().contains(needle) {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert!(
+            Instant::now() < deadline,
+            "timed out waiting for {what}\nstdout:\n{}\nstderr:\n{}",
+            relay.stdout_text(),
+            relay.stderr_text()
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn pipe_io_claim_line_reclaims_geometry_authority() {
+    let server = HeadlessServer::start("pipe-io-claim");
+    let terminal = pipe_io_terminal(&server);
+
+    let mut first = PipeIoRelay::start(&server, &terminal, 80, 24);
+    first.send_input(b"printf 'PIPEIO-%s\\n' CLAIM\n");
+    first.wait_for_stdout("PIPEIO-CLAIM", "shell readiness marker");
+
+    // A later attachment claims geometry authority (last claim wins), so
+    // the PTY follows the second relay's smaller grid.
+    let mut second = PipeIoRelay::start(&server, &terminal, 60, 20);
+    second.wait_for_stdout("PIPEIO-CLAIM", "replay on the second relay");
+    wait_for_stty(&mut first, "20 60", "the second attach claim to resize the PTY");
+
+    // The claim line is how an embedder re-asserts authority when its pane
+    // receives user input; the first relay's sizes apply again.
+    first.send_claim();
+    wait_for_stty(&mut first, "24 80", "the reclaim to restore the first relay's grid");
+    first.send_resize(100, 30);
+    wait_for_stty(&mut first, "30 100", "a post-reclaim resize to apply");
 }
 
 #[cfg(unix)]
