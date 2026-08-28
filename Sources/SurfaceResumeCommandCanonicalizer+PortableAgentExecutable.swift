@@ -201,7 +201,7 @@ extension AgentRestoreLaunch {
             + String(command[executableStart...])
         return authorizing(
             leadingShell: String(command[..<executableStart]),
-            routedCommand: routedCommand
+            routedCommand: portableWrapperShellCommand(posixCommand: routedCommand)
         )
     }
 }
