@@ -186,6 +186,34 @@ pub struct NavigationHistory {
     pub entries: Vec<NavigationEntry>,
 }
 
+/// A connection close classification that is safe to pass across crate and
+/// UI boundaries. Transport details stay in the reader's diagnostic stream;
+/// callers receive only this stable recovery message.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CdpCloseReason {
+    EventReceiverClosed,
+    TransportFailure,
+    SocketClosed,
+    EventQueueOverflow,
+    OutboundQueueOverflow,
+    ConnectionClosed,
+    ClientDropped,
+    RuntimeClosed,
+    SurfaceClosed,
+}
+
+impl CdpCloseReason {
+    pub const fn public_message(self) -> &'static str {
+        CDP_CONNECTION_UNAVAILABLE_MESSAGE
+    }
+}
+
+impl std::fmt::Display for CdpCloseReason {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.public_message())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NavigationResult {
     pub error_text: Option<String>,
@@ -236,7 +264,7 @@ pub enum CdpEvent {
         params: Value,
         session_id: Option<String>,
     },
-    Closed(String),
+    Closed(CdpCloseReason),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -432,13 +460,13 @@ impl EventQueue {
         Ok(())
     }
 
-    fn close(&self, reason: &str) {
+    fn close(&self, reason: CdpCloseReason) {
         let mut state = self.state.lock().unwrap();
         if state.closed {
             return;
         }
         state.events.clear();
-        let event = CdpEvent::Closed(reason.to_string());
+        let event = CdpEvent::Closed(reason);
         let retained_bytes = event_retained_bytes(&event);
         state.retained_bytes = retained_bytes;
         state.events.push_back(QueuedEvent { event, retained_bytes });
@@ -518,7 +546,7 @@ pub fn event_retained_bytes(event: &CdpEvent) -> usize {
             .len()
             .saturating_add(json_retained_bytes(params))
             .saturating_add(session_id.as_ref().map_or(0, String::len)),
-        CdpEvent::Closed(reason) => reason.len(),
+        CdpEvent::Closed(reason) => reason.public_message().len(),
     }
 }
 
@@ -543,7 +571,7 @@ fn json_retained_bytes(value: &Value) -> usize {
 
 impl Drop for Inner {
     fn drop(&mut self) {
-        self.events.close("CDP client dropped");
+        self.events.close(CdpCloseReason::ClientDropped);
     }
 }
 
@@ -1480,14 +1508,14 @@ fn reader_loop(
     loop {
         let Some(inner) = weak.upgrade() else { break };
         if inner.events.drain_into(event_output).is_err() {
-            close_inner(&inner, "CDP event receiver closed");
+            close_inner(&inner, CdpCloseReason::EventReceiverClosed);
             break;
         }
         if inner.closed.load(Ordering::Acquire) {
             break;
         }
         if let Err(err) = drain_outbound(&inner, &mut ws, outbound) {
-            close_inner(&inner, &format!("CDP socket error: {err}"));
+            close_inner_with_detail(&inner, CdpCloseReason::TransportFailure, err);
             break;
         }
         let message = ws.read();
@@ -1499,7 +1527,7 @@ fn reader_loop(
                 }
             }
             Ok(Message::Close(_)) => {
-                close_inner(&inner, "CDP socket closed");
+                close_inner(&inner, CdpCloseReason::SocketClosed);
                 let _ = inner.events.drain_into(event_output);
                 break;
             }
@@ -1513,7 +1541,7 @@ fn reader_loop(
                 continue;
             }
             Err(e) => {
-                close_inner(&inner, &format!("CDP socket error: {e}"));
+                close_inner_with_detail(&inner, CdpCloseReason::TransportFailure, e);
                 let _ = inner.events.drain_into(event_output);
                 break;
             }
@@ -1849,7 +1877,7 @@ fn main_frame_same_document_navigation(
 
 fn dispatch_event(inner: &Arc<Inner>, event: CdpEvent) {
     if inner.events.push(event).is_err() {
-        close_inner(inner, "CDP event queue overflow");
+        close_inner(inner, CdpCloseReason::EventQueueOverflow);
     }
 }
 
@@ -1873,14 +1901,14 @@ fn ack_screencast_frame(
         // Keep queue and protocol details out of stderr. The close event
         // carries the stable recovery message to callers.
         report(CDP_ACK_REJECTED_DIAGNOSTIC);
-        close_inner(inner, CDP_CONNECTION_UNAVAILABLE_MESSAGE);
+        close_inner(inner, CdpCloseReason::OutboundQueueOverflow);
         return;
     }
     if let Err(error) = inner.outbound.try_send(Outbound::Message(text)) {
         outbound_bytes_sub(inner, outbound_bytes(&error));
         let reason = match error {
-            TrySendError::Full(_) => "CDP outbound queue overflow",
-            TrySendError::Disconnected(_) => "CDP connection is closed",
+            TrySendError::Full(_) => CdpCloseReason::OutboundQueueOverflow,
+            TrySendError::Disconnected(_) => CdpCloseReason::ConnectionClosed,
         };
         close_inner(inner, reason);
     }
@@ -1999,14 +2027,26 @@ fn target_created(params: &Value) -> Option<TargetCreated> {
     })
 }
 
-fn close_inner(inner: &Arc<Inner>, why: &str) {
+fn close_inner(inner: &Arc<Inner>, reason: CdpCloseReason) {
     if inner.closed.swap(true, Ordering::AcqRel) {
         return;
     }
+    let message = reason.public_message();
     for (_, pending) in inner.pending.lock().unwrap().drain() {
-        let _ = pending.response.send(Err(why.to_string()));
+        let _ = pending.response.send(Err(message.to_string()));
     }
-    inner.events.close(why);
+    inner.events.close(reason);
+}
+
+fn close_inner_with_detail<D: std::fmt::Display>(
+    inner: &Arc<Inner>,
+    reason: CdpCloseReason,
+    _detail: D,
+) {
+    // Keep transport diagnostics out of the public error and event channels.
+    // The detail is intentionally not formatted here because websocket
+    // errors can contain endpoint URLs and server-provided text.
+    close_inner(inner, reason);
 }
 
 struct WsEndpoint {
@@ -2288,7 +2328,11 @@ mod tests {
             PendingCall { response: response_tx, frame_barrier: None },
         );
 
-        close_inner(&inner, "CDP socket error: ws://secret.example/devtools/browser/token");
+        close_inner_with_detail(
+            &inner,
+            CdpCloseReason::TransportFailure,
+            "CDP socket error: ws://secret.example/devtools/browser/token",
+        );
 
         assert_eq!(
             response_rx.recv().unwrap().unwrap_err(),

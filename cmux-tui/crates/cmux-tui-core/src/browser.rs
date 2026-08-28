@@ -5,8 +5,8 @@ use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::time::{Duration, Instant};
 
 use cmux_tui_cdp::{
-    CDP_EVENT_QUEUE_CAPACITY, CapturedFrame, CdpClient, CdpEvent, CdpKeyEvent, Chrome, FrameEpoch,
-    TargetCreated, resolve_browser_ws_url,
+    CDP_EVENT_QUEUE_CAPACITY, CapturedFrame, CdpClient, CdpCloseReason, CdpEvent, CdpKeyEvent,
+    Chrome, FrameEpoch, TargetCreated, resolve_browser_ws_url,
 };
 
 use crate::browser_provider::{BrowserProviderAuthentication, BrowserProviderTargetLease};
@@ -648,7 +648,7 @@ impl SurfaceRoute {
         if state.events.len() >= CDP_EVENT_QUEUE_CAPACITY
             || event_bytes > cmux_tui_cdp::CDP_EVENT_QUEUE_MAX_BYTES - state.retained_bytes
         {
-            fail_surface_route(&mut state, "CDP surface event queue overflow");
+            fail_surface_route(&mut state, CdpCloseReason::EventQueueOverflow);
             self.ready.notify_one();
             return true;
         }
@@ -672,12 +672,12 @@ impl SurfaceRoute {
         }
     }
 
-    fn close(&self, reason: String) {
+    fn close(&self, reason: CdpCloseReason) {
         let mut state = self.state.lock().unwrap();
         if state.closed {
             return;
         }
-        fail_surface_route(&mut state, &reason);
+        fail_surface_route(&mut state, reason);
         self.ready.notify_one();
     }
 
@@ -695,9 +695,9 @@ impl SurfaceRoute {
     }
 }
 
-fn fail_surface_route(state: &mut SurfaceRouteState, reason: &str) {
+fn fail_surface_route(state: &mut SurfaceRouteState, reason: CdpCloseReason) {
     state.events.clear();
-    let event = CdpEvent::Closed(reason.to_string());
+    let event = CdpEvent::Closed(reason);
     let retained_bytes = cmux_tui_cdp::event_retained_bytes(&event);
     state.retained_bytes = retained_bytes;
     state.events.push_back(QueuedSurfaceEvent { event, retained_bytes });
@@ -906,7 +906,7 @@ impl BrowserRuntime {
         let mut routes = self.routes.lock().unwrap();
         if self.closed.load(Ordering::Acquire) {
             drop(routes);
-            route.close("browser runtime closed".to_string());
+            route.close(CdpCloseReason::RuntimeClosed);
             return route;
         }
         routes.by_session.insert(session_id.to_string(), route.clone());
@@ -923,7 +923,7 @@ impl BrowserRuntime {
             by_session.or(by_target)
         };
         if let Some(route) = route {
-            route.close("browser surface closed".to_string());
+            route.close(CdpCloseReason::SurfaceClosed);
         }
     }
 
@@ -958,7 +958,7 @@ impl BrowserRuntime {
     }
 
     pub fn shutdown(&self) {
-        close_browser_runtime(self, "browser runtime shut down".to_string());
+        close_browser_runtime(self, CdpCloseReason::RuntimeClosed);
         let _ = self.client.flush_outbound(Duration::from_secs(1));
         if let Some(chrome) = &self.chrome {
             chrome.kill();
@@ -1278,13 +1278,13 @@ fn start_router(runtime: Weak<BrowserRuntime>, events: Receiver<CdpEvent>) -> an
             }
         }
         if let Some(runtime) = runtime.upgrade() {
-            close_browser_runtime(&runtime, "CDP event channel closed".to_string());
+            close_browser_runtime(&runtime, CdpCloseReason::EventReceiverClosed);
         }
     })?;
     Ok(())
 }
 
-fn close_browser_runtime(runtime: &BrowserRuntime, reason: String) {
+fn close_browser_runtime(runtime: &BrowserRuntime, reason: CdpCloseReason) {
     let senders = {
         let mut routes = runtime.routes.lock().unwrap();
         runtime.closed.store(true, Ordering::Release);
@@ -1294,7 +1294,7 @@ fn close_browser_runtime(runtime: &BrowserRuntime, reason: String) {
         senders
     };
     for tx in senders {
-        tx.close(reason.clone());
+        tx.close(reason);
     }
 }
 
@@ -1460,7 +1460,8 @@ fn start_surface_thread(
                             && let Some(mux) = mux.upgrade()
                         {
                             mux.emit(MuxEvent::Status(format!(
-                                "cmux-browser provider disconnected: {reason}; waiting to reconnect"
+                                "cmux-browser provider disconnected: {}; waiting to reconnect",
+                                reason.public_message()
                             )));
                             mux.emit(MuxEvent::SurfaceOutput(id));
                             mux.restart_provider_browser_surface(surface.clone());
@@ -6364,7 +6365,7 @@ mod tests {
         runtime.shutdown();
         server.join().unwrap();
         if events.is_err() {
-            cleanup_route.close("test cleanup".to_string());
+            cleanup_route.close(CdpCloseReason::SurfaceClosed);
         }
         waiter.join().unwrap();
         let (first, second) = events.expect("unregister left surface route blocked");
@@ -6451,7 +6452,7 @@ mod tests {
         )
         .unwrap();
 
-        route.close("CDP surface event queue overflow".to_string());
+        route.close(CdpCloseReason::EventQueueOverflow);
         closed_rx
             .recv_timeout(Duration::from_secs(1))
             .expect("closed surface route did not close its CDP target");
@@ -8115,7 +8116,7 @@ mod tests {
         );
         assert!(!browser.take_dirty(), "a rejected frame must not mark the surface dirty");
 
-        route.close("test cleanup".to_string());
+        route.close(CdpCloseReason::SurfaceClosed);
     }
 
     #[test]
