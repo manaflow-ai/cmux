@@ -468,6 +468,7 @@
     "aboutTitle": "About cmux",
     "aboutBody": "cmux is an open-source native macOS terminal built on Ghostty. Vertical tabs, notification rings when agents need attention, split panes, and a CLI for programmability.",
     "applyAriaLabel": "Apply for a founding engineer role by email",
+    "applyEmailSubject": "Founding Engineer at cmux",
     "applyCta": "Email founders@manaflow.com",
     "applyEyebrow": "Interested?",
     "applyTitle": "Come build with us.",

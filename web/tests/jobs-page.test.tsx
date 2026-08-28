@@ -65,7 +65,9 @@ describe("jobs page", () => {
     expect(html).toContain("San Francisco");
     expect(html).toContain("About cmux");
     expect(html).toContain(
-      'href="mailto:founders@manaflow.com?subject=Founding%20Engineer%20at%20cmux"',
+      `href="mailto:founders@manaflow.com?subject=${encodeURIComponent(
+        enMessages.jobs.applyEmailSubject,
+      )}"`,
     );
     expect(html).toContain("focus-visible:outline-2");
     expect(html).toContain('aria-labelledby="jobs-title"');
@@ -80,6 +82,9 @@ describe("jobs page", () => {
     expect(html).toContain("数十万人の開発者が");
     expect(html).toContain("$130k〜$170k + 株式 0.5%〜1.5%");
     expect(html).toContain("founders@manaflow.com にメールする");
+    expect(html).toContain(
+      `subject=${encodeURIComponent(jaMessages.jobs.applyEmailSubject)}`,
+    );
     expect(html).not.toContain("What you'll do");
   });
 

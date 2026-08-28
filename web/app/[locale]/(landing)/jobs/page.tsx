@@ -14,8 +14,6 @@ import {
 } from "@/i18n/seo";
 
 const path = "/jobs";
-const applyHref =
-  "mailto:founders@manaflow.com?subject=Founding%20Engineer%20at%20cmux";
 const focusRingClass =
   "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-foreground";
 
@@ -56,6 +54,9 @@ export default function JobsPage() {
   const t = useTranslations("jobs");
   const whatYoullDo = t.raw("whatYoullDoItems") as string[];
   const whoWereLookingFor = t.raw("whoWereLookingForItems") as string[];
+  const applyHref = `mailto:founders@manaflow.com?subject=${encodeURIComponent(
+    t("applyEmailSubject"),
+  )}`;
 
   return (
     <div className="min-h-screen">
