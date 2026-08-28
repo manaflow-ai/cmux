@@ -51,7 +51,6 @@ impl Listener for AdmissionListener {
                 .expect("relay admission semaphore cannot close while its listener exists");
             match self.inner.accept().await {
                 Ok((stream, address)) => {
-                    retry_attempt = 0;
                     let _ = stream.set_nodelay(true);
                     return (
                         AdmissionStream::new(
