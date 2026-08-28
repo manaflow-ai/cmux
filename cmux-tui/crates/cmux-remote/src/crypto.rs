@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Duration;
 
 use async_trait::async_trait;
 use base64::Engine;
@@ -22,6 +23,9 @@ const NOISE_TAG_BYTES: usize = 16;
 const NOISE_NONCE_BYTES: usize = 8;
 pub(crate) const SECURE_FRAME_OVERHEAD_BYTES: usize = NOISE_TAG_BYTES + NOISE_NONCE_BYTES;
 const HANDSHAKE_PAYLOAD_MAX: usize = 16 * 1024;
+/// Bounds closing a link whose handshake deadline expired; the peer already
+/// proved unresponsive, so a graceful close may never be acknowledged.
+const HANDSHAKE_TEARDOWN_TIMEOUT: Duration = Duration::from_secs(2);
 
 #[derive(Clone)]
 pub struct StaticIdentity {
@@ -101,6 +105,13 @@ pub struct ClientHandshake {
     pub generation: u64,
     pub connection_attempt: ConnectionAttemptId,
     pub resume: BTreeMap<Lane, u64>,
+    /// Bounds the prelude and Noise exchange of one link, the phase a live
+    /// daemon answers immediately with no human involved. An endpoint that
+    /// accepts the transport and then never speaks (a preview-gateway edge
+    /// whose machine was deleted) fails here instead of holding the
+    /// connection open forever. The post-Noise welcome wait is exempt so an
+    /// invitation may still spend its enrollment-approval window.
+    pub handshake_timeout: Duration,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -387,35 +398,62 @@ pub async fn initiate_secure_link(
     };
     validate_lanes(prelude.lane, &prelude.lanes)?;
     let prelude_bytes = serde_json::to_vec(&prelude).map_err(CryptoError::Json)?;
-    send_bytes(&*link, Bytes::copy_from_slice(&prelude_bytes)).await?;
 
-    let params: NoiseParams = noise_pattern(psk.is_some()).parse().map_err(CryptoError::Noise)?;
-    let mut builder = snow::Builder::new(params)
-        .prologue(&prelude_bytes)
-        .map_err(CryptoError::Noise)?
-        .local_private_key(config.identity.private_key())
-        .map_err(CryptoError::Noise)?;
-    if let Some(psk) = psk {
-        builder = builder.psk(3, psk).map_err(CryptoError::Noise)?;
-    }
-    let mut handshake = builder.build_initiator().map_err(CryptoError::Noise)?;
-    write_handshake(&*link, &mut handshake, &[]).await?;
-    read_handshake(&*link, &mut handshake).await?;
+    // A live daemon answers the prelude and Noise exchange immediately; only
+    // the welcome below may legitimately wait on a human (invitation
+    // approval). Deadline the machine-speed phase so an endpoint that accepts
+    // the transport and then never speaks fails instead of pinning the
+    // connection until the caller's much larger startup budget expires.
+    let handshake_phase = async {
+        send_bytes(&*link, Bytes::copy_from_slice(&prelude_bytes)).await?;
 
-    let remote_static = handshake_remote_static(&handshake)?;
-    if config.expected_daemon.is_some_and(|expected| expected != remote_static) {
-        let _ = link.close().await;
-        return Err(CryptoError::DaemonKeyMismatch {
-            expected: config.expected_daemon.map(|key| public_key_fingerprint(&key)).unwrap(),
-            actual: public_key_fingerprint(&remote_static),
-        });
-    }
+        let params: NoiseParams =
+            noise_pattern(psk.is_some()).parse().map_err(CryptoError::Noise)?;
+        let mut builder = snow::Builder::new(params)
+            .prologue(&prelude_bytes)
+            .map_err(CryptoError::Noise)?
+            .local_private_key(config.identity.private_key())
+            .map_err(CryptoError::Noise)?;
+        if let Some(psk) = psk {
+            builder = builder.psk(3, psk).map_err(CryptoError::Noise)?;
+        }
+        let mut handshake = builder.build_initiator().map_err(CryptoError::Noise)?;
+        write_handshake(&*link, &mut handshake, &[]).await?;
+        read_handshake(&*link, &mut handshake).await?;
 
-    let hello =
-        serde_json::to_vec(&ClientHello { device_name: config.device_name, resume: config.resume })
-            .map_err(CryptoError::Json)?;
-    write_handshake(&*link, &mut handshake, &hello).await?;
-    let transport = handshake.into_stateless_transport_mode().map_err(CryptoError::Noise)?;
+        let remote_static = handshake_remote_static(&handshake)?;
+        if config.expected_daemon.is_some_and(|expected| expected != remote_static) {
+            return Err(CryptoError::DaemonKeyMismatch {
+                expected: config.expected_daemon.map(|key| public_key_fingerprint(&key)).unwrap(),
+                actual: public_key_fingerprint(&remote_static),
+            });
+        }
+
+        let hello = serde_json::to_vec(&ClientHello {
+            device_name: config.device_name,
+            resume: config.resume,
+        })
+        .map_err(CryptoError::Json)?;
+        write_handshake(&*link, &mut handshake, &hello).await?;
+        let transport = handshake.into_stateless_transport_mode().map_err(CryptoError::Noise)?;
+        Ok((transport, remote_static))
+    };
+    let (transport, remote_static) =
+        match tokio::time::timeout(config.handshake_timeout, handshake_phase).await {
+            Ok(Ok(completed)) => completed,
+            Ok(Err(error)) => {
+                if matches!(error, CryptoError::DaemonKeyMismatch { .. }) {
+                    let _ = link.close().await;
+                }
+                return Err(error);
+            }
+            Err(_) => {
+                // Tear the transport down before reporting, bounding a close
+                // that itself needs the dead peer to answer.
+                let _ = tokio::time::timeout(HANDSHAKE_TEARDOWN_TIMEOUT, link.close()).await;
+                return Err(CryptoError::HandshakeTimeout { timeout: config.handshake_timeout });
+            }
+        };
     let secure = secure_link(link, transport, remote_static)?;
     let welcome: ServerWelcome = receive_secure_json(&secure).await?;
     if !welcome.accepted {
@@ -671,6 +709,11 @@ pub enum CryptoError {
     UnexpectedEof,
     DaemonKeyMismatch { expected: String, actual: String },
     Unauthorized(String),
+    /// The peer accepted the transport but did not complete the prelude and
+    /// Noise exchange within the handshake deadline. Terminal, not a carrier
+    /// availability failure: retrying a dial that connects and then stays
+    /// silent would hold the endpoint open forever.
+    HandshakeTimeout { timeout: Duration },
 }
 
 impl fmt::Display for CryptoError {
@@ -693,6 +736,12 @@ impl fmt::Display for CryptoError {
                 write!(formatter, "daemon key mismatch: expected {expected}, got {actual}")
             }
             Self::Unauthorized(message) => write!(formatter, "authorization failed: {message}"),
+            Self::HandshakeTimeout { timeout } => write!(
+                formatter,
+                "secure link handshake timed out after {}ms: the endpoint accepted the \
+                 connection but never completed the cmux remote handshake",
+                timeout.as_millis()
+            ),
         }
     }
 }
@@ -782,6 +831,7 @@ mod tests {
             generation: 0,
             connection_attempt: ConnectionAttemptId([7; 16]),
             resume: BTreeMap::from([(Lane::Interactive, 9)]),
+            handshake_timeout: Duration::from_secs(5),
         }
     }
 

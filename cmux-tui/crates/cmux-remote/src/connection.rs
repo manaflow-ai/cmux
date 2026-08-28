@@ -40,6 +40,10 @@ pub struct ReconnectPolicy {
     pub initial_delay: Duration,
     pub maximum_delay: Duration,
     /// Bound one carrier reattachment, including authentication and replay.
+    /// Also deadlines each link's prelude and Noise exchange on every dial,
+    /// including an invitation dial whose overall budget is the much larger
+    /// enrollment window, so an endpoint that accepts the transport and then
+    /// never speaks fails instead of holding the connection open.
     pub attempt_timeout: Duration,
     /// Randomize each backoff uniformly between zero and its current ceiling.
     pub full_jitter: bool,
@@ -911,6 +915,7 @@ async fn authenticate_one(
             generation: context.generation,
             connection_attempt: context.connection_attempt,
             resume,
+            handshake_timeout: config.reconnect.attempt_timeout,
         },
     )
     .await?;
