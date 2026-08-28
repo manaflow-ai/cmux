@@ -84,9 +84,8 @@ where
 
         if is_value_flag(argument) {
             let value = args.get(index + 1).map(String::as_str);
-            let usable = value.is_some_and(|value| {
-                !value.is_empty() && value != "--" && !value.starts_with('-')
-            });
+            let usable = value
+                .is_some_and(|value| !value.is_empty() && value != "--" && !value.starts_with('-'));
             if !usable {
                 return Err(missing_value(argument));
             }
