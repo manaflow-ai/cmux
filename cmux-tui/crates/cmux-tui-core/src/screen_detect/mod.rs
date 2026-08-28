@@ -248,8 +248,8 @@ mod tests {
     #[test]
     fn screen_detect_tracker_flags_identity_edges_for_immediate_evaluation() {
         let mut tracker = ScreenDetectTracker::default();
-        // Shell pane: no agent, no edge after the first no-agent scan.
-        assert!(tracker.note_foreground_agent("term_a", None));
+        // Shell pane: no agent means no edge, first scan included.
+        assert!(!tracker.note_foreground_agent("term_a", None));
         assert!(!tracker.note_foreground_agent("term_a", None));
         // codex launches: edge fires once, then the identity is steady.
         assert!(tracker.note_foreground_agent("term_a", Some("codex")));
