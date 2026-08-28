@@ -71,6 +71,8 @@ def run_wrapper(
     cli_available: bool = True,
     custom_executable: bool = False,
     path_glob_decoy: bool = False,
+    amp_available: bool = True,
+    workspace_only: bool = False,
 ) -> WrapperResult:
     with tempfile.TemporaryDirectory(prefix="cmux-amp-wrapper-test-") as td:
         tmp = Path(td)
@@ -98,9 +100,10 @@ def run_wrapper(
             os.mkfifo(installer_gate)
 
         real_amp = (custom_dir if custom_executable else real_dir) / "amp"
-        make_executable(
-            real_amp,
-            """#!/usr/bin/env bash
+        if amp_available:
+            make_executable(
+                real_amp,
+                """#!/usr/bin/env bash
 set -euo pipefail
 : > "$FAKE_REAL_ARGS_LOG"
 printf '%s\\0' "$@" >> "$FAKE_REAL_ARGS_LOG"
@@ -119,7 +122,7 @@ printf '%s\\0' "$@" >> "$FAKE_REAL_ARGS_LOG"
   printf 'REAL_PID=%s\\n' "$$"
 } > "$FAKE_REAL_ENV_LOG"
 """,
-        )
+            )
         glob_path_entry = tmp / "amp-path-*"
         if path_glob_decoy:
             decoy_directory = tmp / "amp-path-decoy"
@@ -155,11 +158,19 @@ exit "${FAKE_INSTALLER_EXIT_CODE:-0}"
         path_entries = [str(shim_dir)]
         if path_glob_decoy:
             path_entries.append(str(glob_path_entry))
-        path_entries.extend([str(real_dir), env.get("PATH", "/usr/bin:/bin")])
+        if amp_available:
+            path_entries.append(str(real_dir))
+        else:
+            path_entries.append(str(tmp / "empty-bin"))
+        # Keep the fixture hermetic: a developer machine may have an unrelated
+        # `amp` executable on PATH that would bypass the missing-agent case (or
+        # block the wrapper while the test is waiting for its child).
+        path_entries.append("/usr/bin:/bin")
         env["PATH"] = os.pathsep.join(path_entries)
         env["CMUX_BUNDLED_CLI_PATH"] = str(bundled_cli)
         env["CMUX_AMP_WRAPPER_SHIM"] = str(shim)
         env["CMUX_AMP_WRAPPER_SHIM_ROOT"] = str(shim_dir)
+        env.pop("CMUX_CUSTOM_AMP_PATH", None)
         env["CMUX_AGENT_RESTORE_LAUNCH"] = "amp:T-old-thread"
         env["CMUX_AGENT_RESUME_LAUNCH"] = "1"
         env["AMP_API_KEY"] = "amp-secret-must-not-reach-installer"
@@ -175,9 +186,10 @@ exit "${FAKE_INSTALLER_EXIT_CODE:-0}"
         if installer_blocks:
             env["FAKE_INSTALLER_GATE"] = str(installer_gate)
         if in_cmux:
-            env["CMUX_SURFACE_ID"] = "11111111-1111-1111-1111-111111111111"
             env["CMUX_WORKSPACE_ID"] = "22222222-2222-2222-2222-222222222222"
             env["CMUX_SOCKET_PATH"] = socket_path
+            if not workspace_only:
+                env["CMUX_SURFACE_ID"] = "11111111-1111-1111-1111-111111111111"
         else:
             for key in ("CMUX_SURFACE_ID", "CMUX_WORKSPACE_ID", "CMUX_SOCKET_PATH"):
                 env.pop(key, None)
@@ -316,6 +328,27 @@ def test_path_globs_do_not_redirect_amp_resolution(failures: list[str]) -> None:
     )
 
 
+def test_missing_amp_reports_generic_recovery_error(failures: list[str]) -> None:
+    result = run_wrapper(["--help"], amp_available=False)
+    expect(result.returncode == 127, f"missing Amp: unexpected exit {result.returncode}", failures)
+    expect(
+        result.stderr == "Unable to start the configured agent. Check that it is installed and available.",
+        f"missing Amp: leaked implementation detail in stderr: {result.stderr!r}",
+        failures,
+    )
+
+
+def test_workspace_only_launch_installs_hooks(failures: list[str]) -> None:
+    result = run_wrapper(["--mode", "smart"], workspace_only=True)
+    expect(result.returncode == 0, f"workspace-only: wrapper exited {result.returncode}: {result.stderr}", failures)
+    expect(
+        result.cmux_calls == [["hooks", "amp", "install", "--yes"]]
+        or result.cmux_calls == [["--socket", result.socket_path, "hooks", "amp", "install", "--yes"]],
+        f"workspace-only: hooks were not installed: {result.cmux_calls}",
+        failures,
+    )
+
+
 def main() -> int:
     failures: list[str] = []
     if not SOURCE_WRAPPER.is_file():
@@ -326,6 +359,8 @@ def main() -> int:
         test_installer_failures_never_block_amp(failures)
         test_stalled_installer_is_bounded(failures)
         test_path_globs_do_not_redirect_amp_resolution(failures)
+        test_missing_amp_reports_generic_recovery_error(failures)
+        test_workspace_only_launch_installs_hooks(failures)
 
     if failures:
         print("FAIL: Amp launches do not reliably activate the cmux session extension")
