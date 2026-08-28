@@ -1309,6 +1309,8 @@ pub(crate) struct MutationFailure {
     pub(crate) recovery_path: Option<PathBuf>,
 }
 
+type MutationResult<T> = Result<T, Box<MutationFailure>>;
+
 impl MutationFailure {
     fn unchanged(error: RpcError) -> Self {
         Self { error, outcome: MutationOutcome::Unchanged, recovery_path: None }
@@ -1339,8 +1341,8 @@ impl MutationProgress {
         self.recovery_path = None;
     }
 
-    fn fail(self, error: RpcError) -> MutationFailure {
-        MutationFailure { error, outcome: self.outcome, recovery_path: self.recovery_path }
+    fn fail(self, error: RpcError) -> Box<MutationFailure> {
+        Box::new(MutationFailure { error, outcome: self.outcome, recovery_path: self.recovery_path })
     }
 }
 
@@ -1353,7 +1355,7 @@ pub(crate) async fn write_bytes_locked(
 ) -> Result<String, RpcError> {
     write_bytes_locked_with_outcome(root, path, bytes, precondition, create_parents)
         .await
-        .map_err(|failure| failure.error)
+        .map_err(|failure| (*failure).error)
 }
 
 pub(crate) async fn write_bytes_locked_with_outcome(
@@ -1362,7 +1364,7 @@ pub(crate) async fn write_bytes_locked_with_outcome(
     bytes: &[u8],
     precondition: &FilePrecondition,
     create_parents: bool,
-) -> Result<String, MutationFailure> {
+) -> MutationResult<String> {
     write_bytes_locked_with_mode_and_outcome(root, path, bytes, precondition, create_parents, None)
         .await
 }
@@ -1374,12 +1376,12 @@ pub(crate) async fn write_bytes_locked_with_mode_and_outcome(
     precondition: &FilePrecondition,
     create_parents: bool,
     mode: Option<u32>,
-) -> Result<String, MutationFailure> {
+) -> MutationResult<String> {
     if bytes.len() > MAX_WRITE_BYTES {
-        return Err(MutationFailure::unchanged(RpcError::new(
+        return Err(Box::new(MutationFailure::unchanged(RpcError::new(
             "resource-exhausted",
             format!("write exceeds {MAX_WRITE_BYTES} bytes"),
-        )));
+        ))));
     }
     #[cfg(unix)]
     {
@@ -1396,8 +1398,8 @@ pub(crate) async fn write_bytes_locked_with_mode_and_outcome(
             )
         })
         .await
-        .map_err(|error| MutationFailure::unchanged(blocking_task_error(error)))?
-        .map_err(MutationFailure::unchanged)?;
+        .map_err(|error| Box::new(MutationFailure::unchanged(blocking_task_error(error))))?
+        .map_err(|error| Box::new(MutationFailure::unchanged(error)))?;
         #[cfg(test)]
         pause_at_mutation_test_barrier(root, path, MutationTestPoint::AfterPrecondition).await;
         let bytes = bytes.to_vec();
@@ -1407,26 +1409,26 @@ pub(crate) async fn write_bytes_locked_with_mode_and_outcome(
             (result, progress)
         })
         .await
-        .map_err(|error| MutationFailure::unknown(blocking_task_error(error)))?;
+        .map_err(|error| Box::new(MutationFailure::unknown(blocking_task_error(error))))?;
         result.map_err(|error| progress.fail(error))
     }
     #[cfg(not(unix))]
     {
         if mode.is_some() {
-            return Err(MutationFailure::unchanged(RpcError::new(
+            return Err(Box::new(MutationFailure::unchanged(RpcError::new(
                 "unsupported-platform",
                 "workspace file modes require Unix descriptor-relative file operations",
-            )));
+            ))));
         }
         if !matches!(precondition, FilePrecondition::Any) {
-            return Err(MutationFailure::unchanged(RpcError::new(
+            return Err(Box::new(MutationFailure::unchanged(RpcError::new(
                 "unsupported-platform",
                 "guarded workspace writes require Unix descriptor-relative file operations",
-            )));
+            ))));
         }
         write_bytes_locked_path(root, path, bytes, precondition, create_parents)
             .await
-            .map_err(MutationFailure::unknown)
+            .map_err(|error| Box::new(MutationFailure::unknown(error)))
     }
 }
 
@@ -1527,14 +1529,14 @@ pub(crate) async fn remove_file_precondition_locked(
 ) -> Result<(), RpcError> {
     remove_file_precondition_locked_with_outcome(root, path, precondition)
         .await
-        .map_err(|failure| failure.error)
+        .map_err(|failure| (*failure).error)
 }
 
 pub(crate) async fn remove_file_precondition_locked_with_outcome(
     root: &WorkspaceRoot,
     path: &str,
     precondition: &FilePrecondition,
-) -> Result<(), MutationFailure> {
+) -> MutationResult<()> {
     #[cfg(unix)]
     {
         let root_handle = root.unix_root();
@@ -1544,8 +1546,8 @@ pub(crate) async fn remove_file_precondition_locked_with_outcome(
             prepare_unix_remove(root_handle, prepared_path, prepared_precondition)
         })
         .await
-        .map_err(|error| MutationFailure::unchanged(blocking_task_error(error)))?
-        .map_err(MutationFailure::unchanged)?;
+        .map_err(|error| Box::new(MutationFailure::unchanged(blocking_task_error(error))))?
+        .map_err(|error| Box::new(MutationFailure::unchanged(error)))?;
         #[cfg(test)]
         pause_at_mutation_test_barrier(root, path, MutationTestPoint::AfterPrecondition).await;
         let (result, progress) = tokio::task::spawn_blocking(move || {
@@ -1554,20 +1556,20 @@ pub(crate) async fn remove_file_precondition_locked_with_outcome(
             (result, progress)
         })
         .await
-        .map_err(|error| MutationFailure::unknown(blocking_task_error(error)))?;
+        .map_err(|error| Box::new(MutationFailure::unknown(blocking_task_error(error))))?;
         result.map_err(|error| progress.fail(error))
     }
     #[cfg(not(unix))]
     {
         if !matches!(precondition, FilePrecondition::Any) {
-            return Err(MutationFailure::unchanged(RpcError::new(
+            return Err(Box::new(MutationFailure::unchanged(RpcError::new(
                 "unsupported-platform",
                 "guarded workspace removals require Unix descriptor-relative file operations",
-            )));
+            ))));
         }
         remove_file_precondition_locked_path(root, path, precondition)
             .await
-            .map_err(MutationFailure::unknown)
+            .map_err(|error| Box::new(MutationFailure::unknown(error)))
     }
 }
 
