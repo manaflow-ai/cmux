@@ -1757,7 +1757,12 @@ function useRenderDiff(
         }
         const empty = error instanceof DiffTransportError && error.code === "emptyDiff";
         if (!empty) {
-          console.error("cmux diff viewer render failed", error);
+          // Error objects JSON.stringify to {} in the native console mirror,
+          // so serialize the message and stack explicitly.
+          console.error(
+            "cmux diff viewer render failed",
+            String((error as any)?.stack ?? (error as any)?.message ?? error),
+          );
         }
         const emptyMessage = typeof payload.emptyMessage === "string" ? payload.emptyMessage : label("noFileDiffs");
         dispatch({

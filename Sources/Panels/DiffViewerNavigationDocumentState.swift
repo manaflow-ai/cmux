@@ -18,6 +18,14 @@ final class DiffViewerNavigationDocumentState {
         documentConfirmed && rendererReady
     }
 
+#if DEBUG
+    var debugStateDescription: String {
+        "document=\(documentConfirmed ? 1 : 0) focus=\(focusConfirmed ? 1 : 0) " +
+            "editable=\(editableFocused ? 1 : 0) ready=\(rendererReady ? 1 : 0) " +
+            "provisional=\(provisionalNavigation == nil ? 0 : 1)"
+    }
+#endif
+
     func update(viewer: Bool, editable: Bool, rendererReady: Bool) {
         documentConfirmed = viewer
         focusConfirmed = true

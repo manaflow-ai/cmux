@@ -444,6 +444,12 @@ final class CmuxWebView: WKWebView {
         fallback: @escaping @MainActor () -> Void
     ) {
         guard isDiffViewerFindOwner else {
+#if DEBUG
+            cmuxDebugLog(
+                "diffViewer.find.fallback action=\(action.rawValue) " +
+                    "state={\(diffViewerDocumentState.debugStateDescription)}"
+            )
+#endif
             fallback()
             return
         }
@@ -456,6 +462,12 @@ final class CmuxWebView: WKWebView {
     }
 
     func diffViewerFocusStateDidChange(viewer: Bool, editable: Bool, rendererReady: Bool) {
+#if DEBUG
+        cmuxDebugLog(
+            "diffViewer.focusState viewer=\(viewer ? 1 : 0) editable=\(editable ? 1 : 0) " +
+                "ready=\(rendererReady ? 1 : 0)"
+        )
+#endif
         diffViewerDocumentState.update(viewer: viewer, editable: editable, rendererReady: rendererReady)
         if !viewer || editable {
             diffViewerNavigationKeyRouter.reset()
