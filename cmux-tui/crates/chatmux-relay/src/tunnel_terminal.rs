@@ -936,6 +936,7 @@ mod tests {
 
     struct FakeDeps {
         spawned: Arc<StdMutex<Vec<FakePty>>>,
+        banner: Option<Vec<u8>>,
     }
 
     #[async_trait]
@@ -943,7 +944,11 @@ mod tests {
         async fn spawn_pty(&self, _spec: SpawnSpec) -> PtyHandle {
             let pty = FakePty { state: Arc::new(StdMutex::new(FakeState::default())) };
             self.spawned.lock().unwrap().push(pty.clone());
-            PtyHandle { control: Arc::new(pty.clone()), output: Arc::new(pty), banner: None }
+            PtyHandle {
+                control: Arc::new(pty.clone()),
+                output: Arc::new(pty),
+                banner: self.banner.clone(),
+            }
         }
         async fn resolve_cmux_tui(&self) -> Option<CmuxTui> {
             None
@@ -983,9 +988,9 @@ mod tests {
         generation: watch::Sender<u64>,
     }
 
-    async fn rig_with_limits(max_ptys: usize) -> Rig {
+    async fn rig_with_limits_and_banner(max_ptys: usize, banner: Option<Vec<u8>>) -> Rig {
         let spawned = Arc::new(StdMutex::new(Vec::new()));
-        let deps = Arc::new(FakeDeps { spawned: Arc::clone(&spawned) });
+        let deps = Arc::new(FakeDeps { spawned: Arc::clone(&spawned), banner });
         let env = HashMap::from([
             ("SHELL".to_owned(), "/bin/fakesh".to_owned()),
             ("HOME".to_owned(), std::env::temp_dir().to_string_lossy().into_owned()),
@@ -1019,6 +1024,14 @@ mod tests {
         .await
         .expect("bind test listener");
         Rig { manager, spawned, port, cancel, generation }
+    }
+
+    async fn rig_with_limits(max_ptys: usize) -> Rig {
+        rig_with_limits_and_banner(max_ptys, None).await
+    }
+
+    async fn rig_with_start_banner(banner: &[u8]) -> Rig {
+        rig_with_limits_and_banner(8, Some(banner.to_vec())).await
     }
 
     async fn rig() -> Rig {
@@ -1364,6 +1377,41 @@ mod tests {
         let reopened = control_json(&next_frame(&mut read, &mut decoder, &mut queue).await);
         assert_eq!(reopened["t"], "opened");
         assert_eq!(reopened["created"], false);
+        rig.cancel.cancel();
+    }
+
+    #[tokio::test]
+    async fn tunnel_open_replays_start_output_without_deadlocking() {
+        let rig = rig_with_start_banner(b"startup").await;
+        let stream = connect(&rig).await;
+        let (mut read, mut write) = stream.into_split();
+        let mut decoder = TunnelFrameDecoder::new(MAX_TUNNEL_FRAME_BYTES);
+        let mut queue = Vec::new();
+        write
+            .write_all(
+                &encode_control_frame(&json!({ "t": "open", "cols": 80, "rows": 24 })).unwrap(),
+            )
+            .await
+            .unwrap();
+
+        let opened = tokio::time::timeout(
+            Duration::from_secs(1),
+            next_frame(&mut read, &mut decoder, &mut queue),
+        )
+        .await
+        .expect("tunnel open must not deadlock while starting output");
+        assert_eq!(control_json(&opened)["t"], "opened");
+
+        let output = tokio::time::timeout(
+            Duration::from_secs(1),
+            next_frame(&mut read, &mut decoder, &mut queue),
+        )
+        .await
+        .expect("startup output must be delivered");
+        assert_eq!(output.kind, FRAME_KIND_PTY);
+        assert_eq!(output.payload, b"startup");
+
+        drop(write);
         rig.cancel.cancel();
     }
 
