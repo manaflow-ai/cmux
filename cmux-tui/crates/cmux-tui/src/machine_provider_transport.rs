@@ -875,7 +875,7 @@ mod tests {
             "{}::command_connector_does_not_inherit_provider_capability_secrets",
             module_path!()
         );
-        let output = std::process::Command::new(
+        let output = Command::new(
             std::env::current_exe().expect("locate provider environment test binary"),
         )
         .arg("--exact")
