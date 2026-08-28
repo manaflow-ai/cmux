@@ -695,8 +695,9 @@ impl ClientConnection {
                         && let Some(next) = resolve_reconnect_group(
                             source.as_ref(),
                             self.config.reconnect.attempt_timeout,
+                            &mut close_state,
                         )
-                        .await
+                        .await?
                     {
                         group = next;
                     }
@@ -780,11 +781,14 @@ impl ClientConnection {
 async fn resolve_reconnect_group(
     source: &dyn ReconnectGroupSource,
     reconnect_attempt_timeout: Duration,
-) -> Option<Arc<dyn LinkGroup>> {
-    tokio::time::timeout(source.resolution_timeout(reconnect_attempt_timeout), source.next_group())
-        .await
-        .ok()?
-        .ok()
+    close_state: &mut watch::Receiver<CloseState>,
+) -> Result<Option<Arc<dyn LinkGroup>>, ConnectionError> {
+    tokio::select! {
+        _ = close_state.changed() => Err(ConnectionError::Closed),
+        result = tokio::time::timeout(source.resolution_timeout(reconnect_attempt_timeout), source.next_group()) => {
+            Ok(result.ok().and_then(Result::ok))
+        }
+    }
 }
 
 async fn wait_for_close(mut state: watch::Receiver<CloseState>) -> Result<(), ConnectionError> {
@@ -1254,6 +1258,7 @@ mod tests {
 
     #[tokio::test]
     async fn reconnect_group_resolution_uses_only_an_explicitly_extended_deadline() {
+        let (_close_state_sender, mut close_state) = watch::channel(CloseState::Pending);
         let ordinary_completed = Arc::new(AtomicBool::new(false));
         let ordinary = DelayedReconnectGroupSource {
             delay: Duration::from_millis(200),
@@ -1262,7 +1267,7 @@ mod tests {
         };
         tokio::time::timeout(
             Duration::from_millis(100),
-            resolve_reconnect_group(&ordinary, Duration::from_millis(20)),
+            resolve_reconnect_group(&ordinary, Duration::from_millis(20), &mut close_state),
         )
         .await
         .expect("ordinary reconnect source exceeded its carrier attempt timeout");
@@ -1276,7 +1281,7 @@ mod tests {
         };
         tokio::time::timeout(
             Duration::from_millis(500),
-            resolve_reconnect_group(&extended, Duration::from_millis(20)),
+            resolve_reconnect_group(&extended, Duration::from_millis(20), &mut close_state),
         )
         .await
         .expect("explicit reconnect resolution deadline was ignored");
