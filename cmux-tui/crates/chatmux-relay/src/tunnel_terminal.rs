@@ -612,10 +612,16 @@ async fn handle_client_frame(connection: &Arc<Connection>, frame: TunnelFrame) {
                 Ok(Ok(())) => {}
                 Ok(Err(_)) => connection.protocol_error("failed"),
                 Err(_) => {
+                    // Remove the reservation at the protocol deadline while
+                    // keeping an owner-specific tombstone. The supervised
+                    // manager task still owns its semaphore permit and any
+                    // late PTY result, so it cannot install a resource for a
+                    // connection that has already timed out.
+                    connection.manager.cancel_open(&connection.pty_id, &context);
                     connection.protocol_error("failed");
-                    // Dropping a JoinHandle detaches the task. It continues
-                    // to its ownership-aware cleanup path without blocking
-                    // this connection's reader or writer.
+                    // Dropping a JoinHandle detaches the task. The bounded
+                    // open permit above prevents a permanently stalled
+                    // provider from creating unbounded tasks or reservations.
                     drop(open_task);
                 }
             }

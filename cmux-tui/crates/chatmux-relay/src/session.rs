@@ -358,19 +358,23 @@ impl Default for SessionRuntime {
 
 #[cfg(unix)]
 fn reconcile_tunnel_authority(runtime: &SessionRuntime, auth: Option<TunnelAuth>) -> u64 {
-    // Publish or revoke the generation while holding the authority lock, then
-    // advance the PTY generation floor and detach old tunnel attachments
-    // before releasing it. Trust changes therefore have the same atomic
-    // boundary as hello reconciliation and disconnect cleanup.
-    let mut authority = runtime.tunnel_auth.write().expect("tunnel auth lock");
-    *authority = match auth {
-        Some(auth) => TunnelAuthority::published(authority.generation, auth),
-        None => TunnelAuthority::revoked(authority.generation),
+    // Publish or revoke the generation while holding the authority lock, and
+    // remove old tunnel ownership before releasing it. The returned controls
+    // are killed only after the lock is released, so platform cleanup cannot
+    // block trust readers or a later reconciliation.
+    let (generation, retired) = {
+        let mut authority = runtime.tunnel_auth.write().expect("tunnel auth lock");
+        *authority = match auth {
+            Some(auth) => TunnelAuthority::published(authority.generation, auth),
+            None => TunnelAuthority::revoked(authority.generation),
+        };
+        let generation = authority.generation;
+        runtime.pty.set_tunnel_authority_generation(generation);
+        let _ = runtime.tunnel_generation.send(generation);
+        let retired = runtime.pty.detach_tunnel_transports_deferred();
+        (generation, retired)
     };
-    let generation = authority.generation;
-    runtime.pty.set_tunnel_authority_generation(generation);
-    let _ = runtime.tunnel_generation.send(generation);
-    runtime.pty.detach_tunnel_transports();
+    retired.retire();
     generation
 }
 
