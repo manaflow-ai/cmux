@@ -255,20 +255,48 @@ extension TerminalController {
             return .surfaceNotTerminal(surfaceId)
         }
 
+        let remoteRespawnRouting = ws.remotePTYRespawnRouting(panelId: surfaceId)
+        if remoteRespawnRouting == .unsupportedRemote {
+            // A remote-owned pane must never fall through to a local Ghostty
+            // exec when its transport cannot provide the persistent PTY bridge.
+            return .respawnFailed(surfaceId)
+        }
+
         v2MaybeFocusWindow(for: tabManager)
         v2MaybeSelectWorkspace(tabManager, workspace: ws)
 
         let focus: Bool? = inputs.hasFocusParam
             ? v2FocusAllowed(requested: inputs.requestedFocus)
             : nil
-        guard let replacementPanel = ws.respawnTerminalSurface(
-            panelId: surfaceId,
-            command: inputs.command,
-            workingDirectory: inputs.workingDirectory,
-            tmuxStartCommand: inputs.tmuxStartCommand,
-            focus: focus,
-            allowTextBoxFocusDefault: focus == true
-        ) else {
+        let replacementPanel: TerminalPanel?
+        switch remoteRespawnRouting {
+        case .persistentSSH:
+            guard let plan = ws.remotePTYRespawnPlan(
+                panelId: surfaceId,
+                rawCommand: inputs.command
+            ) else {
+                return .respawnFailed(surfaceId)
+            }
+            replacementPanel = ws.respawnRemotePTYSurface(
+                panelId: surfaceId,
+                plan: plan,
+                rawStartCommand: inputs.tmuxStartCommand,
+                focus: focus,
+                allowTextBoxFocusDefault: focus == true
+            )
+        case .local:
+            replacementPanel = ws.respawnTerminalSurface(
+                panelId: surfaceId,
+                command: inputs.command,
+                workingDirectory: inputs.workingDirectory,
+                tmuxStartCommand: inputs.tmuxStartCommand,
+                focus: focus,
+                allowTextBoxFocusDefault: focus == true
+            )
+        case .unsupportedRemote:
+            return .respawnFailed(surfaceId)
+        }
+        guard replacementPanel != nil else {
             return .respawnFailed(surfaceId)
         }
         return .respawned(
