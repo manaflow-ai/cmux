@@ -91,6 +91,41 @@ final class RightSidebarTabCustomizationTests: XCTestCase {
         )
     }
 
+    func testSetDisplayedOrderPermutesOnlyTheDisplayedSlots() {
+        // Hide Feed; Dock stays hidden-by-gate but keeps its slot in the full
+        // order. Dragging Cloud before Files must not move Feed or Dock.
+        enableAllModeGates()
+        RightSidebarTabPreferences.setHidden(true, mode: .feed, defaults: defaults)
+        RightSidebarTabPreferences.setDisplayedOrder(
+            [.machines, .files, .find, .sessions, .dock],
+            defaults: defaults
+        )
+        XCTAssertEqual(
+            RightSidebarTabPreferences.orderedModes(defaults: defaults),
+            [.machines, .files, .find, .feed, .sessions, .dock],
+            "hidden Feed keeps its 4th slot while the displayed tabs permute around it"
+        )
+    }
+
+    func testModeBarReorderPolicyMovesDraggedPillOverTarget() {
+        let displayed: [RightSidebarMode] = [.files, .find, .sessions, .machines]
+        XCTAssertEqual(
+            RightSidebarModeBarReorderPolicy.displayedOrder(moving: .machines, over: .files, in: displayed),
+            [.machines, .files, .find, .sessions]
+        )
+        XCTAssertEqual(
+            RightSidebarModeBarReorderPolicy.displayedOrder(moving: .files, over: .sessions, in: displayed),
+            [.find, .sessions, .files, .machines]
+        )
+        XCTAssertNil(
+            RightSidebarModeBarReorderPolicy.displayedOrder(moving: .files, over: .files, in: displayed)
+        )
+        XCTAssertNil(
+            RightSidebarModeBarReorderPolicy.displayedOrder(moving: .feed, over: .files, in: displayed),
+            "a mode absent from the bar cannot reorder it"
+        )
+    }
+
     func testResetRestoresCanonicalOrderAndVisibility() {
         RightSidebarTabPreferences.move(.machines, offset: -5, defaults: defaults)
         RightSidebarTabPreferences.setHidden(true, mode: .find, defaults: defaults)

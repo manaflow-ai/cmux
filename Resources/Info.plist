@@ -268,6 +268,16 @@
 		</dict>
 		<dict>
 			<key>UTTypeIdentifier</key>
+			<string>com.cmux.right-sidebar-mode-reorder</string>
+			<key>UTTypeDescription</key>
+			<string>cmux Right Sidebar Tab Reorder</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+		</dict>
+		<dict>
+			<key>UTTypeIdentifier</key>
 			<string>com.cmux.filepreview.transfer</string>
 			<key>UTTypeDescription</key>
 			<string>cmux File Preview Transfer</string>
