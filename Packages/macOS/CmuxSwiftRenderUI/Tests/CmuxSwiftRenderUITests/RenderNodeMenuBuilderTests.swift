@@ -277,6 +277,18 @@ struct RenderNodeMenuBuilderTests {
         #expect(!rowOverlay.deeperOverlayClaims(NSPoint(x: 175, y: 20)))
     }
 
+    @Test("stacked contextMenu modifiers form strict render-path descendants")
+    func stackedContextMenuPaths() {
+        let base = [3, 2]
+        let outer = appendingContextMenuModifierPath(base, modifierIndex: 1)
+        let inner = appendingContextMenuModifierPath(outer, modifierIndex: 4)
+
+        #expect(outer == [3, 2, -2, 1])
+        #expect(inner == [3, 2, -2, 1, -2, 4])
+        #expect(inner.count > outer.count)
+        #expect(inner.starts(with: outer))
+    }
+
     @Test("a sibling row overlay does not suppress the current row menu")
     func siblingOverlayDoesNotClaim() {
         let menuNodes = [RenderNode(kind: .button, text: "Row",
