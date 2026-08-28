@@ -1412,6 +1412,40 @@
         }
       }
     },
+    "mobile.simulatorStream.refresh": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Refresh"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新"
+          }
+        }
+      }
+    },
+    "mobile.simulatorStream.refreshSimulator": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Refresh Simulator"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulatorを更新"
+          }
+        }
+      }
+    },
     "mobile.simulatorStream.sendText": {
       "extractionState": "manual",
       "localizations": {

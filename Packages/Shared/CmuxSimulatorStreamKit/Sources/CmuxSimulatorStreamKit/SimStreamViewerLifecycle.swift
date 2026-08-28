@@ -34,6 +34,8 @@ public struct SimStreamViewerLifecycle: Sendable, Equatable {
         case framePresented
         /// Decoder gave up (repeated failures) or watchdog saw no progress.
         case streamWedged(reason: String)
+        /// The user explicitly asked for a fresh session (pane refresh).
+        case refreshRequested
         case hostEnded(status: SimStreamHostStatus, detail: String)
         case retryDelayElapsed
         case appBackgrounded
@@ -111,6 +113,19 @@ public struct SimStreamViewerLifecycle: Sendable, Equatable {
         case (.waitingForTransport, .transportLost),
             (.retrying, .transportLost):
             return .none
+
+        // Explicit user refresh: drop everything and go back through the one
+        // reattach path right away. Deliberate intent pays no backoff penalty
+        // and escapes even host-declared endings, because the user may have
+        // just fixed the Mac side (reopened the pane, recovered the worker).
+        case (.waitingForTransport, .refreshRequested),
+            (.starting, .refreshRequested),
+            (.streaming, .refreshRequested),
+            (.retrying, .refreshRequested),
+            (.unavailable, .refreshRequested):
+            backoff.reset()
+            phase = .waitingForTransport
+            return .teardown
 
         // Host-declared endings are terminal until reactivated; retrying
         // into a closed panel would loop forever.

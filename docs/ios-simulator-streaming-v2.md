@@ -145,3 +145,11 @@ One state machine on each side, event-driven:
   ring produced no consumable frame for N seconds, restart the worker
   attachment and force a keyframe. If the viewer has credit outstanding and
   no frame for N seconds, it re-sends `start`.
+- Manual refresh: the pane's Refresh Simulator menu item and the refresh
+  buttons on stalled/unavailable overlays feed one `refreshRequested`
+  lifecycle event, which tears down and reattaches through the same single
+  path with backoff reset, escaping even host-`closed` terminal states
+  (e.g. taking back a superseded stream). When the host reports
+  `worker_crashed`/`failed`/`device_unavailable`, the refresh first invokes
+  `mobile.simulator.recover` (capability `simulator.recover.v1`), the same
+  recovery as the Mac pane's Reconnect button, then reattaches.
