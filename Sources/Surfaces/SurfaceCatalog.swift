@@ -19,9 +19,14 @@ protocol SurfaceProvider: AnyObject {
     /// Called when a pane projecting one of this provider's resources goes away. Remote
     /// providers do nothing (the resource lives on); the local provider drops the resource.
     func projectionDidEnd(_ projection: SurfaceProjection)
+    /// End a terminal on this machine (the process and its remote tab). Providers that
+    /// cannot (the local machine) throw `SurfaceCatalogError.unsupported`.
+    func closeTerminal(_ id: SurfaceResourceID) async throws
     /// Create a new, empty workspace on this machine, directly (not as a side effect of
     /// creating a terminal). Providers without remote workspaces refuse.
     func createRemoteWorkspace(name: String?) async throws -> SurfaceRemoteWorkspace
+    /// Close a workspace on this machine and every terminal in it.
+    func closeRemoteWorkspace(id: String) async throws
     /// Close a projection's pane: a materialization that lost a race with an existing
     /// projection, or a URL-backed pane whose machine was unregistered. The default
     /// implementation handles providers that use the shared pane factory; providers may
@@ -32,10 +37,15 @@ protocol SurfaceProvider: AnyObject {
 }
 
 extension SurfaceProvider {
+    func closeTerminal(_ id: SurfaceResourceID) async throws {
+        throw SurfaceCatalogError.unsupported("closing terminals on \(machine)")
+    }
     func createRemoteWorkspace(name: String?) async throws -> SurfaceRemoteWorkspace {
         throw SurfaceCatalogError.unsupported("workspaces on \(machine)")
     }
-
+    func closeRemoteWorkspace(id: String) async throws {
+        throw SurfaceCatalogError.unsupported("closing workspaces on \(machine)")
+    }
     @discardableResult
     func discardMaterialization(_ projection: SurfaceProjection) -> Bool {
         SurfacePaneFactory.close(panelID: projection.panelID, in: projection.workspaceID)
