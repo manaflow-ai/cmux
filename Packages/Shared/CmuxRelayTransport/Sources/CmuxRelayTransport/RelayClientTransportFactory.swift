@@ -12,15 +12,18 @@ public struct RelayClientTransportFactory: CmxRouteAwareByteTransportFactory {
     private let deviceID: @Sendable () async throws -> String
     private let accessToken: RelayAccessTokenProvider
     private let makeConnection: RelayConnectionFactory
+    private let log: @Sendable (String) -> Void
 
     public init(
         deviceID: @escaping @Sendable () async throws -> String,
         accessToken: @escaping RelayAccessTokenProvider,
-        makeConnection: @escaping RelayConnectionFactory = RelayConnection.factory()
+        makeConnection: @escaping RelayConnectionFactory = RelayConnection.factory(),
+        log: @escaping @Sendable (String) -> Void = { _ in }
     ) {
         self.deviceID = deviceID
         self.accessToken = accessToken
         self.makeConnection = makeConnection
+        self.log = log
     }
 
     public func makeTransport(for route: CmxAttachRoute) throws -> any CmxByteTransport {
@@ -38,9 +41,11 @@ public struct RelayClientTransportFactory: CmxRouteAwareByteTransportFactory {
         guard case .url(let raw) = request.route.endpoint,
               let url = URL(string: raw),
               url.scheme == "wss" || url.scheme == "ws" else {
+            log("relay.factory_rejected route endpoint is not a ws(s) URL: \(request.route.endpoint)")
             throw RelayTransportError.invalidRequest("relay route needs a ws(s) URL endpoint")
         }
         guard let hostDeviceID = request.expectedPeerDeviceID, !hostDeviceID.isEmpty else {
+            log("relay.factory_rejected transport request carries no host device id")
             throw RelayTransportError.invalidRequest("relay route needs the host device id")
         }
         return RelayClientByteTransport(
@@ -48,7 +53,8 @@ public struct RelayClientTransportFactory: CmxRouteAwareByteTransportFactory {
             hostDeviceID: hostDeviceID,
             deviceID: deviceID,
             accessToken: accessToken,
-            makeConnection: makeConnection
+            makeConnection: makeConnection,
+            log: log
         )
     }
 }

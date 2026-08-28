@@ -99,16 +99,15 @@ final class MobileHostRelayRuntime {
         }
     }
 
-    /// Debug-only dial override for dev relay workers
-    /// (`CMUX_MOBILE_RELAY_URL=wss://cmux-mobile-relay-dev....workers.dev/v1/connect`).
-    /// The production dial target comes from the ticket response.
+    /// The host's dial target, resolved through the shared chain (Debug: env
+    /// override, else the dev worker; Release: the production constant), so
+    /// the Mac and the phone land on the same relay for the same build kind
+    /// no matter how either was launched.
     private static func relayURLOverride() -> URL? {
-        #if DEBUG
-        guard let raw = ProcessInfo.processInfo.environment["CMUX_MOBILE_RELAY_URL"],
-              !raw.isEmpty else { return nil }
-        return URL(string: raw)
-        #else
-        return nil
-        #endif
+        let resolved = RelayConnectAuth.resolvedRelayURL()
+        relayHostLog.info(
+            "relay host dial target \(resolved.url?.absoluteString ?? "invalid", privacy: .public) source=\(resolved.source, privacy: .public)"
+        )
+        return resolved.url
     }
 }

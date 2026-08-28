@@ -33,6 +33,31 @@ public enum RelayConnectAuth {
     public static func defaultRelayURL() -> URL? {
         URL(string: RelayProtocol.defaultRelayURL)
     }
+
+    /// The dev relay worker. Debug builds dial this by default because the
+    /// production hostname is not deployed yet and Debug builds authenticate
+    /// against the dev Stack project, which only the dev worker verifies.
+    public static let debugDefaultRelayURLString =
+        "wss://cmux-mobile-relay-dev.debussy.workers.dev/v1/connect"
+
+    /// The one place a dial target is decided, with its provenance for
+    /// diagnostics. Debug: `CMUX_MOBILE_RELAY_URL` env override, else the dev
+    /// worker. Release: the generated production constant, always. Both
+    /// platforms resolve through here so no launch path (home screen,
+    /// launcher relaunch, `open`) can change which relay a build dials.
+    public static func resolvedRelayURL(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> (url: URL?, source: String) {
+        #if DEBUG
+        if let raw = environment["CMUX_MOBILE_RELAY_URL"], !raw.isEmpty {
+            return (URL(string: raw), "env:CMUX_MOBILE_RELAY_URL")
+        }
+        return (URL(string: debugDefaultRelayURLString), "debug-default(dev worker)")
+        #else
+        _ = environment
+        return (URL(string: RelayProtocol.defaultRelayURL), "production-default")
+        #endif
+    }
 }
 
 /// The host admits each client session END TO END: the client's first frame
