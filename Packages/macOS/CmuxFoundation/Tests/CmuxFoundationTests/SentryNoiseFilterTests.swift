@@ -70,6 +70,34 @@ import Testing
         ))
     }
 
+    @Test func dropsNotConnectedLifecycleRaceOnlyInTransportContext() {
+        // The app quit or restarted between a successful hook connect and the
+        // request write. Proven transport context via structured data keys.
+        #expect(filter.isExpectedCLISocketTransportFailure(
+            stage: "hooks_claude_dispatch",
+            message: "Not connected",
+            dataKeys: ["socket_operation", "socket_phase"]
+        ))
+        // Proven transport context via the stage itself.
+        #expect(filter.isExpectedCLISocketTransportFailure(
+            stage: "socket_command",
+            message: "Not connected"
+        ))
+        // No transport context: keep it reportable.
+        #expect(!filter.isExpectedCLISocketTransportFailure(
+            stage: "hooks_claude_dispatch",
+            message: "Not connected"
+        ))
+        // Only the exact rendered failure counts, not embedded phrases.
+        #expect(!filter.isExpectedCLISocketTransportFailure(
+            stage: "socket_command",
+            message: "Server reports peer not connected"
+        ))
+        // The context-free message gate stays narrow so app-side beforeSend
+        // filtering cannot drop unrelated events that merely contain the text.
+        #expect(!filter.isExpectedCLISocketTransportMessage("Not connected"))
+    }
+
     @Test func keepsRawSignalAndNonSocketMessages() {
         #expect(!filter.isExpectedCLISocketTransportMessage("SIGPIPE: Signal 13, Code 0"))
         #expect(!filter.isExpectedCLISocketTransportFailure(

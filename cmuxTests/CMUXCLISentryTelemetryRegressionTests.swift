@@ -99,6 +99,75 @@ private final class CMUXCLISentryTelemetryBundleToken {}
         )
     }
 
+    @Test func commandTimeoutTelemetryIsFingerprintedAndThrottledPerStage() throws {
+        let cliPath = try bundledCLIPath()
+        let root = URL(
+            fileURLWithPath: "/tmp/cmux-st-\(UUID().uuidString.prefix(8))",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        // A bound, listening socket that never accepts or replies: connect and
+        // write succeed, the response read times out.
+        let socketPath = root.appendingPathComponent("cmux.sock", isDirectory: false).path
+        let listenerFD = try muteListeningSocketDescriptor(at: socketPath)
+        defer {
+            close(listenerFD)
+            unlink(socketPath)
+        }
+
+        func runPing(captureProbePath: String, storeProbePath: String) -> ProcessRunResult {
+            var environment = sentryProbeEnvironment(socketPath: socketPath, probePath: captureProbePath)
+            environment["CMUX_CLI_SENTRY_STORE_PROBE_PATH"] = storeProbePath
+            // The throttle claim state defaults to the real user home
+            // (expandingTildeInPath ignores the HOME override), so pin it
+            // inside the test root: both runs must share one state file
+            // without touching or depending on the machine's own state.
+            environment["CMUX_CLAUDE_HOOK_STATE_PATH"] = root
+                .appendingPathComponent("claude-hook-sessions.json", isDirectory: false).path
+            return runProcess(
+                executablePath: cliPath,
+                arguments: ["ping"],
+                environment: environment,
+                timeout: 10
+            )
+        }
+
+        let firstCaptureProbe = root.appendingPathComponent("capture-1.txt", isDirectory: false).path
+        let firstStoreProbe = root.appendingPathComponent("store-1.txt", isDirectory: false).path
+        let first = runPing(captureProbePath: firstCaptureProbe, storeProbePath: firstStoreProbe)
+
+        #expect(!first.timedOut, Comment(rawValue: first.stdout))
+        #expect(first.status != 0, Comment(rawValue: first.stdout))
+        #expect(first.stdout.contains("Command timed out"), Comment(rawValue: first.stdout))
+        #expect(
+            FileManager.default.fileExists(atPath: firstCaptureProbe),
+            Comment(rawValue: "The first timed-out command per stage must stay reportable. Output: \(first.stdout)")
+        )
+        let firstStorePayload = (try? String(contentsOfFile: firstStoreProbe, encoding: .utf8)) ?? "<missing>"
+        #expect(
+            firstStorePayload.contains("fingerprint=cmux-cli|socket_command|command-timed-out"),
+            Comment(rawValue: "Timed-out commands need their own stage-scoped Sentry fingerprint. Store probe: \(firstStorePayload)")
+        )
+
+        let secondCaptureProbe = root.appendingPathComponent("capture-2.txt", isDirectory: false).path
+        let secondStoreProbe = root.appendingPathComponent("store-2.txt", isDirectory: false).path
+        let second = runPing(captureProbePath: secondCaptureProbe, storeProbePath: secondStoreProbe)
+
+        #expect(!second.timedOut, Comment(rawValue: second.stdout))
+        #expect(second.status != 0, Comment(rawValue: second.stdout))
+        #expect(second.stdout.contains("Command timed out"), Comment(rawValue: second.stdout))
+        #expect(
+            !FileManager.default.fileExists(atPath: secondCaptureProbe),
+            Comment(rawValue: "A repeat timed-out command inside the throttle window must be deduplicated, not re-captured. Output: \(second.stdout)")
+        )
+        #expect(
+            !FileManager.default.fileExists(atPath: secondStoreProbe),
+            Comment(rawValue: "A throttled timed-out command must not store a Sentry envelope. Output: \(second.stdout)")
+        )
+    }
+
     private func bundledCLIPath() throws -> String {
         try BundledCLITestSupport.bundledCLIPath(for: CMUXCLISentryTelemetryBundleToken.self)
     }
@@ -155,17 +224,31 @@ private final class CMUXCLISentryTelemetryBundleToken {}
     }
 
     private func createStaleSocketFile(at path: String) throws {
+        close(try boundUnixSocketDescriptor(at: path))
+    }
+
+    private func muteListeningSocketDescriptor(at path: String) throws -> Int32 {
+        let fd = try boundUnixSocketDescriptor(at: path)
+        guard listen(fd, 8) == 0 else {
+            let error = posixError("listen failed")
+            close(fd)
+            throw error
+        }
+        return fd
+    }
+
+    private func boundUnixSocketDescriptor(at path: String) throws -> Int32 {
         unlink(path)
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else {
             throw posixError("socket failed")
         }
-        defer { close(fd) }
 
         var address = sockaddr_un()
         address.sun_family = sa_family_t(AF_UNIX)
         let maxLength = MemoryLayout.size(ofValue: address.sun_path)
         guard path.utf8.count < maxLength else {
+            close(fd)
             throw NSError(
                 domain: NSPOSIXErrorDomain,
                 code: Int(ENAMETOOLONG),
@@ -185,8 +268,11 @@ private final class CMUXCLISentryTelemetryBundleToken {}
             }
         }
         guard bindResult == 0 else {
-            throw posixError("bind failed")
+            let error = posixError("bind failed")
+            close(fd)
+            throw error
         }
+        return fd
     }
 
     private func posixError(_ message: String) -> NSError {
