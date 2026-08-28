@@ -336,10 +336,8 @@ impl ProcessOutputCompletion {
         let mut state = self.state.lock().expect("process output completion lock");
         while state.readers_remaining != 0 && state.child_exit.is_some() {
             let Some(remaining) = deadline.checked_duration_since(Instant::now()) else { break };
-            let (next, timeout) = self
-                .wake
-                .wait_timeout(state, remaining)
-                .expect("process output completion lock");
+            let (next, timeout) =
+                self.wake.wait_timeout(state, remaining).expect("process output completion lock");
             state = next;
             if timeout.timed_out() {
                 break;
