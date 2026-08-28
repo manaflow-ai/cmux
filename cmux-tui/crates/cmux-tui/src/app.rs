@@ -10063,6 +10063,11 @@ impl App {
         if !self.prepare_pty_input_before_mutation() {
             return Ok(());
         }
+        // A rendered sidebar target can outlive its tab. Validate before
+        // committing the preview so stale clicks are a no-op.
+        if self.tree.surface(target.surface).is_none() {
+            return Ok(());
+        }
         if !self.tree.select_surface(target.surface) {
             return Ok(());
         }
@@ -33078,6 +33083,36 @@ mod tests {
         for workspace in workspaces {
             mux.close_workspace(workspace);
         }
+    }
+
+    #[test]
+    fn stale_sidebar_tab_activation_preserves_preview_and_selection() {
+        let mux = Mux::new("workspace-sidebar-preview-stale-tab-test", SurfaceOptions::default());
+        let first = mux.new_workspace(Some("Alpha".into()), Some((80, 24))).unwrap();
+        let second = mux.new_workspace(Some("Beta".into()), Some((80, 24))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_view = SidebarView::Workspaces;
+        app.replace_tree(app.session.tree());
+        app.tree.active_workspace = 0;
+        let active = app.tree.active_surface();
+        app.workspace_preview =
+            Some(WorkspacePreview { origin: first.id, target: second.id, origin_scroll: 0 });
+        let stale = SidebarTabTarget {
+            workspace: 1,
+            screen: 0,
+            pane: 0,
+            index: 0,
+            surface: 0,
+            name: String::new(),
+            subtitle: String::new(),
+            active: false,
+        };
+
+        app.activate_sidebar_tab(&stale).unwrap();
+
+        assert!(app.workspace_preview.is_some());
+        assert_eq!(app.tree.active_surface(), active);
+        assert_eq!(app.tree.active_workspace, 0);
     }
 
     #[test]
