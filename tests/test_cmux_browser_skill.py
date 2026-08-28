@@ -104,6 +104,24 @@ def test_nested_commands_are_checked(validator: ModuleType) -> None:
         raise AssertionError(f"nested unscoped commands were not rejected: {errors}")
 
 
+def test_literal_substitution_text_is_ignored(validator: ModuleType) -> None:
+    browser = "cmux browser "
+    fixture = "```bash\n"
+    fixture += "MESSAGE='$(" + browser + "url)'\n"
+    fixture += "MESSAGE=\\$(" + browser + "tab list)\n"
+    fixture += "```\n"
+    examples = [
+        validator.ShellExample(Path("literal-substitution-fixture.md"), line, text)
+        for line, text in enumerate(fixture.splitlines(), start=1)
+    ]
+    commands, parse_errors = validator.browser_commands(examples)
+    if parse_errors or commands:
+        raise AssertionError(
+            f"literal/escaped substitution text was treated as executable: "
+            f"commands={commands} errors={parse_errors}"
+        )
+
+
 def test_longer_markdown_fences_are_not_closed_early(validator: ModuleType) -> None:
     fixture = "````bash\ncmux browser --surface surface:1 get url\n```\n"
     fixture += "cmux browser --surface surface:1 snapshot --interactive\n````\n"
@@ -162,6 +180,7 @@ def main() -> int:
         lambda: test_old_unscoped_forms_are_rejected(validator),
         lambda: test_scoped_aliases_are_accepted(validator),
         lambda: test_nested_commands_are_checked(validator),
+        lambda: test_literal_substitution_text_is_ignored(validator),
         lambda: test_longer_markdown_fences_are_not_closed_early(validator),
         test_templates_require_a_surface,
         lambda: test_live_help_when_available(validator),

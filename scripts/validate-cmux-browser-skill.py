@@ -271,11 +271,39 @@ def _substitution_bodies(text: str) -> Iterator[str]:
     """Yield command bodies inside ``$(...)`` and backtick substitutions."""
 
     index = 0
+    quote: str | None = None
+    escaped = False
     while index < len(text):
-        if text.startswith("$(", index):
+        character = text[index]
+        if escaped:
+            escaped = False
+            index += 1
+            continue
+
+        # A backslash is literal inside a single-quoted shell string, but
+        # escapes the next character everywhere else.
+        if character == "\\" and quote != "'":
+            escaped = True
+            index += 1
+            continue
+
+        if quote == "'":
+            if character == "'":
+                quote = None
+            index += 1
+            continue
+
+        if quote is None and character in {"'", '"'}:
+            quote = character
+            index += 1
+            continue
+
+        # Command substitutions are active when unquoted or inside a
+        # double-quoted string; single-quoted/escaped text is literal.
+        if (quote is None or quote == '"') and text.startswith("$(", index):
             start = index + 2
             depth = 1
-            quote: str | None = None
+            nested_quote: str | None = None
             escaped = False
             cursor = start
             while cursor < len(text):
@@ -284,11 +312,11 @@ def _substitution_bodies(text: str) -> Iterator[str]:
                     escaped = False
                 elif character == "\\":
                     escaped = True
-                elif quote:
-                    if character == quote:
-                        quote = None
+                elif nested_quote:
+                    if character == nested_quote:
+                        nested_quote = None
                 elif character in {"'", '"'}:
-                    quote = character
+                    nested_quote = character
                 elif text.startswith("$(", cursor):
                     depth += 1
                     cursor += 1
@@ -304,7 +332,7 @@ def _substitution_bodies(text: str) -> Iterator[str]:
                 continue
             continue
 
-        if text[index] == "`":
+        if (quote is None or quote == '"') and character == "`":
             start = index + 1
             cursor = start
             escaped = False

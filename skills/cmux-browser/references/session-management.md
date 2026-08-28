@@ -46,6 +46,8 @@ cmux browser --surface "$DESTINATION_SURFACE" goto https://app.example.com/dashb
 ## Cleanup
 
 ```bash
+STATE_DIR="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/cmux-browser-state"
+STATE_FILE="${STATE_FILE:-$STATE_DIR/auth.json}"
 cmux close-surface --surface surface:7
 rm -f "$STATE_FILE"
 ```

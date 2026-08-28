@@ -121,6 +121,9 @@ Never commit state files; they contain auth tokens. Take credentials from enviro
 
 ```bash
 cmux browser --surface "$SURFACE" cookies clear --all
+STATE_DIR="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/cmux-browser-state"
+STATE_FILE="${STATE_FILE:-$STATE_DIR/auth-state.json}"
+OAUTH_STATE_FILE="${OAUTH_STATE_FILE:-$STATE_DIR/oauth-state.json}"
 rm -f "$STATE_FILE"
-[ -n "${OAUTH_STATE_FILE:-}" ] && rm -f "$OAUTH_STATE_FILE"
+rm -f "$OAUTH_STATE_FILE"
 ```
