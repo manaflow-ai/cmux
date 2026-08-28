@@ -1,268 +1,6 @@
 {
   "sourceLanguage": "en",
   "strings": {
-<<<<<<< HEAD
-    "caffeine.error.missingEnabled": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Pass enabled=true or enabled=false." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "enabled=true または enabled=false を指定してください。" } }
-      }
-    },
-    "caffeine.error.unavailable": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Keep Mac Awake isn't available yet." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "「Macをスリープさせない」はまだ利用できません。" } }
-      }
-    },
-    "cli.help.notify.reply": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "--reply                Allow a free-text inline reply" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "--reply                自由入力のインライン返信を許可" } }
-      }
-    },
-    "debug.menu.notification.all": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Emit All" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "すべて送信" } }
-      }
-    },
-    "debug.menu.notification.cli": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "CLI" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "CLI" } }
-      }
-    },
-    "debug.menu.notification.cliReply": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "CLI Reply" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "CLI 返信" } }
-      }
-    },
-    "debug.menu.notification.emit": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Emit Notification" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "通知を送信" } }
-      }
-    },
-    "debug.menu.notification.error": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Error" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "エラー" } }
-      }
-    },
-    "debug.menu.notification.feedExitPlan": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Feed Exit Plan" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "フィード終了プラン" } }
-      }
-    },
-    "debug.menu.notification.feedPermission": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Feed Permission" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "フィード権限" } }
-      }
-    },
-    "debug.menu.notification.feedQuestion": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Feed Question" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "フィード質問" } }
-      }
-    },
-    "debug.menu.notification.feedQuestion4": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Feed Question (4 Options)" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "フィード質問（4つの選択肢）" } }
-      }
-    },
-    "debug.menu.notification.feedQuestionMany": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Feed Question (Many Options)" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "フィード質問（多数の選択肢）" } }
-      }
-    },
-    "debug.menu.notification.feedQuestionMultiple": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Feed Question (Multiple)" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "フィード質問（複数質問）" } }
-      }
-    },
-    "debug.menu.notification.feedQuestionMultiSelect": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Feed Question (Multi-select)" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "フィード質問（複数選択）" } }
-      }
-    },
-    "debug.menu.notification.hookFailed": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Hook Failed" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "フック失敗" } }
-      }
-    },
-    "debug.menu.notification.idle": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Idle Reminder" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "アイドル通知" } }
-      }
-    },
-    "debug.menu.notification.mode": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Notification Debug Mode" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "通知デバッグモード" } }
-      }
-    },
-    "debug.menu.notification.needsPermission": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Needs Permission" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "権限が必要" } }
-      }
-    },
-    "debug.menu.notification.osc": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "OSC" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "OSC" } }
-      }
-    },
-    "debug.menu.notification.turnComplete": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Turn Complete" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "ターン完了" } }
-      }
-    },
-    "debug.notification.error.invalidKindOrTarget": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Unknown kind or no notification target" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "不明な種類、または通知対象がありません" } }
-      }
-    },
-    "debug.notification.error.missingEnabled": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Pass enabled=true or enabled=false to turn notification debug mode on or off." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "enabled=true または enabled=false を指定して、通知デバッグモードのオン/オフを切り替えてください。" } }
-      }
-    },
-    "debug.notification.error.missingKind": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Pass kind=<notification kind> to choose which debug notification to emit." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "kind=<通知の種類> を指定して、発行するデバッグ通知を選んでください。" } }
-      }
-    },
-    "debug.notification.synthetic.body": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Synthetic %@ notification" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "合成 %@ 通知" } }
-      }
-    },
-    "debug.notification.synthetic.option": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Option %d" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "選択肢 %d" } }
-      }
-    },
-    "debug.notification.synthetic.plan": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Inspect the notification and verify the actions." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "通知を確認し、アクションを検証します。" } }
-      }
-    },
-    "debug.notification.synthetic.question": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Choose a notification debug answer" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "通知デバッグの回答を選択" } }
-      }
-    },
-    "debug.notification.synthetic.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Notification Debug" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "通知デバッグ" } }
-      }
-    },
-    "feed.notification.exitPlan.revise": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Revise…" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "修正…" } }
-      }
-    },
-    "feed.notification.question.other": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Other…" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "その他…" } }
-      }
-    },
-    "settings.betaFeatures.tuiTerminalBackendManualIO": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "cmux-tui Manual-IO Data Path" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "cmux-tui マニュアルIOデータパス" } }
-      }
-    },
-    "settings.betaFeatures.tuiTerminalBackendManualIO.subtitleOff": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Daemon-backed terminals keep running the attach client as the surface command." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "デーモン管理のターミナルは引き続きattachクライアントをサーフェスコマンドとして実行します。" } }
-      }
-    },
-    "settings.betaFeatures.tuiTerminalBackendManualIO.subtitleOn": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Daemon-backed terminals feed bytes straight into the Ghostty surface (no attach subprocess in the pane). Requires the cmux-tui Terminal Backend toggle." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "デーモン管理のターミナルがGhosttyサーフェスへ直接バイトを送ります（ペイン内にattachサブプロセスなし）。cmux-tuiターミナルバックエンドの有効化が必要です。" } }
-      }
-    },
-    "terminal.notification.action.reply": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Reply" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "返信" } }
-      }
-    },
-    "terminal.notification.action.replyPlaceholder": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Message the agent…" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "エージェントにメッセージ…" } }
-      }
-    },
-    "terminal.notification.action.replySend": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Send" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "送信" } }
-      }
-    },
-=======
->>>>>>> origin/feat-tui-attach-spike
     "about.appName": {
       "extractionState": "manual",
       "localizations": {
@@ -175165,6 +174903,27 @@
         }
       }
     },
+    "settings.betaFeatures.tuiTerminalBackendManualIO.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Daemon-backed terminals feed bytes straight into the Ghostty surface (no attach subprocess in the pane). Requires the cmux-tui Terminal Backend toggle." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "デーモン管理のターミナルがGhosttyサーフェスへ直接バイトを送ります（ペイン内にattachサブプロセスなし）。cmux-tuiターミナルバックエンドの有効化が必要です。" } }
+      }
+    },
+    "settings.betaFeatures.tuiTerminalBackendManualIO.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Daemon-backed terminals keep running the attach client as the surface command." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "デーモン管理のターミナルは引き続きattachクライアントをサーフェスコマンドとして実行します。" } }
+      }
+    },
+    "settings.betaFeatures.tuiTerminalBackendManualIO": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "cmux-tui Manual-IO Data Path" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "cmux-tui マニュアルIOデータパス" } }
+      }
+    },
     "settings.betaFeatures.warning": {
       "extractionState": "manual",
       "localizations": {
@@ -254740,32 +254499,11 @@
         }
       }
     },
-    "tui.overlay.ended.detail": {
+    "tui.overlay.reconnecting.title": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "The daemon-backed terminal has ended. Close the tab, or keep it to read the final screen." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "デーモン管理のターミナルが終了しました。タブを閉じるか、最後の画面を確認するために残せます。" } }
-      }
-    },
-    "tui.overlay.ended.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Terminal session ended" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "ターミナルセッションが終了しました" } }
-      }
-    },
-    "tui.overlay.failed.detail": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "The relay for this daemon-backed terminal keeps failing. Check the cmux-tui binary path in Settings, then retry." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "デーモン管理ターミナルのリレーが繰り返し失敗しています。設定でcmux-tuiバイナリのパスを確認してから再試行してください。" } }
-      }
-    },
-    "tui.overlay.failed.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Terminal backend unavailable" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "ターミナルバックエンドを利用できません" } }
+        "en": { "stringUnit": { "state": "translated", "value": "Reconnecting to the terminal session" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ターミナルセッションに再接続中" } }
       }
     },
     "tui.overlay.reconnecting.detail": {
@@ -254775,11 +254513,32 @@
         "ja": { "stringUnit": { "state": "translated", "value": "セッションデーモンに接続できません（試行 %lld 回目）。ターミナルは最後の状態を表示しており、入力は一時停止中です。" } }
       }
     },
-    "tui.overlay.reconnecting.title": {
+    "tui.overlay.failed.title": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Reconnecting to the terminal session" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "ターミナルセッションに再接続中" } }
+        "en": { "stringUnit": { "state": "translated", "value": "Terminal backend unavailable" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ターミナルバックエンドを利用できません" } }
+      }
+    },
+    "tui.overlay.failed.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The relay for this daemon-backed terminal keeps failing. Check the cmux-tui binary path in Settings, then retry." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "デーモン管理ターミナルのリレーが繰り返し失敗しています。設定でcmux-tuiバイナリのパスを確認してから再試行してください。" } }
+      }
+    },
+    "tui.overlay.ended.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Terminal session ended" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ターミナルセッションが終了しました" } }
+      }
+    },
+    "tui.overlay.ended.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The daemon-backed terminal has ended. Close the tab, or keep it to read the final screen." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "デーモン管理のターミナルが終了しました。タブを閉じるか、最後の画面を確認するために残せます。" } }
       }
     },
     "uiTest.bonsplit.action.title": {
