@@ -25,7 +25,10 @@ use crate::agent_hooks::AGENT_HOOK_PRODUCER_ID;
 use crate::workspace_registry::SessionJournalRecord;
 use crate::{AgentSource, AgentState, JournalSubject};
 
-pub(crate) use crate::agent_hooks::{SOCKET_REPORT_ADAPTER, SOCKET_REPORT_NATIVE_EVENT};
+pub(crate) use crate::agent_hooks::{
+    DIRECT_REPORT_ADAPTER, DIRECT_REPORT_NATIVE_EVENT, SOCKET_REPORT_ADAPTER,
+    SOCKET_REPORT_NATIVE_EVENT,
+};
 
 pub(crate) const AGENT_ROSTER_REDUCER_ID: &str = "agent_roster";
 /// Bump to discard persisted snapshots and re-fold from the journal head.
@@ -162,8 +165,10 @@ impl AgentRoster {
         }
         let Some(terminal_id) = event.terminal_id() else { return Vec::new() };
         let (state, source, session, agent, updated_at_ms) =
-            if event.adapter_id() == Some(SOCKET_REPORT_ADAPTER) {
-                // Socket echo: explicit state and timestamp carried in the
+            if event.adapter_id().is_some_and(|adapter| {
+                adapter == SOCKET_REPORT_ADAPTER || adapter == DIRECT_REPORT_ADAPTER
+            }) {
+                // Direct echo: explicit state and timestamp carried in the
                 // payload, so the roster mirrors the direct projection
                 // commit exactly. The reporter does not know the agent type.
                 let Some(state) = event.normalized("state").and_then(agent_state_from_str) else {
@@ -336,6 +341,20 @@ mod tests {
             roster.apply(&hook_event(3, "agent.state.changed", &subjects, &socket_payload));
         assert!(deltas.is_empty());
         assert_eq!(roster.entries["term_a"].source, "hook");
+    }
+
+    #[test]
+    fn direct_non_socket_echo_keeps_its_declared_source() {
+        let subjects = terminal_subject("term_a");
+        let payload = json!({
+            "adapter": {"id": DIRECT_REPORT_ADAPTER, "version": 1},
+            "normalized": {"state": "blocked", "source": "hook", "source_session": "direct"},
+        });
+        let mut roster = AgentRoster::default();
+        let deltas = roster.apply(&hook_event(1, "agent.state.changed", &subjects, &payload));
+        assert_eq!(deltas.len(), 1);
+        assert_eq!(roster.entries["term_a"].source, "hook");
+        assert_eq!(roster.entries["term_a"].session.as_deref(), Some("direct"));
     }
 
     #[test]

@@ -15,6 +15,9 @@ pub(crate) const AGENT_HOOK_FORMAT: &str = "cmux.agent-hook.v1";
 /// an internal socket echo.
 pub(crate) const SOCKET_REPORT_ADAPTER: &str = "socket";
 pub(crate) const SOCKET_REPORT_NATIVE_EVENT: &str = "StateReport";
+/// Reserved for direct reports whose source is not the socket poller.
+pub(crate) const DIRECT_REPORT_ADAPTER: &str = "direct";
+pub(crate) const DIRECT_REPORT_NATIVE_EVENT: &str = "DirectReport";
 const MAX_AGENT_SOURCE_BYTES: usize = 64;
 const MAX_NATIVE_EVENT_BYTES: usize = 128;
 const NORMALIZED_TEXT_BYTES: usize = 8 * 1024;
@@ -221,6 +224,7 @@ fn validate_agent_source(source: &str) -> anyhow::Result<()> {
         !source.is_empty()
             && source.len() <= MAX_AGENT_SOURCE_BYTES
             && source != SOCKET_REPORT_ADAPTER
+            && source != DIRECT_REPORT_ADAPTER
             && source.bytes().all(|byte| {
                 byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'_' | b'-')
             }),

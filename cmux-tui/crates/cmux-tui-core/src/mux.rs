@@ -5263,8 +5263,8 @@ impl Mux {
     /// append must never start failing because a view cannot update.
     fn fold_agent_roster(&self, commit: &crate::JournalAppendCommit) {
         use crate::journal_reducers::{
-            AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION, RosterEvent,
-            SOCKET_REPORT_ADAPTER,
+            AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION, DIRECT_REPORT_ADAPTER,
+            RosterEvent, SOCKET_REPORT_ADAPTER,
         };
         // Journal commits can complete out of order on different ingress
         // threads. This fence makes the fold and terminal retirement one
@@ -5340,7 +5340,9 @@ impl Mux {
                     .get("adapter")
                     .and_then(|adapter| adapter.get("id"))
                     .and_then(Value::as_str)
-                    == Some(SOCKET_REPORT_ADAPTER);
+                    .is_some_and(|adapter| {
+                        adapter == SOCKET_REPORT_ADAPTER || adapter == DIRECT_REPORT_ADAPTER
+                    });
                 if !echo {
                     deltas.extend(
                         record_deltas.into_iter().map(|delta| (delta, record.kind.clone())),
@@ -5437,7 +5439,15 @@ impl Mux {
         session: Option<&str>,
         updated_at_ms: u64,
     ) {
-        use crate::journal_reducers::{SOCKET_REPORT_ADAPTER, SOCKET_REPORT_NATIVE_EVENT};
+        use crate::journal_reducers::{
+            DIRECT_REPORT_ADAPTER, DIRECT_REPORT_NATIVE_EVENT, SOCKET_REPORT_ADAPTER,
+            SOCKET_REPORT_NATIVE_EVENT,
+        };
+        let (adapter_id, native_event) = if source == AgentSource::Socket {
+            (SOCKET_REPORT_ADAPTER, SOCKET_REPORT_NATIVE_EVENT)
+        } else {
+            (DIRECT_REPORT_ADAPTER, DIRECT_REPORT_NATIVE_EVENT)
+        };
         let ingress = crate::JournalIngress {
             producer_id: crate::agent_hooks::AGENT_HOOK_PRODUCER_ID.into(),
             manifest_version: crate::agent_hooks::AGENT_HOOK_MANIFEST_VERSION,
@@ -5451,8 +5461,8 @@ impl Mux {
             sensitivity: Some(crate::JournalSensitivity::Sensitive),
             payload: serde_json::json!({
                 "format": crate::agent_hooks::AGENT_HOOK_FORMAT,
-                "adapter": {"id": SOCKET_REPORT_ADAPTER, "version": 1},
-                "native_event": SOCKET_REPORT_NATIVE_EVENT,
+                "adapter": {"id": adapter_id, "version": 1},
+                "native_event": native_event,
                 "normalized": {
                     "state": state.as_str(),
                     "source": source.as_str(),
@@ -9020,15 +9030,11 @@ impl Mux {
                 agent: agent.agent.as_deref().map(Arc::from),
                 updated_at_ms: agent.updated_at_ms,
             });
-            if origin == AgentReportOrigin::Direct
-                && source == AgentSource::Socket
-                && !hook_override
-                && materially_changed
-            {
-                // Only direct socket reports have a journal echo contract.
-                // A report rejected by hook precedence must not be rewritten
-                // as a Hook-sourced echo, and a semantic duplicate must not
-                // create unbounded journal noise.
+            if origin == AgentReportOrigin::Direct && !hook_override && materially_changed {
+                // Direct reports use a reserved adapter marker so the fold
+                // can distinguish them from external hook events. A report
+                // rejected by hook precedence is not echoed as a false state
+                // change, and a semantic duplicate creates no journal noise.
                 self.append_agent_report_echo(
                     &agent.terminal_id,
                     agent_state,
@@ -21644,9 +21650,10 @@ mod tests {
         assert_eq!(filtered[0].session.as_deref(), Some("hook-session"));
         assert!(mux.list_agents(Some(surface.id), Some(AgentState::Done)).is_empty());
         assert_eq!(mux.with_state(|state| state.resource_revision), initial_revision + 3);
-        // Each fresh direct report publishes twice on the shared change
-        // epoch: its resource commit and its journal echo.
-        assert_eq!(mux.resource_event_epoch(), initial_epoch + 6);
+        // The first two reports publish a resource commit and a journal echo.
+        // The final socket report is rejected by hook precedence, so it has
+        // no echo and advances the epoch once.
+        assert_eq!(mux.resource_event_epoch(), initial_epoch + 5);
         assert_eq!(mux.resource_agent_projection_count_for_test().unwrap(), 1);
         let resource_events = mux.resource_events_after(initial_revision).unwrap();
         assert_eq!(resource_events.batches.len(), 3);
@@ -21750,9 +21757,10 @@ mod tests {
         assert_eq!(ignored.source, AgentSource::Hook);
         assert_eq!(ignored.session.as_deref(), Some("hook-session"));
         assert_eq!(mux.with_state(|state| state.resource_revision), created_revision + 3);
-        // Each fresh direct report publishes twice on the shared change
-        // epoch: its resource commit and its journal echo.
-        assert_eq!(mux.resource_event_epoch(), initial_epoch + 6);
+        // The first two reports publish a resource commit and a journal echo.
+        // The final socket report is rejected by hook precedence, so it has
+        // no echo and advances the epoch once.
+        assert_eq!(mux.resource_event_epoch(), initial_epoch + 5);
         assert_eq!(mux.resource_agent_projection_count_for_test().unwrap(), 1);
 
         let batches = mux.resource_events_after(created_revision).unwrap().batches;
