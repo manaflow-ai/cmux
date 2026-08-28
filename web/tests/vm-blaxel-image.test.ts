@@ -110,8 +110,10 @@ describe("Blaxel baked image template", () => {
     // the daemon drops to cmux, and root stays one passwordless sudo away. uid 1001
     // matches the driver's runtime-setup pin so volume ownership is stable.
     expect(dockerfile).toContain("useradd -m -u 1001 -s /bin/bash cmux");
-    expect(dockerfile).toContain("printf 'cmux ALL=(ALL) NOPASSWD:ALL\\n' > /etc/sudoers.d/90-cmux-nopasswd");
-    expect(dockerfile).toContain("chmod 0440 /etc/sudoers.d/90-cmux-nopasswd");
+    expect(dockerfile).toContain('sudoers_tmp="$(mktemp /etc/sudoers.d/.90-cmux-nopasswd.XXXXXX)"');
+    expect(dockerfile).toContain("printf 'cmux ALL=(ALL) NOPASSWD:ALL\\n' > \"$sudoers_tmp\"");
+    expect(dockerfile).toContain('chmod 0440 "$sudoers_tmp"');
+    expect(dockerfile).toContain('mv -f "$sudoers_tmp" /etc/sudoers.d/90-cmux-nopasswd');
     expect(dockerfile).toContain("visudo -c");
     // The sudo binary itself ships in the devtools layer.
     expect(dockerfile).toMatch(/apt-get install[^&]*\bsudo \\\n/);

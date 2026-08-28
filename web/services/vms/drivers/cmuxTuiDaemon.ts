@@ -28,6 +28,8 @@ export const CMUX_TUI_INSTALL_TIMEOUT_MS = 5 * 60 * 1000;
 // driver's runtime user setup creates it on images that predate it.
 export const CMUX_CLOUD_USER = "cmux";
 export const CMUX_CLOUD_HOME = "/home/cmux";
+export const CMUX_CLOUD_USER_UID = 1001;
+const CMUX_USER_SETUP_REQUIRED_EXIT_CODE = 78;
 
 /** Home layout the daemon runs under: which Unix user owns sessions and where its home is. */
 export type CmuxTuiHomeLayout = { readonly user: string; readonly home: string };
@@ -68,10 +70,10 @@ export function parseCmuxTuiManifest(
   const binaries = record.binaries && typeof record.binaries === "object" ? record.binaries as Record<string, unknown> : {};
   const sha256 = typeof binaries[CMUX_TUI_LINUX_TARGET] === "string" ? (binaries[CMUX_TUI_LINUX_TARGET] as string).toLowerCase() : "";
   if (!/^[0-9a-f]{40}$/.test(commit)) {
-    throw new ProviderError(provider, `cmux-tui manifest at ${manifestUrl} has no commit`);
+    throw new ProviderError(provider, "cmux-tui manifest is missing its commit pin");
   }
   if (!/^[0-9a-f]{64}$/.test(sha256)) {
-    throw new ProviderError(provider, `cmux-tui manifest at ${manifestUrl} has no ${CMUX_TUI_LINUX_TARGET} sha256 — publish artifacts from a main with the musl target`);
+    throw new ProviderError(provider, "cmux-tui manifest has no verified Linux binary pin");
   }
   const base = manifestUrl.replace(/\/manifest\.json$/, "");
   return {
@@ -96,7 +98,7 @@ export async function resolveCmuxTuiSource(provider: ProviderId = "blaxel"): Pro
   try {
     const response = await fetch(manifestUrl, { signal: controller.signal, cache: "no-store" });
     if (!response.ok) {
-      throw new ProviderError(provider, `cmux-tui manifest fetch ${manifestUrl} -> ${response.status}`);
+      throw new ProviderError(provider, "cmux-tui manifest could not be fetched");
     }
     manifest = await response.json();
   } catch (err) {
@@ -104,7 +106,7 @@ export async function resolveCmuxTuiSource(provider: ProviderId = "blaxel"): Pro
       // A transient manifest outage must not break creates: reuse the last good build.
       return cmuxTuiSourceCache.source;
     }
-    throw err instanceof ProviderError ? err : new ProviderError(provider, `cmux-tui manifest fetch ${manifestUrl} failed`, err);
+    throw err instanceof ProviderError ? err : new ProviderError(provider, "cmux-tui manifest could not be fetched", err);
   } finally {
     clearTimeout(timer);
   }
@@ -143,7 +145,7 @@ export function cmuxTuiInstallCommand(source: CmuxTuiSource, layout?: CmuxTuiHom
     // Install runs as root (the provider control plane); the daemon and its state
     // run as the layout user, so hand it the bin dir.
     ...(layout
-      ? [`(chown -R ${layout.user}:${layout.user} ${shellQuote(`${layout.home}/.cmux`)} 2>/dev/null || true)`]
+      ? [`chown -R ${layout.user}:${layout.user} ${shellQuote(`${layout.home}/.cmux`)} 2>/dev/null`]
       : []),
     `${bin} --version`,
   ].join(" && ");
@@ -167,8 +169,8 @@ export function cmuxTuiPinCheckCommand(source: CmuxTuiSource): string {
  *    keeps the root daemon until it is resurrected onto the new mount path.
  *  - A machine where the user cannot actually use the home — no user or no
  *    runuser (stock Alpine base), or the bindfs identity view over the
- *    root-squashing volume failed to mount (the `test -w` probe) — falls back
- *    to a root daemon rather than crash-looping or serving broken shells.
+ *    root-squashing volume failed to mount — exits with a setup error instead
+ *    of silently starting a root daemon.
  */
 export function cmuxTuiDaemonCommand(layout?: CmuxTuiHomeLayout): string {
   const args = `server start --session ${CMUX_TUI_SESSION} --remote-ws 0.0.0.0:${CMUX_TUI_PORT} --remote-ws-insecure-bind`;
@@ -178,13 +180,18 @@ export function cmuxTuiDaemonCommand(layout?: CmuxTuiHomeLayout): string {
   const { user, home } = layout;
   const bin = cmuxTuiBinaryPath(home);
   const legacyBin = cmuxTuiBinaryPath("/root");
+  const quotedUser = shellQuote(user);
+  const quotedHome = shellQuote(home);
+  const quotedBin = shellQuote(bin);
+  const quotedLegacyBin = shellQuote(legacyBin);
   return (
     `if mountpoint -q /root 2>/dev/null; then ` +
-    `cd /root && if [ -x ${bin} ]; then exec env HOME=/root TERM=xterm-256color ${bin} ${args}; ` +
-    `else exec env HOME=/root TERM=xterm-256color ${legacyBin} ${args}; fi; ` +
-    `elif id -u ${user} >/dev/null 2>&1 && command -v runuser >/dev/null 2>&1 && runuser -u ${user} -- test -w ${home} 2>/dev/null; then ` +
-    `cd ${home} && exec runuser -u ${user} -- env HOME=${home} USER=${user} LOGNAME=${user} SHELL=/bin/bash TERM=xterm-256color ${bin} ${args}; ` +
-    `else cd ${home} && exec env HOME=${home} TERM=xterm-256color ${bin} ${args}; fi`
+    `cd /root && if [ -x ${quotedBin} ]; then exec env HOME=/root TERM=xterm-256color ${quotedBin} ${args}; ` +
+    `else exec env HOME=/root TERM=xterm-256color ${quotedLegacyBin} ${args}; fi; ` +
+    `elif id -u ${quotedUser} >/dev/null 2>&1 && [ "$(id -u ${quotedUser})" = "${CMUX_CLOUD_USER_UID}" ] && ` +
+    `command -v runuser >/dev/null 2>&1 && runuser -u ${quotedUser} -- test -w ${quotedHome} 2>/dev/null; then ` +
+    `cd ${quotedHome} && exec runuser -u ${quotedUser} -- env HOME=${quotedHome} USER=${quotedUser} LOGNAME=${quotedUser} SHELL=/bin/bash TERM=xterm-256color ${quotedBin} ${args}; ` +
+    `else printf '%s\\n' 'cmux user setup is unavailable; refusing a root fallback' >&2; exit ${CMUX_USER_SETUP_REQUIRED_EXIT_CODE}; fi`
   );
 }
 
@@ -250,14 +257,12 @@ export async function waitForCmuxTuiReady(
   provider: ProviderId,
   vmId: string,
 ): Promise<void> {
-  let last = "";
   for (let attempt = 0; attempt < 15; attempt += 1) {
     const status = await invoke(`server status --session ${CMUX_TUI_SESSION}`).catch(() => null);
     if (status?.exitCode === 0) return;
-    last = status ? (status.stderr || status.stdout) : "status probe failed";
     await new Promise((resolve) => setTimeout(resolve, 1000));
   }
-  throw new ProviderError(provider, `cmux-tui daemon in ${vmId} did not become ready: ${last}`);
+  throw new ProviderError(provider, "cmux-tui daemon did not become ready; retry the machine");
 }
 
 /** The installed daemon's build identity and remote protocol, so clients can name a mismatch instead of hanging. */
@@ -283,11 +288,11 @@ export async function mintCmuxTuiInvitation(
     `remote enroll create --session ${CMUX_TUI_SESSION} --ttl ${CMUX_TUI_INVITATION_TTL_SECONDS} --json`,
   );
   if (created.exitCode !== 0) {
-    throw new ProviderError(provider, `cmux-tui enrollment invitation in ${vmId} failed: ${created.stderr || created.stdout}`);
+    throw new ProviderError(provider, "cmux-tui enrollment invitation could not be created; retry the machine");
   }
   const uri = parseJsonObject(created.stdout).uri;
   if (typeof uri !== "string" || !uri) {
-    throw new ProviderError(provider, `cmux-tui enrollment invitation in ${vmId} returned no uri`);
+    throw new ProviderError(provider, "cmux-tui enrollment invitation returned no uri");
   }
   const parsed = parseEnrollmentInvitationUri(uri, provider);
   return { uri, invitationId: parsed.id, expiresAtUnix: parsed.expiresAtUnix };
@@ -315,7 +320,7 @@ export async function approveCmuxTuiEnrollment(
   }
   const pending = await invoke(`remote enroll pending --session ${CMUX_TUI_SESSION} --json`);
   if (pending.exitCode !== 0) {
-    throw new ProviderError(provider, `cmux-tui pending enrollments in ${vmId} failed: ${pending.stderr || pending.stdout}`);
+    throw new ProviderError(provider, "cmux-tui enrollment state could not be read; retry the machine");
   }
   const entries = parseJsonArray(pending.stdout);
   const match = entries.find((entry) => entry.invitation_id === invitationId);
@@ -327,7 +332,7 @@ export async function approveCmuxTuiEnrollment(
     `remote enroll approve ${shellQuote(invitationId)} --session ${CMUX_TUI_SESSION} --json`,
   );
   if (approved.exitCode !== 0) {
-    throw new ProviderError(provider, `cmux-tui enrollment approval in ${vmId} failed: ${approved.stderr || approved.stdout}`);
+    throw new ProviderError(provider, "cmux-tui enrollment could not be approved; retry the machine");
   }
   const device = parseJsonObject(approved.stdout);
   const fingerprint = typeof device.fingerprint === "string"

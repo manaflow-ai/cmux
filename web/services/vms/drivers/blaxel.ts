@@ -25,6 +25,7 @@ import {
   CMUX_CLOUD_HOME,
   CMUX_CLOUD_LAYOUT,
   CMUX_CLOUD_USER,
+  CMUX_CLOUD_USER_UID,
   cmuxTuiBinaryPath,
   cmuxTuiDaemonBuild,
   cmuxTuiDaemonCommand as sharedCmuxTuiDaemonCommand,
@@ -124,33 +125,43 @@ export const CMUX_HOME_BINDFS_COMMAND =
   `${CMUX_HOME_VOLUME_BACKING_PATH} ${CMUX_CLOUD_HOME}`;
 // Runtime user setup, run at every bootstrap (create and resurrect) before the daemon
 // starts. Idempotent, and the safety net for images that predate the baked cmux user:
-// creates the user (uid 1001 preferred so uids are stable across image versions;
+// creates the user at the required uid 1001 so uids stay stable across image versions;
 // Alpine's busybox adduser as the last resort), writes the passwordless-sudo policy
 // (inert until the sudo binary exists — see CMUX_SUDO_INSTALL_COMMAND), and puts the
 // bindfs view over /home/cmux when this machine has a home volume. Machines without a
 // volume keep /home/cmux on the (chown-capable) rootfs and need no view. Skipped work
 // on pre-layout sandboxes (volume still at /root): no backing mount exists there.
+// A new-layout setup failure is fatal; daemon and exec paths refuse a root fallback.
 export const CMUX_CLOUD_USER_SETUP_COMMAND = [
-  `id -u ${CMUX_CLOUD_USER} >/dev/null 2>&1` +
-    ` || useradd -m -u 1001 -s /bin/bash ${CMUX_CLOUD_USER} 2>/dev/null` +
-    ` || useradd -m -s /bin/bash ${CMUX_CLOUD_USER} 2>/dev/null` +
-    ` || adduser -D -s /bin/bash ${CMUX_CLOUD_USER} 2>/dev/null || true`,
+  "set -eu",
+  `if id -u ${CMUX_CLOUD_USER} >/dev/null 2>&1; then ` +
+    `[ "$(id -u ${CMUX_CLOUD_USER})" = "${CMUX_CLOUD_USER_UID}" ]; ` +
+    `else (useradd -m -u ${CMUX_CLOUD_USER_UID} -s /bin/bash ${CMUX_CLOUD_USER} 2>/dev/null ` +
+    `|| adduser -D -u ${CMUX_CLOUD_USER_UID} -s /bin/bash ${CMUX_CLOUD_USER} 2>/dev/null); fi`,
+  `[ "$(id -u ${CMUX_CLOUD_USER})" = "${CMUX_CLOUD_USER_UID}" ]`,
   `mkdir -p ${CMUX_CLOUD_HOME} /etc/sudoers.d`,
-  `printf '${CMUX_CLOUD_USER} ALL=(ALL) NOPASSWD:ALL\\n' > /etc/sudoers.d/90-cmux-nopasswd`,
-  `chmod 0440 /etc/sudoers.d/90-cmux-nopasswd`,
+  `test -d ${CMUX_CLOUD_HOME} && test ! -L ${CMUX_CLOUD_HOME}`,
+  `chown ${CMUX_CLOUD_USER}:${CMUX_CLOUD_USER} ${CMUX_CLOUD_HOME}`,
+  // Write the policy to an exclusive temporary inode, then rename it into the
+  // root-owned directory. Direct redirection would follow a pre-existing
+  // symlink and could overwrite an arbitrary root file.
+  `sudoers_tmp=$(mktemp /etc/sudoers.d/.90-cmux-nopasswd.XXXXXX); ` +
+    `printf '${CMUX_CLOUD_USER} ALL=(ALL) NOPASSWD:ALL\\n' > "$sudoers_tmp"; ` +
+    `chmod 0440 "$sudoers_tmp"; ` +
+    `mv -f "$sudoers_tmp" /etc/sudoers.d/90-cmux-nopasswd`,
   `if mountpoint -q ${CMUX_HOME_VOLUME_BACKING_PATH} 2>/dev/null && ! mountpoint -q ${CMUX_CLOUD_HOME} 2>/dev/null; then ` +
     // bindfs ships in baked images from 2026-08-28-r10; older ones install it here,
     // synchronously, because the daemon must not start before the view exists.
     `command -v bindfs >/dev/null 2>&1` +
     ` || { export DEBIAN_FRONTEND=noninteractive; apt-get update -qq && apt-get install -y -qq --no-install-recommends bindfs; }` +
-    ` || apk add --no-cache bindfs 2>/dev/null || true; ` +
+    ` || apk add --no-cache bindfs 2>/dev/null; ` +
+    `test -d ${CMUX_CLOUD_HOME} && test ! -L ${CMUX_CLOUD_HOME}; ` +
     // On a volume machine the real home is the volume; whatever sits under the
     // mountpoint is disposable rootfs skel, and FUSE refuses non-empty mountpoints.
     `find ${CMUX_CLOUD_HOME} -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null; ` +
     `${CMUX_HOME_BINDFS_COMMAND}; fi`,
-  // A failed view is not a failed machine: the daemon command's usable-user probe
-  // falls back to a root daemon, which still attaches (the pre-layout behavior).
-  `true`,
+  `[ "$(id -u ${CMUX_CLOUD_USER})" = "${CMUX_CLOUD_USER_UID}" ] && ` +
+    `command -v runuser >/dev/null 2>&1 && runuser -u ${CMUX_CLOUD_USER} -- test -w ${CMUX_CLOUD_HOME}`,
 ].join("; ");
 // Installing bindfs on an old image does an apt round-trip; give it minutes, not the
 // default exec timeout. Everything else in the setup returns instantly.
@@ -164,26 +175,27 @@ export const CMUX_SUDO_INSTALL_COMMAND =
   " || apk add --no-cache sudo 2>/dev/null || true";
 const CMUX_SUDO_INSTALL_PROCESS_NAME = "cmux-sudo-install";
 
-// "The work user is actually usable": it exists, runuser can drop to it, and it can
-// write its home (false when the bindfs view over a root-squashing volume is missing).
-// Shared by the daemon command (via cmuxTuiDaemon), CLI invocations, and user exec so
-// they always agree on which user owns the machine's sessions.
+// "The work user is actually usable": it exists at the required uid, runuser can drop to
+// it, and it can write its home (false when the bindfs view over a root-squashing volume
+// is missing). Shared by the daemon command, CLI invocations, and user exec so they always
+// agree on which user owns the machine's sessions.
 const CMUX_CLOUD_USER_USABLE_CONDITION =
-  `id -u ${CMUX_CLOUD_USER} >/dev/null 2>&1 && command -v runuser >/dev/null 2>&1 && ` +
+  `id -u ${CMUX_CLOUD_USER} >/dev/null 2>&1 && [ "$(id -u ${CMUX_CLOUD_USER})" = "${CMUX_CLOUD_USER_UID}" ] && ` +
+  `test -d ${CMUX_CLOUD_HOME} && test ! -L ${CMUX_CLOUD_HOME} && command -v runuser >/dev/null 2>&1 && ` +
   `runuser -u ${CMUX_CLOUD_USER} -- test -w ${CMUX_CLOUD_HOME} 2>/dev/null`;
 
 // User-facing exec (`cmux vm exec`) runs as the same user a terminal pane would, so
 // files it creates in the home are editable from the terminal; root is one
 // passwordless `sudo` away inside the command. Pre-layout sandboxes (volume at
-// /root) and images without the user keep the historical root exec. Driver-internal
-// control-plane execs bypass this on purpose.
+// /root) keep the historical root exec. A new-layout machine with an unusable
+// identity fails closed. Driver-internal control-plane execs bypass this on purpose.
 export function userExecCommand(command: string): string {
   const quoted = shellQuote(command);
   return (
     `if mountpoint -q /root 2>/dev/null; then exec env HOME=/root sh -c ${quoted}; ` +
     `elif ${CMUX_CLOUD_USER_USABLE_CONDITION}; then ` +
     `exec runuser -u ${CMUX_CLOUD_USER} -- env HOME=${CMUX_CLOUD_HOME} USER=${CMUX_CLOUD_USER} LOGNAME=${CMUX_CLOUD_USER} sh -c ${quoted}; ` +
-    `else exec env HOME=${CMUX_CLOUD_HOME} sh -c ${quoted}; fi`
+    `else printf '%s\\n' 'cmux user setup is unavailable; refusing a root fallback' >&2; exit 78; fi`
   );
 }
 
@@ -458,9 +470,26 @@ async function blaxelFetch<T>(
   });
   const text = await response.text();
   if (!response.ok) {
-    throw new ProviderError("blaxel", `${method} ${url} -> ${response.status}: ${text.slice(0, 500)}`);
+    // Provider URLs and bodies can carry credentials or machine paths. Error
+    // objects can reach clients, so retain only typed control data and a safe
+    // operation label.
+    throw new BlaxelRequestError(method, response.status);
   }
   return (text ? JSON.parse(text) : undefined) as T;
+}
+
+class BlaxelRequestError extends ProviderError {
+  constructor(
+    public readonly method: string,
+    public readonly status: number,
+  ) {
+    super("blaxel", `${method} request failed with status ${status}`);
+    this.name = "BlaxelRequestError";
+  }
+}
+
+function isBlaxelStatus(error: unknown, ...statuses: readonly number[]): boolean {
+  return error instanceof BlaxelRequestError && statuses.includes(error.status);
 }
 
 // The daemon source resolution, install command, daemon command, and enrollment
@@ -470,6 +499,7 @@ export {
   CMUX_CLOUD_HOME,
   CMUX_CLOUD_LAYOUT,
   CMUX_CLOUD_USER,
+  CMUX_CLOUD_USER_UID,
   CMUX_TUI_LINUX_TARGET,
   CMUX_TUI_DEFAULT_MANIFEST_URL,
   cmuxTuiBinaryPath,
@@ -562,7 +592,7 @@ export class BlaxelProvider implements VMProvider {
                 },
               }));
             } catch (err) {
-              const conflict = err instanceof ProviderError && /-> 409/.test(err.message);
+              const conflict = isBlaxelStatus(err, 409);
               if (!conflict || attempt === 3) throw err;
               name = friendlyVmName(attempt >= 1);
               homeVolume = resolveHomeVolume(name);
@@ -638,14 +668,15 @@ export class BlaxelProvider implements VMProvider {
       blaxelFetch("PUT", `${sandboxUrl}/filesystem/${SMART_SLEEP_PATH}`, { content: SMART_SLEEP_SCRIPT, permissions: "0755" }));
     const prep = await this.sandboxExec(sandboxUrl, `chmod 755 ${SMART_SLEEP_PATH} && mkdir -p /tmp/cmux && chmod 700 /tmp/cmux`);
     if (prep.exitCode !== 0) {
-      throw new ProviderError("blaxel", `machine prep in ${name} failed: ${prep.stderr || prep.stdout}`);
+      throw new ProviderError("blaxel", "machine preparation failed; retry the machine");
     }
     // The work user must exist (and a migrated volume must be owned) before the daemon
     // starts, or its panes would be root shells; everything else can proceed in parallel.
     const userSetup = await timedStep("user_setup", () =>
       this.sandboxExec(sandboxUrl, CMUX_CLOUD_USER_SETUP_COMMAND, CMUX_USER_SETUP_TIMEOUT_MS));
     if (userSetup.exitCode !== 0) {
-      throw new ProviderError("blaxel", `cmux user setup in ${name} failed: ${userSetup.stderr || userSetup.stdout}`);
+      console.error("[blaxel] cmux user setup failed", { exitCode: userSetup.exitCode });
+      throw new ProviderError("blaxel", "cmux user setup failed; retry the machine");
     }
     // Everything after the user setup is mutually independent: the daemon install/start,
     // the watcher process, the hostname→VNC-heal chain (ordered within itself — the heal
@@ -684,7 +715,7 @@ export class BlaxelProvider implements VMProvider {
       try {
         return await call();
       } catch (err) {
-        const notReady = err instanceof ProviderError && /-> 404|VM not found|-> 503/i.test(err.message);
+        const notReady = isBlaxelStatus(err, 404, 503);
         if (!notReady) throw err;
         lastError = err;
         await new Promise((resolve) => setTimeout(resolve, 1500));
@@ -698,7 +729,7 @@ export class BlaxelProvider implements VMProvider {
     const source = await sharedResolveCmuxTuiSource("blaxel");
     const install = await this.sandboxExec(sandboxUrl, sharedCmuxTuiInstallCommand(source, CMUX_CLOUD_LAYOUT), CMUX_TUI_INSTALL_TIMEOUT_MS);
     if (install.exitCode !== 0) {
-      throw new ProviderError("blaxel", `cmux-tui install in ${name} failed: ${install.stderr || install.stdout}`);
+      throw new ProviderError("blaxel", "cmux-tui installation failed; retry the machine");
     }
     await this.startCmuxTuiProcess(sandboxUrl);
     await this.waitForCmuxTuiReady(name, sandboxUrl);
@@ -724,14 +755,15 @@ export class BlaxelProvider implements VMProvider {
   // Mirrors the daemon command's user/home selection (cmuxTuiDaemonCommand): CLI
   // invocations must read the same state dir, as the same user, as the daemon writes.
   private cmuxTuiExec(sandboxUrl: string, args: string, timeoutMs = EXEC_DEFAULT_TIMEOUT_MS): Promise<ExecResult> {
+    const userBinaryPath = cmuxTuiBinaryPath(CMUX_CLOUD_HOME);
     const legacy =
       `if [ -x ${CMUX_TUI_BINARY_PATH} ]; then exec env HOME=/root ${CMUX_TUI_BINARY_PATH} ${args}; ` +
       `else exec env HOME=/root ${CMUX_TUI_LEGACY_BINARY_PATH} ${args}; fi`;
     const command =
       `if mountpoint -q /root 2>/dev/null; then ${legacy}; ` +
       `elif ${CMUX_CLOUD_USER_USABLE_CONDITION}; then ` +
-      `exec runuser -u ${CMUX_CLOUD_USER} -- env HOME=${CMUX_CLOUD_HOME} USER=${CMUX_CLOUD_USER} LOGNAME=${CMUX_CLOUD_USER} ${CMUX_TUI_BINARY_PATH} ${args}; ` +
-      `else exec env HOME=${CMUX_CLOUD_HOME} ${CMUX_TUI_BINARY_PATH} ${args}; fi`;
+      `exec runuser -u ${CMUX_CLOUD_USER} -- env HOME=${CMUX_CLOUD_HOME} USER=${CMUX_CLOUD_USER} LOGNAME=${CMUX_CLOUD_USER} ${userBinaryPath} ${args}; ` +
+      `else printf '%s\\n' 'cmux user setup is unavailable; refusing a root fallback' >&2; exit 78; fi`;
     return this.sandboxExec(sandboxUrl, command, timeoutMs);
   }
 
@@ -745,9 +777,10 @@ export class BlaxelProvider implements VMProvider {
     const proc = await blaxelFetch<BlaxelProcess>("GET", `${sandboxUrl}/process/${CMUX_TUI_PROCESS_NAME}`).catch(() => null);
     if (proc?.status !== "running") {
       // The daemon is about to (re)start with the layout command; make sure the work
-      // user it drops to exists even on a sandbox whose create predates the layout
-      // (best-effort: the daemon command itself falls back to root without the user).
-      await this.sandboxExec(sandboxUrl, CMUX_CLOUD_USER_SETUP_COMMAND, CMUX_USER_SETUP_TIMEOUT_MS).catch(() => undefined);
+      // user it drops to exists even on a sandbox whose create predates the layout.
+      // A failed repair must stop here; starting a root daemon would silently weaken
+      // the non-root invariant.
+      await this.sandboxExec(sandboxUrl, CMUX_CLOUD_USER_SETUP_COMMAND, CMUX_USER_SETUP_TIMEOUT_MS);
       // The binary lives on the persistent volume, so a resurrected sandbox usually only
       // needs the process started; a pin change or a fresh volume re-runs the install.
       const installed = await this.sandboxExec(
@@ -782,7 +815,7 @@ export class BlaxelProvider implements VMProvider {
       const fetched = await this.getSandbox(vmId);
       sandbox = mapStatus(fetched) === "destroyed" ? null : fetched;
     } catch (err) {
-      const gone = err instanceof ProviderError && /-> 404/.test(err.message);
+      const gone = isBlaxelStatus(err, 404);
       if (!gone) throw err;
     }
     if (!sandbox) {
@@ -898,7 +931,7 @@ export class BlaxelProvider implements VMProvider {
         } catch (err) {
           // Cleanup paths retry destroy after partial create failures; a sandbox
           // that is already gone is this operation's success state, not an error.
-          const gone = err instanceof ProviderError && /-> 404/.test(err.message);
+          const gone = isBlaxelStatus(err, 404);
           if (!gone) throw err;
         }
       },
@@ -1007,7 +1040,7 @@ export class BlaxelProvider implements VMProvider {
     try {
       sandbox = await this.getSandbox(vmId);
     } catch (err) {
-      if (!(err instanceof ProviderError && /-> 404/.test(err.message))) throw err;
+      if (!isBlaxelStatus(err, 404)) throw err;
     }
 
     const sandboxUrl = sandbox?.metadata?.url;
@@ -1025,7 +1058,7 @@ export class BlaxelProvider implements VMProvider {
       if (result.exitCode !== 0) {
         throw new ProviderError(
           "blaxel",
-          `revokeEndpointLeases(${vmId}) failed to stop the cmux-tui daemon: ${result.stderr || result.stdout}`,
+          "cmux-tui daemon could not be stopped during endpoint revocation; retry the machine",
         );
       }
     }
@@ -1036,7 +1069,7 @@ export class BlaxelProvider implements VMProvider {
     try {
       listed = await blaxelFetch<unknown>("GET", previewsBase);
     } catch (err) {
-      if (err instanceof ProviderError && /-> 404/.test(err.message)) return;
+      if (isBlaxelStatus(err, 404)) return;
       throw err;
     }
     const rawItems = Array.isArray(listed)
@@ -1055,7 +1088,7 @@ export class BlaxelProvider implements VMProvider {
       try {
         await blaxelFetch("DELETE", `${previewsBase}/${encodeURIComponent(name)}`);
       } catch (err) {
-        if (!(err instanceof ProviderError && /-> 404/.test(err.message))) throw err;
+        if (!isBlaxelStatus(err, 404)) throw err;
       }
     }));
   }
@@ -1074,7 +1107,7 @@ export class BlaxelProvider implements VMProvider {
       });
     } catch (err) {
       // An existing volume is the expected steady state; anything else is fatal.
-      const conflict = err instanceof ProviderError && /-> 409/.test(err.message);
+      const conflict = isBlaxelStatus(err, 409);
       if (!conflict) throw err;
     }
   }

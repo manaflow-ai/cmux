@@ -196,8 +196,10 @@ RUN useradd -m -u 1000 -s /bin/bash cua
 # volume over /home/cmux and starts the cmux-tui daemon as this user (uid 1001 is
 # the driver's runtime-setup pin too, so volume ownership is stable across images).
 RUN useradd -m -u 1001 -s /bin/bash cmux \
-  && printf 'cmux ALL=(ALL) NOPASSWD:ALL\n' > /etc/sudoers.d/90-cmux-nopasswd \
-  && chmod 0440 /etc/sudoers.d/90-cmux-nopasswd \
+  && sudoers_tmp="$(mktemp /etc/sudoers.d/.90-cmux-nopasswd.XXXXXX)" \
+  && printf 'cmux ALL=(ALL) NOPASSWD:ALL\n' > "$sudoers_tmp" \
+  && chmod 0440 "$sudoers_tmp" \
+  && mv -f "$sudoers_tmp" /etc/sudoers.d/90-cmux-nopasswd \
   && visudo -c
 
 # Interactive shell setup: ble.sh ghost text, half-life prompt, seeded history.

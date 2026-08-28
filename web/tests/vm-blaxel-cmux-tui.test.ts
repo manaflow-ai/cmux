@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
   CMUX_CLOUD_LAYOUT,
+  CMUX_CLOUD_USER_SETUP_COMMAND,
+  CMUX_CLOUD_USER_UID,
   cmuxTuiDaemonCommand,
   cmuxTuiPreviewBranded,
   cmuxTuiInstallCommand,
@@ -111,18 +113,19 @@ describe("cmux-tui install and daemon commands", () => {
     expect(command).toContain("exec env HOME=/root TERM=xterm-256color /home/cmux/.cmux/bin/cmux-tui server start");
     expect(command).toContain("exec env HOME=/root TERM=xterm-256color /root/.cmux/bin/cmux-tui server start");
     // No user, no runuser, or an unusable home (bindfs view missing over the
-    // root-squashing volume): fall back to root instead of crash-looping.
+    // root-squashing volume): fail closed instead of silently starting root.
     expect(command).toContain(
-      "id -u cmux >/dev/null 2>&1 && command -v runuser >/dev/null 2>&1 && runuser -u cmux -- test -w /home/cmux 2>/dev/null",
+      `id -u cmux >/dev/null 2>&1 && [ "$(id -u cmux)" = "${CMUX_CLOUD_USER_UID}" ] &&`,
     );
-    expect(command).toContain("else cd /home/cmux && exec env HOME=/home/cmux TERM=xterm-256color /home/cmux/.cmux/bin/cmux-tui server start");
+    expect(command).toContain("else printf '%s\\n' 'cmux user setup is unavailable; refusing a root fallback' >&2; exit 78; fi");
   });
 
   test("the layout setup pins the work-user identity and does not accept a silent fallback", () => {
-    expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain("useradd -m -u 1001 -s /bin/bash cmux");
-    expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain("useradd -m -u 1001 -s /bin/bash cmux");
-    expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain("adduser -D -u 1001 -s /bin/bash cmux");
-    expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain("id -u cmux | grep -qx 1001");
+    expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain(`useradd -m -u ${CMUX_CLOUD_USER_UID} -s /bin/bash cmux`);
+    expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain(`adduser -D -u ${CMUX_CLOUD_USER_UID} -s /bin/bash cmux`);
+    expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain(`[ "$(id -u cmux)" = "${CMUX_CLOUD_USER_UID}" ]`);
+    expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain("sudoers_tmp=$(mktemp /etc/sudoers.d/.90-cmux-nopasswd.XXXXXX)");
+    expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain('mv -f "$sudoers_tmp" /etc/sudoers.d/90-cmux-nopasswd');
     expect(CMUX_CLOUD_USER_SETUP_COMMAND).not.toContain("|| true");
   });
 

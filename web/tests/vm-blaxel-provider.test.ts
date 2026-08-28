@@ -176,6 +176,41 @@ describe("BlaxelProvider SSH surface", () => {
 });
 
 describe("BlaxelProvider configuration errors", () => {
+  test("provider failures do not expose tokenized URLs or response bodies", async () => {
+    const previousKey = process.env.BL_API_KEY;
+    const previousWorkspace = process.env.BL_WORKSPACE;
+    process.env.BL_API_KEY = "test-key";
+    process.env.BL_WORKSPACE = "cmux";
+    const originalFetch = globalThis.fetch;
+    const urlSecret = "url-secret-marker";
+    const bodySecret = "body-secret-marker";
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (url.endsWith("/sandboxes/machine-a")) {
+        return new Response(JSON.stringify({
+          metadata: { url: `https://sandbox-api.test?bl_preview_token=${urlSecret}` },
+        }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ error: bodySecret }), { status: 502 });
+    }) as typeof fetch;
+    try {
+      const error = await new BlaxelProvider()
+        .revokeEndpointLeases("machine-a")
+        .then(() => "unexpected success", (failure: unknown) => String(failure));
+      expect(error).toContain("POST request failed with status 502");
+      expect(error).not.toContain("sandbox-api.test");
+      expect(error).not.toContain(urlSecret);
+      expect(error).not.toContain(bodySecret);
+      expect(error).not.toContain("bl_preview_token");
+    } finally {
+      globalThis.fetch = originalFetch;
+      if (previousKey === undefined) delete process.env.BL_API_KEY;
+      else process.env.BL_API_KEY = previousKey;
+      if (previousWorkspace === undefined) delete process.env.BL_WORKSPACE;
+      else process.env.BL_WORKSPACE = previousWorkspace;
+    }
+  });
+
   test("create fails with a clear error when BL_API_KEY is missing", async () => {
     const prevKey = process.env.BL_API_KEY;
     const prevWs = process.env.BL_WORKSPACE;
@@ -472,10 +507,11 @@ describe("cloud work user setup", () => {
   test("creates the cmux user idempotently with passwordless sudo policy", () => {
     // uid 1001 keeps volume ownership stable across image generations; busybox
     // adduser is the Alpine fallback; reruns are no-ops thanks to the id guard.
-    expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain("id -u cmux >/dev/null 2>&1 || useradd -m -u 1001 -s /bin/bash cmux");
-    expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain("adduser -D -s /bin/bash cmux");
-    expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain("printf 'cmux ALL=(ALL) NOPASSWD:ALL\\n' > /etc/sudoers.d/90-cmux-nopasswd");
-    expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain("chmod 0440 /etc/sudoers.d/90-cmux-nopasswd");
+    expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain("if id -u cmux >/dev/null 2>&1; then");
+    expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain("adduser -D -u 1001 -s /bin/bash cmux");
+    expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain("sudoers_tmp=$(mktemp /etc/sudoers.d/.90-cmux-nopasswd.XXXXXX)");
+    expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain('printf \'cmux ALL=(ALL) NOPASSWD:ALL\\n\' > "$sudoers_tmp"');
+    expect(CMUX_CLOUD_USER_SETUP_COMMAND).toContain('chmod 0440 "$sudoers_tmp"');
   });
 
   test("presents the root-squashing volume as cmux-owned through the bindfs view", () => {
@@ -505,7 +541,8 @@ describe("cloud work user setup", () => {
     expect(wrapped).toContain("runuser -u cmux -- env HOME=/home/cmux USER=cmux LOGNAME=cmux sh -c 'echo '\\''hi there'\\'''");
     // Legacy sandboxes (volume at /root) keep the historical root exec.
     expect(wrapped).toContain("if mountpoint -q /root 2>/dev/null; then exec env HOME=/root sh -c");
-    // No user/runuser: fall back to root rather than failing the exec.
-    expect(wrapped).toContain("else exec env HOME=/home/cmux sh -c");
+    // A new-layout machine with no usable identity must not silently elevate.
+    expect(wrapped).toContain("refusing a root fallback");
+    expect(wrapped).toContain("exit 78");
   });
 });
