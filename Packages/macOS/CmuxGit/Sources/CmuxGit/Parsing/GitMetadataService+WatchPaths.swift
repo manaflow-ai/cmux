@@ -77,9 +77,7 @@ extension GitMetadataService {
                parser.signature(data: data) == cached.signature {
                 indexSnapshot = cached
             } else {
-                indexSnapshot = indexReadResult.data.flatMap { data in
-                    parser.parse(data: data, deadline: deadline)
-                }
+                indexSnapshot = indexReadResult.data.flatMap { parser.parse(data: $0, deadline: deadline) }
             }
         } else {
             indexSnapshot = nil
@@ -163,11 +161,12 @@ extension GitMetadataService {
         repository: ResolvedGitRepository,
         configPathsByRepository: [String: [String]]? = nil
     ) -> [String] {
-        let configPaths = if let configPathsByRepository {
-            configPathsByRepository[repository.workTreeRoot]
+        let configPaths: [String]
+        if let configPathsByRepository {
+            configPaths = configPathsByRepository[repository.workTreeRoot]
                 ?? gitRootConfigURLs(repository: repository).map(\.path)
         } else {
-            gitConfigURLs(repository: repository).map(\.path)
+            configPaths = gitConfigURLs(repository: repository).map(\.path)
         }
         return [
             joinedPath(root: repository.gitDirectory, relativePath: "HEAD"),

@@ -132,6 +132,7 @@ export const agentReadablePages = [
   { path: "/browser", title: "cmux Browser" },
   ...agentReadableDownloadPages,
   { path: "/pricing", title: "Pricing", locales: fallbackContentLocales },
+  { path: "/support", title: "Support" },
   { path: "/enterprise", title: "Enterprise" },
   { path: "/support", title: "Support" },
   { path: "/blog", title: "Blog" },

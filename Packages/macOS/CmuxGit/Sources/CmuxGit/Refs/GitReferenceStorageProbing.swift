@@ -10,9 +10,7 @@ nonisolated protocol GitReferenceStorageProbing: Sendable {
 nonisolated struct SystemGitReferenceStorageProbe: GitReferenceStorageProbing {
     func isDirectory(atPath path: String) -> Bool {
         var metadata = stat()
-        return path.withCString { pathPointer in
-            stat(pathPointer, &metadata) == 0
-                && metadata.st_mode & mode_t(S_IFMT) == mode_t(S_IFDIR)
-        }
+        return stat(path, &metadata) == 0
+            && metadata.st_mode & mode_t(S_IFMT) == mode_t(S_IFDIR)
     }
 }

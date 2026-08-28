@@ -13,7 +13,7 @@ final class WorkspaceChangesGitRepositoryFixture {
         self.root = rootURL
         self.home = rootURL.appendingPathComponent("home", isDirectory: true)
         self.gitExecutableURLs = gitExecutableURL.map { [$0] }
-            ?? SystemGitExecutableResolver().referenceExecutableURLs()
+            ?? Self.availableGitExecutableURLs()
         self.gitExecutableURL = self.gitExecutableURLs[0]
         try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: self.home, withIntermediateDirectories: true)
@@ -24,6 +24,38 @@ final class WorkspaceChangesGitRepositoryFixture {
 
     deinit {
         try? FileManager.default.removeItem(at: root)
+    }
+
+    /// Keeps fixture setup compatible with both system and user-installed Git.
+    /// The production resolver is intentionally internal to the library, so
+    /// tests discover absolute PATH candidates locally and retain deterministic
+    /// macOS fallbacks when PATH is unavailable.
+    private static func availableGitExecutableURLs() -> [URL] {
+        let preferredPaths = [
+            "/opt/homebrew/bin/git",
+            "/usr/local/bin/git",
+            "/opt/local/bin/git",
+        ]
+        let systemPaths = [
+            "/usr/bin/git",
+            "/Library/Developer/CommandLineTools/usr/bin/git",
+        ]
+        let pathCandidates = (ProcessInfo.processInfo.environment["PATH"] ?? "")
+            .split(separator: ":")
+            .filter { $0.first == "/" }
+            .map { String($0) + "/git" }
+        var seen: Set<String> = []
+        let candidates = (preferredPaths + pathCandidates + systemPaths)
+            .prefix(64)
+            .compactMap { path -> URL? in
+            let url = URL(fileURLWithPath: path).standardizedFileURL
+            guard seen.insert(url.path).inserted,
+                  FileManager.default.isExecutableFile(atPath: url.path) else {
+                return nil
+            }
+            return url
+        }
+        return candidates.isEmpty ? [URL(fileURLWithPath: "/usr/bin/git")] : candidates
     }
 
     func makeBaseline() throws {

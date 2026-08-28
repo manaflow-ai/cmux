@@ -29,9 +29,9 @@ extension GitMetadataService {
                 ? safetyConfiguration.unfilteredWorkTreeEventThrottle
                 : descriptor.eventCoalescingInterval,
             eventFilterIdentity: rootIsForced ? nil : descriptor.eventFilterIdentity,
-            // Preserve a more specific degradation (for example an oversized
-            // index's rate-limited work-tree fallback) when a conservative
-            // forced root is added for an independent metadata reason.
+            // Keep a specific degradation, such as the rate-limited fallback
+            // for an oversized index, when an independent safety valve adds a
+            // forced root.
             degradation: descriptor.degradation ?? (anyForcedRoot ? .unreadableIndex : nil)
         )
     }

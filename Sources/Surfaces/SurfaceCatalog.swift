@@ -25,8 +25,12 @@ protocol SurfaceProvider: AnyObject {
     /// Create a new, empty workspace on this machine, directly (not as a side effect of
     /// creating a terminal). Providers without remote workspaces refuse.
     func createRemoteWorkspace(name: String?) async throws -> SurfaceRemoteWorkspace
-    /// Close a workspace on this machine and every terminal in it.
+    /// Close a workspace view on this machine. Its terminals detach into the pool
+    /// (`spec/cli.md`: only `terminal close` kills); callers wanting a full delete
+    /// close each terminal first.
     func closeRemoteWorkspace(id: String) async throws
+    /// Rename a remote workspace.
+    func renameRemoteWorkspace(id: String, name: String) async throws
     /// Close a projection's pane: a materialization that lost a race with an existing
     /// projection, or a URL-backed pane whose machine was unregistered. The default
     /// implementation handles providers that use the shared pane factory; providers may
@@ -45,6 +49,9 @@ extension SurfaceProvider {
     }
     func closeRemoteWorkspace(id: String) async throws {
         throw SurfaceCatalogError.unsupported("closing workspaces on \(machine)")
+    }
+    func renameRemoteWorkspace(id: String, name: String) async throws {
+        throw SurfaceCatalogError.unsupported("workspaces on \(machine)")
     }
     @discardableResult
     func discardMaterialization(_ projection: SurfaceProjection) -> Bool {

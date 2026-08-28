@@ -60075,23 +60075,6 @@
         }
       }
     },
-    "cloudTree.menu.closeWorkspace": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Close Workspace"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ワークスペースを閉じる"
-          }
-        }
-      }
-    },
     "cloudTree.menu.copyPort": {
       "extractionState": "manual",
       "localizations": {
@@ -60173,6 +60156,312 @@
           "stringUnit": {
             "state": "translated",
             "value": "ここに新規ターミナル"
+          }
+        }
+      }
+    },
+    "cloudTree.confirm.cancel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キャンセル"
+          }
+        }
+      }
+    },
+    "cloudTree.deleteWorkspace.confirm": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "削除"
+          }
+        }
+      }
+    },
+    "cloudTree.deleteWorkspace.message.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The workspace closes on the machine."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシン上のワークスペースが閉じます。"
+          }
+        }
+      }
+    },
+    "cloudTree.deleteWorkspace.message.one": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Its terminal is killed with it. To keep it, use “Close Workspace” instead — it moves to the Terminals pool."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中のターミナルも一緒に終了します。残す場合は「ワークスペースを閉じる」を使ってください。ターミナルはプールに移動します。"
+          }
+        }
+      }
+    },
+    "cloudTree.deleteWorkspace.message.other": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Its %d terminals are killed with it. To keep them, use “Close Workspace” instead — they move to the Terminals pool."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中の%d個のターミナルも一緒に終了します。残す場合は「ワークスペースを閉じる」を使ってください。ターミナルはプールに移動します。"
+          }
+        }
+      }
+    },
+    "cloudTree.deleteWorkspace.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete workspace “%@”?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース「%@」を削除しますか？"
+          }
+        }
+      }
+    },
+    "cloudTree.killTerminal.confirm": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kill"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "強制終了"
+          }
+        }
+      }
+    },
+    "cloudTree.killTerminal.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The process ends on the machine, everywhere it is shown. Panes keep their scrollback."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシン上のプロセスが終了し、表示中のすべての場所に反映されます。ペインのスクロールバックは残ります。"
+          }
+        }
+      }
+    },
+    "cloudTree.killTerminal.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kill terminal “%@”?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナル「%@」を強制終了しますか？"
+          }
+        }
+      }
+    },
+    "cloudTree.menu.closeWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close Workspace (Keep Terminals)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースを閉じる（ターミナルを保持）"
+          }
+        }
+      }
+    },
+    "cloudTree.menu.deleteWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete Workspace and Terminals…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースとターミナルを削除…"
+          }
+        }
+      }
+    },
+    "cloudTree.menu.killTerminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kill Terminal…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルを強制終了…"
+          }
+        }
+      }
+    },
+    "cloudTree.menu.openWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースを開く"
+          }
+        }
+      }
+    },
+    "cloudTree.menu.renameWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rename…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名称変更…"
+          }
+        }
+      }
+    },
+    "cloudTree.operation.deleteWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deleting %@…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ を削除しています…"
+          }
+        }
+      }
+    },
+    "cloudTree.operation.renameWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Renaming %@…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ の名称を変更しています…"
+          }
+        }
+      }
+    },
+    "cloudTree.rename.confirm": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rename"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名称変更"
+          }
+        }
+      }
+    },
+    "cloudTree.renameWorkspace.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rename “%@”"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」の名称変更"
           }
         }
       }
@@ -60700,23 +60989,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "メモリ %@/%@ GB"
-          }
-        }
-      }
-    },
-    "cloudTree.terminal.open": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open in a pane"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ペインで開いています"
           }
         }
       }

@@ -71,8 +71,7 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
         guard deadline > DispatchTime.now() else {
             return unreadableSnapshot()
         }
-        let hasReftable = hasReftableDirectory(repository: repository, deadline: deadline)
-        if hasReftable {
+        if hasReftableDirectory(repository: repository, deadline: deadline) {
             return plumbingSnapshot(
                 repository: repository,
                 deadline: deadline,
@@ -158,13 +157,13 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
         guard directSnapshot.currentCommit == nil || directSnapshot.branchName == ".invalid" else {
             return directSnapshot
         }
-        let resolvedStorage = configuredStorage
+        let effectiveConfiguredStorage = configuredStorage
             ?? referenceStorageName(
                 repository: repository,
                 branchContext: .resolved(directSnapshot.branchName),
                 deadline: deadline
             )
-        if let resolvedStorage, resolvedStorage != "files" {
+        if let effectiveConfiguredStorage, effectiveConfiguredStorage != "files" {
             return plumbingSnapshot(
                 repository: repository,
                 deadline: deadline,

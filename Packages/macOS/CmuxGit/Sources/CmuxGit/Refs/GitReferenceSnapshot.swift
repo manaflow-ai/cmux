@@ -23,7 +23,6 @@ nonisolated struct GitReferenceSnapshot: Equatable, Sendable {
     /// Whether this snapshot used storage-independent Git plumbing.
     let usesGitPlumbing: Bool
 
-    /// Creates a resolved reference snapshot.
     init(
         checkedOutBranch: GitCheckedOutBranch,
         headSignature: String?,
