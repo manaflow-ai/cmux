@@ -26,6 +26,11 @@ extension CMUXCLI {
         let eventsToInject = CodexHookInjectionSchema.current.events.filter {
             !persistentEvents.contains($0.agentEvent)
         }
+        // A complete persistent channel is already the user's selected Codex
+        // configuration. Do not even pass an activation override in that case;
+        // this preserves an intentional `features.hooks = false` choice. A
+        // partial or legacy channel still gets only its missing events below.
+        guard !eventsToInject.isEmpty else { return }
         // Prefer a #!/bin/sh SCRIPT FILE as the hook command over an inline shell
         // snippet. Some codex-compatible runtimes (subrouters, proxies) exec the
         // `command` string directly as a program instead of via a shell, so an
