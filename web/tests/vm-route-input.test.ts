@@ -86,6 +86,22 @@ describe("Cloud VM route input", () => {
     }
   });
 
+  test("counts chunked bodies instead of trusting Content-Length", async () => {
+    const payload = new TextEncoder().encode("x".repeat(MAX_OBJECT_BODY_BYTES + 1));
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(payload);
+        controller.close();
+      },
+    });
+    const parsed = await parseOptionalObjectBody(new Request("https://cmux.test", {
+      method: "POST",
+      body: stream,
+    }), { operation: "fork", action: "Send a smaller JSON object." });
+    expect(parsed.ok).toBe(false);
+    if (!parsed.ok) expect(parsed.response.status).toBe(413);
+  });
+
   test("shares field normalization and identifier validation across routes", () => {
     expect(stringField({ name: "  VM  " }, "name")).toBe("VM");
     expect(stringField({ name: 1 }, "name")).toBeUndefined();
