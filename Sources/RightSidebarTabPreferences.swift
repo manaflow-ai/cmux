@@ -50,7 +50,10 @@ enum RightSidebarTabPreferences {
         var hiddenSet = hiddenModes(defaults: defaults)
         if hidden {
             guard hiddenSet.insert(mode).inserted else { return true }
-            guard RightSidebarMode.visibleModes(defaults: defaults).contains(where: { $0 != mode }) else {
+            let remainingVisible = orderedModes(defaults: defaults).contains {
+                $0 != mode && $0.isAvailable(defaults: defaults) && !hiddenSet.contains($0)
+            }
+            guard remainingVisible else {
                 return false
             }
         } else {

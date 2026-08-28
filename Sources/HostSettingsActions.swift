@@ -215,6 +215,7 @@ final class HostSettingsActions: SettingsHostActions {
             let observers = [
                 RightSidebarTabPreferences.didChangeNotification,
                 KeyboardShortcutSettings.didChangeNotification,
+                UserDefaults.didChangeNotification,
             ].map { name in
                 MobileHostStatusObserverToken(
                     NotificationCenter.default.addObserver(
