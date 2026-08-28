@@ -8,7 +8,8 @@ extension CMUXCLI {
             var selected: [String: Any] = [:]
             for (key, value) in dictionary
                 where !key.hasPrefix("SUBROUTER_CODEX_")
-                    && key != SubrouterCodexResumeRouting.launchBoundEnvironmentKey {
+                    && key != SubrouterCodexResumeRouting.launchBoundEnvironmentKey
+                    && key != "CMUX_CUSTOM_CODEX_PATH" {
                 selected[key] = publicSurfaceResumePayload(value)
             }
             return selected
@@ -18,7 +19,7 @@ extension CMUXCLI {
             where value.contains("SUBROUTER_CODEX_")
                 || value.contains("model_provider=subrouter")
                 || value.contains("model_providers.subrouter."):
-            return "[private routing metadata]"
+            return NSNull()
         default:
             return object
         }
