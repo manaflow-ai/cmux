@@ -1498,6 +1498,8 @@ import Testing
         environment["CMUX_SOCKET_PATH"] = responder.endpoint
         environment["CMUX_RELAY_ID"] = relayID
         environment["CMUX_RELAY_TOKEN"] = String(repeating: "11", count: 32)
+        environment["CMUX_WORKSPACE_ID"] = UUID().uuidString
+        environment["CMUX_SURFACE_ID"] = UUID().uuidString
 
         // Cursor shell hooks give connect(deadline:) a three-second operation
         // budget. A bound-but-not-listening relay must still fail at the
