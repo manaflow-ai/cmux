@@ -154,7 +154,7 @@ extension CmxIrohTrustBrokerClientTests {
         try await client.revoke(bindingID: "binding-1")
 
         await #expect(throws: CmxIrohTrustBrokerClientError.rateLimited(
-            code: "rate_limited",
+            code: "cooldown:rate_limited",
             retryAfterSeconds: 600
         )) {
             _ = try await client.discover()
