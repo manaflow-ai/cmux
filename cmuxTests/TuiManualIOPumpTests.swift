@@ -239,6 +239,25 @@ struct TuiManualIOPumpTests {
         #expect(String(decoding: data, as: UTF8.self) == "first\nsecond\n")
     }
 
+    @Test
+    func userInputReclaimsGeometryOnlyAfterTheThrottleInterval() throws {
+        let pipe = Pipe()
+        let channel = TuiManualIOInputChannel()
+        // Attach at t=100: the relay's own attach claim covers this moment.
+        channel.setHandle(pipe.fileHandleForWriting, now: 100)
+        channel.sendUserInput(Data("a\n".utf8), claimInterval: 5, now: 101)
+        channel.sendUserInput(Data("b\n".utf8), claimInterval: 5, now: 104)
+        // Past the interval: this keystroke re-claims first.
+        channel.sendUserInput(Data("c\n".utf8), claimInterval: 5, now: 106)
+        // Within the fresh window again: no second claim.
+        channel.sendUserInput(Data("d\n".utf8), claimInterval: 5, now: 107)
+        channel.closeHandle()
+
+        let text = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        let claim = String(decoding: TuiManualIOPumpPolicy.claimGeometryLine, as: UTF8.self)
+        #expect(text == "a\nb\n\(claim)c\nd\n")
+    }
+
     // MARK: - Registry
 
     @MainActor
