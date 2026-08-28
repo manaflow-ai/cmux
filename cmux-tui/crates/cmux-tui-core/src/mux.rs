@@ -8826,7 +8826,7 @@ impl Mux {
             anyhow::bail!("agent session ended for terminal {terminal_id}");
         }
         let persisted_source_session = if source == AgentSource::Hook {
-            source_session.filter(|value| {
+            source_session.clone().filter(|value| {
                 !value.starts_with("cmux-hook-sequence:") && !value.starts_with("cmux-hook-ended:")
             })
         } else {
