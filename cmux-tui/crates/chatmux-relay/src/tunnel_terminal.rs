@@ -579,6 +579,7 @@ async fn handle_client_frame(connection: &Arc<Connection>, frame: TunnelFrame) {
                     }
                 },
             };
+            let context = connection.frame_context();
             let mut open = json!({
                 "version": PTY_PROTOCOL_VERSION,
                 "type": "pty_open",
@@ -587,15 +588,36 @@ async fn handle_client_frame(connection: &Arc<Connection>, frame: TunnelFrame) {
                 "cols": cols,
                 "rows": rows,
             });
+            // The manager's observe policy is owner-bound. Carry the actor
+            // from the locally reconciled authority, never from tunnel input.
+            if let Some(actor) = context.owner_user_id.clone() {
+                open["actorId"] = Value::from(actor);
+            }
             if let Some(surface) = surface {
                 open["surface"] = Value::from(surface);
             }
-            let context = connection.frame_context();
-            if tokio::time::timeout(OPEN_TIMEOUT, connection.manager.handle_frame(&open, &context))
-                .await
-                .is_err()
-            {
-                connection.protocol_error("failed");
+            // Keep the manager future owned after the protocol deadline. A
+            // direct timeout would drop `handle_frame` while its blocking PTY
+            // spawn could still be running, leaving a late child with no
+            // owner. The detached task retains the opening reservation; the
+            // connection cleanup marks that reservation cancelled, and
+            // `Opened` then kills any handle that arrives after the deadline.
+            let mut open_task = tokio::spawn({
+                let manager = Arc::clone(&connection.manager);
+                let open = open.clone();
+                let context = context.clone();
+                async move { manager.handle_frame(&open, &context).await }
+            });
+            match tokio::time::timeout(OPEN_TIMEOUT, &mut open_task).await {
+                Ok(Ok(())) => {}
+                Ok(Err(_)) => connection.protocol_error("failed"),
+                Err(_) => {
+                    connection.protocol_error("failed");
+                    // Dropping a JoinHandle detaches the task. It continues
+                    // to its ownership-aware cleanup path without blocking
+                    // this connection's reader or writer.
+                    drop(open_task);
+                }
             }
         }
         ClientFrame::Resize { cols, rows } => {
