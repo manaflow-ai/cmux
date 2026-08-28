@@ -9,10 +9,10 @@ defeated by PID reuse: once macOS recycles the recorded PID onto any live
 process, the guard returns true forever and the watcher never exits
 (793 orphans / 2.1 GB after 20 days in the issue).
 
-The fix records a stable parent identity at spawn (PID plus /bin/ps lstart
-start time) in `_cmux_watcher_parent_start_time`, and the per-iteration
-guard `_cmux_watcher_parent_alive` treats a start-time mismatch or a
-failed ps as parent-dead.
+The fix records a stable parent identity at spawn (PID plus a numeric UTC
+`/bin/ps` lstart token) in `_cmux_watcher_parent_start_time`, and the
+per-iteration guard `_cmux_watcher_parent_alive` treats a start-time mismatch
+or a failed ps as parent-dead.
 
 This test never touches a running cmux instance or /tmp/cmux-debug.sock:
 it builds its own scratch HOME, its own unix socket, and unique panel ids.
@@ -21,6 +21,7 @@ it builds its own scratch HOME, its own unix socket, and unique panel ids.
 from __future__ import annotations
 
 import os
+import select
 import shutil
 import signal
 import socket
@@ -33,7 +34,7 @@ ROOT = Path(__file__).resolve().parents[1]
 ZSH_INTEGRATION = ROOT / "Resources" / "shell-integration" / "cmux-zsh-integration.zsh"
 BASH_INTEGRATION = ROOT / "Resources" / "shell-integration" / "cmux-bash-integration.bash"
 
-FAKE_START_TIME = "Thu Jan  1 00:00:00 1970"
+FAKE_START_TIME = "19700101000000"
 
 FAILURES: list[str] = []
 
@@ -53,13 +54,21 @@ def base_env(tmp: Path) -> dict[str, str]:
     }
 
 
-def run_shell(shell_argv: list[str], script: str, args: list[str], env: dict[str, str], timeout: float = 15.0) -> subprocess.CompletedProcess:
+def run_shell(
+    shell_argv: list[str],
+    script: str,
+    args: list[str],
+    env: dict[str, str],
+    timeout: float = 15.0,
+    pass_fds: tuple[int, ...] = (),
+) -> subprocess.CompletedProcess:
     return subprocess.run(
         [*shell_argv, "-c", script, "cmux-test", *args],
         env=env,
         capture_output=True,
         text=True,
         timeout=timeout,
+        pass_fds=pass_fds,
     )
 
 
@@ -82,13 +91,33 @@ def wait_pid_gone(pid: int, deadline_s: float) -> bool:
     return not pid_alive(pid)
 
 
-def ps_lstart(pid: int) -> str:
-    out = subprocess.run(
-        ["/bin/ps", "-o", "lstart=", "-p", str(pid)],
-        capture_output=True,
-        text=True,
-    ).stdout
-    return " ".join(out.split())
+def wait_ready(read_fd: int, expected: int = 1, timeout_s: float = 5.0) -> bool:
+    """Wait for explicit watcher-ready records without a timing sleep."""
+    data = b""
+    deadline = time.monotonic() + timeout_s
+    while data.count(b"READY\n") < expected:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return False
+        readable, _, _ = select.select([read_fd], [], [], remaining)
+        if not readable:
+            return False
+        chunk = os.read(read_fd, 4096)
+        if not chunk:
+            return False
+        data += chunk
+    return True
+
+
+def shell_start_time(shell_argv: list[str], integration: Path, env: dict[str, str], pid: int) -> str:
+    """Read the identity token through the shipped shell helper."""
+    proc = run_shell(
+        shell_argv,
+        'source "$1"; _cmux_watcher_parent_start_time "$2"',
+        [str(integration), str(pid)],
+        env,
+    )
+    return proc.stdout.strip() if proc.returncode == 0 else ""
 
 
 def check_guard_semantics(name: str, shell_argv: list[str], integration: Path, env: dict[str, str]) -> None:
@@ -101,6 +130,9 @@ def check_guard_semantics(name: str, shell_argv: list[str], integration: Path, e
     self_script = (
         'source "$1"; '
         'start="$(_cmux_watcher_parent_start_time $$)" || { printf "NOSTART\\n"; exit 1; }; '
+        'repeat="$(_cmux_watcher_parent_start_time $$)" || { printf "NOREPEAT\\n"; exit 1; }; '
+        '_cmux_watcher_parent_identity_valid $$ "$start" || { printf "NONNUMERIC\\n"; exit 1; }; '
+        '[[ "$start" == "$repeat" ]] || { printf "UNSTABLE\\n"; exit 1; }; '
         "_cmux_watcher_parent_alive $$ \"$start\"; "
         'printf \'GUARD:%s\\n\' "$?"'
     )
@@ -110,6 +142,49 @@ def check_guard_semantics(name: str, shell_argv: list[str], integration: Path, e
     if "GUARD:0" not in proc.stdout:
         fail(
             f"[{name}] guard rejected a live parent with its own recorded start time "
+            f"(stdout={proc.stdout!r} stderr={proc.stderr[-500:]!r})"
+        )
+
+    # Locale and timezone must not change the identity token. Darwin's ps uses
+    # both when formatting `lstart`, while the helper pins C/UTC before parsing.
+    localized_env = dict(env)
+    localized_env["LC_ALL"] = "ja_JP.UTF-8"
+    localized_env["TZ"] = "Asia/Tokyo"
+    proc = run_shell(shell_argv, self_script, [str(integration)], localized_env)
+    if "GUARD:0" not in proc.stdout:
+        fail(
+            f"[{name}] locale-sensitive start-time identity rejected a live parent "
+            f"(stdout={proc.stdout!r} stderr={proc.stderr[-500:]!r})"
+        )
+
+    # Missing identity must fail closed even when the PID is alive. A failed
+    # start-time capture cannot safely fall back to PID-only liveness.
+    empty_script = (
+        'source "$1"; '
+        '_cmux_watcher_parent_alive "$$" ""; '
+        'printf \'GUARD:%s\\n\' "$?"'
+    )
+    proc = run_shell(shell_argv, empty_script, [str(integration)], env)
+    if "GUARD:0" in proc.stdout or "GUARD:" not in proc.stdout:
+        fail(
+            f"[{name}] guard accepted an empty recorded start time "
+            f"(stdout={proc.stdout!r} stderr={proc.stderr[-500:]!r})"
+        )
+
+    # Identity lookup failure must also fail closed. Override the helper only
+    # in this throwaway shell to model a /bin/ps failure without touching the
+    # host process table.
+    ps_failure_script = (
+        'source "$1"; '
+        '_cmux_watcher_parent_start_time() { return 1; }; '
+        '_cmux_watcher_parent_alive "$$" "19700101000000"; '
+        'printf \'GUARD:%s\\n\' "$?"; '
+        '_cmux_capture_shell_start_time; printf \'CAPTURE:%s\\n\' "$?"'
+    )
+    proc = run_shell(shell_argv, ps_failure_script, [str(integration)], env)
+    if "GUARD:0" in proc.stdout or "GUARD:" not in proc.stdout or "CAPTURE:1" not in proc.stdout:
+        fail(
+            f"[{name}] guard accepted a failed start-time lookup "
             f"(stdout={proc.stdout!r} stderr={proc.stderr[-500:]!r})"
         )
 
@@ -128,9 +203,12 @@ def check_guard_semantics(name: str, shell_argv: list[str], integration: Path, e
         decoy.wait()
 
     # 3. Parent dead, PID not reused: guard must report parent-dead.
-    short = subprocess.Popen(["/bin/sleep", "0.05"])
-    recorded_start = ps_lstart(short.pid)
-    short.wait()
+    short = subprocess.Popen(["/bin/sleep", "60"])
+    try:
+        recorded_start = shell_start_time(shell_argv, integration, env, short.pid)
+    finally:
+        short.kill()
+        short.wait()
     proc = run_shell(shell_argv, guard_script, [str(integration), str(short.pid), recorded_start or FAKE_START_TIME], env)
     if "GUARD:0" in proc.stdout or "GUARD:" not in proc.stdout:
         fail(
@@ -151,9 +229,9 @@ def check_tiered_cadence(name: str, shell_argv: list[str], integration: Path, en
         "_CMUX_WATCHER_IDENTITY_INTERVAL=3; "
         'start="$(_cmux_watcher_parent_start_time $$)" || exit 9; '
         "_cmux_watcher_guard_tick $$ \"$start\"; printf 'T1:%s\\n' \"$?\"; "
-        "_cmux_watcher_guard_tick $$ \"not-the-start-time\"; printf 'T2:%s\\n' \"$?\"; "
-        "_cmux_watcher_guard_tick $$ \"not-the-start-time\"; printf 'T3:%s\\n' \"$?\"; "
-        "_cmux_watcher_guard_tick $$ \"not-the-start-time\"; printf 'T4:%s\\n' \"$?\""
+        f"_cmux_watcher_guard_tick $$ \"{FAKE_START_TIME}\"; printf 'T2:%s\\n' \"$?\"; "
+        f"_cmux_watcher_guard_tick $$ \"{FAKE_START_TIME}\"; printf 'T3:%s\\n' \"$?\"; "
+        f"_cmux_watcher_guard_tick $$ \"{FAKE_START_TIME}\"; printf 'T4:%s\\n' \"$?\""
     )
     proc = run_shell(shell_argv, script, [str(integration)], env)
     expected = ["T1:0", "T2:0", "T3:0"]
@@ -171,52 +249,67 @@ def check_injected_watcher_loop(name: str, shell_argv: list[str], integration: P
     # forks, which would push the reuse-detection bound past this test's.
     env = dict(env)
     env["_CMUX_WATCHER_IDENTITY_INTERVAL"] = "1"
-    if name == "zsh":
-        loop_script = (
-            'source "$1"; '
-            "{ while true; do _cmux_watcher_guard_tick \"$2\" \"$3\" || exit 0; sleep 0.2; done } >/dev/null 2>&1 &!; "
-            'printf \'LOOP:%s\\n\' "$!"'
-        )
-    else:
-        loop_script = (
-            'source "$1"; '
-            "{ while true; do _cmux_watcher_guard_tick \"$2\" \"$3\" || exit 0; sleep 0.2; done } >/dev/null 2>&1 & "
-            "disown; "
-            'printf \'LOOP:%s\\n\' "$!"'
-        )
 
-    def spawn_loop(pid: int, expected: str) -> int | None:
-        proc = run_shell(shell_argv, loop_script, [str(integration), str(pid), expected], env)
-        for line in proc.stdout.splitlines():
-            if line.startswith("LOOP:"):
-                try:
-                    return int(line.split(":", 1)[1])
-                except ValueError:
-                    return None
-        return None
+    def spawn_loop(pid: int, expected: str) -> tuple[int | None, int, bool]:
+        read_fd, write_fd = os.pipe()
+        try:
+            ready_command = (
+                f"print -r -- READY >&{write_fd}" if name == "zsh" else f"printf 'READY\\n' >&{write_fd}"
+            )
+            launch_suffix = "&!;" if name == "zsh" else "& disown;"
+            loop_script = (
+                'source "$1"; '
+                f"{{ _cmux_watcher_guard_tick \"$2\" \"$3\" || exit 0; {ready_command}; "
+                "while true; do sleep 0.2; _cmux_watcher_guard_tick \"$2\" \"$3\" || exit 0; done; } >/dev/null 2>&1 "
+                f"{launch_suffix} "
+                'printf \'LOOP:%s\\n\' "$!"'
+            )
+            proc = run_shell(
+                shell_argv,
+                loop_script,
+                [str(integration), str(pid), expected],
+                env,
+                pass_fds=(write_fd,),
+            )
+            loop_pid = None
+            for line in proc.stdout.splitlines():
+                if line.startswith("LOOP:"):
+                    try:
+                        loop_pid = int(line.split(":", 1)[1])
+                    except ValueError:
+                        loop_pid = None
+                    break
+            return loop_pid, read_fd, wait_ready(read_fd)
+        finally:
+            os.close(write_fd)
 
     decoy = subprocess.Popen(["/bin/sleep", "120"])
     try:
         # Normal path: recorded identity matches the live decoy. Watcher keeps running.
-        true_start = ps_lstart(decoy.pid)
-        loop_pid = spawn_loop(decoy.pid, true_start)
+        true_start = shell_start_time(shell_argv, integration, env, decoy.pid)
+        loop_pid, ready_fd, ready = spawn_loop(decoy.pid, true_start)
         if loop_pid is None:
             fail(f"[{name}] injected watcher loop did not report a PID")
+        elif not ready:
+            fail(f"[{name}] injected watcher loop did not report its first identity check")
         else:
-            time.sleep(2.0)
             if not pid_alive(loop_pid):
                 fail(f"[{name}] watcher loop exited although the recorded parent identity is alive and matching")
             else:
                 os.kill(loop_pid, signal.SIGKILL)
+        os.close(ready_fd)
 
         # PID reuse: same live PID, mismatched recorded start time. Watcher must
         # exit within a bounded time.
-        loop_pid = spawn_loop(decoy.pid, FAKE_START_TIME)
+        loop_pid, ready_fd, ready = spawn_loop(decoy.pid, FAKE_START_TIME)
         if loop_pid is None:
             fail(f"[{name}] injected reuse watcher loop did not report a PID")
         elif not wait_pid_gone(loop_pid, 5.0):
             fail(f"[{name}] watcher loop survived PID reuse (live PID, mismatched start time) beyond 5s")
             os.kill(loop_pid, signal.SIGKILL)
+        if ready:
+            fail(f"[{name}] injected reuse watcher reported ready despite a mismatched identity")
+        os.close(ready_fd)
     finally:
         decoy.kill()
         decoy.wait()
@@ -251,9 +344,21 @@ def check_real_loops(name: str, shell_argv: list[str], integration: Path, tmp: P
         }
     )
 
+    ready_read, ready_write = os.pipe()
     if name == "zsh":
         parent_script = f"""
 source "$1"
+functions[_cmux_test_guard_tick_impl]="${{functions[_cmux_watcher_guard_tick]}}"
+typeset -g _CMUX_TEST_READY_SENT=0
+_cmux_watcher_guard_tick() {{
+    _cmux_test_guard_tick_impl "$@"
+    local guard_status=$?
+    if (( guard_status == 0 && _CMUX_TEST_READY_SENT == 0 )); then
+        print -r -- READY >&{ready_write}
+        _CMUX_TEST_READY_SENT=1
+    fi
+    return "$guard_status"
+}}
 _cmux_run_pr_probe_with_timeout() {{ true; }}
 _cmux_pr_force_signal_path() {{ print -r -- {str(tmp / 'pr-force')!r}; }}
 _cmux_git_resolve_head_path() {{ print -r -- {str(head_file)!r}; }}
@@ -268,6 +373,17 @@ sleep 300
     else:
         parent_script = f"""
 source "$1"
+eval "$(declare -f _cmux_watcher_guard_tick | sed 's/_cmux_watcher_guard_tick/_cmux_test_guard_tick_impl/g')"
+_CMUX_TEST_READY_SENT=0
+_cmux_watcher_guard_tick() {{
+    _cmux_test_guard_tick_impl "$@"
+    local guard_status=$?
+    if [[ "$guard_status" == "0" && "${{_CMUX_TEST_READY_SENT:-0}}" != "1" ]]; then
+        printf 'READY\\n' >&{ready_write}
+        _CMUX_TEST_READY_SENT=1
+    fi
+    return "$guard_status"
+}}
 _cmux_run_pr_probe_with_timeout() {{ true; }}
 _cmux_pr_force_signal_path() {{ printf '%s\\n' {str(tmp / 'pr-force')!r}; }}
 _CMUX_PR_POLL_INTERVAL=1
@@ -283,13 +399,21 @@ sleep 300
         stderr=subprocess.PIPE,
         text=True,
         start_new_session=True,
+        pass_fds=(ready_write,),
     )
+    os.close(ready_write)
     watcher_pids: list[int] = []
     try:
-        deadline = time.time() + 10
+        deadline = time.monotonic() + 10
         line = ""
-        while time.time() < deadline:
+        while time.monotonic() < deadline:
+            remaining = deadline - time.monotonic()
+            readable, _, _ = select.select([parent.stdout], [], [], remaining)
+            if not readable:
+                break
             line = parent.stdout.readline()
+            if not line:
+                break
             if line.startswith("WATCHERS:"):
                 break
         if not line.startswith("WATCHERS:"):
@@ -302,7 +426,9 @@ sleep 300
             fail(f"[{name}] real-loop parent reported no watcher PIDs")
             return
 
-        time.sleep(2.5)
+        expected_ready = 2 if name == "zsh" else 1
+        if not wait_ready(ready_read, expected=expected_ready):
+            fail(f"[{name}] real-loop watchers did not report their first identity checks")
         for pid in watcher_pids:
             if not pid_alive(pid):
                 fail(f"[{name}] shipped watcher {pid} exited while its parent shell was still alive")
@@ -318,6 +444,7 @@ sleep 300
                 except ProcessLookupError:
                     pass
     finally:
+        os.close(ready_read)
         srv.close()
         if parent.poll() is None:
             try:
