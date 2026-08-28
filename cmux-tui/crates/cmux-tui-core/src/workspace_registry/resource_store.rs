@@ -790,6 +790,33 @@ impl WorkspaceRegistry {
         result: &Value,
         deltas: &Value,
     ) -> anyhow::Result<ResourcePatchCommit> {
+        self.commit_resource_patch_with_workspace_ledger(
+            mutation,
+            operation,
+            fingerprint,
+            expected_generation,
+            expected_revision,
+            patch,
+            result,
+            deltas,
+            None,
+        )
+        .map(|(commit, _)| commit)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn commit_resource_patch_with_workspace_ledger(
+        &mut self,
+        mutation: &WorkspaceMutation,
+        operation: &str,
+        fingerprint: &Value,
+        expected_generation: Option<&str>,
+        expected_revision: Option<u64>,
+        patch: &ResourcePatch,
+        result: &Value,
+        deltas: &Value,
+        workspace_ledger: Option<&ResourceWorkspaceLedger>,
+    ) -> anyhow::Result<(ResourcePatchCommit, Option<u64>)> {
         validate_identifier("mutation id", &mutation.id)?;
         validate_identifier("mutation origin", &mutation.origin)?;
         validate_identifier("resource operation", operation)?;
@@ -798,7 +825,7 @@ impl WorkspaceRegistry {
         let result_json = canonical_json(result)?;
         let tx = self.connection.transaction()?;
         if let Some(replayed) = resource_patch_replay(&tx, mutation, operation, &fingerprint)? {
-            return Ok(replayed);
+            return Ok((replayed, None));
         }
         if let Some(expected) = expected_generation
             && expected != self.generation
@@ -821,6 +848,25 @@ impl WorkspaceRegistry {
             .ok_or_else(|| anyhow::anyhow!("resource revision exhausted"))?;
         let sqlite_revision =
             i64::try_from(revision).context("resource revision exceeds SQLite range")?;
+
+        // The legacy ledger commit runs first, mirroring the resource close
+        // path: its full-registry rewrite is then corrected in place by the
+        // patch's own upserts inside this same transaction.
+        let workspace_revision = workspace_ledger
+            .map(|ledger| {
+                super::commit_workspace_registry_in_transaction(
+                    &tx,
+                    mutation,
+                    &fingerprint,
+                    None,
+                    ledger.event_kind,
+                    &ledger.workspace_key,
+                    &ledger.workspaces,
+                    &canonical_json(&ledger.legacy_result)?,
+                )
+                .map(|(revision, _)| revision)
+            })
+            .transpose()?;
 
         apply_resource_patch(&tx, patch, sqlite_revision)?;
         tx.execute(
@@ -853,7 +899,10 @@ impl WorkspaceRegistry {
         )?;
         prune_resource_mutations(&tx)?;
         tx.commit()?;
-        Ok(ResourcePatchCommit { revision, result: result.clone(), replayed: false })
+        Ok((
+            ResourcePatchCommit { revision, result: result.clone(), replayed: false },
+            workspace_revision,
+        ))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1224,6 +1273,21 @@ pub struct ResourcePatchCommit {
     pub revision: u64,
     pub result: Value,
     pub replayed: bool,
+}
+
+/// Legacy workspace-ledger commit to run inside the same transaction as a
+/// resource patch that changes the workspace projection. The legacy CAS
+/// (`create-workspace`/`rename-workspace`/`move-workspace`/`close-workspace`)
+/// compares client snapshot revisions against this ledger, so any resource
+/// commit that changes the reported workspace registry without advancing the
+/// ledger permanently wedges every later legacy mutation (issue: packaged
+/// browsers fail alt+n forever after a receipted `workspace.create`).
+#[derive(Debug, Clone)]
+pub struct ResourceWorkspaceLedger {
+    pub event_kind: &'static str,
+    pub workspace_key: String,
+    pub workspaces: Vec<RegistryWorkspace>,
+    pub legacy_result: Value,
 }
 
 #[derive(Debug, Clone, PartialEq)]

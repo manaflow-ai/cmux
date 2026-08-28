@@ -2105,6 +2105,7 @@ fn completed_creation_counts_in_the_boundary_replay_window() {
             &json!({"created":true}),
             &json!({"kind":"test","id":"boundary"}),
             &json!([]),
+            None,
         )
         .unwrap();
     assert_eq!(
@@ -2210,6 +2211,7 @@ fn startup_mutation_compaction_preserves_recovery_authorities_and_recent_replay(
                 &json!({"created":true}),
                 &created_path,
                 &json!([]),
+                None,
             )
             .unwrap();
         registry

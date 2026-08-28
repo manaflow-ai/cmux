@@ -67,6 +67,7 @@ pub use resource_store::{
     RegistryBrowserStatus, RegistryLayoutNode, RegistryPane, RegistryScreen, RegistryTab,
     RegistryViewport, RegistryViewportColumn, ResourceChange, ResourceEventBatch,
     ResourceEventPage, ResourcePatch, ResourcePatchCommit, ResourceTopologySnapshot,
+    ResourceWorkspaceLedger,
 };
 use resource_store::{
     apply_resource_patch, create_resource_schema, initialize_resource_mutation_retention,

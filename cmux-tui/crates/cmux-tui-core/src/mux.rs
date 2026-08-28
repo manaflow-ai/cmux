@@ -64,8 +64,8 @@ use crate::workspace_registry::{
     RegistryBrowser, RegistryBrowserReconnect, RegistryCommit, RegistryLayoutNode,
     RegistrySnapshot, RegistryTab, RegistryTerminal, RegistryViewport, RegistryWorkspace,
     ResourceChange, ResourceEffectOutcome, ResourceEffectPreparation, ResourcePatch,
-    ResourcePatchCommit, ResourceTopologySnapshot, TerminalLifecycle, TerminalRegistrySnapshot,
-    WorkspaceMutation, WorkspaceRegistry,
+    ResourcePatchCommit, ResourceTopologySnapshot, ResourceWorkspaceLedger, TerminalLifecycle,
+    TerminalRegistrySnapshot, WorkspaceMutation, WorkspaceRegistry,
 };
 use crate::{
     PairingChallenge, PairingDecision, PairingError, PaneId, ScreenId, SplitDir, SplitId,
@@ -3568,7 +3568,7 @@ impl Mux {
         {
             *self.resource_mutation_metrics.lock().unwrap() = Some(plan.metrics);
         }
-        let commit = registry.commit_resource_patch(
+        let (commit, workspace_revision) = registry.commit_resource_patch_with_workspace_ledger(
             mutation,
             operation,
             fingerprint,
@@ -3577,8 +3577,9 @@ impl Mux {
             &plan.patch,
             &plan.result,
             &plan.deltas,
+            plan.workspace_ledger.as_ref(),
         )?;
-        plan.apply(&mut state, &commit);
+        plan.apply(&mut state, &commit, workspace_revision);
         drop(state);
         drop(registry);
         if !commit.replayed {
@@ -3660,17 +3661,20 @@ impl Mux {
                     index,
                     true,
                 ));
+                let durable = RegistryWorkspace {
+                    id: workspace.id,
+                    public_id: public_id.clone(),
+                    key: key.clone(),
+                    name: name.clone(),
+                    group_key: self.session.clone(),
+                };
+                let mut desired = self.registry_projection(state);
+                desired.push(durable.clone());
                 Ok(ResourceMutationPlan::new(
                     ResourcePatch {
                         changes: vec![
                             ResourceChange::UpsertWorkspace {
-                                workspace: RegistryWorkspace {
-                                    id: workspace.id,
-                                    public_id: public_id.clone(),
-                                    key,
-                                    name,
-                                    group_key: self.session.clone(),
-                                },
+                                workspace: durable,
                                 position: index,
                                 active_screen: None,
                             },
@@ -3678,14 +3682,19 @@ impl Mux {
                             ResourceChange::SetActiveWorkspace { workspace_id: Some(public_id) },
                         ],
                     },
-                    result,
+                    result.clone(),
                     Value::Array(deltas),
                     move |state| {
                         state.push_workspace(workspace);
                         state.active_workspace = index;
-                        state.workspace_revision = state.workspace_revision.saturating_add(1);
                     },
                 )
+                .with_workspace_ledger(ResourceWorkspaceLedger {
+                    event_kind: "workspace-added",
+                    workspace_key: key,
+                    workspaces: desired,
+                    legacy_result: result,
+                })
                 .with_metrics(ResourceMutationMetrics {
                     touched_resources: 1,
                     order_entries: index + 1,
@@ -3753,6 +3762,9 @@ impl Mux {
                     index,
                     index == state.active_workspace,
                 )]);
+                let mut desired = self.registry_projection(state);
+                desired[index] = durable.clone();
+                let workspace_key = durable.key.clone();
                 Ok(ResourceMutationPlan::new(
                     ResourcePatch {
                         changes: vec![ResourceChange::UpsertWorkspace {
@@ -3761,13 +3773,18 @@ impl Mux {
                             active_screen,
                         }],
                     },
-                    result,
+                    result.clone(),
                     deltas,
                     move |state| {
                         state.workspaces[index].name = name;
-                        state.workspace_revision = state.workspace_revision.saturating_add(1);
                     },
                 )
+                .with_workspace_ledger(ResourceWorkspaceLedger {
+                    event_kind: "workspace-renamed",
+                    workspace_key,
+                    workspaces: desired,
+                    legacy_result: result,
+                })
                 .with_metrics(ResourceMutationMetrics {
                     touched_resources: 1,
                     order_entries: 0,
@@ -3848,6 +3865,9 @@ impl Mux {
                     index,
                     index == state.active_workspace,
                 )]);
+                let mut desired = self.registry_projection(state);
+                desired[index] = durable.clone();
+                let workspace_key = durable.key.clone();
                 Ok(ResourceMutationPlan::new(
                     ResourcePatch {
                         changes: vec![ResourceChange::UpsertWorkspace {
@@ -3856,13 +3876,18 @@ impl Mux {
                             active_screen,
                         }],
                     },
-                    result,
+                    result.clone(),
                     deltas,
                     move |state| {
                         state.workspaces[index].name = name;
-                        state.workspace_revision = state.workspace_revision.saturating_add(1);
                     },
                 )
+                .with_workspace_ledger(ResourceWorkspaceLedger {
+                    event_kind: "workspace-renamed",
+                    workspace_key,
+                    workspaces: desired,
+                    legacy_result: result,
+                })
                 .with_metrics(ResourceMutationMetrics {
                     touched_resources: 1,
                     order_entries: 0,
@@ -3962,9 +3987,21 @@ impl Mux {
                         .collect(),
                 );
                 let order_entries = usize::from(changed) * order.len();
+                let projection = self.registry_projection(state);
+                let desired = order
+                    .iter()
+                    .map(|workspace_id| {
+                        projection
+                            .iter()
+                            .find(|workspace| &workspace.public_id == workspace_id)
+                            .expect("workspace order was built from live workspaces")
+                            .clone()
+                    })
+                    .collect::<Vec<_>>();
+                let workspace_key = state.workspaces[old_index].key.clone();
                 Ok(ResourceMutationPlan::new(
                     ResourcePatch { changes },
-                    result,
+                    result.clone(),
                     deltas,
                     move |state| {
                         if changed {
@@ -3988,9 +4025,14 @@ impl Mux {
                                 .and_then(|slot| state.workspace_index(slot))
                                 .unwrap_or_else(|| state.workspaces.len().saturating_sub(1));
                         }
-                        state.workspace_revision = state.workspace_revision.saturating_add(1);
                     },
                 )
+                .with_workspace_ledger(ResourceWorkspaceLedger {
+                    event_kind: "workspace-moved",
+                    workspace_key,
+                    workspaces: desired,
+                    legacy_result: result,
+                })
                 .with_metrics(ResourceMutationMetrics {
                     touched_resources: 1,
                     order_entries,
@@ -4097,9 +4139,21 @@ impl Mux {
                         .collect(),
                 );
                 let order_entries = usize::from(changed) * order.len();
+                let projection = self.registry_projection(state);
+                let desired = order
+                    .iter()
+                    .map(|workspace_id| {
+                        projection
+                            .iter()
+                            .find(|workspace| &workspace.public_id == workspace_id)
+                            .expect("workspace order was built from live workspaces")
+                            .clone()
+                    })
+                    .collect::<Vec<_>>();
+                let workspace_key = state.workspaces[old_index].key.clone();
                 Ok(ResourceMutationPlan::new(
                     ResourcePatch { changes },
-                    result,
+                    result.clone(),
                     deltas,
                     move |state| {
                         if changed {
@@ -4123,9 +4177,14 @@ impl Mux {
                                 .and_then(|slot| state.workspace_index(slot))
                                 .unwrap_or_else(|| state.workspaces.len().saturating_sub(1));
                         }
-                        state.workspace_revision = state.workspace_revision.saturating_add(1);
                     },
                 )
+                .with_workspace_ledger(ResourceWorkspaceLedger {
+                    event_kind: "workspace-moved",
+                    workspace_key,
+                    workspaces: desired,
+                    legacy_result: result,
+                })
                 .with_metrics(ResourceMutationMetrics {
                     touched_resources: 1,
                     order_entries,
