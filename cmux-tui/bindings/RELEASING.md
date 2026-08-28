@@ -148,7 +148,7 @@ authorization is valid for the same workflow run attempt and 15 minutes.
     -F 'client_payload[confirm_bootstrap]=true'
   ```
 
-  A credential-free job installs Cargo 1.95.0, tests the source-controlled
+  A credential-free job installs the repository-pinned Rust toolchain, tests the source-controlled
   minimal `cmux-sdk` and `cmux-sidebar` crates, and uploads their packaged
   archives. Fresh serialized jobs check each archive digest and allowlisted
   paths, reconstruct the original manifest, and prove Cargo reproduces the

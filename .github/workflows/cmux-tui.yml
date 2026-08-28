@@ -79,6 +79,8 @@ jobs:
               ;;
           esac
 
+  # Keep this compatibility gate on the workspace MSRV. The build and test
+  # jobs below use cmux-tui/rust-toolchain.toml for the current Rust release.
   msrv-check:
     name: Rust MSRV (1.91)
     needs: validate-inputs

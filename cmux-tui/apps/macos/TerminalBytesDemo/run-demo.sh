@@ -9,6 +9,11 @@ REPO_ROOT="$(cd "$TUI_ROOT/.." && pwd -P)"
 # shellcheck source=/dev/null
 source "$REPO_ROOT/scripts/ghostty-zig-version.sh"
 ZIG_REQUIRED="$(ghostty_minimum_zig_version "$REPO_ROOT")"
+RUST_REQUIRED="$(awk -F '"' '/^[[:space:]]*channel[[:space:]]*=/{print $2; exit}' "$TUI_ROOT/rust-toolchain.toml")"
+if [[ -z "$RUST_REQUIRED" ]]; then
+  echo "cmux-tui/rust-toolchain.toml does not declare a Rust channel." >&2
+  exit 1
+fi
 
 for command in cargo codesign jq openssl swift; do
   if ! command -v "$command" >/dev/null 2>&1; then
@@ -17,7 +22,6 @@ for command in cargo codesign jq openssl swift; do
   fi
 done
 
-RUST_REQUIRED=1.97.1
 if ! cargo "+$RUST_REQUIRED" --version >/dev/null 2>&1; then
   echo "TerminalBytes demo needs Rust $RUST_REQUIRED; run: rustup toolchain install $RUST_REQUIRED" >&2
   exit 1

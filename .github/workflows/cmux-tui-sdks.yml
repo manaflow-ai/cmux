@@ -477,6 +477,8 @@ jobs:
           zig build -Doptimize=Debug
           zig build -Doptimize=ReleaseSafe
 
+  # Keep this compatibility gate on the public SDK MSRV. Other Rust jobs use
+  # cmux-tui/rust-toolchain.toml for the current Rust release.
   rust-msrv:
     name: Rust SDK MSRV (1.88)
     needs: contract

@@ -41,8 +41,8 @@ Verification:
    `local_parser_cursor` and `raw_frames` prove that raw PTY bytes are being
    parsed in the app. `server_snapshot_rpc_count` remains zero.
 
-The build requires Rust 1.97.1, the Zig version declared by Ghostty, the Swift
-toolchain, `jq`, and OpenSSL. The Swift executable is built under the launcher's
+The build uses the Rust channel in `cmux-tui/rust-toolchain.toml`, plus the Zig
+version declared by Ghostty, the Swift toolchain, `jq`, and OpenSSL. The Swift executable is built under the launcher's
 temporary directory, so concurrent launches do not clean or share SwiftPM
 artifacts. `run-demo.sh` validates `zig` from `PATH`; set `ZIG=/path/to/zig` to
 select another compatible executable.

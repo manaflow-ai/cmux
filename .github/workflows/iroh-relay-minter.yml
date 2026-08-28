@@ -24,7 +24,7 @@ jobs:
           persist-credentials: false
 
       - name: Install pinned Rust toolchain
-        run: rustup toolchain install 1.91.0 --profile minimal --component clippy --component rustfmt
+        run: rustup toolchain install 1.98.0 --profile minimal --component clippy --component rustfmt
 
       - name: Check formatting
         run: cargo fmt --check
