@@ -182,6 +182,11 @@ const service = [
   "[Service]",
   "Type=simple",
   "User=root",
+  // Freestyle beta machines are reached at their stable public IPv6, so the
+  // daemon listens dual-stack ([::] accepts IPv4 too). cmux-devbox-boot
+  // defaults to 0.0.0.0 for the container providers, whose runtimes may have
+  // IPv6 disabled entirely.
+  "Environment=CMUX_TUI_REMOTE_WS_BIND=[::]:1337",
   "ExecStart=/usr/local/bin/cmux-devbox-boot",
   "Restart=always",
   "RestartSec=2",

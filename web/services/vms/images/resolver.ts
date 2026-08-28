@@ -27,6 +27,11 @@ export type VmImageManifestEntry = {
   readonly defaultForKind?: boolean;
   readonly features?: {
     readonly bakedFreestyleSignedAdmin?: boolean;
+    /**
+     * The image lives on the Freestyle BETA platform (beta-api.freestyle.sh);
+     * the freestyle driver dispatches creates from it to the beta arm.
+     */
+    readonly freestylePlatform?: "beta";
   };
   readonly cmuxdRemoteCommit: string;
   readonly builtAt: string;
@@ -161,6 +166,11 @@ export function imageUsesBakedFreestyleSignedAdmin(provider: ProviderId, imageId
     candidate.provider === provider && candidate.imageId === imageId
   );
   return entry?.features?.bakedFreestyleSignedAdmin === true;
+}
+
+/** Whether an image id or version names a Freestyle BETA platform image (see `features.freestylePlatform`). */
+export function imageUsesFreestyleBetaPlatform(provider: ProviderId, image: string): boolean {
+  return findVmImageManifestEntry(provider, image)?.features?.freestylePlatform === "beta";
 }
 
 /**
