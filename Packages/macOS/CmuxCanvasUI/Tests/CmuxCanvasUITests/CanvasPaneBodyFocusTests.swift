@@ -186,8 +186,8 @@ struct CanvasPaneBodyFocusTests {
     @Test func descriptorObjectReplacementRemountsSelectedContent() throws {
         let panelA = UUID()
         let panelB = UUID()
-        let firstPanelA = ContentIdentityToken()
-        let replacementPanelA = ContentIdentityToken()
+        let firstPanelA = NSObject()
+        let replacementPanelA = NSObject()
         var mountsByPanelId: [UUID: [TestMount]] = [:]
         let root = makeRoot(
             panelA: panelA,
@@ -395,7 +395,5 @@ struct CanvasPaneBodyFocusTests {
             }
         )
     }
-
-    private final class ContentIdentityToken {}
 
 }
