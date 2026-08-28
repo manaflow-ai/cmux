@@ -210,6 +210,12 @@ fn append_level(
         }
         SidebarResourceKind::Tabs | SidebarResourceKind::Agents => {
             let agent_only = resource == SidebarResourceKind::Agents;
+            // Agents views sort by (attention desc, recency desc): a blocked
+            // agent outranks a working one regardless of age, and within a
+            // bucket the latest transition floats up. Tab views keep tree
+            // order. The herdr-style idle-unseen bucket needs frontend focus
+            // history and is deferred.
+            let mut agent_entries: Vec<((u8, u64, usize), ProjectionRow)> = Vec::new();
             let workspace_index = context.map_or(selected_workspace, |context| context.workspace);
             let Some(workspace) = tree.workspaces.get(workspace_index) else { return };
             for (screen_index, screen) in workspace.screens.iter().enumerate() {
@@ -246,7 +252,7 @@ fn append_level(
                         } else {
                             pane.short_id.clone()
                         };
-                        output.push(ProjectionRow {
+                        let row = ProjectionRow {
                             resource,
                             depth: depth as u16,
                             name,
@@ -268,11 +274,37 @@ fn append_level(
                                 surface: tab.surface,
                                 agent: agent_only,
                             },
-                        });
+                        };
+                        if agent_only {
+                            let agent = agent.expect("agent rows are filtered above");
+                            agent_entries.push((
+                                (
+                                    u8::MAX - agent_attention(&agent.state),
+                                    u64::MAX - agent.updated_at_ms,
+                                    agent_entries.len(),
+                                ),
+                                row,
+                            ));
+                        } else {
+                            output.push(row);
+                        }
                     }
                 }
             }
+            agent_entries.sort_by_key(|(key, _)| *key);
+            output.extend(agent_entries.into_iter().map(|(_, row)| row));
         }
+    }
+}
+
+/// How urgently an agent state needs the user: blocked agents wait on a
+/// human, working agents may block next, idle agents are at rest.
+fn agent_attention(state: &str) -> u8 {
+    match state {
+        "blocked" => 3,
+        "working" => 2,
+        "idle" => 1,
+        _ => 0,
     }
 }
 
@@ -424,6 +456,58 @@ mod tests {
                 agent: false,
             }
         ));
+    }
+
+    #[test]
+    fn screen_detect_agents_view_sorts_by_attention_then_recency() {
+        let mut tree = tree();
+        tree.workspaces[0].screens[0].panes[0].tabs = vec![
+            tab(4, "idle-late"),
+            tab(5, "working-old"),
+            tab(6, "blocked-old"),
+            tab(7, "working-new"),
+            tab(8, "shell"),
+        ];
+        let agent = |surface: SurfaceId, state: &str, updated_at_ms: u64| AgentInfo {
+            surface,
+            state: state.into(),
+            source: "detected".into(),
+            session: None,
+            agent: Some("codex".into()),
+            updated_at_ms,
+        };
+        // The most recent update is an idle agent: attention still outranks
+        // recency, so blocked > working > idle, newest first inside buckets.
+        let agents = vec![
+            agent(4, "idle", 90),
+            agent(5, "working", 30),
+            agent(6, "blocked", 10),
+            agent(7, "working", 40),
+        ];
+        let rows = rows(
+            &spec(vec![SidebarResourceKind::Agents]),
+            &tree,
+            &agents,
+            0,
+            &HashSet::new(),
+        );
+
+        let order: Vec<&str> = rows.iter().map(|row| row.name.as_str()).collect();
+        assert_eq!(order, vec!["blocked-old", "working-new", "working-old", "idle-late"]);
+
+        // Tab views keep tree order even when agents are present.
+        let tabs = rows_tab_order(&tree, &agents);
+        assert_eq!(
+            tabs,
+            vec!["idle-late", "working-old", "blocked-old", "working-new", "shell"]
+        );
+    }
+
+    fn rows_tab_order(tree: &TreeView, agents: &[AgentInfo]) -> Vec<String> {
+        rows(&spec(vec![SidebarResourceKind::Tabs]), tree, agents, 0, &HashSet::new())
+            .into_iter()
+            .map(|row| row.name)
+            .collect()
     }
 
     #[test]
