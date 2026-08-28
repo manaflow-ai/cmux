@@ -457,7 +457,9 @@ enum AuthEnvironment {
         if isDebugBuild {
             return "http://localhost:\(resolvedCmuxPort(environment: environment))"
         }
-        return "https://api.cmux.sh"
+        // Same origin as the VM API and the website; api.cmux.sh is the retired manaflow
+        // Render service (maintenance mode) and never served these routes.
+        return "https://cmux.com"
     }
 
     static var stackBaseURL: URL {
