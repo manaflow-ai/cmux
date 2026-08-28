@@ -441,6 +441,22 @@ impl Connection {
         }
         match frame.get("type").and_then(Value::as_str) {
             Some("pty_opened") => {
+                // Hold the authority read lock through enqueue. The session
+                // reconciler takes the matching write lock before detaching
+                // old transports, so a revoke cannot cross this publication
+                // boundary and leave a stale `opened` frame on the wire.
+                let authority = match self.auth_state.read() {
+                    Ok(authority)
+                        if authority.generation == self.auth_generation
+                            && authority.auth.is_some() =>
+                    {
+                        authority
+                    }
+                    _ => {
+                        self.protocol_error("trust_revoked");
+                        return;
+                    }
+                };
                 self.opened_seen.store(true, Ordering::SeqCst);
                 let mut opened = json!({
                     "t": "opened",
@@ -453,6 +469,7 @@ impl Connection {
                     opened["surface"] = Value::from(surface);
                 }
                 self.send_control(&opened);
+                drop(authority);
             }
             Some("pty_output") => {
                 // Manager callbacks can race the reader's authority watch.

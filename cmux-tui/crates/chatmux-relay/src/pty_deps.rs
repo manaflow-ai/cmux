@@ -1064,11 +1064,28 @@ fn signal_process_group_with(pid: Option<u32>, signal: libc::c_int) {
     }
 }
 
+/// Reap a deliberately long-lived daemon without reserving an OS thread per
+/// session. Successful daemon handoff runs inside Tokio, so its waiter polls
+/// the standard child from one lightweight async task and yields between
+/// checks. The no-runtime branch is only a defensive shutdown fallback for a
+/// guard dropped outside an executor; it is not used by normal startup.
 fn spawn_daemon_reaper(mut child: std::process::Child) {
-    let _ =
-        std::thread::Builder::new().name("cmux-relay-daemon-reaper".to_owned()).spawn(move || {
-            let _ = child.wait();
+    if let Ok(handle) = tokio::runtime::Handle::try_current() {
+        handle.spawn(async move {
+            loop {
+                match child.try_wait() {
+                    Ok(Some(_)) | Err(_) => break,
+                    Ok(None) => tokio::time::sleep(Duration::from_millis(100)).await,
+                }
+            }
         });
+    } else {
+        let _ = std::thread::Builder::new().name("cmux-relay-daemon-reaper".to_owned()).spawn(
+            move || {
+                let _ = child.wait();
+            },
+        );
+    }
 }
 
 /// Poll a standard child without blocking the async reactor. `false` covers
