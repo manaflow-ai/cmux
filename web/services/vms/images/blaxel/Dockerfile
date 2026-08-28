@@ -241,5 +241,5 @@ RUN chmod +x /usr/local/bin/start-vnc.sh /entrypoint.sh /usr/local/bin/sandbox-a
 # Stamp last: its presence tells the driver every layer above baked successfully.
 RUN mkdir -p /etc/cmux && echo "cmux-devbox ${CMUX_IMAGE_EPOCH}" > /etc/cmux/image-stamp
 
-EXPOSE 5901 6901 7777 8080
+EXPOSE 5901 6901 8080
 ENTRYPOINT ["/entrypoint.sh"]
