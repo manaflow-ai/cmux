@@ -52,13 +52,23 @@ import {
   restoreVm,
   reconcileVmProviderStatuses,
 } from "../services/vms/workflows";
+import { maxActiveVmsForPlan } from "../services/vms/entitlements";
 
 const runDbTests = process.env.CMUX_DB_TEST === "1";
 // These cases share one Postgres database and several exercise paths read or
 // temporarily override process-wide VM plan limits. Keep the DB-backed group
 // explicitly serial even if a Bun config or command-line flag enables
 // concurrent tests for this file.
-const dbTest = runDbTests ? test.serial : test.skip;
+const serialTest = (test as typeof test & { serial: typeof test }).serial;
+const dbTest = runDbTests ? serialTest : test.skip;
+
+if (runDbTests) {
+  console.error("vm-workflows test environment", {
+    freeLimit: process.env.CMUX_VM_FREE_MAX_ACTIVE_VMS,
+    planFreeLimit: process.env.CMUX_VM_PLAN_FREE_MAX_ACTIVE_VMS,
+    resolvedFreeLimit: maxActiveVmsForPlan("free"),
+  });
+}
 
 let sql: Sql | null = null;
 
