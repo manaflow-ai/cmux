@@ -177,7 +177,25 @@ impl ScreenDetectTracker {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::{HashSet, hash_map::DefaultHasher};
+    use std::hash::BuildHasher;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Duration;
+
+    #[derive(Clone)]
+    struct CountingBuildHasher {
+        builds: Arc<AtomicUsize>,
+    }
+
+    impl BuildHasher for CountingBuildHasher {
+        type Hasher = DefaultHasher;
+
+        fn build_hasher(&self) -> Self::Hasher {
+            self.builds.fetch_add(1, Ordering::Relaxed);
+            DefaultHasher::new()
+        }
+    }
 
     fn detection(state: ScreenState) -> Detection {
         Detection { state, skip_state_update: false, matched_rule: Some("rule".into()) }
@@ -337,10 +355,38 @@ mod tests {
     }
 
     #[test]
-    fn screen_detect_tracker_drops_closed_terminals_silently() {
+    fn screen_detect_tracker_prunes_closed_terminals_with_one_lookup_each() {
+        const LIVE_COUNT: usize = 1_024;
+        const CLOSED_COUNT: usize = 1_024;
+
         let mut tracker = ScreenDetectTracker::default();
-        tracker.record_detection("term_a", Some(("codex", detection(ScreenState::Working))));
-        tracker.retain_terminals(|terminal_id| terminal_id != "term_a");
-        assert!(!tracker.has_live_emission("term_a"));
+        let live_ids: Vec<String> =
+            (0..LIVE_COUNT).map(|index| format!("live-{index}")).collect();
+        let closed_ids: Vec<String> =
+            (0..CLOSED_COUNT).map(|index| format!("closed-{index}")).collect();
+        for terminal_id in live_ids.iter().chain(&closed_ids) {
+            tracker.record_detection(
+                terminal_id,
+                Some(("codex", detection(ScreenState::Working))),
+            );
+        }
+
+        let builds = Arc::new(AtomicUsize::new(0));
+        let mut live = HashSet::with_capacity_and_hasher(
+            LIVE_COUNT,
+            CountingBuildHasher { builds: builds.clone() },
+        );
+        live.extend(live_ids.iter().map(String::as_str));
+        builds.store(0, Ordering::Relaxed);
+
+        tracker.retain_terminals(&live);
+
+        assert_eq!(
+            builds.load(Ordering::Relaxed),
+            LIVE_COUNT + CLOSED_COUNT,
+            "retention must make one indexed membership lookup per tracked terminal",
+        );
+        assert!(live_ids.iter().all(|terminal_id| tracker.has_live_emission(terminal_id)));
+        assert!(closed_ids.iter().all(|terminal_id| !tracker.has_live_emission(terminal_id)));
     }
 }
