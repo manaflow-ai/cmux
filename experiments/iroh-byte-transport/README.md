@@ -2,6 +2,8 @@
 
 This is a deliberately small Rust experiment for the cmux mobile Iroh path. It is not linked into the iOS app. It proves the byte-stream shape we need before we decide whether the production bridge is an FFI library, a local helper, or a later Swift-native Iroh package.
 
+The checked-in `rust-toolchain.toml` pins the build to the current Rust release.
+
 The experiment uses one Iroh ALPN:
 
 ```text

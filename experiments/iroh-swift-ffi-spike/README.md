@@ -23,7 +23,7 @@ plain bridging header (`include/cmux_iroh_ffi.h`).
 ## Versions
 
 - iroh `1.0.0-rc.1` (n0-error `1.0.0-rc.0`, tokio `1.48`), Rust edition 2024
-- rustc/cargo `1.94.0`, targets `aarch64-apple-darwin`, `aarch64-apple-ios-sim`
+- rustc/cargo `1.98.0`, targets `aarch64-apple-darwin`, `aarch64-apple-ios-sim`
 - Swift harness: `xcrun swiftc -O`, targets `arm64-apple-macos14.0` and
   `arm64-apple-ios17.0-simulator`
 - Proof ran on macOS 26.5 host + iPhone 17 simulator (iOS 26.4)
