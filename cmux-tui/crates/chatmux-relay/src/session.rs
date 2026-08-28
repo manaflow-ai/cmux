@@ -414,6 +414,26 @@ pub async fn stay_online(
     cancellation: CancellationToken,
 ) -> Result<(), RelayError> {
     let runtime = SessionRuntime::with_roots(config.allowed_roots.clone());
+    // Tunnel-direct terminal data plane: serve terminals to spliced tunnel
+    // connections on loopback 127.0.0.1:9776. Managed sandboxes ONLY — this
+    // branch is the gate; paired human machines never start the listener.
+    // Best-effort: a failed bind degrades to the relay-socket terminal path.
+    #[cfg(unix)]
+    if state.managed {
+        match crate::tunnel_terminal::start_tunnel_terminal_listener(
+            Arc::clone(&runtime.pty),
+            cancellation.child_token(),
+            crate::tunnel_terminal::TUNNEL_TERMINAL_HOST,
+            crate::tunnel_terminal::TUNNEL_TERMINAL_PORT,
+        )
+        .await
+        {
+            Ok(_) => eprintln!("Tunnel terminal listener is up on loopback."),
+            Err(error) => eprintln!(
+                "Tunnel terminal listener bind failed: {error}. Terminals stay on the relay socket path."
+            ),
+        }
+    }
     let mut attempt: u32 = 0;
     loop {
         if cancellation.is_cancelled() {
@@ -487,7 +507,12 @@ fn unsupported_platform_pty_reply(frame_type: &str, raw: &Value) -> Option<Value
 }
 
 /// Build a per-frame FrameContext reading the current reconciled auth.
-fn make_context(out: &OutboundSink, pending: &Arc<AtomicU64>, auth: &AuthSnapshot) -> FrameContext {
+fn make_context(
+    out: &OutboundSink,
+    pending: &Arc<AtomicU64>,
+    auth: &AuthSnapshot,
+    transport_id: &str,
+) -> FrameContext {
     let sender = out.clone();
     let pending_send = Arc::clone(pending);
     let pending_probe = Arc::clone(pending);
@@ -518,6 +543,7 @@ fn make_context(out: &OutboundSink, pending: &Arc<AtomicU64>, auth: &AuthSnapsho
         trust: auth.trust.clone(),
         local_roots: auth.roots.clone(),
         owner_user_id: auth.owner.clone(),
+        transport_id: Some(transport_id.to_owned()),
     }
 }
 
@@ -577,6 +603,12 @@ async fn relay_session(
     let connection_cancellation = cancellation.child_token();
     let mut connection_tasks = JoinSet::new();
 
+    // The PtyManager is shared with the managed tunnel listener. Every PTY
+    // this socket opens carries this connection's identity, so closing or
+    // reconnecting the socket cannot detach an independent tunnel attachment.
+    #[cfg(unix)]
+    let transport_id = format!("relay-{}", crate::pty::random_hex(16));
+
     // Ordered PTY frame dispatch on its own task so a slow open (daemon
     // spawn) never stalls heartbeats or other frames.
     #[cfg(unix)]
@@ -591,6 +623,7 @@ async fn relay_session(
         let pending = Arc::clone(&pending);
         let auth = Arc::clone(&auth);
         let cancellation = connection_cancellation.clone();
+        let transport = transport_id.clone();
         connection_tasks.spawn(async move {
             loop {
                 let frame = tokio::select! {
@@ -602,7 +635,7 @@ async fn relay_session(
                     }
                 };
                 let snapshot = auth.lock().expect("auth lock").clone();
-                let context = make_context(&out, &pending, &snapshot);
+                let context = make_context(&out, &pending, &snapshot, &transport);
                 tokio::select! {
                     biased;
                     _ = cancellation.cancelled() => break,
@@ -1034,7 +1067,8 @@ async fn relay_session(
                                 // bounded work queue is saturated. The manager close path is
                                 // synchronous and short, so this cannot create an unbounded wait.
                                 let snapshot = auth_direct.lock().expect("auth lock").clone();
-                                let context = make_context(&out_tx, &pending, &snapshot);
+                                let context =
+                                    make_context(&out_tx, &pending, &snapshot, &transport_id);
                                 tokio::select! {
                                     biased;
                                     _ = cancellation.cancelled() => break Ok(connected),
@@ -1155,9 +1189,11 @@ async fn relay_session(
         );
     }
 
-    // Attachments die with the socket; sessions persist (docs/TERMINAL.md).
+    // This socket's attachments die with it; sessions persist, and the
+    // managed tunnel listener's attachments are another transport's — a
+    // reconnect must never detach them (docs/TERMINAL.md).
     #[cfg(unix)]
-    runtime.pty.detach_all();
+    runtime.pty.detach_transport(&transport_id);
     result
 }
 
