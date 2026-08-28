@@ -660,7 +660,8 @@ extension TerminalSurface {
         manualIONoReflow = value
     }
 
-    /// Enqueues remote tmux `%output` for the terminal parser.
+    /// Enqueues remote output (tmux `%output`, tui pipe-io bytes) for the
+    /// terminal parser.
     ///
     /// The native parser runs on the surface generation's FIFO output lane and
     /// this method returns without waiting for Ghostty's renderer-state mutex.

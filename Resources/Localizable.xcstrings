@@ -175607,6 +175607,27 @@
         }
       }
     },
+    "settings.betaFeatures.cloudTerminalManualIO": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Cloud Terminal Manual IO" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "クラウドターミナル マニュアルIO" } }
+      }
+    },
+    "settings.betaFeatures.cloudTerminalManualIO.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Cloud machine terminals render through a byte relay with structured replay and an in-pane reconnect overlay." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "クラウドマシンのターミナルは、構造化リプレイとペイン内再接続オーバーレイを備えたバイトリレーで描画されます。" } }
+      }
+    },
+    "settings.betaFeatures.cloudTerminalManualIO.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Cloud machine terminals run the cmux-tui attach client as the pane's process." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "クラウドマシンのターミナルはcmux-tui attachクライアントをペインのプロセスとして実行します。" } }
+      }
+    },
     "settings.betaFeatures.warning": {
       "extractionState": "manual",
       "localizations": {
@@ -255180,6 +255201,48 @@
             "value": "分割窗格"
           }
         }
+      }
+    },
+    "tui.overlay.reconnecting.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Reconnecting to the terminal session" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ターミナルセッションに再接続中" } }
+      }
+    },
+    "tui.overlay.reconnecting.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The session daemon is unreachable (attempt %lld). The terminal shows its last state; input is paused." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "セッションデーモンに接続できません（試行 %lld 回目）。ターミナルは最後の状態を表示しており、入力は一時停止中です。" } }
+      }
+    },
+    "tui.overlay.failed.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Terminal relay unavailable" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ターミナルリレーを利用できません" } }
+      }
+    },
+    "tui.overlay.failed.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The relay for this terminal keeps failing. Retry now, or close the pane and reopen the terminal from the machine\u2019s tree." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このターミナルのリレーが繰り返し失敗しています。今すぐ再試行するか、ペインを閉じてマシンのツリーからターミナルを開き直してください。" } }
+      }
+    },
+    "tui.overlay.ended.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Terminal session ended" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ターミナルセッションが終了しました" } }
+      }
+    },
+    "tui.overlay.ended.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The daemon-backed terminal has ended. Close the tab, or keep it to read the final screen." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "デーモン管理のターミナルが終了しました。タブを閉じるか、最後の画面を確認するために残せます。" } }
       }
     },
     "uiTest.bonsplit.action.title": {

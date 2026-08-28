@@ -67,9 +67,21 @@ extension TerminalController {
 
     // MARK: - split
 
+    /// The ``ControlSurfaceContext`` requirement (socket dispatch): a
+    /// defaulted extra parameter cannot satisfy the protocol, so the exact
+    /// two-parameter shape forwards with no attach descriptor.
     func controlSurfaceSplit(
         routing: ControlRoutingSelectors,
         inputs: ControlSurfaceSplitInputs
+    ) -> ControlSurfaceSplitResolution {
+        controlSurfaceSplit(routing: routing, inputs: inputs, cloudTuiManualIOAttach: nil)
+    }
+
+    /// `cloudTuiManualIOAttach`: see ``controlSurfaceCreate(routing:inputs:cloudTuiManualIOAttach:)``.
+    func controlSurfaceSplit(
+        routing: ControlRoutingSelectors,
+        inputs: ControlSurfaceSplitInputs,
+        cloudTuiManualIOAttach: CloudTuiManualIOAttach?
     ) -> ControlSurfaceSplitResolution {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
@@ -175,7 +187,8 @@ extension TerminalController {
                 initialDividerPosition: dividerPosition,
                 remotePTYSessionID: inputs.remotePTYSessionID,
                 suppressWorkspaceRemoteStartupCommand: useLocalContext,
-                allowTextBoxFocusDefault: false
+                allowTextBoxFocusDefault: false,
+                cloudTuiManualIOAttach: cloudTuiManualIOAttach
             ) {
             case .created(let panel):
                 newId = panel.id
@@ -281,9 +294,23 @@ extension TerminalController {
 
     // MARK: - create
 
+    /// The ``ControlSurfaceContext`` requirement (socket dispatch); see the
+    /// split wrapper above for why the exact shape must exist.
     func controlSurfaceCreate(
         routing: ControlRoutingSelectors,
         inputs: ControlSurfaceCreateInputs
+    ) -> ControlSurfaceCreateResolution {
+        controlSurfaceCreate(routing: routing, inputs: inputs, cloudTuiManualIOAttach: nil)
+    }
+
+    /// `cloudTuiManualIOAttach` is app-internal (never parsed from socket
+    /// params): when set, the terminal pane is a manual-mirror surface fed by
+    /// that relay descriptor instead of a spawned process. Only
+    /// ``SurfacePaneFactory`` passes it, for cloud machine terminals.
+    func controlSurfaceCreate(
+        routing: ControlRoutingSelectors,
+        inputs: ControlSurfaceCreateInputs,
+        cloudTuiManualIOAttach: CloudTuiManualIOAttach?
     ) -> ControlSurfaceCreateResolution {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
@@ -408,7 +435,8 @@ extension TerminalController {
                 remotePTYSessionID: inputs.remotePTYSessionID,
                 suppressWorkspaceRemoteStartupCommand: useLocalContext,
                 inheritWorkingDirectoryFallback: true,
-                allowTextBoxFocusDefault: false
+                allowTextBoxFocusDefault: false,
+                cloudTuiManualIOAttach: cloudTuiManualIOAttach
             ) {
             case .created(let panel):
                 newPanelId = panel.id
