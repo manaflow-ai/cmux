@@ -1649,7 +1649,7 @@ impl PipeIoQueue {
         }
     }
 
-    fn close(&self) {
+    pub(crate) fn close(&self) {
         let mut state = self.state.lock().unwrap();
         if state.closed {
             return;
