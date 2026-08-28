@@ -402,7 +402,7 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
                         // A header-only group has no member/boundary row. Treat
                         // its full header as the explicit adopt zone so a root
                         // placeholder never enters the commit row space.
-                        return (groupId, false)
+                        return (groupId, true)
                     }
                     guard !target.isGroupHeader else { return nil }
                     return (groupId, false)
