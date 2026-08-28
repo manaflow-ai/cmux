@@ -256,10 +256,14 @@ if establish_ms is None or establish_ms > 2000:
 if observations["max_pong_gap_s"] > 60:
     failures.append({"why": f"pong gap {observations['max_pong_gap_s']:.0f}s > 60s"})
 if args.minutes >= 30:
-    if observations["client_auth_refreshes"] < 3:
-        failures.append({"why": f"client auth refreshes {observations['client_auth_refreshes']} < 3"})
-    if observations["mac_auth_refreshes"] < 3:
-        failures.append({"why": f"mac auth refreshes {observations['mac_auth_refreshes']} < 3"})
+    # Legs refresh ~2min before the relay's <=15-min verified deadline, so
+    # roughly one refresh per 13 minutes. Scale the bar to the window (the
+    # original >=3 was calibrated for 60 minutes and is unreachable at 30).
+    required_refreshes = max(1, round(args.minutes / 20))
+    if observations["client_auth_refreshes"] < required_refreshes:
+        failures.append({"why": f"client auth refreshes {observations['client_auth_refreshes']} < {required_refreshes}"})
+    if observations["mac_auth_refreshes"] < required_refreshes:
+        failures.append({"why": f"mac auth refreshes {observations['mac_auth_refreshes']} < {required_refreshes}"})
 if not args.no_input and observations["inputs_typed"] == 0:
     failures.append({"why": "no input ever typed (engagement broken)"})
 if observations["screenshot_samples"] > 0 and observations["screenshot_changes"] == 0:
