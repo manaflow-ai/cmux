@@ -14,7 +14,7 @@ use std::mem::{offset_of, size_of};
 use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Condvar, Mutex, mpsc};
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
@@ -417,11 +417,23 @@ impl PtyControl for MasterControl {
     }
 }
 
-/// A degraded pipe-mode shell (no TTY) used when PTY allocation fails. The
-/// child is owned by its wait thread; kill signals it by pid.
+/// A command sent to the thread that owns a degraded pipe-mode child.
+///
+/// Keeping the child in one thread gives overflow cleanup an owned process
+/// handle. A numeric PID is never retained by the output callback, so a late
+/// callback cannot signal a process that reused the old PID.
+enum PipeChildCommand {
+    Kill,
+    ExitReady,
+}
+
+/// A degraded pipe-mode shell (no TTY) used when PTY allocation fails.
+/// The child itself remains owned by the wait thread. The control only sends
+/// commands to that owner and retains the child's stdin for input.
 struct PipeControl {
     stdin: Mutex<Option<std::process::ChildStdin>>,
-    pid: i32,
+    command_tx: mpsc::Sender<PipeChildCommand>,
+    kill_requested: AtomicBool,
 }
 
 impl PtyControl for PipeControl {
@@ -437,9 +449,35 @@ impl PtyControl for PipeControl {
     fn pause(&self) {}
     fn resume(&self) {}
     fn kill(&self) {
-        // SAFETY: signalling a child pid this handle spawned; harmless if gone.
-        unsafe {
-            libc::kill(self.pid, libc::SIGKILL);
+        if self.kill_requested.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        let _ = self.command_tx.send(PipeChildCommand::Kill);
+    }
+}
+
+/// Observe a child becoming waitable without reaping it. `WNOWAIT` keeps the
+/// child's PID reserved until the owner thread handles the event and calls
+/// `Child::wait`, which closes the PID-reuse window around overflow cleanup.
+fn wait_for_child_exit_without_reaping(pid: libc::pid_t) -> std::io::Result<()> {
+    loop {
+        let mut status = std::mem::MaybeUninit::<libc::siginfo_t>::zeroed();
+        // SAFETY: status points to writable siginfo storage. WNOWAIT observes
+        // this child without releasing its PID for reuse.
+        let result = unsafe {
+            libc::waitid(
+                libc::P_PID,
+                pid as libc::id_t,
+                status.as_mut_ptr(),
+                libc::WEXITED | libc::WNOWAIT,
+            )
+        };
+        if result == 0 {
+            return Ok(());
+        }
+        let error = std::io::Error::last_os_error();
+        if error.kind() != std::io::ErrorKind::Interrupted {
+            return Err(error);
         }
     }
 }
@@ -519,8 +557,13 @@ fn spawn_pipe_mode(spec: &SpawnSpec, reason: &str) -> PtyHandle {
     match command.spawn() {
         Ok(mut child) => {
             let stdin = child.stdin.take();
-            let pid = child.id() as i32;
-            let control = Arc::new(PipeControl { stdin: Mutex::new(stdin), pid });
+            let pid = child.id() as libc::pid_t;
+            let (command_tx, command_rx) = mpsc::channel();
+            let control = Arc::new(PipeControl {
+                stdin: Mutex::new(stdin),
+                command_tx: command_tx.clone(),
+                kill_requested: AtomicBool::new(false),
+            });
             output.set_overflow_control(&control);
             let reader_count = child.stdout.is_some() as usize + child.stderr.is_some() as usize;
             let completion = ProcessOutputCompletion::new(reader_count, Arc::clone(&output));
@@ -534,11 +577,26 @@ fn spawn_pipe_mode(spec: &SpawnSpec, reason: &str) -> PtyHandle {
                 let done = Arc::clone(&completion);
                 std::thread::spawn(move || pump_pipe(stderr, out, done));
             }
-            // The wait would need its own thread; the shell exits when its
-            // pipes close, and the manager treats a data EOF plus process
-            // teardown as the end. Report exit when both pipes close.
+            // Observe exit without reaping. The owner thread handles both
+            // overflow kill requests and the final wait, so all process
+            // signals use the still-owned Child handle.
+            let observer_tx = command_tx;
+            std::thread::spawn(move || {
+                let _ = wait_for_child_exit_without_reaping(pid);
+                let _ = observer_tx.send(PipeChildCommand::ExitReady);
+            });
             let wait_completion = Arc::clone(&completion);
             std::thread::spawn(move || {
+                let mut exit_ready = false;
+                while !exit_ready {
+                    match command_rx.recv() {
+                        Ok(PipeChildCommand::ExitReady) => exit_ready = true,
+                        Ok(PipeChildCommand::Kill) => {
+                            let _ = child.kill();
+                        }
+                        Err(_) => exit_ready = true,
+                    }
+                }
                 let code =
                     child.wait().map(|status| status.code().unwrap_or(0) as i64).unwrap_or(0);
                 wait_completion.child_exited(code);
@@ -936,6 +994,32 @@ mod tests {
         drop(control);
         assert!(weak_control.upgrade().is_none());
         assert_eq!(drops.load(AtomicOrdering::Relaxed), 1);
+    }
+
+    #[test]
+    fn pipe_control_sends_one_kill_request_to_owned_child() {
+        let (command_tx, command_rx) = mpsc::channel();
+        let control = PipeControl {
+            stdin: Mutex::new(None),
+            command_tx,
+            kill_requested: AtomicBool::new(false),
+        };
+
+        control.kill();
+        control.kill();
+
+        assert!(matches!(command_rx.recv(), Ok(PipeChildCommand::Kill)));
+        assert!(command_rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn child_exit_observer_leaves_child_owned_for_wait() {
+        let mut child = std::process::Command::new("/bin/sh")
+            .args(["-c", "exit 23"])
+            .spawn()
+            .expect("spawn child");
+        wait_for_child_exit_without_reaping(child.id() as libc::pid_t).expect("observe child");
+        assert_eq!(child.wait().expect("reap child").code(), Some(23));
     }
 
     #[test]
