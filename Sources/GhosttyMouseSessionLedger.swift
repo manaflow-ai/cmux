@@ -11,7 +11,7 @@ import GhosttyKit
 /// release uses the last event belonging to that surface.
 final class GhosttyMouseSessionLedger {
     /// The buttons cmux forwards to Ghostty.
-    enum Button: String, CaseIterable, Hashable {
+    enum Button: String, CaseIterable, Hashable, Sendable {
         case left
         case right
         case middle
@@ -66,7 +66,7 @@ final class GhosttyMouseSessionLedger {
     }
 
     /// Identity of the native surface that owns a session.
-    struct SurfaceIdentity: Equatable {
+    struct SurfaceIdentity: Equatable, Sendable {
         let surfaceID: UUID
         let runtimeGeneration: UInt64
         let nativeAddress: UInt
@@ -80,7 +80,7 @@ final class GhosttyMouseSessionLedger {
     }
 
     /// An opaque generation token for one button press.
-    struct Session: Equatable {
+    struct Session: Hashable, Sendable {
         let button: Button
         let generation: UInt64
         let surface: SurfaceIdentity
@@ -94,6 +94,17 @@ final class GhosttyMouseSessionLedger {
     /// The buttons currently owned by this ledger.
     var activeButtons: Set<Button> {
         Set(sessions.keys)
+    }
+
+    /// Returns the sessions currently owned by `surface` in deterministic
+    /// button order.
+    func sessions(on surface: SurfaceIdentity?) -> [Session] {
+        guard let surface else { return [] }
+        return sessions.values
+            .filter { $0.surface == surface }
+            .sorted { lhs, rhs in
+                lhs.button.ordering < rhs.button.ordering
+            }
     }
 
     /// Whether the ledger owns a session for `button` on `surface`.
@@ -194,19 +205,21 @@ final class GhosttyMouseSessionLedger {
     /// Returns sessions that should receive a synthesized release.
     ///
     /// `physicalButtons` is a reconciliation signal, not ownership state. It
-    /// is supplied only from non-drag event/lifecycle boundaries; drag
-    /// dispatch itself never consults it. Explicitly forced buttons are always
-    /// returned when their session still belongs to `surface`.
+    /// is supplied only from non-drag event boundaries; drag dispatch itself
+    /// never consults it. Explicitly forced session tokens are always returned
+    /// when they still belong to `surface`.
     func sessionsNeedingRepair(
         on surface: SurfaceIdentity,
-        physicalButtons: Int,
-        forcedButtons: Set<Button>
+        physicalButtons: Int?,
+        forcedSessions: Set<Session>
     ) -> [Session] {
         guard activeSurface == surface else { return [] }
         return sessions.values
             .filter { session in
-                forcedButtons.contains(session.button)
-                    || (physicalButtons & session.button.pressedMouseButtonsMask) == 0
+                forcedSessions.contains(session)
+                    || physicalButtons.map {
+                        ($0 & session.button.pressedMouseButtonsMask) == 0
+                    } == true
             }
             .sorted { lhs, rhs in
                 lhs.button.ordering < rhs.button.ordering
