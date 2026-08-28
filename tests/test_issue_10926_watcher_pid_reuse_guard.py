@@ -34,7 +34,8 @@ ROOT = Path(__file__).resolve().parents[1]
 ZSH_INTEGRATION = ROOT / "Resources" / "shell-integration" / "cmux-zsh-integration.zsh"
 BASH_INTEGRATION = ROOT / "Resources" / "shell-integration" / "cmux-bash-integration.bash"
 
-FAKE_START_TIME = "19700101000000"
+# Start identities are epoch seconds from both Darwin providers.
+FAKE_START_TIME = "1000000000"
 
 FAILURES: list[str] = []
 
