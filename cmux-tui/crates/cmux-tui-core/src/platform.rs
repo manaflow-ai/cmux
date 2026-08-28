@@ -734,18 +734,13 @@ pub fn foreground_process_name(pid: u32) -> Option<String> {
 
 #[cfg(target_os = "linux")]
 fn process_name(pid: u32) -> Option<String> {
-    // argv[0]'s basename beats /proc/<pid>/comm: comm truncates to 15
-    // bytes and wrapper launchers exec with a meaningful argv[0].
-    let argv0 = std::fs::read(format!("/proc/{pid}/cmdline")).ok().and_then(|cmdline| {
-        let argv0 = cmdline.split(|byte| *byte == 0).next()?;
-        let argv0 = std::str::from_utf8(argv0).ok()?.trim();
-        (!argv0.is_empty()).then(|| argv0.to_string())
-    });
-    argv0.or_else(|| {
-        let comm = std::fs::read_to_string(format!("/proc/{pid}/comm")).ok()?;
-        let comm = comm.trim();
-        (!comm.is_empty()).then(|| comm.to_string())
-    })
+    // argv[0] and comm are process-controlled labels. Use the kernel's
+    // executable link instead, so a process cannot claim to be a known agent
+    // by changing its command-line label. A missing or inaccessible link is a
+    // safe false negative for this advisory detector.
+    let executable = std::fs::read_link(format!("/proc/{pid}/exe")).ok()?;
+    let executable = executable.to_string_lossy();
+    (!executable.is_empty()).then(|| executable.into_owned())
 }
 
 #[cfg(target_os = "macos")]

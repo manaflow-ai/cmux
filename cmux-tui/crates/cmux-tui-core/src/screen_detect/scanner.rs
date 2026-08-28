@@ -31,8 +31,8 @@ pub(crate) fn start(mux: &Arc<Mux>) {
     let spawned = std::thread::Builder::new()
         .name("mux-screen-detect".into())
         .spawn(move || run_scanner(weak));
-    if let Err(error) = spawned {
-        eprintln!("cmux-tui: screen-detection scanner did not start: {error}");
+    if spawned.is_err() {
+        eprintln!("cmux-tui: screen-detection scanner unavailable");
     }
 }
 
@@ -76,8 +76,8 @@ pub(crate) fn scan(
     // Build an index once. The tracker can contain thousands of retired
     // terminals, so scanning the live list for every tracked entry creates
     // an avoidable O(tracked × live) pass on every tick.
-    let live_ids: HashSet<&str> = terminals.iter().map(|(id, _)| id.as_str()).collect();
-    tracker.retain_terminals(|terminal_id| live_ids.contains(terminal_id));
+    let live_terminal_ids = terminals.iter().map(|(id, _)| id.as_str()).collect::<HashSet<_>>();
+    tracker.retain_terminals(|terminal_id| live_terminal_ids.contains(terminal_id));
     for (terminal_id, surface) in terminals {
         let Ok(revision) = surface.terminal_stream_revision() else { continue };
         let terminal_id = terminal_id.as_str();

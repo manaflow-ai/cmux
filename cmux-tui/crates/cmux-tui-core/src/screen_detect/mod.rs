@@ -113,6 +113,11 @@ impl ScreenDetectTracker {
             return false;
         }
         entry.foreground_agent = agent.map(str::to_string);
+        // The identity edge forces an immediate screen read. If that read
+        // fails, keep the revision pending so the next scan retries it even
+        // when the PTY produced no new bytes.
+        entry.evaluated_revision = None;
+        entry.last_evaluated_at = None;
         true
     }
 
@@ -323,6 +328,18 @@ mod tests {
         // Swapping agents in place is an edge, and so is exiting.
         assert!(tracker.note_foreground_agent("term_a", Some("claude")));
         assert!(tracker.note_foreground_agent("term_a", None));
+    }
+
+    #[test]
+    fn identity_edge_stays_pending_when_screen_evaluation_fails() {
+        let mut tracker = ScreenDetectTracker::default();
+        let now = Instant::now();
+        assert!(tracker.observe_revision("term_a", 7, now));
+        // The scanner would normally call record_detection after a successful
+        // viewport read. Simulate the failed read by leaving it unevaluated.
+        assert!(tracker.note_foreground_agent("term_a", Some("codex")));
+        assert!(tracker.note_foreground_agent("term_a", Some("claude")));
+        assert!(tracker.observe_revision("term_a", 7, now + Duration::from_millis(1)));
     }
 
     #[test]
