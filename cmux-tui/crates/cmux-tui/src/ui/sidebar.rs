@@ -6,6 +6,7 @@
 use cmux_tui_core::Rect;
 use ratatui::Frame;
 use ratatui::style::{Color, Modifier, Style};
+use std::borrow::Cow;
 
 use super::{
     ScrollbarState, ScrollbarStyle, middle_truncate, rail, truncate, viewport_thumb_geometry,
@@ -26,8 +27,8 @@ fn projection_empty_label(resource: SidebarResourceKind) -> &'static str {
     }
 }
 
-fn projection_detail(row: &crate::sidebar_projection::ProjectionRow) -> String {
-    let Some(state) = row.agent_state.as_deref() else { return row.subtitle.clone() };
+fn projection_detail<'a>(row: &'a crate::sidebar_projection::ProjectionRow) -> Cow<'a, str> {
+    let Some(state) = row.agent_state.as_deref() else { return Cow::Borrowed(&row.subtitle) };
     let messages = &localization::catalog().sidebar;
     let state = match state {
         "working" => messages.working,
@@ -36,7 +37,11 @@ fn projection_detail(row: &crate::sidebar_projection::ProjectionRow) -> String {
         "done" => messages.done,
         _ => messages.unknown,
     };
-    if row.subtitle.is_empty() { state.to_string() } else { format!("{state} · {}", row.subtitle) }
+    if row.subtitle.is_empty() {
+        Cow::Borrowed(state)
+    } else {
+        Cow::Owned(format!("{state} · {}", row.subtitle))
+    }
 }
 
 /// The color of a workspace's unread indicator, or `None` when nothing is

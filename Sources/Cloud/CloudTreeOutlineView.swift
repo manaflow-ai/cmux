@@ -281,11 +281,11 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             case .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .portsGroup, .browsersGroup:
                 toggle(node)
             case .workspace(let machine, let workspace, _):
-                // D9: open never creates. `openGroup` starts a terminal when the
-                // group is empty, so an empty workspace row opens nothing here —
+                // A remote workspace opens as its own local workspace, panes and all.
+                // D9: open never creates — an empty workspace row opens nothing here;
                 // its "+" and menu own creation.
                 if let group = node.dragGroup, !group.isEmpty {
-                    nodeActions.openGroup(machine, group, .split, workspace.id)
+                    nodeActions.openGroupAsWorkspace(machine, group, workspace.id)
                 }
             case .localWorkspace(let row):
                 nodeActions.selectLocalWorkspace(row.workspaceID)
@@ -419,10 +419,12 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             case .workspace(let machine, let workspace, _):
                 let group = node.dragGroup ?? SurfaceResourceGroup(title: workspace.name, resources: [])
                 return [
+                    item(String(localized: "cloudTree.menu.openAsNewWorkspace", defaultValue: "Open as New Workspace")) { [nodeActions] in nodeActions.openGroupAsWorkspace(machine, group, workspace.id) },
                     item(String(localized: "cloudTree.menu.openAllHere", defaultValue: "Open All Here")) { [nodeActions] in nodeActions.openGroup(machine, group, .split, workspace.id) },
                     item(String(localized: "cloudTree.menu.openAllInNewTabs", defaultValue: "Open All in New Tabs")) { [nodeActions] in nodeActions.openGroup(machine, group, .tab, workspace.id) },
                     item(String(localized: "cloudTree.menu.newTerminalHere", defaultValue: "New Terminal Here")) { [nodeActions] in nodeActions.newTerminal(machine, workspace.id) },
                     .separator(),
+                    item(String(localized: "cloudTree.menu.closeWorkspace", defaultValue: "Close Workspace")) { [nodeActions] in nodeActions.closeWorkspace(machine, workspace.id) },
                     item(String(localized: "cloudTree.menu.copyWorkspaceID", defaultValue: "Copy Workspace ID")) { [nodeActions] in nodeActions.copyToPasteboard(workspace.id) },
                 ]
             case .localWorkspace(let row):
@@ -435,7 +437,12 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 }
                 return items
             case .terminal(let row):
-                return resourceMenuItems(row.resource, isLocal: row.resource.machine.isLocal)
+                var items = resourceMenuItems(row.resource, isLocal: row.resource.machine.isLocal)
+                if !row.resource.machine.isLocal {
+                    items.append(.separator())
+                    items.append(item(String(localized: "cloudTree.menu.closeTerminal", defaultValue: "Close Terminal")) { [nodeActions] in nodeActions.closeTerminal(row.resource.id) })
+                }
+                return items
             case .browser(let row):
                 return resourceMenuItems(row.resource, isLocal: row.resource.machine.isLocal)
             case .display(let resource), .port(let resource):

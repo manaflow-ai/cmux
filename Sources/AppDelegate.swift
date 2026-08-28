@@ -8514,14 +8514,86 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             ) else { return false }
             workspace = createdWorkspace
             context.tabManager.setPinned(workspace, pinned: true)
+            // First Base is a real choice (screen or shell-only), so ask before
+            // provisioning. Once Base exists the open reuses it and no sheet
+            // appears; if the fleet can't be read, open directly and let the
+            // CLI report the real error in the loading panel.
+            let launchWindow = resolvedWindow(for: context) ?? preferredWindow
+            let tabManager = context.tabManager
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                let page = await Self.cloudVMFleetPage()
+                if page?.vms.contains(where: { $0.base != nil }) != false {
+                    _ = self.launchCloudVMBaseOpen(
+                        workspace: workspace,
+                        socketPath: socketPath,
+                        preferredWindow: launchWindow,
+                        arguments: ["vm", "base", "open", "--workspace", workspace.id.uuidString],
+                        onCompletion: onCompletion
+                    )
+                    return
+                }
+                let model = NewMachineModel(
+                    mode: .base(workspaceID: workspace.id),
+                    plan: MachineSnapshotBuilder.planSnapshot(activeCount: page?.vms.count ?? 0, limits: page?.limits),
+                    imageKinds: page?.limits?.imageKinds ?? [],
+                    launch: { [weak self] arguments, completion in
+                        guard let self else { return false }
+                        return self.launchCloudVMBaseOpen(
+                            workspace: workspace,
+                            socketPath: socketPath,
+                            preferredWindow: launchWindow,
+                            arguments: arguments,
+                            onCompletion: { result in
+                                completion(result)
+                                onCompletion?(result)
+                            }
+                        )
+                    }
+                )
+                model.onFinished = { outcome in
+                    guard outcome == .cancelled else { return }
+                    // Nothing was provisioned: take the placeholder workspace back down.
+                    tabManager.closeWorkspace(workspace, recordHistory: false)
+                    onCompletion?(CloudVMActionLauncher.Completion(terminationStatus: 1, output: "", workspaceId: nil))
+                }
+                NewMachineSheetPresenter.shared.present(model: model, preferredWindow: launchWindow)
+            }
+            return true
         }
+        return launchCloudVMBaseOpen(
+            workspace: workspace,
+            socketPath: socketPath,
+            preferredWindow: resolvedWindow(for: context) ?? preferredWindow,
+            arguments: ["vm", "base", "open", "--workspace", workspace.id.uuidString],
+            onCompletion: onCompletion
+        )
+    }
+
+    /// The fleet as `GET /api/vm` reports it; nil when signed out or unreachable.
+    private static func cloudVMFleetPage() async -> VMListPage? {
+        guard let client = VMClient.shared else { return nil }
+        return try? await client.listPage()
+    }
+
+    /// Runs `cmux vm base open …` against `workspace`'s loading panel: the one
+    /// place the Base open CLI is launched, whether the sheet or a plain open
+    /// triggered it. Failures land in the loading panel and in `onCompletion`.
+    @discardableResult
+    private func launchCloudVMBaseOpen(
+        workspace: Workspace,
+        socketPath: String,
+        preferredWindow: NSWindow?,
+        arguments: [String],
+        onCompletion: ((CloudVMActionLauncher.Completion) -> Void)?
+    ) -> Bool {
         if let loadingPanel = workspace.panels.values.first(where: { $0.panelType == .cloudVMLoading }) as? CloudVMLoadingPanel {
             loadingPanel.resetLoading()
         }
         let didStart = CloudVMActionLauncher.shared.start(
             socketPath: socketPath,
-            preferredWindow: resolvedWindow(for: context) ?? preferredWindow,
-            arguments: ["vm", "base", "open", "--workspace", workspace.id.uuidString],
+            preferredWindow: preferredWindow,
+            arguments: arguments,
             presentsFailureAlert: false,
             environmentOverrides: [
                 "CMUX_CLOUD_ATTACH_RETRY_LIMIT": "12",
