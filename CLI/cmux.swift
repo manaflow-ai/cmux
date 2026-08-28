@@ -3108,7 +3108,11 @@ final class SocketClient {
                     guard remaining > 0 else {
                         throw CLIError(message: "Socket connection deadline exceeded")
                     }
-                    try connectOnce(responseTimeout: remaining, deadline: deadline)
+                    try connectOnce(
+                        responseTimeout: remaining,
+                        deadline: deadline,
+                        connectionDeadline: retryDeadline
+                    )
                 } else {
                     // Relay TCP establishment must honor the short retry
                     // budget; relay authentication keeps its normal response
