@@ -10050,10 +10050,13 @@ impl App {
         if !self.prepare_pty_input_before_mutation() {
             return Ok(());
         }
+        // Commit before selecting the surface. Selection can move focus and
+        // trigger preview reconciliation, which must not restore the preview
+        // origin after this explicit tab activation.
+        self.commit_workspace_preview();
         if !self.tree.select_surface(target.surface) {
             return Ok(());
         }
-        self.commit_workspace_preview();
         self.follow_sidebar_workspace(target.workspace);
         self.pane_focus_history.record(target.pane);
         self.claim_active_terminal_geometry(true);
@@ -33020,6 +33023,36 @@ mod tests {
             mux.with_state(|state| state.workspaces.iter().map(|workspace| workspace.id).collect());
         for workspace in workspaces {
             mux.close_workspace(workspace);
+        }
+    }
+
+    #[test]
+    fn sidebar_tab_activation_keeps_selected_dependent_surface_after_preview_commit() {
+        let mux = Mux::new("workspace-sidebar-preview-tab-click-test", SurfaceOptions::default());
+        let first = mux.new_workspace(Some("Alpha".into()), Some((80, 24))).unwrap();
+        let second = mux.new_workspace(Some("Beta".into()), Some((80, 24))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_view = SidebarView::Workspaces;
+        app.replace_tree(app.session.tree());
+        app.tree.active_workspace = 0;
+        app.workspace_preview =
+            Some(WorkspacePreview { origin: first.id, target: second.id, origin_scroll: 0 });
+        app.sync_layout((100, 20));
+
+        let target = app
+            .sidebar_tab_targets()
+            .into_iter()
+            .find(|target| target.workspace == 1)
+            .expect("dependent workspace tab target");
+        let selected_surface = target.surface;
+        app.activate_sidebar_tab(&target).unwrap();
+
+        assert_eq!(app.workspace_preview, None);
+        assert_eq!(app.tree.active_surface(), Some(selected_surface));
+        assert_eq!(app.tree.active_workspace, 1);
+
+        for surface in [first.id, second.id] {
+            mux.close_surface(surface).unwrap();
         }
     }
 
