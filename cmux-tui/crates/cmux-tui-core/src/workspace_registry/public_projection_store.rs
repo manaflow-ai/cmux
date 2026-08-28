@@ -201,6 +201,29 @@ impl WorkspaceRegistry {
         self.durable_agents(terminal, state)
     }
 
+    /// Read one agent projection through its primary key. Report arbitration
+    /// is a hot path and must not run the broad ordered list query.
+    pub(crate) fn public_agent_projection_for_terminal(
+        &self,
+        terminal: &TerminalPublicId,
+    ) -> anyhow::Result<Option<RegistryAgentProjection>> {
+        let stored = self
+            .connection
+            .query_row(
+                "SELECT result_json, committed_revision
+                 FROM resource_agent_projections
+                 WHERE terminal_id = ?1",
+                [terminal.as_str()],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
+            )
+            .optional()?;
+        stored
+            .map(|(result_json, committed_revision)| {
+                self.decode_agent_projection(terminal.as_str(), &result_json, committed_revision)
+            })
+            .transpose()
+    }
+
     fn live_terminal_public_ids(&self) -> anyhow::Result<HashSet<TerminalPublicId>> {
         let mut statement = self.connection.prepare(
             "SELECT public_id
@@ -299,43 +322,56 @@ impl WorkspaceRegistry {
             .collect::<Result<Vec<_>, _>>()?;
         let mut agents = Vec::with_capacity(rows.len());
         for (projected_terminal_id, result_json, committed_revision) in rows {
-            let stored: StoredAgent = serde_json::from_str(&result_json).with_context(|| {
-                format!(
-                    "invalid agent projection for terminal {projected_terminal_id:?} at revision {committed_revision}"
-                )
-            })?;
-            anyhow::ensure!(
-                stored.terminal_id.as_str() == projected_terminal_id,
-                "agent {} projection key {} does not match terminal {}",
-                stored.id,
-                projected_terminal_id,
-                stored.terminal_id
-            );
-            anyhow::ensure!(
-                stored.session_id == self.session_id,
-                "agent {} belongs to session {}, expected {}",
-                stored.id,
-                stored.session_id,
-                self.session_id
-            );
-            anyhow::ensure!(
-                stored.id == agent_id(&stored.terminal_id)?,
-                "agent {} does not match terminal {}",
-                stored.id,
-                stored.terminal_id
-            );
-            let _ = stored.extra;
-            agents.push(RegistryAgentProjection {
-                id: stored.id,
-                terminal_id: stored.terminal_id,
-                state: stored.state.as_str().to_string(),
-                source: stored.source.as_str().to_string(),
-                updated_at_ms: stored.updated_at_ms.get(),
-                source_session: stored.source_session,
-            });
+            agents.push(self.decode_agent_projection(
+                &projected_terminal_id,
+                &result_json,
+                committed_revision,
+            )?);
         }
         agents.reverse();
         Ok(agents)
+    }
+
+    fn decode_agent_projection(
+        &self,
+        projected_terminal_id: &str,
+        result_json: &str,
+        committed_revision: i64,
+    ) -> anyhow::Result<RegistryAgentProjection> {
+        let stored: StoredAgent = serde_json::from_str(result_json).with_context(|| {
+            format!(
+                "invalid agent projection for terminal {projected_terminal_id:?} at revision {committed_revision}"
+            )
+        })?;
+        anyhow::ensure!(
+            stored.terminal_id.as_str() == projected_terminal_id,
+            "agent {} projection key {} does not match terminal {}",
+            stored.id,
+            projected_terminal_id,
+            stored.terminal_id
+        );
+        anyhow::ensure!(
+            stored.session_id == self.session_id,
+            "agent {} belongs to session {}, expected {}",
+            stored.id,
+            stored.session_id,
+            self.session_id
+        );
+        anyhow::ensure!(
+            stored.id == agent_id(&stored.terminal_id)?,
+            "agent {} does not match terminal {}",
+            stored.id,
+            stored.terminal_id
+        );
+        let _ = stored.extra;
+        Ok(RegistryAgentProjection {
+            id: stored.id,
+            terminal_id: stored.terminal_id,
+            state: stored.state.as_str().to_string(),
+            source: stored.source.as_str().to_string(),
+            updated_at_ms: stored.updated_at_ms.get(),
+            source_session: stored.source_session,
+        })
     }
 
     fn durable_terminal_defaults(&self) -> anyhow::Result<Option<DefaultColors>> {

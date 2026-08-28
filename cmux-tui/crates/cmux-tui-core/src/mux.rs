@@ -1100,14 +1100,13 @@ fn parse_projection_agent_state(value: &str) -> AgentState {
 }
 
 /// The agent roster host: reducer state plus its journal fold cursor.
-/// Lock ordering rule: never acquire another `Mux` lock while holding this
-/// one - fold paths release it before persisting, and commit paths only
-/// take a read after their registry/state locks, so `registry -> roster`
-/// is the single global order.
+/// A failed snapshot write is retried before the next fold can advance the
+/// durable cursor past the unsaved state.
 #[derive(Debug, Default)]
 struct AgentRosterHost {
     roster: crate::journal_reducers::AgentRoster,
     cursor: u64,
+    snapshot_dirty: bool,
 }
 
 /// Restore the roster from its persisted snapshot and fold the journal tail
@@ -1122,7 +1121,10 @@ fn restore_agent_roster(registry: &WorkspaceRegistry) -> anyhow::Result<AgentRos
     };
     let mut host = match registry.journal_reducer_state(AGENT_ROSTER_REDUCER_ID)? {
         Some((version, cursor, snapshot)) if version == AGENT_ROSTER_REDUCER_VERSION => {
-            AgentRosterHost { roster: AgentRoster::restore(&snapshot).unwrap_or_default(), cursor }
+            match AgentRoster::restore(&snapshot) {
+                Some(roster) => AgentRosterHost { roster, cursor, snapshot_dirty: false },
+                None => AgentRosterHost::default(),
+            }
         }
         _ => AgentRosterHost::default(),
     };
@@ -1166,6 +1168,7 @@ struct TerminalAgentRecord {
     state: AgentState,
     source: AgentSource,
     session: Option<String>,
+    agent: Option<String>,
     updated_at_ms: u64,
 }
 
@@ -2081,6 +2084,9 @@ pub struct Mux {
     default_colors: Mutex<DefaultColors>,
     durable_terminal_defaults: AtomicBool,
     sidebar_plugin: Mutex<SidebarPluginRuntime>,
+    /// Serializes live roster folds with terminal retirement. The reducer
+    /// snapshot and cursor must describe one durable journal prefix.
+    agent_roster_lifecycle: Mutex<()>,
     agent_roster: Mutex<AgentRosterHost>,
     /// Nonterminal notifications remain placement-local. Terminal unread
     /// state is keyed separately by stable content identity so every view of
@@ -2458,6 +2464,7 @@ impl Mux {
             default_colors: Mutex::new(default_colors),
             durable_terminal_defaults: AtomicBool::new(has_terminal_defaults),
             sidebar_plugin: Mutex::new(SidebarPluginRuntime::default()),
+            agent_roster_lifecycle: Mutex::new(()),
             agent_roster: Mutex::new(agent_roster),
             placement_notifications: Mutex::new(HashMap::new()),
             terminal_notifications: Mutex::new(terminal_notifications),
@@ -5242,8 +5249,8 @@ impl Mux {
             }
             commit
         };
-        if !commit.replayed {
-            self.fold_agent_roster(ingress, &commit);
+        if !commit.replayed && ingress.producer_id == crate::agent_hooks::AGENT_HOOK_PRODUCER_ID {
+            self.fold_agent_roster(&commit);
         }
         Ok(commit)
     }
@@ -5254,70 +5261,120 @@ impl Mux {
     /// are its only writers, so the journal fully determines it. Best
     /// effort by design: a hook may outlive its terminal, and a journal
     /// append must never start failing because a view cannot update.
-    fn fold_agent_roster(
-        &self,
-        ingress: &crate::JournalIngress,
-        commit: &crate::JournalAppendCommit,
-    ) {
+    fn fold_agent_roster(&self, commit: &crate::JournalAppendCommit) {
         use crate::journal_reducers::{
             AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION, RosterEvent,
             SOCKET_REPORT_ADAPTER,
         };
-        if ingress.producer_id != crate::agent_hooks::AGENT_HOOK_PRODUCER_ID {
+        // Journal commits can complete out of order on different ingress
+        // threads. This fence makes the fold and terminal retirement one
+        // lifecycle, so a later commit cannot advance the cursor past an
+        // earlier event or write an older snapshot after retirement.
+        let _lifecycle = self.agent_roster_lifecycle.lock().unwrap();
+        let (saved_cursor, snapshot_dirty) = {
+            let host = self.agent_roster.lock().unwrap();
+            (host.cursor, host.snapshot_dirty)
+        };
+        if commit.sequence <= saved_cursor && !snapshot_dirty {
             return;
         }
-        // Fold the record as the journal stored it, not the ingress the
-        // caller sent: the stored row carries the committed timestamp and
-        // is the exact input the startup tail replay folds, so live folds
-        // and replays are identical by construction.
-        let record = match self
-            .workspace_registry
-            .lock()
-            .unwrap()
-            .session_journal_after(commit.sequence.saturating_sub(1), 1)
-        {
-            Ok(page) => {
-                match page.records.into_iter().find(|record| record.sequence == commit.sequence) {
-                    Some(record) => record,
-                    None => return,
+
+        // Read the durable records, not the caller's ingress. The stored row
+        // has the committed timestamp and is exactly what startup replay uses.
+        // Replay every record through this commit so out-of-order callers
+        // cannot lose an earlier event to the global cursor.
+        let mut records = Vec::new();
+        let mut scan_cursor = saved_cursor;
+        let mut reached_commit = commit.sequence <= saved_cursor;
+        while !reached_commit {
+            let page = match self
+                .workspace_registry
+                .lock()
+                .unwrap()
+                .session_journal_after(scan_cursor, 512)
+            {
+                Ok(page) => page,
+                Err(error) => {
+                    let _ = error;
+                    eprintln!("cmux-tui: reading committed agent events failed");
+                    return;
+                }
+            };
+            if page.records.is_empty() {
+                break;
+            }
+            let mut progressed = false;
+            for record in page.records {
+                if record.sequence <= scan_cursor {
+                    continue;
+                }
+                if record.sequence > commit.sequence {
+                    break;
+                }
+                scan_cursor = record.sequence;
+                records.push(record);
+                progressed = true;
+                if scan_cursor == commit.sequence {
+                    reached_commit = true;
+                    break;
                 }
             }
-            Err(error) => {
-                eprintln!("cmux-tui: reading a committed agent event back failed: {error}");
-                return;
+            if !progressed {
+                break;
             }
-        };
+        }
+        if !reached_commit {
+            // The writer acknowledged a commit that the reader cannot see
+            // yet. Keep the in-memory and durable cursor unchanged; a later
+            // agent commit retries the entire missing prefix.
+            return;
+        }
+
         let (deltas, cursor, snapshot) = {
             let mut host = self.agent_roster.lock().unwrap();
-            if commit.sequence <= host.cursor {
-                // The startup tail replay already folded this sequence.
-                return;
+            let mut deltas = Vec::new();
+            for record in &records {
+                let record_deltas = host.roster.apply(&RosterEvent::from_record(record));
+                let echo = record
+                    .payload
+                    .get("adapter")
+                    .and_then(|adapter| adapter.get("id"))
+                    .and_then(Value::as_str)
+                    == Some(SOCKET_REPORT_ADAPTER);
+                if !echo {
+                    deltas.extend(
+                        record_deltas
+                            .into_iter()
+                            .map(|delta| (delta, record.kind.clone())),
+                    );
+                }
+                host.cursor = record.sequence;
             }
-            let deltas = host.roster.apply(&RosterEvent::from_record(&record));
-            host.cursor = host.cursor.max(commit.sequence);
+            // Mark dirty before any database work. If projection or snapshot
+            // persistence fails, a later fold retries the durable snapshot.
+            host.snapshot_dirty = true;
             (deltas, host.cursor, host.roster.snapshot().to_string())
         };
-        if let Err(error) = self.workspace_registry.lock().unwrap().put_journal_reducer_state(
+
+        // Keep side effects in journal order under the same lifecycle fence.
+        // A later fold therefore cannot publish a newer projection before an
+        // earlier fold's AgentChanged event.
+        for (delta, kind) in deltas {
+            self.apply_roster_delta(delta, &kind);
+        }
+        let persisted = self.workspace_registry.lock().unwrap().put_journal_reducer_state(
             AGENT_ROSTER_REDUCER_ID,
             AGENT_ROSTER_REDUCER_VERSION,
             cursor,
             &snapshot,
-        ) {
-            eprintln!("cmux-tui: persisting the agent roster snapshot failed: {error}");
-        }
-        // Socket echo events already committed their projection and change
-        // broadcast on the direct report path; their fold is roster-only.
-        let echo = ingress
-            .payload
-            .get("adapter")
-            .and_then(|adapter| adapter.get("id"))
-            .and_then(Value::as_str)
-            == Some(SOCKET_REPORT_ADAPTER);
-        if echo {
-            return;
-        }
-        for delta in deltas {
-            self.apply_roster_delta(delta, &ingress.kind);
+        );
+        let mut host = self.agent_roster.lock().unwrap();
+        if let Err(error) = persisted {
+            let _ = error;
+            eprintln!("cmux-tui: persisting the agent roster snapshot failed");
+            host.snapshot_dirty = true;
+        } else {
+            host.snapshot_dirty = false;
         }
     }
 
@@ -5328,13 +5385,10 @@ impl Mux {
     fn apply_roster_delta(&self, delta: crate::journal_reducers::RosterDelta, kind: &str) {
         use crate::journal_reducers::RosterDelta;
         let (terminal_id, state, source, session, agent_adapter) = match delta {
-            RosterDelta::Upsert { terminal_id, entry } => (
-                terminal_id,
-                entry.agent_state(),
-                entry.agent_source(),
-                entry.session.clone(),
-                entry.agent,
-            ),
+            RosterDelta::Upsert { terminal_id, entry } => {
+                let Some(source) = entry.agent_source() else { return };
+                (terminal_id, entry.agent_state(), source, entry.session.clone(), entry.agent)
+            }
             RosterDelta::Remove { terminal_id } => {
                 (terminal_id, AgentState::Done, AgentSource::Hook, None, None)
             }
@@ -8875,31 +8929,48 @@ impl Mux {
         let now = now_ms();
         // Hook state is live agent truth: a direct socket report cannot
         // overwrite it, so the commit re-asserts the existing hook values.
-        // Arbitration reads the durable projection under the registry lock
-        // held by this commit, which keeps concurrent reports serialized;
-        // the roster converges on the same outcome through the echo fold.
-        let existing =
-            registry.public_agent_projections(Some(&terminal_id), None)?.into_iter().next().filter(
-                |projection| {
-                    projection.source == AgentSource::Hook.as_str()
-                        && projection.state != AgentState::Done.as_str()
-                        && source == AgentSource::Socket
-                },
-            );
-        let record = match existing {
+        // The keyed lookup keeps this arbitration O(1) and is serialized by
+        // the registry lock held for the projection commit.
+        let current = if origin == AgentReportOrigin::Direct || source == AgentSource::Socket {
+            registry.public_agent_projection_for_terminal(&terminal_id)?
+        } else {
+            None
+        };
+        let hook_override = current.as_ref().is_some_and(|projection| {
+            projection.source == AgentSource::Hook.as_str()
+                && projection.state != AgentState::Done.as_str()
+                && source == AgentSource::Socket
+        });
+        let roster_agent = hook_override.then(|| {
+            self.agent_roster
+                .lock()
+                .unwrap()
+                .roster
+                .entries
+                .get(&terminal_id)
+                .and_then(|entry| entry.agent.clone())
+        });
+        let record = match current.as_ref().filter(|_| hook_override) {
             Some(existing) => TerminalAgentRecord {
                 state: parse_projection_agent_state(&existing.state),
                 source: AgentSource::Hook,
-                session: existing.source_session,
+                session: existing.source_session.clone(),
+                agent: roster_agent.flatten(),
                 updated_at_ms: existing.updated_at_ms,
             },
             None => TerminalAgentRecord {
                 state: agent_state,
                 source,
-                session: source_session,
+                session: source_session.clone(),
+                agent: agent_adapter.clone(),
                 updated_at_ms: now,
             },
         };
+        let materially_changed = current.as_ref().is_none_or(|existing| {
+            existing.state != record.state.as_str()
+                || existing.source != record.source.as_str()
+                || existing.source_session != record.session
+        });
         let digest = Sha256::digest(format!("cmux.protocol/2/agent/{terminal_id}").as_bytes());
         let payload = digest[..16].iter().map(|byte| format!("{byte:02x}")).collect::<String>();
         let agent_id =
@@ -8938,7 +9009,7 @@ impl Mux {
             state: record.state,
             source: record.source,
             session: record.session,
-            agent: agent_adapter,
+            agent: record.agent.clone(),
             updated_at_ms: record.updated_at_ms,
         };
         if !commit.replayed {
@@ -8951,16 +9022,21 @@ impl Mux {
                 agent: agent.agent.as_deref().map(Arc::from),
                 updated_at_ms: agent.updated_at_ms,
             });
-            if origin == AgentReportOrigin::Direct {
-                // The roster only folds journal events, so a direct report
-                // records its intent in the log; the fold recognizes the
-                // echo adapter and applies it roster-only.
+            if origin == AgentReportOrigin::Direct
+                && source == AgentSource::Socket
+                && !hook_override
+                && materially_changed
+            {
+                // Only direct socket reports have a journal echo contract.
+                // A report rejected by hook precedence must not be rewritten
+                // as a Hook-sourced echo, and a semantic duplicate must not
+                // create unbounded journal noise.
                 self.append_agent_report_echo(
                     &agent.terminal_id,
-                    agent.state,
-                    agent.source,
-                    agent.session.as_deref(),
-                    agent.updated_at_ms,
+                    agent_state,
+                    source,
+                    source_session.as_deref(),
+                    now,
                 );
             }
         }
@@ -8986,23 +9062,30 @@ impl Mux {
     fn purge_terminal_side_tables(&self, terminal_id: &TerminalPublicId) {
         // Terminal lifecycle does not flow through `agent.*` journal events
         // yet, so a closed terminal retires its roster entry explicitly.
-        // The snapshot persists so a restart does not resurrect the entry;
-        // the roster lock is released before the registry lock per the
-        // host's lock-ordering rule.
+        // The lifecycle fence prevents an in-flight fold from writing an old
+        // snapshot after this retirement.
+        let _lifecycle = self.agent_roster_lifecycle.lock().unwrap();
         let retired = {
             let mut host = self.agent_roster.lock().unwrap();
             let retired = host.roster.retire_terminal(terminal_id.as_str());
-            retired.then(|| (host.cursor, host.roster.snapshot().to_string()))
+            (retired || host.snapshot_dirty)
+                .then(|| (host.cursor, host.roster.snapshot().to_string()))
         };
-        if let Some((cursor, snapshot)) = retired
-            && let Err(error) = self.workspace_registry.lock().unwrap().put_journal_reducer_state(
+        if let Some((cursor, snapshot)) = retired {
+            let persisted = self.workspace_registry.lock().unwrap().put_journal_reducer_state(
                 crate::journal_reducers::AGENT_ROSTER_REDUCER_ID,
                 crate::journal_reducers::AGENT_ROSTER_REDUCER_VERSION,
                 cursor,
                 &snapshot,
-            )
-        {
-            eprintln!("cmux-tui: persisting the agent roster snapshot failed: {error}");
+            );
+            let mut host = self.agent_roster.lock().unwrap();
+            if let Err(error) = persisted {
+                host.snapshot_dirty = true;
+                let _ = error;
+                eprintln!("cmux-tui: persisting the agent roster snapshot failed");
+            } else {
+                host.snapshot_dirty = false;
+            }
         }
         self.terminal_notifications.lock().unwrap().remove(terminal_id);
     }
@@ -9055,7 +9138,7 @@ impl Mux {
                     surface: representative,
                     terminal_id,
                     state: entry.agent_state(),
-                    source: entry.agent_source(),
+                    source: entry.agent_source()?,
                     session: entry.session,
                     agent: entry.agent,
                     updated_at_ms: entry.updated_at_ms,
@@ -21804,6 +21887,55 @@ mod tests {
         assert_eq!(batches[1].revision, revision + 2);
         assert_eq!(batches[1].changes[0]["value"]["source"], "hook");
         assert_eq!(batches[1].changes[0]["value"]["state"], "blocked");
+    }
+
+    #[test]
+    fn reverse_order_agent_folds_replay_the_missing_journal_prefix() {
+        let mux = test_mux();
+        let first_surface = mux.new_workspace(None, None).unwrap();
+        let second_surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = |surface_id| {
+            mux.with_state(|state| match state.resource_indexes.content_ids.get(&surface_id).unwrap() {
+                ContentPublicId::Terminal(terminal_id) => terminal_id.clone(),
+                ContentPublicId::Browser(_) => panic!("workspace opened a browser"),
+            })
+        };
+        let first_terminal = terminal_id(first_surface.id);
+        let second_terminal = terminal_id(second_surface.id);
+        let append_without_fold = |ingress: &crate::JournalIngress, key: &str| {
+            let validated = mux.journal_kernel.validate_ingress(ingress).unwrap();
+            mux.workspace_registry
+                .lock()
+                .unwrap()
+                .append_journal_ingress(ingress, &validated, "test", key)
+                .unwrap()
+        };
+        let first = crate::agent_hooks::agent_hook_journal_ingress(
+            "claude",
+            "SessionStart",
+            Some(first_terminal.as_str()),
+            serde_json::json!({"session_id":"first"}),
+        )
+        .unwrap();
+        let second = crate::agent_hooks::agent_hook_journal_ingress(
+            "codex",
+            "SessionStart",
+            Some(second_terminal.as_str()),
+            serde_json::json!({"session_id":"second"}),
+        )
+        .unwrap();
+        let first_commit = append_without_fold(&first, "reverse-first");
+        let second_commit = append_without_fold(&second, "reverse-second");
+
+        // Deliver the later sequence first. It must replay both durable
+        // records; the earlier delivery is then an idempotent no-op.
+        mux.fold_agent_roster(&second_commit);
+        mux.fold_agent_roster(&first_commit);
+        let records = mux.list_agents(None, None);
+        assert_eq!(records.len(), 2);
+        assert!(records.iter().any(|record| record.terminal_id == first_terminal));
+        assert!(records.iter().any(|record| record.terminal_id == second_terminal));
+        mux.shutdown();
     }
 
     #[test]

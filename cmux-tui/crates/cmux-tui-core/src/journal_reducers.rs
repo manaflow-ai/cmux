@@ -25,16 +25,12 @@ use crate::agent_hooks::AGENT_HOOK_PRODUCER_ID;
 use crate::workspace_registry::SessionJournalRecord;
 use crate::{AgentSource, AgentState, JournalSubject};
 
+pub(crate) use crate::agent_hooks::{SOCKET_REPORT_ADAPTER, SOCKET_REPORT_NATIVE_EVENT};
+
 pub(crate) const AGENT_ROSTER_REDUCER_ID: &str = "agent_roster";
 /// Bump to discard persisted snapshots and re-fold from the journal head.
-/// Version 2 added the agent adapter id to roster entries.
-pub(crate) const AGENT_ROSTER_REDUCER_VERSION: u32 = 2;
-
-/// The adapter id and native event the socket report path uses for its echo
-/// journal events. The echo carries the explicit state in `normalized`, so
-/// the fold never has to guess a semantic mapping for it.
-pub(crate) const SOCKET_REPORT_ADAPTER: &str = "socket";
-pub(crate) const SOCKET_REPORT_NATIVE_EVENT: &str = "StateReport";
+/// Version 3 re-folds old snapshots with exact source and adapter semantics.
+pub(crate) const AGENT_ROSTER_REDUCER_VERSION: u32 = 3;
 
 fn agent_state_from_str(value: &str) -> Option<AgentState> {
     Some(match value {
@@ -113,6 +109,7 @@ impl<'a> RosterEvent<'a> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct RosterEntry {
     pub(crate) state: String,
     pub(crate) source: String,
@@ -130,8 +127,8 @@ impl RosterEntry {
         agent_state_from_str(&self.state).unwrap_or(AgentState::Unknown)
     }
 
-    pub(crate) fn agent_source(&self) -> AgentSource {
-        agent_source_from_str(&self.source).unwrap_or(AgentSource::Hook)
+    pub(crate) fn agent_source(&self) -> Option<AgentSource> {
+        agent_source_from_str(&self.source)
     }
 }
 
@@ -150,6 +147,7 @@ pub(crate) enum RosterDelta {
 /// ignores socket reports so a slow poller cannot overwrite live hook
 /// state.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct AgentRoster {
     pub(crate) entries: HashMap<String, RosterEntry>,
 }
@@ -186,11 +184,13 @@ impl AgentRoster {
                 let agent = event.adapter_id().map(str::to_string);
                 (state, AgentSource::Hook, None, agent, event.committed_at_ms)
             };
-        if source == AgentSource::Socket
+        let socket_echo = event.adapter_id() == Some(SOCKET_REPORT_ADAPTER);
+        if socket_echo
             && self
                 .entries
                 .get(terminal_id)
-                .is_some_and(|entry| entry.agent_source() == AgentSource::Hook)
+                .and_then(RosterEntry::agent_source)
+                .is_some_and(|source| source == AgentSource::Hook)
         {
             // Hook state is live agent truth; socket reports cannot
             // overwrite it (mirrors the projection commit precedence).
@@ -210,14 +210,27 @@ impl AgentRoster {
             state: state.as_str().to_string(),
             source: source.as_str().to_string(),
             session,
-            // A socket entry keeps any agent identity a hook already
-            // established for this terminal.
-            agent: agent
-                .or_else(|| self.entries.get(terminal_id).and_then(|entry| entry.agent.clone())),
+            // Only socket echoes keep an agent identity a hook already
+            // established for this terminal. A hook event without an adapter
+            // must be allowed to clear stale identity from an older session.
+            agent: if socket_echo {
+                agent.or_else(|| self.entries.get(terminal_id).and_then(|entry| entry.agent.clone()))
+            } else {
+                agent
+            },
             updated_at_ms,
         };
-        if self.entries.get(terminal_id) == Some(&entry) {
-            return Vec::new();
+        if let Some(existing) = self.entries.get_mut(terminal_id) {
+            if existing.state == entry.state
+                && existing.source == entry.source
+                && existing.session == entry.session
+                && existing.agent == entry.agent
+            {
+                // Keep freshness for source arbitration without emitting a
+                // projection update for a timestamp-only duplicate event.
+                existing.updated_at_ms = existing.updated_at_ms.max(entry.updated_at_ms);
+                return Vec::new();
+            }
         }
         self.entries.insert(terminal_id.to_string(), entry.clone());
         vec![RosterDelta::Upsert { terminal_id: terminal_id.to_string(), entry }]
@@ -235,7 +248,13 @@ impl AgentRoster {
     }
 
     pub(crate) fn restore(snapshot: &str) -> Option<Self> {
-        serde_json::from_str(snapshot).ok()
+        let roster: Self = serde_json::from_str(snapshot).ok()?;
+        if roster.entries.values().any(|entry| {
+            agent_state_from_str(&entry.state).is_none() || entry.agent_source().is_none()
+        }) {
+            return None;
+        }
+        Some(roster)
     }
 }
 
@@ -335,9 +354,9 @@ mod tests {
             delta_count +=
                 live.apply(&hook_event(index as u64 + 1, kind, &subjects, &payload)).len();
         }
-        // A same-state re-report still refreshes recency (chronological
-        // views sort on it), so every event here produces a delta.
-        assert_eq!(delta_count, 4);
+        // The duplicate working event updates recency in the roster but does
+        // not publish another projection mutation or AgentChanged event.
+        assert_eq!(delta_count, 3);
 
         let mut replayed = AgentRoster::default();
         for (index, kind) in events.iter().enumerate() {
@@ -363,5 +382,47 @@ mod tests {
         };
         assert!(roster.apply(&foreign).is_empty());
         assert!(!roster.entries.is_empty());
+    }
+
+    #[test]
+    fn hook_without_adapter_clears_old_agent_identity() {
+        let subjects = terminal_subject("term_a");
+        let named = json!({"adapter": {"id": "claude", "version": 1}});
+        let unnamed = json!({});
+        let mut roster = AgentRoster::default();
+
+        roster.apply(&hook_event(1, "agent.turn.started", &subjects, &named));
+        assert_eq!(roster.entries["term_a"].agent.as_deref(), Some("claude"));
+        roster.apply(&hook_event(2, "agent.turn.completed", &subjects, &unnamed));
+        assert_eq!(roster.entries["term_a"].agent, None);
+    }
+
+    #[test]
+    fn invalid_snapshot_state_or_source_is_rejected() {
+        let invalid_state = json!({
+            "entries": {
+                "term_a": {
+                    "state": "corrupt",
+                    "source": "hook",
+                    "session": null,
+                    "agent": null,
+                    "updated_at_ms": 1
+                }
+            }
+        });
+        let invalid_source = json!({
+            "entries": {
+                "term_a": {
+                    "state": "working",
+                    "source": "corrupt",
+                    "session": null,
+                    "agent": null,
+                    "updated_at_ms": 1
+                }
+            }
+        });
+
+        assert!(AgentRoster::restore(&invalid_state.to_string()).is_none());
+        assert!(AgentRoster::restore(&invalid_source.to_string()).is_none());
     }
 }

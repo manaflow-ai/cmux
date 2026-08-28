@@ -10,6 +10,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 const JOURNAL_RECORD_SCHEMA_VERSION: u32 = 1;
 const MAX_JOURNAL_PAGE_SIZE: usize = 1024;
+const MAX_JOURNAL_REDUCER_STATE_BYTES: usize = 8 * 1024 * 1024;
 pub(super) const MAX_JOURNAL_SEGMENT_UNCOMPRESSED_BYTES: usize = 16 * 1024 * 1024;
 pub(super) const MAX_JOURNAL_CONTENT_BYTES: usize = 256 * 1024;
 const MIGRATION_EVENT_ID: &str = "event_session_journal_v9_migration";
@@ -60,6 +61,14 @@ pub enum JournalSensitivity {
     Metadata,
     Sensitive,
     Secret,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StoredJournalReducerState {
+    version: u32,
+    cursor: String,
+    snapshot: String,
 }
 
 impl JournalSensitivity {
@@ -893,26 +902,30 @@ impl WorkspaceRegistry {
         &self,
         reducer_id: &str,
     ) -> anyhow::Result<Option<(u32, u64, String)>> {
+        let key = format!("journal_reducer.{reducer_id}");
         let raw = self
             .connection
             .query_row(
-                "SELECT value FROM meta WHERE key = ?1",
-                [format!("journal_reducer.{reducer_id}")],
-                |row| row.get::<_, String>(0),
+                "SELECT CASE
+                    WHEN length(value) <= ?2 THEN value
+                    ELSE NULL
+                 END
+                 FROM meta WHERE key = ?1",
+                params![key, i64::try_from(MAX_JOURNAL_REDUCER_STATE_BYTES)?],
+                |row| row.get::<_, Option<String>>(0),
             )
-            .optional()?;
+            .optional()?
+            .flatten();
         let Some(raw) = raw else { return Ok(None) };
-        let value: Value = serde_json::from_str(&raw)
-            .with_context(|| format!("journal reducer state for {reducer_id} is not JSON"))?;
-        let version = value.get("version").and_then(Value::as_u64).unwrap_or(0) as u32;
-        let cursor = value
-            .get("cursor")
-            .and_then(Value::as_str)
-            .and_then(|cursor| cursor.parse::<u64>().ok())
-            .unwrap_or(0);
-        let snapshot =
-            value.get("snapshot").and_then(Value::as_str).map(str::to_string).unwrap_or_default();
-        Ok(Some((version, cursor, snapshot)))
+        let stored = match serde_json::from_str::<StoredJournalReducerState>(&raw) {
+            Ok(stored) => stored,
+            Err(_) => return Ok(None),
+        };
+        let cursor = match stored.cursor.parse::<u64>() {
+            Ok(cursor) => cursor,
+            Err(_) => return Ok(None),
+        };
+        Ok(Some((stored.version, cursor, stored.snapshot)))
     }
 
     /// Durably record a reducer's fold position and state snapshot. Cursor
@@ -2020,6 +2033,29 @@ mod tests {
                 .to_string()
                 .contains("exceeds")
         );
+    }
+
+    #[test]
+    fn malformed_journal_reducer_meta_is_ignored_without_defaults() {
+        let registry = WorkspaceRegistry::in_memory("reducer-meta").unwrap();
+        let key = "journal_reducer.test";
+        for value in [
+            r#"{"version":1,"cursor":"not-a-number","snapshot":"{}"}"#,
+            r#"{"version":4294967296,"cursor":"1","snapshot":"{}"}"#,
+            r#"{"version":1,"cursor":"1"}"#,
+            r#"{"version":1,"cursor":"1","snapshot":"{}","extra":true}"#,
+            "not-json",
+        ] {
+            registry
+                .connection
+                .execute(
+                    "INSERT INTO meta(key, value) VALUES(?1, ?2)
+                     ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                    params![key, value],
+                )
+                .unwrap();
+            assert_eq!(registry.journal_reducer_state("test").unwrap(), None);
+        }
     }
 
     #[test]
