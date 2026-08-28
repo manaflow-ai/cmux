@@ -1,6 +1,5 @@
 import {
   context as otelContext,
-  ROOT_CONTEXT,
   SpanStatusCode,
   trace,
   TraceFlags,
@@ -80,7 +79,9 @@ export async function withApiRouteSpan<T extends Response>(
       }
       return response;
     },
-    { context: reRoot ? ROOT_CONTEXT : undefined, links },
+    // deleteSpan, not ROOT_CONTEXT: only the dropped parent span leaves the
+    // context; baggage and other context values stay with the request.
+    { context: reRoot ? trace.deleteSpan(otelContext.active()) : undefined, links },
   );
 }
 

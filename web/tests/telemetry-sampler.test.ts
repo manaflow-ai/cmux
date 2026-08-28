@@ -35,6 +35,35 @@ describe("buildCmuxTraceSampler", () => {
     );
   });
 
+  test("a client-sent sampled traceparent cannot bypass the ratio", () => {
+    const remoteSampled = trace.setSpanContext(root, {
+      traceId: "2af7651916cd43dd8448eb211c80319c",
+      spanId: "c7ad6b7169203331",
+      traceFlags: TraceFlags.SAMPLED,
+      isRemote: true,
+    });
+    expect(
+      neverSample.shouldSample(
+        remoteSampled,
+        "2af7651916cd43dd8448eb211c80319c",
+        "GET /",
+        1,
+        { "http.route": "/" },
+        [],
+      ).decision,
+    ).toBe(SamplingDecision.NOT_RECORD);
+    expect(
+      neverSample.shouldSample(
+        remoteSampled,
+        "2af7651916cd43dd8448eb211c80319c",
+        "POST /api/vm",
+        1,
+        { "http.route": "/api/vm" },
+        [],
+      ).decision,
+    ).toBe(SamplingDecision.RECORD_AND_SAMPLED);
+  });
+
   test("everything else follows the base ratio", () => {
     expect(decideRoot("GET /", { "http.route": "/" })).toBe(SamplingDecision.NOT_RECORD);
     expect(decideRoot("GET /api/devices", { "http.route": "/api/devices" })).toBe(

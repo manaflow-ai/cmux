@@ -72,7 +72,16 @@ export function buildCmuxTraceSampler(
 ): Sampler {
   const ratio = baseSampleRatio(env);
   const base = ratio >= 1 ? new AlwaysOnSampler() : new TraceIdRatioBasedSampler(ratio);
-  return new ParentBasedSampler({ root: new VmPriorityRootSampler(base) });
+  const root = new VmPriorityRootSampler(base);
+  // Remote parents come from untrusted clients: a caller can send a W3C
+  // traceparent with the sampled flag set and would otherwise get the
+  // ParentBased default (AlwaysOn), bypassing the ratio entirely. Ignore the
+  // remote flag in both directions and make a fresh root decision instead.
+  return new ParentBasedSampler({
+    root,
+    remoteParentSampled: root,
+    remoteParentNotSampled: root,
+  });
 }
 
 const DEFAULT_BASE_SAMPLE_RATIO = 0.02;
