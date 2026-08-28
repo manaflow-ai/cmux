@@ -1221,6 +1221,11 @@ mod tests {
         completed: Arc<AtomicBool>,
     }
 
+    struct HangingReconnectGroupSource {
+        entered: Arc<Notify>,
+        release: Arc<Notify>,
+    }
+
     #[async_trait]
     impl ReconnectGroupSource for DelayedReconnectGroupSource {
         fn resolution_timeout(&self, reconnect_attempt_timeout: Duration) -> Duration {
@@ -1231,6 +1236,19 @@ mod tests {
             tokio::time::sleep(self.delay).await;
             self.completed.store(true, Ordering::Release);
             Err(ProviderError::Transport("delayed test source completed".into()))
+        }
+    }
+
+    #[async_trait]
+    impl ReconnectGroupSource for HangingReconnectGroupSource {
+        fn resolution_timeout(&self, _reconnect_attempt_timeout: Duration) -> Duration {
+            Duration::from_secs(60 * 60)
+        }
+
+        async fn next_group(&self) -> Result<Arc<dyn LinkGroup>, ProviderError> {
+            self.entered.notify_one();
+            self.release.notified().await;
+            Err(ProviderError::Transport("released test source".into()))
         }
     }
 
@@ -1263,6 +1281,73 @@ mod tests {
         .await
         .expect("explicit reconnect resolution deadline was ignored");
         assert!(extended_completed.load(Ordering::Acquire));
+    }
+
+    #[tokio::test]
+    async fn close_cancels_reconnect_group_resolution() {
+        let directory = tempdir().unwrap();
+        let auth = AuthDatabase::load_or_create(directory.path(), "close-group-resolution", true).unwrap();
+        let (daemon, mut accepted) = RemoteDaemon::new(auth, SessionLimits::default());
+        let group = Arc::new(OneShotGroup {
+            daemon,
+            opens: AtomicUsize::new(0),
+            epoch: StdMutex::new(None),
+            evidence: CarrierEvidence::LocalPeer { uid: None, pid: None },
+        });
+        let entered = Arc::new(Notify::new());
+        let release = Arc::new(Notify::new());
+        let source = Arc::new(HangingReconnectGroupSource {
+            entered: entered.clone(),
+            release: release.clone(),
+        });
+        let client = ClientConnection::connect_with_reconnect_groups(
+            group.clone(),
+            ClientConnectionConfig {
+                identity: StaticIdentity::generate().unwrap(),
+                expected_daemon: None,
+                auth: ClientAuthMode::Carrier,
+                device_name: "close-group-resolution-client".into(),
+                session: SessionId([95; 16]),
+                lane_policy: LanePolicy::Single,
+                limits: SessionLimits::default(),
+                reconnect: ReconnectPolicy {
+                    initial_delay: Duration::from_millis(1),
+                    maximum_delay: Duration::from_millis(1),
+                    attempt_timeout: Duration::from_millis(100),
+                    full_jitter: false,
+                    heartbeat_interval: None,
+                    heartbeat_timeout: Duration::from_secs(1),
+                    maximum_attempts: None,
+                },
+            },
+            Some(source),
+        )
+        .await
+        .unwrap();
+        let _server = tokio::time::timeout(Duration::from_secs(2), accepted.recv())
+            .await
+            .unwrap()
+            .unwrap();
+
+        group.fail();
+        let send = tokio::spawn({
+            let client = client.clone();
+            async move {
+                client
+                    .send(Lane::Control, 7, Bytes::from_static(b"blocked"), FrameFlags::empty())
+                    .await
+            }
+        });
+        tokio::time::timeout(Duration::from_secs(1), entered.notified())
+            .await
+            .expect("reconnect group resolver did not start");
+
+        let mut closing = Box::pin(client.close());
+        let closed = tokio::time::timeout(Duration::from_millis(250), &mut closing).await;
+        release.notify_waiters();
+        let _ = tokio::time::timeout(Duration::from_secs(1), &mut closing).await;
+        let _ = tokio::time::timeout(Duration::from_secs(1), send).await;
+        assert!(closed.is_ok(), "close waited for a provider resolver after shutdown began");
     }
 
     struct FaultEpoch {
