@@ -18,11 +18,9 @@ final class RenderNodeContextMenuView: NSView {
         // AppKit's NSView.hitTest(_:) receives `point` in the SUPERVIEW's
         // coordinate system ("a point that is in the coordinate system of
         // the receiver's superview" — unlike UIKit's local-space
-        // point(inside:)), so converting from the superview yields local
-        // coordinates. Without a superview AppKit does not hit-test this
-        // view; treat the point as local for safety.
-        let local = superview.map { convert(point, from: $0) } ?? point
-        guard bounds.contains(local), let event = NSApp.currentEvent else { return nil }
+        // point(inside:)). `frame` lives in that same space, so this is the
+        // containment test with no conversion.
+        guard frame.contains(point), let event = NSApp.currentEvent else { return nil }
         switch event.type {
         case .rightMouseDown:
             break
