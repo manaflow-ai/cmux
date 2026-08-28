@@ -223,11 +223,17 @@ import Testing
         let privateRestoreRecord: [String: Any] = [
             "kind": "codex",
             "legacy_command": "env 'SUBROUTER_CODEX_USER_EMAIL=legacy-private@example.test' sr codex resume session-id",
+            "prepared_arguments": [
+                "/private/custom/codex",
+                "-c", "model_provider=subrouter",
+                "--config=model_providers.subrouter.base_url=https://prepared-router.example.test/v1",
+            ],
             "launch_command": [
                 "arguments": [
-                    "codex", "-c", "model_provider=\"subrouter\"",
+                    "/private/custom/codex", "-c", "model_provider=\"subrouter\"",
                     "-c", "model_providers.subrouter.base_url=https://router.example.test/v1",
                 ],
+                "executable_path": "/private/custom/codex",
                 "environment": [
                     "PATH": "/usr/bin:/bin",
                     "SUBROUTER_CODEX_ACCOUNT_ID": "private-account",
@@ -301,7 +307,14 @@ import Testing
         )
         let record = try #require(payload["restore_record"] as? [String: Any])
         #expect(record["legacy_command"] is NSNull)
+        let preparedArguments = try #require(record["prepared_arguments"] as? [Any])
+        #expect(preparedArguments.first is NSNull)
+        #expect(preparedArguments.count == 1)
         let launchCommand = try #require(record["launch_command"] as? [String: Any])
+        #expect(launchCommand["executable_path"] is NSNull)
+        let launchArguments = try #require(launchCommand["arguments"] as? [Any])
+        #expect(launchArguments.first is NSNull)
+        #expect(launchArguments.count == 1)
         let launchEnvironment = try #require(launchCommand["environment"] as? [String: Any])
         #expect(Set(launchEnvironment.keys) == Set(["PATH"]))
         #expect(launchEnvironment["PATH"] as? String == "/usr/bin:/bin")
