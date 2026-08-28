@@ -23698,6 +23698,23 @@
           }
         }
       }
+    },
+    "mobile.macUpdate.revertShort": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not ready? Stay on (or revert to) cmux BETA 1.0.4 (20260817224846)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "まだの場合は、cmux BETA 1.0.4 (20260817224846) をそのままご利用ください（または戻してください）。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

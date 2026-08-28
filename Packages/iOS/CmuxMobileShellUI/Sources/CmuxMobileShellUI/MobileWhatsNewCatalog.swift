@@ -136,7 +136,7 @@ enum MobileWhatsNewCatalog {
             // MobileMacPairingFloor.
             footnote: [
                 MobileMacPairingFloor.requiredOnMacSentence,
-                MobileMacPairingFloor.revertGuidance,
+                MobileMacPairingFloor.revertShortSentence,
             ].joined(separator: " ")
         )
     }

@@ -62,11 +62,10 @@ private struct MobileWhatsNewArchiveRow: View {
     private var destination: some View {
         switch page.body {
         case .features:
-            ScrollView {
-                MobileWhatsNewContent(page: page)
-            }
-            .background(PlatformPalette.systemBackground)
-            .navigationBarTitleDisplayMode(.inline)
+            MobileWhatsNewFittingPage(page: page)
+                .frame(maxHeight: .infinity, alignment: .top)
+                .background(PlatformPalette.systemBackground)
+                .navigationBarTitleDisplayMode(.inline)
         case .web(let url):
             MobileWhatsNewWebView(url: url, allowedHosts: allowedHosts)
                 .navigationBarTitleDisplayMode(.inline)

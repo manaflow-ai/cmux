@@ -33,6 +33,16 @@ public enum MobileMacPairingFloor {
         )
     }
 
+    /// The one-line revert path for space-constrained surfaces (the What's
+    /// New notice must fit the smallest iPhones with no scrolling); fuller
+    /// context stays in ``revertGuidance``.
+    public static var revertShortSentence: String {
+        L10n.string(
+            "mobile.macUpdate.revertShort",
+            defaultValue: "Not ready? Stay on (or revert to) cmux BETA 1.0.4 (20260817224846)."
+        )
+    }
+
     /// The way back for users who cannot update the Mac yet: the last iOS
     /// build that still pairs with Macs below the floor.
     public static var revertGuidance: String {
