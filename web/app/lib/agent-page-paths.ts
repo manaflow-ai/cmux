@@ -133,6 +133,7 @@ export const agentReadablePages = [
   ...agentReadableDownloadPages,
   { path: "/pricing", title: "Pricing", locales: fallbackContentLocales },
   { path: "/enterprise", title: "Enterprise" },
+  { path: "/support", title: "Support" },
   { path: "/blog", title: "Blog" },
   {
     path: "/blog/367-billion-tokens",
