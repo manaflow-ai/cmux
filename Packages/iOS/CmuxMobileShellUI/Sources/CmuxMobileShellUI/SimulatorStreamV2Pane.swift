@@ -28,6 +28,7 @@ struct SimulatorStreamV2Pane: View {
     @State private var pendingText = ""
     @State private var devices: [MobileSimulatorDeviceDescriptor] = []
     @State private var deviceFetchTask: Task<Void, Never>?
+    @State private var refreshTask: Task<Void, Never>?
     @AppStorage("cmux.simulatorStream.quality")
     private var qualityRaw = SimStreamQualityPreset.default.rawValue
     @FocusState private var textFocused: Bool
@@ -73,6 +74,8 @@ struct SimulatorStreamV2Pane: View {
         .onDisappear {
             deviceFetchTask?.cancel()
             deviceFetchTask = nil
+            refreshTask?.cancel()
+            refreshTask = nil
         }
         .onChange(of: qualityRaw) { _, _ in
             store?.setQuality(maximumLongSidePixels: quality.maximumLongSidePixels)
@@ -148,15 +151,17 @@ struct SimulatorStreamV2Pane: View {
     /// One shared refresh path for every entrypoint (menu item, overlay
     /// buttons, recovery overlay): ask the Mac to recover the worker first
     /// when the host reports it dead, then rebuild the local session through
-    /// the store's single reattach flow.
+    /// the store's single reattach flow. Single-flight: extra taps while a
+    /// refresh is in flight are dropped, so recover RPCs never overlap.
     private func refreshStream() {
-        guard let store else { return }
+        guard let store, refreshTask == nil else { return }
         let needsHostRecovery = hostNeedsRecovery(store.hostStatus)
-        Task {
+        refreshTask = Task {
             if supportsRecover, needsHostRecovery {
                 _ = await recover()
             }
             store.refresh()
+            refreshTask = nil
         }
     }
 
