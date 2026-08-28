@@ -279,8 +279,14 @@ struct RenderNodeView: View {
         case "symbolVariant":
             return AnyView(view.symbolVariant(dslSymbolVariant(token)))
         case "contextMenu":
+            // Never SwiftUI `.contextMenu`: on macOS it eagerly rebuilds menu
+            // content on every update and leaks ObservationTracking without
+            // bound (issue #7345). A native NSMenu is instead built from the
+            // pure-data IR at right-click time by the overlay.
             if !modifier.children.isEmpty {
-                return AnyView(view.contextMenu { modifierChildren(modifier) })
+                return AnyView(view.overlay {
+                    RenderNodeContextMenuOverlay(nodes: modifier.children, dispatch: dispatch)
+                })
             }
             return view
         case "help":
