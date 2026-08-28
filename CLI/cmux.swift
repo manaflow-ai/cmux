@@ -4259,19 +4259,18 @@ struct CMUXCLI {
     // creation succeeds. Do not rotate it without a migration.
     private static let persistentCloudVMSlotID = "cmux-default-freestyle-sshd-v1"
     private static let persistentCloudVMWorkspaceName = "sshd"
-    /// Baked cmux machine image (web/services/vms/images/blaxel): devtools, coding
-    /// agents, and an openbox desktop with a noVNC web front end, all preinstalled.
-    private static let cloudVMDesktopImage = "sandbox/cmux-devbox:latest"
-    /// Shell-only image for `vm new --base`; the backend default is the desktop image.
-    /// Internal (not private) so `vm run` in CMUXCLI+VMTransfer.swift provisions
-    /// pool machines from the same image.
-    static let cloudVMBaseImage = "blaxel/base-image:latest"
+    // Machines are requested by kind (`desktop` / `base`, VMMachineKind); the
+    // backend maps the kind to whichever image its deployment supports. The CLI
+    // never pins an image id unless the person passes `--image`: a pinned id
+    // that drifted from the web deploy's manifest failed every create with
+    // `vm_image_config_error`.
     /// `--size` spellings → memory in MB. vCPUs scale with memory on Blaxel.
     private static let cloudVMSizeAliases: [String: Int] = [
         "2g": 2048, "2gb": 2048, "small": 2048,
         "4g": 4096, "4gb": 4096, "medium": 4096,
         "8g": 8192, "8gb": 8192, "large": 8192,
         "16g": 16384, "16gb": 16384, "xl": 16384,
+        "24g": 24576, "24gb": 24576,
         "32g": 32768, "32gb": 32768, "xxl": 32768,
     ]
     static func parseCloudVMSize(_ raw: String) -> Int? {
@@ -4280,9 +4279,17 @@ struct CMUXCLI {
         if let mb = Int(key), mb >= 512 { return mb }
         return nil
     }
+    /// `--base` / `--no-desktop` → shell-only; anything else (including `--desktop`
+    /// and no flag) → a machine with a screen.
+    static func parseCloudVMKindFlags(_ args: [String]) -> VMMachineKind {
+        args.contains("--base") || args.contains("--no-desktop") ? .base : .desktop
+    }
     private static let cloudVMDesktopPort = 6901
-    static func cloudVMImageHasDesktop(_ image: String) -> Bool {
-        image.contains("xfce-vnc") || image.contains("cmux-devbox")
+    /// Whether a machine payload (`vm.create` / `vm.status` / `vm.base_open`
+    /// response) describes a machine with a screen: the backend's `kind` when it
+    /// sends one, otherwise the image name for older control planes.
+    static func cloudVMResponseHasDesktop(_ response: [String: Any]) -> Bool {
+        VMMachineKind.resolved(kind: response["kind"], image: response["image"]).hasDesktop
     }
 
     /// `vm shell <id>` and `vm open <id>`: the shared cloud open path (vmOpenShell — the
@@ -4308,8 +4315,7 @@ struct CMUXCLI {
             idFormat: idFormat
         )
         if let status = try? client.sendV2(method: "vm.status", params: ["id": vmId], responseTimeout: 30),
-           let image = status["image"] as? String,
-           Self.cloudVMImageHasDesktop(image) {
+           Self.cloudVMResponseHasDesktop(status) {
             // The screen belongs beside the shell it was opened with, not in whatever
             // workspace holds focus once the attach settles.
             let desktopWorkspace = shellWorkspace?.workspaceId ?? vmAttachedWorkspaceId(vmId: vmId, client: client)
@@ -5704,8 +5710,8 @@ struct CMUXCLI {
                 } else {
                     throw CLIError(message: """
                         Usage:
-                          cmux vm base open [--workspace <workspace-id>] [--window <id|ref|index>] [--detach|-d]
-                          cmux vm base reset [--reason <text>] [--workspace <workspace-id>] [--window <id|ref|index>] [--detach|-d]
+                          cmux vm base open [--desktop|--base] [--workspace <workspace-id>] [--window <id|ref|index>] [--detach|-d]
+                          cmux vm base reset [--desktop|--base] [--reason <text>] [--workspace <workspace-id>] [--window <id|ref|index>] [--detach|-d]
 
                         Base is your persistent cloud workspace. Opening it reuses the
                         same VM. Reset creates a new Base generation and retains the old VM.
@@ -5716,7 +5722,8 @@ struct CMUXCLI {
                 let (imageOptRaw, rem0) = parseOption(rest, name: "--image")
                 let (providerOpt, rem1) = parseOption(rem0, name: "--provider")
                 let (targetWorkspaceOpt, rem1a) = parseOption(rem1, name: "--workspace")
-                let (windowOpt, rem2) = parseOption(rem1a, name: "--window")
+                let (nameOpt, rem1b) = parseOption(rem1a, name: "--name")
+                let (windowOpt, rem2) = parseOption(rem1b, name: "--window")
                 let detach = hasFlag(rem2, name: "--detach") || hasFlag(rem2, name: "-d")
                 // A machine comes with its screen: new machines boot the desktop image
                 // (xfce + noVNC) unless the person asks for a shell-only box with --base.
@@ -5730,7 +5737,7 @@ struct CMUXCLI {
                         throw CLIError(message: """
                             vm new: unknown size '\(sizeOpt)'.
 
-                            Sizes: 2g, 4g, 8g, 16g, 32g (or memory in MB).
+                            Sizes: 2g, 4g, 8g, 16g, 24g, 32g (or memory in MB).
                             Plans cap the largest size; `cmux vm ls` shows your plan.
                             """)
                     }
@@ -5739,19 +5746,22 @@ struct CMUXCLI {
                     memoryMb = nil
                 }
                 let remaining = rem3.filter { !["--detach", "-d", "--desktop", "--base", "--no-desktop"].contains($0) }
-                // The desktop image gives the machine a screen; the attach flow streams it
-                // into a browser split beside the shell. --base keeps the backend default image.
-                let imageOpt = imageOptRaw ?? (desktop ? Self.cloudVMDesktopImage : Self.cloudVMBaseImage)
+                // The kind is what the CLI asks for; the backend picks the image. A desktop
+                // machine gets its screen streamed into a browser split beside the shell.
+                let machineKind: VMMachineKind = desktop ? .desktop : .base
+                let machineName = nameOpt?.trimmingCharacters(in: .whitespacesAndNewlines)
                 if let unknown = remaining.first(where: { Self.isUnknownFlagToken($0, allowedShortFlags: ["-d"]) }) {
                     throw CLIError(message: """
                         vm new: unknown flag '\(unknown)'.
 
                         Known flags:
-                          --image <image-id>
+                          --base            shell-only machine (no desktop)
+                          --desktop         machine with a screen (default)
+                          --size <2g|4g|8g|16g|24g|32g>
+                          --name <label>    display label (the id stays the address)
+                          --image <image-id>  explicit image override (normally omit)
                           --provider <provider>
                           --workspace <workspace-id>
-                          --base            shell-only machine (no desktop)
-                          --size <2g|4g|8g|16g|32g>
                           --detach, -d
 
                         Try:
@@ -5776,9 +5786,12 @@ struct CMUXCLI {
                 }
                 let normalizedProvider = try Self.normalizedVMProvider(providerOpt)
                 var params: [String: Any] = [:]
-                // `imageOpt` is always set now: the CLI resolves a default image
-                // (desktop, or base for `--base`) so a bare `vm new` boots a screen.
-                params["image"] = imageOpt
+                // Request by kind; `--image` is the explicit override and wins server-side.
+                if let imageOptRaw {
+                    params["image"] = imageOptRaw
+                } else {
+                    params["kind"] = machineKind.rawValue
+                }
                 if let normalizedProvider { params["provider"] = normalizedProvider }
                 // Size is independent of the image/provider override. Providers that do
                 // not expose sizing ignore this optional field; Blaxel uses it for runtime
@@ -5808,7 +5821,7 @@ struct CMUXCLI {
                 // Store-based idempotency: retries of a failed create reuse the key; a
                 // successful create clears it, so the next `vm new` makes a new machine.
                 let idempotency = try Self.activeVMCreateIdempotency(
-                    image: imageOpt,
+                    image: imageOptRaw ?? "kind=\(machineKind.rawValue)",
                     provider: normalizedProvider,
                     usesPersistentDefaultCloud: false
                 )
@@ -5847,6 +5860,14 @@ struct CMUXCLI {
                 let id = (response["id"] as? String) ?? "?"
                 let provider = (response["provider"] as? String) ?? "?"
                 let image = (response["image"] as? String) ?? "?"
+                // The label is display-only and best-effort: the machine exists either way.
+                if let machineName, !machineName.isEmpty {
+                    _ = try? client.sendV2(
+                        method: "vm.rename",
+                        params: ["id": id, "display_name": machineName],
+                        responseTimeout: 30
+                    )
+                }
                 if detach {
                     Self.clearVMCreateIdempotency(idempotency)
                     let readyMessage = String(
@@ -5887,14 +5908,17 @@ struct CMUXCLI {
                     windowRaw: targetWindow,
                     targetWorkspaceId: targetWorkspaceOpt,
                     forceSSH: false,
-                    shouldPinWorkspaceToTop: usesPersistentDefaultCloud,
+                    // A new machine is its own computer, never the Base slot: pinning it
+                    // as Base made "Open Base" and the sidebar cloud button target the
+                    // most recently created machine instead of Base.
+                    shouldPinWorkspaceToTop: false,
                     client: client,
                     jsonOutput: jsonOutput,
                     idFormat: idFormat
                 )
                 // A machine with a screen shows it: stream the noVNC desktop into a browser
                 // split beside the shell so the workspace opens as terminal + desktop.
-                if Self.cloudVMImageHasDesktop(image) {
+                if Self.cloudVMResponseHasDesktop(response) {
                     _ = try? openVMDesktopSplit(
                         vmId: id,
                         client: client,
@@ -6197,6 +6221,12 @@ struct CMUXCLI {
 
             case "tree":
                 try runVMTreeCommand(rest: rest, client: client, jsonOutput: jsonOutput)
+
+            case "workspace":
+                try runVMWorkspaceCommand(rest: rest, client: client, jsonOutput: jsonOutput)
+
+            case "terminal":
+                try runVMTerminalCommand(rest: rest, client: client, jsonOutput: jsonOutput)
 
             case "route":
                 try runVMRouteCommand(rest: rest, client: client, jsonOutput: jsonOutput)
@@ -12855,7 +12885,8 @@ struct CMUXCLI {
         let (targetWorkspaceOpt, rem0) = parseOption(args, name: "--workspace")
         let (windowOpt, rem1) = parseOption(rem0, name: "--window")
         let detach = hasFlag(rem1, name: "--detach") || hasFlag(rem1, name: "-d")
-        let remaining = rem1.filter { $0 != "--detach" && $0 != "-d" }
+        let baseKind = Self.parseCloudVMKindFlags(rem1)
+        let remaining = rem1.filter { !["--detach", "-d", "--desktop", "--base"].contains($0) }
         if let unknown = remaining.first(where: { Self.isUnknownFlagToken($0, allowedShortFlags: ["-d"]) }) {
             throw CLIError(message: """
                 vm base open: unknown flag '\(unknown)'.
@@ -12863,6 +12894,8 @@ struct CMUXCLI {
                 Known flags:
                   --workspace <workspace-id>
                   --window <id|ref|index>
+                  --base            shell-only Base (first open only; default is a desktop)
+                  --desktop
                   --detach, -d
                 """)
         }
@@ -12877,9 +12910,11 @@ struct CMUXCLI {
 
         let targetWindow = try validatedWindowHandle(windowOpt ?? windowId, client: client)
         let vmCreateStartedAt = Date()
+        // The kind only matters when Base does not exist yet; an existing Base keeps
+        // its image, so a bare open never changes a machine.
         let response = try client.sendV2(
             method: "vm.base_open",
-            params: [:],
+            params: ["kind": baseKind.rawValue],
             responseTimeout: Self.vmCreateResponseTimeoutSeconds
         )
         logVMTiming(
@@ -12938,7 +12973,8 @@ struct CMUXCLI {
         let (targetWorkspaceOpt, rem1) = parseOption(rem0, name: "--workspace")
         let (windowOpt, rem2) = parseOption(rem1, name: "--window")
         let detach = hasFlag(rem2, name: "--detach") || hasFlag(rem2, name: "-d")
-        let remaining = rem2.filter { $0 != "--detach" && $0 != "-d" }
+        let baseKind = Self.parseCloudVMKindFlags(rem2)
+        let remaining = rem2.filter { !["--detach", "-d", "--desktop", "--base"].contains($0) }
         if let unknown = remaining.first(where: { Self.isUnknownFlagToken($0, allowedShortFlags: ["-d"]) }) {
             throw CLIError(message: """
                 vm base reset: unknown flag '\(unknown)'.
@@ -12947,6 +12983,8 @@ struct CMUXCLI {
                   --reason <text>
                   --workspace <workspace-id>
                   --window <id|ref|index>
+                  --base            shell-only Base (default is a desktop)
+                  --desktop
                   --detach, -d
                 """)
         }
@@ -12959,7 +12997,7 @@ struct CMUXCLI {
         }
 
         let targetWindow = try validatedWindowHandle(windowOpt ?? windowId, client: client)
-        var params: [String: Any] = [:]
+        var params: [String: Any] = ["kind": baseKind.rawValue]
         if let reasonOpt, !reasonOpt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             params["reason"] = reasonOpt
         }
@@ -18064,6 +18102,16 @@ struct CMUXCLI {
 
             Subcommands:
               ls                        List your cloud VMs.
+              workspace new <machine> [--name <name>]
+                                        Create a workspace on the machine (its ⌘N) and
+                                        open it as a new local workspace.
+              workspace open <machine> <ws-id>
+                                        Open a machine workspace here: a new local
+                                        workspace with one pane per terminal.
+              workspace close <machine> <ws-id>
+                                        Close a machine workspace and its terminals.
+              terminal close <machine> <term-id>
+                                        End a terminal on the machine.
               tree [<machine>|local] [--refresh]
                                         Finder-style view of every surface: This Mac
                                         (terminals by workspace, browsers), then each
@@ -18072,18 +18120,19 @@ struct CMUXCLI {
                                         forwarded ports — each with the address
                                         `vm open` / `surface open` accepts.
               status <id>                Print provider, status, and image.
-              base open [--workspace <id>] [--window <id|ref|index>] [--detach|-d]
+              base open [--desktop|--base] [--workspace <id>] [--window <id|ref|index>] [--detach|-d]
                                         Open Base, your persistent cloud workspace.
-                                        Reuses the same VM every time.
-              base reset [--reason <text>] [--workspace <id>] [--window <id|ref|index>] [--detach|-d]
+                                        Reuses the same VM every time. The first
+                                        open picks the kind (desktop by default).
+              base reset [--desktop|--base] [--reason <text>] [--workspace <id>] [--window <id|ref|index>] [--detach|-d]
                                         Create a new Base generation. The previous
                                         VM is retained so accidental resets are
                                         recoverable.
-              new [--image <template>] [--provider <provider>] [--base] [--size <2g|4g|8g|16g|32g>] [--window <id|ref|index>] [--detach|-d]
-                                        Create a new VM. By default, with no image or
-                                        provider override, this is kept compatible with
-                                        Base. Pass --image or --provider to create a
-                                        separate VM.
+              new [--desktop|--base] [--size <2g|4g|8g|16g|24g|32g>] [--name <label>] [--provider <provider>] [--window <id|ref|index>] [--detach|-d]
+                                        Create a new machine by kind (desktop by
+                                        default; --base for shell-only). The server
+                                        picks the image for the kind; --image <id>
+                                        is an explicit override you normally omit.
               snapshot <id> [--name <name>]
                                         Create a provider snapshot/checkpoint and print its id.
                                         Alias: `checkpoint`.
