@@ -1130,6 +1130,39 @@ pub(super) fn legacy_hook_session_id(terminal_id: &TerminalPublicId, sequence: u
 
 const AGENT_HOOK_RETRY_ERROR: &str = "agent hook projection retry deferred";
 
+#[derive(Debug)]
+struct AgentHookTerminalUnavailable;
+
+impl fmt::Display for AgentHookTerminalUnavailable {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("terminal is not available for agent hook projection")
+    }
+}
+
+impl std::error::Error for AgentHookTerminalUnavailable {}
+
+fn agent_hook_retry_class(error: &anyhow::Error) -> crate::workspace_registry::AgentHookRetryClass {
+    if error.downcast_ref::<AgentHookTerminalUnavailable>().is_some()
+        || error.chain().any(|cause| {
+            matches!(
+                cause.downcast_ref::<rusqlite::Error>(),
+                Some(rusqlite::Error::SqliteFailure(
+                    rusqlite::ffi::Error {
+                        code: rusqlite::ErrorCode::DatabaseBusy
+                            | rusqlite::ErrorCode::DatabaseLocked,
+                        ..
+                    },
+                    _
+                ))
+            )
+        })
+    {
+        crate::workspace_registry::AgentHookRetryClass::Transient
+    } else {
+        crate::workspace_registry::AgentHookRetryClass::Permanent
+    }
+}
+
 #[derive(Debug, Clone)]
 struct TerminalAgentRecord {
     state: AgentState,
@@ -2548,7 +2581,7 @@ impl Mux {
                         eprintln!("cmux-tui: agent hook retry cleanup deferred");
                     }
                 }
-                Err(_error) => {
+                Err(error) => {
                     if self
                         .workspace_registry
                         .lock()
@@ -2560,6 +2593,7 @@ impl Mux {
                             sequence,
                             &ingress,
                             AGENT_HOOK_RETRY_ERROR,
+                            agent_hook_retry_class(&error),
                         )
                         .is_err()
                     {
@@ -5361,7 +5395,7 @@ impl Mux {
         // process can crash after the durable journal commit and before the
         // in-memory/resource projection update. The sequence guard makes this
         // a no-op for already-applied events while allowing restart repair.
-        if let Err(_error) = self.apply_agent_hook_record(ingress, commit.sequence) {
+        if let Err(error) = self.apply_agent_hook_record(ingress, commit.sequence) {
             if let Err(_bookkeeping_error) =
                 self.workspace_registry.lock().unwrap().enqueue_agent_hook_pending(
                     &ingress.producer_id,
@@ -5370,6 +5404,7 @@ impl Mux {
                     commit.sequence,
                     ingress,
                     AGENT_HOOK_RETRY_ERROR,
+                    agent_hook_retry_class(&error),
                 )
             {
                 eprintln!(
@@ -5413,7 +5448,8 @@ impl Mux {
         let terminal_id = TerminalPublicId::parse(&terminal_subject.id)
             .with_context(|| format!("invalid terminal subject {:?}", terminal_subject.id))?;
         let Some(surface) = self.resource_surface_for_terminal(&terminal_id) else {
-            anyhow::bail!("terminal {terminal_id} is not available for agent hook projection")
+            return Err(anyhow::Error::new(AgentHookTerminalUnavailable)
+                .context(format!("terminal {terminal_id} is not available for agent hook projection")));
         };
         // Serialize the sequence check, projection commit, and sequence
         // update as one operation. The projection path takes registry, state,
@@ -22235,6 +22271,49 @@ mod tests {
                 .unwrap()
                 .len(),
             1
+        );
+    }
+
+    #[test]
+    fn unavailable_terminal_hook_retries_without_consuming_attempt_budget() {
+        let mux = test_mux();
+        let terminal_id = TerminalPublicId::random().unwrap();
+        let ingress = crate::agent_hooks::agent_hook_journal_ingress(
+            "claude",
+            "UserPromptSubmit",
+            Some(&terminal_id.to_string()),
+            serde_json::json!({}),
+        )
+        .unwrap();
+
+        for attempt in 0..3 {
+            mux.append_journal_ingress(&ingress, "test", "transient-budget").unwrap();
+            let retry_state = mux
+                .workspace_registry
+                .lock()
+                .unwrap()
+                .agent_hook_pending_retry_state_for_test(
+                    crate::agent_hooks::AGENT_HOOK_PRODUCER_ID,
+                    "test",
+                    "transient-budget",
+                )
+                .unwrap()
+                .expect("unavailable terminal hook remains pending");
+            assert_eq!(retry_state.0, 0, "transient retry consumed attempt {attempt}");
+        }
+    }
+
+    #[test]
+    fn agent_hook_retry_class_uses_typed_transient_errors() {
+        let unavailable = anyhow::Error::new(AgentHookTerminalUnavailable)
+            .context("terminal term_secret is not available for agent hook projection");
+        assert_eq!(
+            agent_hook_retry_class(&unavailable),
+            crate::workspace_registry::AgentHookRetryClass::Transient
+        );
+        assert_eq!(
+            agent_hook_retry_class(&anyhow::anyhow!("invalid terminal subject")),
+            crate::workspace_registry::AgentHookRetryClass::Permanent
         );
     }
 

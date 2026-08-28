@@ -13,6 +13,12 @@ pub(super) const AGENT_HOOK_RETRY_PAGE_SIZE: i64 = 64;
 pub(crate) const AGENT_HOOK_MAX_ATTEMPTS: i64 = 8;
 pub(crate) const AGENT_HOOK_MAX_RETRY_PAGES_PER_WAKE: usize = 16;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AgentHookRetryClass {
+    Transient,
+    Permanent,
+}
+
 pub(super) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     transaction.execute_batch(
         "CREATE TABLE IF NOT EXISTS resource_identities (
@@ -530,6 +536,7 @@ impl WorkspaceRegistry {
         sequence: u64,
         ingress: &crate::JournalIngress,
         error: &str,
+        retry_class: AgentHookRetryClass,
     ) -> anyhow::Result<()> {
         const MAX_ERROR_CHARS: usize = 1_024;
         let ingress_json = serde_json::to_string(ingress)?;
@@ -539,12 +546,10 @@ impl WorkspaceRegistry {
             .find(|subject| subject.kind == "terminal")
             .map(|subject| subject.id.as_str());
         let bounded_error = error.chars().take(MAX_ERROR_CHARS).collect::<String>();
-        // Projection failures caused by a terminal that is temporarily absent
-        // are availability signals, not permanent payload failures. Keep the
-        // attempt budget unchanged so terminal adoption can retry them later.
-        // Other failures consume the bounded budget and become quarantined at
-        // AGENT_HOOK_MAX_ATTEMPTS.
-        let transient = is_transient_agent_hook_projection_error(error);
+        // Projection failures caused by temporary availability or storage
+        // conditions keep the attempt budget unchanged. Other failures consume
+        // the bounded budget and become quarantined at the cap.
+        let transient = matches!(retry_class, AgentHookRetryClass::Transient);
         self.connection.execute(
             "INSERT INTO resource_agent_hook_pending(
                producer_id, origin, idempotency_key, terminal_id, event_sequence, ingress_json, error, attempt
@@ -578,12 +583,6 @@ impl WorkspaceRegistry {
             ],
         )?;
         Ok(())
-    }
-
-    fn is_transient_agent_hook_projection_error(error: &str) -> bool {
-        error.contains("is not available for agent hook projection")
-            || error.contains("database is locked")
-            || error.contains("database table is locked")
     }
 
     pub fn clear_agent_hook_pending(
