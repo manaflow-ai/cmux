@@ -832,11 +832,7 @@ class GhosttyApp {
                 )
             }
         }
-        runtimeConfig.write_clipboard_cb = { userdata, location, content, len, _ in
-            if GhosttyApp.callbackContext(from: userdata)?.surfaceView?
-                .suppressingSyntheticMouseReleaseSideEffects == true {
-                return
-            }
+        runtimeConfig.write_clipboard_cb = { _, location, content, len, _ in
             guard let content = content, len > 0 else { return }
             let buffer = UnsafeBufferPointer(start: content, count: Int(len))
             let decoder = TerminalClipboardRepresentationDecoder()
@@ -3414,11 +3410,6 @@ class GhosttyApp {
                 return true
             }
         case GHOSTTY_ACTION_OPEN_URL:
-            if surfaceView.suppressingSyntheticMouseReleaseSideEffects {
-                // Lifecycle cancellation may still traverse Ghostty's release
-                // action path; do not turn that cleanup into a link launch.
-                return true
-            }
             let openUrl = action.action.open_url
             guard let cstr = openUrl.url else { return false }
             let urlString = String(
@@ -3987,15 +3978,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// The captured session tokens keep the task safe across a new press or
     /// native runtime generation.
     private var deferredGhosttyMouseRepairTask: Task<Void, Never>?
-    /// Set while a lifecycle repair closes a native gesture. Ghostty's normal
-    /// left release can copy selections or invoke link/prompt actions; those
-    /// side effects do not belong to a focus/portal cancellation. The atomic
-    /// gate is also read by Ghostty's clipboard callback on its I/O thread.
-    private let syntheticMouseReleaseSideEffectsGate = AtomicBooleanGate(false)
-    fileprivate var suppressingSyntheticMouseReleaseSideEffects: Bool {
-        get { syntheticMouseReleaseSideEffectsGate.loadAcquire() }
-        set { syntheticMouseReleaseSideEffectsGate.storeRelease(newValue) }
-    }
     let imageTransferPreparation: TerminalImageTransferPreparationService?
 #if DEBUG
     private var lastSizeSkipSignature: String?
@@ -4807,6 +4789,17 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         case .reject:
             return 0
         }
+    }
+
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        if newWindow == nil {
+            // AppKit invokes this lifecycle edge on the UI thread before the
+            // view can be deallocated. Release the native gesture here, while
+            // the owning surface is still available; deinit only performs
+            // nonisolated observer/ledger cleanup.
+            releaseAllGhosttyMouseButtonsSynchronously(reason: "viewWillMoveToWindow.nil")
+        }
+        super.viewWillMove(toWindow: newWindow)
     }
 
     override func viewDidMoveToWindow() {
@@ -6894,15 +6887,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         button: ghostty_input_mouse_button_e,
         mods: ghostty_input_mods_e
     ) -> Bool {
-        let wasSuppressing = suppressingSyntheticMouseReleaseSideEffects
-        suppressingSyntheticMouseReleaseSideEffects = true
-        defer { suppressingSyntheticMouseReleaseSideEffects = wasSuppressing }
-
-        // Leave the terminal viewport before a cancelled left gesture is
-        // released. This prevents prompt-click/link hover state from being
-        // interpreted as a user click while preserving the existing selection
-        // for the next explicit interaction.
+        // A lifecycle cancellation must not commit a selection or invoke a
+        // prompt/link action. Clear the selection before the release (so
+        // copy-on-select has nothing to publish), then move the native pointer
+        // outside the viewport (so prompt/link hit-testing cannot match).
         if button == GHOSTTY_MOUSE_LEFT {
+            if ghostty_surface_has_selection(surface) {
+                _ = ghostty_surface_clear_selection(surface)
+            }
             ghostty_surface_mouse_pos(surface, -1, -1, mods)
         }
         return sendGhosttyMouseButton(
@@ -8943,13 +8935,18 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if let mouseUpEventMonitor {
             NSEvent.removeMonitor(mouseUpEventMonitor)
         }
+        if let globalMouseUpEventMonitor {
+            NSEvent.removeMonitor(globalMouseUpEventMonitor)
+        }
+        if let applicationResignActiveObserver {
+            NotificationCenter.default.removeObserver(applicationResignActiveObserver)
+        }
         if let contextMenuEndObserver {
             NotificationCenter.default.removeObserver(contextMenuEndObserver)
         }
-        // A view can be torn down before a portal handoff callback runs. End
-        // any still-owned native sessions while the surface identity is still
-        // available, then invalidate the ledger so no callback can retain it.
-        releaseAllGhosttyMouseButtonsSynchronously(reason: "view.deinit")
+        // Native session release happens in `viewWillMove(toWindow:)` on the
+        // AppKit UI thread. Deinit must remain nonisolated: only cancel tasks,
+        // remove observers, and invalidate the local ledger here.
         deferredGhosttyMouseRepairTask = nil
         ghosttyMouseSessionLedger.invalidate()
         removeMouseUpEventMonitorIfUnused()
