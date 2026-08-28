@@ -43,7 +43,14 @@ export async function readBoundedBodyText(request: Request): Promise<BoundedBody
     if (!value || value.byteLength === 0) continue;
     const next = total + value.byteLength;
     if (next > MAX_OBJECT_BODY_BYTES) {
-      await reader.cancel();
+      // A client can close the stream while we reject it. Preserve the
+      // deterministic 413 response even when cancellation reports that race.
+      try {
+        await reader.cancel();
+      } catch {
+        // The body is already over the hard limit. There is no useful
+        // recovery action for a cancellation failure.
+      }
       return { ok: false };
     }
     bytes.set(value, total);
