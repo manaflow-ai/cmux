@@ -201,7 +201,8 @@ impl ThreadOutput {
             (Self::start_delivery(&mut state), overflowed)
         };
         if overflowed
-            && let Some(handler) = self.overflow_handler.lock().expect("overflow handler lock").clone()
+            && let Some(handler) =
+                self.overflow_handler.lock().expect("overflow handler lock").clone()
         {
             handler();
         }
@@ -357,11 +358,7 @@ fn spawn_real_pty(spec: &SpawnSpec) -> anyhow::Result<PtyHandle> {
         exit_output.push_exit(code);
     });
 
-    Ok(PtyHandle {
-        control,
-        output,
-        banner: None,
-    })
+    Ok(PtyHandle { control, output, banner: None })
 }
 
 fn spawn_pipe_mode(spec: &SpawnSpec, reason: &str) -> PtyHandle {
@@ -406,11 +403,7 @@ fn spawn_pipe_mode(spec: &SpawnSpec, reason: &str) -> PtyHandle {
                     child.wait().map(|status| status.code().unwrap_or(0) as i64).unwrap_or(0);
                 wait_output.push_exit(code);
             });
-            PtyHandle {
-                control,
-                output,
-                banner: Some(banner.into_bytes()),
-            }
+            PtyHandle { control, output, banner: Some(banner.into_bytes()) }
         }
         Err(error) => {
             let _ = error;
