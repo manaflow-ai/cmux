@@ -30,10 +30,12 @@ final class WorkspaceChangesGitRepositoryFixture {
     /// tests discover absolute PATH candidates locally and retain deterministic
     /// macOS fallbacks when PATH is unavailable.
     private static func availableGitExecutableURLs() -> [URL] {
-        let knownPaths = [
+        let preferredPaths = [
             "/opt/homebrew/bin/git",
             "/usr/local/bin/git",
             "/opt/local/bin/git",
+        ]
+        let systemPaths = [
             "/usr/bin/git",
             "/Library/Developer/CommandLineTools/usr/bin/git",
         ]
@@ -42,7 +44,9 @@ final class WorkspaceChangesGitRepositoryFixture {
             .filter { $0.first == "/" }
             .map { String($0) + "/git" }
         var seen: Set<String> = []
-        let candidates = (pathCandidates + knownPaths).compactMap { path -> URL? in
+        let candidates = (preferredPaths + pathCandidates + systemPaths)
+            .prefix(64)
+            .compactMap { path -> URL? in
             let url = URL(fileURLWithPath: path).standardizedFileURL
             guard seen.insert(url.path).inserted,
                   FileManager.default.isExecutableFile(atPath: url.path) else {
