@@ -7375,16 +7375,19 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             reason: "mouseDown.preflight",
             forceButtons: Set([.left])
         )
-        let mouseState = rememberGhosttyMouseState(from: event)
-        #if DEBUG
-        let debugPoint = mouseState.localPoint
-        cmuxDebugLog("terminal.mouseDown surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") mods=[\(debugModifierString(event.modifierFlags))] clickCount=\(event.clickCount) point=(\(String(format: "%.0f", debugPoint.x)),\(String(format: "%.0f", debugPoint.y)))")
-        #endif
         let shouldForwardTerminalActivation = terminalPointerShouldForwardActivation()
         // Treat pointer-down as explicit focus intent before forwarding any terminal activation.
         focusFromPointerDown()
         guard shouldForwardTerminalActivation else { return }
         guard let surface = surface else { return }
+        // Focus activation can synchronously reparent or resize the portal.
+        // Convert the event after that transaction so the press lands in the
+        // current terminal geometry.
+        let mouseState = rememberGhosttyMouseState(from: event)
+        #if DEBUG
+        let debugPoint = mouseState.localPoint
+        cmuxDebugLog("terminal.mouseDown surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") mods=[\(debugModifierString(event.modifierFlags))] clickCount=\(event.clickCount) point=(\(String(format: "%.0f", debugPoint.x)),\(String(format: "%.0f", debugPoint.y)))")
+        #endif
         let eventPoint = mouseState.localPoint
         trackMousePointIfUsable(eventPoint)
         // Only update mouse position on the first click to prevent unwanted cursor
@@ -8235,7 +8238,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             reason: "rightMouseDown.preflight",
             forceButtons: Set([.right])
         )
-        let mouseState = rememberGhosttyMouseState(from: event)
         focusFromPointerDown()
         guard let surface = surface else { return }
         if !ghostty_surface_mouse_captured(surface) {
@@ -8243,6 +8245,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return
         }
 
+        let mouseState = rememberGhosttyMouseState(from: event)
         ghostty_surface_mouse_pos(surface, mouseState.surfacePoint.x, mouseState.surfacePoint.y, mouseState.mods)
         _ = sendGhosttyMouseButton(
             surface,
@@ -8295,12 +8298,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             reason: "otherMouseDown.preflight",
             forceButtons: Set([.middle])
         )
-        let mouseState = rememberGhosttyMouseState(from: event)
         terminalSurface?.didReceiveExplicitInput()
         requestPointerFocusRecovery()
         window?.makeFirstResponder(self)
         guard let surface = surface else { return }
         terminalSurface?.didAcceptExplicitInput()
+        let mouseState = rememberGhosttyMouseState(from: event)
         ghostty_surface_mouse_pos(surface, mouseState.surfacePoint.x, mouseState.surfacePoint.y, mouseState.mods)
         _ = sendGhosttyMouseButton(
             surface,
@@ -8746,6 +8749,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             removeTrackingArea(trackingArea)
         }
         deferredGhosttyMouseRepairTask?.cancel()
+        if let mouseUpEventMonitor {
+            NSEvent.removeMonitor(mouseUpEventMonitor)
+        }
+        // A view can be torn down before a portal handoff callback runs. End
+        // any still-owned native sessions while the surface identity is still
+        // available, then invalidate the ledger so no callback can retain it.
+        releaseAllGhosttyMouseButtonsSynchronously(reason: "view.deinit")
+        deferredGhosttyMouseRepairTask = nil
+        ghosttyMouseSessionLedger.invalidate()
         terminalSurface = nil
     }
 
