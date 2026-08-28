@@ -1904,12 +1904,14 @@ mod tests {
             client_descriptor(),
         )
         .expect("authenticate provider");
+        // Install the receiver before the cursor response so this assertion
+        // exercises complete_notice_subscription's ordered replay path.
+        let events = provider.subscribe_events().expect("subscribe to replay events");
         assert_eq!(
             provider.subscribe_notices(id("cmux-process-1")).expect("resume durable subscription"),
             SubscribeNoticesResult { sequence: 41 }
         );
         assert!(provider.is_live(), "valid replay closed the provider connection");
-        let events = provider.subscribe_events().expect("subscribe to retained events");
         let first = events
             .recv_timeout(Duration::from_secs(2))
             .expect("receive first replay after cursor initialization");
