@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// One headless cmux-tui link to a cloud machine's daemon: a `remote connect --headless`
 /// client process whose local mux socket the app drives for snapshots, events, and
@@ -19,20 +20,32 @@ actor CloudMachineLink {
         case clientMissing
         case spawnFailed(String)
         case exited(status: Int32, output: String)
+        case outputLimitExceeded
         case timedOut
 
         var errorDescription: String? {
             switch self {
             case .clientMissing:
-                return "No cmux-tui client is bundled with this build (Contents/Resources/bin/cmux-tui) and CMUX_TUI_CLIENT is unset."
-            case .spawnFailed(let detail):
-                return "cmux-tui could not be started: \(detail)"
-            case .exited(let status, let output):
-                let tail = output.split(separator: "\n").suffix(3).joined(separator: " · ")
-                return "cmux-tui link exited with status \(status)" + (tail.isEmpty ? "" : ": \(tail)")
+                return String(localized: "cloud.link.clientMissing", defaultValue: "The cloud terminal client is not available. Reinstall cmux and try again.")
+            case .spawnFailed, .outputLimitExceeded:
+                return String(localized: "cloud.link.operationFailed", defaultValue: "The cloud terminal operation failed. Try again.")
+            case .exited:
+                return String(localized: "cloud.link.exited", defaultValue: "The cloud terminal client stopped unexpectedly. Try again.")
             case .timedOut:
-                return "cmux-tui link did not report a socket within the connect timeout."
+                return String(localized: "cloud.link.timedOut", defaultValue: "The cloud terminal connection timed out. Try again.")
             }
+        }
+
+        /// A small internal classification used for recovery without retaining or
+        /// displaying the remote command's diagnostic text.
+        var remoteFailureCode: RemoteFailureCode {
+            guard case .exited(_, let output) = self else { return .other }
+            return CloudMachineLink.remoteFailureCode(in: output)
+        }
+
+        enum RemoteFailureCode: Equatable, Sendable {
+            case selectorNotFound
+            case other
         }
     }
 
@@ -43,22 +56,16 @@ actor CloudMachineLink {
     private(set) var state: SurfaceLinkState = .connecting
     private(set) var lastError: String?
 
-    /// Human-readable text for a link failure. Typed cmux errors describe
-    /// themselves (`VMClientError` is `CustomStringConvertible`, the link and
-    /// manager errors are `LocalizedError`); only foreign errors fall back to
-    /// Foundation's "The operation couldn't be completed. (… error 1.)".
+    /// Human-readable text for a link failure.
+    ///
+    /// Remote command output is untrusted. Only link-owned error cases receive a
+    /// stable local message; every other error is intentionally collapsed to the
+    /// same message so a server path, token, or parser detail cannot reach the UI.
     nonisolated static func errorText(_ error: Error) -> String {
-        if let localized = error as? LocalizedError, let text = localized.errorDescription, !text.isEmpty {
+        if let linkError = error as? LinkError, let text = linkError.errorDescription, !text.isEmpty {
             return text
         }
-        // Swift errors print their `description` (or case name) here; a real
-        // NSError prints "Error Domain=… Code=…", where localizedDescription
-        // is the readable form.
-        let described = String(describing: error)
-        if described.isEmpty || described.hasPrefix("Error Domain=") {
-            return error.localizedDescription
-        }
-        return described
+        return String(localized: "cloud.link.operationFailed", defaultValue: "The cloud terminal operation failed. Try again.")
     }
     private(set) var connected: Connected?
 
@@ -122,7 +129,7 @@ actor CloudMachineLink {
             try process.run()
         } catch {
             state = .error
-            lastError = Self.errorText(error)
+            lastError = Self.errorText(LinkError.spawnFailed(error.localizedDescription))
             removeInviteFile()
             throw LinkError.spawnFailed(error.localizedDescription)
         }
@@ -193,8 +200,14 @@ actor CloudMachineLink {
         let exit = CloudLinkFirstValue<Int32>()
         process.terminationHandler = { exited in exit.resolve(exited.terminationStatus) }
         try process.run()
-        async let outData = CloudLinkPipe.readToEnd(stdout.fileHandleForReading)
-        async let errData = CloudLinkPipe.readToEnd(stderr.fileHandleForReading)
+        async let outData = CloudLinkPipe.readToEndResult(
+            stdout.fileHandleForReading,
+            maximumBytes: CloudLinkPipe.maximumCommandOutputBytes
+        )
+        async let errData = CloudLinkPipe.readToEndResult(
+            stderr.fileHandleForReading,
+            maximumBytes: CloudLinkPipe.maximumDiagnosticOutputBytes
+        )
         let deadline = Task<Bool, Never> {
             do {
                 try await Task.sleep(for: timeout)
@@ -210,15 +223,24 @@ actor CloudMachineLink {
         let out = await outData
         let err = await errData
         if timedOut { throw LinkError.timedOut }
+        if out.truncated || err.truncated { throw LinkError.outputLimitExceeded }
         guard status == 0 else {
-            let text = String(data: err, encoding: .utf8) ?? ""
-            let fallback = String(data: out, encoding: .utf8) ?? ""
+            let text = String(decoding: err.data, as: UTF8.self)
+            let fallback = String(decoding: out.data, as: UTF8.self)
             throw LinkError.exited(status: status, output: text.isEmpty ? fallback : text)
         }
-        return out
+        return out.data
     }
 
     // MARK: - internals
+
+    private nonisolated static func remoteFailureCode(in output: String) -> LinkError.RemoteFailureCode {
+        let normalized = output.lowercased()
+        if normalized.contains("selector.not_found") || normalized.contains("no terminal matches") {
+            return .selectorNotFound
+        }
+        return .other
+    }
 
     private func startEventsSubscription(socketPath: String) {
         let process = Process()
@@ -288,16 +310,31 @@ actor CloudMachineLink {
 /// their timeout, and every socket command crawled. `readabilityHandler` runs on a GCD
 /// queue and costs the pool nothing.
 enum CloudLinkPipe {
+    /// A remote client can emit arbitrary bytes. These limits keep a stalled or
+    /// malicious client from turning a link into an unbounded memory sink.
+    static let maximumLineBytes = 64 * 1024
+    static let maximumCommandOutputBytes = 8 * 1024 * 1024
+    static let maximumDiagnosticOutputBytes = 256 * 1024
+    private static let streamBufferCapacity = 64
+
+    struct ReadResult: Sendable {
+        let data: Data
+        let truncated: Bool
+    }
+
     /// Raw chunks as they arrive; ends at EOF. One consumer.
     static func chunks(from handle: FileHandle) -> AsyncStream<Data> {
-        AsyncStream(bufferingPolicy: .unbounded) { continuation in
+        AsyncStream(bufferingPolicy: .bufferingOldest(streamBufferCapacity)) { continuation in
             handle.readabilityHandler = { fh in
                 let data = fh.availableData
                 if data.isEmpty {
                     fh.readabilityHandler = nil
                     continuation.finish()
                 } else {
-                    continuation.yield(data)
+                    // The stream is only used for best-effort event draining. Keep
+                    // the oldest chunks so a link's first connection snapshot is
+                    // not displaced by a flood of later diagnostics.
+                    _ = continuation.yield(data)
                 }
             }
             continuation.onTermination = { _ in handle.readabilityHandler = nil }
@@ -305,33 +342,37 @@ enum CloudLinkPipe {
     }
 
     /// Lines (without their newline; a trailing CR is dropped) as they arrive; a final
-    /// unterminated line is delivered at EOF. One consumer.
-    static func lines(from handle: FileHandle) -> AsyncStream<String> {
-        AsyncStream(bufferingPolicy: .unbounded) { continuation in
-            let buffer = LineBuffer()
+    /// unterminated line is delivered at EOF. Oversized lines are discarded through
+    /// their newline so a remote peer cannot grow the pending line forever.
+    static func lines(from handle: FileHandle, maximumLineBytes: Int = Self.maximumLineBytes) -> AsyncStream<String> {
+        AsyncStream(bufferingPolicy: .bufferingOldest(streamBufferCapacity)) { continuation in
+            let buffer = LineBuffer(maximumBytes: maximumLineBytes)
             handle.readabilityHandler = { fh in
                 let data = fh.availableData
                 if data.isEmpty {
                     fh.readabilityHandler = nil
-                    if let tail = buffer.flush() { continuation.yield(tail) }
+                    if let tail = buffer.flush() { _ = continuation.yield(tail) }
                     continuation.finish()
                     return
                 }
                 for line in buffer.append(data) {
-                    continuation.yield(line)
+                    _ = continuation.yield(line)
                 }
             }
             continuation.onTermination = { _ in handle.readabilityHandler = nil }
         }
     }
 
-    /// Everything up to EOF.
+    /// Everything up to EOF, capped at ``maximumCommandOutputBytes``.
     static func readToEnd(_ handle: FileHandle) async -> Data {
-        var data = Data()
-        for await chunk in chunks(from: handle) {
-            data.append(chunk)
-        }
-        return data
+        await readToEndResult(handle, maximumBytes: maximumCommandOutputBytes).data
+    }
+
+    /// Drains a pipe without buffering more than `maximumBytes`.
+    static func readToEndResult(_ handle: FileHandle, maximumBytes: Int) async -> ReadResult {
+        let reader = BoundedReadState(maximumBytes: max(0, maximumBytes))
+        reader.install(on: handle)
+        return await reader.result()
     }
 
     /// Splits a byte stream into lines; only ever touched from the handle's GCD queue.
@@ -348,22 +389,111 @@ enum CloudLinkPipe {
     }
 
     private final class LineBuffer {
+        private let maximumBytes: Int
         private var pending = Data()
+        private var discardingOversizedLine = false
+
+        init(maximumBytes: Int) {
+            self.maximumBytes = max(1, maximumBytes)
+        }
 
         func append(_ data: Data) -> [String] {
-            pending.append(data)
-            let split = CloudLinkPipe.splitLines(pending)
-            pending = split.rest
-            return split.lines
+            var lines: [String] = []
+            for byte in data {
+                if discardingOversizedLine {
+                    if byte == 0x0A {
+                        discardingOversizedLine = false
+                    }
+                    continue
+                }
+                if byte == 0x0A {
+                    if pending.last == 0x0D { pending.removeLast() }
+                    lines.append(String(decoding: pending, as: UTF8.self))
+                    pending.removeAll(keepingCapacity: true)
+                } else if pending.count < maximumBytes {
+                    pending.append(byte)
+                } else {
+                    pending.removeAll(keepingCapacity: false)
+                    discardingOversizedLine = true
+                }
+            }
+            return lines
         }
 
         func flush() -> String? {
-            defer { pending = Data() }
-            guard !pending.isEmpty else { return nil }
+            defer {
+                pending.removeAll(keepingCapacity: false)
+                discardingOversizedLine = false
+            }
+            guard !discardingOversizedLine, !pending.isEmpty else { return nil }
+            if pending.last == 0x0D { pending.removeLast() }
             var line = String(decoding: pending, as: UTF8.self)
             if line.hasSuffix("\r") { line.removeLast() }
             return line
         }
+    }
+}
+
+/// Accumulates one process pipe on its readability callback and resolves one
+/// continuation at EOF. The lock protects only this synchronous callback seam;
+/// callers never access the mutable buffer directly.
+private final class BoundedReadState: @unchecked Sendable {
+    private struct State: Sendable {
+        var data = Data()
+        var truncated = false
+        var finished = false
+    }
+
+    private let maximumBytes: Int
+    private let state: OSAllocatedUnfairLock<State>
+    private let completion = CloudLinkFirstValue<CloudLinkPipe.ReadResult>()
+
+    init(maximumBytes: Int) {
+        self.maximumBytes = maximumBytes
+        self.state = OSAllocatedUnfairLock(initialState: State())
+    }
+
+    func install(on handle: FileHandle) {
+        handle.readabilityHandler = { [weak self] fileHandle in
+            guard let self else { return }
+            let data = fileHandle.availableData
+            if data.isEmpty {
+                fileHandle.readabilityHandler = nil
+                self.finish()
+            } else {
+                self.consume(data)
+            }
+        }
+    }
+
+    func result() async -> CloudLinkPipe.ReadResult {
+        await completion.result ?? CloudLinkPipe.ReadResult(data: Data(), truncated: true)
+    }
+
+    private func consume(_ chunk: Data) {
+        state.withLock { state in
+            guard !state.finished else { return }
+            let remaining = maximumBytes - state.data.count
+            guard remaining > 0 else {
+                state.truncated = true
+                return
+            }
+            if chunk.count <= remaining {
+                state.data.append(chunk)
+            } else {
+                state.data.append(chunk.prefix(remaining))
+                state.truncated = true
+            }
+        }
+    }
+
+    private func finish() {
+        let result: CloudLinkPipe.ReadResult? = state.withLock { state in
+            guard !state.finished else { return nil }
+            state.finished = true
+            return CloudLinkPipe.ReadResult(data: state.data, truncated: state.truncated)
+        }
+        if let result { completion.resolve(result) }
     }
 }
 

@@ -59829,6 +59829,74 @@
         }
       }
     },
+    "cloud.link.clientMissing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The cloud terminal client is not available. Reinstall cmux and try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウドターミナルクライアントを利用できません。cmux を再インストールして、もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "cloud.link.exited": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The cloud terminal client stopped unexpectedly. Try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウドターミナルクライアントが予期せず停止しました。もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "cloud.link.operationFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The cloud terminal operation failed. Try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウドターミナル操作に失敗しました。もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "cloud.link.timedOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The cloud terminal connection timed out. Try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウドターミナル接続がタイムアウトしました。もう一度お試しください。"
+          }
+        }
+      }
+    },
     "cloudPane.newTerminalFailed.title": {
       "extractionState": "manual",
       "localizations": {

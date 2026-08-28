@@ -51,9 +51,9 @@ struct CloudTreeNodeActions {
                 do {
                     try await operation(catalog())
                 } catch {
-                    // Human wording first: the panel now shows this text inline, and a
-                    // raw enum dump ("noProvider(cloud(\"m\"))") explains nothing there.
-                    onFailure((error as? LocalizedError)?.errorDescription ?? String(describing: error))
+                    // Remote/provider errors are untrusted. Keep the panel on the
+                    // same sanitized presentation boundary as pane failures.
+                    onFailure(CloudMachineLink.errorText(error))
                 }
                 onDidMutate()
             }

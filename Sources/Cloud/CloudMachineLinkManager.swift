@@ -114,7 +114,7 @@ actor CloudMachineLinkManager {
             lastFailure[machineID] = (Date(), text)
             links[machineID] = nil
             #if DEBUG
-            cmuxDebugLog("cloud.link.failed machine=\(machineID) error=\(String(reflecting: error)) text=\(text)")
+            cmuxDebugLog("cloud.link.failed machine=\(machineID) text=\(text)")
             #endif
             throw error
         }

@@ -256,7 +256,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             linkState = status?.state ?? .error
             linkError = status?.error ?? CloudMachineLink.errorText(error)
             #if DEBUG
-            cmuxDebugLog("cloud.provider.refreshFailed machine=\(machineID) state=\(linkState) error=\(String(reflecting: error))")
+            cmuxDebugLog("cloud.provider.refreshFailed machine=\(machineID) state=\(linkState) error=\(CloudMachineLink.errorText(error))")
             #endif
         }
         info = Self.info(from: summary, linkState: linkState, linkError: linkError, stats: await stats, remoteWorkspaces: remoteWorkspaces)
@@ -297,11 +297,10 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         scheduleRefresh()
     }
 
-    /// cmux-tui's `selector.not_found` error body, surfaced by `link.run` as the
-    /// command's output text.
+    /// cmux-tui's typed selector failure, kept out of user-facing error text.
     private static func isSelectorNotFound(_ error: Error) -> Bool {
-        let text = CloudMachineLink.errorText(error)
-        return text.contains("selector.not_found") || text.contains("no terminal matches")
+        guard let linkError = error as? CloudMachineLink.LinkError else { return false }
+        return linkError.remoteFailureCode == .selectorNotFound
     }
 
     func materialize(_ resource: SurfaceResource, at destination: SurfaceDestination, focus: Bool) async throws -> SurfaceProjection {
@@ -335,7 +334,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                         let text = CloudMachineLink.errorText(error)
                         SurfacePaneFactory.showPlaceholder(SurfaceBrowserPlaceholder.failed(label, error: text), panelID: pane.panelID, in: pane.workspaceID)
                         #if DEBUG
-                        cmuxDebugLog("cloud.provider.endpointFailed machine=\(self.machineID) port=\(port) error=\(String(reflecting: error))")
+                        cmuxDebugLog("cloud.provider.endpointFailed machine=\(self.machineID) port=\(port) error=\(CloudMachineLink.errorText(error))")
                         #endif
                     }
                 }

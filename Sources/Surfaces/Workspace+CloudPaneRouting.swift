@@ -98,7 +98,7 @@ extension Workspace {
     @MainActor
     private static func presentCloudPaneCreationFailure(machine: SurfaceMachineID, error: Error) {
         #if DEBUG
-        cmuxDebugLog("cloud.pane.createFailed machine=\(machine.rawValue) error=\(String(reflecting: error))")
+        cmuxDebugLog("cloud.pane.createFailed machine=\(machine.rawValue) error=\(CloudMachineLink.errorText(error))")
         #endif
         let alert = NSAlert()
         alert.messageText = String(

@@ -326,7 +326,7 @@ import Testing
         #expect(received == ["kept"])
 
         let outputPipe = Pipe()
-        let payload = Data(repeating: 0x79, count: 4 * 1024 * 1024 + 1)
+        let payload = Data(repeating: 0x79, count: 8 * 1024 * 1024 + 1)
         outputPipe.fileHandleForWriting.write(payload)
         try outputPipe.fileHandleForWriting.close()
         let output = await CloudLinkPipe.readToEnd(outputPipe.fileHandleForReading)
