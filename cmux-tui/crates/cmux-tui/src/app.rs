@@ -11575,7 +11575,8 @@ impl App {
             descriptor.key == active
                 && matches!(
                     descriptor.status,
-                    crate::machine::MachineStatus::Sleeping | crate::machine::MachineStatus::Stopped
+                    crate::machine::MachineStatus::Sleeping
+                        | crate::machine::MachineStatus::Stopped
                 )
         }) {
             return false;
@@ -14837,7 +14838,11 @@ impl App {
                     if self.present_machine_as_asleep_after_stream_loss() {
                         return Ok(RenderAction::Draw);
                     }
-                    anyhow::bail!(localization::catalog().runtime.session_transport_lost(&reason));
+                    crate::client_log::error(
+                        "session",
+                        &format!("remote event transport lost: {reason}"),
+                    );
+                    anyhow::bail!(localization::catalog().runtime.session_transport_lost());
                 }
                 if self.request_current_machine_session() {
                     return Ok(RenderAction::Draw);
@@ -43103,7 +43108,8 @@ mod tests {
         let result = app.handle(AppEvent::Mux(MuxEvent::Empty));
 
         let error = result.expect_err("a lost event transport must not report an empty session");
-        assert!(error.to_string().contains(reason), "error must carry the reason: {error}");
+        assert_eq!(error.to_string(), "session connection lost");
+        assert!(!error.to_string().contains(reason));
         assert!(!app.quit, "a lost transport must not use the clean-quit path");
     }
 
@@ -43120,7 +43126,8 @@ mod tests {
         let result = app.handle(AppEvent::Mux(MuxEvent::Empty));
 
         let error = result.expect_err("machine authority must not hide a lost transport");
-        assert!(error.to_string().contains(reason), "error must carry the reason: {error}");
+        assert_eq!(error.to_string(), "session connection lost");
+        assert!(!error.to_string().contains(reason));
         assert!(!app.quit);
         let machine = app.machine_ui.as_ref().unwrap();
         assert!(
@@ -43134,9 +43141,8 @@ mod tests {
     /// failing the client, even though a transport reason is recorded.
     #[test]
     fn sleeping_machine_stream_loss_still_presents_as_asleep() {
-        let mut app = test_app(test_remote_session_with_lost_transport(
-            "the daemon closed the connection",
-        ));
+        let mut app =
+            test_app(test_remote_session_with_lost_transport("the daemon closed the connection"));
         let mut ui = provider_machine_ui();
         ui.snapshot.machines[0].status = MachineStatus::Sleeping;
         app.machine_ui = Some(ui);

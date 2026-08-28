@@ -407,8 +407,8 @@ impl RuntimeMessages {
         self.host_input_failed.replace("{error}", error)
     }
 
-    pub(crate) fn session_transport_lost(&self, reason: &str) -> String {
-        self.session_transport_lost.replace("{reason}", reason)
+    pub(crate) fn session_transport_lost(&self) -> String {
+        self.session_transport_lost.to_owned()
     }
 
     pub(crate) fn signal_handlers_failed(&self, error: &str) -> String {
@@ -1392,7 +1392,7 @@ edits shell files. Authenticate with the configured host before retrying.
         terminal_capacity_exhausted: "No pseudo-terminals are available. Close an unused terminal session, then retry.",
         renderer_panicked: "terminal renderer panicked: {message}",
         host_input_failed: "host terminal input failed: {error}",
-        session_transport_lost: "session connection lost: {reason}",
+        session_transport_lost: "session connection lost",
         signal_handlers_failed: "failed to install signal handlers: {error}",
         terminal_restore_also_failed: "{error}; host terminal restoration also failed: {restore_error}",
     },
@@ -2037,7 +2037,7 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
         terminal_capacity_exhausted: "疑似ターミナルの空きがありません。不要なターミナルセッションを閉じてから再試行してください。",
         renderer_panicked: "ターミナル描画処理でパニックが発生しました: {message}",
         host_input_failed: "ホストターミナルの入力に失敗しました: {error}",
-        session_transport_lost: "セッションへの接続が失われました: {reason}",
+        session_transport_lost: "セッションへの接続が失われました",
         signal_handlers_failed: "シグナルハンドラーの設定に失敗しました: {error}",
         terminal_restore_also_failed: "{error}; ホストターミナルの復元にも失敗しました: {restore_error}",
     },
