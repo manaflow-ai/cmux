@@ -352,6 +352,13 @@ actor DotSecureSession: DotSecureSessionProtocol {
     private var handshakeComplete = false
     private var handshakeFailure: DotTransportError?
     private var clientNonce: Data?
+    /// Retain the signed hello until the server answers. A phone can finish
+    /// its relay hello before the Mac's host leg exists; the relay buffers
+    /// that first upload, but a fresh host intentionally clears stale
+    /// host-destined state. Re-sending on `peer.online` makes the phone-first
+    /// ordering converge without replaying encrypted frames from a prior host
+    /// process.
+    private var clientHelloFrame: Data?
     private var remoteLegID: UInt32?
 
     private init(
@@ -488,6 +495,7 @@ actor DotSecureSession: DotSecureSessionProtocol {
         )
         let body = try JSONEncoder().encode(hello)
         let frame = try DotSessionFrame(kind: .clientHello, streamID: 0, sessionID: sessionID, body: body).encoded()
+        clientHelloFrame = frame
         try await leg.send(frame, to: destinationLegID)
         do {
             try await withThrowingTaskGroup(of: Void.self) { group in
@@ -672,6 +680,12 @@ actor DotSecureSession: DotSecureSessionProtocol {
             await close(reason: "peer session replaced")
             return
         }
+        if remoteLegID == nil, !handshakeComplete, let clientHelloFrame {
+            // The host joined after this phone leg. Its fresh host leg dropped
+            // any buffered hello from before startup, so send a new sequenced
+            // copy to the now-live host.
+            try? await leg.send(clientHelloFrame, to: 0)
+        }
         remoteLegID = legID
     }
 
@@ -789,12 +803,22 @@ actor DotSecureSession: DotSecureSessionProtocol {
 
 extension DotPeerEngine {
     func establish() async throws -> any DotSecureSessionProtocol {
+        configuration.leg.journal.record(component: "session", event: "establish-start")
         let leg = DotLeg(configuration: configuration.leg)
-        let session = try DotSecureSession.makeClient(
-            leg: leg,
-            identity: configuration.identity,
-            admission: configuration.admission
-        )
+        let session: DotSecureSession
+        do {
+            session = try DotSecureSession.makeClient(
+                leg: leg,
+                identity: configuration.identity,
+                admission: configuration.admission
+            )
+        } catch {
+            configuration.leg.journal.record(
+                component: "session", event: "client-build-failed",
+                attributes: ["error": String(describing: error)]
+            )
+            throw error
+        }
         let events = await leg.start()
         pumpTask = Task { [weak self, weak leg] in
             for await event in events {
@@ -807,12 +831,17 @@ extension DotPeerEngine {
         do {
             try await session.beginClientHandshake()
         } catch {
+            configuration.leg.journal.record(
+                component: "session", event: "handshake-failed",
+                attributes: ["error": String(describing: error)]
+            )
             await session.close(reason: "handshake failed")
             await leg.stop()
             pumpTask?.cancel()
             pumpTask = nil
             throw error
         }
+        configuration.leg.journal.record(component: "session", event: "handshake-complete")
         return session
     }
 
@@ -837,9 +866,21 @@ extension DotPeerEngine {
 
 extension DotSessionAcceptor {
     func runLoop() async {
+        configuration.leg.journal.record(
+            component: "acceptor", event: "run-loop-started",
+            attributes: ["role": configuration.leg.role.rawValue]
+        )
         let leg = DotLeg(configuration: configuration.leg)
         self.leg = leg
+        configuration.leg.journal.record(
+            component: "acceptor", event: "leg-starting",
+            attributes: ["role": configuration.leg.role.rawValue]
+        )
         let events = await leg.start()
+        configuration.leg.journal.record(
+            component: "acceptor", event: "leg-started",
+            attributes: ["role": configuration.leg.role.rawValue]
+        )
         for await event in events {
             guard !stopped else { return }
             switch event {
@@ -867,13 +908,31 @@ extension DotSessionAcceptor {
     }
 
     func handleFrame(sourceLegID: UInt32, payload: Data, leg: DotLeg) async {
-        guard let frame = DotSessionFrame.decode(payload) else { return }
+        guard let frame = DotSessionFrame.decode(payload) else {
+            configuration.leg.journal.record(
+                component: "acceptor", event: "frame-rejected",
+                attributes: ["source_leg": String(sourceLegID), "reason": "malformed-session-frame"]
+            )
+            return
+        }
+        configuration.leg.journal.record(
+            component: "acceptor", event: "frame-received",
+            attributes: [
+                "source_leg": String(sourceLegID),
+                "kind": String(frame.kind.rawValue),
+                "session": frame.sessionID,
+            ]
+        )
         if let session = sessions[frame.sessionID] {
             await session.receiveFrame(sourceLegID: sourceLegID, payload: payload)
             return
         }
         guard frame.kind == .clientHello,
               let hello = try? JSONDecoder().decode(DotClientHello.self, from: frame.body) else {
+            configuration.leg.journal.record(
+                component: "acceptor", event: "frame-rejected",
+                attributes: ["source_leg": String(sourceLegID), "reason": "unexpected-session-frame"]
+            )
             continuation?.yield(.denied(deviceID: nil, reason: "malformed hello"))
             return
         }
@@ -897,6 +956,10 @@ extension DotSessionAcceptor {
             sessions[hello.sessionID] = session
             continuation?.yield(.admitted(session))
         } catch {
+            configuration.leg.journal.record(
+                component: "acceptor", event: "admission-failed",
+                attributes: ["source_leg": String(sourceLegID), "error": String(describing: error)]
+            )
             continuation?.yield(.denied(deviceID: nil, reason: String(describing: error)))
         }
     }

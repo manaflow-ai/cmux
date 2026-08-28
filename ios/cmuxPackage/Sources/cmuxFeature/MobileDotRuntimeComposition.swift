@@ -244,7 +244,12 @@ public actor MobileDotRuntimeComposition {
         guard let auth, let brokerBaseURL else {
             throw CompositionError.notSignedIn
         }
+        Self.journal.record(component: "client-runtime", event: "provision-auth-start")
         let session = try await auth.authenticatedSessionSnapshot()
+        Self.journal.record(
+            component: "client-runtime", event: "provision-auth-ready",
+            attributes: ["account": String(session.accountID.prefix(12))]
+        )
         // IDENTITY ADOPTION: same identity/device/app-instance as the legacy
         // stack, so every stored route and pair grant stays valid across the
         // transport switch and this phone's identity hex still matches the
@@ -255,6 +260,10 @@ public actor MobileDotRuntimeComposition {
         else {
             throw CompositionError.notSignedIn
         }
+        Self.journal.record(
+            component: "client-runtime", event: "provision-identity-ready",
+            attributes: ["device": String(adopted.deviceID.prefix(12))]
+        )
         let identity = IrxIdentity(
             privateKeyData: adopted.material.secretKey.bytes,
             deviceID: adopted.deviceID,
@@ -282,6 +291,7 @@ public actor MobileDotRuntimeComposition {
             },
             journal: Self.brokerJournal
         )
+        Self.journal.record(component: "client-runtime", event: "provision-broker-created")
         let cachedBinding = await broker.cachedBinding()
         let cachedTrust = await broker.cachedTrust()
         if cachedBinding == nil || cachedTrust == nil {
@@ -321,22 +331,56 @@ public actor MobileDotRuntimeComposition {
         if let inFlight = engineBuilds[peerHex] {
             return try await inFlight.value
         }
+        Self.journal.record(
+            component: "client-dial", event: "engine-build-start",
+            attributes: ["peer": String(peerHex.prefix(12))]
+        )
         let task = Task<DotPeerEngine, any Error> {
             try await self.buildEngine(peerHex: peerHex)
         }
         engineBuilds[peerHex] = task
         defer { engineBuilds[peerHex] = nil }
-        let engine = try await task.value
-        enginesByPeer[peerHex] = engine
-        return engine
+        do {
+            let engine = try await task.value
+            enginesByPeer[peerHex] = engine
+            return engine
+        } catch {
+            Self.journal.record(
+                component: "client-dial", event: "engine-build-failed",
+                attributes: [
+                    "peer": String(peerHex.prefix(12)),
+                    "error": String(describing: error),
+                ]
+            )
+            throw error
+        }
     }
 
     private func buildEngine(peerHex: String) async throws -> DotPeerEngine {
-        guard let relayBaseURL else { throw CompositionError.relayUnavailable }
-        let broker = try await provisionedBroker()
+        guard let relayBaseURL else {
+            Self.journal.record(component: "client-dial", event: "relay-unavailable")
+            throw CompositionError.relayUnavailable
+        }
+        let broker = try await provisionedBrokerForDial()
+        Self.journal.record(
+            component: "client-dial", event: "broker-ready",
+            attributes: ["peer": String(peerHex.prefix(12))]
+        )
         guard let identity, let auth else { throw CompositionError.notSignedIn }
-        let (macDeviceID, admission) = try await admissionMaterial(
-            peerHex: peerHex, broker: broker)
+        let material: (macDeviceID: String, admission: DotAdmissionMaterial)
+        do {
+            material = try await admissionMaterial(peerHex: peerHex, broker: broker)
+        } catch {
+            Self.journal.record(
+                component: "client-dial", event: "admission-material-failed",
+                attributes: [
+                    "peer": String(peerHex.prefix(12)),
+                    "error": String(describing: error),
+                ]
+            )
+            throw error
+        }
+        let (macDeviceID, admission) = material
         Self.journal.record(
             component: "client-dial", event: "target-resolved",
             attributes: [
@@ -367,6 +411,35 @@ public actor MobileDotRuntimeComposition {
                 admission: admission
             )
         )
+    }
+
+    /// The attach callback can arrive while the auth coordinator is still
+    /// finishing its sign-in exchange. Keep that bounded, retryable phase out
+    /// of the deferred transport's one-shot construction path. Once a broker
+    /// exists this returns immediately; permanent configuration errors still
+    /// surface after the short retry budget.
+    private func provisionedBrokerForDial() async throws -> IrxBrokerService {
+        var delay: Duration = .milliseconds(250)
+        var lastError: (any Error)?
+        for attempt in 0..<7 {
+            do {
+                return try await provisionedBroker()
+            } catch {
+                guard attempt < 6 else { throw error }
+                lastError = error
+                Self.journal.record(
+                    component: "client-runtime", event: "provision-retry",
+                    attributes: [
+                        "attempt": String(attempt + 1),
+                        "delay": String(describing: delay),
+                        "error": String(describing: error),
+                    ]
+                )
+                try await Task.sleep(for: delay)
+                delay = min(delay * 2, .seconds(8))
+            }
+        }
+        throw lastError ?? CompositionError.notSignedIn
     }
 
     /// The dial input is the Mac's identity hex (what `.iroh` routes carry).

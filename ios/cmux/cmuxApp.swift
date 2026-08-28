@@ -100,19 +100,24 @@ struct cmuxApp: App {
             )
         }
 
-        // `debugLoopback` (127.0.0.1) backs the UI-test mock Mac. Enable it on
-        // the simulator and on DEBUG device builds so on-device XCUITests can
-        // attach to an in-runner mock host; release device builds keep only
-        // real transports. Force-relay mode (soak rigs) registers NO fallback
-        // kinds so even a simulator exercises the real relay path.
+        // Dot is an account-scoped Durable Object transport, so it owns every
+        // real route when enabled. Registering loopback or Tailscale alongside
+        // it would let attach silently bypass the account relay and would make
+        // a successful pairing meaningless for transport verification. The
+        // legacy/irx paths retain their existing fallback registrations when
+        // dot is explicitly disabled.
         let forceRelay = MobileIrxRuntimeComposition.forceRelayOnly
             || (dotEnabled && MobileDotRuntimeComposition.forceTransportOnly)
-        #if targetEnvironment(simulator) || DEBUG
-        let supportedKinds: [CmxAttachTransportKind] =
-            forceRelay ? [] : [.debugLoopback, .tailscale]
-        #else
-        let supportedKinds: [CmxAttachTransportKind] = forceRelay ? [] : [.tailscale]
-        #endif
+        let supportedKinds: [CmxAttachTransportKind]
+        if dotEnabled || forceRelay {
+            supportedKinds = []
+        } else {
+            #if targetEnvironment(simulator) || DEBUG
+            supportedKinds = [.debugLoopback, .tailscale]
+            #else
+            supportedKinds = [.tailscale]
+            #endif
+        }
         let networkFactory = CmxNetworkByteTransportFactory(supportedKinds: supportedKinds)
         let fallbackRegistrations = supportedKinds.map { kind in
             CmxRouteTransportFactoryRegistration(kind: kind, factory: networkFactory)
