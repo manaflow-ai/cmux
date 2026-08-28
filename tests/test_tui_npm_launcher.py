@@ -1206,8 +1206,14 @@ def test_launcher_windows_path_covers_exe_snapshot_lock_and_update(
     assert records[0]["args"][2] == "version"
     assert records[1]["args"][2] == "dist"
     assert records[2]["args"][2] == "cmuxBinaryIntegrity"
+    # npm resolves the launcher release through the latest dist-tag first.
+    # Once that lookup returns 1.2.3, every platform-package metadata and
+    # tarball request must use the exact resolved version. A broad "contains
+    # either selector" assertion would let a request silently drift back to a
+    # moving dist-tag.
+    assert records[0]["args"][1] == "cmux@latest"
     expected_spec = "cmux-tui-win32-x64@1.2.3"
-    assert all(expected_spec in record["args"] for record in records)
+    assert all(record["args"][1] == expected_spec for record in records[1:])
     assert all(
         record["args"][record["args"].index("--registry") + 1]
         == "http://127.0.0.1:1"
@@ -1221,10 +1227,19 @@ def test_launcher_reports_network_failure_without_leaking_details(tmp_path: Path
         return
     launcher = write_launcher(tmp_path)
     cache = tmp_path / "cache"
-    result = run_launcher(launcher, cache, "http://127.0.0.1:1")
+    result = run_launcher(
+        launcher,
+        cache,
+        "http://127.0.0.1:1",
+        env_extra={
+            "NPM_TOKEN": "fixture-secret-token",
+            "npm_config_//127.0.0.1:1/:_authToken": "fixture-secret-token",
+        },
+    )
     assert result.returncode != 0
     assert "could not obtain the native binary" in result.stderr
     assert "127.0.0.1" not in result.stderr
+    assert "fixture-secret-token" not in result.stderr
     assert "CMUX_" not in result.stderr
     assert not (cache / host_platform_key() / "v/1.2.3/.active").exists()
 
@@ -1495,11 +1510,20 @@ def test_launcher_uses_npm_for_proxy_and_tls_config(tmp_path: Path) -> None:
     assert result.returncode == 0, result.stderr
     assert result.stdout == "fake cmux-tui 1.2.3\n"
     records = [json.loads(line) for line in log.read_text().splitlines()]
-    assert [record["args"][0] for record in records] == ["view", "pack"]
-    view_args, pack_args = (record["args"] for record in records)
-    assert f"cmux-tui-{host_platform_key()}@1.2.3" in view_args
-    assert f"cmux-tui-{host_platform_key()}@1.2.3" in pack_args
-    for args in (view_args, pack_args):
+    assert records
+    assert {record["args"][0] for record in records} <= {"view", "pack"}
+    view_records = [record for record in records if record["args"][0] == "view"]
+    pack_records = [record for record in records if record["args"][0] == "pack"]
+    # The launcher may request optional authenticated metadata before packing.
+    # Keep the transport contract about what every request carries, rather
+    # than about the number of metadata projections used by a release.
+    assert view_records
+    assert any(record["args"][2] == "dist" for record in view_records)
+    assert pack_records
+    expected_spec = f"cmux-tui-{host_platform_key()}@1.2.3"
+    assert all(record["args"][1] == expected_spec for record in records)
+    for record in records:
+        args = record["args"]
         assert "--ignore-scripts" in args
         assert "--registry" in args
         assert "http://127.0.0.1:1" in args
