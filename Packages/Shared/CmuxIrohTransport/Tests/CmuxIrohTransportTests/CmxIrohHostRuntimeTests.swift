@@ -35,6 +35,93 @@ struct CmxIrohHostRuntimeTests {
         await runtime.stop()
     }
 
+    /// A fresh Mac host (no verified cached policy) must not dial a managed,
+    /// admission-gated relay before its broker registration is acknowledged:
+    /// the relay's allow hook denies an unregistered endpoint and negatively
+    /// caches the deny, costing the whole first activation. The endpoint
+    /// binds relay-less and the managed relays are installed only after
+    /// registration returns.
+    @Test
+    func freshHostWithholdsManagedRelaysUntilRegistrationIsAcknowledged() async throws {
+        let fixture = try HostRuntimeFixture()
+        let registrationGate = HostRuntimeRegistrationGate()
+        let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
+        let factory = TestIrohEndpointFactory(endpoints: [endpoint])
+        let broker = TestIrohHostBroker(
+            registrationBinding: fixture.binding,
+            discovery: fixture.discovery,
+            registrationHook: {
+                await registrationGate.waitOnce()
+                return true
+            }
+        )
+        let runtime = CmxIrohHostRuntime(
+            factory: factory,
+            broker: broker,
+            configuration: fixture.configuration,
+            pendingRevocations: fixture.pendingRevocations(),
+            handleTransport: { session, _ in await session.close() }
+        )
+
+        let start = Task { try await runtime.start() }
+        #expect(await broker.waitForRegistrationCount(1, timeout: .seconds(5)))
+        // The endpoint is bound and its registration is held in flight: no
+        // managed relay may be active at bind or installed yet.
+        let boundConfigurations = await factory.observedConfigurations()
+        #expect(boundConfigurations.count == 1)
+        #expect(boundConfigurations.first?.relayProfile.activeRelays.isEmpty == true)
+        #expect(boundConfigurations.first?.relayProfile.allowedRelayURLs.isEmpty == true)
+        #expect(await endpoint.observedRelayProfileUpdates().isEmpty)
+
+        await registrationGate.open()
+        try await start.value
+
+        let updates = await endpoint.observedRelayProfileUpdates()
+        #expect(updates.count == 1)
+        #expect(updates.first?.allowedRelayURLs == fixture.managedRelays)
+        #expect(await runtime.snapshot().state == .active)
+        await runtime.stop()
+    }
+
+    /// A verified cached policy proves the broker already acknowledged this
+    /// endpoint, so cache-first activation keeps the managed relays installed
+    /// at bind and performs no post-registration relay swap. This pins the
+    /// warm ~20ms start path of the cache-first design.
+    @Test
+    func cachedPolicyKeepsManagedRelaysInstalledAtBind() async throws {
+        let fixture = try HostRuntimeFixture()
+        let cachedFixture = try fixture.cachedPolicyFixture()
+        let now = cachedFixture.now
+        let cachedPolicy = try cachedFixture.policy()
+        let endpoint = try fixture.relayReadyEndpoint()
+        let factory = TestIrohEndpointFactory(endpoints: [endpoint])
+        let broker = TestIrohHostBroker(
+            registrationBinding: fixture.binding,
+            discovery: fixture.discovery
+        )
+        let runtime = CmxIrohHostRuntime(
+            factory: factory,
+            broker: broker,
+            configuration: fixture.configuration(cachedHostPolicy: cachedPolicy),
+            pendingRevocations: fixture.pendingRevocations(),
+            now: { now },
+            handleTransport: { session, _ in await session.close() }
+        )
+
+        try await runtime.start()
+        await runtime.waitForInitialPublicationForTesting()
+
+        let boundConfigurations = await factory.observedConfigurations()
+        #expect(boundConfigurations.count == 1)
+        #expect(
+            boundConfigurations.first?.relayProfile.allowedRelayURLs
+                == fixture.managedRelays
+        )
+        #expect(await endpoint.observedRelayProfileUpdates().isEmpty)
+        #expect(await runtime.snapshot().state == .active)
+        await runtime.stop()
+    }
+
     @Test("direct-only startup does not wait for relay readiness")
     func directOnlyStartupSkipsRelayReadiness() async throws {
         let fixture = try HostRuntimeFixture()
@@ -58,7 +145,6 @@ struct CmxIrohHostRuntimeTests {
         try await runtime.start()
 
         #expect(await runtime.snapshot().state == .active)
-        #expect(await broker.observedRelayIssueCount() == 0)
         await runtime.stop()
     }
 
@@ -381,7 +467,6 @@ actor TestIrohHostBroker: CmxIrohHostBrokerServing {
     private let revokeError: CmxIrohTrustBrokerClientError?
     private let registrationHook: (@Sendable () async -> Bool)?
     private let subsequentRegistrationHook: (@Sendable () async -> Void)?
-    private let relayIssueHook: (@Sendable () async -> Void)?
     private let embedDiscoveryStartingAtRegistrationCount: Int?
     private let embeddedRegistrationDiscovery: CmxIrohDiscoveryResponse?
     private let embeddedRegistrationDiscoveryIsComplete: Bool?
@@ -391,7 +476,6 @@ actor TestIrohHostBroker: CmxIrohHostBrokerServing {
     private var preflightOperations: [CmxIrohBrokerOperation] = []
     private var registrationCount = 0
     private var preparedRegistrations: [CmxIrohPreparedRegistration] = []
-    private var relayIssueCount = 0
     private var discoveryCount = 0
     private var registrationHookResult: Bool?
     private var revokedBindingIDs: [String] = []
@@ -409,7 +493,6 @@ actor TestIrohHostBroker: CmxIrohHostBrokerServing {
         revokeError: CmxIrohTrustBrokerClientError? = nil,
         registrationHook: (@Sendable () async -> Bool)? = nil,
         subsequentRegistrationHook: (@Sendable () async -> Void)? = nil,
-        relayIssueHook: (@Sendable () async -> Void)? = nil,
         embedDiscoveryInRegistration: Bool = false,
         embedDiscoveryStartingAtRegistrationCount: Int? = nil,
         embeddedRegistrationDiscovery: CmxIrohDiscoveryResponse? = nil,
@@ -425,7 +508,6 @@ actor TestIrohHostBroker: CmxIrohHostBrokerServing {
         self.revokeError = revokeError
         self.registrationHook = registrationHook
         self.subsequentRegistrationHook = subsequentRegistrationHook
-        self.relayIssueHook = relayIssueHook
         self.embedDiscoveryStartingAtRegistrationCount =
             embedDiscoveryInRegistration
                 ? 1
@@ -503,21 +585,6 @@ actor TestIrohHostBroker: CmxIrohHostBrokerServing {
         throw TestIrohTransportError.unsupported
     }
 
-    func issueRelayToken(
-        bindingID _: String,
-        endpointID _: CmxIrohPeerIdentity
-    ) async -> CmxIrohRelayTokenResponse {
-        relayIssueCount += 1
-        if let relayIssueHook {
-            await relayIssueHook()
-        }
-        return CmxIrohRelayTokenResponse(
-            token: "testrelaytoken",
-            expiresAt: "2027-07-10T12:00:00.000Z",
-            refreshAfter: "2027-07-10T11:00:00.000Z",
-            relayFleet: HostRuntimeFixture.relayURLs
-        )
-    }
 
     func revoke(bindingID: String) throws {
         revokedBindingIDs.append(bindingID)
@@ -535,7 +602,6 @@ actor TestIrohHostBroker: CmxIrohHostBrokerServing {
     func observedPreparedRegistrations() -> [CmxIrohPreparedRegistration] {
         preparedRegistrations
     }
-    func observedRelayIssueCount() -> Int { relayIssueCount }
     func observedDiscoveryCount() -> Int { discoveryCount }
 
     func enqueueSubsequentRegistrationError(
@@ -798,12 +864,21 @@ actor HostRuntimeAcceptingEndpoint: CmxIrohEndpoint {
     private let healthContinuation: AsyncStream<CmxIrohEndpointHealthEvent>.Continuation
     private var closed = false
     private var closeCallCount = 0
+    private var relayProfileUpdates: [CmxIrohEndpointRelayProfile] = []
 
     init(identity: CmxIrohPeerIdentity) {
         peerIdentity = identity
         let stream = AsyncStream<CmxIrohEndpointHealthEvent>.makeStream()
         health = stream.stream
         healthContinuation = stream.continuation
+    }
+
+    func replaceRelayProfile(_ profile: CmxIrohEndpointRelayProfile) {
+        relayProfileUpdates.append(profile)
+    }
+
+    func observedRelayProfileUpdates() -> [CmxIrohEndpointRelayProfile] {
+        relayProfileUpdates
     }
 
     func identity() -> CmxIrohPeerIdentity { peerIdentity }
@@ -819,9 +894,11 @@ actor HostRuntimeAcceptingEndpoint: CmxIrohEndpoint {
         throw TestIrohTransportError.unsupported
     }
 
-    func accept() async throws -> (any CmxIrohConnection)? {
+    func accept() async throws -> (any CmxIrohIncomingConnection)? {
         try Task.checkCancellation()
-        if !connections.isEmpty { return connections.removeFirst() }
+        if !connections.isEmpty {
+            return CmxIrohEstablishedIncomingConnection(connections.removeFirst())
+        }
         guard !closed else { return nil }
         let id = UUID()
         let connection = await withTaskCancellationHandler {
@@ -830,10 +907,9 @@ actor HostRuntimeAcceptingEndpoint: CmxIrohEndpoint {
             Task { await self.cancelAccept(id) }
         }
         try Task.checkCancellation()
-        return connection
+        return connection.map { CmxIrohEstablishedIncomingConnection($0) }
     }
 
-    func replaceRelays(_: [CmxIrohRelayConfiguration]) {}
     func healthEvents() -> AsyncStream<CmxIrohEndpointHealthEvent> { health }
     func isHealthy() -> Bool { true }
 

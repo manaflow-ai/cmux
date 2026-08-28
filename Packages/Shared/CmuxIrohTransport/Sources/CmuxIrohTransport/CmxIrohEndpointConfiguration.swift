@@ -19,11 +19,6 @@ public struct CmxIrohEndpointConfiguration: Equatable, Sendable {
         relayProfile.source == .managed ? relayProfile.allowedRelayURLs : []
     }
 
-    /// Endpoint-scoped credentials for some or all allowed relays.
-    public var relays: [CmxIrohRelayConfiguration] {
-        relayProfile.managedRelays
-    }
-
     /// Creates a validated endpoint bind configuration.
     ///
     /// - Parameters:
@@ -31,18 +26,15 @@ public struct CmxIrohEndpointConfiguration: Equatable, Sendable {
     ///   - alpns: ALPNs advertised by the endpoint.
     ///   - bindPolicy: Ephemeral by default, or an exact required socket address.
     ///   - managedRelayURLs: Exact relay origins permitted by app or MDM policy.
-    ///   - relays: Current endpoint-scoped relay credentials.
     /// - Throws: ``CmxIrohEndpointConfigurationError`` for fleet-policy violations.
     public init(
         secretKey: CmxIrohSecretKey,
         alpns: [Data],
         bindPolicy: CmxIrohEndpointBindPolicy = .ephemeral,
-        managedRelayURLs: Set<String>,
-        relays: [CmxIrohRelayConfiguration]
+        managedRelayURLs: Set<String>
     ) throws {
         let relayProfile = try CmxIrohEndpointRelayProfile(
-            managedRelayURLs: managedRelayURLs,
-            relays: relays
+            managedRelayURLs: managedRelayURLs
         )
         self.secretKey = secretKey
         self.alpns = alpns

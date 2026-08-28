@@ -428,8 +428,7 @@ struct RegistryFixture: Sendable {
         let configuration = try CmxIrohEndpointConfiguration(
             secretKey: CmxIrohSecretKey(bytes: Data(repeating: 4, count: 32)),
             alpns: [Data("cmux/mobile/1".utf8)],
-            managedRelayURLs: [relayURL],
-            relays: []
+            managedRelayURLs: [relayURL]
         )
         let supervisor = CmxIrohEndpointSupervisor(
             factory: factory,

@@ -35,11 +35,11 @@ actor TestBlockingRelayUpdateEndpoint: CmxIrohEndpoint {
         throw TestIrohTransportError.unsupported
     }
 
-    func accept() async throws -> (any CmxIrohConnection)? {
+    func accept() async throws -> (any CmxIrohIncomingConnection)? {
         nil
     }
 
-    func replaceRelays(_: [CmxIrohRelayConfiguration]) async {
+    func replaceRelayProfile(_: CmxIrohEndpointRelayProfile) async {
         updateContinuation.yield(())
         await withCheckedContinuation { continuation in
             releaseContinuation = continuation
