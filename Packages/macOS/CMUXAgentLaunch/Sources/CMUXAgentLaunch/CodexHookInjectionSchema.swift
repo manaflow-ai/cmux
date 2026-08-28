@@ -22,6 +22,22 @@ public struct CodexHookInjectionSchema: Equatable, Sendable {
         .init(agentEvent: "PermissionRequest", cmuxSubcommand: "notification", timeoutMs: 120000),
     ])
 
+    /// Whether an event runs once per Codex tool invocation.
+    public static func isToolExecutionEvent(_ eventName: String) -> Bool {
+        eventName == "PreToolUse" || eventName == "PostToolUse"
+    }
+
+    /// The current registration schema after applying the granular tool-hook opt-out.
+    public func events(toolHooksDisabled: Bool) -> [CodexHookInjectionEvent] {
+        guard toolHooksDisabled else { return events }
+        return events.filter { !Self.isToolExecutionEvent($0.agentEvent) }
+    }
+
+    /// Every wrapper script a current cmux process may still reference.
+    public static var wrapperScriptRetentionEvents: [CodexHookInjectionEvent] {
+        current.events
+    }
+
     /// Exact older shapes accepted by saved-layout and replay sanitization.
     /// These remain explicit because stored commands can outlive the cmux
     /// version that captured them. Never broaden this to unordered events or

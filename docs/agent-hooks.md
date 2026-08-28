@@ -156,6 +156,8 @@ and browser state. Restored agent terminals stay idle until you resume them manu
 | Factory | none | `CMUX_FACTORY_HOOKS_DISABLED=1` |
 | Qoder | `QODER_CONFIG_DIR` | `CMUX_QODER_HOOKS_DISABLED=1` |
 
+For Codex, `CMUX_CODEX_TOOL_HOOKS_DISABLED=1` disables only the `PreToolUse` and `PostToolUse` cmux hooks for that process. Lifecycle and approval hooks, including `Stop` and `PermissionRequest`, remain enabled. The value must be exactly `1`; other values preserve the default hook set.
+
 Pi uses Pi's extension system, not the legacy Pi hooks API. The installed extension is auto-discovered from `~/.pi/agent/extensions/` or `$PI_CODING_AGENT_DIR/extensions/`.
 
 OMP uses OMP's native extension system. OMP native extension discovery scans `${PI_CODING_AGENT_DIR:-~/${PI_CONFIG_DIR:-.omp}/agent}/extensions/`, so cmux installs OMP's extension with a distinct `cmux-omp-session.ts` filename and does not reuse Pi's `cmux-session.ts`.

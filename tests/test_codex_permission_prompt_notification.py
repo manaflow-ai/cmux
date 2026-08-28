@@ -64,16 +64,25 @@ def run_feed_hook_capture(
     surface_delivery_target: tuple[str, str] | None = None,
     method_delays: dict[str, float] | None = None,
     settle_seconds: float = 0,
+    extra_env: dict[str, str] | None = None,
 ) -> tuple[dict, list, float]:
     """Runs `cmux hooks feed --source codex` and returns (stdout JSON,
     ordered received frames, elapsed seconds)."""
     env = os.environ.copy()
-    for key in ("CMUX_SOCKET", "CMUX_SOCKET_CAPABILITY", "CMUX_SOCKET_PATH", "CMUX_SOCKET_PASSWORD"):
+    for key in (
+        "CMUX_SOCKET",
+        "CMUX_SOCKET_CAPABILITY",
+        "CMUX_SOCKET_PATH",
+        "CMUX_SOCKET_PASSWORD",
+        "CMUX_CODEX_HOOKS_DISABLED",
+    ):
         env.pop(key, None)
     env["CMUX_SURFACE_ID"] = FAKE_SURFACE_ID
     env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
     if socket_password is not None:
         env["CMUX_SOCKET_PASSWORD"] = socket_password
+    if extra_env:
+        env.update(extra_env)
     with FakeCmuxSocket(
         socket_path,
         None,
@@ -128,6 +137,65 @@ def raw_commands(frames: list) -> list[str]:
     ]
 
 
+def run_codex_start_stop_capture(
+    cli_path: str,
+    socket_path: Path,
+    state_dir: Path,
+    extra_env: dict[str, str] | None = None,
+) -> list:
+    """Run real Codex lifecycle hooks and return the ordered socket frames."""
+    state_dir.mkdir()
+    env = os.environ.copy()
+    for key in (
+        "CMUX_SOCKET",
+        "CMUX_SOCKET_CAPABILITY",
+        "CMUX_SOCKET_PATH",
+        "CMUX_SOCKET_PASSWORD",
+        "CMUX_CODEX_HOOKS_DISABLED",
+    ):
+        env.pop(key, None)
+    env["CMUX_SURFACE_ID"] = FAKE_SURFACE_ID
+    env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
+    env["CMUX_AGENT_HOOK_STATE_DIR"] = str(state_dir)
+    if extra_env:
+        env.update(extra_env)
+
+    session_id = "codex-tool-hook-opt-out-notification"
+    payload = {
+        "session_id": session_id,
+        "cwd": str(state_dir.parent),
+    }
+
+    with FakeCmuxSocket(
+        socket_path,
+        None,
+        surface_delivery_target=(FAKE_WORKSPACE_ID, FAKE_SURFACE_ID),
+    ) as fake:
+        for subcommand in ("session-start", "stop"):
+            result = subprocess.run(
+                [
+                    cli_path,
+                    "--socket",
+                    str(socket_path),
+                    "hooks",
+                    "codex",
+                    subcommand,
+                ],
+                input=json.dumps(payload),
+                capture_output=True,
+                text=True,
+                check=False,
+                env=env,
+                timeout=15,
+            )
+            if result.returncode != 0:
+                raise AssertionError(
+                    f"hooks codex {subcommand} failed exit={result.returncode}\n"
+                    f"stdout={result.stdout}\nstderr={result.stderr}"
+                )
+        return list(fake.frames)
+
+
 def frame_index(frames: list, predicate) -> int:
     for index, frame in enumerate(frames):
         if predicate(frame):
@@ -160,6 +228,46 @@ def test_permission_request_sends_gated_notification_before_feed_push(
         raise AssertionError(
             f"notification must precede telemetry (notify at {notify_index}, "
             f"feed.push at {feed_index}): {frames!r}"
+        )
+
+
+def test_tool_hook_opt_out_preserves_permission_request_notification(
+    cli_path: str, root: Path
+) -> None:
+    stdout, frames, _ = run_feed_hook_capture(
+        cli_path,
+        root / "cmux-flagged-permission.sock",
+        "PermissionRequest",
+        extra_env={"CMUX_CODEX_TOOL_HOOKS_DISABLED": "1"},
+    )
+    if stdout != {}:
+        raise AssertionError(f"PermissionRequest must stay non-blocking: {stdout!r}")
+    if EXPECTED_NOTIFY_COMMAND not in raw_commands(frames):
+        raise AssertionError(
+            f"tool-hook opt-out lost permission notification: {frames!r}"
+        )
+
+
+def test_tool_hook_opt_out_preserves_stop_completion_notification(
+    cli_path: str, root: Path
+) -> None:
+    frames = run_codex_start_stop_capture(
+        cli_path,
+        root / "cmux-stop-notify.sock",
+        root / "codex-stop-hook-state",
+        extra_env={"CMUX_CODEX_TOOL_HOOKS_DISABLED": "1"},
+    )
+    commands = raw_commands(frames)
+    expected_prefix = (
+        f"notify_target_async {FAKE_WORKSPACE_ID} {FAKE_SURFACE_ID} Codex|"
+    )
+    if not any(command.startswith(expected_prefix) for command in commands):
+        raise AssertionError(
+            f"tool-hook opt-out lost Stop completion notification: {commands!r}"
+        )
+    if not any(command.startswith("set_status codex ") for command in commands):
+        raise AssertionError(
+            f"tool-hook opt-out lost Stop status transition: {commands!r}"
         )
 
 
@@ -326,6 +434,8 @@ def main() -> int:
         root = Path(td)
         try:
             test_permission_request_sends_gated_notification_before_feed_push(cli_path, root)
+            test_tool_hook_opt_out_preserves_permission_request_notification(cli_path, root)
+            test_tool_hook_opt_out_preserves_stop_completion_notification(cli_path, root)
             test_post_tool_use_clears_pane_before_feed_push(cli_path, root)
             test_pre_tool_use_sends_no_attention_command(cli_path, root)
             test_permission_notification_is_acknowledged_before_hook_returns(cli_path, root)

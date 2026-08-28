@@ -45,6 +45,18 @@ public struct CmuxCodexConfigEditor: Sendable {
     /// Creates an editor with no filesystem or process dependencies.
     public init() {}
 
+    /// Builds a process-local Codex config override that disables the supplied hooks.
+    ///
+    /// - Parameter entries: Hook trust entries whose keys should be disabled.
+    /// - Returns: A stable TOML override, or `nil` when no entries are supplied.
+    public func hookStateOverrideDisabling(_ entries: [HookTrustEntry]) -> String? {
+        guard !entries.isEmpty else { return nil }
+        let state = entries.sorted { $0.key < $1.key }.map { entry in
+            "\"\(tomlBasicStringContent(entry.key))\"={enabled=false}"
+        }.joined(separator: ",")
+        return "hooks.state={\(state)}"
+    }
+
     /// Installs the hooks feature and the supplied cmux-owned trust tables.
     ///
     /// Existing cmux blocks and matching trust tables are removed before the
