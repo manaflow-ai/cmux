@@ -28,28 +28,33 @@ import Testing
             ["id": "tab_1", "pane_id": "pane_1", "content_kind": "terminal", "content_id": "term_build"],
             ["id": "tab_2", "pane_id": "pane_2", "content_kind": "terminal", "content_id": "term_shell"],
             ["id": "tab_3", "pane_id": "pane_1", "content_kind": "browser", "content_id": "browser_1"],
+            ["id": "tab_4", "pane_id": "pane_2", "content_kind": "terminal", "content_id": "term_build"],
         ],
         "terminals": [
-            ["id": "term_build", "tab_id": "tab_1", "tab_ids": ["tab_1"], "title": "cargo test", "cwd": "/root/work/app", "lifecycle": "running", "running": true],
+            ["id": "term_build", "tab_id": "tab_1", "tab_ids": ["tab_1", "tab_4"], "title": "cargo test", "cwd": "/root/work/app", "lifecycle": "running", "running": true],
             ["id": "term_shell", "tab_id": "tab_2", "tab_ids": ["tab_2"], "title": "", "lifecycle": "exited", "running": false],
-            ["id": "term_orphan", "tab_id": "tab_missing", "tab_ids": [], "title": "orphan", "running": true],
+            ["id": "term_detached", "tab_id": "tab_missing", "tab_ids": [], "title": "detached", "running": true],
         ],
         "agents": [
             ["id": "agent_1", "terminal_id": "term_build", "state": "working", "source": "claude"],
         ],
     ]
 
-    @Test func snapshotBecomesTerminalResourcesAttributedToWorkspaces() throws {
+    @Test func snapshotBecomesTerminalResourcesWithEveryView() throws {
         let resources = CmuxTuiSnapshotParser.terminals(fromSnapshot: Self.sessionSnapshot, machine: Self.machine)
-        #expect(resources.map { $0.id.key } == ["term_build", "term_orphan", "term_shell"])
+        #expect(resources.map { $0.id.key } == ["term_build", "term_shell", "term_detached"], "workspace order, zero-view terminals trail")
         #expect(resources.allSatisfy { $0.kind == .terminal && $0.machine == Self.machine })
 
+        // A terminal with two tabs carries both views; `remoteWorkspace` stays the first.
         let build = try #require(resources.first { $0.id.key == "term_build" })
         #expect(build.title == "cargo test")
         #expect(build.detail == "/root/work/app")
         #expect(build.lifecycle == .running)
         #expect(build.agent == SurfaceAgentBadge(state: "working", source: "claude"))
         #expect(build.remoteWorkspace == SurfaceRemoteWorkspace(id: "ws_main", name: "main", index: 0, focused: true))
+        #expect(build.remoteViews?.map(\.tabID) == ["tab_1", "tab_4"])
+        #expect(build.remoteWorkspaces.map(\.id) == ["ws_main", "ws_api"])
+        #expect(build.remoteViewCount == 2)
 
         // An untitled terminal stays untitled (the row shows a localized fallback, never the raw id).
         let shell = try #require(resources.first { $0.id.key == "term_shell" })
@@ -57,11 +62,108 @@ import Testing
         #expect(shell.lifecycle == .exited)
         #expect(shell.agent == nil)
         #expect(shell.remoteWorkspace?.id == "ws_api")
+        #expect(shell.remoteViews?.count == 1)
 
-        // A terminal whose tab chain does not resolve lands in the first workspace; no lifecycle key → `running` decides.
-        let orphan = try #require(resources.first { $0.id.key == "term_orphan" })
-        #expect(orphan.remoteWorkspace?.id == "ws_main")
-        #expect(orphan.lifecycle == .running)
+        // A terminal whose tab chain does not resolve keeps zero views: it is alive in the
+        // machine's pool, in no workspace. No lifecycle key → `running` decides.
+        let detached = try #require(resources.first { $0.id.key == "term_detached" })
+        #expect(detached.remoteWorkspace == nil)
+        #expect(detached.remoteViews == [])
+        #expect(detached.remoteWorkspaces.isEmpty)
+        #expect(detached.lifecycle == .running)
+    }
+
+    @Test func snapshotBrowsersJoinTheirWorkspaces() throws {
+        var snapshot = Self.sessionSnapshot
+        snapshot["browsers"] = [
+            ["id": "browser_1", "tab_id": "tab_3", "url": "http://localhost:3000/app", "title": "Vite", "status": "live"],
+            ["id": "browser_2", "tab_id": "tab_missing", "url": "https://example.com", "title": "Docs", "status": "live"],
+        ]
+        let resources = CmuxTuiSnapshotParser.terminals(fromSnapshot: snapshot, machine: Self.machine)
+
+        // A daemon browser is workspace tab content like a terminal: it carries the
+        // view of the tab that shows it and projects through its localhost port.
+        let browser = try #require(resources.first { $0.id.key == "browser_1" })
+        #expect(browser.kind == .browser)
+        #expect(browser.title == "Vite")
+        #expect(browser.url == "http://localhost:3000/app")
+        #expect(browser.port == 3000)
+        #expect(browser.remoteWorkspace?.id == "ws_main")
+        #expect(browser.remoteViews?.map(\.tabID) == ["tab_3"])
+
+        // An unresolvable tab chain leaves the browser in the pool; a non-localhost
+        // URL has no port to project through.
+        let detached = try #require(resources.first { $0.id.key == "browser_2" })
+        #expect(detached.remoteViews == [])
+        #expect(detached.remoteWorkspace == nil)
+        #expect(detached.port == nil)
+    }
+
+    @Test func localhostPortParsesOnlyMachineLocalURLs() {
+        #expect(CmuxTuiSnapshotParser.localhostPort(fromURL: "http://localhost:5173/x?y=1") == 5173)
+        #expect(CmuxTuiSnapshotParser.localhostPort(fromURL: "http://127.0.0.1:8080") == 8080)
+        #expect(CmuxTuiSnapshotParser.localhostPort(fromURL: "http://localhost/") == 80)
+        #expect(CmuxTuiSnapshotParser.localhostPort(fromURL: "https://cmux.com") == nil)
+        #expect(CmuxTuiSnapshotParser.localhostPort(fromURL: "not a url") == nil)
+    }
+
+    @Test func snapshotListsEveryWorkspaceIncludingEmptyOnes() {
+        let workspaces = CmuxTuiSnapshotParser.workspaces(fromSnapshot: Self.sessionSnapshot)
+        #expect(workspaces == [
+            SurfaceRemoteWorkspace(id: "ws_main", name: "main", index: 0, focused: true),
+            SurfaceRemoteWorkspace(id: "ws_api", name: "api", index: 1, focused: false),
+        ])
+        #expect(CmuxTuiSnapshotParser.workspaces(fromSnapshot: [:]).isEmpty)
+    }
+
+    @Test func resourceKindWireFormAcceptsTheOldScreenName() throws {
+        #expect(SurfaceResourceKind(wire: "display") == .display)
+        #expect(SurfaceResourceKind(wire: "screen") == .display, "pre-rename apps and persisted sessions say screen")
+        #expect(SurfaceResourceKind(wire: "terminal") == .terminal)
+        #expect(SurfaceResourceKind(wire: "bogus") == nil)
+        #expect(SurfaceResourceKind.display.rawValue == "display", "the emitted wire form is display")
+
+        let old = try #require(SurfaceResourceID(rawValue: "vivid-newt/screen/display:1"))
+        #expect(old.kind == .display)
+        #expect(old.rawValue == "vivid-newt/display/display:1", "old ids re-emit as display")
+        let decoded = try JSONDecoder().decode(SurfaceResourceKind.self, from: Data(#""screen""#.utf8))
+        #expect(decoded == .display)
+    }
+
+    @Test func exitedTerminalWithoutATabIsNotASurface() {
+        // cmux-tui keeps the record of a terminal whose process exited after its tab went
+        // away; its selector no longer resolves, so nothing could open or close it.
+        var snapshot = Self.sessionSnapshot
+        var terminals = snapshot["terminals"] as! [[String: Any]]
+        terminals.append(["id": "term_gone", "tab_id": NSNull(), "tab_ids": [], "title": "", "lifecycle": "exited", "running": false,
+                          "exit": ["outcome": ["kind": "exit", "code": 130]]])
+        snapshot["terminals"] = terminals
+        let keys = CmuxTuiSnapshotParser.terminals(fromSnapshot: snapshot, machine: Self.machine).map { $0.id.key }
+        #expect(!keys.contains("term_gone"))
+        // An exited terminal that still has a tab stays: that one can be closed.
+        #expect(keys.contains("term_shell"))
+        let tabs = CmuxTuiSnapshotParser.tabByTerminal(fromSnapshot: snapshot)
+        #expect(tabs["term_shell"] == "tab_2")
+        #expect(tabs["term_build"] == "tab_1")
+        #expect(tabs["term_gone"] == nil)
+    }
+
+    @Test func createdWorkspaceResultCarriesItsFirstTerminal() throws {
+        let result: [String: Any] = ["value": ["kind": "terminal", "workspace_id": "ws_new", "terminal_id": "term_first", "tab_id": "tab_x"]]
+        let created = try #require(CmuxTuiSnapshotParser.createdWorkspaceTerminal(fromResult: result))
+        #expect(created.workspaceID == "ws_new")
+        #expect(created.terminalID == "term_first")
+        #expect(CmuxTuiSnapshotParser.createdWorkspaceTerminal(fromResult: ["value": ["workspace_id": ""]]) == nil)
+        #expect(CmuxTuiSnapshotParser.createdWorkspaceTerminal(fromResult: ["workspace_id": "ws_bare"])?.terminalID == nil)
+    }
+
+    @Test func closeArgvFollowsTheCLIGrammar() {
+        #expect(CloudTuiCommandLine.closeTerminalArguments(socketPath: "/tmp/s.sock", terminalID: "term_1")
+            == ["--socket", "/tmp/s.sock", "--json", "terminal", "term_1", "close"])
+        #expect(CloudTuiCommandLine.closeTabArguments(socketPath: "/tmp/s.sock", tabID: "tab_1")
+            == ["--socket", "/tmp/s.sock", "--json", "tab", "tab_1", "close"])
+        #expect(CloudTuiCommandLine.closeWorkspaceArguments(socketPath: "/tmp/s.sock", workspaceID: "ws_1")
+            == ["--socket", "/tmp/s.sock", "--json", "workspace", "ws_1", "close"])
     }
 
     @Test func emptyAndMalformedSnapshotsProduceNothing() {
@@ -102,9 +204,10 @@ import Testing
         #expect(CmuxTuiSnapshotParser.machineHasDesktop(image: "blaxel/xfce-vnc:latest"))
         #expect(!CmuxTuiSnapshotParser.machineHasDesktop(image: "blaxel/base-image:latest"))
 
-        let screen = CmuxTuiSnapshotParser.screen(machine: Self.machine)
-        #expect(screen.id == SurfaceResourceID(machine: Self.machine, kind: .screen, key: "display:1"))
-        #expect(screen.port == 6901)
+        let display = CmuxTuiSnapshotParser.display(machine: Self.machine)
+        #expect(display.id == SurfaceResourceID(machine: Self.machine, kind: .display, key: "display:1"))
+        #expect(display.id.rawValue == "vivid-newt/display/display:1")
+        #expect(display.port == 6901)
         let port = CmuxTuiSnapshotParser.portBrowser(machine: Self.machine, port: 3000)
         #expect(port.id.rawValue == "vivid-newt/browser/port:3000")
         #expect(port.title == ":3000")
@@ -126,6 +229,9 @@ import Testing
         #expect(CloudTuiCommandLine.commandStartingIn(cwd: nil, command: ["bash", "-l"]) == ["bash", "-l"])
         #expect(CloudTuiCommandLine.commandStartingIn(cwd: "/root/work/my app", command: ["codex", "exec", "it's"]) ==
             ["sh", "-lc", "cd '/root/work/my app' && exec codex exec 'it'\\''s'"])
+        // Rename takes the name via --name (verified live; positional is usage.invalid).
+        #expect(CloudTuiCommandLine.renameWorkspaceArguments(socketPath: "/k.sock", workspaceID: "ws_main", name: "backend work") ==
+            ["--socket", "/k.sock", "--json", "workspace", "ws_main", "rename", "--name", "backend work"])
     }
 
     @Test func clientPathsMirrorTheCLI() throws {
@@ -142,5 +248,73 @@ import Testing
         #expect(raw?["vivid-newt"]?["deviceFingerprint"] as? String == "fp-1")
         #expect(raw?["vivid-newt"]?["updatedAtUnix"] != nil)
         #expect(CloudTuiClientPaths.deviceName(hostName: "Austin's MacBook.local").hasPrefix("cmux-Austin-s-MacBook"))
+    }
+
+    @Test func portEndpointsAreReusedUntilTheyExpire() {
+        var cache = SurfacePortEndpointCache(ttl: 60)
+        let t0 = Date(timeIntervalSince1970: 1_000)
+        #expect(cache.openURL(port: 6901, now: t0) == nil)
+        cache.store(openURL: "https://m-6901.vm.cmux.sh/?bl_preview_token=t1", port: 6901, now: t0)
+        #expect(cache.openURL(port: 6901, now: t0.addingTimeInterval(59)) == "https://m-6901.vm.cmux.sh/?bl_preview_token=t1")
+        #expect(cache.openURL(port: 3000, now: t0) == nil, "one entry per port")
+        #expect(cache.openURL(port: 6901, now: t0.addingTimeInterval(60)) == nil, "gone at ttl")
+        cache.store(openURL: "https://m-6901.vm.cmux.sh/?bl_preview_token=t2", port: 6901, now: t0.addingTimeInterval(60))
+        #expect(cache.openURL(port: 6901, now: t0.addingTimeInterval(61))?.hasSuffix("t2") == true)
+        cache.invalidate(port: 6901)
+        #expect(cache.openURL(port: 6901, now: t0.addingTimeInterval(61)) == nil)
+        #expect(SurfacePortEndpointCache.defaultTTL < 7 * 24 * 60 * 60, "well inside the preview token's 7-day life")
+    }
+
+    @Test @MainActor func optimisticPanePlaceholdersLabelAndEscape() {
+        #expect(CmuxTuiSurfaceProvider.paneLabel(machineID: "vivid-newt", port: 6901, desktop: true) == "vivid-newt · Desktop")
+        #expect(CmuxTuiSurfaceProvider.paneLabel(machineID: "vivid-newt", port: 3000, desktop: false) == "vivid-newt:3000")
+        let connecting = SurfaceBrowserPlaceholder.connecting("vivid-newt · Desktop")
+        #expect(connecting.contains("Connecting to vivid-newt · Desktop…"))
+        #expect(connecting.contains("class=\"spinner\""))
+        #expect(connecting.contains("#1f2430"), "the desktop's own background, not a white tab")
+        let failed = SurfaceBrowserPlaceholder.failed("<m>:3000", error: "HTTP 503 <vm_image_unavailable> & more")
+        #expect(failed.contains("Couldn’t open &lt;m&gt;:3000"))
+        #expect(failed.contains("HTTP 503 &lt;vm_image_unavailable&gt; &amp; more"))
+        #expect(!failed.contains("<vm_image_unavailable>"))
+        #expect(!failed.contains("spinner"))
+        #expect(failed.contains("open it again from the sidebar"))
+        #expect(SurfaceBrowserPlaceholder.escape("a\"b'c") == "a&quot;b&#39;c")
+    }
+
+    @Test func linkPipesReadOnGCDNotCooperativeThreads() async throws {
+        // Lines arrive as the child writes them, a trailing CR is dropped, and an
+        // unterminated last line is delivered at EOF.
+        let pipe = Pipe()
+        let lines = CloudLinkPipe.lines(from: pipe.fileHandleForReading)
+        let writer = pipe.fileHandleForWriting
+        writer.write(Data("{\"a\":1}\nsecond\r\npart".utf8))
+        writer.write(Data("ial\n".utf8))
+        writer.write(Data("tail".utf8))
+        try writer.close()
+        var received: [String] = []
+        for await line in lines { received.append(line) }
+        #expect(received == ["{\"a\":1}", "second", "partial", "tail"])
+
+        let split = CloudLinkPipe.splitLines(Data("x\ny\r\nz".utf8))
+        #expect(split.lines == ["x", "y"])
+        #expect(String(decoding: split.rest, as: UTF8.self) == "z")
+
+        let whole = Pipe()
+        whole.fileHandleForWriting.write(Data("all of it".utf8))
+        try whole.fileHandleForWriting.close()
+        let data = await CloudLinkPipe.readToEnd(whole.fileHandleForReading)
+        #expect(String(decoding: data, as: UTF8.self) == "all of it")
+    }
+
+    @Test func linkFirstValueResolvesOnce() async {
+        let socket = CloudLinkFirstValue<String>()
+        async let awaited = socket.result
+        socket.resolve("/tmp/a.sock")
+        socket.resolve("/tmp/b.sock")
+        #expect(await awaited == "/tmp/a.sock")
+        #expect(await socket.result == "/tmp/a.sock", "later awaits see the same value")
+        let eof = CloudLinkFirstValue<String>()
+        eof.resolve(nil)
+        #expect(await eof.result == nil, "finished without a value reads as nil")
     }
 }

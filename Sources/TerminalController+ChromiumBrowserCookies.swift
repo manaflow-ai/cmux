@@ -11,6 +11,7 @@ extension TerminalController {
         domain: String? = nil,
         path: String? = nil,
         url: URL? = nil,
+        httpOnly: Bool? = nil,
         timeout: TimeInterval = 5.0
     ) -> Result<[[String: Any]], any Error> {
         switch v2RunChromiumCommand(
@@ -38,6 +39,7 @@ extension TerminalController {
                               ) else { return false }
                     }
                     if let path, cookie["path"] as? String != path { return false }
+                    if let httpOnly, cookie["http_only"] as? Bool != httpOnly { return false }
                     if let url {
                         guard let cookieDomain = cookie["domain"] as? String,
                               let host = url.host,

@@ -17,7 +17,7 @@ export async function POST(request: Request): Promise<Response> {
       timing.record("auth", authDurationMs);
       setResponseFinalizer((response) => {
         timing.finish({ status: response.status });
-        captureVmProvisionOutcome({ userId: user.id, operation: "base_open", response });
+        captureVmProvisionOutcome({ userId: user.id, operation: "base_open", response, span });
       });
       return await runBaseRoute({ request, user, operation: "open", timing });
     },

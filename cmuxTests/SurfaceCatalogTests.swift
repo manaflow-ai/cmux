@@ -97,6 +97,8 @@ struct SurfaceCatalogTests {
         var onDiscard: ((SurfaceProjection) -> Void)?
         var onMaterialize: (() -> Void)?
         var materializationPreserved = false
+        /// Every materialize makes a new pane, as real providers do; a fixed id would let
+        /// the catalog's projection set collapse a deliberate second pane into the first.
         var nextPanel = UUID()
         var materializeGate: MaterializeGate?
 
@@ -677,6 +679,64 @@ struct SurfaceCatalogTests {
         #expect(snapshot.resources(on: .cloud("alpha")).map { $0.id.key } == ["term_a", "term_b"])
     }
 
+    @Test func `Opening a group as a new workspace lays every resource out as its own pane`() async throws {
+        let catalog = SurfaceCatalog()
+        let machine = SurfaceMachineID.cloud("vm-1")
+        let provider = FakeProvider(machine: machine)
+        catalog.register(provider)
+        let ids = ["a", "b", "c", "d"].map { SurfaceResourceID(machine: machine, kind: .terminal, key: $0) }
+        catalog.replaceResources(ids.map { terminal(machine, $0.key) }, on: machine)
+
+        let newWorkspace = UUID()
+        let starter = UUID()
+        var created: [String] = []
+        var closedStarters: [(UUID, UUID)] = []
+        var lookups = 0
+        let host = SurfaceCatalog.NewWorkspaceHost(
+            create: { title in created.append(title); return (newWorkspace, starter) },
+            paneLookup: { _, _ in lookups += 1; return "pane-\(lookups)" },
+            closeStarter: { panel, workspace in closedStarters.append((panel, workspace)) }
+        )
+
+        let opened = try await catalog.projectGroupAsNewLocalWorkspace(ids, title: "vm-1: main", focus: true, host: host)
+
+        #expect(created == ["vm-1: main"])
+        #expect(opened.workspaceID == newWorkspace)
+        #expect(opened.projections.count == 4)
+        // The first resource takes the starter pane's place; the rest split the previous
+        // pane, alternating right and down, so four terminals form a grid.
+        let destinations = provider.materialized.map(\.1)
+        #expect(destinations[0] == .workspace(id: newWorkspace, placement: .split))
+        #expect(destinations[1] == .split(workspaceID: newWorkspace, paneID: "pane-1", direction: .right))
+        #expect(destinations[2] == .split(workspaceID: newWorkspace, paneID: "pane-2", direction: .down))
+        #expect(destinations[3] == .split(workspaceID: newWorkspace, paneID: "pane-3", direction: .right))
+        #expect(closedStarters.count == 1)
+        #expect(closedStarters.first?.0 == starter)
+        #expect(closedStarters.first?.1 == newWorkspace)
+        #expect(catalog.snapshot.projections.count == 4)
+    }
+
+    @Test func `Opening an unknown group as a new workspace closes the empty workspace again`() async {
+        let catalog = SurfaceCatalog()
+        let machine = SurfaceMachineID.cloud("vm-1")
+        catalog.register(FakeProvider(machine: machine))
+        let starter = UUID(), newWorkspace = UUID()
+        var closedStarters = 0
+        let host = SurfaceCatalog.NewWorkspaceHost(
+            create: { _ in (newWorkspace, starter) },
+            paneLookup: { _, _ in nil },
+            closeStarter: { _, _ in closedStarters += 1 }
+        )
+        do {
+            _ = try await catalog.projectGroupAsNewLocalWorkspace(
+                [SurfaceResourceID(machine: machine, kind: .terminal, key: "missing")], title: "x", focus: true, host: host
+            )
+            Issue.record("expected the unknown resource to fail")
+        } catch {
+            #expect(closedStarters == 1, "nothing landed, so the empty workspace's starter pane is closed")
+        }
+    }
+
     @Test func `Unregistering a machine drops its resources and projections`() async throws {
         let catalog = SurfaceCatalog()
         let provider = FakeProvider(machine: .cloud("m"))
@@ -688,5 +748,26 @@ struct SurfaceCatalogTests {
         #expect(catalog.snapshot.resources.isEmpty)
         #expect(catalog.snapshot.projections.isEmpty)
         #expect(catalog.provider(for: .cloud("m")) == nil)
+    }
+
+    @Test func `Unregistering a machine closes its display and browser panes but not terminals`() async throws {
+        let catalog = SurfaceCatalog()
+        let provider = FakeProvider(machine: .cloud("m"))
+        catalog.register(provider)
+        let term = terminal(.cloud("m"), "term_1")
+        let display = SurfaceResource(id: SurfaceResourceID(machine: .cloud("m"), kind: .display, key: "display:1"), title: "Desktop", detail: "noVNC", lifecycle: .running, agent: nil, remoteWorkspace: nil, port: 6901, url: nil)
+        let browser = SurfaceResource(id: SurfaceResourceID(machine: .cloud("m"), kind: .browser, key: "port:3000"), title: ":3000", detail: nil, lifecycle: .running, agent: nil, remoteWorkspace: nil, port: 3000, url: nil)
+        catalog.replaceResources([term, display, browser], on: .cloud("m"))
+        let termProjection = try await catalog.project(term.id, into: .workspace(id: UUID(), placement: .split)).projection
+        let displayProjection = try await catalog.project(display.id, into: .workspace(id: UUID(), placement: .split)).projection
+        let browserProjection = try await catalog.project(browser.id, into: .workspace(id: UUID(), placement: .split)).projection
+
+        catalog.unregister(machine: .cloud("m"))
+
+        // The tokened gateway panes close with the machine (their URL decays into
+        // the hosting provider's raw error page); the terminal pane stays.
+        #expect(Set(provider.discardInvocations.map(\.panelID)) == [displayProjection.panelID, browserProjection.panelID])
+        #expect(!provider.discardInvocations.map(\.panelID).contains(termProjection.panelID))
+        #expect(catalog.snapshot.projections.isEmpty)
     }
 }

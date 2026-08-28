@@ -1612,6 +1612,31 @@ class TerminalController {
 #if DEBUG
         case "debug.sidebar.simulate_drag":
             return v2Result(id: request.id, v2DebugSidebarSimulateDrag(params: request.params))
+        case "debug.cloudtree.gallery":
+            // `{style?: id, show?: bool}`: optionally select a Cloud tree style
+            // preset, then (by default) present the side-by-side gallery window.
+            let requestedStyle = (request.params["style"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let requestedStyle, !requestedStyle.isEmpty, CloudTreeStyle.preset(id: requestedStyle) == nil {
+                return v2Error(
+                    id: request.id,
+                    code: "invalid_params",
+                    message: "unknown style '\(requestedStyle)'; expected one of \(CloudTreeStyle.presets.map(\.id).joined(separator: ", "))"
+                )
+            }
+            let show = Self.surfaceBool(request.params["show"]) ?? true
+            let selected: String = v2MainSync {
+                if let requestedStyle, let style = CloudTreeStyle.preset(id: requestedStyle) {
+                    CloudTreeStyleStore.current = style
+                }
+                if show {
+                    CloudTreeStyleGalleryWindowController.shared.show()
+                }
+                return CloudTreeStyleStore.current.id
+            }
+            return v2Ok(id: request.id, result: [
+                "styles": CloudTreeStyle.presets.map(\.id),
+                "selected": selected,
+            ])
         case "debug.window.screenshot":
             let label = (request.params["label"] as? String) ?? ""
             let response = captureScreenshot(label)
@@ -1677,7 +1702,8 @@ class TerminalController {
             // instead of the internal-error backstop below.
             if request.method == "debug.sidebar.simulate_drag"
                 || request.method == "debug.window.screenshot"
-                || request.method == "debug.mobile.transport.disconnect" {
+                || request.method == "debug.mobile.transport.disconnect"
+                || request.method == "debug.cloudtree.gallery" {
                 return v2Error(id: request.id, code: "method_not_found", message: "Unknown method")
             }
 #endif
@@ -2841,6 +2867,7 @@ class TerminalController {
             "vm.tree",
             "vm.terminal_open",
             "vm.terminal_new",
+            "vm.workspace_new",
             "vm.desktop_open",
             "vm.port_open",
             "vm.link_socket",
@@ -7102,7 +7129,13 @@ class TerminalController {
 
     private nonisolated func v2BrowserURLAllowlistFailure(for url: URL) -> V2CallResult? {
         let policy = BrowserURLAllowlistPolicy(defaults: .standard)
-        guard !policy.allows(url) else { return nil }
+        // Only local file documents use the trusted seam here. Other
+        // user-supplied schemes (including data/blob/javascript) stay on the
+        // ordinary allowlist path; cmux-owned document schemes already pass it.
+        let allowsURL = url.isFileURL
+            ? policy.allowsTrustedInternalURL(url)
+            : policy.allows(url)
+        guard !allowsURL else { return nil }
         return .err(
             code: "browser_url_blocked",
             message: String(
@@ -7128,12 +7161,18 @@ class TerminalController {
         policy: BrowserURLAllowlistPolicy
     ) -> URL? {
         if let resolvedURL {
-            return policy.allows(resolvedURL) ? nil : resolvedURL
+            let allowsURL = resolvedURL.isFileURL
+                ? policy.allowsTrustedInternalURL(resolvedURL)
+                : policy.allows(resolvedURL)
+            return allowsURL ? nil : resolvedURL
         }
         guard let parsedURL = URL(string: rawInput), parsedURL.scheme != nil else {
             return nil
         }
-        return policy.allows(parsedURL) ? nil : parsedURL
+        let allowsURL = parsedURL.isFileURL
+            ? policy.allowsTrustedInternalURL(parsedURL)
+            : policy.allows(parsedURL)
+        return allowsURL ? nil : parsedURL
     }
 
     /// Resolves the URL accepted by `browser.tab.new`, including host-like
@@ -11423,11 +11462,10 @@ class TerminalController {
         // instead of silently sleeping through a no-op simulation.
         let startedOK: Bool = v2MainSync {
             guard let dragState = AppDelegate.shared?.sidebarDragStateRegistry.state(forWindowId: windowId) else { return false }
-            // Mark the drag as simulator-driven so VerticalTabsSidebar skips
-            // starting SidebarDragFailsafeMonitor — it would otherwise post
-            // mouse_up_failsafe immediately because no real mouse is pressed.
-            dragState.isSimulated = true
-            dragState.beginDragging(tabId: fromTabId)
+            // Simulation uses the same tokenized coordinator path as a real
+            // sidebar drag, but completes explicitly because no HID source is
+            // driving AppKit callbacks.
+            _ = dragState.beginDragging(tabId: fromTabId)
             return true
         }
         guard startedOK else {
@@ -11463,8 +11501,7 @@ class TerminalController {
 
         v2MainSync {
             guard let dragState = AppDelegate.shared?.sidebarDragStateRegistry.state(forWindowId: windowId) else { return }
-            dragState.clearDrag()
-            dragState.isSimulated = false
+            dragState.finishDrag()
         }
 
         if aborted {
@@ -12153,9 +12190,20 @@ class TerminalController {
         var shouldPassThrough = false
         v2MainSync {
             let pb = NSPasteboard(name: .drag)
+            let types = pb.types
             shouldPassThrough = DragOverlayRoutingPolicy.shouldPassThroughTerminalPortalHitTesting(
-                pasteboardTypes: pb.types,
-                eventType: eventType
+                pasteboardTypes: types,
+                eventType: eventType,
+                hasLiveTabTransfer: DragOverlayRoutingPolicy.hasLiveTabTransfer(
+                    in: pb,
+                    pasteboardTypes: types,
+                    resolver: AppDelegate.shared?.liveTabDragCapabilityResolver
+                ),
+                hasLiveFileDropPayload: DragOverlayRoutingPolicy.hasLiveFileDropPayload(
+                    from: pb,
+                    pasteboardTypes: types,
+                    resolver: AppDelegate.shared?.liveTabDragCapabilityResolver
+                )
             )
         }
         return shouldPassThrough ? "true" : "false"
@@ -12176,9 +12224,15 @@ class TerminalController {
         var shouldCapture = false
         v2MainSync {
             let pb = NSPasteboard(name: .drag)
-            shouldCapture = DragOverlayRoutingPolicy.shouldCaptureSidebarExternalOverlay(
-                hasSidebarDragState: hasSidebarDragState,
-                pasteboardTypes: pb.types
+            let currentSessionId = AppDelegate.shared?.sidebarWorkspaceDragRegistry.currentSessionId
+            shouldCapture = SidebarWorkspaceReorderDropOverlay.shouldCaptureHitTest(
+                eventType: .leftMouseDragged,
+                pasteboardTypes: pb.types,
+                hasLiveWorkspaceDrag: hasSidebarDragState
+                    && SidebarTabDragPayload.hasLiveSession(
+                        in: pb,
+                        currentSessionId: currentSessionId
+                    )
             )
         }
         return shouldCapture ? "true" : "false"
