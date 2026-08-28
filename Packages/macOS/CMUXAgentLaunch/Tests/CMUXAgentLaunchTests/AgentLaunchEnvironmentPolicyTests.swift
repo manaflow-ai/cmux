@@ -51,6 +51,7 @@ struct AgentLaunchEnvironmentPolicyTests {
                 "OPENAI_API_KEY": "secret-should-not-cross-socket",
                 "SUBROUTER_CODEX_ACCOUNT_ID": "team-codex-1",
                 "SUBROUTER_CODEX_BASE_URL": "https://router.example.test/v1",
+                "SUBROUTER_CODEX_BIN": "/opt/codex/bin/codex",
                 "SUBROUTER_CODEX_RESUME_COMMAND": "\(command) codex resume",
                 "SUBROUTER_CODEX_SERVER": "team",
                 "SUBROUTER_CODEX_USER_EMAIL": "operator@example.test",
@@ -63,6 +64,7 @@ struct AgentLaunchEnvironmentPolicyTests {
         #expect(selected == [
             "SUBROUTER_CODEX_ACCOUNT_ID": "team-codex-1",
             "SUBROUTER_CODEX_BASE_URL": "https://router.example.test/v1",
+            "SUBROUTER_CODEX_BIN": "/opt/codex/bin/codex",
             "SUBROUTER_CODEX_RESUME_COMMAND": "\(command) codex resume",
             "SUBROUTER_CODEX_SERVER": "team",
             "SUBROUTER_CODEX_USER_EMAIL": "operator@example.test",
@@ -94,11 +96,31 @@ struct AgentLaunchEnvironmentPolicyTests {
         ])
     }
 
+    @Test("Restore records do not persist tenant credentials embedded in URLs")
+    func restoreRecordsRejectTenantCredentialURLs() {
+        let selected = AgentLaunchEnvironmentPolicy().selectedRestoreRecordEnvironment(
+            from: [
+                "SUBROUTER_CODEX_BASE_URL": "https://router.example.test/t/srt_secret/v1",
+                "SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
+                "SUBROUTER_CODEX_SERVER": "team",
+            ],
+            kind: "codex",
+            launcher: "codex",
+            arguments: ["codex", "-c", "model_provider=subrouter"]
+        )
+
+        #expect(selected == [
+            "SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
+            "SUBROUTER_CODEX_SERVER": "team",
+        ])
+    }
+
     @Test("Hook capture retains safe Subrouter routing metadata with its marker")
     func hookCaptureRetainsSafeSubrouterRoutingMetadataWithMarker() {
         let captured = SubrouterCodexResumeRouting().capturedEnvironment(in: [
             "SUBROUTER_CODEX_ACCOUNT_ID": "team-codex-1",
             "SUBROUTER_CODEX_BASE_URL": "https://router.example.test/v1",
+            "SUBROUTER_CODEX_BIN": "/opt/codex/bin/codex",
             "SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
             "SUBROUTER_CODEX_SERVER": "team",
             "SUBROUTER_CODEX_USER_EMAIL": "operator@example.test",
@@ -107,6 +129,7 @@ struct AgentLaunchEnvironmentPolicyTests {
         #expect(captured == [
             "SUBROUTER_CODEX_ACCOUNT_ID": "team-codex-1",
             "SUBROUTER_CODEX_BASE_URL": "https://router.example.test/v1",
+            "SUBROUTER_CODEX_BIN": "/opt/codex/bin/codex",
             "SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
             "SUBROUTER_CODEX_SERVER": "team",
             "SUBROUTER_CODEX_USER_EMAIL": "operator@example.test",
@@ -120,6 +143,7 @@ struct AgentLaunchEnvironmentPolicyTests {
                 "OPENAI_API_KEY": "secret-should-not-replay",
                 "SUBROUTER_CODEX_ACCOUNT_ID": "team-codex-1",
                 "SUBROUTER_CODEX_BASE_URL": "https://router.example.test/v1",
+                "SUBROUTER_CODEX_BIN": "/opt/codex/bin/codex",
                 "SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
                 "SUBROUTER_CODEX_SERVER": "team",
                 "SUBROUTER_CODEX_USER_EMAIL": "operator@example.test",
@@ -132,6 +156,7 @@ struct AgentLaunchEnvironmentPolicyTests {
         #expect(selected == [
             "SUBROUTER_CODEX_ACCOUNT_ID": "team-codex-1",
             "SUBROUTER_CODEX_BASE_URL": "https://router.example.test/v1",
+            "SUBROUTER_CODEX_BIN": "/opt/codex/bin/codex",
             "SUBROUTER_CODEX_SERVER": "team",
             "SUBROUTER_CODEX_USER_EMAIL": "operator@example.test",
         ])

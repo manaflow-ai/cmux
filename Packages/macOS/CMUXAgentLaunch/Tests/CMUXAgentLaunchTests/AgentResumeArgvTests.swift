@@ -257,10 +257,22 @@ struct AgentResumeArgvTests {
     func subrouterCodexResumeUsesCapturedExplicitLauncher() {
         let routedArguments = [
             "/opt/bin/codex",
+            "--dangerously-bypass-approvals-and-sandbox",
+            "--model",
+            "gpt-test",
             "-c",
             "model_provider=subrouter",
             "-c",
             "model_providers.subrouter.base_url=\"http://router.example/v1\"",
+            "-c",
+            "model_reasoning_effort=high",
+        ]
+
+        let preserved = [
+            "-c", "check_for_update_on_startup=false",
+            "--dangerously-bypass-approvals-and-sandbox",
+            "--model", "gpt-test",
+            "-c", "model_reasoning_effort=high",
         ]
 
         #expect(
@@ -270,7 +282,7 @@ struct AgentResumeArgvTests {
                 executablePath: "/opt/bin/codex",
                 arguments: routedArguments,
                 environment: ["SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume"]
-            ) == .resolved(["sr", "codex", "resume", "SID"])
+            ) == .resolved(["sr", "codex", "resume", "SID"] + preserved)
         )
 
         for command in ["subrouter", "cx"] {
@@ -281,7 +293,7 @@ struct AgentResumeArgvTests {
                     executablePath: "/opt/bin/codex",
                     arguments: routedArguments,
                     environment: ["SUBROUTER_CODEX_RESUME_COMMAND": "\(command) codex resume"]
-                ) == .resolved([command, "codex", "resume", "SID"])
+                ) == .resolved([command, "codex", "resume", "SID"] + preserved)
             )
         }
 
