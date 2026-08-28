@@ -17,6 +17,7 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use base64::Engine;
+use cmux_tui_cdp::CDP_CONNECTION_UNAVAILABLE_MESSAGE;
 use cmux_tui_core::resource::FrontendProjectionPublicId;
 use cmux_tui_core::{
     BrowserFrame, BrowserSource, BrowserStatus, ClearHistoryDelivery, ClearHistoryFailure,
@@ -28,7 +29,6 @@ use cmux_tui_core::{
     ZoomMode, exact_split_for_pane_edge, exact_split_for_pane_edge_with_viewport, layout_screen,
     layout_screen_with_viewport, split_sides, zellij_default_pane_layout,
 };
-use cmux_tui_cdp::CDP_CONNECTION_UNAVAILABLE_MESSAGE;
 use crossbeam_channel::{Sender as SyncSender, TrySendError, bounded as sync_channel};
 use crossterm::ExecutableCommand;
 use crossterm::event::{
@@ -8846,7 +8846,7 @@ fn run_with_machine_updates_inner(
             // The dispatcher exposes only a string. Match the one stable CDP
             // classification and discard every other internal detail before
             // creating a user-facing status event.
-            let browser = localization::catalog().browser;
+            let browser = &localization::catalog().browser;
             let message = if error == CDP_CONNECTION_UNAVAILABLE_MESSAGE {
                 localization::catalog().browser.control_unavailable()
             } else if error == browser.attach_unsupported {
