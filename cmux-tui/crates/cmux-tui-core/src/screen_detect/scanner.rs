@@ -14,9 +14,11 @@ use super::ScreenDetectTracker;
 use crate::mux::Mux;
 use crate::surface::Surface;
 
-/// Revision sampling cadence. An atomic read per terminal per tick; the
-/// expensive work (process lookup, viewport text) only runs on quiesced
-/// terminals whose revision changed or that hold a live emission.
+/// Sampling cadence: per terminal per tick, one atomic revision read plus
+/// one foreground process-group lookup (two proc syscalls). Viewport text
+/// is only extracted on quiescence or an identity edge. The cadence also
+/// bounds spawn-detection latency: a launched agent appears within one
+/// tick plus the journal fold.
 const SCAN_INTERVAL: Duration = Duration::from_millis(100);
 
 /// Resolves a surface to its foreground process name; injectable so tests
@@ -76,12 +78,13 @@ pub(crate) fn scan(
     for (terminal_id, surface) in terminals {
         let Ok(revision) = surface.terminal_stream_revision() else { continue };
         let terminal_id = terminal_id.as_str();
-        let needs_eval = tracker.observe_revision(terminal_id, revision, now);
-        if !needs_eval && !tracker.has_live_emission(terminal_id) {
-            continue;
-        }
-        let manifest =
-            resolver(&surface).and_then(|name| manifests.identify(&name));
+        let quiesced = tracker.observe_revision(terminal_id, revision, now);
+        // Identity is resolved every tick: presence comes from the
+        // foreground process, so a freshly launched agent is detected on
+        // the next scan, never gated behind output quiescence.
+        let manifest = resolver(&surface).and_then(|name| manifests.identify(&name));
+        let identity_edge =
+            tracker.note_foreground_agent(terminal_id, manifest.map(|manifest| manifest.id()));
         let emission = match manifest {
             None => {
                 // Not an agent (or the agent exited). Closes a live
@@ -89,7 +92,7 @@ pub(crate) fn scan(
                 // stays silent.
                 tracker.record_detection(terminal_id, None)
             }
-            Some(manifest) if needs_eval => {
+            Some(manifest) if quiesced || identity_edge => {
                 let Ok(Ok(screen)) = surface.try_with_terminal(|terminal| terminal.viewport_text())
                 else {
                     continue;
