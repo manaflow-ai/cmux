@@ -288,7 +288,7 @@ final class CloudVMActionLauncher {
     static func sanitizedCloudVMStartOutput(_ output: String) -> String {
         let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return "" }
-        let controlFree = String(trimmed.unicodeScalars.filter { !$0.properties.isControl })
+        let controlFree = String(trimmed.unicodeScalars.filter { !isControlCharacterScalar($0) })
         guard !controlFree.isEmpty else { return "" }
         let lowercased = controlFree.lowercased()
         let normalized = lowercased
