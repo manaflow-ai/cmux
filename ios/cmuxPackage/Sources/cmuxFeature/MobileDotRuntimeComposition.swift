@@ -161,9 +161,19 @@ public actor MobileDotRuntimeComposition {
                 || ["-", ".", ":", "_"].contains(character)
                 ? String(character) : "-"
         }.joined()
-        stateDirectory = FileManager.default.urls(
+        // Per-bundle, per-broker state (post-#11047), the SAME directory the
+        // irx composition computes: the broker reuse below shares its
+        // binding/trust/grant disk caches, so every pair grant already
+        // minted keeps working over dot with zero re-pairing.
+        let appSupport = FileManager.default.urls(
             for: .applicationSupportDirectory, in: .userDomainMask
-        )[0].appendingPathComponent("cmux-irx", isDirectory: true)
+        )[0]
+        stateDirectory = IrxStateLocation.directory(
+            base: appSupport,
+            bundleIdentifier: bundleIdentifier,
+            brokerHost: brokerBaseURL?.host()
+        )
+        IrxStateLocation.removeLegacySharedDirectory(base: appSupport)
     }
 
     // MARK: - Lifecycle

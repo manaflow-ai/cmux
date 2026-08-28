@@ -148,13 +148,24 @@ final class MobileHostDotRuntime {
             // with. Registration FIRST — non-legacy namespaces 403 every
             // other broker call until the binding authorization exists.
             var registrationError: (any Error)?
+            var stateDirectory: URL?
             if let brokerBaseURL = AuthEnvironment.irohBrokerBaseURL,
                 let namespace = CmxIrohMacBundleNamespace(
                     bundleIdentifier: Bundle.main.bundleIdentifier)
             {
-                let stateDir = FileManager.default.urls(
+                // Per-bundle, per-broker state (post-#11047): another build's
+                // (or another environment's) caches must never be readable
+                // here, or staging trust keys reject production grants.
+                let appSupport = FileManager.default.urls(
                     for: .applicationSupportDirectory, in: .userDomainMask
-                )[0].appendingPathComponent("cmux-irx", isDirectory: true)
+                )[0]
+                let stateDir = IrxStateLocation.directory(
+                    base: appSupport,
+                    bundleIdentifier: Bundle.main.bundleIdentifier,
+                    brokerHost: brokerBaseURL.host
+                )
+                IrxStateLocation.removeLegacySharedDirectory(base: appSupport)
+                stateDirectory = stateDir
                 do {
                     let identity = IrxIdentity(
                         privateKeyData: material.secretKey.bytes,
@@ -201,7 +212,9 @@ final class MobileHostDotRuntime {
             // never awaits the broker (steady-state independence, same
             // snapshot the irx grant judge reads). Registration above just
             // refreshed it when reachable.
-            let trust = IrxDiskCacheTrustReader.read()
+            let trust = stateDirectory.flatMap {
+                IrxDiskCacheTrustReader.read(stateDirectory: $0)
+            }
             let verificationKeys = Self.grantVerificationKeys(from: trust)
             if verificationKeys.isEmpty {
                 Self.journal.record(
