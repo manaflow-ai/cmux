@@ -346,6 +346,138 @@ mod tests {
         assert_eq!(serde_json::to_value(&live).unwrap(), serde_json::to_value(&replayed).unwrap());
     }
 
+    fn stamped_event<'a>(
+        committed_at_ms: u64,
+        kind: &'a str,
+        subjects: &'a [JournalSubject],
+        payload: &'a Value,
+    ) -> RosterEvent<'a> {
+        RosterEvent {
+            producer_id: AGENT_HOOK_PRODUCER_ID,
+            kind,
+            subjects,
+            payload,
+            committed_at_ms,
+        }
+    }
+
+    fn screen_payload(agent: &str, state: &str) -> Value {
+        json!({
+            "format": "cmux.agent-hook.v1",
+            "adapter": {"id": agent, "version": 1},
+            "native_event": "ScreenDetect",
+            "normalized": {"state": state},
+            "native": {},
+        })
+    }
+
+    #[test]
+    fn screen_detect_events_fold_with_detected_source_and_adapter_agent() {
+        let subjects = terminal_subject("term_a");
+        let payload = screen_payload("codex", "working");
+        let mut roster = AgentRoster::default();
+
+        let deltas = roster.apply(&stamped_event(5_000, "agent.state.changed", &subjects, &payload));
+        assert_eq!(deltas.len(), 1);
+        let entry = &roster.entries["term_a"];
+        assert_eq!(entry.state, "working");
+        assert_eq!(entry.source, "detected");
+        assert_eq!(entry.agent.as_deref(), Some("codex"));
+        assert_eq!(entry.updated_at_ms, 5_000);
+    }
+
+    #[test]
+    fn screen_detect_loses_to_fresh_hooks_and_claims_stale_ones() {
+        let subjects = terminal_subject("term_a");
+        let hook_payload = json!({"adapter": {"id": "claude", "version": 1}});
+        let screen = screen_payload("claude", "blocked");
+        let mut roster = AgentRoster::default();
+
+        roster.apply(&stamped_event(10_000, "agent.turn.started", &subjects, &hook_payload));
+        // A fresh hook entry (29s old) is live agent truth.
+        let deltas = roster.apply(&stamped_event(39_000, "agent.state.changed", &subjects, &screen));
+        assert!(deltas.is_empty());
+        assert_eq!(roster.entries["term_a"].source, "hook");
+
+        // At 30s the hook is stale and screen detection takes over.
+        let deltas = roster.apply(&stamped_event(40_000, "agent.state.changed", &subjects, &screen));
+        assert_eq!(deltas.len(), 1);
+        assert_eq!(roster.entries["term_a"].source, "detected");
+        assert_eq!(roster.entries["term_a"].state, "blocked");
+
+        // A hook event always reclaims the terminal.
+        let deltas =
+            roster.apply(&stamped_event(41_000, "agent.turn.started", &subjects, &hook_payload));
+        assert_eq!(deltas.len(), 1);
+        assert_eq!(roster.entries["term_a"].source, "hook");
+    }
+
+    #[test]
+    fn screen_detect_beats_socket_reports_in_both_directions() {
+        let subjects = terminal_subject("term_a");
+        let socket_payload = json!({
+            "adapter": {"id": SOCKET_REPORT_ADAPTER, "version": 1},
+            "normalized": {"state": "idle", "source": "socket"},
+        });
+        let screen = screen_payload("codex", "working");
+        let mut roster = AgentRoster::default();
+
+        // Screen detection overwrites a socket-owned entry...
+        roster.apply(&stamped_event(1_000, "agent.state.changed", &subjects, &socket_payload));
+        let deltas = roster.apply(&stamped_event(2_000, "agent.state.changed", &subjects, &screen));
+        assert_eq!(deltas.len(), 1);
+        assert_eq!(roster.entries["term_a"].source, "detected");
+
+        // ...and a later socket report cannot downgrade it.
+        let deltas =
+            roster.apply(&stamped_event(3_000, "agent.state.changed", &subjects, &socket_payload));
+        assert!(deltas.is_empty());
+        assert_eq!(roster.entries["term_a"].source, "detected");
+        assert_eq!(roster.entries["term_a"].state, "working");
+    }
+
+    #[test]
+    fn screen_detect_exit_removes_only_detected_entries() {
+        let subjects = terminal_subject("term_a");
+        let done = screen_payload("codex", "done");
+        let mut roster = AgentRoster::default();
+
+        // Detected entry: the agent process left the pane -> removal.
+        roster.apply(&stamped_event(
+            1_000,
+            "agent.state.changed",
+            &subjects,
+            &screen_payload("codex", "working"),
+        ));
+        let deltas = roster.apply(&stamped_event(2_000, "agent.session.ended", &subjects, &done));
+        assert_eq!(deltas, vec![RosterDelta::Remove { terminal_id: "term_a".into() }]);
+        assert!(roster.entries.is_empty());
+
+        // A fresh hook entry is never removed by a screen exit.
+        let hook_payload = json!({"adapter": {"id": "claude", "version": 1}});
+        roster.apply(&stamped_event(10_000, "agent.turn.started", &subjects, &hook_payload));
+        let deltas = roster.apply(&stamped_event(11_000, "agent.session.ended", &subjects, &done));
+        assert!(deltas.is_empty());
+        assert_eq!(roster.entries["term_a"].source, "hook");
+
+        // A socket entry is not removed by a screen exit either.
+        let mut socket_roster = AgentRoster::default();
+        let socket_payload = json!({
+            "adapter": {"id": SOCKET_REPORT_ADAPTER, "version": 1},
+            "normalized": {"state": "idle", "source": "socket"},
+        });
+        socket_roster.apply(&stamped_event(
+            1_000,
+            "agent.state.changed",
+            &subjects,
+            &socket_payload,
+        ));
+        let deltas =
+            socket_roster.apply(&stamped_event(2_000, "agent.session.ended", &subjects, &done));
+        assert!(deltas.is_empty());
+        assert_eq!(socket_roster.entries["term_a"].source, "socket");
+    }
+
     #[test]
     fn snapshot_round_trips_and_foreign_producers_are_ignored() {
         let subjects = terminal_subject("term_a");
