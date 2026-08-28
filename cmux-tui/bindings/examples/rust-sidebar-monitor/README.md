@@ -19,9 +19,9 @@ Keys:
 - Other supported keyboard, mouse, paste, and focus events are forwarded.
 - Terminal resize events resize the remote sidebar view.
 
-Run the deterministic fake-server tests with Rust 1.88:
+Run the deterministic fake-server tests with the checked-in Rust toolchain:
 
 ```bash
-cargo +1.88.0 test --all-targets
-cargo +1.88.0 clippy --all-targets -- -D warnings
+cargo test --all-targets
+cargo clippy --all-targets -- -D warnings
 ```

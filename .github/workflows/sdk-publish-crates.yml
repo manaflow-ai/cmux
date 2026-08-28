@@ -17,7 +17,7 @@ on:
 permissions: {}
 
 env:
-  RUST_TOOLCHAIN: "1.95.0"
+  RUST_TOOLCHAIN: "1.98.0"
 
 concurrency:
   group: sdk-publish-crates-${{ github.ref }}
