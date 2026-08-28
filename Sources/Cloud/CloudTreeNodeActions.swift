@@ -10,47 +10,36 @@ struct CloudTreeNodeActions {
     let project: @MainActor (_ resource: SurfaceResourceID, _ placement: SurfacePlacement, _ reuseExisting: Bool) -> Void
     /// Start a plain terminal on a machine (in a cmux-tui workspace when given) and show it.
     let newTerminal: @MainActor (_ machine: SurfaceMachineID, _ remoteWorkspaceID: String?) -> Void
-    /// Create a new, empty cmux-tui workspace on a machine — the direct `workspace create`
-    /// path, not the create-a-terminal fallback.
-    let newWorkspace: @MainActor (_ machine: SurfaceMachineID) -> Void
     /// Open a whole group (a workspace's terminals and browsers): the first at the
     /// selected workspace, the rest as tabs of that pane. An empty group starts a fresh
     /// terminal in `remoteWorkspaceID` on the machine instead.
     let openGroup: @MainActor (_ machine: SurfaceMachineID, _ group: SurfaceResourceGroup, _ placement: SurfacePlacement, _ remoteWorkspaceID: String?) -> Void
-    /// Open a remote workspace into a NEW local workspace of its own. Remote and
-    /// local workspaces never intermingle: a remote workspace's contents get a
-    /// dedicated `vm:`-titled local workspace, not whatever is selected.
-    let openWorkspaceInNewLocalWorkspace: @MainActor (_ machine: SurfaceMachineID, _ workspace: SurfaceRemoteWorkspace, _ group: SurfaceResourceGroup) -> Void
+    /// Open a whole group as a NEW local workspace named after it, every resource its own
+    /// pane (what clicking a remote workspace row does). An empty group starts a fresh
+    /// terminal in `remoteWorkspaceID` on the machine instead.
+    let openGroupAsWorkspace: @MainActor (_ machine: SurfaceMachineID, _ group: SurfaceResourceGroup, _ remoteWorkspaceID: String?) -> Void
+    /// Create a workspace on the machine (its ⌘N: `workspace create`, then a starter
+    /// terminal) and open it as a new local workspace.
+    let newWorkspace: @MainActor (_ machine: SurfaceMachineID) -> Void
+    /// End a terminal on its machine (the process and its remote tab).
+    let closeTerminal: @MainActor (_ resource: SurfaceResourceID) -> Void
+    /// Close a workspace on its machine; its terminals detach into the pool
+    /// (only `terminal close` kills content).
+    let closeWorkspace: @MainActor (_ machine: SurfaceMachineID, _ remoteWorkspaceID: String) -> Void
+    /// Delete a workspace AND kill every terminal in it. Confirms first.
+    let deleteWorkspace: @MainActor (_ machine: SurfaceMachineID, _ workspace: SurfaceRemoteWorkspace) -> Void
+    /// Rename a remote workspace via a text prompt.
+    let renameWorkspace: @MainActor (_ machine: SurfaceMachineID, _ workspace: SurfaceRemoteWorkspace) -> Void
     /// Select a local workspace.
     let selectLocalWorkspace: @MainActor (_ workspaceID: UUID) -> Void
     let copyToPasteboard: @MainActor (_ text: String) -> Void
     let refresh: @MainActor () -> Void
-    /// Kill a terminal or browser (the content, not a view). Confirms first.
-    let killResource: @MainActor (_ resource: SurfaceResource) -> Void
-    /// Close a remote workspace; its terminals detach into the pool. No confirm.
-    let closeWorkspace: @MainActor (_ machine: SurfaceMachineID, _ workspace: SurfaceRemoteWorkspace) -> Void
-    /// Delete a remote workspace AND kill its terminals. Confirms first.
-    let deleteWorkspace: @MainActor (_ machine: SurfaceMachineID, _ workspace: SurfaceRemoteWorkspace) -> Void
-    /// Rename a remote workspace via a text prompt.
-    let renameWorkspace: @MainActor (_ machine: SurfaceMachineID, _ workspace: SurfaceRemoteWorkspace) -> Void
 
     @MainActor
     static func bound(
         catalog: @escaping @MainActor () -> SurfaceCatalog,
         selectedWorkspaceID: @escaping @MainActor () -> UUID?,
         selectLocalWorkspace: @escaping @MainActor (UUID) -> Void,
-        createLocalWorkspace: @escaping @MainActor (_ title: String) -> UUID? = { title in
-            // `.cloudVMLoading`, not `.terminal`: the dedicated workspace must not
-            // boot a stray local shell next to the remote panes. The loading pane
-            // is closed once the group has projected.
-            AppDelegate.shared?.tabManager?.addWorkspaceIfActive(
-                title: title,
-                initialSurface: .cloudVMLoading,
-                select: true,
-                eagerLoadTerminal: false,
-                allowTextBoxFocusDefault: false
-            )?.id
-        },
         onWillMutate: @escaping @MainActor (String) -> Void,
         onDidMutate: @escaping @MainActor () -> Void,
         onFailure: @escaping @MainActor (String) -> Void,
@@ -78,6 +67,9 @@ struct CloudTreeNodeActions {
                 ? String(localized: "cloudTree.machine.local", defaultValue: "This Mac")
                 : machine.rawValue)
         }
+        let machineName: (SurfaceMachineID) -> String = { machine in
+            machine.isLocal ? String(localized: "cloudTree.machine.local", defaultValue: "This Mac") : machine.rawValue
+        }
         let startingLabel: (SurfaceMachineID) -> String = { machine in
             String(format: String(localized: "cloudTree.operation.newTerminal", defaultValue: "Starting a terminal on %@\u{2026}"), machine.isLocal
                 ? String(localized: "cloudTree.machine.local", defaultValue: "This Mac")
@@ -96,15 +88,6 @@ struct CloudTreeNodeActions {
                     _ = try await catalog.project(resource.id, into: try destination(.split), focus: true, reuseExisting: true)
                 }
             },
-            newWorkspace: { machine in
-                let label = String(format: String(localized: "cloudTree.operation.newWorkspace", defaultValue: "Creating a workspace on %@\u{2026}"), machine.isLocal
-                    ? String(localized: "cloudTree.machine.local", defaultValue: "This Mac")
-                    : machine.rawValue)
-                run(label) { catalog in
-                    guard let provider = catalog.provider(for: machine) else { throw SurfaceCatalogError.noProvider(machine) }
-                    _ = try await provider.createRemoteWorkspace(name: nil)
-                }
-            },
             openGroup: { machine, group, placement, remoteWorkspaceID in
                 if group.isEmpty {
                     run(startingLabel(machine)) { catalog in
@@ -118,42 +101,44 @@ struct CloudTreeNodeActions {
                     }
                 }
             },
-            openWorkspaceInNewLocalWorkspace: { machine, workspace, group in
-                guard !group.isEmpty else { return }
-                run(openingLabel(machine)) { catalog in
-                    let title = "vm:\(machine.rawValue)/\(workspace.name)"
-                    guard let workspaceID = createLocalWorkspace(title) else {
-                        throw SurfaceCatalogError.destinationNotFound("could not create a local workspace")
+            openGroupAsWorkspace: { machine, group, remoteWorkspaceID in
+                if group.isEmpty {
+                    run(startingLabel(machine)) { catalog in
+                        guard let provider = catalog.provider(for: machine) else { throw SurfaceCatalogError.noProvider(machine) }
+                        let resource = try await provider.createTerminal(command: nil, cwd: nil, name: nil, remoteWorkspaceID: remoteWorkspaceID)
+                        _ = try await catalog.projectGroupAsNewLocalWorkspace(
+                            [resource.id], title: Self.localWorkspaceTitle(machine: machine, group: group), focus: true, host: .app
+                        )
                     }
-                    _ = try await catalog.projectGroup(group.resources, into: .workspace(id: workspaceID, placement: .split), focus: true)
-                    SurfacePaneFactory.closeLoadingPane(in: workspaceID)
+                } else {
+                    run(openingLabel(machine)) { catalog in
+                        _ = try await catalog.projectGroupAsNewLocalWorkspace(
+                            group.resources, title: Self.localWorkspaceTitle(machine: machine, group: group), focus: true, host: .app
+                        )
+                    }
                 }
             },
-            selectLocalWorkspace: selectLocalWorkspace,
-            copyToPasteboard: { text in
-                let pasteboard = NSPasteboard.general
-                pasteboard.clearContents()
-                pasteboard.setString(text, forType: .string)
-            },
-            refresh: refresh,
-            killResource: { resource in
-                let name = resource.title.isEmpty ? resource.id.key : resource.title
-                let title = resource.id.kind == .browser
-                    ? String(format: String(localized: "cloudTree.killBrowser.title", defaultValue: "Close browser \u{201C}%@\u{201D}?"), name)
-                    : String(format: String(localized: "cloudTree.killTerminal.title", defaultValue: "Kill terminal \u{201C}%@\u{201D}?"), name)
-                let message = resource.id.kind == .browser
-                    ? String(localized: "cloudTree.killBrowser.message", defaultValue: "The page closes on the machine, everywhere it is shown.")
-                    : String(localized: "cloudTree.killTerminal.message", defaultValue: "The process ends on the machine, everywhere it is shown. Panes keep their scrollback.")
-                guard confirmDestructive(title: title, message: message, verb: String(localized: "cloudTree.killTerminal.confirm", defaultValue: "Kill")) else { return }
-                run(String(format: String(localized: "cloudTree.operation.kill", defaultValue: "Closing %@\u{2026}"), name)) { catalog in
-                    guard let provider = catalog.provider(for: resource.machine) else { throw SurfaceCatalogError.noProvider(resource.machine) }
-                    try await provider.closeResource(resource.id)
-                }
-            },
-            closeWorkspace: { machine, workspace in
-                run(String(format: String(localized: "cloudTree.operation.closeWorkspace", defaultValue: "Closing %@\u{2026}"), workspace.name)) { catalog in
+            newWorkspace: { machine in
+                run(String(format: String(localized: "cloudTree.operation.newWorkspace", defaultValue: "Creating a workspace on %@\u{2026}"), machineName(machine))) { catalog in
                     guard let provider = catalog.provider(for: machine) else { throw SurfaceCatalogError.noProvider(machine) }
-                    try await provider.closeRemoteWorkspace(id: workspace.id)
+                    _ = try await Self.createWorkspaceAndOpenLocally(machine: machine, provider: provider, catalog: catalog, name: nil, focus: true)
+                }
+            },
+            closeTerminal: { resource in
+                guard confirmDestructive(
+                    title: String(format: String(localized: "cloudTree.killTerminal.title", defaultValue: "Kill terminal \u{201C}%@\u{201D}?"), resource.key),
+                    message: String(localized: "cloudTree.killTerminal.message", defaultValue: "The process ends on the machine, everywhere it is shown. Panes keep their scrollback."),
+                    verb: String(localized: "cloudTree.killTerminal.confirm", defaultValue: "Kill")
+                ) else { return }
+                run(String(format: String(localized: "cloudTree.operation.close", defaultValue: "Closing on %@\u{2026}"), machineName(resource.machine))) { catalog in
+                    guard let provider = catalog.provider(for: resource.machine) else { throw SurfaceCatalogError.noProvider(resource.machine) }
+                    try await provider.closeTerminal(resource)
+                }
+            },
+            closeWorkspace: { machine, remoteWorkspaceID in
+                run(String(format: String(localized: "cloudTree.operation.close", defaultValue: "Closing on %@\u{2026}"), machineName(machine))) { catalog in
+                    guard let provider = catalog.provider(for: machine) else { throw SurfaceCatalogError.noProvider(machine) }
+                    try await provider.closeRemoteWorkspace(id: remoteWorkspaceID)
                 }
             },
             deleteWorkspace: { machine, workspace in
@@ -174,7 +159,7 @@ struct CloudTreeNodeActions {
                 run(String(format: String(localized: "cloudTree.operation.deleteWorkspace", defaultValue: "Deleting %@\u{2026}"), workspace.name)) { catalog in
                     guard let provider = catalog.provider(for: machine) else { throw SurfaceCatalogError.noProvider(machine) }
                     for terminal in terminals {
-                        try await provider.closeResource(terminal.id)
+                        try await provider.closeTerminal(terminal.id)
                     }
                     try await provider.closeRemoteWorkspace(id: workspace.id)
                 }
@@ -188,8 +173,60 @@ struct CloudTreeNodeActions {
                     guard let provider = catalog.provider(for: machine) else { throw SurfaceCatalogError.noProvider(machine) }
                     try await provider.renameRemoteWorkspace(id: workspace.id, name: name)
                 }
-            }
+            },
+            selectLocalWorkspace: selectLocalWorkspace,
+            copyToPasteboard: { text in
+                let pasteboard = NSPasteboard.general
+                pasteboard.clearContents()
+                pasteboard.setString(text, forType: .string)
+            },
+            refresh: refresh
         )
+    }
+
+    /// "<machine>: <workspace>" — the local workspace a remote one opens as.
+    static func localWorkspaceTitle(machine: SurfaceMachineID, group: SurfaceResourceGroup) -> String {
+        let name = group.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let host = machine.isLocal ? String(localized: "cloudTree.machine.local", defaultValue: "This Mac") : machine.rawValue
+        return name.isEmpty ? host : "\(host): \(name)"
+    }
+
+    /// The machine's ⌘N, shared by the sidebar's ＋ and the socket's `vm.workspace_new`:
+    /// create the cmux-tui workspace, give it a starter terminal, and open it as a new
+    /// local workspace. The daemon may attach its own starter to a created workspace
+    /// (older cmux-tui builds do), so an existing terminal is reused before a second one
+    /// is created — ⌘N must yield exactly one pane.
+    @MainActor
+    static func createWorkspaceAndOpenLocally(
+        machine: SurfaceMachineID,
+        provider: any SurfaceProvider,
+        catalog: SurfaceCatalog,
+        name: String?,
+        focus: Bool
+    ) async throws -> (
+        workspace: SurfaceRemoteWorkspace,
+        terminal: SurfaceResource,
+        opened: (workspaceID: UUID, projections: [SurfaceProjection])
+    ) {
+        let workspace = try await provider.createRemoteWorkspace(name: name)
+        await provider.refresh()
+        let existing = catalog.snapshot.resources(on: machine).first { resource in
+            resource.id.kind == .terminal && resource.remoteWorkspaces.contains { $0.id == workspace.id }
+        }
+        let terminal: SurfaceResource
+        if let existing {
+            terminal = existing
+        } else {
+            terminal = try await provider.createTerminal(command: nil, cwd: nil, name: nil, remoteWorkspaceID: workspace.id)
+        }
+        let group = SurfaceResourceGroup(title: workspace.name, resources: [terminal.id])
+        let opened = try await catalog.projectGroupAsNewLocalWorkspace(
+            group.resources,
+            title: localWorkspaceTitle(machine: machine, group: group),
+            focus: focus,
+            host: .app
+        )
+        return (workspace, terminal, opened)
     }
 
     /// The house destructive-confirm shape (`NSAlert`, warning style, verb first).

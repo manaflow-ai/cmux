@@ -404,6 +404,13 @@ struct CloudTreeTerminalRowContent: View {
     static func abbreviated(_ path: String) -> String {
         if path == "/root" { return "~" }
         if path.hasPrefix("/root/") { return "~" + path.dropFirst("/root".count) }
+        // A cloud machine's user home (`/home/cua` on the devbox image) reads as `~`,
+        // the way this Mac's rows do — the account name is noise in a cwd column.
+        if let range = path.range(of: "^/home/[^/]+", options: .regularExpression) {
+            let home = String(path[range])
+            if path == home { return "~" }
+            if path.hasPrefix(home + "/") { return "~" + path.dropFirst(home.count) }
+        }
         if let home = ProcessInfo.processInfo.environment["HOME"], !home.isEmpty {
             if path == home { return "~" }
             if path.hasPrefix(home + "/") { return "~" + path.dropFirst(home.count) }
@@ -695,8 +702,21 @@ struct CloudTreeRowHoverButtons: View {
                 nodeActions.newWorkspace(machine)
             }
         case .workspace(let machine, let workspace, _):
-            plus(String(localized: "cloudTree.menu.newTerminalHere", defaultValue: "New Terminal Here")) {
-                nodeActions.newTerminal(machine, workspace.id)
+            HStack(spacing: 4) {
+                plus(String(localized: "cloudTree.menu.newTerminalHere", defaultValue: "New Terminal Here")) {
+                    nodeActions.newTerminal(machine, workspace.id)
+                }
+                if !machine.isLocal {
+                    xmark(String(localized: "cloudTree.row.closeWorkspace", defaultValue: "Close Workspace")) {
+                        nodeActions.closeWorkspace(machine, workspace.id)
+                    }
+                }
+            }
+        case .terminal(let row):
+            if !row.resource.machine.isLocal {
+                xmark(String(localized: "cloudTree.menu.killTerminal", defaultValue: "Kill Terminal\u{2026}")) {
+                    nodeActions.closeTerminal(row.resource.id)
+                }
             }
         default:
             EmptyView()
@@ -708,6 +728,8 @@ struct CloudTreeRowHoverButtons: View {
         switch kind {
         case .machine, .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .workspace:
             return true
+        case .terminal(let row):
+            return !row.resource.machine.isLocal
         default:
             return false
         }
@@ -715,5 +737,9 @@ struct CloudTreeRowHoverButtons: View {
 
     private func plus(_ label: String, action: @escaping () -> Void) -> some View {
         MachinesChromeIconButton(symbolName: "plus", accessibilityLabel: label, isBusy: false, action: action)
+    }
+
+    private func xmark(_ label: String, action: @escaping () -> Void) -> some View {
+        MachinesChromeIconButton(symbolName: "xmark", accessibilityLabel: label, isBusy: false, action: action)
     }
 }

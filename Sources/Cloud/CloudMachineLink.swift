@@ -42,6 +42,24 @@ actor CloudMachineLink {
 
     private(set) var state: SurfaceLinkState = .connecting
     private(set) var lastError: String?
+
+    /// Human-readable text for a link failure. Typed cmux errors describe
+    /// themselves (`VMClientError` is `CustomStringConvertible`, the link and
+    /// manager errors are `LocalizedError`); only foreign errors fall back to
+    /// Foundation's "The operation couldn't be completed. (… error 1.)".
+    nonisolated static func errorText(_ error: Error) -> String {
+        if let localized = error as? LocalizedError, let text = localized.errorDescription, !text.isEmpty {
+            return text
+        }
+        // Swift errors print their `description` (or case name) here; a real
+        // NSError prints "Error Domain=… Code=…", where localizedDescription
+        // is the readable form.
+        let described = String(describing: error)
+        if described.isEmpty || described.hasPrefix("Error Domain=") {
+            return error.localizedDescription
+        }
+        return described
+    }
     private(set) var connected: Connected?
 
     // Foundation `Process` and its pipes are actor-isolated state; every callback hops
@@ -104,7 +122,7 @@ actor CloudMachineLink {
             try process.run()
         } catch {
             state = .error
-            lastError = error.localizedDescription
+            lastError = Self.errorText(error)
             removeInviteFile()
             throw LinkError.spawnFailed(error.localizedDescription)
         }
@@ -112,16 +130,20 @@ actor CloudMachineLink {
         drainStderr(stderr.fileHandleForReading)
 
         // The first connection-snapshot line names the socket; later lines only update
-        // transport topology and are ignored.
-        let socketPath: String = try await withThrowingTaskGroup(of: String?.self) { group in
-            group.addTask {
-                for try await line in stdout.fileHandleForReading.bytes.lines {
-                    if let socket = CmuxTuiSnapshotParser.localSocket(fromLinkLine: line) {
-                        return socket
-                    }
+        // transport topology and are ignored — but stdout keeps draining for the
+        // process's whole life so the client never blocks on a full pipe.
+        let firstSocket = CloudLinkFirstValue<String>()
+        let stdoutLines = CloudLinkPipe.lines(from: stdout.fileHandleForReading)
+        Task.detached {
+            for await line in stdoutLines {
+                if let socket = CmuxTuiSnapshotParser.localSocket(fromLinkLine: line) {
+                    firstSocket.resolve(socket)
                 }
-                return nil
             }
+            firstSocket.resolve(nil)
+        }
+        let socketPath: String = try await withThrowingTaskGroup(of: String?.self) { group in
+            group.addTask { await firstSocket.result }
             group.addTask {
                 try await Task.sleep(for: timeout)
                 return nil
@@ -164,14 +186,15 @@ actor CloudMachineLink {
         let stderr = Pipe()
         process.standardOutput = stdout
         process.standardError = stderr
+        // Pipes drain on GCD (``CloudLinkPipe``) so a chatty command cannot deadlock on a
+        // full pipe and no cooperative thread sits in read(2) or waitpid(2); the exit
+        // arrives through the termination handler. A deadline terminates the child,
+        // which ends both drains with a non-zero status.
+        let exit = CloudLinkFirstValue<Int32>()
+        process.terminationHandler = { exited in exit.resolve(exited.terminationStatus) }
         try process.run()
-        let outFD = stdout.fileHandleForReading
-        let errFD = stderr.fileHandleForReading
-        // Pipes drain on detached tasks so a chatty command cannot deadlock on a full
-        // pipe; the blocking wait lives off the cooperative pool too. A deadline
-        // terminates the child, which unblocks the wait with a non-zero status.
-        async let outData = Task.detached { outFD.readDataToEndOfFile() }.value
-        async let errData = Task.detached { errFD.readDataToEndOfFile() }.value
+        async let outData = CloudLinkPipe.readToEnd(stdout.fileHandleForReading)
+        async let errData = CloudLinkPipe.readToEnd(stderr.fileHandleForReading)
         let deadline = Task<Bool, Never> {
             do {
                 try await Task.sleep(for: timeout)
@@ -181,16 +204,16 @@ actor CloudMachineLink {
             process.terminate()
             return true
         }
-        await Task.detached { process.waitUntilExit() }.value
+        let status = await exit.result ?? process.terminationStatus
         deadline.cancel()
         let timedOut = await deadline.value
         let out = await outData
         let err = await errData
         if timedOut { throw LinkError.timedOut }
-        guard process.terminationStatus == 0 else {
+        guard status == 0 else {
             let text = String(data: err, encoding: .utf8) ?? ""
             let fallback = String(data: out, encoding: .utf8) ?? ""
-            throw LinkError.exited(status: process.terminationStatus, output: text.isEmpty ? fallback : text)
+            throw LinkError.exited(status: status, output: text.isEmpty ? fallback : text)
         }
         return out
     }
@@ -212,25 +235,21 @@ actor CloudMachineLink {
         }
         eventsProcess = process
         let continuation = changesContinuation
-        let handle = stdout.fileHandleForReading
+        let lines = CloudLinkPipe.lines(from: stdout.fileHandleForReading)
         Task.detached {
-            do {
-                for try await line in handle.bytes.lines where !line.isEmpty {
-                    continuation.yield()
-                }
-            } catch {
-                // The link's own exit handler reports the state change.
+            for await line in lines where !line.isEmpty {
+                continuation.yield()
             }
+            // The link's own exit handler reports the state change.
         }
     }
 
     private func drainStderr(_ handle: FileHandle) {
+        let lines = CloudLinkPipe.lines(from: handle)
         Task.detached { [weak self] in
-            do {
-                for try await line in handle.bytes.lines {
-                    await self?.recordStderr(line)
-                }
-            } catch {}
+            for await line in lines {
+                await self?.recordStderr(line)
+            }
         }
     }
 
@@ -257,6 +276,136 @@ actor CloudMachineLink {
         if let inviteFileURL {
             try? FileManager.default.removeItem(at: inviteFileURL)
             self.inviteFileURL = nil
+        }
+    }
+}
+
+/// GCD-driven reading of the link's child-process pipes. `FileHandle.bytes.lines` and
+/// `readDataToEndOfFile()` park a cooperative thread in read(2) for as long as the pipe
+/// stays open; every linked machine held three that way (link stdout, link stderr, the
+/// events stream) and each `run` three more, so a few machines exhausted the pool —
+/// `Task.sleep` deadlines stopped firing, links sat in "connecting" for minutes past
+/// their timeout, and every socket command crawled. `readabilityHandler` runs on a GCD
+/// queue and costs the pool nothing.
+enum CloudLinkPipe {
+    /// Raw chunks as they arrive; ends at EOF. One consumer.
+    static func chunks(from handle: FileHandle) -> AsyncStream<Data> {
+        AsyncStream(bufferingPolicy: .unbounded) { continuation in
+            handle.readabilityHandler = { fh in
+                let data = fh.availableData
+                if data.isEmpty {
+                    fh.readabilityHandler = nil
+                    continuation.finish()
+                } else {
+                    continuation.yield(data)
+                }
+            }
+            continuation.onTermination = { _ in handle.readabilityHandler = nil }
+        }
+    }
+
+    /// Lines (without their newline; a trailing CR is dropped) as they arrive; a final
+    /// unterminated line is delivered at EOF. One consumer.
+    static func lines(from handle: FileHandle) -> AsyncStream<String> {
+        AsyncStream(bufferingPolicy: .unbounded) { continuation in
+            let buffer = LineBuffer()
+            handle.readabilityHandler = { fh in
+                let data = fh.availableData
+                if data.isEmpty {
+                    fh.readabilityHandler = nil
+                    if let tail = buffer.flush() { continuation.yield(tail) }
+                    continuation.finish()
+                    return
+                }
+                for line in buffer.append(data) {
+                    continuation.yield(line)
+                }
+            }
+            continuation.onTermination = { _ in handle.readabilityHandler = nil }
+        }
+    }
+
+    /// Everything up to EOF.
+    static func readToEnd(_ handle: FileHandle) async -> Data {
+        var data = Data()
+        for await chunk in chunks(from: handle) {
+            data.append(chunk)
+        }
+        return data
+    }
+
+    /// Splits a byte stream into lines; only ever touched from the handle's GCD queue.
+    static func splitLines(_ data: Data) -> (lines: [String], rest: Data) {
+        var lines: [String] = []
+        var pending = data
+        while let newline = pending.firstIndex(of: 0x0A) {
+            var line = String(decoding: pending[pending.startIndex..<newline], as: UTF8.self)
+            if line.hasSuffix("\r") { line.removeLast() }
+            lines.append(line)
+            pending = pending[pending.index(after: newline)...]
+        }
+        return (lines, Data(pending))
+    }
+
+    private final class LineBuffer {
+        private var pending = Data()
+
+        func append(_ data: Data) -> [String] {
+            pending.append(data)
+            let split = CloudLinkPipe.splitLines(pending)
+            pending = split.rest
+            return split.lines
+        }
+
+        func flush() -> String? {
+            defer { pending = Data() }
+            guard !pending.isEmpty else { return nil }
+            var line = String(decoding: pending, as: UTF8.self)
+            if line.hasSuffix("\r") { line.removeLast() }
+            return line
+        }
+    }
+}
+
+/// A value resolved at most once from a GCD callback and awaited from Swift concurrency;
+/// `resolve(nil)` finishes it without a value (EOF before the line, no exit status).
+final class CloudLinkFirstValue<Value: Sendable>: @unchecked Sendable {
+    private enum State {
+        case pending
+        case done(Value?)
+    }
+
+    private let lock = NSLock()
+    private var state: State = .pending
+    private var waiters: [CheckedContinuation<Value?, Never>] = []
+
+    func resolve(_ value: Value?) {
+        lock.lock()
+        guard case .pending = state else {
+            lock.unlock()
+            return
+        }
+        state = .done(value)
+        let waiting = waiters
+        waiters = []
+        lock.unlock()
+        for waiter in waiting {
+            waiter.resume(returning: value)
+        }
+    }
+
+    var result: Value? {
+        get async {
+            await withCheckedContinuation { continuation in
+                lock.lock()
+                if case .done(let value) = state {
+                    lock.unlock()
+                    continuation.resume(returning: value)
+                } else {
+                    waiters.append(continuation)
+                    lock.unlock()
+                }
+            }
         }
     }
 }

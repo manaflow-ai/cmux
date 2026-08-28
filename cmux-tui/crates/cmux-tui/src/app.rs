@@ -5761,6 +5761,26 @@ impl PointerRouteIdentity {
             _ => None,
         }
     }
+
+    /// A press that opens the cmux-owned context menu never enters the pane's
+    /// application, so the surface's content generation and encoder semantics
+    /// are not part of that press's route identity. Only the geometry (which
+    /// pane, which region) decides where the menu opens.
+    fn normalized_for_cmux_menu(mut self) -> Self {
+        if let Self::Pane { region, .. } = &mut self {
+            match region {
+                PanePointerRegion::TerminalCell { semantics, content_generation, .. } => {
+                    *semantics = None;
+                    *content_generation = None;
+                }
+                PanePointerRegion::BrowserCell { content_generation, .. } => {
+                    *content_generation = None;
+                }
+                PanePointerRegion::ContentPadding | PanePointerRegion::Chrome => {}
+            }
+        }
+        self
+    }
 }
 
 #[derive(Clone, Default)]
@@ -6966,7 +6986,7 @@ pub struct App {
     active_pointer_buttons: HashSet<MouseButton>,
     ignored_pty_mouse_buttons: HashSet<MouseButton>,
     #[cfg(test)]
-    timeout_drain_hook: Option<Box<dyn FnOnce() + Send>>,
+    timeout_drain_hook: Option<Box<dyn FnOnce(&mut Self) + Send>>,
     encoder: KeyEncoder,
     encode_buf: Vec<u8>,
     quit: bool,
@@ -10239,12 +10259,21 @@ impl App {
                 HostInputMessage::Event(event) => AppEvent::Input(event),
                 HostInputMessage::Failed(error) => AppEvent::HostInputFailed(error),
             };
-            action = action.merge(self.handle(event)?);
-            action = action.merge(self.process_machine_requests());
-            self.mark_pointer_route_for_rebuild(action);
+            action = self.handle_event_and_process_machine_requests(event, action)?;
             drained += 1;
         }
         Ok((action, drained))
+    }
+
+    fn handle_event_and_process_machine_requests(
+        &mut self,
+        event: AppEvent,
+        mut action: RenderAction,
+    ) -> anyhow::Result<RenderAction> {
+        action = action.merge(self.handle(event)?);
+        action = action.merge(self.process_machine_requests());
+        self.mark_pointer_route_for_rebuild(action);
+        Ok(action)
     }
 
     fn event_loop<B: Backend>(
@@ -10298,6 +10327,7 @@ impl App {
                 Duration::from_millis(250)
             };
             let timeout = terminal_paints.wait_timeout(timeout, Instant::now());
+            let mut toast_expired_on_timeout = false;
             let first = match rx.recv_timeout(timeout) {
                 Ok(event) => Some(event),
                 Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
@@ -10308,6 +10338,7 @@ impl App {
                         action = action.merge(RenderAction::Draw);
                     }
                     if self.expire_toast() {
+                        toast_expired_on_timeout = true;
                         action = action.merge(RenderAction::Draw);
                     }
                     if self.tick_sidebar_files() {
@@ -10330,19 +10361,15 @@ impl App {
             if first.is_none()
                 && let Some(hook) = self.timeout_drain_hook.take()
             {
-                hook();
+                hook(self);
             }
             if let Some(event) = first {
-                action = action.merge(self.handle(event)?);
-                action = action.merge(self.process_machine_requests());
-                self.mark_pointer_route_for_rebuild(action);
+                action = self.handle_event_and_process_machine_requests(event, action)?;
             }
             for _ in 0..256 {
                 match rx.try_recv() {
                     Ok(event) => {
-                        action = action.merge(self.handle(event)?);
-                        action = action.merge(self.process_machine_requests());
-                        self.mark_pointer_route_for_rebuild(action);
+                        action = self.handle_event_and_process_machine_requests(event, action)?;
                     }
                     Err(_) => break,
                 }
@@ -10364,7 +10391,8 @@ impl App {
             if self.quit {
                 break;
             }
-            if self.expire_toast() {
+            // Keep a toast reintroduced by the timeout drain hook alive for one iteration.
+            if !toast_expired_on_timeout && self.expire_toast() {
                 action = action.merge(RenderAction::Draw);
             }
             action = action.merge(self.advance_viewport_animation(Instant::now()));
@@ -12347,6 +12375,12 @@ impl App {
         if self.pointer_route_is_globally_stale() {
             return true;
         }
+        if Self::mouse_opens_cmux_context_menu(mouse) {
+            // The menu is owned by cmux rather than the browser bitmap or a
+            // graphics scene. Keep global and layout barriers above, but do
+            // not wait for content admission this press never enters.
+            return false;
+        }
         if self.pending_graphics_changes_cell(mouse.column, mouse.row) {
             return true;
         }
@@ -12354,12 +12388,6 @@ impl App {
             self.pointer_route_phase,
             PointerRoutePhase::GraphicsRenderPending | PointerRoutePhase::GraphicsProcessingPending
         ) {
-            return false;
-        }
-        if Self::mouse_opens_cmux_context_menu(mouse) {
-            // The menu is owned by cmux rather than the browser bitmap. Keep
-            // geometry barriers above, but do not wait for browser content
-            // admission that this press never enters.
             return false;
         }
         let route = self.rendered_pointer_frame.route_for_mouse(mouse);
@@ -14504,7 +14532,7 @@ impl App {
             if let TerminalInput::Mouse(mouse) = input
                 && !pointer_has_capture
             {
-                let rendered_route = self.rendered_pointer_frame.route_for_mouse(mouse);
+                let rendered_route = self.rendered_pointer_route_for_mouse(mouse);
                 let replayed_route_changed = replay_context
                     .as_ref()
                     .and_then(|context| context.pointer.as_ref())
@@ -15696,7 +15724,7 @@ impl App {
                 focus_generation: self.pointer_focus_generation,
                 pointer_map_generation: self.rendered_pointer_frame.pointer_map_generation,
                 route: Self::mouse_requires_rendered_route(mouse.kind)
-                    .then(|| self.rendered_pointer_frame.route_for_mouse(mouse)),
+                    .then(|| self.rendered_pointer_route_for_mouse(mouse)),
             })
         } else {
             None
@@ -15876,6 +15904,17 @@ impl App {
             && mouse.modifiers.contains(KeyModifiers::SHIFT)
     }
 
+    fn rendered_pointer_route_for_mouse(&self, mouse: &MouseEvent) -> PointerRouteIdentity {
+        let route = self.rendered_pointer_frame.route_for_mouse(mouse);
+        if Self::mouse_opens_cmux_context_menu(mouse) {
+            // The menu press never enters the pane's application; async output
+            // must not change its recorded route.
+            route.normalized_for_cmux_menu()
+        } else {
+            route
+        }
+    }
+
     fn pointer_has_capture(&self, kind: MouseEventKind) -> bool {
         match kind {
             MouseEventKind::Drag(button) | MouseEventKind::Up(button) => {
@@ -15920,6 +15959,14 @@ impl App {
         mouse: &MouseEvent,
         missing_surface: Option<SurfaceId>,
     ) -> TerminalPointerAdmissionResult {
+        if Self::mouse_opens_cmux_context_menu(mouse) {
+            // The menu is owned by cmux rather than the terminal
+            // application: the press never forwards bytes, so encoder
+            // semantics and content-generation admission cannot gate it.
+            // Geometry barriers (pending paints, pointer-map mutations)
+            // still defer it through the route staleness checks.
+            return TerminalPointerAdmissionResult::NotTerminal;
+        }
         let Some((surface, input_rect, expected_snapshot)) =
             rendered_route.terminal_pointer_snapshot()
         else {
@@ -23666,7 +23713,7 @@ mod tests {
         StatusTemplateValues, StatusWorkerStop, StdoutLock, SurfaceAttachClaimState,
         SurfaceResizeDecision, SurfaceResizeOwnership, TERMINAL_PAINT_CADENCE, TerminalInput,
         TerminalPaintPacer, TerminalPointerAdmission, TerminalPointerAdmissionResult,
-        TerminalPointerEncoding, TextInput, VIEWPORT_ANIMATION_DURATION, ViewportMotion,
+        TerminalPointerEncoding, TextInput, Toast, VIEWPORT_ANIMATION_DURATION, ViewportMotion,
         ViewportPaneAreaProjection, WorkspaceRailSelection, action_available_in_mode,
         browser_content_size_for_rect, browser_frame_source_crop, browser_hover_forward_allowed,
         browser_source_crop, canonical_terminal_content, catch_renderer_panic,
@@ -23777,6 +23824,56 @@ mod tests {
             RenderAction::Paint,
             "deferred input must flush the pointer route before replay"
         );
+    }
+
+    #[test]
+    fn event_transition_dispatches_machine_request_before_next_event() {
+        let mux = Mux::new("event-transition-machine-order", SurfaceOptions::default());
+        let (mut app, _events) = test_app_with_events(Session::Local(mux));
+        app.machine_ui = Some(provider_machine_ui());
+        let (controller, _requests) = fake_controller(FakeMachineAction::Fail("expected failure"));
+        install_machine_controller(&mut app, controller);
+        let request = MachineRequest::ReconnectProvider;
+        app.machine_ui.as_mut().unwrap().request = Some(request.clone());
+
+        let action = app
+            .handle_event_and_process_machine_requests(
+                AppEvent::Mux(MuxEvent::Status("first".into())),
+                RenderAction::None,
+            )
+            .unwrap();
+        assert_eq!(action, RenderAction::Draw);
+        assert!(app.machine_action_in_flight);
+        assert_eq!(app.machine_action_request, Some(request.clone()));
+        assert!(app.machine_ui.as_ref().unwrap().request.is_none());
+
+        let action = app
+            .handle_event_and_process_machine_requests(
+                AppEvent::Mux(MuxEvent::Status("next".into())),
+                action,
+            )
+            .unwrap();
+        assert_eq!(action, RenderAction::Draw);
+        assert_eq!(app.status_message.as_deref(), Some("next"));
+        assert_eq!(app.machine_action_request, Some(request));
+        app.shutdown_background_workers();
+    }
+
+    #[test]
+    fn event_transition_marks_pointer_route_after_structural_event() {
+        let mux = Mux::new("event-transition-pointer-phase", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        assert_eq!(app.pointer_route_phase, PointerRoutePhase::Fresh);
+
+        let action = app
+            .handle_event_and_process_machine_requests(
+                AppEvent::Mux(MuxEvent::Status("redraw".into())),
+                RenderAction::None,
+            )
+            .unwrap();
+
+        assert_eq!(action, RenderAction::Draw);
+        assert_eq!(app.pointer_route_phase, PointerRoutePhase::DrawPending);
     }
 
     #[test]
@@ -26662,6 +26759,20 @@ mod tests {
         assert_eq!(app.status_message.as_deref(), Some("SSH connection failed"));
         app.run_action(Action::ToggleSidebarCompact).unwrap();
         assert_eq!(app.status_message.as_deref(), Some("SSH connection failed"));
+    }
+
+    #[test]
+    fn expired_toast_is_consumed_once() {
+        let mux = Mux::new("expired-toast-once-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.toast = Some(Toast {
+            text: "expired".to_string(),
+            deadline: Instant::now() - Duration::from_millis(1),
+        });
+
+        assert!(app.expire_toast());
+        assert!(!app.expire_toast());
+        assert!(app.toast.is_none());
     }
 
     #[test]
@@ -30293,6 +30404,100 @@ mod tests {
     }
 
     #[test]
+    fn immediate_menu_press_survives_content_changed_before_surface_output() {
+        let (mux, surface) = test_mux("immediate-menu-content-test", None);
+        surface.with_terminal(|terminal| {
+            for index in 0..100 {
+                terminal.vt_write(format!("line {index}\r\n").as_bytes());
+            }
+        });
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        app.sidebar_visible = false;
+        app.sync_layout((40, 15));
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+        let mut terminal = Terminal::new(TestBackend::new(40, 15)).unwrap();
+        app.render_action(&mut terminal, RenderAction::Draw).unwrap();
+        let content = app.pane_areas[0].content;
+        assert_eq!(app.pointer_route_phase, PointerRoutePhase::Fresh);
+
+        // Terminal content moves after the frame committed, exactly like PTY
+        // output landing between a paint and the user's press.
+        surface.scroll_delta(-3).unwrap();
+        assert_eq!(
+            app.pointer_route_phase,
+            PointerRoutePhase::Fresh,
+            "the queued output event has not marked the rendered route stale yet"
+        );
+
+        app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Right),
+            column: content.x + 4,
+            row: content.y + 2,
+            modifiers: KeyModifiers::SHIFT,
+        })))
+        .unwrap();
+
+        assert!(
+            app.menu.is_some(),
+            "a cmux-owned context menu press must not be swallowed by terminal content \
+             admission: it never forwards bytes to the terminal application"
+        );
+        assert!(app.deferred_input.is_empty());
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn deferred_menu_press_survives_content_repaint_before_replay() {
+        let (mux, surface) = test_mux("deferred-menu-content-test", None);
+        surface.with_terminal(|terminal| {
+            for index in 0..100 {
+                terminal.vt_write(format!("line {index}\r\n").as_bytes());
+            }
+        });
+        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        app.sidebar_visible = false;
+        app.sync_layout((40, 15));
+        while app.session.has_pending_mutations() {
+            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
+        }
+        let mut terminal = Terminal::new(TestBackend::new(40, 15)).unwrap();
+        app.render_action(&mut terminal, RenderAction::Draw).unwrap();
+        let content = app.pane_areas[0].content;
+
+        app.pointer_route_phase = PointerRoutePhase::DrawPending;
+        app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Right),
+            column: content.x + 4,
+            row: content.y + 2,
+            modifiers: KeyModifiers::SHIFT,
+        })))
+        .unwrap();
+        assert_eq!(app.deferred_input.len(), 1);
+        assert!(app.menu.is_none());
+
+        // Content changes while the press waits for its paint, so the
+        // repainted frame carries a newer terminal content generation than
+        // the one recorded when the press was deferred.
+        surface.scroll_delta(-3).unwrap();
+        let repaint = app.handle(AppEvent::Mux(MuxEvent::SurfaceOutput(surface.id))).unwrap();
+        app.render_action(&mut terminal, repaint).unwrap();
+        assert_eq!(app.pointer_route_phase, PointerRoutePhase::Fresh);
+        app.replay_deferred_input().unwrap();
+
+        assert!(app.deferred_input.is_empty());
+        assert!(
+            app.menu.is_some(),
+            "a replayed cmux-owned context menu press must not be dropped because terminal \
+             content changed under it while it waited for the paint"
+        );
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
     fn immediate_untracked_wheel_fails_closed_before_surface_output_marks_route_stale() {
         let (mux, surface) = test_mux("immediate-wheel-semantics-test", None);
         let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
@@ -30700,6 +30905,15 @@ mod tests {
         assert!(
             app.pointer_route_is_stale_for_mouse(&covered),
             "the old browser image still owns this cell until deletion is processed"
+        );
+        let menu = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Right),
+            modifiers: KeyModifiers::SHIFT,
+            ..covered
+        };
+        assert!(
+            !app.pointer_route_is_stale_for_mouse(&menu),
+            "a cmux-owned menu press must not wait for a graphics image it never enters"
         );
 
         app.pending_graphics_snapshot = Some(vec![GraphicIdentity {
@@ -36256,7 +36470,7 @@ mod tests {
         app.shake_frames = 2;
         let (timeout_started_tx, timeout_started_rx) = std::sync::mpsc::channel();
         let (pointer_queued_tx, pointer_queued_rx) = std::sync::mpsc::channel();
-        app.timeout_drain_hook = Some(Box::new(move || {
+        app.timeout_drain_hook = Some(Box::new(move |_| {
             timeout_started_tx.send(()).unwrap();
             pointer_queued_rx.recv().unwrap();
         }));
@@ -36282,6 +36496,33 @@ mod tests {
             app.deferred_input_sequence, 1,
             "pointer input drained after a timeout-triggered draw must cross the rendered-frame barrier"
         );
+    }
+
+    #[test]
+    fn event_loop_expires_toast_on_idle_timeout() {
+        let mux = Mux::new("toast-timeout-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.toast = Some(Toast {
+            text: "expired".to_string(),
+            deadline: Instant::now() - Duration::from_millis(1),
+        });
+        let timeout_seen = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let timeout_seen_in_hook = timeout_seen.clone();
+        let (events, receiver) = crossbeam_channel::unbounded();
+        app.timeout_drain_hook = Some(Box::new(move |app| {
+            timeout_seen_in_hook.store(true, std::sync::atomic::Ordering::Relaxed);
+            app.toast = Some(Toast {
+                text: "reintroduced".to_string(),
+                deadline: Instant::now() - Duration::from_millis(1),
+            });
+            drop(events);
+        }));
+        let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+
+        app.event_loop(&mut terminal, receiver).unwrap();
+
+        assert!(timeout_seen.load(std::sync::atomic::Ordering::Relaxed));
+        assert_eq!(app.toast.as_ref().map(|toast| toast.text.as_str()), Some("reintroduced"));
     }
 
     #[test]

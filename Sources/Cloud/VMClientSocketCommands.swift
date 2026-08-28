@@ -20,12 +20,20 @@ extension TerminalController {
                         "planId": limits.planId,
                         "freeAccessWindowDays": limits.freeAccessWindowDays,
                         "freeAccessExpiresAt": limits.freeAccessExpiresAt.map { $0 as Any } ?? NSNull(),
+                        "imageKinds": limits.imageKinds.map { ["kind": $0.kind.rawValue, "image": $0.image] },
                     ]
                 }
                 return payload
             }
         case "vm.create":
             let image = Self.socketWorkerString(params["image"])
+            let kind: VMMachineKind?
+            switch Self.socketWorkerMachineKind(params["kind"], method: "vm.create") {
+            case .success(let parsed):
+                kind = parsed
+            case .failure(let error):
+                return v2Error(id: id, code: "invalid_params", message: error.message)
+            }
             let provider = Self.socketWorkerString(params["provider"])
             let idempotencyKey = Self.socketWorkerString(params["idempotency_key"])
             guard let idempotencyKey, !idempotencyKey.isEmpty else {
@@ -39,20 +47,34 @@ extension TerminalController {
             let perMachineHome = Self.socketWorkerBool(params["per_machine_home"]) ?? false
             let memoryMb = Self.socketWorkerInt(params["memory_mb"])
             return v2VmCall(id: id) {
-                let vm = try await VMClient.shared.create(image: image, provider: provider, persistentHome: persistentHome, perMachineHome: perMachineHome, memoryMb: memoryMb, idempotencyKey: idempotencyKey)
+                let vm = try await VMClient.shared.create(image: image, kind: kind, provider: provider, persistentHome: persistentHome, perMachineHome: perMachineHome, memoryMb: memoryMb, idempotencyKey: idempotencyKey)
                 return Self.socketWorkerVMSummaryPayload(vm)
             }
         case "vm.base_open":
             let name = Self.socketWorkerString(params["name"])
+            let kind: VMMachineKind?
+            switch Self.socketWorkerMachineKind(params["kind"], method: "vm.base_open") {
+            case .success(let parsed):
+                kind = parsed
+            case .failure(let error):
+                return v2Error(id: id, code: "invalid_params", message: error.message)
+            }
             return v2VmCall(id: id) {
-                let vm = try await VMClient.shared.openBase(name: name)
+                let vm = try await VMClient.shared.openBase(name: name, kind: kind)
                 return Self.socketWorkerVMSummaryPayload(vm)
             }
         case "vm.base_reset":
             let name = Self.socketWorkerString(params["name"])
             let reason = Self.socketWorkerString(params["reason"])
+            let kind: VMMachineKind?
+            switch Self.socketWorkerMachineKind(params["kind"], method: "vm.base_reset") {
+            case .success(let parsed):
+                kind = parsed
+            case .failure(let error):
+                return v2Error(id: id, code: "invalid_params", message: error.message)
+            }
             return v2VmCall(id: id) {
-                let vm = try await VMClient.shared.resetBase(name: name, reason: reason)
+                let vm = try await VMClient.shared.resetBase(name: name, kind: kind, reason: reason)
                 return Self.socketWorkerVMSummaryPayload(vm)
             }
         case "vm.status":
@@ -173,6 +195,24 @@ extension TerminalController {
                 let endpoint = try await VMClient.shared.openPort(id: vmId, port: port)
                 return ["url": endpoint.url, "token": endpoint.token, "open_url": endpoint.openUrl]
             }
+        case "vm.cloud_agent_open":
+            // Shared entrypoint with the Machines panel's cloud-agent menu:
+            // both call CloudAgentSkillLauncher.openAgent, which installs the
+            // bundled skill file and opens a local terminal running the agent.
+            guard let agentRaw = Self.socketWorkerString(params["agent"]),
+                  let agent = CloudAgentSkillLauncher.CodingAgent(rawValue: agentRaw.lowercased())
+            else {
+                let names = CloudAgentSkillLauncher.CodingAgent.allCases.map(\.rawValue).joined(separator: "|")
+                return v2Error(id: id, code: "invalid_params", message: "vm.cloud_agent_open requires `agent` (\(names)).")
+            }
+            return v2VmCall(id: id, timeoutSeconds: 60) {
+                try await CloudAgentSkillLauncher.openAgent(agent)
+            }
+        case "vm.cloud_prompt":
+            return v2VmCall(id: id) {
+                let payload = try CloudAgentSkillLauncher.promptPayload()
+                return ["prompt": payload.prompt, "skill_path": payload.skillPath]
+            }
         case "vm.ssh_info":
             guard let vmId = Self.socketWorkerString(params["id"]), !vmId.isEmpty else {
                 return v2Error(id: id, code: "invalid_params", message: "vm.ssh_info requires `id`. Run `cmux vm ls` to find one.")
@@ -290,6 +330,12 @@ extension TerminalController {
             return socketWorkerVMPortOpenResponse(id: id, params: params)
         case "vm.link_socket":
             return socketWorkerVMLinkSocketResponse(id: id, params: params)
+        case "vm.workspace_open":
+            return socketWorkerVMWorkspaceOpenResponse(id: id, params: params)
+        case "vm.workspace_close":
+            return socketWorkerVMWorkspaceCloseResponse(id: id, params: params)
+        case "vm.terminal_close":
+            return socketWorkerVMTerminalCloseResponse(id: id, params: params)
         default:
             return v2Error(id: id, code: "method_not_found", message: "Unknown method")
         }
@@ -346,11 +392,22 @@ extension TerminalController {
         ]
     }
 
+    /// `kind` is optional; when present it must be a known machine kind.
+    private nonisolated static func socketWorkerMachineKind(_ raw: Any?, method: String) -> Result<VMMachineKind?, SocketWorkerKindError> {
+        guard let rawKind = socketWorkerString(raw), !rawKind.isEmpty else { return .success(nil) }
+        guard let kind = VMMachineKind(rawValue: rawKind.lowercased()) else {
+            let known = VMMachineKind.allCases.map(\.rawValue).joined(separator: "|")
+            return .failure(SocketWorkerKindError(message: "\(method): `kind` must be one of \(known), got `\(rawKind)`."))
+        }
+        return .success(kind)
+    }
+
     private nonisolated static func socketWorkerVMSummaryPayload(_ vm: VMSummary) -> [String: Any] {
         var payload: [String: Any] = [
             "id": vm.id,
             "provider": vm.provider,
             "image": vm.image,
+            "kind": vm.resolvedKind.rawValue,
             "status": vm.status,
             "createdAt": vm.createdAt,
         ]
@@ -538,4 +595,9 @@ extension TerminalController {
         if let string = raw as? String { return Int(string) }
         return nil
     }
+}
+
+/// A rejected `kind` parameter on a machine-creating socket command.
+private struct SocketWorkerKindError: Error {
+    let message: String
 }

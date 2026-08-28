@@ -228,10 +228,9 @@ struct CloudTreeLocalWorkspace: Equatable {
 /// pointer rows; Browsers); ports stay out of the tree for now, and a machine
 /// without a connected link gets a placeholder child instead of the pools.
 enum CloudTreeNodeBuilder {
-    /// Whether the tree shows this Mac's own terminals and browsers. Off (lawrence,
-    /// 2026-08-27): the Cloud panel is about cloud machines; this Mac's content is
-    /// already the rest of the app. The gate stays so the same-shape tree remains
-    /// one flip away.
+    /// Whether the tree shows this Mac's own terminals and browsers. Off for now —
+    /// the Machines panel is the cloud fleet; this Mac's surfaces already live in the
+    /// sidebar — and the gate stays so the mixed tree remains one flip away.
     nonisolated(unsafe) static var includesLocalMachine = false
 
     static func nodes(
@@ -437,17 +436,31 @@ enum CloudTreeNodeBuilder {
             if workspaces.isEmpty {
                 children.append(placeholder(machine, text: String(localized: "cloudTree.placeholder.noWorkspaces", defaultValue: "No workspaces yet"), style: .dimmed))
             } else {
-                let browsersByWorkspace = Dictionary(grouping: resources.filter { $0.kind == .browser && $0.remoteWorkspace != nil }, by: { $0.remoteWorkspace!.id })
+                // A workspace holds more than terminals: daemon browsers are tab content
+                // too, so they get rows under every workspace that views them and ride
+                // along in the workspace's open/drag group.
+                var browsersByWorkspace: [String: [SurfaceResource]] = [:]
+                for browser in resources where browser.kind == .browser {
+                    for workspace in browser.remoteWorkspaces {
+                        browsersByWorkspace[workspace.id, default: []].append(browser)
+                    }
+                }
                 let workspaceNodes = workspaces.map { workspace, pointed in
-                    CloudTreeNode(
+                    let workspaceBrowsers = browsersByWorkspace[workspace.id] ?? []
+                    return CloudTreeNode(
                         id: nodeID(workspace: workspace.id, machine: machine),
                         kind: .workspace(machine: machine, workspace, terminalCount: pointed.count),
                         children: pointed.map {
                             terminalNode($0, snapshot: snapshot, id: nodeID(resource: $0.id, inRemoteWorkspace: workspace.id))
+                        } + workspaceBrowsers.map {
+                            CloudTreeNode(
+                                id: nodeID(resource: $0.id, inRemoteWorkspace: workspace.id),
+                                kind: .browser(CloudTreeBrowserRow(resource: $0, isOpen: snapshot.isOpen($0.id), workspaceTitle: nil))
+                            )
                         },
                         dragGroup: SurfaceResourceGroup(
                             title: workspace.name,
-                            resources: (pointed + (browsersByWorkspace[workspace.id] ?? [])).map(\.id)
+                            resources: (pointed + workspaceBrowsers).map(\.id)
                         )
                     )
                 }
@@ -461,7 +474,7 @@ enum CloudTreeNodeBuilder {
         // Ports are out of the tree for now (still in the catalog: the CLI and
         // `cmux vm open <id>:port/<n>` keep working); the rows return with the
         // pool rework if they earn their place back.
-        let browsers = resources.filter { $0.kind == .browser && $0.port == nil }
+        let browsers = resources.filter { $0.kind == .browser && $0.port == nil && $0.remoteViewCount == 0 }
         if !browsers.isEmpty {
             children.append(CloudTreeNode(
                 id: nodeID(browsersGroup: machine),

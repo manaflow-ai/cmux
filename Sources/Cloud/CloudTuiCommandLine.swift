@@ -41,19 +41,20 @@ struct CloudTuiCommandLine: Sendable {
         ["--socket", socketPath, "--json", "workspace", "create", "--name", name]
     }
 
-    /// `terminal <term_id> close` / `browser <browser_id> close`: kill the resource.
-    /// Only these kill content; pane/screen/workspace closes merely detach views
-    /// (`spec/cli.md`), which is why the tree's "Kill" verbs route here.
-    static func closeResourceArguments(socketPath: String, kind: SurfaceResourceKind, resourceID: String) -> [String]? {
-        switch kind {
-        case .terminal: return ["--socket", socketPath, "--json", "terminal", resourceID, "close"]
-        case .browser: return ["--socket", socketPath, "--json", "browser", resourceID, "close"]
-        default: return nil
-        }
+    /// `terminal <term_id> close`: end that remote terminal (spec `terminal.close`).
+    static func closeTerminalArguments(socketPath: String, terminalID: String) -> [String] {
+        ["--socket", socketPath, "--json", "terminal", terminalID, "close"]
+    }
+
+    /// `tab <tab_id> close`: drop the tab that held a terminal whose process already
+    /// exited — cmux-tui no longer resolves such a terminal by its own selector.
+    static func closeTabArguments(socketPath: String, tabID: String) -> [String] {
+        ["--socket", socketPath, "--json", "tab", tabID, "close"]
     }
 
     /// `workspace <ws_id> close`: remove the workspace view. Its terminals detach
-    /// (alive, zero views) rather than die — kill them first for a full delete.
+    /// (alive, zero views) rather than die (`spec/cli.md`) — close them first for
+    /// a full delete.
     static func closeWorkspaceArguments(socketPath: String, workspaceID: String) -> [String] {
         ["--socket", socketPath, "--json", "workspace", workspaceID, "close"]
     }

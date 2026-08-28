@@ -19,13 +19,15 @@ protocol SurfaceProvider: AnyObject {
     /// Called when a pane projecting one of this provider's resources goes away. Remote
     /// providers do nothing (the resource lives on); the local provider drops the resource.
     func projectionDidEnd(_ projection: SurfaceProjection)
+    /// End a terminal on this machine (the process and its remote tab). Providers that
+    /// cannot (the local machine) throw `SurfaceCatalogError.unsupported`.
+    func closeTerminal(_ id: SurfaceResourceID) async throws
     /// Create a new, empty workspace on this machine, directly (not as a side effect of
     /// creating a terminal). Providers without remote workspaces refuse.
     func createRemoteWorkspace(name: String?) async throws -> SurfaceRemoteWorkspace
-    /// Kill a resource (the terminal's process, the browser's page) — not a view of it.
-    /// Providers that cannot kill content refuse.
-    func closeResource(_ id: SurfaceResourceID) async throws
-    /// Close a remote workspace view. Its content detaches; it does not die.
+    /// Close a workspace view on this machine. Its terminals detach into the pool
+    /// (`spec/cli.md`: only `terminal close` kills); callers wanting a full delete
+    /// close each terminal first.
     func closeRemoteWorkspace(id: String) async throws
     /// Rename a remote workspace.
     func renameRemoteWorkspace(id: String, name: String) async throws
@@ -39,22 +41,18 @@ protocol SurfaceProvider: AnyObject {
 }
 
 extension SurfaceProvider {
+    func closeTerminal(_ id: SurfaceResourceID) async throws {
+        throw SurfaceCatalogError.unsupported("closing terminals on \(machine)")
+    }
     func createRemoteWorkspace(name: String?) async throws -> SurfaceRemoteWorkspace {
         throw SurfaceCatalogError.unsupported("workspaces on \(machine)")
     }
-
-    func closeResource(_ id: SurfaceResourceID) async throws {
-        throw SurfaceCatalogError.unsupported("closing resources on \(machine)")
-    }
-
     func closeRemoteWorkspace(id: String) async throws {
-        throw SurfaceCatalogError.unsupported("workspaces on \(machine)")
+        throw SurfaceCatalogError.unsupported("closing workspaces on \(machine)")
     }
-
     func renameRemoteWorkspace(id: String, name: String) async throws {
         throw SurfaceCatalogError.unsupported("workspaces on \(machine)")
     }
-
     @discardableResult
     func discardMaterialization(_ projection: SurfaceProjection) -> Bool {
         SurfacePaneFactory.close(panelID: projection.panelID, in: projection.workspaceID)

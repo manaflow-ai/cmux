@@ -261,3 +261,41 @@ enum SurfaceCatalogError: Error, LocalizedError, Equatable {
         }
     }
 }
+
+/// Preview endpoints already minted for one machine's HTTP ports (the desktop's noVNC on
+/// 6901, daemon browsers on theirs). `POST /api/vm/<id>/open-port` mints a 7-day preview
+/// token behind three provider round trips, which is the whole wait between dropping a
+/// display row and seeing its pane. An entry is reused until `ttl` elapses (well inside
+/// the token's life) and dies with its provider, so a deleted machine never serves a
+/// stale URL. Stores the raw `openUrl`; callers add display parameters on read.
+struct SurfacePortEndpointCache: Sendable {
+    struct Entry: Equatable, Sendable {
+        let openURL: String
+        let expiresAt: Date
+    }
+
+    /// Six hours: far under the token's 7 days, long enough that a machine open all day
+    /// mints a handful of leases, not one per drop.
+    static let defaultTTL: TimeInterval = 6 * 60 * 60
+
+    private(set) var entries: [Int: Entry] = [:]
+    let ttl: TimeInterval
+
+    init(ttl: TimeInterval = SurfacePortEndpointCache.defaultTTL) {
+        self.ttl = ttl
+    }
+
+    /// The cached `openUrl` for `port`, or nil once its entry has expired.
+    func openURL(port: Int, now: Date = Date()) -> String? {
+        guard let entry = entries[port], entry.expiresAt > now else { return nil }
+        return entry.openURL
+    }
+
+    mutating func store(openURL: String, port: Int, now: Date = Date()) {
+        entries[port] = Entry(openURL: openURL, expiresAt: now.addingTimeInterval(ttl))
+    }
+
+    mutating func invalidate(port: Int) {
+        entries[port] = nil
+    }
+}

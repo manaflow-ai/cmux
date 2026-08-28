@@ -1,6 +1,7 @@
 import Bonsplit
 import CmuxControlSocket
 import Foundation
+import WebKit
 
 /// The one place that turns a ``SurfaceDestination`` into a pane. Providers call it to
 /// materialize a projection; it maps the destination onto the same `surface.split` /
@@ -40,6 +41,28 @@ enum SurfacePaneFactory {
         try create(typeRaw: "browser", url: url.absoluteString, initialCommand: nil, workingDirectory: nil, at: destination, focus: focus)
     }
 
+    /// The URL a browser pane opens with when its real URL is still being resolved; the
+    /// caller fills the pane with ``SurfaceBrowserPlaceholder`` content and navigates later.
+    static let blankURL = URL(string: "about:blank")!
+
+    /// The browser pane behind a projection, if it still exists and is a browser.
+    static func browserPanel(panelID: UUID, in workspaceID: UUID) -> BrowserPanel? {
+        workspace(id: workspaceID)?.panels[panelID] as? BrowserPanel
+    }
+
+    /// Sends an existing browser pane to `url` — the optimistic pane's second step, once
+    /// the provider has its endpoint. A pane the person already closed is a no-op.
+    static func navigate(panelID: UUID, in workspaceID: UUID, to url: URL) {
+        guard let browser = browserPanel(panelID: panelID, in: workspaceID) else { return }
+        _ = browser.navigate(to: url)
+    }
+
+    /// Fills an existing browser pane with local HTML (a connecting or failure screen).
+    static func showPlaceholder(_ html: String, panelID: UUID, in workspaceID: UUID) {
+        guard let browser = browserPanel(panelID: panelID, in: workspaceID) else { return }
+        browser.webView.loadHTMLString(html, baseURL: nil)
+    }
+
     /// Selects the workspace and focuses the pane, the way `surface.focus` does — an explicit
     /// focus-intent operation that still never activates the app.
     static func focus(panelID: UUID, in workspaceID: UUID) {
@@ -51,12 +74,17 @@ enum SurfacePaneFactory {
         _ = TerminalController.shared.controlSurfaceClose(routing: routing(workspaceID: workspaceID), surfaceID: panelID, hasSurfaceIDParam: true)
     }
 
-    /// Closes the transient Cloud VM loading pane a `.cloudVMLoading` workspace
-    /// boots with, once real panes have been projected next to it.
-    static func closeLoadingPane(in workspaceID: UUID) {
-        guard let workspace = workspace(id: workspaceID),
-              let pair = workspace.panels.first(where: { $0.value.panelType == .cloudVMLoading }) else { return }
-        close(panelID: pair.key, in: workspaceID)
+    /// A fresh local workspace (⌘N) titled `title`, returned with the id of the starter
+    /// pane it opened with so a caller projecting a group can take that pane's place.
+    static func createLocalWorkspace(title: String) throws -> (workspaceID: UUID, starterPanelID: UUID?) {
+        guard let workspace = AppDelegate.shared?.addWorkspaceInPreferredMainWindow(
+            title: title,
+            shouldBringToFront: false,
+            debugSource: "surface.catalog.newWorkspace"
+        ) else {
+            throw FactoryError.workspaceNotFound(UUID())
+        }
+        return (workspace.id, workspace.focusedPanelId)
     }
 
     /// The pane (Bonsplit id) that hosts a panel, for re-projecting in place.
@@ -189,5 +217,75 @@ enum SurfacePaneFactory {
             return (createdWorkspaceID, surfaceID)
         }
         throw FactoryError.creationFailed("\(resolution)")
+    }
+}
+
+/// The local pages an optimistic browser pane shows while its endpoint resolves (and if
+/// that fails). Pure: strings in, HTML out, every dynamic value escaped.
+enum SurfaceBrowserPlaceholder {
+    /// "Connecting to <label>…" on the desktop's dark background, so the pane reads as
+    /// the desktop's own loading state rather than a blank tab.
+    static func connecting(_ label: String) -> String {
+        let title = String(
+            format: String(localized: "cloudTree.pane.connecting", defaultValue: "Connecting to %@…"),
+            label
+        )
+        return page(title: title, detail: nil, spinner: true)
+    }
+
+    /// "Couldn't open <label>" with the typed error and the way back.
+    static func failed(_ label: String, error: String) -> String {
+        let title = String(
+            format: String(localized: "cloudTree.pane.failed", defaultValue: "Couldn’t open %@"),
+            label
+        )
+        let hint = String(
+            localized: "cloudTree.pane.retryHint",
+            defaultValue: "Close this pane and open it again from the sidebar."
+        )
+        return page(title: title, detail: "\(error)\n\(hint)", spinner: false)
+    }
+
+    static func escape(_ text: String) -> String {
+        var out = ""
+        out.reserveCapacity(text.utf8.count)
+        for character in text {
+            switch character {
+            case "&": out += "&amp;"
+            case "<": out += "&lt;"
+            case ">": out += "&gt;"
+            case "\"": out += "&quot;"
+            case "'": out += "&#39;"
+            default: out.append(character)
+            }
+        }
+        return out
+    }
+
+    private static func page(title: String, detail: String?, spinner: Bool) -> String {
+        let detailHTML = detail.map { text in
+            text.split(separator: "\n", omittingEmptySubsequences: false)
+                .map { "<p>\(escape(String($0)))</p>" }
+                .joined()
+        } ?? ""
+        let spinnerHTML = spinner ? "<div class=\"spinner\" role=\"progressbar\"></div>" : ""
+        return """
+        <!doctype html>
+        <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>\(escape(title))</title>
+        <style>
+          html, body { margin: 0; height: 100%; background: #1f2430; color: #d8dee9; }
+          body { display: flex; align-items: center; justify-content: center;
+                 font: 14px -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif; }
+          main { text-align: center; max-width: 36em; padding: 0 1.5em; }
+          h1 { font-size: 15px; font-weight: 500; margin: 0 0 0.6em; }
+          p { margin: 0.3em 0; opacity: 0.8; word-break: break-word; }
+          .spinner { width: 22px; height: 22px; margin: 0 auto 14px; border-radius: 50%;
+                     border: 2px solid rgba(216,222,233,0.25); border-top-color: #d8dee9;
+                     animation: spin 0.9s linear infinite; }
+          @keyframes spin { to { transform: rotate(360deg); } }
+        </style></head>
+        <body><main>\(spinnerHTML)<h1>\(escape(title))</h1>\(detailHTML)</main></body></html>
+        """
     }
 }
