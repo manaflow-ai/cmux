@@ -13,6 +13,10 @@ import SwiftUI
 struct RenderNodeContextMenuOverlay: NSViewRepresentable {
     let nodes: [RenderNode]
     let dispatch: SidebarActionDispatch
+    /// Logical render-tree location of the row owning this overlay. SwiftUI
+    /// can flatten nested platform views, so this path supplies ownership
+    /// information that AppKit's view ancestry does not retain.
+    let contextMenuPath: [Int]
     /// VoiceOver bridge: the row's `.accessibilityAction(.showMenu)` presents
     /// through this handle, which tracks the mounted overlay view.
     let handle: RenderNodeContextMenuHandle
@@ -30,6 +34,7 @@ struct RenderNodeContextMenuOverlay: NSViewRepresentable {
     private func apply(to view: RenderNodeContextMenuView, context: Context) {
         view.nodes = nodes
         view.dispatch = dispatch
+        view.contextMenuPath = contextMenuPath
         // `.disabled(true)` on the row or an ancestor reaches the overlay as
         // the SwiftUI `isEnabled` environment; a disabled row must not offer
         // its context menu, matching native SwiftUI behavior.

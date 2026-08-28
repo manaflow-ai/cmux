@@ -10,8 +10,17 @@ import SwiftUI
 /// from the environment.
 struct RenderNodeView: View {
     let node: RenderNode
+    /// Logical location in the interpreted render tree. AppKit can flatten
+    /// nested `NSViewRepresentable` overlays into one hosting-view sibling
+    /// list, so menu ownership cannot be inferred from view ancestry alone.
+    private let contextMenuPath: [Int]
 
     @Environment(\.sidebarActionDispatch) private var dispatch
+
+    init(node: RenderNode, contextMenuPath: [Int] = []) {
+        self.node = node
+        self.contextMenuPath = contextMenuPath
+    }
 
     var body: some View {
         let view = applyModifiers(content, node.modifiers)
@@ -77,9 +86,9 @@ struct RenderNodeView: View {
         case .viewThatFits:
             ViewThatFits { children }
         case .hsplit:
-            ResizableHSplit(columns: node.children)
+            ResizableHSplit(columns: node.children, contextMenuPath: contextMenuPath)
         case .reorderable:
-            ReorderableList(rows: node.children, spec: node.reorder)
+            ReorderableList(rows: node.children, spec: node.reorder, contextMenuPath: contextMenuPath)
         case .text:
             Text(node.text ?? "")
         case .label:
@@ -151,20 +160,20 @@ struct RenderNodeView: View {
 
     @ViewBuilder
     private var children: some View {
-        ForEach(Array(node.children.enumerated()), id: \.offset) { _, child in
-            RenderNodeView(node: child)
+        ForEach(Array(node.children.enumerated()), id: \.offset) { index, child in
+            RenderNodeView(node: child, contextMenuPath: contextMenuPath + [index])
         }
     }
 
     private func applyModifiers(_ view: some View, _ modifiers: [RenderModifier]) -> AnyView {
         var result = AnyView(view)
-        for modifier in modifiers {
-            result = apply(modifier, to: result)
+        for (index, modifier) in modifiers.enumerated() {
+            result = apply(modifier, index: index, to: result)
         }
         return result
     }
 
-    private func apply(_ modifier: RenderModifier, to view: AnyView) -> AnyView {
+    private func apply(_ modifier: RenderModifier, index: Int, to view: AnyView) -> AnyView {
         let token = clean(modifier.firstValue)
         switch modifier.name {
         case "font":
@@ -200,29 +209,29 @@ struct RenderNodeView: View {
         case "background":
             if !modifier.children.isEmpty {
                 let alignment = frameAlignment(clean(modifier.value("alignment")))
-                return AnyView(view.background(alignment: alignment) { modifierChildren(modifier) })
+                return AnyView(view.background(alignment: alignment) { modifierChildren(modifier, index: index) })
             }
             if let color = dslColor(token) { return AnyView(view.background(color)) }
             return view
         case "overlay":
             if !modifier.children.isEmpty {
                 let alignment = frameAlignment(clean(modifier.value("alignment")))
-                return AnyView(view.overlay(alignment: alignment) { modifierChildren(modifier) })
+                return AnyView(view.overlay(alignment: alignment) { modifierChildren(modifier, index: index) })
             }
             if let color = dslColor(token) { return AnyView(view.overlay(color)) }
             return view
         case "mask":
             if !modifier.children.isEmpty {
-                return AnyView(view.mask { modifierChildren(modifier) })
+                return AnyView(view.mask { modifierChildren(modifier, index: index) })
             }
             return view
         case "safeAreaInset":
             if !modifier.children.isEmpty {
                 let edge = clean(modifier.value("edge"))
                 if edge == "top" {
-                    return AnyView(view.safeAreaInset(edge: .top) { modifierChildren(modifier) })
+                    return AnyView(view.safeAreaInset(edge: .top) { modifierChildren(modifier, index: index) })
                 }
-                return AnyView(view.safeAreaInset(edge: .bottom) { modifierChildren(modifier) })
+                return AnyView(view.safeAreaInset(edge: .bottom) { modifierChildren(modifier, index: index) })
             }
             return view
         case "cornerRadius":
@@ -294,6 +303,7 @@ struct RenderNodeView: View {
                             RenderNodeContextMenuOverlay(
                                 nodes: modifier.children,
                                 dispatch: dispatch,
+                                contextMenuPath: contextMenuPath,
                                 handle: handle
                             )
                             .accessibilityHidden(true)
@@ -388,13 +398,16 @@ struct RenderNodeView: View {
     /// Renders a child-bearing modifier's subtree (overlay/background/mask
     /// content). Multiple top-level views stack in a `ZStack`.
     @ViewBuilder
-    private func modifierChildren(_ modifier: RenderModifier) -> some View {
+    private func modifierChildren(_ modifier: RenderModifier, index: Int) -> some View {
+        // Ordinary child components are non-negative indexes. A negative
+        // component keeps modifier subtrees distinct from node children.
+        let modifierPath = contextMenuPath + [-1, index]
         if modifier.children.count == 1 {
-            RenderNodeView(node: modifier.children[0])
+            RenderNodeView(node: modifier.children[0], contextMenuPath: modifierPath + [0])
         } else {
             ZStack {
-                ForEach(Array(modifier.children.enumerated()), id: \.offset) { _, child in
-                    RenderNodeView(node: child)
+                ForEach(Array(modifier.children.enumerated()), id: \.offset) { childIndex, child in
+                    RenderNodeView(node: child, contextMenuPath: modifierPath + [childIndex])
                 }
             }
         }
