@@ -1122,7 +1122,13 @@ fn restore_agent_roster(registry: &WorkspaceRegistry) -> anyhow::Result<AgentRos
     };
     let mut host = match registry.journal_reducer_state(AGENT_ROSTER_REDUCER_ID)? {
         Some((version, cursor, snapshot)) if version == AGENT_ROSTER_REDUCER_VERSION => {
-            AgentRosterHost { roster: AgentRoster::restore(&snapshot).unwrap_or_default(), cursor }
+            match AgentRoster::restore(&snapshot) {
+                Some(roster) => AgentRosterHost { roster, cursor },
+                // A cursor is meaningful only with its matching snapshot.
+                // If the snapshot is corrupt, replay from the journal head;
+                // retaining the cursor would silently lose the tail.
+                None => AgentRosterHost::default(),
+            }
         }
         _ => AgentRosterHost::default(),
     };
@@ -22286,7 +22292,13 @@ mod tests {
         };
 
         let registry = WorkspaceRegistry::open(&root, session).unwrap();
-        let sequence = registry.session_journal_after(0, 512).unwrap().records.last().unwrap().sequence;
+        let sequence = registry
+            .session_journal_after(0, 512)
+            .unwrap()
+            .records
+            .last()
+            .unwrap()
+            .sequence;
         registry
             .put_journal_reducer_state(
                 AGENT_ROSTER_REDUCER_ID,
