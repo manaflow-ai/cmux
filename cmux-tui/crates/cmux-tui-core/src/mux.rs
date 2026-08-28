@@ -1133,8 +1133,26 @@ fn restore_agent_roster(registry: &WorkspaceRegistry) -> anyhow::Result<AgentRos
         _ => AgentRosterHost::default(),
     };
     let started_at = host.cursor;
+    let mut reset_after_error = false;
     loop {
-        let page = registry.session_journal_after(host.cursor, 512)?;
+        let page = match registry.session_journal_after(host.cursor, 512) {
+            Ok(page) => page,
+            Err(error) if !reset_after_error && host.cursor != 0 => {
+                // A persisted cursor can point past the head or before the
+                // retained journal floor. Do not fail startup on corrupt
+                // derived state. Reset and make one best-effort replay from
+                // the journal head; if the journal itself has a gap, return
+                // an empty, safe roster and let future events rebuild it.
+                eprintln!("cmux-tui: resetting invalid agent roster cursor: {error}");
+                host = AgentRosterHost::default();
+                reset_after_error = true;
+                continue;
+            }
+            Err(error) => {
+                eprintln!("cmux-tui: agent journal replay unavailable after cursor reset: {error}");
+                return Ok(AgentRosterHost::default());
+            }
+        };
         if page.records.is_empty() {
             break;
         }
