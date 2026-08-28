@@ -238,13 +238,20 @@ final class FileDropOverlayView: NSView {
         }
 
         let target: NSView?
-        if let eventButton, isForwardedMouseDragMotion(event.type) || shouldTrackForwardedMouseDragEnd(for: event.type) {
+        if let eventButton,
+           (isForwardedMouseDragMotion(event.type)
+            || shouldTrackForwardedMouseDragEnd(for: event.type)),
+           let activeTarget = forwardedMouseDragTargets[eventButton]?.view,
+           activeTarget.window != nil {
             // Preserve normal AppKit mouse-delivery semantics: once a drag
             // starts, keep routing dragged/up events to that button's original
-            // mouseDown target. A motion/up without a capture is discarded;
-            // hit-testing it as a fresh drag would invent a new gesture.
-            target = forwardedMouseDragTargets[eventButton]?.view
+            // mouseDown target.
+            target = activeTarget
         } else {
+            // A stale file-drop pasteboard can make the overlay receive a
+            // dragged/up event even though its down was delivered underneath.
+            // Recover the normal target in that case instead of dropping the
+            // event and leaving the underlying selection gesture incomplete.
             let point = contentView.convert(event.locationInWindow, from: nil)
             target = contentView.hitTest(point)
         }

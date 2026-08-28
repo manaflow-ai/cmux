@@ -3933,6 +3933,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// mouse-up monitor demand-driven avoids fan-out across every terminal
     /// view for ordinary clicks elsewhere in the window.
     private var mouseUpEventMonitor: Any?
+    /// Observes releases delivered outside cmux while a terminal owns a
+    /// button session. Demand-driven: installed only while sessions exist.
+    private var globalMouseUpEventMonitor: Any?
+    private var applicationResignActiveObserver: NSObjectProtocol?
     private var contextMenuEndObserver: NSObjectProtocol?
     nonisolated let terminalClipboardInputSequencer =
         TerminalClipboardInputSequencer<ClipboardDeferredInput, UInt>(
@@ -4189,13 +4193,51 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             }
             return self.localEventMouseUp(event)
         }
+        globalMouseUpEventMonitor = NSEvent.addGlobalMonitorForEvents(
+            matching: [.leftMouseUp, .rightMouseUp, .otherMouseUp]
+        ) { [weak self] event in
+            self?.globalMouseUpEvent(event)
+        }
+        applicationResignActiveObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didResignActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.deferReleaseAllGhosttyMouseButtons(reason: "applicationDidResignActive")
+        }
     }
 
     private func removeMouseUpEventMonitorIfUnused() {
-        guard ghosttyMouseSessionLedger.activeButtons.isEmpty,
-              let mouseUpEventMonitor else { return }
-        NSEvent.removeMonitor(mouseUpEventMonitor)
-        self.mouseUpEventMonitor = nil
+        guard ghosttyMouseSessionLedger.activeButtons.isEmpty else { return }
+        if let mouseUpEventMonitor {
+            NSEvent.removeMonitor(mouseUpEventMonitor)
+            self.mouseUpEventMonitor = nil
+        }
+        if let globalMouseUpEventMonitor {
+            NSEvent.removeMonitor(globalMouseUpEventMonitor)
+            self.globalMouseUpEventMonitor = nil
+        }
+        if let applicationResignActiveObserver {
+            NotificationCenter.default.removeObserver(applicationResignActiveObserver)
+            self.applicationResignActiveObserver = nil
+        }
+    }
+
+    private func globalMouseUpEvent(_ event: NSEvent) {
+        guard let button = TrackedMouseButton(mouseUpEvent: event),
+              ghosttyMouseSessionLedger.hasSession(
+                  for: button,
+                  on: currentGhosttyMouseSurfaceIdentity
+              ),
+              !hasClipboardInputDeferral else {
+            return
+        }
+        // Global monitor callbacks have no view-local coordinate space. Keep
+        // the ledger's last point and release only the matching session token.
+        deferGhosttyMouseButtonRepair(
+            reason: "globalMouseUp.\(button.rawValue)",
+            forceButtons: Set([button])
+        )
     }
 
     private func removeContextMenuEndObserver() {
@@ -4341,12 +4383,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     private func resetGhosttyMouseButtonTracking() {
-        if let mouseUpEventMonitor {
-            NSEvent.removeMonitor(mouseUpEventMonitor)
-            self.mouseUpEventMonitor = nil
-        }
-        removeContextMenuEndObserver()
         ghosttyMouseSessionLedger.invalidate()
+        removeMouseUpEventMonitorIfUnused()
+        removeContextMenuEndObserver()
     }
 
     func attachSurface(_ surface: TerminalSurface) {
@@ -8422,16 +8461,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         sendsTerminalPointerEvent: Bool
     ) -> NSMenu? {
         removeContextMenuEndObserver()
+        guard let initialSurface = surface else { return nil }
+        if sendsTerminalPointerEvent, ghostty_surface_mouse_captured(initialSurface) {
+            // A terminal that owns a captured right drag must keep that drag
+            // alive; no context menu is created for the captured protocol.
+            return nil
+        }
         reconcileGhosttyMouseButtons(
             reason: "menu.preflight",
             forceButtons: Set([.right])
         )
-        guard surface != nil else { return nil }
-        if sendsTerminalPointerEvent, let surface,
-           ghostty_surface_mouse_captured(surface) {
-            return nil
-        }
-
         window?.makeFirstResponder(self)
         guard let surface = surface else { return nil }
         if sendsTerminalPointerEvent, ghostty_surface_mouse_captured(surface) {
@@ -8837,6 +8876,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         releaseAllGhosttyMouseButtonsSynchronously(reason: "view.deinit")
         deferredGhosttyMouseRepairTask = nil
         ghosttyMouseSessionLedger.invalidate()
+        removeMouseUpEventMonitorIfUnused()
         terminalSurface = nil
     }
 
