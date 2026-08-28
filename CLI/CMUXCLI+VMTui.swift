@@ -378,10 +378,18 @@ extension CMUXCLI {
         if let target = options.targetWorkspaceId?.trimmingCharacters(in: .whitespacesAndNewlines), !target.isEmpty {
             // The app pre-created this workspace with a loading pane; the link takes
             // that pane's place (no new workspace, no title change).
-            let ready = try client.sendV2(
-                method: "workspace.cloud_vm_terminal_ready",
-                params: ["workspace_id": target, "initial_command": initialCommand, "focus": true]
-            )
+            let ready: [String: Any]
+            do {
+                ready = try client.sendV2(
+                    method: "workspace.cloud_vm_terminal_ready",
+                    params: ["workspace_id": target, "initial_command": initialCommand, "focus": true]
+                )
+            } catch let error as CLIError where error.message.contains("loading surface not found") {
+                // An ordinary workspace (`--workspace workspace:3` from a person or an agent),
+                // not one the app pre-created with a loading pane: nothing to replace, the
+                // shell opens into it as a new pane — the sidebar's "Open Shell".
+                ready = ["workspace_id": target]
+            }
             workspaceId = (ready["workspace_id"] as? String) ?? target
             workspaceRef = ready["workspace_ref"] as? String
             windowId = (ready["window_id"] as? String) ?? windowRaw
