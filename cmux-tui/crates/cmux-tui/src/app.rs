@@ -12876,7 +12876,23 @@ impl App {
         }
         self.rebuild_tab_locations();
         self.reapply_mux_titles();
-        self.reconcile_workspace_preview();
+        if let Some(preview) = self.workspace_preview {
+            let target_index = self.workspace_preview_target_index.filter(|&index| {
+                self.tree
+                    .workspaces
+                    .get(index)
+                    .is_some_and(|workspace| workspace.id == preview.target)
+            });
+            if self.workspace_preview_revision == Some(self.tree.workspace_revision)
+                && let Some(target_index) = target_index
+            {
+                self.tree.active_workspace = target_index;
+                self.sidebar_workspace_selection = target_index;
+                self.workspace_rail_selection = WorkspaceRailSelection::Workspace;
+            } else {
+                self.reconcile_workspace_preview();
+            }
+        }
     }
 
     fn replace_authoritative_tree(&mut self, tree: TreeView, destination_generation: u64) {
@@ -17508,12 +17524,16 @@ impl App {
     }
 
     fn reconcile_workspace_preview(&mut self) {
+        let Some(preview) = self.workspace_preview else {
+            self.workspace_preview_revision = None;
+            self.workspace_preview_target_index = None;
+            return;
+        };
         #[cfg(test)]
         {
             self.workspace_preview_reconcile_count =
                 self.workspace_preview_reconcile_count.saturating_add(1);
         }
-        let Some(preview) = self.workspace_preview else { return };
         let Some(target_index) =
             self.tree.workspaces.iter().position(|workspace| workspace.id == preview.target)
         else {
