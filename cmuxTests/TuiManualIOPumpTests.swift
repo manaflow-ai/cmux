@@ -172,6 +172,53 @@ struct TuiManualIOPumpTests {
         #expect(presentation.showsReconnectButton)
     }
 
+    // MARK: - Resize scheduling
+
+    @Test
+    func resizeSchedulerSendsFirstSampleImmediatelyAndParksTheRest() {
+        var scheduler = TuiManualIOResizeScheduler()
+        scheduler.seed(delivered: TuiManualIOGrid(cols: 80, rows: 24))
+        // The spawn grid is already delivered; resampling it sends nothing.
+        #expect(scheduler.sample(TuiManualIOGrid(cols: 80, rows: 24)) == nil)
+        // First new size goes out immediately (local daemons keep their
+        // send-every-sample behavior because acks are instant).
+        #expect(scheduler.sample(TuiManualIOGrid(cols: 100, rows: 30)) == TuiManualIOGrid(cols: 100, rows: 30))
+        // A drag burst while one resize is in flight: only the newest
+        // pending size survives.
+        #expect(scheduler.sample(TuiManualIOGrid(cols: 101, rows: 30)) == nil)
+        #expect(scheduler.sample(TuiManualIOGrid(cols: 102, rows: 30)) == nil)
+        #expect(scheduler.sample(TuiManualIOGrid(cols: 103, rows: 30)) == nil)
+        // Ack frees the channel and flushes ONLY the newest size.
+        #expect(scheduler.acknowledged() == TuiManualIOGrid(cols: 103, rows: 30))
+        // Nothing else queued: the intermediate sizes were dropped.
+        #expect(scheduler.acknowledged() == nil)
+    }
+
+    @Test
+    func resizeSchedulerDropsPendingThatMatchesInFlightOrDelivered() {
+        var scheduler = TuiManualIOResizeScheduler()
+        scheduler.seed(delivered: TuiManualIOGrid(cols: 80, rows: 24))
+        #expect(scheduler.sample(TuiManualIOGrid(cols: 90, rows: 24)) == TuiManualIOGrid(cols: 90, rows: 24))
+        // The surface bounced back to the in-flight size: no follow-up send.
+        #expect(scheduler.sample(TuiManualIOGrid(cols: 90, rows: 24)) == nil)
+        #expect(scheduler.acknowledged() == nil)
+        // Bounce to the already-delivered size is also deduplicated.
+        #expect(scheduler.sample(TuiManualIOGrid(cols: 90, rows: 24)) == nil)
+    }
+
+    @Test
+    func resizeSchedulerResetRequiresReseedBeforeDedup() {
+        var scheduler = TuiManualIOResizeScheduler()
+        scheduler.seed(delivered: TuiManualIOGrid(cols: 80, rows: 24))
+        #expect(scheduler.sample(TuiManualIOGrid(cols: 90, rows: 24)) != nil)
+        // Relay died mid-flight: respawn seeds from the spawn argv, and the
+        // spawn grid needs no resend.
+        scheduler.reset()
+        scheduler.seed(delivered: TuiManualIOGrid(cols: 95, rows: 25))
+        #expect(scheduler.sample(TuiManualIOGrid(cols: 95, rows: 25)) == nil)
+        #expect(scheduler.sample(TuiManualIOGrid(cols: 96, rows: 25)) == TuiManualIOGrid(cols: 96, rows: 25))
+    }
+
     // MARK: - Input channel
 
     @Test
