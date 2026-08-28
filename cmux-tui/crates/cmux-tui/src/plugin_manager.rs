@@ -950,18 +950,74 @@ fn rename_into_quarantine(
 ) -> std::io::Result<()> {
     use std::ffi::CString;
     use std::os::unix::ffi::OsStrExt;
-    use std::os::unix::fs::OpenOptionsExt;
-    use std::os::unix::io::AsRawFd;
-    let root = fs::OpenOptions::new().read(true).custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW).open(install_root)?;
-    let dir = fs::OpenOptions::new().read(true).custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW).open(quarantine)?;
-    let from = CString::new(path.file_name().ok_or_else(|| std::io::Error::other("journal has no basename"))?.as_bytes()).map_err(|_| std::io::Error::other("invalid journal basename"))?;
-    let to = CString::new(destination.file_name().ok_or_else(|| std::io::Error::other("quarantine destination has no basename"))?.as_bytes()).map_err(|_| std::io::Error::other("invalid quarantine basename"))?;
-    let result = unsafe { libc::renameat(root.as_raw_fd(), from.as_ptr(), dir.as_raw_fd(), to.as_ptr()) };
+    use std::os::unix::io::{AsRawFd, FromRawFd};
+
+    let root_name = CString::new(install_root.as_os_str().as_bytes())
+        .map_err(|_| std::io::Error::other("invalid install root path"))?;
+    // SAFETY: `root_name` is a live, NUL-terminated path and `open` does not
+    // retain its pointer. The no-follow flag prevents a symlink root.
+    let root_fd = unsafe {
+        libc::open(
+            root_name.as_ptr(),
+            libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+        )
+    };
+    if root_fd < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    // SAFETY: `open` returned a new owned descriptor.
+    let root = unsafe { std::fs::File::from_raw_fd(root_fd) };
+
+    let quarantine_name = CString::new(
+        quarantine
+            .file_name()
+            .ok_or_else(|| std::io::Error::other("quarantine has no basename"))?
+            .as_bytes(),
+    )
+    .map_err(|_| std::io::Error::other("invalid quarantine basename"))?;
+    // Resolve the quarantine directory relative to the already-open root. A
+    // concurrent replacement of the install-root pathname cannot redirect it.
+    let quarantine_fd = unsafe {
+        libc::openat(
+            root.as_raw_fd(),
+            quarantine_name.as_ptr(),
+            libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+        )
+    };
+    if quarantine_fd < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    // SAFETY: `openat` returned a new owned descriptor.
+    let quarantine = unsafe { std::fs::File::from_raw_fd(quarantine_fd) };
+
+    let from = CString::new(
+        path.file_name()
+            .ok_or_else(|| std::io::Error::other("journal has no basename"))?
+            .as_bytes(),
+    )
+    .map_err(|_| std::io::Error::other("invalid journal basename"))?;
+    let to = CString::new(
+        destination
+            .file_name()
+            .ok_or_else(|| std::io::Error::other("quarantine destination has no basename"))?
+            .as_bytes(),
+    )
+    .map_err(|_| std::io::Error::other("invalid quarantine destination basename"))?;
+    // SAFETY: all descriptors are open directories, names are live
+    // NUL-terminated strings, and `renameat` does not retain their pointers.
+    let result = unsafe {
+        libc::renameat(root.as_raw_fd(), from.as_ptr(), quarantine.as_raw_fd(), to.as_ptr())
+    };
     if result == 0 { Ok(()) } else { Err(std::io::Error::last_os_error()) }
 }
 
 #[cfg(not(unix))]
-fn rename_into_quarantine(_: &Path, _: &Path, path: &Path, destination: &Path) -> std::io::Result<()> {
+fn rename_into_quarantine(
+    _: &Path,
+    _: &Path,
+    path: &Path,
+    destination: &Path,
+) -> std::io::Result<()> {
     fs::rename(path, destination)
 }
 
