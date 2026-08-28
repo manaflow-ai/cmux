@@ -3,7 +3,7 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
-use std::io::{self, BufRead, BufReader, Write};
+use std::io::{self, BufRead, BufReader, Read, Write};
 use std::net::Shutdown;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -15,10 +15,10 @@ use base64::Engine;
 use cmux_tui_core::server::{VIEWPORT_COLUMN_RESIZE_CAPABILITY, VIEWPORT_SPLITS_CAPABILITY};
 use cmux_tui_core::{
     BrowserFrame, BrowserFrameUpdate, BrowserSource, BrowserStatus, ClearHistoryDelivery,
-    ClearHistoryFailure, DefaultColors, GraphicsStatus, GuardedMouseEncode, MuxEvent,
-    MuxEventBroadcaster, MuxEventReceiver, NotificationEvent, NotificationLevel, PairingChallenge,
-    PointerSemanticProbe, PointerSnapshotProbe, REMOTE_SESSION_MESSAGE_MAX_BYTES, Rgb, SurfaceId,
-    SurfaceKind, TerminalPointerSnapshot,
+    ClearHistoryFailure, GraphicsStatus, GuardedMouseEncode, MuxEvent, MuxEventBroadcaster,
+    MuxEventReceiver, NotificationEvent, NotificationLevel, PairingChallenge, PointerSemanticProbe,
+    PointerSnapshotProbe, REMOTE_SESSION_MESSAGE_MAX_BYTES, Rgb, SurfaceId, SurfaceKind,
+    TerminalPointerSnapshot,
     platform::transport,
     server::{
         CLEAR_HISTORY_CAPABILITY, CLEAR_HISTORY_KEY_CAPABILITY, CREATION_RECEIPTS_CAPABILITY,
@@ -36,6 +36,7 @@ use serde_json::{Value, json};
 use zeroize::{Zeroize, Zeroizing};
 
 use super::cursor_provenance::CursorStyleProvenance;
+use super::parse_identity_capabilities;
 #[cfg(test)]
 use super::tree::parse_tree;
 use super::tree::{TreeCapabilities, TreeView, parse_tree_with_capabilities};
@@ -148,6 +149,8 @@ fn validate_remote_identity(ident: &Value) -> anyhow::Result<()> {
             "unsupported cmux-tui protocol {protocol}; this client requires protocol {SUPPORTED_PROTOCOL_VERSION}; restart the cmux-tui server"
         );
     }
+    parse_identity_capabilities(ident)
+        .map_err(|reason| anyhow::anyhow!("invalid identity capabilities: {reason}"))?;
     Ok(())
 }
 
@@ -170,14 +173,7 @@ fn remote_terminal_size(value: &Value) -> Option<(u16, u16)> {
 }
 
 fn identity_capabilities(ident: &Value) -> HashSet<String> {
-    ident
-        .get("capabilities")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(Value::as_str)
-        .map(str::to_string)
-        .collect()
+    parse_identity_capabilities(ident).unwrap_or_default()
 }
 
 fn require_capability(
@@ -470,6 +466,11 @@ impl RemoteSurface {
         self.cursor_provenance.lock().unwrap().scan(bytes);
     }
 
+    #[cfg(test)]
+    pub(super) fn test_scan_cursor_provenance(&self, bytes: &[u8]) {
+        self.scan_cursor_provenance(bytes);
+    }
+
     pub(super) fn sync_mouse_encoders(&self, terminal: &Terminal) {
         self.mouse_encoders.lock().unwrap().sync_from_terminal(terminal);
     }
@@ -697,14 +698,6 @@ impl RemoteSurface {
         let mut fresh = Terminal::new(cols, rows, 10_000, Callbacks::default())?;
         fresh.resize(cols, rows, u32::from(cell_pixels.0), u32::from(cell_pixels.1))?;
         fresh.apply_vt_replay_parts(replay, replay_aliases, replay_state)?;
-        if daemon_replay {
-            // Daemons without the replay mouse-format suffix serialize the
-            // extended-coordinate mode flags in numeric order, losing the
-            // last-set-wins active encoding (SGR replayed before urxvt).
-            // Prefer SGR when the replay left both flagged, so forwarded
-            // clicks stay parseable by the inner app (btop reads only SGR).
-            fresh.normalize_replayed_mouse_format();
-        }
         if let Some(colors) = colors {
             apply_terminal_colors(&mut fresh, colors);
         }
@@ -1483,8 +1476,20 @@ struct ExitedSurfaceState {
     handles: HashMap<SurfaceId, Weak<RemoteSurface>>,
 }
 
+#[derive(Default)]
+enum DisconnectState {
+    #[default]
+    Active,
+    LocalShutdown,
+    Remote(String),
+}
+
 pub struct RemoteSession {
     interactive_writer: InteractiveWriter,
+    /// The first terminal state wins. Local shutdown is kept separate from a
+    /// reader failure so closing our own transport does not report a fake
+    /// remote diagnostic.
+    disconnect_state: Mutex<DisconnectState>,
     pending: Mutex<HashMap<u64, PendingRemoteRequest>>,
     next_id: AtomicU64,
     attach_progress: AtomicU64,
@@ -1494,6 +1499,7 @@ pub struct RemoteSession {
     surface_leases: Mutex<HashMap<SurfaceId, String>>,
     retired_surfaces: Mutex<HashSet<SurfaceId>>,
     tree: Mutex<RemoteTreeCache>,
+    browser_sources: Mutex<HashMap<SurfaceId, BrowserSource>>,
     tree_refresh: Mutex<()>,
     tree_stale: AtomicBool,
     subscription_started: AtomicBool,
@@ -1684,6 +1690,23 @@ fn read_json_line_with_progress_bounded<R: BufRead>(
     decode_json_line(bytes).map(Some)
 }
 
+fn remote_reader_end_reason(result: &io::Result<Option<String>>) -> Option<String> {
+    match result {
+        Ok(Some(_)) => None,
+        Ok(None) => Some("the daemon closed the connection".to_string()),
+        Err(error) => Some(error.to_string()),
+    }
+}
+
+fn remote_reader_message_too_large(message: &mut String) -> String {
+    let reason = format!(
+        "remote session message exceeds the \
+         {REMOTE_SESSION_MESSAGE_MAX_BYTES}-byte limit"
+    );
+    zeroize_string(message);
+    reason
+}
+
 impl RemoteMessageReader for JsonLineReader {
     fn receive(&mut self) -> io::Result<Option<String>> {
         self.receive_with_progress(&mut |_| {})
@@ -1841,6 +1864,7 @@ impl RemoteSession {
             .map_err(|error| anyhow::anyhow!("cannot start remote interactive writer: {error}"))?;
         let session = Arc::new(RemoteSession {
             interactive_writer,
+            disconnect_state: Mutex::new(DisconnectState::default()),
             pending: Mutex::new(HashMap::new()),
             next_id: AtomicU64::new(1),
             attach_progress: AtomicU64::new(0),
@@ -1850,6 +1874,7 @@ impl RemoteSession {
             surface_leases: Mutex::new(HashMap::new()),
             retired_surfaces: Mutex::new(HashSet::new()),
             tree: Mutex::new(RemoteTreeCache::default()),
+            browser_sources: Mutex::new(HashMap::new()),
             tree_refresh: Mutex::new(()),
             tree_stale: AtomicBool::new(true),
             subscription_started: AtomicBool::new(false),
@@ -1876,19 +1901,24 @@ impl RemoteSession {
                     session.report_read_progress(partial);
                 }
             };
-            while let Ok(Some(mut message)) = reader.receive_with_progress(&mut report_progress) {
+            let reason = loop {
+                let received = reader.receive_with_progress(&mut report_progress);
+                if let Some(reason) = remote_reader_end_reason(&received) {
+                    break Some(reason);
+                }
+                let Ok(Some(mut message)) = received else { unreachable!("end reason handled") };
                 if message.len() > REMOTE_SESSION_MESSAGE_MAX_BYTES {
-                    break;
+                    break Some(remote_reader_message_too_large(&mut message));
                 }
                 let value = serde_json::from_str::<Value>(&message);
                 zeroize_string(&mut message);
                 let Ok(value) = value else { continue };
-                let Some(session) = reader_session.upgrade() else { break };
+                let Some(session) = reader_session.upgrade() else { break None };
                 session.handle_line(value);
-            }
-            // Connection lost: tell the app to quit.
+            };
+            // Connection lost: retain the reason before telling the app to quit.
             if let Some(session) = reader_session.upgrade() {
-                session.disconnect_transport();
+                session.disconnect_transport_with_reason(reason);
                 session.emit(MuxEvent::Empty);
             }
         })?;
@@ -2590,6 +2620,12 @@ impl RemoteSession {
         self.request_with_deadline(cmd, RequestDeadline::Standard)
     }
 
+    /// Fire-and-forget command: enqueued in order with interactive traffic,
+    /// never awaited. Used for best-effort reporting such as client focus.
+    pub(crate) fn notify(&self, cmd: Value) -> anyhow::Result<()> {
+        self.request_no_wait(cmd)
+    }
+
     fn request_with_deadline(
         &self,
         mut cmd: Value,
@@ -2844,6 +2880,10 @@ impl RemoteSession {
         })
     }
 
+    pub fn is_shut_down(&self) -> bool {
+        self.shutdown.load(Ordering::Acquire)
+    }
+
     pub fn begin_shutdown(&self) {
         self.shutdown.store(true, Ordering::Release);
         self.provider_workspaces_guarded.store(false, Ordering::Release);
@@ -2869,6 +2909,18 @@ impl RemoteSession {
     }
 
     fn disconnect_transport(&self) {
+        self.disconnect_transport_with_reason(None);
+    }
+
+    fn disconnect_transport_with_reason(&self, reason: Option<String>) {
+        let mut state = self.disconnect_state.lock().unwrap();
+        if matches!(&*state, DisconnectState::Active) {
+            *state = match reason {
+                Some(reason) => DisconnectState::Remote(reason),
+                None => DisconnectState::LocalShutdown,
+            };
+        }
+        drop(state);
         self.begin_shutdown();
         self.interactive_writer.close();
         // A pipe-io relay learns about every terminal-connection loss here
@@ -2907,6 +2959,14 @@ impl RemoteSession {
         };
         if stalled {
             self.disconnect_transport();
+        }
+    }
+
+    /// Returns the first reason recorded when the remote reader stopped.
+    pub fn transport_disconnect_reason(&self) -> Option<String> {
+        match &*self.disconnect_state.lock().unwrap() {
+            DisconnectState::Remote(reason) => Some(reason.clone()),
+            DisconnectState::Active | DisconnectState::LocalShutdown => None,
         }
     }
 
@@ -3076,48 +3136,6 @@ impl RemoteSession {
         if failures.is_empty() { Ok(()) } else { anyhow::bail!("{}", failures.join("; ")) }
     }
 
-    pub fn set_default_colors(&self, colors: DefaultColors) -> anyhow::Result<()> {
-        let palette = colors
-            .palette
-            .into_iter()
-            .enumerate()
-            .filter_map(|(index, color)| {
-                color.map(|color| (index.to_string(), Value::String(hex_color(color))))
-            })
-            .collect::<serde_json::Map<String, Value>>();
-        let mut cmd = json!({
-            "cmd": "set-default-colors",
-            "complete": true,
-            "palette": palette,
-        });
-        if let Some(fg) = colors.fg {
-            cmd["fg"] = json!(hex_color(fg));
-        }
-        if let Some(bg) = colors.bg {
-            cmd["bg"] = json!(hex_color(bg));
-        }
-        if let Some(cursor) = colors.cursor {
-            cmd["cursor"] = json!(hex_color(cursor));
-        }
-        if let Some(selection_bg) = colors.selection_bg {
-            cmd["selection_bg"] = json!(hex_color(selection_bg));
-        }
-        if let Some(selection_fg) = colors.selection_fg {
-            cmd["selection_fg"] = json!(hex_color(selection_fg));
-        }
-        if let Some(cursor_style) = colors.cursor_style {
-            cmd["cursor_style"] = json!(match cursor_style {
-                CursorShape::Block | CursorShape::BlockHollow => "block",
-                CursorShape::Underline => "underline",
-                CursorShape::Bar => "bar",
-            });
-        }
-        if let Some(cursor_blink) = colors.cursor_blink {
-            cmd["cursor_blink"] = json!(cursor_blink);
-        }
-        self.request(cmd).map(|_| ())
-    }
-
     pub fn supports_browser_attach(&self) -> bool {
         self.supports_capability(GUARDED_BROWSER_POINTER_CAPABILITY)
     }
@@ -3207,10 +3225,16 @@ impl RemoteSession {
         if let Some(surface) = self.surfaces.lock().unwrap().get(&id) {
             return Ok(RemoteSurfaceAttach::Attached(surface.clone()));
         }
-        let source = {
-            let tree = self.tree.lock().unwrap();
-            browser_source_from_tree(&tree.view, id)
-        };
+        let source = self.browser_sources.lock().unwrap().get(&id).copied().or_else(|| {
+            (kind == SurfaceKind::Browser)
+                .then(|| {
+                    // Before the first tree refresh, preserve the historical lookup
+                    // against the current cache rather than losing browser metadata.
+                    let tree = self.tree.lock().unwrap();
+                    browser_source_from_tree(&tree.view, id)
+                })
+                .flatten()
+        });
         let (cols, rows) = size.unwrap_or((80, 24));
         let initial_size = size.map(|(cols, rows)| (cols.max(1), rows.max(1))).filter(|_| {
             self.supports_capability(cmux_tui_core::server::ATTACH_INITIAL_SIZE_CAPABILITY)
@@ -3431,6 +3455,21 @@ impl RemoteSession {
             },
         );
         drop(capabilities);
+        let raw_surface_ids = tree
+            .workspaces
+            .iter()
+            .flat_map(|workspace| workspace.screens.iter())
+            .flat_map(|screen| screen.panes.iter())
+            .flat_map(|pane| pane.tabs.iter())
+            .map(|tab| tab.surface)
+            .collect::<HashSet<_>>();
+        // The server tree is authoritative. The local surface catalog is a
+        // lazy mirror and may be empty during startup or reconnect, so it
+        // cannot be used as a negative filter. Remove only explicit retire
+        // evidence captured at the detach boundary.
+        let retired_surface_ids = self.retired_surfaces.lock().unwrap().clone();
+        let mut tree = tree;
+        tree.retain_not_retired(&retired_surface_ids);
         let live_surface_ids = tree
             .workspaces
             .iter()
@@ -3442,7 +3481,7 @@ impl RemoteSession {
         self.retired_surfaces
             .lock()
             .unwrap()
-            .retain(|surface_id| live_surface_ids.contains(surface_id));
+            .retain(|surface_id| raw_surface_ids.contains(surface_id));
         self.prune_exited_surfaces(&live_surface_ids);
         self.surface_overflow_recovery
             .lock()
@@ -3450,13 +3489,17 @@ impl RemoteSession {
             .retain(|surface_id, _| live_surface_ids.contains(surface_id));
         let tree = {
             let mut cache = self.tree.lock().unwrap();
+            let retired = self.retired_surfaces.lock().unwrap().clone();
+            tree.retain_not_retired(&retired);
             cache.replace(tree, title_refresh_generation);
             cache.replace_agents(agents, agent_refresh_generation);
             cache.view.clone()
         };
+        let browser_sources = browser_sources_from_tree(&tree);
+        *self.browser_sources.lock().unwrap() = browser_sources.clone();
         let surfaces = self.surfaces.lock().unwrap().clone();
         for (id, surface) in surfaces {
-            surface.update_browser_source(browser_source_from_tree(&tree, id));
+            surface.update_browser_source(browser_sources.get(&id).copied());
         }
         Ok(tree)
     }
@@ -3653,6 +3696,16 @@ fn dump_mirror(surface: &RemoteSurface) -> String {
     out
 }
 
+fn browser_sources_from_tree(tree: &TreeView) -> HashMap<SurfaceId, BrowserSource> {
+    tree.workspaces
+        .iter()
+        .flat_map(|ws| ws.screens.iter())
+        .flat_map(|screen| screen.panes.iter())
+        .flat_map(|pane| pane.tabs.iter())
+        .filter_map(|tab| tab.browser_source.map(|source| (tab.surface, source)))
+        .collect()
+}
+
 fn browser_source_from_tree(tree: &TreeView, id: SurfaceId) -> Option<BrowserSource> {
     tree.workspaces
         .iter()
@@ -3745,10 +3798,6 @@ fn terminal_palette_override_delta(
     output
 }
 
-fn hex_color(color: Rgb) -> String {
-    format!("#{:02x}{:02x}{:02x}", color.r, color.g, color.b)
-}
-
 fn parse_browser_frame(value: &Value) -> Option<RemoteBrowserFrame> {
     let data_b64 = value.get("data")?.as_str()?.to_string();
     let seq = value.get("seq")?.as_u64()?;
@@ -3816,6 +3865,7 @@ fn test_session_with_writer(
 ) -> Arc<RemoteSession> {
     Arc::new(RemoteSession {
         interactive_writer: InteractiveWriter::spawn(writer, Arc::new(NoopTransportAbort)).unwrap(),
+        disconnect_state: Mutex::new(DisconnectState::default()),
         pending: Mutex::new(HashMap::new()),
         next_id: AtomicU64::new(1),
         attach_progress: AtomicU64::new(0),
@@ -3825,6 +3875,7 @@ fn test_session_with_writer(
         surface_leases: Mutex::new(HashMap::new()),
         retired_surfaces: Mutex::new(HashSet::new()),
         tree: Mutex::new(RemoteTreeCache::default()),
+        browser_sources: Mutex::new(HashMap::new()),
         tree_refresh: Mutex::new(()),
         tree_stale: AtomicBool::new(true),
         subscription_started: AtomicBool::new(false),
@@ -4356,6 +4407,18 @@ mod tests {
     }
 
     #[test]
+    fn malformed_identity_capabilities_are_rejected() {
+        for capabilities in [json!(null), json!("clear-history-v1"), json!(["ok", 1])] {
+            assert!(
+                validate_remote_identity(&json!({
+                    "app": "cmux-tui", "protocol": 12, "capabilities": capabilities,
+                }))
+                .is_err()
+            );
+        }
+    }
+
+    #[test]
     fn disabled_frame_logging_does_not_format_hot_path_messages() {
         struct FormattingProbe(Arc<AtomicBool>);
 
@@ -4505,6 +4568,30 @@ mod tests {
     }
 
     #[test]
+    fn resolved_output_colors_do_not_author_cursor_style() {
+        let (session, surface) = test_unleased_view_surface(12);
+
+        session.handle_line(json!({
+            "event": "output",
+            "surface": 12,
+            "data": base64::engine::general_purpose::STANDARD.encode(b"prompt"),
+            "colors": {
+                "fg": "#eeeeee",
+                "bg": "#171b2e",
+                "cursor": "#ffee00",
+                "cursor_style": "bar",
+                "cursor_blink": true,
+                "palette": {},
+            },
+        }));
+
+        assert!(
+            !surface.cursor_style_authored(),
+            "daemon-resolved cursor colors must not be treated as inner-PTY authored"
+        );
+    }
+
+    #[test]
     fn local_mirror_resize_preserves_cursor_authorship() {
         let (_session, surface) = test_unleased_view_surface(9);
         surface.scan_cursor_provenance(b"\x1b[3 q");
@@ -4614,14 +4701,8 @@ mod tests {
         );
     }
 
-    /// Older daemons serialize mouse DECSETs as a numeric flag dump
-    /// (1002, 1006, 1015), losing last-set-wins. A client attached to such a
-    /// daemon must still prefer SGR over urxvt when both are flagged: every
-    /// known app that enables both sets SGR last and parses only SGR.
-    /// The SGR-preference fallback must not override an application that
-    /// deliberately set urxvt last: a fixed daemon's replay carries only the
-    /// active selector, so both flags are never left set together and the
-    /// fallback stays inert.
+    /// A fixed daemon appends the active selector after its numeric flag dump,
+    /// so an application that deliberately selected urxvt last keeps it.
     #[test]
     fn daemon_replay_keeps_a_deliberate_urxvt_choice() {
         let mut host = Terminal::new(80, 24, 100, Callbacks::default()).unwrap();
@@ -4649,8 +4730,12 @@ mod tests {
         );
     }
 
+    /// Older daemons serialize mouse DECSETs as a numeric flag dump and lose
+    /// the original last-set order. Both SGR-last and urxvt-last applications
+    /// can produce these bytes, so the client must apply them as written. A
+    /// guessed preference would corrupt one of the two valid meanings.
     #[test]
-    fn legacy_flag_dump_replay_still_forwards_sgr_clicks() {
+    fn ambiguous_legacy_flag_dump_preserves_replayed_mouse_format() {
         let (_session, surface) = test_unleased_view_surface(14);
         surface
             .apply_stream_resize_with_colors(
@@ -4665,8 +4750,8 @@ mod tests {
 
         assert_eq!(
             forwarded_left_press_bytes(&surface),
-            b"\x1b[<0;36;21M",
-            "legacy numeric flag-dump replay must fall back to SGR, not urxvt"
+            b"\x1b[32;36;21M",
+            "ambiguous legacy replay must preserve its last selector instead of guessing SGR"
         );
     }
 
@@ -5022,6 +5107,7 @@ mod tests {
     ) -> Arc<RemoteSession> {
         Arc::new(RemoteSession {
             interactive_writer: InteractiveWriter::spawn(writer, abort).unwrap(),
+            disconnect_state: Mutex::new(DisconnectState::default()),
             pending: Mutex::new(HashMap::new()),
             next_id: AtomicU64::new(1),
             attach_progress: AtomicU64::new(0),
@@ -5031,6 +5117,7 @@ mod tests {
             surface_leases: Mutex::new(HashMap::new()),
             retired_surfaces: Mutex::new(HashSet::new()),
             tree: Mutex::new(RemoteTreeCache::default()),
+            browser_sources: Mutex::new(HashMap::new()),
             tree_refresh: Mutex::new(()),
             tree_stale: AtomicBool::new(true),
             subscription_started: AtomicBool::new(false),
@@ -5740,6 +5827,318 @@ mod tests {
         }
     }
 
+    /// A session whose every workspace lost its screens (the outcome of the
+    /// startup repair that prunes dead terminals) must get a shell in the
+    /// active workspace at attach, not render pure emptiness. The writer
+    /// refuses `new-workspace`, so this also pins that startup must not bolt
+    /// an extra workspace onto a session that already has four.
+    struct BareWorkspacesTreeWriter {
+        session: Arc<Mutex<Option<Weak<RemoteSession>>>>,
+        created_in: Arc<Mutex<Option<String>>>,
+    }
+
+    impl RemoteMessageWriter for BareWorkspacesTreeWriter {
+        fn send(&mut self, message: &str) -> io::Result<()> {
+            let request: Value = serde_json::from_str(message).map_err(io::Error::other)?;
+            let id = request
+                .get("id")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| io::Error::other("remote request omitted its id"))?;
+            let bare = |key: &str, id: u64, active: bool| json!({"id": id, "key": key, "active": active, "screens": []});
+            let populated = json!({
+                "id": 5,
+                "key": "ws-active",
+                "active": true,
+                "screens": [{
+                    "id": 2,
+                    "active": true,
+                    "active_pane": 3,
+                    "layout": {"type": "leaf", "pane": 3},
+                    "panes": [{
+                        "id": 3,
+                        "active_tab": 0,
+                        "tabs": [{"surface": 4, "kind": "pty"}],
+                    }],
+                }],
+            });
+            let data = match request.get("cmd").and_then(Value::as_str) {
+                Some("list-workspaces") => {
+                    if self.created_in.lock().unwrap().is_some() {
+                        json!({"generation": "gen-1", "terminal_revision": 8, "workspaces": [
+                            bare("ws-0", 1, false),
+                            populated,
+                            bare("ws-2", 9, false),
+                        ]})
+                    } else {
+                        json!({"generation": "gen-1", "terminal_revision": 7, "workspaces": [
+                            bare("ws-0", 1, false),
+                            bare("ws-active", 5, true),
+                            bare("ws-2", 9, false),
+                        ]})
+                    }
+                }
+                Some("list-agents") => json!({"agents": []}),
+                Some("create-terminal") => {
+                    let key = request.get("key").and_then(Value::as_str).ok_or_else(|| {
+                        io::Error::other("create-terminal omitted the workspace key")
+                    })?;
+                    if request.get("mutation_id").and_then(Value::as_str).is_none()
+                        || request.get("expected_revision").and_then(Value::as_u64) != Some(7)
+                        || request.get("expected_generation").and_then(Value::as_str)
+                            != Some("gen-1")
+                    {
+                        return Err(io::Error::other(
+                            "bootstrap create arrived without its concurrency guard",
+                        ));
+                    }
+                    *self.created_in.lock().unwrap() = Some(key.to_string());
+                    json!({"surface": 4})
+                }
+                command => {
+                    return Err(io::Error::other(format!(
+                        "bare-workspace attach must not send {command:?}"
+                    )));
+                }
+            };
+            let session = self
+                .session
+                .lock()
+                .unwrap()
+                .as_ref()
+                .and_then(Weak::upgrade)
+                .ok_or_else(|| io::Error::other("test remote session was dropped"))?;
+            let response = session
+                .pending
+                .lock()
+                .unwrap()
+                .remove(&id)
+                .ok_or_else(|| io::Error::other("remote request was not pending"))?;
+            response
+                .response
+                .send(json!({"id": id, "ok": true, "data": data}))
+                .map_err(|_| io::Error::other("remote response receiver was dropped"))
+        }
+
+        fn close(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    /// The losing side of a concurrent bare-session attach: its guarded
+    /// create is rejected because the winner already moved the terminal
+    /// revision, and the follow-up tree read shows the winner's shell.
+    /// Attach must treat that as success, not as a startup failure.
+    struct LostBootstrapRaceWriter {
+        session: Arc<Mutex<Option<Weak<RemoteSession>>>>,
+        list_requests: usize,
+    }
+
+    impl RemoteMessageWriter for LostBootstrapRaceWriter {
+        fn send(&mut self, message: &str) -> io::Result<()> {
+            let request: Value = serde_json::from_str(message).map_err(io::Error::other)?;
+            let id = request
+                .get("id")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| io::Error::other("remote request omitted its id"))?;
+            let populated = json!({
+                "id": 5,
+                "key": "ws-active",
+                "active": true,
+                "screens": [{
+                    "id": 2,
+                    "active": true,
+                    "active_pane": 3,
+                    "layout": {"type": "leaf", "pane": 3},
+                    "panes": [{
+                        "id": 3,
+                        "active_tab": 0,
+                        "tabs": [{"surface": 4, "kind": "pty"}],
+                    }],
+                }],
+            });
+            let response = match request.get("cmd").and_then(Value::as_str) {
+                Some("list-workspaces") => {
+                    self.list_requests += 1;
+                    let data = if self.list_requests <= 2 {
+                        json!({"generation": "gen-1", "terminal_revision": 7, "workspaces": [
+                            {"id": 5, "key": "ws-active", "active": true, "screens": []},
+                        ]})
+                    } else {
+                        json!({"generation": "gen-1", "terminal_revision": 8, "workspaces": [
+                            populated,
+                        ]})
+                    };
+                    json!({"id": id, "ok": true, "data": data})
+                }
+                Some("list-agents") => json!({"id": id, "ok": true, "data": {"agents": []}}),
+                Some("create-terminal") => json!({
+                    "id": id,
+                    "ok": false,
+                    "error": "expected terminal revision 7 does not match 8",
+                }),
+                command => {
+                    return Err(io::Error::other(format!(
+                        "lost bootstrap race must not send {command:?}"
+                    )));
+                }
+            };
+            let session = self
+                .session
+                .lock()
+                .unwrap()
+                .as_ref()
+                .and_then(Weak::upgrade)
+                .ok_or_else(|| io::Error::other("test remote session was dropped"))?;
+            let pending = session
+                .pending
+                .lock()
+                .unwrap()
+                .remove(&id)
+                .ok_or_else(|| io::Error::other("remote request was not pending"))?;
+            pending
+                .response
+                .send(response)
+                .map_err(|_| io::Error::other("remote response receiver was dropped"))
+        }
+
+        fn close(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn winner_between_snapshots_still_lands_in_the_cache() {
+        // The other attach creates the shell between the first tree read and
+        // the raw snapshot: no create runs here, and the final refresh must
+        // still deliver the winner's tree to this client's cache.
+        let session_slot = Arc::new(Mutex::new(None));
+        let remote = test_session(Box::new(LostBootstrapRaceWriter {
+            session: session_slot.clone(),
+            list_requests: 1, // skip one bare read: the snapshot is populated
+        }));
+        *session_slot.lock().unwrap() = Some(Arc::downgrade(&remote));
+        let session = crate::session::Session::Remote(remote);
+
+        session.ensure_initial(Some((80, 24))).unwrap();
+
+        assert_eq!(
+            session.tree().active_surface(),
+            Some(4),
+            "the stale bare tree survived in the cache"
+        );
+    }
+
+    #[test]
+    fn losing_the_bare_session_bootstrap_race_is_not_a_startup_failure() {
+        let session_slot = Arc::new(Mutex::new(None));
+        let remote = test_session(Box::new(LostBootstrapRaceWriter {
+            session: session_slot.clone(),
+            list_requests: 0,
+        }));
+        *session_slot.lock().unwrap() = Some(Arc::downgrade(&remote));
+        let session = crate::session::Session::Remote(remote);
+
+        session.ensure_initial(Some((80, 24))).unwrap();
+
+        assert_eq!(
+            session.tree().active_surface(),
+            Some(4),
+            "the loser must adopt the winner's shell instead of failing attach"
+        );
+    }
+
+    /// A daemon too old to report revision metadata cannot enforce the
+    /// bootstrap guard, so the client must not send an unguarded create at
+    /// all: the writer refuses `create-terminal`, and attach must still
+    /// succeed with the session left bare, exactly as before the bootstrap
+    /// existed.
+    struct UnguardableTreeWriter {
+        session: Arc<Mutex<Option<Weak<RemoteSession>>>>,
+    }
+
+    impl RemoteMessageWriter for UnguardableTreeWriter {
+        fn send(&mut self, message: &str) -> io::Result<()> {
+            let request: Value = serde_json::from_str(message).map_err(io::Error::other)?;
+            let id = request
+                .get("id")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| io::Error::other("remote request omitted its id"))?;
+            let data = match request.get("cmd").and_then(Value::as_str) {
+                Some("list-workspaces") => json!({"workspaces": [
+                    {"id": 5, "key": "ws-active", "active": true, "screens": []},
+                ]}),
+                Some("list-agents") => json!({"agents": []}),
+                command => {
+                    return Err(io::Error::other(format!(
+                        "an unguardable daemon must not receive {command:?}"
+                    )));
+                }
+            };
+            let session = self
+                .session
+                .lock()
+                .unwrap()
+                .as_ref()
+                .and_then(Weak::upgrade)
+                .ok_or_else(|| io::Error::other("test remote session was dropped"))?;
+            let pending = session
+                .pending
+                .lock()
+                .unwrap()
+                .remove(&id)
+                .ok_or_else(|| io::Error::other("remote request was not pending"))?;
+            pending
+                .response
+                .send(json!({"id": id, "ok": true, "data": data}))
+                .map_err(|_| io::Error::other("remote response receiver was dropped"))
+        }
+
+        fn close(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn bootstrap_stays_home_when_the_daemon_cannot_enforce_its_guard() {
+        let session_slot = Arc::new(Mutex::new(None));
+        let remote =
+            test_session(Box::new(UnguardableTreeWriter { session: session_slot.clone() }));
+        *session_slot.lock().unwrap() = Some(Arc::downgrade(&remote));
+        let session = crate::session::Session::Remote(remote);
+
+        session.ensure_initial(Some((80, 24))).unwrap();
+
+        assert!(
+            session.tree().workspaces.iter().all(|workspace| workspace.screens.is_empty()),
+            "an unguarded create must never run"
+        );
+    }
+
+    #[test]
+    fn ensure_initial_creates_a_shell_when_every_restored_workspace_is_bare() {
+        let session_slot = Arc::new(Mutex::new(None));
+        let created_in = Arc::new(Mutex::new(None));
+        let remote = test_session(Box::new(BareWorkspacesTreeWriter {
+            session: session_slot.clone(),
+            created_in: created_in.clone(),
+        }));
+        *session_slot.lock().unwrap() = Some(Arc::downgrade(&remote));
+        let session = crate::session::Session::Remote(remote);
+
+        session.ensure_initial(Some((80, 24))).unwrap();
+
+        assert_eq!(
+            created_in.lock().unwrap().as_deref(),
+            Some("ws-active"),
+            "attach did not create a shell in the active bare workspace"
+        );
+        assert_eq!(
+            session.tree().active_surface(),
+            Some(4),
+            "startup returned before the client could route input to its created terminal"
+        );
+    }
+
     #[test]
     fn ensure_initial_populates_remote_cache_after_creating_first_workspace() {
         let session_slot = Arc::new(Mutex::new(None));
@@ -5815,6 +6214,52 @@ mod tests {
     }
 
     #[test]
+    fn remote_reader_end_reason_distinguishes_eof_from_read_failure() {
+        let eof: io::Result<Option<String>> = Ok(None);
+        assert_eq!(
+            remote_reader_end_reason(&eof).as_deref(),
+            Some("the daemon closed the connection")
+        );
+
+        let failure = Err(io::Error::new(io::ErrorKind::ConnectionReset, "peer reset"));
+        assert_eq!(remote_reader_end_reason(&failure).as_deref(), Some("peer reset"));
+
+        let message = Ok(Some("{}".to_string()));
+        assert!(remote_reader_end_reason(&message).is_none());
+    }
+
+    #[test]
+    fn oversized_remote_reader_message_is_zeroized_before_disconnect() {
+        let mut message = "secret remote payload".to_string();
+        let reason = remote_reader_message_too_large(&mut message);
+
+        assert_eq!(
+            reason,
+            format!(
+                "remote session message exceeds the \
+                 {REMOTE_SESSION_MESSAGE_MAX_BYTES}-byte limit"
+            )
+        );
+        assert!(message.bytes().all(|byte| byte == 0));
+    }
+
+    #[test]
+    fn json_reader_preserves_non_eof_read_errors() {
+        struct FailingReader;
+
+        impl Read for FailingReader {
+            fn read(&mut self, _buffer: &mut [u8]) -> io::Result<usize> {
+                Err(io::Error::new(io::ErrorKind::ConnectionReset, "peer reset"))
+            }
+        }
+
+        let mut reader = BufReader::new(FailingReader);
+        let result = read_json_line_with_progress(&mut reader, &mut |_| {});
+        assert_eq!(result.as_ref().unwrap_err().to_string(), "peer reset");
+        assert_eq!(remote_reader_end_reason(&result).as_deref(), Some("peer reset"));
+    }
+
+    #[test]
     fn remote_terminal_dimensions_are_bounded_by_dimension_and_total_cells() {
         assert_eq!(remote_terminal_size(&json!({})), Some((80, 24)));
         assert_eq!(remote_terminal_size(&json!({"cols": 4096, "rows": 256})), Some((4096, 256)));
@@ -5847,6 +6292,33 @@ mod tests {
 
         assert!(session.shutdown.load(Ordering::Acquire));
         assert!(closed.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn transport_disconnect_reason_is_first_writer_wins() {
+        let session = test_session(Box::new(CloseTrackingWriter {
+            closed: Arc::new(AtomicBool::new(false)),
+        }));
+
+        session.disconnect_transport_with_reason(Some("the daemon closed the connection".into()));
+        session.disconnect_transport_with_reason(Some("peer reset".into()));
+
+        assert_eq!(
+            session.transport_disconnect_reason().as_deref(),
+            Some("the daemon closed the connection")
+        );
+    }
+
+    #[test]
+    fn local_shutdown_does_not_preserve_reader_error() {
+        let session = test_session(Box::new(CloseTrackingWriter {
+            closed: Arc::new(AtomicBool::new(false)),
+        }));
+
+        session.disconnect_transport();
+        session.disconnect_transport_with_reason(Some("peer reset".into()));
+
+        assert_eq!(session.transport_disconnect_reason(), None);
     }
 
     #[test]

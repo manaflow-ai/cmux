@@ -18,6 +18,8 @@ struct AgentNotificationDelivery: Sendable {
     }
 
     /// Gates and enqueues the same notification event for hooks and PTY prompt detectors.
+    /// `agentKind`/`isSubagent` are informational agent-event context forwarded
+    /// to the user's notification-policy hooks; they never affect the gate.
     @discardableResult
     func enqueue(
         workspaceID: UUID,
@@ -27,6 +29,9 @@ struct AgentNotificationDelivery: Sendable {
         body: String,
         category: AgentNotifyCategory?,
         pending: Bool,
+        agentKind: String? = nil,
+        isSubagent: Bool? = nil,
+        correlationKey: String? = nil,
         coalesces: Bool = false
     ) -> Bool {
         if let category,
@@ -46,8 +51,34 @@ struct AgentNotificationDelivery: Sendable {
             subtitle: subtitle,
             body: body,
             replyShape: TerminalNotificationReplyShape.forAgentCategory(wire: category?.rawValue),
+            agent: Self.agentContext(
+                category: category,
+                pending: pending,
+                agentKind: agentKind,
+                isSubagent: isSubagent
+            ),
+            correlationKey: correlationKey,
             coalesces: coalesces
         )
         return true
+    }
+
+    /// Builds the hook-facing agent context, or `nil` for untagged legacy
+    /// notifications so their hook input stays byte-identical to before.
+    static func agentContext(
+        category: AgentNotifyCategory?,
+        pending: Bool,
+        agentKind: String?,
+        isSubagent: Bool?
+    ) -> TerminalNotificationPolicyAgentContext? {
+        guard category != nil || agentKind != nil || isSubagent != nil else {
+            return nil
+        }
+        return TerminalNotificationPolicyAgentContext(
+            kind: agentKind,
+            category: category?.rawValue,
+            pending: category == nil ? nil : pending,
+            isSubagent: isSubagent
+        )
     }
 }

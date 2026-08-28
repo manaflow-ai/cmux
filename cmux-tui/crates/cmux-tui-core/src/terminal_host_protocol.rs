@@ -812,8 +812,8 @@ mod tests {
             }
         }
 
-        fn sender(&self) -> &mpsc::SyncSender<Vec<u8>> {
-            self.tx.as_ref().expect("sender already closed")
+        fn close(&mut self) {
+            self.tx.take();
         }
 
         fn parse_next(&self) -> Result<Option<Vec<Frame>>, ProtocolError> {
@@ -882,22 +882,23 @@ mod tests {
         frame.payload.extend_from_slice("é\x1b[0m".as_bytes());
         let encoded = encode_frame(&frame).unwrap();
         let mut pump = PipeBytePump::new(3);
-        pump.sender().send(encoded[..3].to_vec()).unwrap();
-        pump.sender().send(encoded[3..HEADER_LEN + 1].to_vec()).unwrap();
-        pump.sender().send(encoded[HEADER_LEN + 1..].to_vec()).unwrap();
+        let tx = pump.tx.as_ref().unwrap();
+        tx.send(encoded[..3].to_vec()).unwrap();
+        tx.send(encoded[3..HEADER_LEN + 1].to_vec()).unwrap();
+        tx.send(encoded[HEADER_LEN + 1..].to_vec()).unwrap();
 
         assert!(pump.parse_next().unwrap().unwrap().is_empty());
         assert!(pump.parse_next().unwrap().unwrap().is_empty());
         assert_eq!(pump.parse_next().unwrap().unwrap(), vec![frame]);
-        drop(pump.tx.take());
+        pump.close();
         assert_eq!(pump.parse_next().unwrap(), None);
     }
 
     #[test]
     fn direct_pipe_pump_queue_is_bounded_and_parser_access_is_serialized() {
         let pump = PipeBytePump::new(1);
-        pump.sender().try_send(vec![1]).unwrap();
-        assert!(pump.sender().try_send(vec![2]).is_err());
+        pump.tx.as_ref().unwrap().try_send(vec![1]).unwrap();
+        assert!(pump.tx.as_ref().unwrap().try_send(vec![2]).is_err());
 
         let decoder = Arc::clone(&pump.decoder);
         let first = std::thread::spawn(move || decoder.lock().unwrap().buffered_len());

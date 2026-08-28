@@ -163,12 +163,32 @@ extension TerminalSurface {
             let callbackContext = surfaceCallbackContext
             invalidateRuntimeClipboardRequests(in: callbackContext, completingNativeRequests: false)
             surfaceCallbackContext = nil
+            let manualIOContext = self.manualIOContext
+            self.manualIOContext = nil
             let teeLease = mobileByteTeeLease
             mobileByteTeeLease = nil
+            let retiredRemoteOutputLane = retireRemoteOutputLane()
+            let staleRuntimeResources = TerminalSurfaceStaleRuntimeResources(
+                callbackContext: callbackContext,
+                manualIOContext: manualIOContext,
+                byteTeeLease: teeLease
+            )
+            staleRuntimeResourceReleaseTicket = runtimeTeardown.enqueueRuntimeTeardownFence(
+                id: UUID(),
+                workspaceId: tabId,
+                reason: "stale",
+                fence: {
+                    await retiredRemoteOutputLane.drain()
+                },
+                onCompletion: {
+                    staleRuntimeResources.release()
+                }
+            )
             registry.unregisterRuntimeSurface(surface, ownerId: id)
             self.surface = nil
             activePortalHostLease = nil
             portalHostAuthority = nil
+            byteTee.dropSurface(surfaceID: id)
             recordTeardownRequest(reason: reason)
             markPortalLifecycleClosed(reason: reason)
 #if DEBUG
@@ -179,8 +199,6 @@ extension TerminalSurface {
                 "registryOwner=\(registeredOwnerToken)"
             )
 #endif
-            callbackContext?.release()
-            teeLease?.release()
             return nil
         }
         return surface
@@ -269,17 +287,20 @@ extension TerminalSurface {
 #endif
     }
 
-    /// Explicitly free the Ghostty runtime surface. Idempotent — safe to call
-    /// before deinit; deinit will skip the free if already torn down.
+    /// Explicitly retire this model and free its Ghostty runtime surface.
+    /// Idempotent — safe to call before deinit; deinit will skip the work if
+    /// already torn down.
     @MainActor
     public func teardownSurface() {
         recordTeardownRequest(reason: "surface.teardown")
         markPortalLifecycleClosed(reason: "teardown")
+        retireSurfaceRegistryRegistrationIfNeeded()
         backgroundSurfaceStartSource = .normal
         cancelAgentCommandShimInstallLifecycle()
         closeHeadlessStartupWindowIfNeeded()
         let callbackContext = surfaceCallbackContext
         let surfaceToFree = surface
+        let retiredRemoteOutputLane = retireRemoteOutputLane()
         invalidateRuntimeClipboardRequests(in: callbackContext, completingNativeRequests: surfaceToFree != nil)
         surfaceCallbackContext = nil
         let manualIOContext = manualIOContext
@@ -320,6 +341,9 @@ extension TerminalSurface {
                 callbackContext: callbackContext,
                 manualIOContext: manualIOContext,
                 byteTeeLease: teeLease,
+                beforeFree: {
+                    await retiredRemoteOutputLane.drain()
+                },
                 freeSurface: freeSurface
             )
             return
@@ -335,9 +359,14 @@ extension TerminalSurface {
             callbackContext: callbackContext,
             manualIOContext: manualIOContext,
             byteTeeLease: teeLease,
+<<<<<<< HEAD
             freeSurface: { surface in
                 remoteOutputFeed.drainAndClose()
                 ghostty_surface_free(surface)
+=======
+            beforeFree: {
+                await retiredRemoteOutputLane.drain()
+>>>>>>> origin/feat-tui-attach-spike
             }
         )
     }
@@ -372,6 +401,7 @@ extension TerminalSurface {
         closeHeadlessStartupWindowIfNeeded()
         let callbackContext = surfaceCallbackContext
         let surfaceToFree = surface
+        let retiredRemoteOutputLane = retireRemoteOutputLane()
         invalidateRuntimeClipboardRequests(in: callbackContext, completingNativeRequests: surfaceToFree != nil)
         surfaceCallbackContext = nil
         let manualIOContext = manualIOContext
@@ -422,6 +452,9 @@ extension TerminalSurface {
                 callbackContext: callbackContext,
                 manualIOContext: manualIOContext,
                 byteTeeLease: teeLease,
+                beforeFree: {
+                    await retiredRemoteOutputLane.drain()
+                },
                 executionLane: .isolatedHibernation,
                 isolatedHibernationReservation: teardownReservation,
                 freeSurface: freeSurface
@@ -439,6 +472,9 @@ extension TerminalSurface {
             callbackContext: callbackContext,
             manualIOContext: manualIOContext,
             byteTeeLease: teeLease,
+            beforeFree: {
+                await retiredRemoteOutputLane.drain()
+            },
             executionLane: .isolatedHibernation,
             isolatedHibernationReservation: teardownReservation,
             freeSurface: { surface in
@@ -497,6 +533,19 @@ extension TerminalSurface {
         runtimeSurfaceSuspendedForAgentHibernation = false
         prepareNextRuntimeInitialInput(initialInput)
         return true
+    }
+
+    /// Sets the transport-only command used when a deferred restore is cancelled.
+    ///
+    /// Persistent SSH restores keep their PTY attached after cancellation, but
+    /// must omit the embedded agent-resume payload. The value is captured when
+    /// admission is cancelled and remains in force for later runtime retries.
+    ///
+    /// - Parameter command: The transport-only command to run after cancellation.
+    @MainActor
+    public func setStartupRestoreAdmissionFallbackCommand(_ command: String?) {
+        guard startupRestoreAdmissionPhase == .awaitingAdmission else { return }
+        startupRestoreAdmissionFallbackCommand = command?.isEmpty == false ? command : nil
     }
 
     /// Primes the initial input for the next runtime spawn only.
@@ -774,7 +823,6 @@ extension TerminalSurface {
         if runtimeInitialInput != nil {
             nextRuntimeInitialInput = nil
         }
-
         // Session scrollback replay must be one-shot. Reusing it on a later runtime
         // surface recreation would inject stale restored output into a live shell.
         additionalEnvironment.removeValue(forKey: scrollbackReplayEnvironmentKey)

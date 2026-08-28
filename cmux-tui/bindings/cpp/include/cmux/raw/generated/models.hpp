@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "0f28922d64be59160110a6e7bf5a7656132ce163e82792c474c29c26a1bee529";
+inline constexpr std::string_view kProtocolIrSha256 = "65aa592727bc414fe3e66ac125c9b8541a1926bbe9eaa572acc66b4681bf6589";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -135,6 +135,8 @@ struct BrowserWheelRequest;
 struct BrowserWheelGuardedRequest;
 struct ClearHistoryRequest;
 struct ClearWindowTitleRequest;
+struct ClientFocusRequest;
+struct ClientFocusResult;
 struct ClosePaneRequest;
 struct CloseProviderManagedWorkspaceRequest;
 struct CloseScreenRequest;
@@ -193,6 +195,7 @@ struct RenameScreenRequest;
 struct RenameSurfaceRequest;
 struct RenameWorkspaceRequest;
 struct ReportAgentRequest;
+struct ReportFocusRequest;
 struct ResizeAttachedViewRequest;
 struct ResizeSurfaceRequest;
 struct ResolveTerminalRequest;
@@ -802,6 +805,17 @@ struct ClientChangedEvent {
 struct ClientDetachedEvent {
     std::uint64_t client{};
     friend bool operator==(const ClientDetachedEvent&, const ClientDetachedEvent&) = default;
+};
+
+struct ClientFocusRequest {
+    std::string client_id{};
+    friend bool operator==(const ClientFocusRequest&, const ClientFocusRequest&) = default;
+};
+
+struct ClientFocusResult {
+    std::optional<Id> pane{};
+    std::optional<std::uint64_t> tab{};
+    friend bool operator==(const ClientFocusResult&, const ClientFocusResult&) = default;
 };
 
 struct ClientSize {
@@ -1715,6 +1729,7 @@ struct ProcessInfoRequest {
 struct ProcessInfoResult {
     std::optional<std::string> command{};
     std::optional<std::string> cwd{};
+    Field<std::string> foreground_cwd{};
     std::optional<std::uint32_t> pid{};
     friend bool operator==(const ProcessInfoResult&, const ProcessInfoResult&) = default;
 };
@@ -1962,6 +1977,13 @@ struct ReportAgentResult {
     AgentState state{};
     Id surface{};
     friend bool operator==(const ReportAgentResult&, const ReportAgentResult&) = default;
+};
+
+struct ReportFocusRequest {
+    std::string client_id{};
+    Id pane{};
+    Field<std::uint64_t> tab{};
+    friend bool operator==(const ReportFocusRequest&, const ReportFocusRequest&) = default;
 };
 
 struct ResizeAttachedViewRequest {
@@ -3238,6 +3260,18 @@ struct Codec<ClearWindowTitleRequest> {
 };
 
 template <>
+struct Codec<ClientFocusRequest> {
+    static Result<Json> encode(const ClientFocusRequest& value);
+    static Result<ClientFocusRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ClientFocusResult> {
+    static Result<Json> encode(const ClientFocusResult& value);
+    static Result<ClientFocusResult> decode(const Json& value);
+};
+
+template <>
 struct Codec<ClosePaneRequest> {
     static Result<Json> encode(const ClosePaneRequest& value);
     static Result<ClosePaneRequest> decode(const Json& value);
@@ -3583,6 +3617,12 @@ template <>
 struct Codec<ReportAgentRequest> {
     static Result<Json> encode(const ReportAgentRequest& value);
     static Result<ReportAgentRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ReportFocusRequest> {
+    static Result<Json> encode(const ReportFocusRequest& value);
+    static Result<ReportFocusRequest> decode(const Json& value);
 };
 
 template <>

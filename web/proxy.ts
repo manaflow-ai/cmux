@@ -8,6 +8,7 @@ import {
   featureWorkflowContentLocales,
   featureWorkflowDocRequestForPathname,
   hasFallbackContent,
+  managedPoliciesDocsLocales,
   remoteTmuxDocsLocales,
 } from "./i18n/locale-availability";
 import { buildAlternateLinkHeader } from "./i18n/seo";
@@ -146,6 +147,12 @@ export default function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
+  // Machine desktop wrapper panes: the URL lives inside long-lived app panes,
+  // so it must never be rewritten into the locale tree.
+  if (pathname.startsWith("/vm/desktop/")) {
+    return NextResponse.next();
+  }
+
   const isChangelogVersionPath =
     /^(?:\/[a-z]{2}(?:-[A-Z]{2})?)?\/docs\/changelog\/[^/]+\/?$/.test(
       pathname,
@@ -256,6 +263,28 @@ export default function middleware(request: NextRequest) {
   if (pathname === "/docs/remote-tmux" || pathname === "/docs/remote-tmux/") {
     const url = request.nextUrl.clone();
     url.pathname = "/en/docs/remote-tmux";
+    return NextResponse.rewrite(url);
+  }
+
+  const managedPoliciesMatch = pathname.match(
+    /^\/([a-z]{2}(?:-[A-Z]{2})?)\/docs\/managed-policies\/?$/,
+  );
+  if (
+    managedPoliciesMatch &&
+    !managedPoliciesDocsLocales.includes(
+      managedPoliciesMatch[1] as (typeof managedPoliciesDocsLocales)[number],
+    )
+  ) {
+    const url = request.nextUrl.clone();
+    url.pathname = "/docs/managed-policies";
+    return NextResponse.redirect(url, 301);
+  }
+  if (
+    pathname === "/docs/managed-policies" ||
+    pathname === "/docs/managed-policies/"
+  ) {
+    const url = request.nextUrl.clone();
+    url.pathname = "/en/docs/managed-policies";
     return NextResponse.rewrite(url);
   }
 

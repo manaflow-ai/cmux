@@ -21,21 +21,20 @@ extension TerminalSurface {
     public func enqueueManualInputNamedKey(_ name: String) -> Bool {
         guard ioMode.usesManualIO, manualInputHandler != nil, let surface else { return false }
         let frame = TerminalManualInput.namedKey(name).manualIOData
-        return frame.withUnsafeBytes { bytes in
-            guard let baseAddress = bytes.baseAddress else { return false }
-            ghostty_surface_text_input(
-                surface,
-                baseAddress.assumingMemoryBound(to: CChar.self),
-                UInt(bytes.count)
-            )
-            return true
-        }
+        return remoteOutputLane.enqueueTextInput(frame, to: surface)
     }
 
     /// Notifies the pane host that user-initiated terminal input is about to be sent.
     @MainActor
-    public func didReceiveExplicitInput() {
+    @discardableResult
+    public func didReceiveExplicitInput() -> Bool {
+        var cancelledDeferredAdmission = false
+        if cancelsStartupRestoreAdmissionOnExplicitInput,
+           startupRestoreAdmissionPhase == .awaitingAdmission {
+            cancelledDeferredAdmission = cancelStartupRestoreAdmissionForExplicitInput()
+        }
         paneHost.terminalSurfaceDidReceiveExplicitInput()
+        return cancelledDeferredAdmission
     }
 
     /// Routes programmatic input through the view-owned clipboard sequencer.
@@ -151,10 +150,28 @@ extension TerminalSurface {
         ) {
             return true
         }
+        guard surface != nil else {
+            guard allowsRuntimeSurfaceCreation() else { return false }
+            let queued = enqueuePendingSocketInput(.keyText(text))
+            if queued {
+                requestInputDemandSurfaceStartIfNeeded()
+                didAcceptExplicitInput()
+            }
+            return queued
+        }
         guard let liveSurface = liveSurfaceForSocketWrite(reason: "socket.sendKeyText") else {
             return false
         }
         guard !ghostty_surface_process_exited(liveSurface) else { return false }
+
+        return sendKeyText(text, to: liveSurface)
+    }
+
+    @MainActor
+    private func sendKeyText(
+        _ text: String,
+        to liveSurface: ghostty_surface_t
+    ) -> Bool {
 
         var keyEvent = ghostty_input_key_s()
         keyEvent.action = GHOSTTY_ACTION_PRESS
@@ -643,6 +660,7 @@ extension TerminalSurface {
         manualIONoReflow = value
     }
 
+<<<<<<< HEAD
     /// Inject remote output (tmux `%output`, tui pipe-io bytes) into the
     /// terminal parser. If the Ghostty runtime is not live yet, buffer a
     /// bounded tail and flush it on creation.
@@ -651,6 +669,14 @@ extension TerminalSurface {
     /// so it never runs here on the main actor: chunks are enqueued on the
     /// surface's serial `remoteOutputFeed` (order preserved) and the
     /// surface's native free drains that queue before freeing.
+=======
+    /// Enqueues remote tmux `%output` for the terminal parser.
+    ///
+    /// The native parser runs on the surface generation's FIFO output lane and
+    /// this method returns without waiting for Ghostty's renderer-state mutex.
+    /// If the runtime is not live yet, a bounded tail is buffered and flushed on
+    /// creation.
+>>>>>>> origin/feat-tui-attach-spike
     @MainActor
     public func processRemoteOutput(_ data: Data) {
         guard !data.isEmpty else { return }
@@ -662,7 +688,11 @@ extension TerminalSurface {
             return
         }
         flushPendingRemoteOutput(to: surface)
+<<<<<<< HEAD
         remoteOutputFeed.enqueue(surface: surface, data: data)
+=======
+        remoteOutputLane.enqueue(data, to: surface)
+>>>>>>> origin/feat-tui-attach-spike
     }
 
     @MainActor
@@ -670,7 +700,11 @@ extension TerminalSurface {
         guard !pendingRemoteOutput.isEmpty else { return }
         let buffered = pendingRemoteOutput
         pendingRemoteOutput = Data()
+<<<<<<< HEAD
         remoteOutputFeed.enqueue(surface: surface, data: buffered)
+=======
+        remoteOutputLane.enqueue(buffered, to: surface)
+>>>>>>> origin/feat-tui-attach-spike
     }
 
     static func readText(
@@ -978,6 +1012,8 @@ extension TerminalSurface {
                 keycode: event.keycode,
                 mods: event.mods
             )
+        case .keyText(let text):
+            _ = sendKeyText(text, to: surface)
         }
         return false
     }

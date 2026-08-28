@@ -25,7 +25,6 @@ struct MobileRootPresentationState: Equatable {
         case workspaceChanges
         case customization
         case terminalArtifactFiles
-        case chatShortcutsSettings
         case alternateScreenExplanation
     }
 

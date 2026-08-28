@@ -85,7 +85,86 @@ struct TerminalStartupRestoreFailureTests {
         restored.terminalStartupRestoreCoordinator.commitPendingRestores(
             panelIDs: [restoredPanelID]
         )
-        #expect(restoredPanel.surface.canCreateRuntimeSurface)
+        // Topology publication alone does not admit an ownership-sensitive
+        // resume. The deferred resolver must still accept or cancel it from
+        // the fresh shared index before the runtime can start.
+        #expect(!restoredPanel.surface.canCreateRuntimeSurface)
+        #expect(restored.deferredAgentResumeRestoresByPanelId[restoredPanelID] != nil)
+    }
+
+    @Test("Transferred persistent SSH restore adopts the destination owner")
+    func transferredPersistentSSHRestoreRetargetsRemoteOwner() throws {
+        let panelID = UUID()
+        let sourceWorkspaceID = UUID()
+        let destinationWorkspaceID = UUID()
+        let persistentPTYSessionID = "persistent-transfer-session"
+        let sourceContext = SurfaceResumeRemoteContext(
+            workspaceID: sourceWorkspaceID,
+            surfaceID: panelID,
+            persistentPTYSessionID: persistentPTYSessionID
+        )
+        let destinationContext = SurfaceResumeRemoteContext(
+            workspaceID: destinationWorkspaceID,
+            surfaceID: panelID,
+            persistentPTYSessionID: " \(persistentPTYSessionID) "
+        )
+        let binding = SurfaceResumeBindingSnapshot(
+            name: "Codex",
+            kind: "codex",
+            command: "codex resume persistent-transfer-session",
+            cwd: "/tmp/persistent-transfer-session",
+            checkpointId: persistentPTYSessionID,
+            source: "agent-hook",
+            autoResume: true,
+            launchFlavor: .persistentSSH(sourceContext),
+            updatedAt: 1_800_000_304
+        )
+        let restore = DeferredAgentResumeRestore(
+            stablePanelID: panelID,
+            restorableAgent: nil,
+            resumeBinding: binding,
+            restoresRemoteWorkspaceTerminalSnapshot: true,
+            remoteResumeContext: sourceContext,
+            remoteResumeCommandEmbedded: true,
+            workingDirectory: binding.cwd,
+            resumeWorkingDirectory: binding.cwd
+        )
+
+        let retargeted = restore.retargetingRemoteOwner(destinationContext)
+        #expect(retargeted.remoteResumeContext == destinationContext)
+        #expect(retargeted.remoteResumeCommandEmbedded)
+        #expect(
+            retargeted.resumeBinding == binding.retargetingRemoteOwner(
+                expectedWorkspaceID: sourceWorkspaceID,
+                expectedSurfaceID: panelID,
+                workspaceID: destinationWorkspaceID,
+                surfaceID: panelID,
+                persistentPTYSessionID: destinationContext.persistentPTYSessionID
+            )
+        )
+
+        let mismatchedSession = restore.retargetingRemoteOwner(
+            SurfaceResumeRemoteContext(
+                workspaceID: destinationWorkspaceID,
+                surfaceID: panelID,
+                persistentPTYSessionID: "different-session"
+            )
+        )
+        #expect(mismatchedSession.remoteResumeContext == sourceContext)
+
+        let localRestore = DeferredAgentResumeRestore(
+            stablePanelID: panelID,
+            restorableAgent: nil,
+            resumeBinding: binding,
+            restoresRemoteWorkspaceTerminalSnapshot: false,
+            remoteResumeContext: sourceContext,
+            workingDirectory: binding.cwd,
+            resumeWorkingDirectory: binding.cwd
+        )
+        #expect(
+            localRestore.retargetingRemoteOwner(destinationContext)
+                .remoteResumeContext == sourceContext
+        )
     }
 
     @Test("Failed Dock adoption clears source-owned hibernation tracking")
@@ -226,7 +305,11 @@ struct TerminalStartupRestoreFailureTests {
 
         let restored = Workspace(
             agentSessionAutoResumeDefaults: defaults.store,
-            agentChatResumeIntentRecorder: recorder
+            agentChatResumeIntentRecorder: recorder,
+            // This test exercises cancellation of a synchronously claimed
+            // restore transaction; keep ownership lookup deterministic rather
+            // than racing the separate deferred-admission coordinator.
+            restorableAgentIndexProvider: { .empty }
         )
         defer { restored.teardownAllPanels() }
         let restoredPanelIDs = restored.restoreSessionSnapshot(
@@ -257,6 +340,56 @@ struct TerminalStartupRestoreFailureTests {
             panelIDs: [restoredPanelID]
         )
         #expect(restored.restoredAgentSnapshotsByPanelId[restoredPanelID] == nil)
+    }
+
+    @Test("Cancelling a binding-only deferred resume retires automatic ownership")
+    func cancellingBindingOnlyDeferredResumeRetiresAutomaticOwnership() throws {
+        let defaults = try makeAutoResumeDefaults()
+        defer { defaults.store.removePersistentDomain(forName: defaults.name) }
+        let workspace = Workspace(agentSessionAutoResumeDefaults: defaults.store)
+        defer { workspace.teardownAllPanels() }
+        let panelID = try #require(workspace.focusedPanelId)
+        let sessionID = "binding-only-cancel-(UUID().uuidString)"
+        let binding = SurfaceResumeBindingSnapshot(
+            name: "Codex",
+            kind: "codex",
+            command: "codex resume (sessionID)",
+            cwd: "/tmp/binding-only-cancel",
+            checkpointId: sessionID,
+            source: "agent-hook",
+            autoResume: true,
+            updatedAt: 1_800_000_303
+        )
+        workspace.surfaceResumeBindingsByPanelId[panelID] = binding
+        let restore = DeferredAgentResumeRestore(
+            stablePanelID: panelID,
+            restorableAgent: nil,
+            resumeBinding: binding,
+            restoresRemoteWorkspaceTerminalSnapshot: false,
+            workingDirectory: binding.cwd,
+            resumeWorkingDirectory: binding.cwd
+        )
+        workspace.deferredAgentResumeRestoresByPanelId[panelID] = restore
+        workspace.restoredAgentLifecycle.setResumeState(
+            .awaitingAutoResumeCommand,
+            panelId: panelID
+        )
+        var replacementBinding = binding
+        replacementBinding.checkpointId = "replacement-(UUID().uuidString)"
+        replacementBinding.command = "codex resume (replacementBinding.checkpointId!)"
+        workspace.surfaceResumeBindingsByPanelId[panelID] = replacementBinding
+
+        workspace.cancelDeferredAgentResumeRestore(
+            panelId: panelID,
+            restore: restore
+        )
+
+        #expect(workspace.deferredAgentResumeRestoresByPanelId[panelID] == nil)
+        #expect(
+            workspace.restoredAgentResumeStatesByPanelId[panelID]
+                == .manualResumeAvailable
+        )
+        #expect(workspace.surfaceResumeBindingsByPanelId[panelID]?.autoResume == true)
     }
 
     private func makeAutoResumeDefaults() throws -> (store: UserDefaults, name: String) {

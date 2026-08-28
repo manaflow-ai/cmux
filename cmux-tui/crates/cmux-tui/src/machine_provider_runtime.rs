@@ -331,13 +331,14 @@ impl ProviderMachineController {
         // Open the candidate first. Failed SSH or socket authentication leaves
         // the current provider/local session untouched.
         self.register_local(key)?;
-        let session = self.local_connections.connect(key)?;
+        let (session, reused) = self.local_connections.connect_tracked(key)?;
         let label = self.local.name(key).unwrap_or("machine").to_string();
         self.provider.stage_connection(None, None)?;
         self.pending_active_local = Some(Some(key));
         let ui = self.provider.ui_state_for_open_connection();
         let mut result =
-            MachineActionResult::replace(self.merge_local_ui_for(ui, Some(key)), session, label);
+            MachineActionResult::replace(self.merge_local_ui_for(ui, Some(key)), session, label)
+                .with_reused_session(reused);
         result.restart_updates = true;
         Ok(result)
     }
@@ -385,6 +386,9 @@ impl ProviderMachineController {
                                 MachineUpdate::DurableNotice(notice) => {
                                     MachineUpdate::DurableNotice(notice)
                                 }
+                                MachineUpdate::ConnectionProgress { machine_id, latest } => {
+                                    MachineUpdate::ConnectionProgress { machine_id, latest }
+                                }
                             };
                             if sender.send(update).is_err() {
                                 break;
@@ -419,6 +423,7 @@ impl ProviderMachineController {
         self.provider.commit_replacement(true)?;
         self.pending_active_local.take();
         self.active_local = active_local;
+        self.local_connections.note_presented(active_local);
         self.pending_provider_switch = false;
         Ok(())
     }
@@ -610,9 +615,15 @@ impl ProviderMachineRuntime {
     }
 
     pub(crate) fn open_selected(&mut self) -> anyhow::Result<(Session, String, MachineUiState)> {
-        let (session, label, open) = self.open_selected_candidate()?;
+        let (session, label, open, _reused) = self.open_selected_candidate()?;
         let session_available = open.is_some();
         self.open = open;
+        // The initial connection is presented without a commit_replacement
+        // round; record it so warm-pool eviction never shuts down the
+        // session on screen.
+        let presented =
+            self.open.as_ref().and_then(|open| key_for_id(&self.keys, &open.machine_id));
+        self.connections.note_presented(presented);
         let mut ui = self.ui_state(session_available);
         ui.notice = self.take_notice();
         Ok((session, label, ui))
@@ -660,7 +671,7 @@ impl ProviderMachineRuntime {
                             return Err(error);
                         }
                     };
-                let (session, label, open) = match self.open_selected_candidate() {
+                let (session, label, open, reused) = match self.open_selected_candidate() {
                     Ok(candidate) => candidate,
                     Err(error) => {
                         self.restore_selection(rollback);
@@ -671,7 +682,8 @@ impl ProviderMachineRuntime {
                 self.stage_connection(open, Some(rollback))?;
                 let mut ui = self.ui_state(session_available);
                 ui.notice = self.take_notice();
-                let mut result = MachineActionResult::replace(ui, session, label);
+                let mut result = MachineActionResult::replace(ui, session, label)
+                    .with_reused_session(reused && session_available);
                 result.restart_updates = true;
                 Ok(result)
             }
@@ -786,6 +798,15 @@ impl ProviderMachineRuntime {
                 let machine_id = self.machine_id(machine)?;
                 let deletes_open_session =
                     self.open.as_ref().is_some_and(|open| open.machine_id == machine_id);
+                // The deleted machine's list slot, so the replacement can be
+                // the machine that takes its place (or the new last one).
+                let deleted_slot = self
+                    .snapshot
+                    .machines
+                    .iter()
+                    .position(|descriptor| descriptor.id == machine_id)
+                    .unwrap_or_default();
+                let deleted_id = machine_id.clone();
                 let result = self.client.delete_machine(protocol::MachineMutationParams {
                     scope_id: self.snapshot.selected_scope_id.clone(),
                     machine_id,
@@ -798,15 +819,87 @@ impl ProviderMachineRuntime {
                         retire_open_on_failure: deletes_open_session,
                         ..AcceptedProviderEffects::default()
                     },
-                    |runtime| {
+                    move |runtime| {
                         runtime.refresh()?;
+                        // The refreshed catalog no longer lists the deleted
+                        // machine, but the selection may still point at it -
+                        // reopening it would wake the machine the user just
+                        // deleted (or hang behind its teardown). Reselect the
+                        // next available machine before opening.
+                        // Usable = listed and not a Recoverable leftover:
+                        // recovery-capable providers may keep soft-deleted
+                        // machines in the catalog, and reopening one would
+                        // resurrect what the user just deleted.
+                        let recoverable = |id: &protocol::OpaqueId| {
+                            runtime.machine_lifecycle_snapshot.machines.iter().any(
+                                |descriptor| {
+                                    &descriptor.id == id
+                                        && descriptor.status
+                                            == protocol::MachineLifecycleStatus::Recoverable
+                                },
+                            )
+                        };
+                        let selection_stale = runtime
+                            .snapshot
+                            .selected_machine_id
+                            .as_ref()
+                            .is_none_or(|selected| {
+                                *selected == deleted_id
+                                    || recoverable(selected)
+                                    || !runtime
+                                        .snapshot
+                                        .machines
+                                        .iter()
+                                        .any(|descriptor| &descriptor.id == selected)
+                            });
+                        // Refresh may replace the deleted desired selection
+                        // with an arbitrary valid provider fallback. The
+                        // open machine was still deleted, so slot-based
+                        // failover must win even when the refreshed selection
+                        // is no longer technically stale.
                         if deletes_open_session {
-                            let (session, label, open) = runtime.open_selected_candidate()?;
+                            let usable: Vec<protocol::OpaqueId> = runtime
+                                .snapshot
+                                .machines
+                                .iter()
+                                .filter(|descriptor| {
+                                    descriptor.id != deleted_id
+                                        && descriptor.connectable
+                                        && !recoverable(&descriptor.id)
+                                })
+                                .map(|descriptor| descriptor.id.clone())
+                                .collect();
+                            runtime.snapshot.selected_machine_id =
+                                usable.get(deleted_slot.min(usable.len().saturating_sub(1))).cloned();
+                            runtime.workspace_snapshot = load_workspace_snapshot(
+                                &runtime.client,
+                                &runtime.snapshot,
+                            )?;
+                        }
+                        crate::client_log::info(
+                            "machine",
+                            &format!(
+                                "delete replacement: stale={selection_stale} machines={} selected={:?}",
+                                runtime.snapshot.machines.len(),
+                                runtime.snapshot.selected_machine_id.as_ref().map(|id| id.as_str().to_string()),
+                            ),
+                        );
+                        if deletes_open_session {
+                            let (session, label, open, reused) =
+                                runtime.open_selected_candidate()?;
+                            crate::client_log::info(
+                                "machine",
+                                &format!(
+                                    "delete replacement opened: label={label} open={} reused={reused}",
+                                    open.is_some(),
+                                ),
+                            );
                             let session_available = open.is_some();
                             runtime.stage_mandatory_replacement(open);
                             let mut ui = runtime.ui_state(session_available);
                             ui.notice = runtime.take_notice();
-                            return Ok(MachineActionResult::replace(ui, session, label));
+                            return Ok(MachineActionResult::replace(ui, session, label)
+                                .with_reused_session(reused && session_available));
                         }
                         Ok(MachineActionResult::ui(runtime.ui_state_for_open_connection()))
                     },
@@ -1058,6 +1151,11 @@ impl ProviderMachineRuntime {
         let refresh_worker = std::thread::Builder::new()
             .name("machine-provider-refresh".into())
             .spawn(move || {
+                // Latest-value cells for connection progress, one per machine
+                // (see MachineUpdate::ConnectionProgress).
+                let mut progress_cells: HashMap<String, Arc<Mutex<Option<String>>>> =
+                    HashMap::new();
+                let mut progress_last_sent: HashMap<String, std::time::Instant> = HashMap::new();
                 while !refresh_stop.load(Ordering::Acquire) {
                     if worker_refresh_overflowed.load(Ordering::Acquire) {
                         let mut ui = machine_ui_state(
@@ -1127,6 +1225,79 @@ impl ProviderMachineRuntime {
                             break;
                         }
                     };
+                    if let Some(protocol::ProviderEvent::ConnectionProgress(progress)) =
+                        event.as_ref()
+                    {
+                        // Forward without a snapshot reload: the provider's
+                        // serialized control loop is busy inside open_machine
+                        // while it pushes these, so a snapshot request would
+                        // stall exactly the message it is meant to show.
+                        let machine_id = progress.machine_id.as_str().to_string();
+                        // Provider-controlled text: strip terminal control
+                        // characters (ESC/OSC injection) and cap it at the
+                        // trust boundary (char-safe) before it is stored or
+                        // drawn.
+                        let mut message: String = progress
+                            .message
+                            .chars()
+                            .map(|c| if c.is_control() { ' ' } else { c })
+                            .collect();
+                        if message.len() > 512 {
+                            let mut end = 512;
+                            while !message.is_char_boundary(end) {
+                                end -= 1;
+                            }
+                            message.truncate(end);
+                        }
+                        // Hard bound against a provider spraying distinct
+                        // ids while no snapshot prunes the map. Rejecting the
+                        // event (progress is advisory) keeps the one-in-
+                        // flight-per-machine invariant; clearing instead
+                        // would mint fresh cells whose updates stack on top
+                        // of unconsumed ones.
+                        if progress_cells.len() >= 128 && !progress_cells.contains_key(&machine_id)
+                        {
+                            continue;
+                        }
+                        // Rate floor per machine, checked before any state is
+                        // written: a provider emitting stages faster than
+                        // 20/s buys no fidelity and would drive main-loop
+                        // redraws at its own cadence. Dropped events leave
+                        // the cell untouched, so the in-flight invariant
+                        // holds (progress is advisory; the settle clears it).
+                        let now = std::time::Instant::now();
+                        if let Some(last) = progress_last_sent.get(&machine_id)
+                            && now.duration_since(*last) < Duration::from_millis(50)
+                        {
+                            continue;
+                        }
+                        let cell = progress_cells.entry(machine_id.clone()).or_default();
+                        let already_in_flight = {
+                            let mut slot =
+                                cell.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+                            let pending = slot.is_some();
+                            *slot = Some(message);
+                            pending
+                        };
+                        if already_in_flight {
+                            // An unconsumed update for this machine is queued;
+                            // it will deliver this newer message when read.
+                            continue;
+                        }
+                        progress_last_sent.insert(machine_id.clone(), now);
+                        if refresh_output
+                            .send(MachineUpdate::ConnectionProgress {
+                                machine_id,
+                                latest: Arc::clone(cell),
+                            })
+                            .is_err()
+                        {
+                            // The app side is gone (shutdown): stop pumping
+                            // like every other update path does.
+                            break;
+                        }
+                        continue;
+                    }
                     let mut notice = None;
                     let had_connected_session = connected_session.is_some();
                     if let Some(protocol::ProviderEvent::ConnectionClosed(closed)) = event.as_ref()
@@ -1182,6 +1353,22 @@ impl ProviderMachineRuntime {
                             break;
                         }
                     };
+                    // Each snapshot is the authoritative machine set: drop
+                    // progress cells for machines that no longer exist, so a
+                    // long-lived provider emitting many distinct ids cannot
+                    // grow the registry without bound.
+                    progress_cells.retain(|machine_id, _| {
+                        snapshot
+                            .machines
+                            .iter()
+                            .any(|machine| machine.id.as_str() == machine_id.as_str())
+                    });
+                    progress_last_sent.retain(|machine_id, _| {
+                        snapshot
+                            .machines
+                            .iter()
+                            .any(|machine| machine.id.as_str() == machine_id.as_str())
+                    });
                     let changed_snapshot_notice =
                         if !durable_notices_supported && snapshot.notice != last_snapshot_notice {
                             snapshot.notice.clone()
@@ -1366,12 +1553,13 @@ impl ProviderMachineRuntime {
         self.reconnect_control()?;
 
         match self.open_selected_candidate() {
-            Ok((session, label, open)) => {
+            Ok((session, label, open, reused)) => {
                 let session_available = open.is_some();
                 self.stage_connection(open, None)?;
                 let mut ui = self.ui_state(session_available);
                 ui.notice = self.take_notice();
-                let mut result = MachineActionResult::replace(ui, session, label);
+                let mut result = MachineActionResult::replace(ui, session, label)
+                    .with_reused_session(reused && session_available);
                 result.restart_updates = true;
                 Ok(result)
             }
@@ -1448,7 +1636,9 @@ impl ProviderMachineRuntime {
         Ok(())
     }
 
-    fn open_selected_candidate(&self) -> anyhow::Result<(Session, String, Option<OpenConnection>)> {
+    fn open_selected_candidate(
+        &self,
+    ) -> anyhow::Result<(Session, String, Option<OpenConnection>, bool)> {
         let selected = self
             .snapshot
             .selected_machine_id
@@ -1456,7 +1646,7 @@ impl ProviderMachineRuntime {
             .and_then(|id| self.snapshot.machines.iter().find(|machine| &machine.id == id))
             .cloned();
         let Some(machine) = selected else {
-            return Ok((placeholder_session(), "machines".to_string(), None));
+            return Ok((placeholder_session(), "machines".to_string(), None, false));
         };
         if !machine.connectable {
             anyhow::bail!(localization::catalog().sidebar.machine_not_ready_to_connect);
@@ -1465,7 +1655,7 @@ impl ProviderMachineRuntime {
             anyhow::anyhow!(localization::catalog().sidebar.machine_not_ready_to_connect)
         })?;
         self.sync_connection_hub();
-        let session = self.connections.connect(key)?;
+        let (session, reused) = self.connections.connect_tracked(key)?;
         let open = self
             .connection_registry
             .lock()
@@ -1477,7 +1667,7 @@ impl ProviderMachineRuntime {
             .ok_or_else(|| {
                 anyhow::anyhow!(localization::catalog().sidebar.machine_not_ready_to_connect)
             })?;
-        Ok((session, machine.display_name, Some(open)))
+        Ok((session, machine.display_name, Some(open), reused))
     }
 
     fn create_workspace(
@@ -1579,6 +1769,7 @@ impl ProviderMachineRuntime {
                 session: placeholder_session(),
                 label,
                 machine,
+                reused: false,
             });
             result.restart_updates = true;
         }
@@ -1622,6 +1813,7 @@ impl ProviderMachineRuntime {
                     self.connections.remove(key);
                 }
                 self.open = None;
+                self.connections.note_presented(None);
             }
             return Ok(());
         }
@@ -1629,6 +1821,9 @@ impl ProviderMachineRuntime {
             anyhow::anyhow!(localization::catalog().sidebar.machine_replacement_not_pending)
         })?;
         self.open = pending.candidate;
+        let presented =
+            self.open.as_ref().and_then(|open| key_for_id(&self.keys, &open.machine_id));
+        self.connections.note_presented(presented);
         Ok(())
     }
 
@@ -1653,6 +1848,7 @@ impl ProviderMachineRuntime {
                 self.connections.remove(key);
             }
             self.open = None;
+            self.connections.note_presented(None);
         }
     }
 
@@ -2509,6 +2705,9 @@ mod tests {
             MachineUpdate::Ui(ui) => *ui,
             MachineUpdate::DurableNotice(notice) => {
                 panic!("expected UI update, received durable notice {notice:?}")
+            }
+            MachineUpdate::ConnectionProgress { machine_id, latest } => {
+                panic!("expected UI update, received progress {machine_id:?}: {latest:?}")
             }
         }
     }
@@ -3746,7 +3945,13 @@ mod tests {
             else {
                 panic!("client capability negotiation did not immediately follow hello");
             };
-            assert_eq!(params.capabilities, [protocol::PROVIDER_ACTION_TARGETS_CLIENT_CAPABILITY]);
+            assert_eq!(
+                params.capabilities,
+                [
+                    protocol::PROVIDER_ACTION_TARGETS_CLIENT_CAPABILITY,
+                    protocol::CONNECTION_PROGRESS_CLIENT_CAPABILITY,
+                ]
+            );
             write_frame(
                 &mut stream,
                 &protocol::ResponseEnvelope::success(
@@ -5675,6 +5880,9 @@ mod tests {
                         "legacy snapshot warning duplicated the durable event"
                     );
                     saw_refresh = true;
+                }
+                MachineUpdate::ConnectionProgress { machine_id, latest } => {
+                    panic!("unexpected progress {machine_id:?}: {latest:?}")
                 }
             }
         }

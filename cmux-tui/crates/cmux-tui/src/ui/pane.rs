@@ -143,29 +143,30 @@ fn draw_box(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool) {
     let style = notification
         .map(|notification| Style::default().fg(notification_color(&theme, notification)))
         .unwrap_or_else(|| border_style(app, focused));
+    let glyphs = theme.border_style.glyphs();
     let (x0, y0) = (rect.x, rect.y);
     let (x1, y1) = (rect.x + rect.width - 1, rect.y + rect.height - 1);
     if x1 >= screen.width || y1 >= screen.height {
         return;
     }
     for x in x0..=x1 {
-        buf[(x, y1)].set_symbol("─").set_style(style);
+        buf[(x, y1)].set_symbol(glyphs.horizontal).set_style(style);
     }
     for y in y0 + 1..y1 {
         if area.has_left_edge() {
-            buf[(x0, y)].set_symbol("│").set_style(style);
+            buf[(x0, y)].set_symbol(glyphs.vertical).set_style(style);
         }
         if area.has_right_edge() {
-            buf[(x1, y)].set_symbol("│").set_style(style);
+            buf[(x1, y)].set_symbol(glyphs.vertical).set_style(style);
         }
     }
     if area.has_left_edge() {
-        buf[(x0, y0)].set_symbol("┌").set_style(style);
-        buf[(x0, y1)].set_symbol("└").set_style(style);
+        buf[(x0, y0)].set_symbol(glyphs.top_left).set_style(style);
+        buf[(x0, y1)].set_symbol(glyphs.bottom_left).set_style(style);
     }
     if area.has_right_edge() {
-        buf[(x1, y0)].set_symbol("┐").set_style(style);
-        buf[(x1, y1)].set_symbol("┘").set_style(style);
+        buf[(x1, y0)].set_symbol(glyphs.top_right).set_style(style);
+        buf[(x1, y1)].set_symbol(glyphs.bottom_right).set_style(style);
     }
 
     if let Some(label) = app.client_border_labels.get(&area.surface) {
@@ -284,15 +285,16 @@ fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
         Some(logical) => logical,
         None => frame.buffer_mut(),
     };
+    let glyphs = theme.border_style.glyphs();
     let (x0, x1) = (0, full_width - 1);
     for x in x0..=x1 {
-        buf[(origin_x + x, origin_y)].set_symbol("─").set_style(style);
+        buf[(origin_x + x, origin_y)].set_symbol(glyphs.horizontal).set_style(style);
     }
     if area.has_left_edge() {
-        buf[(origin_x + x0, origin_y)].set_symbol("┌").set_style(style);
+        buf[(origin_x + x0, origin_y)].set_symbol(glyphs.top_left).set_style(style);
     }
     if area.has_right_edge() {
-        buf[(origin_x + x1, origin_y)].set_symbol("┐").set_style(style);
+        buf[(origin_x + x1, origin_y)].set_symbol(glyphs.top_right).set_style(style);
     }
 
     // Layout the tab labels: " 1 zsh " ... " + ", scrolled so the range
@@ -307,9 +309,14 @@ fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
             format!("{}{}{}", " ".repeat(short / 2), label, " ".repeat(short - short / 2))
         })
         .collect();
-    let widths: Vec<u16> = labels.iter().map(|label| label.width() as u16).collect();
+    // Pill and slant chips wrap solid tabs in cap glyphs, one cell on each
+    // side; the caps take part in layout, scrolling, and hit rects.
+    let chip_caps = tab_cfg.solid_background.then(|| tab_cfg.style.caps()).flatten();
+    let cap_cells: u16 = if chip_caps.is_some() { 2 } else { 0 };
+    let widths: Vec<u16> = labels.iter().map(|label| label.width() as u16 + cap_cells).collect();
     let inner_w = full_width.saturating_sub(2); // between the corners
-    let plus_w: u16 = 3; // " + "
+    let plus_label = app.config.tabs.plus.label.clone();
+    let plus_w: u16 = (plus_label.width() as u16).max(1);
     let arrow_w: u16 = 1;
 
     // Clamp the requested scroll, then bump it until the active tab fits.
@@ -358,9 +365,25 @@ fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
         if tab_drag.is_some_and(|drag| pane.tabs[i].surface == drag.surface) {
             style = style.add_modifier(Modifier::DIM);
         }
-        buf.set_stringn(origin_x + x, origin_y, label, w as usize, style);
-        if tab_cfg.solid_background && is_active {
-            buf[(origin_x + x, origin_y)].set_symbol("▎").set_style(style.fg(theme.tab_rail));
+        if let Some((cap_left, cap_right)) = chip_caps {
+            // Caps take the chip's background as their foreground and float
+            // over the border row, so every chip reads as a pill or slant.
+            let chip_bg = style.bg.unwrap_or(theme.tab_bg);
+            let cap_style = Style::default().fg(chip_bg);
+            buf.set_stringn(origin_x + x, origin_y, cap_left, 1, cap_style);
+            buf.set_stringn(
+                origin_x + x + 1,
+                origin_y,
+                label,
+                w.saturating_sub(cap_cells) as usize,
+                style,
+            );
+            buf.set_stringn(origin_x + x + w.saturating_sub(1), origin_y, cap_right, 1, cap_style);
+        } else {
+            buf.set_stringn(origin_x + x, origin_y, label, w as usize, style);
+            if tab_cfg.solid_background && is_active {
+                buf[(origin_x + x, origin_y)].set_symbol("▎").set_style(style.fg(theme.tab_rail));
+            }
         }
         if drop_index == Some(i) && x < max_x {
             buf[(origin_x + x, origin_y)]
@@ -383,7 +406,7 @@ fn draw_tab_bar(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
     }
     if x + plus_w <= max_x {
         let rect = Rect { x, y: 0, width: plus_w, height: 1 };
-        buf.set_stringn(origin_x + x, origin_y, " + ", plus_w as usize, ctrl_style(rect));
+        buf.set_stringn(origin_x + x, origin_y, &plus_label, plus_w as usize, ctrl_style(rect));
         hits.push((rect, Hit::NewTab { pane: pane_id }));
     }
 
@@ -477,6 +500,18 @@ fn draw_content(app: &mut App, frame: &mut Frame, area: &PaneArea, focused: bool
         &app.chrome,
         |col, row| selection.is_some_and(|s| s.contains_viewport(col, row, selection_offset)),
     );
+    if !focused && theme.dim_inactive {
+        let screen = frame.area();
+        let max_x = rect.x.saturating_add(rect.width).min(screen.width);
+        let max_y = rect.y.saturating_add(rect.height).min(screen.height);
+        let dim = Style::default().add_modifier(Modifier::DIM);
+        let buf = frame.buffer_mut();
+        for y in rect.y..max_y {
+            for x in rect.x..max_x {
+                buf[(x, y)].set_style(dim);
+            }
+        }
+    }
     DrawCursors { input: None, terminal: focused.then_some(cursor).flatten() }
 }
 
@@ -501,11 +536,11 @@ fn draw_browser_content(
     let message = if let Some(status @ BrowserStatus::Failed(_)) = browser_status.as_ref() {
         status.failure().map(|failure| localization::catalog().browser.failure_message(failure))
     } else if matches!(browser_status, Some(BrowserStatus::Starting)) {
-        Some("starting browser...".to_string())
+        Some(localization::catalog().browser.starting.to_string())
     } else if surface.browser_url().is_none() {
-        Some("browser panes are not supported over attach yet".to_string())
+        Some(localization::catalog().browser.attach_unsupported.to_string())
     } else if !app.graphics_supported {
-        Some("terminal has no kitty graphics support".to_string())
+        Some(localization::catalog().browser.graphics_unsupported.to_string())
     } else if !surface.has_browser_frame() {
         let url = surface
             .browser_url()
@@ -517,7 +552,7 @@ fn draw_browser_content(
                     .map(|tab| tab.title.clone())
             })
             .unwrap_or_else(|| "browser".to_string());
-        Some(format!("loading {}...", truncate(&url, 48)))
+        Some(localization::catalog().browser.loading(&truncate(&url, 48)))
     } else {
         None
     };

@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "d92b567abdfc8d76382c65e222521b3ac76f7183216cb922bceb841475513509",
+  "catalog_sha256": "2479d038387ac83af736875b3314a4b33d867243191a50bab477d0a723bc7ab0",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -315,6 +315,9 @@
     },
     "terminal.move": {
       "class": "mutation"
+    },
+    "terminal.output_read": {
+      "class": "read"
     },
     "terminal.process.get": {
       "class": "read"

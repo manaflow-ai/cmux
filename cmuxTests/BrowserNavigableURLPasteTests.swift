@@ -1,4 +1,5 @@
 import Foundation
+import CmuxSettings
 import Testing
 
 #if canImport(cmux_DEV)
@@ -49,6 +50,65 @@ import Testing
                 "https://example.com/path?x=1"
         )
         #expect(resolveBrowserNavigableURL("node.js tutorial") == nil)
+    }
+
+    @Test func allowlistedHostLikeLocalhostInputIsNotRejectedAsAPseudoScheme() throws {
+        let resolved = try #require(resolveBrowserNavigableURL("localhost:3000"))
+        let policy = BrowserURLAllowlistPolicy(
+            managedPatterns: nil,
+            userPatterns: ["localhost"]
+        )
+
+        #expect(
+            TerminalController.browserURLAllowlistBlockedURL(
+                rawInput: "localhost:3000",
+                resolvedURL: resolved,
+                policy: policy
+            ) == nil
+        )
+        #expect(
+            TerminalController.browserURLAllowlistBlockedURL(
+                rawInput: "https://outside.example",
+                resolvedURL: try #require(URL(string: "https://outside.example")),
+                policy: policy
+            )?.absoluteString == "https://outside.example"
+        )
+    }
+
+    @Test func localFileBrowserAutomationUsesTheTrustedAllowlistPath() throws {
+        let fileURL = try #require(URL(string: "file:///tmp/cmux-report.html"))
+        let policy = BrowserURLAllowlistPolicy(
+            managedPatterns: nil,
+            userPatterns: ["localhost"]
+        )
+
+        #expect(
+            TerminalController.browserURLAllowlistBlockedURL(
+                rawInput: fileURL.absoluteString,
+                resolvedURL: fileURL,
+                policy: policy
+            ) == nil
+        )
+    }
+
+    @Test func automationAllowlistKeepsArbitraryDataURLsBlocked() throws {
+        let dataURL = try #require(URL(string: "data:text/html,not-a-cmux-document"))
+        let policy = BrowserURLAllowlistPolicy(managedPatterns: [])
+
+        #expect(
+            TerminalController.browserURLAllowlistBlockedURL(
+                rawInput: dataURL.absoluteString,
+                resolvedURL: dataURL,
+                policy: policy
+            )?.absoluteString == dataURL.absoluteString
+        )
+    }
+
+    @Test func browserTabAutomationResolvesHostLikeLocalhostInput() throws {
+        let resolved = try #require(
+            TerminalController.browserAutomationURL(from: " localhost:3000 ")
+        )
+        #expect(resolved.absoluteString == "http://localhost:3000")
     }
 
     @Test func bareAbsolutePathNavigatesAsLocalFileURL() throws {

@@ -176,14 +176,16 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(result.status, 0, result.stderr)
 
         XCTAssertTrue(
-            context.state.commands.contains {
-                $0.hasPrefix("set_agent_lifecycle claude_code needsInput --tab=\(context.workspaceId)")
-                    && $0.contains("--panel=\(context.surfaceId)")
+            AgentJournalAppendCapture.captures(in: context.state.commands).contains { capture in
+                capture.kind == "agent.plan_review.requested"
+                    && capture.agentKey == "claude_code"
+                    && capture.workspaceId == context.workspaceId
+                    && capture.surfaceId == context.surfaceId
             },
-            "ExitPlanMode PreToolUse must drive Needs input, saw \(context.state.commands)"
+            "ExitPlanMode PreToolUse must journal a plan-review request, saw \(context.state.commands)"
         )
         XCTAssertFalse(
-            context.state.commands.contains { $0.contains("set_agent_lifecycle claude_code running") },
+            AgentJournalAppendCapture.contains(context.state.commands, kind: "agent.turn.started", agentKey: "claude_code"),
             "ExitPlanMode PreToolUse must not drive Running while blocked on plan approval, saw \(context.state.commands)"
         )
         XCTAssertFalse(
@@ -235,14 +237,16 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(result.status, 0, result.stderr)
 
         XCTAssertTrue(
-            context.state.commands.contains {
-                $0.hasPrefix("set_agent_lifecycle claude_code needsInput --tab=\(context.workspaceId)")
-                    && $0.contains("--panel=\(context.surfaceId)")
+            AgentJournalAppendCapture.captures(in: context.state.commands).contains { capture in
+                capture.kind == "agent.question.requested"
+                    && capture.agentKey == "claude_code"
+                    && capture.workspaceId == context.workspaceId
+                    && capture.surfaceId == context.surfaceId
             },
-            "AskUserQuestion PreToolUse must drive Needs input, saw \(context.state.commands)"
+            "AskUserQuestion PreToolUse must journal a question request, saw \(context.state.commands)"
         )
         XCTAssertFalse(
-            context.state.commands.contains { $0.contains("set_agent_lifecycle claude_code running") },
+            AgentJournalAppendCapture.contains(context.state.commands, kind: "agent.turn.started", agentKey: "claude_code"),
             "AskUserQuestion PreToolUse must not drive Running, saw \(context.state.commands)"
         )
         XCTAssertFalse(
@@ -291,13 +295,15 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(result.status, 0, result.stderr)
 
         XCTAssertTrue(
-            context.state.commands.contains {
-                $0.hasPrefix("set_agent_lifecycle claude_code needsInput --tab=\(context.workspaceId)")
+            AgentJournalAppendCapture.captures(in: context.state.commands).contains { capture in
+                capture.kind == "agent.question.requested"
+                    && capture.agentKey == "claude_code"
+                    && capture.workspaceId == context.workspaceId
             },
-            "AskUserQuestion PreToolUse must drive Needs input in every mode, saw \(context.state.commands)"
+            "AskUserQuestion PreToolUse must journal a question request in every mode, saw \(context.state.commands)"
         )
         XCTAssertFalse(
-            context.state.commands.contains { $0.contains("set_agent_lifecycle claude_code running") },
+            AgentJournalAppendCapture.contains(context.state.commands, kind: "agent.turn.started", agentKey: "claude_code"),
             "AskUserQuestion PreToolUse must not drive Running, saw \(context.state.commands)"
         )
         XCTAssertFalse(
@@ -1867,11 +1873,13 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         let notificationCommands = Array(context.state.commands.dropFirst(notificationStart))
         XCTAssertTrue(
-            notificationCommands.contains {
-                $0.hasPrefix("set_agent_lifecycle codex needsInput --tab=\(context.workspaceId)")
-                    && $0.contains("--panel=\(context.surfaceId)")
+            AgentJournalAppendCapture.captures(in: notificationCommands).contains { capture in
+                capture.kind == "agent.approval.requested"
+                    && capture.agentKey == "codex"
+                    && capture.workspaceId == context.workspaceId
+                    && capture.surfaceId == context.surfaceId
             },
-            "Notification requiring user input must correct the visible lifecycle, saw \(notificationCommands)"
+            "Notification requiring user input must journal a needs-input approval request, saw \(notificationCommands)"
         )
 
         state = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
@@ -1919,9 +1927,14 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(staleStop.status, 0, staleStop.stderr)
 
         let staleStopCommands = Array(context.state.commands.dropFirst(staleStopStart))
-        XCTAssertFalse(
-            staleStopCommands.contains { $0.hasPrefix("set_agent_lifecycle codex idle ") },
-            "A stale Stop from an older session must not mark the surface idle, saw \(staleStopCommands)"
+        XCTAssertTrue(
+            AgentJournalAppendCapture.contains(
+                staleStopCommands,
+                kind: "agent.turn.completed",
+                agentKey: "codex",
+                sessionId: oldSessionId
+            ),
+            "A stale Stop journals the old session's completion (the reducer keeps the newer running session in charge), saw \(staleStopCommands)"
         )
         XCTAssertFalse(
             staleStopCommands.contains { $0.hasPrefix("set_status codex ") && $0.contains(" Idle ") },
@@ -1979,9 +1992,14 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(staleNotification.status, 0, staleNotification.stderr)
 
         let staleNotificationCommands = Array(context.state.commands.dropFirst(staleNotificationStart))
-        XCTAssertFalse(
-            staleNotificationCommands.contains { $0.hasPrefix("set_agent_lifecycle codex idle ") },
-            "A stale idle notification must not mark the newer session idle, saw \(staleNotificationCommands)"
+        XCTAssertTrue(
+            AgentJournalAppendCapture.contains(
+                staleNotificationCommands,
+                kind: "agent.turn.completed",
+                agentKey: "codex",
+                sessionId: oldSessionId
+            ),
+            "A stale idle notification journals the old session's completion (the reducer keeps the newer running session in charge), saw \(staleNotificationCommands)"
         )
         XCTAssertFalse(
             staleNotificationCommands.contains { $0.hasPrefix("set_status codex ") && $0.contains(" Idle ") },
@@ -3702,31 +3720,27 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
-        guard let retryLoop = script.range(of: "while :; do"),
-              let auth = script.range(of: "    ( cmux_ssh_foreground_auth )"),
-              let initialAuth = script.range(
-                of: "cmux_ssh_reauth_required=1",
-                range: script.startIndex..<retryLoop.lowerBound
-              ) else {
-            XCTFail("Missing foreground auth or persistent attach loop", file: file, line: line)
-            return
-        }
-        XCTAssertTrue(initialAuth.lowerBound < retryLoop.lowerBound, script, file: file, line: line)
-        XCTAssertTrue(retryLoop.lowerBound < auth.lowerBound, script, file: file, line: line)
-        XCTAssertEqual(
-            script.components(separatedBy: "( cmux_ssh_foreground_auth )").count - 1,
-            1,
-            script,
+        XCTAssertTrue(
+            script.contains("cmux_ssh_attach_foreground_auth"),
+            "missing cmux_ssh_attach_foreground_auth: \(script)",
             file: file,
             line: line
         )
         XCTAssertTrue(
-            script.contains("case \"$cmux_ssh_status\" in 254)")
-                && script.contains(
-                    "252) cmux_ssh_status=255; if [ \"$cmux_ssh_auth_succeeded\" -eq 0 ]; then break; fi"
-                )
-                && script.contains("*) break ;; esac; fi"),
-            script,
+            script.contains("CMUX_SSH_PTY_ATTACH_MANAGED_RECONNECT=1"),
+            "missing CMUX_SSH_PTY_ATTACH_MANAGED_RECONNECT=1: \(script)",
+            file: file,
+            line: line
+        )
+        XCTAssertTrue(
+            script.contains("CMUX_SSH_PTY_ATTACH_SUPPRESS_REPLAY"),
+            "missing CMUX_SSH_PTY_ATTACH_SUPPRESS_REPLAY: \(script)",
+            file: file,
+            line: line
+        )
+        XCTAssertFalse(
+            script.contains("[cmux] ssh exited with status"),
+            "legacy exit-status message still present: \(script)",
             file: file,
             line: line
         )
@@ -3757,25 +3771,19 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             initialScript
         )
         XCTAssertTrue(
-            initialScript.contains("CMUX_SSH_PTY_SESSION_ID=\"ssh-${CMUX_WORKSPACE_ID:-}-${CMUX_SURFACE_ID:-}\"") && initialScript.contains("cmux_ssh_pty_session_id=\"$CMUX_SSH_PTY_SESSION_ID\""),
+            initialScript.contains("CMUX_SSH_PTY_SESSION_ID=\"ssh-${CMUX_WORKSPACE_ID:-}-${CMUX_SURFACE_ID:-}\""),
             initialScript
         )
-        XCTAssertEqual(initialScript.components(separatedBy: "/usr/bin/uuidgen").count - 1, 2, initialScript)
-        XCTAssertTrue(initialScript.contains("--session-id \"${CMUX_SSH_PTY_SESSION_ID:-}\""), initialScript)
-        XCTAssertTrue(initialScript.contains("--lifecycle-id \"${CMUX_SSH_PTY_LIFECYCLE_ID:-}\""), initialScript)
+        XCTAssertTrue(initialScript.contains("cmux_ssh_attach_session_id=\"${CMUX_SSH_PTY_SESSION_ID:-}\""), initialScript)
+        XCTAssertTrue(initialScript.contains("--session-id \"$cmux_ssh_attach_session_id\""), initialScript)
+        XCTAssertTrue(initialScript.contains("--lifecycle-id \"$cmux_ssh_attach_lifecycle_id\""), initialScript)
         assertSSHPTYAttachAuthUsesRetryLoop(initialScript)
         assertSSHPTYAttachOmitsSurfaceArgument(initialScript)
         XCTAssertTrue(
-            initialScript.contains("--workspace \"$cmux_ssh_pty_workspace_id\""),
+            initialScript.contains("--workspace \"$CMUX_WORKSPACE_ID\""),
             initialScript
         )
-        XCTAssertTrue(
-            initialScript.contains(
-                "if [ \"$cmux_ssh_attach_no_progress_retry\" -gt 0 ]; then cmux_ssh_begin_attempt || exit 1; fi"
-            ),
-            initialScript
-        )
-        XCTAssertEqual(initialScript.components(separatedBy: "workspace.remote.foreground_auth_ready").count - 1, 1, initialScript)
+        XCTAssertEqual(initialScript.components(separatedBy: "workspace.remote.foreground_auth_ready").count - 1, 2, initialScript)
         XCTAssertTrue(terminalStartupScript.contains("ssh-pty-attach"), terminalStartupScript)
         XCTAssertTrue(terminalStartupScript.contains("ssh-session-end") && terminalStartupScript.contains("--lifecycle-only"), terminalStartupScript)
         XCTAssertTrue(terminalStartupScript.contains("CMUX_WORKSPACE_ID"), terminalStartupScript)
@@ -3789,25 +3797,19 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             terminalStartupScript
         )
         XCTAssertTrue(
-            terminalStartupScript.contains("CMUX_SSH_PTY_SESSION_ID=\"ssh-${CMUX_WORKSPACE_ID:-}-${CMUX_SURFACE_ID:-}\"") && terminalStartupScript.contains("cmux_ssh_pty_session_id=\"$CMUX_SSH_PTY_SESSION_ID\""),
+            terminalStartupScript.contains("CMUX_SSH_PTY_SESSION_ID=\"ssh-${CMUX_WORKSPACE_ID:-}-${CMUX_SURFACE_ID:-}\""),
             terminalStartupScript
         )
-        XCTAssertEqual(terminalStartupScript.components(separatedBy: "/usr/bin/uuidgen").count - 1, 2, terminalStartupScript)
-        XCTAssertTrue(terminalStartupScript.contains("--session-id \"${CMUX_SSH_PTY_SESSION_ID:-}\""), terminalStartupScript)
-        XCTAssertTrue(terminalStartupScript.contains("--lifecycle-id \"${CMUX_SSH_PTY_LIFECYCLE_ID:-}\""), terminalStartupScript)
+        XCTAssertTrue(terminalStartupScript.contains("cmux_ssh_attach_session_id=\"${CMUX_SSH_PTY_SESSION_ID:-}\""), terminalStartupScript)
+        XCTAssertTrue(terminalStartupScript.contains("--session-id \"$cmux_ssh_attach_session_id\""), terminalStartupScript)
+        XCTAssertTrue(terminalStartupScript.contains("--lifecycle-id \"$cmux_ssh_attach_lifecycle_id\""), terminalStartupScript)
         assertSSHPTYAttachAuthUsesRetryLoop(terminalStartupScript)
         assertSSHPTYAttachOmitsSurfaceArgument(terminalStartupScript)
         XCTAssertTrue(
-            terminalStartupScript.contains("--workspace \"$cmux_ssh_pty_workspace_id\""),
+            terminalStartupScript.contains("--workspace \"$CMUX_WORKSPACE_ID\""),
             terminalStartupScript
         )
-        XCTAssertTrue(
-            terminalStartupScript.contains(
-                "if [ \"$cmux_ssh_attach_no_progress_retry\" -gt 0 ]; then cmux_ssh_begin_attempt || exit 1; fi"
-            ),
-            terminalStartupScript
-        )
-        XCTAssertEqual(terminalStartupScript.components(separatedBy: "workspace.remote.foreground_auth_ready").count - 1, 1, terminalStartupScript)
+        XCTAssertEqual(terminalStartupScript.components(separatedBy: "workspace.remote.foreground_auth_ready").count - 1, 2, terminalStartupScript)
         XCTAssertEqual(configureParams["auto_connect"] as? Bool, false)
         XCTAssertNotNil(configureParams["foreground_auth_token"] as? String)
         XCTAssertEqual(configureParams["preserve_after_terminal_exit"] as? Bool, true)
@@ -5125,7 +5127,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             XCTAssertTrue(
                 retryStatuses.allSatisfy { initialCommand.contains($0) }
                     && initialCommand.contains("CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS")
-                    && initialCommand.contains("∞"),
+                    && !initialCommand.contains("∞")
+                    && initialCommand.contains("CMUX_SSH_RECONNECT_LIMIT"),
                 initialCommand
             )
             XCTAssertEqual(initialCommand.components(separatedBy: "/usr/bin/uuidgen").count - 1, 2, initialCommand)
@@ -6184,15 +6187,27 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                   let method = payload["method"] as? String else {
                 return self.malformedRequestResponse(raw: line)
             }
-            XCTAssertEqual(method, "notification.mark_read")
             let params = payload["params"] as? [String: Any] ?? [:]
-            XCTAssertEqual(params["tab_id"] as? String, workspaceId)
-            XCTAssertEqual(params["surface_id"] as? String, surfaceId)
-            return self.v2Response(
-                id: id,
-                ok: true,
-                result: ["marked_read": 1, "workspace_id": workspaceId, "surface_id": surfaceId]
-            )
+            switch method {
+            case "surface.list":
+                XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
+                return self.surfaceListResponse(id: id, surfaceId: surfaceId)
+            case "notification.mark_read":
+                XCTAssertEqual(params["tab_id"] as? String, workspaceId)
+                XCTAssertEqual(params["surface_id"] as? String, surfaceId)
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: ["marked_read": 1, "workspace_id": workspaceId, "surface_id": surfaceId]
+                )
+            default:
+                XCTFail("Unexpected method \(method)")
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": "Unexpected method \(method)"]
+                )
+            }
         }
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
@@ -6270,6 +6285,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 "list_notifications",
                 "notification.mark_read",
                 "notification.dismiss",
+                "surface.list",
                 "notification.mark_read",
                 "notification.open",
                 "notification.jump_to_unread",

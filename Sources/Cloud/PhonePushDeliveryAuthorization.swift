@@ -1,4 +1,5 @@
 import CmuxAuthRuntime
+import CmuxPhonePush
 import Foundation
 
 struct PhonePushDeliveryAuthorization {

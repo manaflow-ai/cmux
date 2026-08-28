@@ -980,9 +980,9 @@ impl VtBoundaryState {
 }
 
 /// Ghostty's parser intentionally treats bytes >= 0x80 as UTF-8 in ground
-/// state, while PTYs can still emit the 8-bit OSC/APC/ST forms. Normalize only
-/// standalone C1 control bytes; continuation bytes inside UTF-8 text remain
-/// byte-for-byte unchanged.
+/// state, while PTYs can still emit 8-bit C1 control-string forms. Normalize
+/// only standalone C1 control bytes; continuation bytes inside UTF-8 text
+/// remain byte-for-byte unchanged.
 #[derive(Default)]
 struct C1Normalizer {
     utf8_remaining: u8,
@@ -1000,7 +1000,10 @@ impl C1Normalizer {
                 false
             };
             let replacement = (!continuation).then_some(byte).and_then(|byte| match byte {
+                0x90 => Some(b'P'),
+                0x98 => Some(b'X'),
                 0x9d => Some(b']'),
+                0x9e => Some(b'^'),
                 0x9f => Some(b'_'),
                 0x9c => Some(b'\\'),
                 _ => None,
@@ -1982,8 +1985,9 @@ impl Terminal {
     }
 
     /// Feed VT-encoded bytes and return the exact byte stream accepted by
-    /// Ghostty. Standalone 8-bit OSC/ST controls are returned in their 7-bit
-    /// forms, while UTF-8 continuation bytes remain unchanged across calls.
+    /// Ghostty. Standalone 8-bit control-string/ST controls are returned in
+    /// their 7-bit forms, while UTF-8 continuation bytes remain unchanged
+    /// across calls.
     ///
     /// Process hosts should publish this returned stream so every frontend
     /// parses the same bytes as the authoritative terminal.
@@ -3091,7 +3095,13 @@ impl Terminal {
     /// text or completed graphics truncation. Callers can use this before a
     /// destructive geometry change, then build the full replay afterward.
     pub fn preflight_vt_replay_bounded(&self, max_bytes: usize) -> Result<()> {
-        self.kitty_inflight.replay_prefix_fits(max_bytes)
+        self.kitty_inflight.replay_prefix_fits(max_bytes)?;
+        let suffix_len = self.mouse_format_replay_suffix().len();
+        let prefix_len = self.kitty_inflight.replay_prefix_checked(max_bytes)?.len();
+        if prefix_len.checked_add(suffix_len).is_none_or(|total| total > max_bytes) {
+            return Err(Error::OutOfSpace);
+        }
+        Ok(())
     }
 
     /// VT replay bounded to `max_bytes`, retaining the newest complete rows.
@@ -3164,23 +3174,6 @@ impl Terminal {
             suffix.extend_from_slice(format!("\x1b[?{mode}h").as_bytes());
         }
         suffix
-    }
-
-    /// Repair the active mouse format after applying a replay that was
-    /// serialized by a daemon without [`Self::mouse_format_replay_suffix`]:
-    /// such replays dump the format flags in numeric order, so urxvt (1015)
-    /// always lands after SGR (1006) and steals the active slot. Every known
-    /// application that enables both prefers SGR and sets it last (and btop
-    /// parses only SGR), so when both flags survived a replay, re-assert SGR.
-    /// Replays from fixed daemons never leave both flags set, so this cannot
-    /// misfire on an application that deliberately chose urxvt.
-    pub fn normalize_replayed_mouse_format(&mut self) {
-        if self.mode(1006, false)
-            && self.mode(1015, false)
-            && self.active_mouse_format != MouseWireFormat::Sgr
-        {
-            self.vt_write(b"\x1b[?1006h");
-        }
     }
 
     fn vt_replay_bounded_with_palette(
@@ -4357,8 +4350,8 @@ mod tests {
     };
 
     use super::{
-        Callbacks, ClearHistoryOutcome, KittyReplayCatalog, MouseModeChangeDetector, PaletteOsc,
-        PromptSemantic, PromptSemanticTracker, PromptTrackState, Screen, Terminal,
+        C1Normalizer, Callbacks, ClearHistoryOutcome, KittyReplayCatalog, MouseModeChangeDetector,
+        PaletteOsc, PromptSemantic, PromptSemanticTracker, PromptTrackState, Screen, Terminal,
         kitty_replay_image_encodings, kitty_replay_image_len, kitty_replay_placement,
         reset_kitty_replay_image_encodings, vt_replay_row_window,
     };
@@ -4601,6 +4594,16 @@ mod tests {
         let text = String::from_utf8_lossy(&replay);
         assert!(!text.contains("[?1006l"), "suffix must not reset the only format");
         assert_eq!(text.matches("[?1006h").count(), 1, "active selector emitted once");
+    }
+
+    #[test]
+    fn replay_preflight_reserves_mouse_suffix_at_exact_boundary() {
+        let mut terminal = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+        terminal.vt_write(b"\x1b[?1006h\x1b[?1015h\x1b[?1006h");
+        let suffix_len = terminal.mouse_format_replay_suffix().len();
+        assert!(suffix_len > 0);
+        assert!(terminal.preflight_vt_replay_bounded(suffix_len).is_ok());
+        assert!(terminal.preflight_vt_replay_bounded(suffix_len - 1).is_err());
     }
 
     #[test]
@@ -5296,6 +5299,32 @@ mod tests {
             terminal.kitty_inflight.replay_prefix(usize::MAX).is_empty(),
             "a UTF-8 continuation byte that Ghostty parsed as text became a replayable Kitty APC"
         );
+    }
+
+    #[test]
+    fn c1_control_string_introducers_normalize_to_escape_forms() {
+        let mut normalizer = C1Normalizer::default();
+        assert_eq!(normalizer.normalize(b"a\x90b"), b"a\x1bPb".as_slice());
+        assert_eq!(normalizer.normalize(b"a\x98b"), b"a\x1bXb".as_slice());
+        assert_eq!(normalizer.normalize(b"a\x9eb"), b"a\x1b^b".as_slice());
+    }
+
+    #[test]
+    fn c1_control_string_normalization_handles_split_sequences_and_st() {
+        let mut normalizer = C1Normalizer::default();
+        assert_eq!(normalizer.normalize(b"\x90payload"), b"\x1bPpayload".as_slice());
+        assert_eq!(normalizer.normalize(b"\x9c"), b"\x1b\\".as_slice());
+
+        assert_eq!(normalizer.normalize(b"\x98part"), b"\x1bXpart".as_slice());
+        assert_eq!(normalizer.normalize(b"ial\x9e"), b"ial\x1b^".as_slice());
+        assert_eq!(normalizer.normalize(b"body\x9c"), b"body\x1b\\".as_slice());
+    }
+
+    #[test]
+    fn c1_control_string_continuation_bytes_are_not_normalized() {
+        let mut normalizer = C1Normalizer::default();
+        assert_eq!(normalizer.normalize(&[0xe2]).as_ref(), &[0xe2]);
+        assert_eq!(normalizer.normalize(&[0x98, 0x80]).as_ref(), &[0x98, 0x80]);
     }
 
     #[test]
