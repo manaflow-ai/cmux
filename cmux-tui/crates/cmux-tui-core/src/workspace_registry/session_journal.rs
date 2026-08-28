@@ -143,10 +143,9 @@ pub(crate) enum SessionJournalCursorError {
 impl std::fmt::Display for SessionJournalCursorError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Ahead { requested, head } => write!(
-                formatter,
-                "cursor.invalid: journal sequence {requested} is ahead of {head}"
-            ),
+            Self::Ahead { requested, head } => {
+                write!(formatter, "cursor.invalid: journal sequence {requested} is ahead of {head}")
+            }
             Self::Gap { requested, first_retained } => write!(
                 formatter,
                 "cursor.gap: journal history before sequence {first_retained} is no longer retained after {requested}"
@@ -1140,15 +1139,30 @@ pub(super) fn query_session_journal_after(
 }
 
 fn first_retained_journal_sequence(connection: &Connection) -> anyhow::Result<Option<u64>> {
-    let first = connection.query_row(
-        "SELECT MIN(sequence) FROM (
-           SELECT sequence FROM session_journal
-           UNION ALL
-           SELECT start_sequence FROM journal_segments
-         )",
-        [],
-        |row| row.get::<_, Option<i64>>(0),
-    )?;
+    // Keep each lookup on its ordered key. A compound UNION query may
+    // materialize both inputs before computing MIN, turning this hot cursor
+    // check into a full-history scan. These scalar LIMIT queries use the
+    // INTEGER PRIMARY KEY and UNIQUE start_sequence indexes.
+    let active = connection
+        .query_row(
+            "SELECT sequence FROM session_journal ORDER BY sequence ASC LIMIT 1",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .optional()?;
+    let archived = connection
+        .query_row(
+            "SELECT start_sequence FROM journal_segments ORDER BY start_sequence ASC LIMIT 1",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .optional()?;
+    let first = match (active, archived) {
+        (Some(active), Some(archived)) => Some(active.min(archived)),
+        (Some(active), None) => Some(active),
+        (None, Some(archived)) => Some(archived),
+        (None, None) => None,
+    };
     first
         .map(|value| u64::try_from(value).context("first retained journal sequence is negative"))
         .transpose()
@@ -1243,6 +1257,14 @@ fn query_session_journal_after_subjects(
         sequence <= head_sequence,
         "cursor.invalid: journal sequence {sequence} is ahead of {head_sequence}"
     );
+    if let Some(first_retained) = first_retained_journal_sequence(connection)?
+        && sequence.saturating_add(1) < first_retained
+    {
+        return Err(anyhow::Error::new(SessionJournalCursorError::Gap {
+            requested: sequence,
+            first_retained,
+        }));
+    }
     let requested_json = canonical_json(&serde_json::to_value(subjects)?)?;
     let mut statement = connection.prepare(
         "SELECT DISTINCT indexed.sequence
@@ -2095,6 +2117,21 @@ mod tests {
         let error = registry.session_journal_after(0, 1).unwrap_err();
         assert_eq!(
             error.downcast_ref::<SessionJournalCursorError>(),
+            Some(&SessionJournalCursorError::Gap { requested: 0, first_retained: 3 })
+        );
+
+        // Subject-filtered readers must report the same gap instead of
+        // silently advancing past pruned history.
+        let filtered = query_session_journal_after_subjects(
+            &registry.connection,
+            0,
+            1,
+            &[JournalSubject { kind: "terminal".into(), id: "term-a".into() }],
+        )
+        .err()
+        .expect("subject-filtered read must report retained-history gap");
+        assert_eq!(
+            filtered.downcast_ref::<SessionJournalCursorError>(),
             Some(&SessionJournalCursorError::Gap { requested: 0, first_retained: 3 })
         );
     }

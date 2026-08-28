@@ -65,9 +65,8 @@ use crate::workspace_registry::{
     RegistrySnapshot, RegistryTab, RegistryTerminal, RegistryViewport, RegistryWorkspace,
     ResourceChange, ResourceEffectOutcome, ResourceEffectPreparation, ResourcePatch,
     ResourcePatchCommit, ResourceTopologySnapshot, ResourceWorkspaceLedger,
-    SessionJournalCursorError,
-    TerminalLifecycle, TerminalOnExit, TerminalRegistrySnapshot, WorkspaceMutation,
-    WorkspaceRegistry,
+    SessionJournalCursorError, TerminalLifecycle, TerminalOnExit, TerminalRegistrySnapshot,
+    WorkspaceMutation, WorkspaceRegistry,
 };
 use crate::{
     PairingChallenge, PairingDecision, PairingError, PaneId, ScreenId, SplitDir, SplitId,
@@ -22225,7 +22224,7 @@ mod tests {
         let codex = |_: &Surface| {
             crate::screen_detect::scanner::ProcessNameResolution::Known("codex".to_string())
         };
-        let gone = |_| crate::screen_detect::scanner::ProcessNameResolution::Exited;
+        let gone = |_: &Surface| crate::screen_detect::scanner::ProcessNameResolution::Exited;
 
         // A shell pane never enters the roster, quiesced or not.
         scanner::scan(&mux, &mut tracker, manifests, step(0), &shell);
@@ -22268,7 +22267,7 @@ mod tests {
 
         // A permission-denied process lookup is unknown, not an exit. It
         // must not erase the last screen-derived state.
-        let unknown = |_| crate::screen_detect::scanner::ProcessNameResolution::Unknown;
+        let unknown = |_: &Surface| crate::screen_detect::scanner::ProcessNameResolution::Unknown;
         scanner::scan(&mux, &mut tracker, manifests, step(1_550), &unknown);
         assert_eq!(mux.list_agents(Some(surface_id), None).len(), 1);
 
