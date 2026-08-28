@@ -2474,8 +2474,25 @@ impl Mux {
             }
             std::thread::sleep(Duration::from_millis(25));
         }
+        mux.retry_pending_agent_hooks()?;
         crate::journal_hooks::start(&mux)?;
         Ok(mux)
+    }
+
+    fn retry_pending_agent_hooks(&self) -> anyhow::Result<()> {
+        let pending = self.workspace_registry.lock().unwrap().pending_agent_hook_projections()?;
+        for (key, sequence, ingress) in pending {
+            match self.apply_agent_hook_record(&ingress, sequence) {
+                Ok(()) => self.workspace_registry.lock().unwrap().clear_agent_hook_pending(&key)?,
+                Err(error) => self.workspace_registry.lock().unwrap().enqueue_agent_hook_pending(
+                    &key,
+                    sequence,
+                    &ingress,
+                    &error.to_string(),
+                )?,
+            }
+        }
+        Ok(())
     }
 
     /// Rehydrate workspace rows that belong to an interrupted correlated
@@ -5258,7 +5275,16 @@ impl Mux {
         // process can crash after the durable journal commit and before the
         // in-memory/resource projection update. The sequence guard makes this
         // a no-op for already-applied events while allowing restart repair.
-        self.apply_agent_hook_record(ingress, commit.sequence)?;
+        if let Err(error) = self.apply_agent_hook_record(ingress, commit.sequence) {
+            self.workspace_registry.lock().unwrap().enqueue_agent_hook_pending(
+                idempotency_key,
+                commit.sequence,
+                ingress,
+                &error.to_string(),
+            )?;
+        } else {
+            self.workspace_registry.lock().unwrap().clear_agent_hook_pending(idempotency_key)?;
+        }
         Ok(commit)
     }
 

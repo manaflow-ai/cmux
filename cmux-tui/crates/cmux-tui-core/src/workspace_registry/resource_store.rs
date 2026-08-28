@@ -158,6 +158,13 @@ pub(super) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::R
            ended INTEGER NOT NULL CHECK(ended IN (0, 1)),
            committed_revision INTEGER NOT NULL CHECK(committed_revision >= 0)
          );
+         CREATE TABLE IF NOT EXISTS resource_agent_hook_pending (
+           idempotency_key TEXT PRIMARY KEY NOT NULL,
+           event_sequence INTEGER NOT NULL CHECK(event_sequence >= 0),
+           ingress_json TEXT NOT NULL CHECK(json_valid(ingress_json)),
+           error TEXT NOT NULL,
+           attempt INTEGER NOT NULL CHECK(attempt >= 0)
+         );
          DROP TRIGGER IF EXISTS resource_agent_projection_terminal_tombstone;
          CREATE INDEX IF NOT EXISTS resource_mutations_by_operation_revision
            ON resource_mutations(operation, committed_revision DESC);
@@ -423,6 +430,58 @@ pub(super) fn migrate_resource_browser_metadata(
 }
 
 impl WorkspaceRegistry {
+    pub fn enqueue_agent_hook_pending(
+        &mut self,
+        idempotency_key: &str,
+        sequence: u64,
+        ingress: &crate::JournalIngress,
+        error: &str,
+    ) -> anyhow::Result<()> {
+        let ingress_json = serde_json::to_string(ingress)?;
+        self.connection.execute(
+            "INSERT INTO resource_agent_hook_pending(
+               idempotency_key, event_sequence, ingress_json, error, attempt
+             ) VALUES(?1, ?2, ?3, ?4, 1)
+             ON CONFLICT(idempotency_key) DO UPDATE SET
+               event_sequence = excluded.event_sequence,
+               ingress_json = excluded.ingress_json,
+               error = excluded.error,
+               attempt = resource_agent_hook_pending.attempt + 1",
+            params![idempotency_key, i64::try_from(sequence)?, ingress_json, error],
+        )?;
+        Ok(())
+    }
+
+    pub fn clear_agent_hook_pending(&mut self, idempotency_key: &str) -> anyhow::Result<()> {
+        self.connection.execute(
+            "DELETE FROM resource_agent_hook_pending WHERE idempotency_key = ?1",
+            [idempotency_key],
+        )?;
+        Ok(())
+    }
+
+    pub fn pending_agent_hook_projections(
+        &self,
+    ) -> anyhow::Result<Vec<(String, u64, crate::JournalIngress)>> {
+        let mut statement = self.connection.prepare(
+            "SELECT idempotency_key, event_sequence, ingress_json
+             FROM resource_agent_hook_pending ORDER BY event_sequence ASC, idempotency_key ASC",
+        )?;
+        statement
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?, row.get::<_, String>(2)?))
+            })?
+            .map(|row| {
+                let (key, sequence, ingress_json) = row?;
+                Ok((
+                    key,
+                    u64::try_from(sequence).context("pending hook sequence is negative")?,
+                    serde_json::from_str(&ingress_json)?,
+                ))
+            })
+            .collect()
+    }
+
     pub fn commit_agent_projection_with_hook_state(
         &mut self,
         mutation: &WorkspaceMutation,
