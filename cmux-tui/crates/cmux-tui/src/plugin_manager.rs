@@ -49,7 +49,9 @@ impl ManagerError {
                 }
                 details
             }
-            Self::Failure(error) => json!({"reason": error.to_string()}),
+            Self::Failure(_) => {
+                json!({"reason": crate::localization::catalog().plugin.operation_failed})
+            }
         }
     }
 
@@ -63,7 +65,9 @@ impl std::fmt::Display for ManagerError {
         match self {
             Self::Usage(message) => formatter.write_str(message),
             Self::Validation { reason, .. } => formatter.write_str(reason),
-            Self::Failure(error) => std::fmt::Display::fmt(error, formatter),
+            Self::Failure(_) => {
+                formatter.write_str(crate::localization::catalog().plugin.operation_failed)
+            }
         }
     }
 }
@@ -1302,6 +1306,19 @@ fn now_nanos() -> u128 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn manager_failure_response_redacts_internal_error_details() {
+        let error = ManagerError::from(anyhow::anyhow!(
+            "failed to read /private/plugin-state/secret.toml: injected detail"
+        ));
+        let rendered = error.to_string();
+        let details = error.details().to_string();
+        assert!(!rendered.contains("/private/plugin-state/secret.toml"));
+        assert!(!rendered.contains("injected detail"));
+        assert!(!details.contains("/private/plugin-state/secret.toml"));
+        assert!(!details.contains("injected detail"));
+    }
     use std::cell::Cell;
 
     fn manifest_text(name: &str) -> String {
