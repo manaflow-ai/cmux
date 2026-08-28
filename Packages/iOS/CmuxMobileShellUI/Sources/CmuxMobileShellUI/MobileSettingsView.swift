@@ -410,62 +410,7 @@ struct MobileSettingsView: View {
         )
     }
     #endif
-}
 
-/// App-wide log sharing. Lives at the settings top level, not the Iroh
-/// screen: the app log covers every feature (simulator, browser, composer,
-/// lifecycle), and the network log covers all connection diagnostics, not
-/// one transport.
-private struct MobileSettingsDiagnosticsSection: View {
-    @State private var appLogURLs: [URL] = []
-    @State private var networkLogURLs: [URL] = []
-
-    var body: some View {
-        Section {
-            if !appLogURLs.isEmpty {
-                ShareLink(items: appLogURLs) {
-                    Label(
-                        L10n.string(
-                            "mobile.settings.diagnostics.shareAppLog",
-                            defaultValue: "Share App Log"
-                        ),
-                        systemImage: "doc.text"
-                    )
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
-                }
-                .accessibilityIdentifier("MobileSettingsShareAppLog")
-            }
-            if !networkLogURLs.isEmpty {
-                ShareLink(items: networkLogURLs) {
-                    Label(
-                        L10n.string(
-                            "mobile.settings.diagnostics.shareNetworkLog",
-                            defaultValue: "Share Network Log"
-                        ),
-                        systemImage: "network"
-                    )
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
-                }
-                .accessibilityIdentifier("MobileSettingsShareNetworkLog")
-            }
-        } header: {
-            Text(L10n.string("mobile.settings.diagnostics", defaultValue: "Diagnostics"))
-        } footer: {
-            Text(L10n.string(
-                "mobile.settings.diagnostics.footer",
-                defaultValue: "The App Log records in-app activity; the Network Log records connection diagnostics. Terminal contents and credentials are never written."
-            ))
-        }
-        .task {
-            let urls = await Task.detached(priority: .utility) {
-                (AppLog.appLogFileURLs, AppLog.networkLogFileURLs)
-            }.value
-            appLogURLs = urls.0
-            networkLogURLs = urls.1
-        }
-    }
 
     /// First half of the settings sections. Split from the Form body because
     /// the single inline expression exceeded the type checker's budget.
@@ -705,12 +650,6 @@ private struct MobileSettingsDiagnosticsSection: View {
                     .accessibilityIdentifier("MobileSettingsRebuildKeyboardDock")
                 }
 
-    }
-
-    /// Second half of the settings sections (see `settingsSectionsTop`).
-    @ViewBuilder
-    private var settingsSectionsBottom: some View {
-        @Bindable var displaySettings = displaySettings
                 Section(L10n.string(
                     "mobile.settings.cmuxLabs",
                     defaultValue: "CMUX Labs"
@@ -742,6 +681,12 @@ private struct MobileSettingsDiagnosticsSection: View {
                     .accessibilityIdentifier("MobileSettingsUnreadIndicatorLab")
                 }
                 #endif
+    }
+
+    /// Second half of the settings sections (see `settingsSectionsTop`).
+    @ViewBuilder
+    private var settingsSectionsBottom: some View {
+        @Bindable var displaySettings = displaySettings
 
                 Section(L10n.string("mobile.settings.display", defaultValue: "Display")) {
                     Toggle(isOn: $displaySettings.showMissingFiles) {
@@ -877,6 +822,62 @@ private struct MobileSettingsDiagnosticsSection: View {
                     }
                     .accessibilityIdentifier("MobileSettingsVersionRow")
                 }
+    }
+}
+
+/// App-wide log sharing. Lives at the settings top level, not the Iroh
+/// screen: the app log covers every feature (simulator, browser, composer,
+/// lifecycle), and the network log covers all connection diagnostics, not
+/// one transport.
+private struct MobileSettingsDiagnosticsSection: View {
+    @State private var appLogURLs: [URL] = []
+    @State private var networkLogURLs: [URL] = []
+
+    var body: some View {
+        Section {
+            if !appLogURLs.isEmpty {
+                ShareLink(items: appLogURLs) {
+                    Label(
+                        L10n.string(
+                            "mobile.settings.diagnostics.shareAppLog",
+                            defaultValue: "Share App Log"
+                        ),
+                        systemImage: "doc.text"
+                    )
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                }
+                .accessibilityIdentifier("MobileSettingsShareAppLog")
+            }
+            if !networkLogURLs.isEmpty {
+                ShareLink(items: networkLogURLs) {
+                    Label(
+                        L10n.string(
+                            "mobile.settings.diagnostics.shareNetworkLog",
+                            defaultValue: "Share Network Log"
+                        ),
+                        systemImage: "network"
+                    )
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                }
+                .accessibilityIdentifier("MobileSettingsShareNetworkLog")
+            }
+        } header: {
+            Text(L10n.string("mobile.settings.diagnostics", defaultValue: "Diagnostics"))
+        } footer: {
+            Text(L10n.string(
+                "mobile.settings.diagnostics.footer",
+                defaultValue: "The App Log records in-app activity; the Network Log records connection diagnostics. Terminal contents and credentials are never written."
+            ))
+        }
+        .task {
+            let urls = await Task.detached(priority: .utility) {
+                (AppLog.appLogFileURLs, AppLog.networkLogFileURLs)
+            }.value
+            appLogURLs = urls.0
+            networkLogURLs = urls.1
+        }
     }
 
 }
