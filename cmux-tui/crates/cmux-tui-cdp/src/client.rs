@@ -2280,6 +2280,31 @@ mod tests {
     }
 
     #[test]
+    fn transport_close_does_not_publish_socket_details() {
+        let (inner, _outbound_rx) = test_inner();
+        let (response_tx, response_rx) = channel();
+        inner.pending.lock().unwrap().insert(
+            7,
+            PendingCall { response: response_tx, frame_barrier: None },
+        );
+
+        close_inner(&inner, "CDP socket error: ws://secret.example/devtools/browser/token");
+
+        assert_eq!(
+            response_rx.recv().unwrap().unwrap_err(),
+            CDP_CONNECTION_UNAVAILABLE_MESSAGE
+        );
+        let (event_tx, event_rx) = sync_channel(1);
+        inner.events.drain_into(&event_tx).unwrap();
+        let CdpEvent::Closed(reason) = event_rx.recv().unwrap() else {
+            panic!("expected a close event");
+        };
+        assert_eq!(reason, CDP_CONNECTION_UNAVAILABLE_MESSAGE);
+        assert!(!reason.contains("ws://"));
+        assert!(!reason.contains("secret"));
+    }
+
+    #[test]
     fn outbound_commands_fail_fast_at_the_queue_bound() {
         let (inner, _outbound_rx) = test_inner_with_capacity(1);
         let client = CdpClient { inner };
