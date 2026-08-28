@@ -37,7 +37,7 @@ extension GitMetadataService {
 
     private nonisolated func isDirectory(atPath path: String) -> Bool {
         var metadata = Darwin.stat()
-        return path.withCString { Darwin.stat($0, &metadata) == 0 }
+        return path.withCString { stat($0, &metadata) == 0 }
             && metadata.st_mode & mode_t(S_IFMT) == mode_t(S_IFDIR)
     }
 }
