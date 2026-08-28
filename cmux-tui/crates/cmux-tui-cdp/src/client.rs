@@ -206,6 +206,20 @@ impl CdpCloseReason {
     pub const fn public_message(self) -> &'static str {
         CDP_CONNECTION_UNAVAILABLE_MESSAGE
     }
+
+    const fn diagnostic_code(self) -> &'static str {
+        match self {
+            Self::EventReceiverClosed => "event_receiver_closed",
+            Self::TransportFailure => "transport_failure",
+            Self::SocketClosed => "socket_closed",
+            Self::EventQueueOverflow => "event_queue_overflow",
+            Self::OutboundQueueOverflow => "outbound_queue_overflow",
+            Self::ConnectionClosed => "connection_closed",
+            Self::ClientDropped => "client_dropped",
+            Self::RuntimeClosed => "runtime_closed",
+            Self::SurfaceClosed => "surface_closed",
+        }
+    }
 }
 
 impl std::fmt::Display for CdpCloseReason {
@@ -2041,12 +2055,44 @@ fn close_inner(inner: &Arc<Inner>, reason: CdpCloseReason) {
 fn close_inner_with_detail<D: std::fmt::Display>(
     inner: &Arc<Inner>,
     reason: CdpCloseReason,
-    _detail: D,
+    detail: D,
 ) {
     // Keep transport diagnostics out of the public error and event channels.
-    // The detail is intentionally not formatted here because websocket
-    // errors can contain endpoint URLs and server-provided text.
+    // The debug stream is opt-in, and the detail is reduced to a bounded,
+    // control-free message before it is emitted. This preserves operator
+    // visibility without echoing endpoint credentials or server text.
+    if cdp_debug() {
+        eprintln!(
+            "cmux-tui-cdp: {}: {}",
+            reason.diagnostic_code(),
+            redacted_transport_detail(&detail.to_string())
+        );
+    }
     close_inner(inner, reason);
+}
+
+/// Map a transport error to a fixed diagnostic class. Error text can contain
+/// bearer URLs, peer-controlled protocol strings, or local paths, so it is
+/// never copied into the diagnostic stream.
+fn redacted_transport_detail(detail: &str) -> &'static str {
+    if detail.contains("HTTP error: 401")
+        || detail.contains("HTTP error: 403")
+        || detail.contains("HTTP error: 407")
+    {
+        "authentication"
+    } else if detail.contains("WebSocket protocol error")
+        || detail.contains("Attack attempt detected")
+    {
+        "protocol"
+    } else if detail.contains("TLS error") || detail.contains("IO error") {
+        "network"
+    } else if detail.contains("Space limit exceeded") {
+        "capacity"
+    } else if detail.contains("URL error") {
+        "configuration"
+    } else {
+        "unknown"
+    }
 }
 
 struct WsEndpoint {
@@ -2344,6 +2390,27 @@ mod tests {
         assert_eq!(reason.public_message(), CDP_CONNECTION_UNAVAILABLE_MESSAGE);
         assert!(!reason.public_message().contains("ws://"));
         assert!(!reason.public_message().contains("secret"));
+    }
+
+    #[test]
+    fn transport_diagnostics_keep_only_a_safe_failure_class() {
+        let cases = [
+            (
+                "HTTP error: 401 (ws://user:secret@example.test/devtools/token)",
+                "authentication",
+            ),
+            ("WebSocket protocol error: peer supplied secret", "protocol"),
+            ("IO error: connection refused at /private/secret", "network"),
+            ("Space limit exceeded: secret payload", "capacity"),
+            ("URL error: ws://user:secret@example.test/token", "configuration"),
+            ("unexpected peer text", "unknown"),
+        ];
+        for (detail, expected) in cases {
+            let class = redacted_transport_detail(detail);
+            assert_eq!(class, expected);
+            assert!(!class.contains("secret"));
+            assert!(!class.contains("ws://"));
+        }
     }
 
     #[test]
