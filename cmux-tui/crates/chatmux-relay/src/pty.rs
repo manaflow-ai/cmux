@@ -1389,6 +1389,7 @@ impl Inner {
                 .connect_control(&ensured.socket_path)
                 .await
                 .map_err(|_| "cannot inspect existing daemon cwd".to_owned())?;
+            let mut control_guard = ControlEndOnDrop::new(Arc::clone(&control));
             let Some(listed) = control.request("list-workspaces", json!({})).await else {
                 control.end();
                 return Err("cannot inspect existing daemon surfaces".to_owned());
@@ -1458,6 +1459,7 @@ impl Inner {
                 }
             }
             control.end();
+            control_guard.disarm();
         }
         let mut args = cmux_tui.prefix.clone();
         args.extend([
@@ -1875,6 +1877,39 @@ struct ControlTerminalControl {
     surface_id: i64,
 }
 
+/// Own a control connection while an async terminal open is in progress.
+/// Dropping an in-flight open must close the socket, because `ControlHandle`
+/// intentionally does not make its `Drop` implementation part of the trait.
+struct ControlEndOnDrop {
+    control: Option<Arc<dyn ControlHandle>>,
+}
+
+impl ControlEndOnDrop {
+    fn new(control: Arc<dyn ControlHandle>) -> Self {
+        Self { control: Some(control) }
+    }
+
+    fn disarm(&mut self) {
+        self.control = None;
+    }
+}
+
+impl Drop for ControlEndOnDrop {
+    fn drop(&mut self) {
+        if let Some(control) = self.control.take() {
+            control.end();
+        }
+    }
+}
+
+impl Drop for ControlTerminalControl {
+    fn drop(&mut self) {
+        // A cancelled open can drop the proxy before it is wrapped in
+        // `Opened`; close the underlying reader/writer tasks in that case.
+        self.control.end();
+    }
+}
+
 impl PtyControl for ControlTerminalControl {
     fn write(&self, data: &[u8]) {
         self.control
@@ -2073,6 +2108,7 @@ impl Inner {
             Ok(control) => control,
             Err(_) => return Ok(None), // degrade to the whole-session attach
         };
+        let mut control_guard = ControlEndOnDrop::new(Arc::clone(&control));
 
         let identify = control.request("identify", json!({})).await;
         let info = identify.as_ref().filter(|v| v.get("ok").and_then(Value::as_bool) == Some(true));
@@ -2205,6 +2241,7 @@ impl Inner {
         }
 
         let proxy = Arc::new(ControlTerminalControl { control, surface_id });
+        control_guard.disarm();
         let (on_data, _) = self.sinks(pty_id, context);
         let relay = Arc::clone(&self);
         let context_for_exit = context.clone();
