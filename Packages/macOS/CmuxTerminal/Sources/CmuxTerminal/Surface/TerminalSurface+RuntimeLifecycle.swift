@@ -350,7 +350,6 @@ extension TerminalSurface {
         }
 #endif
 
-        let remoteOutputFeed = remoteOutputFeed
         runtimeTeardown.enqueueRuntimeTeardown(
             id: id,
             workspaceId: tabId,
@@ -359,14 +358,8 @@ extension TerminalSurface {
             callbackContext: callbackContext,
             manualIOContext: manualIOContext,
             byteTeeLease: teeLease,
-<<<<<<< HEAD
-            freeSurface: { surface in
-                remoteOutputFeed.drainAndClose()
-                ghostty_surface_free(surface)
-=======
             beforeFree: {
                 await retiredRemoteOutputLane.drain()
->>>>>>> origin/feat-tui-attach-spike
             }
         )
     }
@@ -463,7 +456,6 @@ extension TerminalSurface {
         }
 #endif
 
-        let remoteOutputFeed = remoteOutputFeed
         agentHibernationRuntimeTeardownTicket = runtimeTeardown.enqueueRuntimeTeardown(
             id: id,
             workspaceId: tabId,
@@ -476,11 +468,7 @@ extension TerminalSurface {
                 await retiredRemoteOutputLane.drain()
             },
             executionLane: .isolatedHibernation,
-            isolatedHibernationReservation: teardownReservation,
-            freeSurface: { surface in
-                remoteOutputFeed.drainAndClose()
-                ghostty_surface_free(surface)
-            }
+            isolatedHibernationReservation: teardownReservation
         )
         return true
     }

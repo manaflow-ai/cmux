@@ -248,10 +248,6 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// (inline in the free task, or transported through the teardown
     /// coordinator's request).
     var manualIOContext: Unmanaged<TerminalManualIOWriteBox>?
-    /// Serial off-main feeder for remote-fed output bytes; see
-    /// `TerminalRemoteOutputFeed` for the blocking-call contract. The
-    /// native free drains it before `ghostty_surface_free`.
-    let remoteOutputFeed = TerminalRemoteOutputFeed()
     /// Output delivered before the runtime surface exists. Flushed once the
     /// surface is created so background mirror output is not lost.
     var pendingRemoteOutput = Data()
@@ -786,7 +782,6 @@ public final class TerminalSurface: Identifiable, ObservableObject {
             return
         }
 #endif
-        let remoteOutputFeed = remoteOutputFeed
         runtimeTeardown.enqueueRuntimeTeardown(
             id: id,
             workspaceId: tabId,
@@ -795,14 +790,8 @@ public final class TerminalSurface: Identifiable, ObservableObject {
             callbackContext: callbackContext,
             manualIOContext: manualIOContext,
             byteTeeLease: teeLease,
-<<<<<<< HEAD
-            freeSurface: { surface in
-                remoteOutputFeed.drainAndClose()
-                ghostty_surface_free(surface)
-=======
             beforeFree: {
                 await retiredRemoteOutputLane.drain()
->>>>>>> origin/feat-tui-attach-spike
             }
         )
     }

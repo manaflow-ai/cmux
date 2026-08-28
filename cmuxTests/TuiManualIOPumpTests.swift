@@ -179,26 +179,6 @@ struct TuiManualIOPumpTests {
         #expect(String(decoding: data, as: UTF8.self) == "first\nsecond\n")
     }
 
-    // MARK: - Remote output feed
-
-    @Test
-    func remoteOutputFeedDropsWorkQueuedAfterDrainAndClose() {
-        // The feed's whole contract is lifetime: after drainAndClose
-        // returns, nothing enqueued before or after may run (the native
-        // surface is about to be freed). Exercised without a native
-        // surface by observing that close wins against queued work.
-        let feed = TerminalRemoteOutputFeed()
-        feed.drainAndClose()
-        // Enqueue after close: must be silently dropped, not crash. There
-        // is no live surface in a unit test, so reaching the native call
-        // would crash on the bogus pointer; being dropped proves the
-        // closed gate runs first.
-        let bogus = OpaquePointer(bitPattern: 0xdead)!
-        feed.enqueue(surface: bogus, data: Data([0x41]))
-        // A second drain joins the (dropped) block deterministically.
-        feed.drainAndClose()
-    }
-
     // MARK: - Registry
 
     @MainActor
