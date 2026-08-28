@@ -322,12 +322,7 @@ export async function POST(request: Request): Promise<Response> {
               action: described.action,
               reason: "Cloud VM image configuration is unavailable.",
               details: described.details,
-              diagnostics: {
-                provider,
-                image: err.image,
-                envVar: err.envVar,
-                configReason: err.reason,
-              },
+              diagnostics: described.operator,
             });
           }
           throw err;

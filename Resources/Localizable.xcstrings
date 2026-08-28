@@ -269295,6 +269295,23 @@
         }
       }
     },
+    "machines.new.error.detailsHidden": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Additional technical details are available in logs."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "追加の技術情報はログで確認できます。"
+          }
+        }
+      }
+    },
     "machines.new.error.launch": {
       "extractionState": "manual",
       "localizations": {

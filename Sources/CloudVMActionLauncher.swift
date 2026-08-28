@@ -208,11 +208,11 @@ final class CloudVMActionLauncher {
     private func presentStartFailure(summary: String, output: String, action: String, preferredWindow: NSWindow?) {
         let trimmedOutput = output.trimmingCharacters(in: .whitespacesAndNewlines)
         let limitedOutput = String(trimmedOutput.prefix(2000))
-        let safeOutput = sanitizedCloudVMStartOutput(limitedOutput)
+        let safeOutput = Self.sanitizedCloudVMStartOutput(limitedOutput)
         // When the whole transcript is held back (it mentions backend internals),
         // still tell the person *why* it failed: the CLI's first line is the
         // human-readable reason ("Cloud VM state is unavailable (HTTP 503 …)").
-        let reason = safeOutput.isEmpty ? firstSafeLine(of: limitedOutput) : nil
+        let reason = safeOutput.isEmpty ? Self.firstSafeLine(of: limitedOutput) : nil
         let whatToTry = String(localized: "command.cloudVM.failed.whatToTry", defaultValue: "What to try:")
         let details = String(localized: "command.cloudVM.failed.details", defaultValue: "Details:")
         var sections = [
@@ -244,23 +244,53 @@ final class CloudVMActionLauncher {
 
     /// The first line of CLI output that passes the same redaction as the full
     /// transcript, with an "Error:" prefix dropped. Nil when no line is safe.
-    private func firstSafeLine(of output: String) -> String? {
+    static func firstSafeLine(of output: String) -> String? {
         for rawLine in output.split(whereSeparator: \.isNewline) {
             var line = rawLine.trimmingCharacters(in: .whitespaces)
             if line.lowercased().hasPrefix("error:") {
                 line = String(line.dropFirst("error:".count)).trimmingCharacters(in: .whitespaces)
             }
             guard !line.isEmpty else { continue }
-            let safe = sanitizedCloudVMStartOutput(line)
+            let safe = Self.sanitizedCloudVMStartOutput(line)
             if !safe.isEmpty { return String(safe.prefix(240)) }
         }
         return nil
     }
 
-    private func sanitizedCloudVMStartOutput(_ output: String) -> String {
+    /// Returns only bounded, non-sensitive CLI lines suitable for a user-facing
+    /// sheet. The CLI talks to cloud providers and can echo URLs, paths, account
+    /// identifiers, and credentials, so callers must pass through this one shared
+    /// boundary instead of rendering a process transcript directly.
+    static func safeUserFacingOutput(_ output: String) -> String? {
+        let capped = String(output.prefix(32 * 1024))
+        var lines: [String] = []
+        var total = 0
+        for rawLine in capped.split(whereSeparator: \.isNewline) {
+            let safe = sanitizedCloudVMStartOutput(String(rawLine))
+            guard !safe.isEmpty, safe != hiddenOutputMessage else { continue }
+            let line = String(safe.prefix(240))
+            let added = line.utf8.count + (lines.isEmpty ? 0 : 1)
+            guard total + added <= 2_000 else { break }
+            lines.append(line)
+            total += added
+        }
+        guard !lines.isEmpty else { return nil }
+        return lines.joined(separator: "\n")
+    }
+
+    private static var hiddenOutputMessage: String {
+        String(
+            localized: "command.cloudVM.failed.details.hidden",
+            defaultValue: "Additional technical details are available in logs."
+        )
+    }
+
+    static func sanitizedCloudVMStartOutput(_ output: String) -> String {
         let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return "" }
-        let lowercased = trimmed.lowercased()
+        let controlFree = String(trimmed.unicodeScalars.filter { !$0.properties.isControl })
+        guard !controlFree.isEmpty else { return "" }
+        let lowercased = controlFree.lowercased()
         let normalized = lowercased
             .replacingOccurrences(of: "_", with: "")
             .replacingOccurrences(of: "-", with: "")
@@ -339,12 +369,9 @@ final class CloudVMActionLauncher {
               !containsLikelyEmail,
               !containsLikelyIPAddress,
               !containsLikelyFilesystemPath else {
-            return String(
-                localized: "command.cloudVM.failed.details.hidden",
-                defaultValue: "Additional technical details are available in logs."
-            )
+            return hiddenOutputMessage
         }
-        return trimmed
+        return String(controlFree.prefix(2_000))
     }
 }
 

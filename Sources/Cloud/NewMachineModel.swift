@@ -71,7 +71,7 @@ final class NewMachineModel {
             let line = rawLine.trimmingCharacters(in: .whitespaces)
             guard line.hasPrefix(prefix), line.hasSuffix(suffix), line.count > prefix.count + suffix.count else { continue }
             let id = String(line.dropFirst(prefix.count).dropLast(suffix.count)).trimmingCharacters(in: .whitespaces)
-            if !id.isEmpty, id.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }) { return id }
+            if id.count <= 128, !id.isEmpty, id.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }) { return id }
         }
         return nil
     }
@@ -185,6 +185,7 @@ final class NewMachineModel {
                 self.finish(.created)
             } else {
                 let output = completion.output.trimmingCharacters(in: .whitespacesAndNewlines)
+                let safeOutput = CloudVMActionLauncher.safeUserFacingOutput(output)
                 if case .newMachine = self.mode, let id = Self.createdMachineID(fromOutput: output) {
                     self.createdMachineID = id
                     self.errorText = String(
@@ -193,13 +194,15 @@ final class NewMachineModel {
                             defaultValue: "Machine %1$@ was created, but opening it failed. Open it from the Machines list.\n\n%2$@"
                         ),
                         id,
-                        output
+                        safeOutput ?? String(
+                            localized: "machines.new.error.detailsHidden",
+                            defaultValue: "Additional technical details are available in logs."
+                        )
                     )
                     return
                 }
-                self.errorText = output.isEmpty
-                    ? String(localized: "machines.new.error.generic", defaultValue: "The machine could not be created.")
-                    : output
+                self.errorText = safeOutput
+                    ?? String(localized: "machines.new.error.generic", defaultValue: "The machine could not be created.")
             }
         }
         if !started {

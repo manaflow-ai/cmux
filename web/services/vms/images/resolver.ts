@@ -355,12 +355,11 @@ export type VmImageConfigErrorReport = {
   /** What an operator needs to fix the deployment; logged, never returned to clients. */
   readonly operator: {
     readonly provider: ProviderId;
-    readonly image?: string;
-    readonly envVar?: string;
-    readonly kind?: string;
+    readonly imageRequested: boolean;
+    readonly kind?: VmImageKind;
     readonly source: VmImageSource;
-    readonly allowedImages: readonly string[];
-    readonly reason: string;
+    readonly allowedImageCount: number;
+    readonly reasonCode: string;
   };
 };
 
@@ -391,14 +390,16 @@ export function reportVmImageConfigError(
     message = "The default Cloud VM image is not configured in this environment.";
     action = "Ask an admin to configure the default Cloud VM image, then retry.";
   }
+  // Configuration errors can carry a request image, an environment value, or a
+  // provider response. Keep operator logs useful for counting and classification,
+  // but never serialize those untrusted strings into logs.
   const operator = {
     provider: err.provider,
-    image: err.image,
-    envVar: err.envVar,
-    kind: err.kind,
     source: err.source,
-    allowedImages: err.allowedImages,
-    reason: err.reason,
+    imageRequested,
+    kind: isVmImageKind(err.kind) ? err.kind : undefined,
+    allowedImageCount: err.allowedImages.length,
+    reasonCode: imageConfigReasonCode(err.reason),
   };
   console.error("[vm-image-config-error]", JSON.stringify(operator));
   return {
@@ -407,6 +408,16 @@ export function reportVmImageConfigError(
     details: { imageRequested, kind: err.kind, source: err.source, allowedKinds },
     operator,
   };
+}
+
+function imageConfigReasonCode(reason: string): string {
+  const normalized = reason.toLowerCase();
+  if (normalized.includes("not listed")) return "image_not_listed";
+  if (normalized.includes("not configured")) return "image_not_configured";
+  if (normalized.includes("required in deployed")) return "selector_required";
+  if (normalized.includes("not a ") && normalized.includes(" image")) return "kind_mismatch";
+  if (normalized.includes("unknown image kind")) return "unknown_kind";
+  return "invalid_image_configuration";
 }
 
 function selectionFromEntry(entry: VmImageManifestEntry): VmImageSelection {
