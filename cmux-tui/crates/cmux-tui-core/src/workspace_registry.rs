@@ -2306,7 +2306,12 @@ impl WorkspaceRegistry {
         let normalized_root = platform::normalize_filesystem_path(root.to_path_buf());
         let root = normalized_root.as_path();
         let session_dir = root.join(session_storage_component(session_name));
-        let db_path = session_dir.join(WORKSPACE_REGISTRY_FILE);
+        // Normalize the complete database path. The state root can be below
+        // the legacy MAX_PATH threshold while its session and database
+        // descendants exceed it.
+        let db_path = platform::normalize_filesystem_path(
+            session_dir.join(WORKSPACE_REGISTRY_FILE),
+        );
         if db_path.is_file()
             && let Some(error) = preflight_unsupported_schema(&db_path)
         {
