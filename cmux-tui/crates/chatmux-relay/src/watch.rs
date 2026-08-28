@@ -147,7 +147,7 @@ enum RetiredWatch {
 }
 
 enum Reservation {
-    Accepted { previous: Option<Opening> },
+    Accepted,
     Limit,
 }
 
@@ -193,14 +193,15 @@ impl Drop for WatchRegistry {
         // The socket died with this registry; the Worker re-opens watches
         // on the next connection.
         self.cancellation.cancel();
-        let retired = self
-            .sessions
-            .lock()
-            .map(|mut sessions| sessions.drain().flat_map(|(_, slot)| slot.retire()).collect())
-            .unwrap_or_else(|_| Vec::new());
-        for watch in retired {
-            watch.stop();
-        }
+        self.outbound.with_delivery_gate(|| {
+            if let Ok(mut sessions) = self.sessions.lock() {
+                for (_, slot) in sessions.drain() {
+                    for watch in slot.retire() {
+                        watch.stop();
+                    }
+                }
+            }
+        });
     }
 }
 
@@ -278,16 +279,15 @@ impl WatchRegistry {
     }
 
     pub fn close(&self, watch_id: &str) {
-        let retired = self
-            .sessions
-            .lock()
-            .ok()
-            .and_then(|mut sessions| sessions.remove(watch_id))
-            .map(|slot| slot.retire().collect::<Vec<_>>())
-            .unwrap_or_default();
-        for watch in retired {
-            watch.stop();
-        }
+        self.outbound.with_delivery_gate(|| {
+            if let Ok(mut sessions) = self.sessions.lock()
+                && let Some(slot) = sessions.remove(watch_id)
+            {
+                for watch in slot.retire() {
+                    watch.stop();
+                }
+            }
+        });
     }
 
     /// Reserve an ID and start asynchronous setup. The active watch, if any,
@@ -305,7 +305,7 @@ impl WatchRegistry {
             teardown_slots: Arc::clone(&self.teardown_slots),
         };
         let local_roots_for_task = local_roots.map(<[String]>::to_vec);
-        let reservation = match self.sessions.lock() {
+        let reservation = self.outbound.with_delivery_gate(|| match self.sessions.lock() {
             Ok(mut state) => {
                 let existing = state.contains_key(&watch_id);
                 if !existing && state.len() >= WATCH_MAX_SESSIONS {
@@ -314,12 +314,17 @@ impl WatchRegistry {
                     let slot = state
                         .entry(watch_id.clone())
                         .or_insert_with(|| WatchSlot { active: None, opening: None });
-                    let previous = slot.opening.replace(Opening {
+                    if let Some(previous) = slot.opening.replace(Opening {
                         generation,
                         live: Arc::clone(&opening_live),
                         cancellation: opening_cancellation.clone(),
                         abort: None,
-                    });
+                    }) {
+                        // Invalidate the replaced opening while the delivery
+                        // fence is held. Its failure frame cannot race a
+                        // newer opening after this point.
+                        RetiredWatch::Opening(previous).stop();
+                    }
                     // Spawn while the state lock is held, then install the
                     // abort handle before another caller can close/replace
                     // this slot. Tokio guarantees `spawn` does not poll the
@@ -334,13 +339,13 @@ impl WatchRegistry {
                     let task = tokio::spawn(coordinate_open(context, frame, local_roots_for_task));
                     slot.opening.as_mut().expect("opening was just reserved").abort =
                         Some(task.abort_handle());
-                    Reservation::Accepted { previous }
+                    Reservation::Accepted
                 }
             }
             Err(_) => Reservation::Limit,
-        };
-        let previous = match reservation {
-            Reservation::Accepted { previous } => previous,
+        });
+        match reservation {
+            Reservation::Accepted => {}
             Reservation::Limit => {
                 self.refuse(
                     &watch_id,
@@ -349,9 +354,6 @@ impl WatchRegistry {
                 );
                 return;
             }
-        };
-        if let Some(previous) = previous {
-            RetiredWatch::Opening(previous).stop();
         }
     }
 }
@@ -461,21 +463,30 @@ fn commit_open(context: OpenContext, root: PathBuf, prepared: PreparedWatch) {
     })
     .unwrap_or_else(|_| String::new());
     let mut prepared = Some(prepared);
-    let mut retired = Vec::new();
     let mut start = None;
     let mut committed = false;
-    if let Ok(mut state) = sessions.lock() {
+    // Admit the acknowledgement first. The token-aware queue operation and
+    // the state transition both use the delivery fence, so a replacement or
+    // close can invalidate this frame before it reaches the writer.
+    let admitted = outbound
+        .try_critical_text_with_token(opened, Some(Arc::clone(&live)))
+        .is_ok();
+    outbound.with_delivery_gate(|| {
+        let Ok(mut state) = sessions.lock() else {
+            return;
+        };
         let mut remove_slot = false;
-        if let Some(slot) = state.get_mut(&watch_id)
-            && slot.opening.as_ref().is_some_and(|opening| {
+        let current = state.get(&watch_id).is_some_and(|slot| {
+            slot.opening.as_ref().is_some_and(|opening| {
                 opening.generation == generation && !opening.cancellation.is_cancelled()
             })
-            && outbound.try_critical_text_with_token(opened, Some(Arc::clone(&live))).is_ok()
-        {
+        });
+        if admitted && current {
+            let slot = state.get_mut(&watch_id).expect("current watch slot");
             let (start_tx, start_rx) = oneshot::channel();
             let run_id = watch_id.clone();
             let run_root = root;
-            let run_outbound = outbound;
+            let run_outbound = outbound.clone();
             let run_sessions = Arc::clone(&sessions);
             let run_setup_slots = setup_slots;
             let run_cancellation = cancellation.clone();
@@ -498,7 +509,7 @@ fn commit_open(context: OpenContext, root: PathBuf, prepared: PreparedWatch) {
                     run_setup_slots,
                 )
                 .await;
-                finish_active(&run_id, generation, run_sessions);
+                finish_active(&run_id, generation, run_sessions, run_outbound);
             });
             let previous = slot.active.replace(ActiveWatch {
                 generation,
@@ -507,31 +518,34 @@ fn commit_open(context: OpenContext, root: PathBuf, prepared: PreparedWatch) {
                 abort: task.abort_handle(),
             });
             slot.opening.take();
+            // Invalidate the old generation before releasing the delivery
+            // fence. Its queued frames are then dropped by the writer.
             if let Some(previous) = previous {
-                retired.push(RetiredWatch::Active(previous));
+                RetiredWatch::Active(previous).stop();
             }
             start = Some(start_tx);
             committed = true;
-        } else if state.get(&watch_id).is_some_and(|slot| {
-            slot.opening.as_ref().is_some_and(|opening| opening.generation == generation)
-        }) {
+        } else if current {
             // A full/closed queue rejects the replacement while preserving
             // the currently active watch. Clear only this generation.
             if let Some(slot) = state.get_mut(&watch_id) {
                 slot.opening.take();
+                live.store(false, Ordering::Release);
                 remove_slot = slot.active.is_none();
             }
+        } else {
+            // A newer replacement or close already retired this generation.
+            // Fence its acknowledgement and setup task even if admission
+            // happened just before that lifecycle change.
+            live.store(false, Ordering::Release);
         }
         if remove_slot {
             state.remove(&watch_id);
         }
-    }
+    });
     if !committed {
         live.store(false, Ordering::Release);
         cancellation.cancel();
-    }
-    for watch in retired {
-        watch.stop();
     }
     if let Some(start) = start {
         let _ = start.send(());
@@ -570,50 +584,60 @@ async fn finish_open_failure(
         _ = outbound.critical_text_with_token(text, Some(Arc::clone(&live))) => {}
     }
 
-    let remove_slot = if let Ok(mut state) = sessions.lock() {
+    let remove_slot = outbound.with_delivery_gate(|| {
+        let Ok(mut state) = sessions.lock() else {
+            return false;
+        };
         let remove_slot = if let Some(slot) = state.get_mut(&watch_id)
             && slot.opening.as_ref().is_some_and(|opening| {
                 opening.generation == generation && !opening.cancellation.is_cancelled()
-            }) {
+            })
+        {
             slot.opening.take();
             live.store(false, Ordering::Release);
             slot.active.is_none()
         } else {
+            // A newer replacement or close owns the slot. The token-aware
+            // enqueue above has already made any queued failure stale.
+            live.store(false, Ordering::Release);
             false
         };
         if remove_slot {
             state.remove(&watch_id);
         }
         remove_slot
-    } else {
-        false
-    };
+    });
     if remove_slot {
         cancellation.cancel();
     }
 }
 
-fn finish_active(watch_id: &str, generation: u64, sessions: Sessions) {
+fn finish_active(
+    watch_id: &str,
+    generation: u64,
+    sessions: Sessions,
+    outbound: OutboundSink,
+) {
     // Every runner exit retires its liveness token. Replacement, close, and
     // watcher failure must discard queued events from a dead generation; a
     // terminal critical frame is awaited before those paths return, so it is
     // delivered before this token is retired.
-    let mut live = None;
-    if let Ok(mut state) = sessions.lock() {
-        let mut remove_slot = false;
-        if let Some(slot) = state.get_mut(watch_id)
-            && slot.active.as_ref().is_some_and(|active| active.generation == generation)
-        {
-            live = slot.active.take().map(|active| active.live);
-            remove_slot = slot.opening.is_none();
+    outbound.with_delivery_gate(|| {
+        if let Ok(mut state) = sessions.lock() {
+            let mut remove_slot = false;
+            if let Some(slot) = state.get_mut(watch_id)
+                && slot.active.as_ref().is_some_and(|active| active.generation == generation)
+            {
+                if let Some(live) = slot.active.take().map(|active| active.live) {
+                    live.store(false, Ordering::Release);
+                }
+                remove_slot = slot.opening.is_none();
+            }
+            if remove_slot {
+                state.remove(watch_id);
+            }
         }
-        if remove_slot {
-            state.remove(watch_id);
-        }
-    }
-    if let Some(live) = live {
-        live.store(false, Ordering::Release);
-    }
+    });
 }
 
 fn prepare_watch(root: &Path, teardown_slots: Arc<Semaphore>) -> Result<PreparedWatch, String> {
@@ -1259,6 +1283,7 @@ mod tests {
     #[tokio::test]
     async fn completed_watch_invalidates_queued_frames() {
         let sessions = Arc::new(Mutex::new(HashMap::new()));
+        let (sink, _, _) = OutboundSink::channels();
         let live = Arc::new(AtomicBool::new(true));
         let cancellation = CancellationToken::new();
         let task = tokio::spawn(async {});
@@ -1274,7 +1299,7 @@ mod tests {
                 opening: None,
             },
         );
-        finish_active("finished", 1, Arc::clone(&sessions));
+        finish_active("finished", 1, Arc::clone(&sessions), sink);
         assert!(!live.load(Ordering::Acquire));
         assert!(sessions.lock().unwrap().is_empty());
     }

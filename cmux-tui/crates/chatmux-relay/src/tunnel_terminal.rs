@@ -39,8 +39,8 @@
 //! never run this listener: it starts from the managed branch only.
 
 use std::io;
-use std::sync::{Arc, RwLock};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use base64::Engine as _;
@@ -160,10 +160,7 @@ pub enum TunnelEncodeError {
 }
 
 /// Encode one frame: u32be payload length, u8 kind, payload.
-pub fn encode_tunnel_frame(
-    kind: u8,
-    payload: &[u8],
-) -> Result<Vec<u8>, TunnelEncodeError> {
+pub fn encode_tunnel_frame(kind: u8, payload: &[u8]) -> Result<Vec<u8>, TunnelEncodeError> {
     if payload.len() > MAX_TUNNEL_FRAME_BYTES {
         return Err(TunnelEncodeError::PayloadTooLarge(payload.len()));
     }
@@ -172,9 +169,7 @@ pub fn encode_tunnel_frame(
     }
     let mut frame = Vec::with_capacity(HEADER_BYTES + payload.len());
     frame.extend_from_slice(
-        &u32::try_from(payload.len())
-            .expect("MAX_TUNNEL_FRAME_BYTES fits in a u32")
-            .to_be_bytes(),
+        &u32::try_from(payload.len()).expect("MAX_TUNNEL_FRAME_BYTES fits in a u32").to_be_bytes(),
     );
     frame.push(kind);
     frame.extend_from_slice(payload);
@@ -993,10 +988,7 @@ mod tests {
             encode_tunnel_frame(FRAME_KIND_PTY, &[0_u8; MAX_TUNNEL_FRAME_BYTES + 1]),
             Err(TunnelEncodeError::PayloadTooLarge(MAX_TUNNEL_FRAME_BYTES + 1))
         );
-        assert_eq!(
-            encode_tunnel_frame(7, b"x"),
-            Err(TunnelEncodeError::UnknownKind(7))
-        );
+        assert_eq!(encode_tunnel_frame(7, b"x"), Err(TunnelEncodeError::UnknownKind(7)));
     }
 
     #[test]
@@ -1084,7 +1076,10 @@ mod tests {
         let mut queue = Vec::new();
 
         write
-            .write_all(&encode_control_frame(&json!({ "t": "open", "cols": 80, "rows": 24 })).expect("encode open"))
+            .write_all(
+                &encode_control_frame(&json!({ "t": "open", "cols": 80, "rows": 24 }))
+                    .expect("encode open"),
+            )
             .await
             .unwrap();
         let opened = control_json(&next_frame(&mut read, &mut decoder, &mut queue).await);
@@ -1103,7 +1098,10 @@ mod tests {
 
         write.write_all(&encode_pty_frame(b"ls\r").expect("encode input")).await.unwrap();
         write
-            .write_all(&encode_control_frame(&json!({ "t": "resize", "cols": 132, "rows": 43 })).expect("encode resize"))
+            .write_all(
+                &encode_control_frame(&json!({ "t": "resize", "cols": 132, "rows": 43 }))
+                    .expect("encode resize"),
+            )
             .await
             .unwrap();
         for _ in 0..100 {
@@ -1135,9 +1133,12 @@ mod tests {
         let mut decoder = TunnelFrameDecoder::new(MAX_TUNNEL_FRAME_BYTES);
         let mut queue = Vec::new();
         write
-            .write_all(&encode_control_frame(
-                &json!({ "t": "open", "session": session, "cols": 80, "rows": 24 }),
-            ).expect("encode reopen"))
+            .write_all(
+                &encode_control_frame(
+                    &json!({ "t": "open", "session": session, "cols": 80, "rows": 24 }),
+                )
+                .expect("encode reopen"),
+            )
             .await
             .unwrap();
         let reopened = control_json(&next_frame(&mut read, &mut decoder, &mut queue).await);
@@ -1212,7 +1213,9 @@ mod tests {
         let stream = connect(&rig).await;
         let (mut read, mut write) = stream.into_split();
         write
-            .write_all(&encode_tunnel_frame(FRAME_KIND_CONTROL, b"{not json").expect("encode malformed"))
+            .write_all(
+                &encode_tunnel_frame(FRAME_KIND_CONTROL, b"{not json").expect("encode malformed"),
+            )
             .await
             .unwrap();
         let mut decoder = TunnelFrameDecoder::new(MAX_TUNNEL_FRAME_BYTES);
@@ -1230,7 +1233,10 @@ mod tests {
         let stream = connect(&rig).await;
         let (mut read, mut write) = stream.into_split();
         write
-            .write_all(&encode_control_frame(&json!({ "t": "open", "cols": 80, "rows": 24 })).expect("encode open"))
+            .write_all(
+                &encode_control_frame(&json!({ "t": "open", "cols": 80, "rows": 24 }))
+                    .expect("encode open"),
+            )
             .await
             .unwrap();
         let mut decoder = TunnelFrameDecoder::new(MAX_TUNNEL_FRAME_BYTES);
@@ -1251,7 +1257,10 @@ mod tests {
         let stream = connect(&rig).await;
         let (mut read, mut write) = stream.into_split();
         write
-            .write_all(&encode_control_frame(&json!({ "t": "open", "cols": 80, "rows": 24 })).expect("encode open"))
+            .write_all(
+                &encode_control_frame(&json!({ "t": "open", "cols": 80, "rows": 24 }))
+                    .expect("encode open"),
+            )
             .await
             .unwrap();
         let mut decoder = TunnelFrameDecoder::new(MAX_TUNNEL_FRAME_BYTES);

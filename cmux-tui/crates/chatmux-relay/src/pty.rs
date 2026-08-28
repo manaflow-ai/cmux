@@ -563,7 +563,11 @@ impl PtyManager {
                     .iter()
                     .filter(|(_, attachment)| owns(attachment.transport_id.as_deref()))
                     .map(|(id, attachment)| {
-                        (id.clone(), attachment.transport_id.clone(), Some(Arc::clone(&attachment.auth)))
+                        (
+                            id.clone(),
+                            attachment.transport_id.clone(),
+                            Some(Arc::clone(&attachment.auth)),
+                        )
                     }),
             );
         }
@@ -604,10 +608,7 @@ impl Inner {
         let key = context.transport_id.clone();
         let state = {
             let mut states = self.transport_auth.lock().expect("transport auth lock");
-            states
-                .entry(key)
-                .or_insert_with(|| Arc::new(Mutex::new(None)))
-                .clone()
+            states.entry(key).or_insert_with(|| Arc::new(Mutex::new(None))).clone()
         };
         *state.lock().expect("auth state lock") = Some(AuthSnapshot {
             trust: context.trust.clone(),
@@ -881,7 +882,8 @@ impl Inner {
         auth_state: &AuthState,
         context: &FrameContext,
     ) {
-        let Some(_attachment) = self.authorize_snapshot(pty_id, auth_state, context, "output") else {
+        let Some(_attachment) = self.authorize_snapshot(pty_id, auth_state, context, "output")
+        else {
             return;
         };
         let Some(auth) = auth_state.lock().expect("auth state lock").clone() else { return };
@@ -915,13 +917,7 @@ impl Inner {
         }));
     }
 
-    fn emit_exit(
-        &self,
-        pty_id: &str,
-        code: i64,
-        auth_state: &AuthState,
-        context: &FrameContext,
-    ) {
+    fn emit_exit(&self, pty_id: &str, code: i64, auth_state: &AuthState, context: &FrameContext) {
         let Some(_attachment) = self.authorize_snapshot(pty_id, auth_state, context, "exit") else {
             return;
         };
@@ -953,9 +949,10 @@ impl Inner {
         // Match `open`'s lock order. If opening still owns the reservation,
         // record cancellation and let it dispose the newly opened PTY.
         let opening = self.opening_ids.lock().expect("opening lock");
-        if opening.get(pty_id).is_some_and(|owner| {
-            transport_id.is_none() || owner.as_deref() == transport_id
-        }) {
+        if opening
+            .get(pty_id)
+            .is_some_and(|owner| transport_id.is_none() || owner.as_deref() == transport_id)
+        {
             self.cancelled_openings
                 .lock()
                 .expect("cancelled openings lock")
@@ -1019,7 +1016,12 @@ impl Inner {
         } else {
             let expected_auth = context.transport_id.is_some().then_some(auth_state);
             self.close_matching(pty_id, context.transport_id.as_deref(), expected_auth);
-            send_pty_error(context, pty_id, "trust_revoked", &format!("PTY {action} refused after trust change"));
+            send_pty_error(
+                context,
+                pty_id,
+                "trust_revoked",
+                &format!("PTY {action} refused after trust change"),
+            );
             None
         }
     }
@@ -2909,18 +2911,10 @@ mod tests {
         let h = harness(None, None);
         let sent_a = Arc::new(StdMutex::new(Vec::new()));
         let sent_b = Arc::new(StdMutex::new(Vec::new()));
-        let context_a = h.context_for_sink(
-            &sent_a,
-            "supervised",
-            h.owner.clone(),
-            Some("transport-a"),
-        );
-        let context_b = h.context_for_sink(
-            &sent_b,
-            "supervised",
-            h.owner.clone(),
-            Some("transport-b"),
-        );
+        let context_a =
+            h.context_for_sink(&sent_a, "supervised", h.owner.clone(), Some("transport-a"));
+        let context_b =
+            h.context_for_sink(&sent_b, "supervised", h.owner.clone(), Some("transport-b"));
         let open = |pty_id: &str, session: &str| {
             serde_json::json!({
                 "version": 4,
@@ -2938,9 +2932,9 @@ mod tests {
         pty_a.emit("only transport a");
         let a_frames = sent_a.lock().unwrap().clone();
         let b_frames = sent_b.lock().unwrap().clone();
-        assert!(a_frames.iter().any(|frame| {
-            ty(frame) == "pty_output" && frame["ptyId"] == "p1"
-        }));
+        assert!(
+            a_frames.iter().any(|frame| { ty(frame) == "pty_output" && frame["ptyId"] == "p1" })
+        );
         assert!(!b_frames.iter().any(|frame| ty(frame) == "pty_output"));
     }
 

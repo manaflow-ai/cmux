@@ -150,8 +150,12 @@ fn read_config(path: &Path) -> std::io::Result<Vec<u8>> {
                 "relay config is not owned by the current user",
             ));
         }
-        let mode = metadata.mode();
-        if mode & 0o077 != 0 || mode & 0o400 == 0 {
+        // Only the two documented private forms are valid. Reject special
+        // bits as well as group/other permissions: setuid, setgid, and sticky
+        // bits have no legitimate meaning for a credentials file and can
+        // change its security semantics on some filesystems.
+        let mode = metadata.mode() & 0o7777;
+        if mode != 0o400 && mode != 0o600 {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::PermissionDenied,
                 "relay config is not owner-readable and private",
@@ -405,6 +409,23 @@ mod tests {
         let config = load_config(&path).expect("owner-only read config loads");
         assert_eq!(config.device_id, "dev_read_only");
         assert!(load_config_checked(&path).unwrap().is_some());
+        std::fs::remove_dir_all(path.parent().unwrap()).ok();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn config_special_mode_bits_are_rejected() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let path = scratch("special-perms/config.json");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, r#"{"deviceId":"dev_special","token":"tok_special"}"#)
+            .unwrap();
+        // Keep owner read/write permissions, then add setgid. The file is
+        // otherwise private, so a check that only masks group/other bits would
+        // incorrectly accept it.
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o2600)).unwrap();
+        assert!(load_config(&path).is_none());
+        assert!(load_config_checked(&path).is_err());
         std::fs::remove_dir_all(path.parent().unwrap()).ok();
     }
 

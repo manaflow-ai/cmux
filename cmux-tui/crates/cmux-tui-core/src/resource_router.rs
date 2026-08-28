@@ -58,7 +58,16 @@ pub(crate) fn resolve_terminal_wait_exit_id(
             match mux.has_durable_terminal_receipt(&terminal_id) {
                 Ok(true) => {}
                 Ok(false) => return Err(error),
-                Err(registry_error) => return Err(resource_operation_error(registry_error)),
+                Err(registry_error) => {
+                    mux.report_diagnostic(format!(
+                        "durable terminal receipt lookup failed: {registry_error:#}"
+                    ));
+                    return Err(ResourceError::operation_failed(
+                        "resource.runtime",
+                        "terminal lookup failed",
+                        json!({}),
+                    ));
+                }
             }
             Ok(terminal_id)
         }

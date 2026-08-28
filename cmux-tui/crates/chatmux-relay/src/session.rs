@@ -17,7 +17,7 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex as StdMutex};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 
@@ -39,12 +39,12 @@ use crate::pairing::websocket_url;
 use crate::pty::FrameContext;
 #[cfg(unix)]
 use crate::pty::PtyManager;
-#[cfg(unix)]
-use crate::tunnel_terminal::TunnelAuthority;
 use crate::trust::{
     DEFAULT_RELAY_TRUST, Trust, clear_invalid_yolo_confirmation, effective_local_trust,
     has_yolo_confirmation, relay_trust,
 };
+#[cfg(unix)]
+use crate::tunnel_terminal::TunnelAuthority;
 use crate::wire::{
     CLI_VERSION, EXEC_PROTOCOL_VERSION, FRAME_VERSION, HelloFrame, PTY_PROTOCOL_VERSION,
     ServerFrame, advertised_protocol, heartbeat_frame, parse_server_frame, set_trust_frame,
@@ -148,6 +148,10 @@ pub(crate) struct OutboundSink {
     bytes: Arc<Semaphore>,
     watch_bytes: Arc<Semaphore>,
     critical_overflow: Arc<AtomicBool>,
+    // Lifecycle operations (watch replacement/close) and the writer's
+    // liveness check share this fence. The lock is held only while touching
+    // the bounded queue or an atomic token, never across socket I/O.
+    delivery_gate: Arc<StdMutex<()>>,
 }
 
 impl OutboundSink {
@@ -162,6 +166,7 @@ impl OutboundSink {
                 bytes: Arc::new(Semaphore::new(MAX_OUTBOUND_BYTES)),
                 watch_bytes: Arc::new(Semaphore::new(MAX_WATCH_BYTES)),
                 critical_overflow: Arc::new(AtomicBool::new(false)),
+                delivery_gate: Arc::new(StdMutex::new(())),
             },
             critical_rx,
             watch_rx,
@@ -170,6 +175,22 @@ impl OutboundSink {
 
     fn encode(frame: Value) -> Option<String> {
         serde_json::to_string(&frame).ok()
+    }
+
+    /// Run a lifecycle operation in the same order as outbound queue
+    /// admission and writer liveness checks. Poisoning must not turn a local
+    /// thread failure into a process-wide denial of service, so recover the
+    /// protected unit instead of panicking.
+    pub(crate) fn with_delivery_gate<T>(&self, operation: impl FnOnce() -> T) -> T {
+        let _guard = self
+            .delivery_gate
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        operation()
+    }
+
+    fn token_is_live(live: Option<&Arc<AtomicBool>>) -> bool {
+        live.is_none_or(|live| live.load(Ordering::Acquire))
     }
 
     pub(crate) async fn critical_value(&self, frame: Value) -> Result<(), ()> {
@@ -206,12 +227,33 @@ impl OutboundSink {
             return Err(());
         }
         let permit = Arc::clone(&self.bytes).acquire_many_owned(bytes).await.map_err(|_| ())?;
-        let result = self
-            .critical
-            .send(OutboundFrame { text, live, ack, _bytes: permit, _watch_bytes: None })
-            .await
-            .map_err(|_| ());
-        if result.is_err() {
+        // Reserve the channel slot before taking the fence. This preserves
+        // the waiting critical-lane semantics without holding the fence while
+        // the writer is needed to make queue space.
+        let queue_permit = match self.critical.reserve().await {
+            Ok(permit) => permit,
+            Err(_) => {
+                self.critical_overflow.store(true, Ordering::Release);
+                return Err(());
+            }
+        };
+        let live_for_gate = live.clone();
+        let mut stale = false;
+        let result = self.with_delivery_gate(|| {
+            if !Self::token_is_live(live_for_gate.as_ref()) {
+                stale = true;
+                return Err(());
+            }
+            queue_permit.send(OutboundFrame {
+                text,
+                live,
+                ack,
+                _bytes: permit,
+                _watch_bytes: None,
+            });
+            Ok(())
+        });
+        if result.is_err() && !stale {
             self.critical_overflow.store(true, Ordering::Release);
         }
         result
@@ -230,15 +272,17 @@ impl OutboundSink {
                 return Err(());
             }
             let permit = Arc::clone(&self.bytes).try_acquire_many_owned(bytes).map_err(|_| ())?;
-            self.critical
-                .try_send(OutboundFrame {
-                    text,
-                    live: None,
-                    ack: None,
-                    _bytes: permit,
-                    _watch_bytes: None,
-                })
-                .map_err(|_| ())
+            self.with_delivery_gate(|| {
+                self.critical
+                    .try_send(OutboundFrame {
+                        text,
+                        live: None,
+                        ack: None,
+                        _bytes: permit,
+                        _watch_bytes: None,
+                    })
+                    .map_err(|_| ())
+            })
         })();
         if result.is_err() {
             self.critical_overflow.store(true, Ordering::Release);
@@ -255,23 +299,31 @@ impl OutboundSink {
         text: String,
         live: Option<Arc<AtomicBool>>,
     ) -> Result<(), ()> {
+        let mut stale = false;
         let result = (|| {
             let bytes = u32::try_from(text.len()).map_err(|_| ())?;
             if bytes as usize > MAX_OUTBOUND_BYTES {
                 return Err(());
             }
             let permit = Arc::clone(&self.bytes).try_acquire_many_owned(bytes).map_err(|_| ())?;
-            self.critical
-                .try_send(OutboundFrame {
-                    text,
-                    live,
-                    ack: None,
-                    _bytes: permit,
-                    _watch_bytes: None,
-                })
-                .map_err(|_| ())
+            let live_for_gate = live.clone();
+            self.with_delivery_gate(|| {
+                if !Self::token_is_live(live_for_gate.as_ref()) {
+                    stale = true;
+                    return Err(());
+                }
+                self.critical
+                    .try_send(OutboundFrame {
+                        text,
+                        live,
+                        ack: None,
+                        _bytes: permit,
+                        _watch_bytes: None,
+                    })
+                    .map_err(|_| ())
+            })
         })();
-        if result.is_err() {
+        if result.is_err() && !stale {
             self.critical_overflow.store(true, Ordering::Release);
         }
         result
@@ -297,15 +349,21 @@ impl OutboundSink {
         let permit = Arc::clone(&self.bytes).try_acquire_many_owned(bytes).map_err(|_| ())?;
         let watch_permit =
             Arc::clone(&self.watch_bytes).try_acquire_many_owned(bytes).map_err(|_| ())?;
-        self.watch
-            .try_send(OutboundFrame {
-                text,
-                live,
-                ack: None,
-                _bytes: permit,
-                _watch_bytes: Some(watch_permit),
-            })
-            .map_err(|_| ())
+        let live_for_gate = live.clone();
+        self.with_delivery_gate(|| {
+            if !Self::token_is_live(live_for_gate.as_ref()) {
+                return Err(());
+            }
+            self.watch
+                .try_send(OutboundFrame {
+                    text,
+                    live,
+                    ack: None,
+                    _bytes: permit,
+                    _watch_bytes: Some(watch_permit),
+                })
+                .map_err(|_| ())
+        })
     }
 }
 
@@ -447,7 +505,8 @@ pub async fn stay_online(
         if cancellation.is_cancelled() {
             return Ok(());
         }
-        let relay_result = relay_session(&mut config, config_path, &mut state, &runtime, &cancellation).await;
+        let relay_result =
+            relay_session(&mut config, config_path, &mut state, &runtime, &cancellation).await;
         #[cfg(unix)]
         runtime.tunnel_authority.clear();
         match relay_result {
@@ -777,7 +836,10 @@ async fn relay_session(
                 }
             }
             Wake::Outbound(is_critical, Some(frame)) => {
-                if !frame.is_live() {
+                // The liveness check is fenced with queue admission and watch
+                // retirement. Once this turn owns a live frame, no
+                // replacement can publish a newer frame before it is sent.
+                if !out_tx.with_delivery_gate(|| frame.is_live()) {
                     if let Some(ack) = frame.ack {
                         let _ = ack.send(());
                     }
@@ -1355,7 +1417,7 @@ mod outbound_frame_tests {
     #[tokio::test]
     async fn token_frames_are_marked_stale_before_socket_delivery() {
         let (sink, mut critical, _) = OutboundSink::channels();
-        let live = Arc::new(AtomicBool::new(false));
+        let live = Arc::new(AtomicBool::new(true));
         let (ack_tx, ack_rx) = tokio::sync::oneshot::channel();
         sink.critical_text_with_token_ack(
             "stale".to_owned(),
@@ -1364,11 +1426,21 @@ mod outbound_frame_tests {
         )
         .await
         .expect("queue frame");
+        live.store(false, Ordering::Release);
         let frame = critical.recv().await.expect("queued frame");
         assert!(!frame.is_live());
-        live.store(true, Ordering::Release);
-        assert!(frame.is_live());
         frame.ack.expect("ack sender").send(()).expect("ack receiver");
         ack_rx.await.expect("ack");
+    }
+
+    #[tokio::test]
+    async fn stale_tokens_are_not_admitted_after_the_delivery_fence_changes() {
+        let (sink, mut critical, mut watch) = OutboundSink::channels();
+        let live = Arc::new(AtomicBool::new(true));
+        sink.with_delivery_gate(|| live.store(false, Ordering::Release));
+        assert!(sink.try_critical_text_with_token("critical".to_owned(), Some(Arc::clone(&live))).is_err());
+        assert!(sink.try_watch_text_with_token("watch".to_owned(), Some(live)).is_err());
+        assert!(critical.try_recv().is_err());
+        assert!(watch.try_recv().is_err());
     }
 }

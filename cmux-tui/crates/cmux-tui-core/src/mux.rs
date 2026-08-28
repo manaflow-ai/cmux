@@ -5268,6 +5268,14 @@ impl Mux {
         if self.reconnect_checkpoint_skip_reported.swap(true, Ordering::AcqRel) {
             return;
         }
+        self.report_diagnostic(message);
+    }
+
+    /// Send a background diagnostic to the frontend-owned sink without
+    /// exposing it through a resource response. The reporter is installed
+    /// once during frontend startup; retain one early message until then.
+    pub(crate) fn report_diagnostic(&self, message: impl Into<String>) {
+        let message = message.into();
         if let Some(reporter) = self.diagnostic_reporter.get().cloned() {
             reporter(&message);
             return;
@@ -5277,7 +5285,10 @@ impl Mux {
         // frontend has a chance to install its reporter. Recheck under the
         // pending slot lock so a concurrent setter cannot leave this message
         // stranded between the initial lookup and the store.
-        let mut pending = self.pending_diagnostic.lock().unwrap();
+        let mut pending = self
+            .pending_diagnostic
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         if let Some(reporter) = self.diagnostic_reporter.get().cloned() {
             drop(pending);
             reporter(&message);
@@ -16365,8 +16376,9 @@ fn remove_pane_from_screen_layout(mux: &Mux, screen: &mut Screen, pane: PaneId) 
 
 fn unique_screen_ids(ids: impl IntoIterator<Item = ScreenId>) -> Vec<ScreenId> {
     let mut unique = Vec::new();
+    let mut seen = HashSet::new();
     for id in ids {
-        if !unique.contains(&id) {
+        if seen.insert(id) {
             unique.push(id);
         }
     }
@@ -16863,6 +16875,11 @@ mod tests {
 
     fn test_mux() -> Arc<Mux> {
         Mux::new_for_test("test", SurfaceOptions::default())
+    }
+
+    #[test]
+    fn unique_screen_ids_preserves_first_seen_order_without_duplicate_work() {
+        assert_eq!(unique_screen_ids([3, 1, 3, 2, 1, 2]), vec![3, 1, 2]);
     }
 
     /// A machine resume reconnects every hosted terminal at once. Checkpoint
