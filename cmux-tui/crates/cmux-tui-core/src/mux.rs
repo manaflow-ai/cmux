@@ -2593,6 +2593,7 @@ impl Mux {
         }
         mux.retry_pending_agent_hooks()?;
         crate::journal_hooks::start(&mux)?;
+        crate::screen_detect::scanner::start(&mux);
         Ok(mux)
     }
 
@@ -5833,6 +5834,62 @@ impl Mux {
         if let Err(error) = self.append_journal_ingress(&ingress, "agent-report", &idempotency_key)
         {
             eprintln!("cmux-tui: journaling an agent report for {terminal_id} failed: {error}");
+        }
+    }
+
+    /// Snapshot of live terminals for the screen-detection scanner.
+    pub(crate) fn screen_detect_terminals(&self) -> Vec<(TerminalPublicId, Arc<Surface>)> {
+        self.state
+            .lock()
+            .unwrap()
+            .terminal_catalog
+            .iter()
+            .map(|(terminal_id, surface)| (terminal_id.clone(), surface.clone()))
+            .collect()
+    }
+
+    /// Journal one screen-detected agent state transition. The payload
+    /// wears the agent-hook shape with the manifest id as the adapter and
+    /// `native_event = "ScreenDetect"`; the roster fold reads the explicit
+    /// state exactly like the socket echo, but with source `detected`.
+    pub(crate) fn append_screen_detect_event(
+        &self,
+        emission: &crate::screen_detect::ScreenDetectEmission,
+    ) {
+        let kind = if emission.state == AgentState::Done {
+            "agent.session.ended"
+        } else {
+            "agent.state.changed"
+        };
+        let ingress = crate::JournalIngress {
+            producer_id: crate::agent_hooks::AGENT_HOOK_PRODUCER_ID.into(),
+            manifest_version: crate::agent_hooks::AGENT_HOOK_MANIFEST_VERSION,
+            kind: kind.into(),
+            schema_version: 1,
+            occurred_at_ms: None,
+            subjects: vec![crate::JournalSubject {
+                kind: "terminal".into(),
+                id: emission.terminal_id.clone(),
+            }],
+            sensitivity: Some(crate::JournalSensitivity::Sensitive),
+            payload: serde_json::json!({
+                "format": crate::agent_hooks::AGENT_HOOK_FORMAT,
+                "adapter": {"id": emission.agent, "version": 1},
+                "native_event": crate::screen_detect::SCREEN_DETECT_NATIVE_EVENT,
+                "normalized": {"state": emission.state.as_str()},
+                "native": {},
+            }),
+            causation_id: None,
+            correlation_id: None,
+        };
+        let idempotency_key =
+            format!("screen-detect-{}", crate::workspace_registry::new_uuid_v4());
+        if let Err(error) = self.append_journal_ingress(&ingress, "screen-detect", &idempotency_key)
+        {
+            eprintln!(
+                "cmux-tui: journaling a screen-detected state for {} failed: {error}",
+                emission.terminal_id
+            );
         }
     }
 
@@ -9419,13 +9476,44 @@ impl Mux {
         });
         let now = now_ms();
         let mut records = self.agent_records.lock().unwrap();
-        let socket_report_ignored = records.get(&terminal_id).is_some_and(|existing| {
-            existing.source == AgentSource::Hook
-                && source == AgentSource::Socket
-                && !effective_hook_state.is_some_and(|state| state.ended)
-        });
+        // Hook and screen-detected state are stronger agent truth than a
+        // direct socket report. Check the durable projection as well as the
+        // in-memory cache so arbitration survives a restart.
+        let durable_stronger = registry
+            .public_agent_projections(Some(&terminal_id), None)?
+            .into_iter()
+            .next()
+            .filter(|projection| {
+                (projection.source == AgentSource::Hook.as_str()
+                    || projection.source == AgentSource::Detected.as_str())
+                    && projection.state != AgentState::Done.as_str()
+                    && source == AgentSource::Socket
+            });
+        let socket_report_ignored = source == AgentSource::Socket
+            && !effective_hook_state.is_some_and(|state| state.ended)
+            && (records.get(&terminal_id).is_some_and(|existing| {
+                existing.source == AgentSource::Hook || existing.source == AgentSource::Detected
+            }) || durable_stronger.is_some());
         let record = match records.get(&terminal_id) {
             Some(existing) if socket_report_ignored => existing.clone(),
+            None if socket_report_ignored => match durable_stronger {
+                Some(existing) => TerminalAgentRecord {
+                    state: parse_projection_agent_state(&existing.state),
+                    source: if existing.source == AgentSource::Detected.as_str() {
+                        AgentSource::Detected
+                    } else {
+                        AgentSource::Hook
+                    },
+                    session: existing.source_session,
+                    updated_at_ms: existing.updated_at_ms,
+                },
+                None => TerminalAgentRecord {
+                    state: agent_state,
+                    source,
+                    session: source_session,
+                    updated_at_ms: now,
+                },
+            },
             _ => TerminalAgentRecord {
                 state: agent_state,
                 source,
