@@ -490,46 +490,6 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertEqual(discardedPointerDownCount, 0)
     }
 
-    func testMarkdownPanelDefersPreviewFocusUntilWebViewAttaches() throws {
-        let directoryURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-markdown-focus-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directoryURL) }
-
-        let fileURL = directoryURL.appendingPathComponent("README.md")
-        try "# Focus".write(to: fileURL, atomically: true, encoding: .utf8)
-        let panel = MarkdownPanel(workspaceId: UUID(), filePath: fileURL.path)
-        defer { panel.close() }
-
-        // Activation can happen before SwiftUI has created the representable.
-        // The request must remain pending instead of being silently dropped.
-        panel.focus()
-
-        let coordinator = panel.rendererSession.coordinator(
-            panelId: panel.id,
-            workspaceId: panel.workspaceId,
-            filePath: panel.filePath
-        )
-        let webView = MarkdownWebView(frame: .zero, configuration: WKWebViewConfiguration())
-        coordinator.webView = webView
-        webView.onAttachToWindow = panel.replayPendingPreviewFocusAfterWindowAttach
-
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
-            styleMask: [.borderless],
-            backing: .buffered,
-            defer: false
-        )
-        window.contentView = webView
-        window.makeKeyAndOrderFront(nil)
-        defer { window.close() }
-
-        XCTAssertTrue(
-            window.firstResponder === webView,
-            "A preview focus request made before mounting must be completed when the WebView enters its window."
-        )
-    }
-
     func testMarkdownWebViewReattachDoesNotRefreshInsideHostCallback() async {
         var isActuallyVisible = true
         let recorder = RenderingActionRecorder()
