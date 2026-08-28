@@ -22421,10 +22421,7 @@ mod tests {
         let next = ingress("UserPromptSubmit");
         assert_eq!(next.kind, "agent.turn.started");
         mux.apply_agent_hook_record(&next, 2).unwrap();
-        assert_eq!(
-            mux.list_agents(Some(reopened_surface), None)[0].state,
-            AgentState::Working
-        );
+        assert_eq!(mux.list_agents(Some(reopened_surface), None)[0].state, AgentState::Working);
         mux.shutdown();
         drop(mux);
         std::fs::remove_dir_all(root).unwrap();
