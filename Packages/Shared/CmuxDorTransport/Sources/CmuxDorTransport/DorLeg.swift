@@ -297,7 +297,7 @@ public actor DorLeg {
                 case let .helloAck(legID, resumeKey, _, peerOnline, replayed):
                     return (legID, resumeKey, peerOnline, replayed)
                 case let .resumeFailed(reason):
-                    throw LegOutcome.resumeRefused(reason)
+                    throw LegOutcome.resumeRefused(DorSafety.relayReason(reason))
                 case let .error(code, message):
                     journal.record(
                         component: "leg", event: "relay-error",
@@ -324,7 +324,7 @@ public actor DorLeg {
             lastInbound = ContinuousClock.now
             switch message {
             case .data(let data):
-                if let source = handleDataFrame(data) {
+                if let source = try handleDataFrame(data) {
                     // Coalesced: at most one ack per stream per 16 frames /
                     // 100ms; the 1s ticker flushes stragglers.
                     if case let .ack(seq, leg) = ledger.ackDecision(
@@ -448,7 +448,7 @@ public actor DorLeg {
         case let .peerOffline(legID, reason):
             continuation?.yield(.peerOffline(legID: legID, reason: reason))
         case let .resumeFailed(reason):
-            throw LegOutcome.resumeRefused(reason)
+            throw LegOutcome.resumeRefused(DorSafety.relayReason(reason))
         case let .error(code, message):
             journal.record(
                 component: "leg", event: "relay-error",
@@ -460,15 +460,20 @@ public actor DorLeg {
 
     /// Returns the source leg id when the frame was fresh (not a replay).
     @discardableResult
-    private func handleDataFrame(_ data: Data) -> UInt32? {
+    private func handleDataFrame(_ data: Data) throws -> UInt32? {
         guard let frame = DorWire.decodeData(data) else {
             journal.record(
                 component: "leg", event: "malformed-data",
                 attributes: legAttributes())
             return nil
         }
-        guard ledger.acceptDownload(source: frame.legID, seq: frame.seq) else {
+        switch ledger.acceptDownloadResult(source: frame.legID, seq: frame.seq) {
+        case .duplicate:
             return nil // resume-overlap replay
+        case .gap:
+            throw LegOutcome.resumeRefused("download-sequence-gap")
+        case .accepted:
+            break
         }
         continuation?.yield(.frame(sourceLegID: frame.legID, payload: frame.payload))
         return frame.legID
@@ -512,7 +517,9 @@ public actor DorLeg {
         _ socket: URLSessionWebSocketTask, fallback: String
     ) -> LegOutcome {
         let code = socket.closeCode.rawValue
-        let reason = socket.closeReason.flatMap { String(data: $0, encoding: .utf8) } ?? fallback
+        let reason = DorSafety.stableReason(
+            socket.closeReason.flatMap { String(data: $0, encoding: .utf8) },
+            fallback: fallback)
         switch UInt16(exactly: code) {
         case DorWire.closeUnauthorized:
             consecutiveAuthCloses += 1
@@ -533,11 +540,45 @@ public actor DorLeg {
         }
     }
 
+    /// True when a relay base URL can carry an access token safely. Cleartext
+    /// WebSockets are restricted to literal loopback hosts; all other traffic
+    /// must use TLS. Credentials and fragments are never accepted in a base.
+    public nonisolated static func isAllowedRelayBaseURL(_ url: URL) -> Bool {
+        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let rawScheme = components.scheme?.lowercased(),
+              let rawHost = components.host?.lowercased(),
+              !rawHost.isEmpty,
+              components.user == nil,
+              components.password == nil,
+              components.fragment == nil
+        else { return false }
+        switch rawScheme {
+        case "https", "wss":
+            return true
+        case "http", "ws":
+            return Self.isLoopbackHost(rawHost)
+        default:
+            return false
+        }
+    }
+
+    private nonisolated static func isLoopbackHost(_ host: String) -> Bool {
+        if host == "localhost" || host == "::1" { return true }
+        let octets = host.split(separator: ".", omittingEmptySubsequences: false)
+        guard octets.count == 4, octets[0] == "127" else { return false }
+        return octets.dropFirst().allSatisfy { octet in
+            guard let value = Int(octet), (0 ... 255).contains(value) else { return false }
+            return String(value) == octet
+        }
+    }
+
     private func dialURL() -> URL? {
+        guard Self.isAllowedRelayBaseURL(configuration.relayBaseURL) else { return nil }
         guard var components = URLComponents(
             url: configuration.relayBaseURL, resolvingAgainstBaseURL: false)
         else { return nil }
-        components.scheme = components.scheme == "http" ? "ws" : "wss"
+        let baseScheme = components.scheme?.lowercased()
+        components.scheme = baseScheme == "http" || baseScheme == "ws" ? "ws" : "wss"
         components.path = configuration.role == .host ? "/v1/dor/host" : "/v1/dor/connect"
         var query = [URLQueryItem(name: "device", value: configuration.selfDeviceID)]
         if configuration.role == .phone {

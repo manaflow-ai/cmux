@@ -152,7 +152,9 @@ public actor MobileDorRuntimeComposition {
         // verify its token.
         relayBaseURL = PresenceClient.resolvedServiceBaseURL(
             isDevelopmentAuthChannel: isDevelopmentAuthChannel
-        ).flatMap { URL(string: $0) }
+        ).flatMap { URL(string: $0) }.flatMap {
+            DorLeg.isAllowedRelayBaseURL($0) ? $0 : nil
+        }
         let rawTag = MobileIOSBuildScope.current(
             infoDictionary: infoDictionary,
             bundleIdentifier: bundleIdentifier

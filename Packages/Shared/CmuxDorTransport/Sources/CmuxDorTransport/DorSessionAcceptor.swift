@@ -107,6 +107,10 @@ public actor DorSessionAcceptor {
     // MARK: - Admission
 
     private func handleHS1(sourceLegID: UInt32, json: Data) async {
+        guard json.count <= DorWire.maxHandshakeBytes else {
+            await deny(sourceLegID: sourceLegID, deviceID: nil, reason: "malformed-hs1")
+            return
+        }
         guard let hs1 = try? JSONDecoder().decode(DorHandshake1.self, from: json),
               hs1.t == "hs1",
               let initiatorEph = Data(base64Encoded: hs1.eph), initiatorEph.count == 32,
@@ -147,7 +151,7 @@ public actor DorSessionAcceptor {
         } catch {
             await deny(
                 sourceLegID: sourceLegID, deviceID: nil,
-                reason: "grant:\(String(describing: error))")
+                reason: "invalid-grant")
             return
         }
         let peer = DorAdmittedPeer(
@@ -163,7 +167,7 @@ public actor DorSessionAcceptor {
         } catch {
             await deny(
                 sourceLegID: sourceLegID, deviceID: peer.deviceID,
-                reason: "judge:\(String(describing: error))")
+                reason: "not-admitted")
             return
         }
 
@@ -241,16 +245,17 @@ public actor DorSessionAcceptor {
     }
 
     private func deny(sourceLegID: UInt32, deviceID: String?, reason: String) async {
+        let safeReason = DorSafety.stableReason(reason, fallback: "admission-denied")
         journal.record(
             component: "admission", event: "denied",
-            attributes: ["device": deviceID ?? "-", "reason": reason])
-        let deny = DorHandshakeDeny(v: 1, t: "deny", reason: reason)
+            attributes: ["device": deviceID ?? "-", "reason": safeReason])
+        let deny = DorHandshakeDeny(v: 1, t: "deny", reason: safeReason)
         if let bytes = try? JSONEncoder().encode(deny) {
             var payload = Data([DorBoxKind.handshake.rawValue])
             payload.append(bytes)
             await sendHandshake(payload, to: sourceLegID)
         }
-        continuation?.yield(.denied(deviceID: deviceID, reason: reason))
+        continuation?.yield(.denied(deviceID: deviceID, reason: safeReason))
     }
 
     private func sendHandshake(_ payload: Data, to legID: UInt32) async {

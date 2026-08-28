@@ -5,6 +5,21 @@ import Testing
 
 @Suite("dor/1 wire codec")
 struct DorWireTests {
+    @Test func remoteTextIsBoundedAndReasonsAreStable() {
+        let hostile = "ok\u{0000}\u{001b}[31m" + String(repeating: "x", count: 800)
+        let bounded = DorSafety.boundedText(hostile, fallback: "fallback")
+        #expect(bounded.utf8.count <= DorSafety.maxAttributeBytes)
+        #expect(!bounded.unicodeScalars.contains { $0.value < 0x20 || $0.value == 0x7f })
+        #expect(DorSafety.stableReason("grant:secret", fallback: "denied") == "denied")
+        #expect(DorSafety.relayReason("unknown session") == "unknown-session")
+    }
+
+    @Test func journalValuesRedactCredentialFields() {
+        #expect(DorSafety.journalValue(key: "token", value: "bearer-secret") == "[redacted]")
+        #expect(DorSafety.journalValue(key: "stderr", value: "private path") == "[redacted]")
+        #expect(DorSafety.journalValue(key: "device", value: "device-1") == "device-1")
+    }
+
     @Test func relayURLPolicyAllowsTLSAndLoopbackOnlyForCleartext() throws {
         #expect(DorLeg.isAllowedRelayBaseURL(try #require(URL(string: "https://presence.example"))))
         #expect(DorLeg.isAllowedRelayBaseURL(try #require(URL(string: "http://127.0.0.1:8787"))))

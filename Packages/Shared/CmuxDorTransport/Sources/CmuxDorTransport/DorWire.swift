@@ -15,6 +15,7 @@ public enum DorWire {
     /// Cloudflare caps inbound WS messages at 1 MiB; stay well inside it.
     public static let maxDataFrameBytes = 1024 * 1024 - 1024
     public static let maxControlBytes = 4 * 1024
+    public static let maxHandshakeBytes = DorSafety.maxHandshakeBytes
     /// E2E payload chunk cap. Chosen so header + seal overhead stays under the
     /// relay's 120 KiB spill-frame limit: a detach can always spill every
     /// pending frame, so a resume never fails on frame size.
@@ -127,13 +128,16 @@ public enum DorControlFrame: Sendable, Equatable {
                   let epoch = object["epoch"] as? String,
                   let peerOnline = object["peerOnline"] as? Bool
             else { throw DorWireError.malformed }
+            guard !resumeKey.isEmpty, resumeKey.utf8.count <= 256,
+                  !epoch.isEmpty, epoch.utf8.count <= 256
+            else { throw DorWireError.malformed }
             return .helloAck(
                 legID: legID, resumeKey: resumeKey, epoch: epoch,
                 peerOnline: peerOnline,
-                replayed: (object["replayed"] as? NSNumber)?.intValue ?? 0
+                replayed: max(0, min((object["replayed"] as? NSNumber)?.intValue ?? 0, 1_000_000))
             )
         case "resume.failed":
-            return .resumeFailed(reason: object["reason"] as? String ?? "unknown")
+            return .resumeFailed(reason: DorSafety.relayReason(object["reason"] as? String))
         case "pong":
             guard let ts = (object["ts"] as? NSNumber)?.doubleValue else { throw DorWireError.malformed }
             return .pong(ts: ts)
@@ -150,13 +154,23 @@ public enum DorControlFrame: Sendable, Equatable {
             guard let seq = uint64(object["seq"]) else { throw DorWireError.malformed }
             return .ackUp(seq: seq, leg: uint32(object["leg"]))
         case "peer.online":
-            return .peerOnline(legID: uint32(object["legId"]), device: object["device"] as? String)
+            return .peerOnline(
+                legID: uint32(object["legId"]),
+                device: (object["device"] as? String).map {
+                    DorSafety.boundedText($0, fallback: "-")
+                }
+            )
         case "peer.offline":
-            return .peerOffline(legID: uint32(object["legId"]), reason: object["reason"] as? String)
+            return .peerOffline(
+                legID: uint32(object["legId"]),
+                reason: (object["reason"] as? String).map {
+                    DorSafety.boundedText($0, fallback: "peer-offline")
+                }
+            )
         case "error":
             return .error(
-                code: object["code"] as? String ?? "unknown",
-                message: object["message"] as? String ?? ""
+                code: DorSafety.boundedText(object["code"] as? String, fallback: "unknown"),
+                message: DorSafety.boundedText(object["message"] as? String)
             )
         default:
             return nil

@@ -3,6 +3,9 @@
 // {ts, mono_ms, component, event, a_<attr>: value...}
 
 public import Foundation
+#if canImport(Darwin)
+import Darwin
+#endif
 
 public struct DorJournal: Sendable {
     private let write: @Sendable (String) -> Void
@@ -21,13 +24,27 @@ public struct DorJournal: Sendable {
             mirror?(line)
             queue.async {
                 let data = Data((line + "\n").utf8)
-                if let handle = try? FileHandle(forWritingTo: url) {
-                    defer { try? handle.close() }
-                    _ = try? handle.seekToEnd()
-                    try? handle.write(contentsOf: data)
-                } else {
-                    try? data.write(to: url, options: .atomic)
-                }
+                try? FileManager.default.createDirectory(
+                    at: url.deletingLastPathComponent(),
+                    withIntermediateDirectories: true,
+                    attributes: [.posixPermissions: 0o700]
+                )
+#if canImport(Darwin)
+                // O_NOFOLLOW prevents a local process from replacing the
+                // journal with a symlink between launches. O_APPEND keeps
+                // records atomic and 0600 limits disclosure to this user.
+                let flags = O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC | O_NOFOLLOW
+                let descriptor = Darwin.open(url.path, flags, S_IRUSR | S_IWUSR)
+                guard descriptor >= 0 else { return }
+                _ = fchmod(descriptor, S_IRUSR | S_IWUSR)
+                let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+                try? handle.write(contentsOf: data)
+                try? handle.close()
+#else
+                // This package targets Apple platforms. Keep a functional
+                // fallback for source-only tooling on other hosts.
+                try? data.write(to: url, options: .atomic)
+#endif
             }
         }
     }
@@ -48,7 +65,7 @@ public struct DorJournal: Sendable {
             "event": event,
         ]
         for (key, value) in attributes {
-            object["a_\(key)"] = value
+            object["a_\(key)"] = DorSafety.journalValue(key: key, value: value)
         }
         guard let data = try? JSONSerialization.data(withJSONObject: object),
               let line = String(data: data, encoding: .utf8)

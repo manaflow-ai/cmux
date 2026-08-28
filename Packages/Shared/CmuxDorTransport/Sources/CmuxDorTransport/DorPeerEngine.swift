@@ -224,7 +224,7 @@ public actor DorPeerEngine {
         } catch {
             journal.record(
                 component: "engine", event: "hs1-sign-failed",
-                attributes: ["reason": String(describing: error)])
+                attributes: ["reason": "identity-sign-failed"])
             return
         }
         let hs1 = DorHandshake1(
@@ -260,12 +260,16 @@ public actor DorPeerEngine {
     }
 
     private func handleHandshakePayload(_ json: Data) async {
+        guard json.count <= DorWire.maxHandshakeBytes else { return }
         if let deny = try? JSONDecoder().decode(DorHandshakeDeny.self, from: Data(json)),
            deny.t == "deny"
         {
             journal.record(
                 component: "admission", event: "denied",
-                attributes: ["reason": deny.reason])
+                attributes: [
+                    "reason": DorSafety.stableReason(
+                        deny.reason, fallback: "admission-denied")
+                ])
             return
         }
         guard case let .handshaking(eph, hs1Bytes, _) = dial,
