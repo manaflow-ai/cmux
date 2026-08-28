@@ -101,26 +101,27 @@ public struct SubrouterCodexResumeRouting: Sendable, Equatable {
     }
 
     private func launchArgumentsContainSubrouterProvider(_ arguments: [String]) -> Bool {
+        var effectiveProvider: String?
         for (index, argument) in arguments.enumerated() {
             if (argument == "-c" || argument == "--config"),
                index + 1 < arguments.count,
-               isSubrouterProviderAssignment(arguments[index + 1]) {
-                return true
+               let provider = modelProviderAssignment(in: arguments[index + 1]) {
+                effectiveProvider = provider
             }
             for prefix in ["-c=", "--config="] where argument.hasPrefix(prefix) {
-                if isSubrouterProviderAssignment(String(argument.dropFirst(prefix.count))) {
-                    return true
+                if let provider = modelProviderAssignment(in: String(argument.dropFirst(prefix.count))) {
+                    effectiveProvider = provider
                 }
             }
         }
-        return false
+        return effectiveProvider == "subrouter"
     }
 
-    private func isSubrouterProviderAssignment(_ rawValue: String) -> Bool {
+    private func modelProviderAssignment(in rawValue: String) -> String? {
         let parts = rawValue.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
         guard parts.count == 2,
               parts[0].trimmingCharacters(in: .whitespacesAndNewlines) == "model_provider" else {
-            return false
+            return nil
         }
         var value = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
         if value.count >= 2,
@@ -130,7 +131,7 @@ public struct SubrouterCodexResumeRouting: Sendable, Equatable {
             value.removeFirst()
             value.removeLast()
         }
-        return value == "subrouter"
+        return value
     }
 
     private func isSubrouterRoutingAssignment(_ rawValue: String) -> Bool {
