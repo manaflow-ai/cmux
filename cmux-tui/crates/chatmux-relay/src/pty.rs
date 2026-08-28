@@ -451,8 +451,7 @@ impl PtyManager {
     pub async fn handle_frame(&self, frame: &Value, context: &FrameContext) {
         {
             let snapshot = AuthSnapshot::from_context(context);
-            let mut transport_auth =
-                self.inner.transport_auth.lock().expect("transport auth lock");
+            let mut transport_auth = self.inner.transport_auth.lock().expect("transport auth lock");
             if context.transport_id.is_none() {
                 // Legacy whole-manager callers use `None` and provide the
                 // current trust on each frame. Keep that contract for non-
