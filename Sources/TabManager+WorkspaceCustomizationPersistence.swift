@@ -108,7 +108,15 @@ extension TabManager {
         case let .value(title):
             workspace.setCustomTitle(title)
         case .cleared:
-            workspace.setCustomTitle(nil)
+            // A prior user clear re-enables auto-naming; it must not evict
+            // a subsequently auto-derived title restored from the session
+            // snapshot. Without this guard, the durable customization journal
+            // clobbers the snapshot's `.auto` title on every restore, so
+            // auto-named workspaces lose their title across restart until the
+            // next turn re-derives it.
+            if workspace.effectiveCustomTitleSource != .auto {
+                workspace.setCustomTitle(nil)
+            }
         }
 
         switch customization.customColor {
