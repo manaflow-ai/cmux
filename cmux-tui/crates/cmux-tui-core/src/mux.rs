@@ -64,8 +64,8 @@ use crate::workspace_registry::{
     RegistryBrowser, RegistryBrowserReconnect, RegistryCommit, RegistryLayoutNode,
     RegistrySnapshot, RegistryTab, RegistryTerminal, RegistryViewport, RegistryWorkspace,
     ResourceChange, ResourceEffectOutcome, ResourceEffectPreparation, ResourcePatch,
-<<<<<<< HEAD
-    ResourcePatchCommit, ResourceTopologySnapshot, ResourceWorkspaceLedger, SessionJournalCursorError,
+    ResourcePatchCommit, ResourceTopologySnapshot, ResourceWorkspaceLedger,
+    SessionJournalCursorError,
     TerminalLifecycle, TerminalOnExit, TerminalRegistrySnapshot, WorkspaceMutation,
     WorkspaceRegistry,
 };
@@ -1135,32 +1135,31 @@ fn restore_agent_roster(registry: &WorkspaceRegistry) -> anyhow::Result<AgentRos
         _ => AgentRosterHost::default(),
     };
     let started_at = host.cursor;
-    let mut reset_after_error = false;
+    let mut recovered_cursor = false;
     loop {
         let page = match registry.session_journal_after(host.cursor, 512) {
             Ok(page) => page,
-            Err(error)
-                if !reset_after_error
-                    && host.cursor != 0
-                    && error.downcast_ref::<SessionJournalCursorError>().is_some() =>
-            {
+            Err(error) => {
+                let Some(cursor_error) = error.downcast_ref::<SessionJournalCursorError>() else {
+                    return Err(error.context("restore agent roster from session journal"));
+                };
+                if recovered_cursor {
+                    return Err(error.context("restore agent roster after cursor recovery"));
+                }
                 // A persisted cursor can point past the head or before the
-                // retained journal floor. Do not fail startup on corrupt
-                // derived state. Reset and make one best-effort replay from
-                // the journal head; if the journal itself has a gap, return
-                // an empty, safe roster and let future events rebuild it.
-                eprintln!("cmux-tui: resetting invalid agent roster cursor: {error}");
-                host = AgentRosterHost::default();
-                reset_after_error = true;
+                // retained journal floor. Rebuild from a valid boundary,
+                // preserving ordinary I/O, decode, and corruption errors.
+                host = match *cursor_error {
+                    SessionJournalCursorError::Ahead { .. } => AgentRosterHost::default(),
+                    SessionJournalCursorError::Gap { first_retained, .. } => AgentRosterHost {
+                        roster: AgentRoster::default(),
+                        cursor: first_retained.saturating_sub(1),
+                    },
+                };
+                recovered_cursor = true;
+                eprintln!("cmux-tui: recovering invalid agent roster cursor: {error}");
                 continue;
             }
-            Err(error)
-                if error.downcast_ref::<SessionJournalCursorError>().is_some() =>
-            {
-                eprintln!("cmux-tui: agent journal replay unavailable after cursor reset: {error}");
-                return Ok(AgentRosterHost::default());
-            }
-            Err(error) => return Err(error.context("restore agent roster from session journal")),
         };
         if page.records.is_empty() {
             break;
