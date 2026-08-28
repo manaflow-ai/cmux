@@ -368,7 +368,7 @@ _CMUX_PR_POLL_INTERVAL=1
 _cmux_start_pr_poll_loop "$PWD" 1
 _cmux_start_git_head_watch
 print -r -- "WATCHERS:$_CMUX_PR_POLL_PID:$_CMUX_GIT_HEAD_WATCH_PID"
-sleep 300
+exec sleep 300
 """
     else:
         parent_script = f"""
@@ -389,7 +389,7 @@ _cmux_pr_force_signal_path() {{ printf '%s\\n' {str(tmp / 'pr-force')!r}; }}
 _CMUX_PR_POLL_INTERVAL=1
 _cmux_start_pr_poll_loop "$PWD" 1
 printf 'WATCHERS:%s:\\n' "$_CMUX_PR_POLL_PID"
-sleep 300
+exec sleep 300
 """
 
     parent = subprocess.Popen(
@@ -433,7 +433,7 @@ sleep 300
             if not pid_alive(pid):
                 fail(f"[{name}] shipped watcher {pid} exited while its parent shell was still alive")
 
-        os.killpg(parent.pid, signal.SIGKILL)
+        os.kill(parent.pid, signal.SIGKILL)
         parent.wait(timeout=5)
 
         for pid in watcher_pids:
