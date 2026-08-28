@@ -51,8 +51,7 @@ struct CmxIrohSelectedTransportPathTests {
             relays: [descriptor]
         )
         let endpointProfile = try CmxIrohEndpointRelayProfile(
-            managedRelayURLs: [url],
-            relays: []
+            managedRelayURLs: [url]
         )
         let effective = CmxIrohEffectiveRelayPolicy(
             endpointRelayProfile: endpointProfile,

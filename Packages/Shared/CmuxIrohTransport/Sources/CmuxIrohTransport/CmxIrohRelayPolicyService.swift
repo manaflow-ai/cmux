@@ -6,10 +6,18 @@ public actor CmxIrohRelayPolicyService {
     private typealias Resolution = CmxIrohRelayPolicyResolutionResult
     private typealias Resolver = CmxIrohRelayPolicyResolution
 
+    /// Bounded fail-open window in which ``restore`` keeps a recently-expired
+    /// last-good managed policy dialable after a failed refresh (cmux#10375).
+    /// A failed policy refresh must degrade to the last verified catalog, not
+    /// to a zero-route profile; the relay itself remains the authority on
+    /// credential validity and rejects a truly stale token.
+    public static let defaultExpiredPolicyReuseGrace: TimeInterval = 6 * 60 * 60
+
     private let policyCache: CmxIrohRelayPolicyCache
     private let preferenceStore: CmxIrohRelayPreferenceStore
     private let credentialStore: CmxIrohCustomRelayCredentialStore
     private let broker: (any CmxIrohRelayPolicyServing)?
+    private let expiredPolicyReuseGrace: TimeInterval
     private var currentEffective: CmxIrohEffectiveRelayPolicy?
     private var currentDiagnostics = CmxIrohRelayDiagnosticsSnapshot.inactive
     private var continuations: [UUID: AsyncStream<CmxIrohRelayDiagnosticsSnapshot>.Continuation] = [:]
@@ -20,60 +28,31 @@ public actor CmxIrohRelayPolicyService {
         policyCache: CmxIrohRelayPolicyCache = CmxIrohRelayPolicyCache(),
         preferenceStore: CmxIrohRelayPreferenceStore = CmxIrohRelayPreferenceStore(),
         credentialStore: CmxIrohCustomRelayCredentialStore = CmxIrohCustomRelayCredentialStore(),
-        broker: (any CmxIrohRelayPolicyServing)? = nil
+        broker: (any CmxIrohRelayPolicyServing)? = nil,
+        expiredPolicyReuseGrace: TimeInterval = CmxIrohRelayPolicyService
+            .defaultExpiredPolicyReuseGrace
     ) {
         self.policyCache = policyCache
         self.preferenceStore = preferenceStore
         self.credentialStore = credentialStore
         self.broker = broker
+        self.expiredPolicyReuseGrace = max(0, expiredPolicyReuseGrace)
     }
 
-    /// Fetches and installs the broker's current relay bootstrap response.
+    /// Fetches and installs the broker's current signed relay policy.
     @discardableResult
     public func refresh(
-        endpointID: CmxIrohPeerIdentity,
         accountID: String,
         trustRoot: CmxIrohRelayPolicyTrustRoot,
         now: Date = Date()
     ) async throws -> CmxIrohEffectiveRelayPolicy {
-        try await refreshWithCredential(
-            endpointID: endpointID,
-            accountID: accountID,
-            trustRoot: trustRoot,
-            now: now
-        ).effective
-    }
-
-    /// One resolved bootstrap: the effective policy plus the broker-minted
-    /// relay credential from the same response, so activation can install the
-    /// credential without a second mint request.
-    public struct RefreshOutcome: Sendable {
-        public let effective: CmxIrohEffectiveRelayPolicy
-        public let relayCredential: CmxIrohRelayTokenResponse?
-    }
-
-    /// Fetches and installs the broker's current relay bootstrap response,
-    /// returning the minted credential alongside the effective policy.
-    public func refreshWithCredential(
-        endpointID: CmxIrohPeerIdentity,
-        accountID: String,
-        trustRoot: CmxIrohRelayPolicyTrustRoot,
-        now: Date = Date()
-    ) async throws -> RefreshOutcome {
         guard let broker else { throw CmxIrohRelayPolicyServiceError.brokerUnavailable }
-        let bootstrap = try await broker.issueRelayBootstrap(endpointID: endpointID)
-        let effective = try await install(
-            response: bootstrap.relayPolicy,
+        let response = try await broker.fetchRelayPolicy()
+        return try await install(
+            response: response,
             accountID: accountID,
             trustRoot: trustRoot,
-            relayCredential: bootstrap.relayToken,
             now: now
-        )
-        return RefreshOutcome(
-            effective: effective,
-            // Return only the credential accepted by policy resolution. A
-            // rejected bootstrap must not displace a valid cached credential.
-            relayCredential: effective.relayBootstrap
         )
     }
 
@@ -84,7 +63,6 @@ public actor CmxIrohRelayPolicyService {
         response: CmxIrohRelayPolicyResponse,
         accountID: String,
         trustRoot: CmxIrohRelayPolicyTrustRoot,
-        relayCredential: CmxIrohRelayTokenResponse?,
         now: Date = Date()
     ) async throws -> CmxIrohEffectiveRelayPolicy {
         let operation = beginOperation()
@@ -105,7 +83,6 @@ public actor CmxIrohRelayPolicyService {
                 configuration: response.preference,
                 revision: response.preferenceRevision,
                 policy: policy,
-                relayCredential: relayCredential,
                 accountID: accountID,
                 credentialStore: credentialStore,
                 usedCachedPolicy: false,
@@ -143,7 +120,6 @@ public actor CmxIrohRelayPolicyService {
     public func restore(
         accountID: String,
         trustRoot: CmxIrohRelayPolicyTrustRoot,
-        relayCredential: CmxIrohRelayTokenResponse? = nil,
         now: Date = Date()
     ) async -> CmxIrohEffectiveRelayPolicy {
         let operation = beginOperation()
@@ -180,7 +156,6 @@ public actor CmxIrohRelayPolicyService {
                 configuration: persisted.requested,
                 revision: persisted.revision,
                 policy: policy,
-                relayCredential: nil,
                 accountID: accountID,
                 credentialStore: credentialStore,
                 usedCachedPolicy: policy != nil,
@@ -196,7 +171,15 @@ public actor CmxIrohRelayPolicyService {
         }
 
         do {
-            guard let policy = try await policyCache.load(trustRoot: trustRoot, now: now) else {
+            // Restore is the failed-refresh fallback path, so it alone grants
+            // the bounded expired-policy grace: a recently-expired last-good
+            // catalog must stay dialable instead of zeroing every relay route
+            // (cmux#10375). The graced state is visible as `.policyExpired`.
+            guard let policy = try await policyCache.load(
+                trustRoot: trustRoot,
+                now: now,
+                expiredPolicyReuseGrace: expiredPolicyReuseGrace
+            ) else {
                 return publishUnavailable(
                     configuration: persisted.requested,
                     revision: persisted.revision,
@@ -205,11 +188,12 @@ public actor CmxIrohRelayPolicyService {
                     failure: .policyUnavailable
                 )
             }
+            let policyIsExpired = TimeInterval(policy.expiresAt)
+                <= now.timeIntervalSince1970
             let resolution = await Resolver.resolve(
                 configuration: persisted.requested,
                 revision: persisted.revision,
                 policy: policy,
-                relayCredential: relayCredential,
                 accountID: accountID,
                 credentialStore: credentialStore,
                 usedCachedPolicy: true,
@@ -218,7 +202,9 @@ public actor CmxIrohRelayPolicyService {
             return commit(
                 Resolution(
                     effective: resolution.effective,
-                    failure: cleanupFailure ?? resolution.failure
+                    failure: policyIsExpired
+                        ? .policyExpired
+                        : cleanupFailure ?? resolution.failure
                 ),
                 operation: operation
             )
@@ -247,7 +233,6 @@ public actor CmxIrohRelayPolicyService {
         _ preference: CmxIrohAccountRelayPreference,
         accountID: String,
         trustRoot: CmxIrohRelayPolicyTrustRoot,
-        relayCredential: CmxIrohRelayTokenResponse? = nil,
         now: Date = Date()
     ) async throws -> CmxIrohEffectiveRelayPolicy {
         let current: CmxIrohAccountRelayConfiguration
@@ -261,7 +246,6 @@ public actor CmxIrohRelayPolicyService {
             current.updatingActivePreference(preference),
             accountID: accountID,
             trustRoot: trustRoot,
-            relayCredential: relayCredential,
             now: now
         )
     }
@@ -274,7 +258,6 @@ public actor CmxIrohRelayPolicyService {
         _ configuration: CmxIrohAccountRelayConfiguration,
         accountID: String,
         trustRoot: CmxIrohRelayPolicyTrustRoot,
-        relayCredential: CmxIrohRelayTokenResponse? = nil,
         now: Date = Date()
     ) async throws -> CmxIrohEffectiveRelayPolicy {
         let operation = beginOperation()
@@ -299,7 +282,6 @@ public actor CmxIrohRelayPolicyService {
                     authoritative,
                     accountID: accountID,
                     trustRoot: trustRoot,
-                    relayCredential: relayCredential,
                     now: now,
                     operation: operation
                 )
@@ -310,7 +292,6 @@ public actor CmxIrohRelayPolicyService {
             response,
             accountID: accountID,
             trustRoot: trustRoot,
-            relayCredential: relayCredential,
             now: now,
             operation: operation
         )
@@ -336,7 +317,6 @@ public actor CmxIrohRelayPolicyService {
         _ response: CmxIrohRelayPreferenceResponse,
         accountID: String,
         trustRoot: CmxIrohRelayPolicyTrustRoot,
-        relayCredential: CmxIrohRelayTokenResponse?,
         now: Date,
         operation: UInt64
     ) async throws -> CmxIrohEffectiveRelayPolicy {
@@ -352,7 +332,6 @@ public actor CmxIrohRelayPolicyService {
             configuration: response.preference,
             revision: response.revision,
             policy: policy,
-            relayCredential: relayCredential,
             accountID: accountID,
             credentialStore: credentialStore,
             usedCachedPolicy: policy != nil,

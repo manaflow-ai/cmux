@@ -264,8 +264,6 @@ extension CmxIrohLibError: DiagnosticFailureProviding {
         switch self {
         case .invalidEndpointIdentity, .remoteIdentityMismatch:
             .identityMismatch
-        case .expiredRelayCredential:
-            .credentialUnavailable
         case .unmanagedRelayURL, .unsupportedRelayIdentifier:
             .policyUnavailable
         case .unexpectedALPN, .invalidReceiveLimit:
@@ -288,18 +286,8 @@ extension CmxIrohRelayPolicyServiceError: DiagnosticFailureProviding {
     public var diagnosticFailureKind: DiagnosticFailureKind {
         switch self {
         case .brokerUnavailable: .policyUnavailable
-        case .managedCredentialUnavailable: .credentialUnavailable
         case .preferenceRollback: .policyUnavailable
         case .superseded: .superseded
-        }
-    }
-}
-
-extension CmxIrohRelayCredentialCoordinatorError: DiagnosticFailureProviding {
-    public var diagnosticFailureKind: DiagnosticFailureKind {
-        switch self {
-        case .inactive: .endpointUnavailable
-        case .relayFleetMismatch: .policyUnavailable
         }
     }
 }
