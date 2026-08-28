@@ -41,3 +41,24 @@ Deploys run from `.github/workflows/mobile-relay.yml` (workflow_dispatch,
 `wrangler.toml`); dev serves the `cmux-mobile-relay-dev` workers.dev URL.
 This worker is intentionally independent of `cmux-presence` and
 `cmux-remote-relay`: separate name, domain, secrets, and migration lineage.
+
+## Local relay latency
+
+`bun tools/measure-local-do.ts` opens one host socket and one client socket on
+the same computer. It reports connection time, both forwarding directions, and
+the echo round trip. It excludes iOS input, PTY work, and terminal rendering.
+
+For the local emulator (a local Stack mock stands in for token verification;
+the worker code is unchanged, only STACK_API_URL points at the mock):
+
+```bash
+bun tools/local-stack-mock.ts &
+npx wrangler dev --config wrangler.dev.toml --local --port 8787 \
+  --var STACK_API_URL:http://127.0.0.1:8899
+RELAY_URL=ws://127.0.0.1:8787/v1/connect \
+STACK_ACCESS=any-token \
+bun tools/measure-local-do.ts
+```
+
+Against the deployed dev worker, set STACK_ACCESS to a real dev-project
+access token instead.
