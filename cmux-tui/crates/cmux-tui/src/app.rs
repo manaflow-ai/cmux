@@ -36734,7 +36734,7 @@ mod tests {
 
         app.event_loop(&mut terminal, receiver).unwrap();
 
-        assert!(timeout_seen.load(std::sync::atomic::Ordering::Relaxed));
+        assert!(timeout_seen.load(Ordering::Relaxed));
         assert_eq!(app.toast.as_ref().map(|toast| toast.text.as_str()), Some("reintroduced"));
     }
 
