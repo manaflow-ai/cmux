@@ -404,11 +404,7 @@ pub fn draw_projection(app: &mut App, frame: &mut Frame, view_index: usize) {
         // context line (tab title, else the session/workspace subtitle),
         // then the agent type dim underneath. Single-line rows keep the
         // combined detail text.
-        let detail = if two_line {
-            String::new()
-        } else {
-            projection_detail(row).into_owned()
-        };
+        let detail = if two_line { String::new() } else { projection_detail(row).into_owned() };
         let title = if two_line && row.agent_label.as_deref() == Some(row.name.as_str()) {
             row.subtitle.as_str()
         } else {

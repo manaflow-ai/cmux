@@ -65,9 +65,8 @@ use crate::workspace_registry::{
     RegistrySnapshot, RegistryTab, RegistryTerminal, RegistryViewport, RegistryWorkspace,
     ResourceChange, ResourceEffectOutcome, ResourceEffectPreparation, ResourcePatch,
     ResourcePatchCommit, ResourceTopologySnapshot, ResourceWorkspaceLedger,
-    SessionJournalCursorError,
-    TerminalLifecycle, TerminalOnExit, TerminalRegistrySnapshot, WorkspaceMutation,
-    WorkspaceRegistry,
+    SessionJournalCursorError, TerminalLifecycle, TerminalOnExit, TerminalRegistrySnapshot,
+    WorkspaceMutation, WorkspaceRegistry,
 };
 use crate::{
     PairingChallenge, PairingDecision, PairingError, PaneId, ScreenId, SplitDir, SplitId,

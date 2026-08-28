@@ -143,10 +143,9 @@ pub(crate) enum SessionJournalCursorError {
 impl std::fmt::Display for SessionJournalCursorError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Ahead { requested, head } => write!(
-                formatter,
-                "cursor.invalid: journal sequence {requested} is ahead of {head}"
-            ),
+            Self::Ahead { requested, head } => {
+                write!(formatter, "cursor.invalid: journal sequence {requested} is ahead of {head}")
+            }
             Self::Gap { requested, first_retained } => write!(
                 formatter,
                 "cursor.gap: journal history before sequence {first_retained} is no longer retained after {requested}"
