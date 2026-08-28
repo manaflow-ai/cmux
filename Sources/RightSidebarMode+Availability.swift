@@ -55,9 +55,15 @@ extension RightSidebarMode {
         let hidden = RightSidebarTabPreferences.hiddenModes(defaults: defaults)
         let visible = RightSidebarTabPreferences.orderedModes(defaults: defaults)
             .filter { $0.isAvailable(defaults: defaults) && !hidden.contains($0) }
-        // A hidden set written directly to defaults can hide everything; the
-        // sidebar still needs tabs, so fall back to every available mode.
-        return visible.isEmpty ? availableModes(defaults: defaults) : visible
+        guard visible.isEmpty else { return visible }
+
+        // A feature gate can remove the last available tab after the user has
+        // hidden every other tab. Restore the first available tab explicitly,
+        // rather than treating all hidden tabs as visible again.
+        guard let fallback = availableModes(defaults: defaults).first else { return [] }
+        _ = RightSidebarTabPreferences.setHidden(false, mode: fallback, defaults: defaults)
+        return RightSidebarTabPreferences.orderedModes(defaults: defaults)
+            .filter { $0.isAvailable(defaults: defaults) && !RightSidebarTabPreferences.isHidden($0, defaults: defaults) }
     }
 
     /// 1-based `ctrl+digit` position of `mode` among the visible tabs, or nil

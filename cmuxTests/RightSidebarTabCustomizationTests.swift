@@ -77,6 +77,20 @@ final class RightSidebarTabCustomizationTests: XCTestCase {
         XCTAssertEqual(RightSidebarMode.visibleModes(defaults: defaults), [.sessions])
     }
 
+    func testFeatureGateRemovalRestoresOnlyOneHiddenAvailableTab() {
+        enableAllModeGates()
+        // Simulate a persisted state created while Feed was the only enabled
+        // tab, then removed by a feature-gate change. The resolver must keep
+        // hidden tabs hidden and restore one deterministic available tab.
+        defaults.set(
+            RightSidebarMode.allCases.filter { $0 != .customSidebar }.map(\.rawValue),
+            forKey: RightSidebarTabPreferences.hiddenKey
+        )
+        defaults.set(false, forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
+        XCTAssertEqual(RightSidebarMode.visibleModes(defaults: defaults), [.files])
+        XCTAssertEqual(RightSidebarTabPreferences.hiddenModes(defaults: defaults), Set([.find, .sessions, .feed, .dock, .machines]))
+    }
+
     func testMoveReordersAndClampsAtEdges() {
         RightSidebarTabPreferences.move(.machines, offset: -5, defaults: defaults)
         XCTAssertEqual(
