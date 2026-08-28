@@ -61,6 +61,21 @@ fn legacy_display_name_repair_keeps_registry_openable() {
 }
 
 #[test]
+fn resource_patch_rejects_workspace_control_labels_at_the_boundary() {
+    let mut invalid = workspace(1, "unsafe-workspace", "Safe");
+    invalid.name = "unsafe\u{001b}[31m".into();
+    let error = resource_store::validate_resource_patch(&ResourcePatch {
+        changes: vec![ResourceChange::UpsertWorkspace {
+            workspace: invalid,
+            position: 0,
+            active_screen: None,
+        }],
+    })
+    .unwrap_err();
+    assert!(error.to_string().contains("workspace name"));
+}
+
+#[test]
 fn interrupted_staged_workspace_keeps_reserved_public_id_without_early_publication() {
     let root = temp_root("interrupted-workspace-public-id");
     let key = "018f6e21-7b70-7e70-8000-0000000000aa";

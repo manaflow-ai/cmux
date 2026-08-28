@@ -7,44 +7,70 @@ use super::*;
 pub(super) const RESOURCE_MUTATION_REPLAY_CAPACITY: usize = 4096;
 pub(super) const RESOURCE_MUTATION_PRUNE_INTERVAL: u64 = 128;
 const RESOURCE_EVENT_PAGE_SIZE: usize = 1024;
+const DISPLAY_NAME_MIGRATION_PAGE_SIZE: usize = 256;
 
 /// Repair labels written by versions that did not enforce the display-name
 /// boundary. The repair runs once during registry migration, so ordinary
 /// resource commits do not scan or copy every row.
 pub(super) fn migrate_legacy_display_names(transaction: &Transaction<'_>) -> anyhow::Result<()> {
-    let workspace_names = {
-        let mut statement = transaction.prepare("SELECT workspace_key, name FROM workspaces")?;
-        statement
-            .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
-            .collect::<Result<Vec<_>, _>>()?
-    };
-    for (workspace_key, name) in workspace_names {
-        if validate_display_name("workspace name", &name).is_err() {
-            transaction.execute(
-                "UPDATE workspaces SET name = ?1 WHERE workspace_key = ?2",
-                params![sanitize_display_name(&name), workspace_key],
-            )?;
-        }
-    }
-
+    migrate_legacy_display_name_table(transaction, "workspaces", "workspace_key")?;
     for (table, id_column) in [
         ("resource_screens", "public_id"),
         ("resource_panes", "public_id"),
         ("resource_tabs", "public_id"),
     ] {
-        let query = format!("SELECT {id_column}, name FROM {table} WHERE name IS NOT NULL");
-        let rows = {
+        migrate_legacy_display_name_table(transaction, table, id_column)?;
+    }
+    Ok(())
+}
+
+/// Repair one table in bounded keyset pages. A single `query_map` over a
+/// growing registry would retain every legacy label at startup. The table and
+/// key names are fixed constants at each call site, never user input.
+fn migrate_legacy_display_name_table(
+    transaction: &Transaction<'_>,
+    table: &str,
+    id_column: &str,
+) -> anyhow::Result<()> {
+    let update = format!("UPDATE {table} SET name = ?1 WHERE {id_column} = ?2");
+    let mut last_id: Option<String> = None;
+    loop {
+        let (query, rows) = if let Some(last_id) = last_id.as_deref() {
+            let query = format!(
+                "SELECT {id_column}, name FROM {table} \
+                 WHERE name IS NOT NULL AND {id_column} > ?1 \
+                 ORDER BY {id_column} LIMIT ?2"
+            );
             let mut statement = transaction.prepare(&query)?;
-            statement
-                .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
-                .collect::<Result<Vec<_>, _>>()?
+            let rows = statement
+                .query_map(params![last_id, DISPLAY_NAME_MIGRATION_PAGE_SIZE as i64], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            (query, rows)
+        } else {
+            let query = format!(
+                "SELECT {id_column}, name FROM {table} \
+                 WHERE name IS NOT NULL ORDER BY {id_column} LIMIT ?1"
+            );
+            let mut statement = transaction.prepare(&query)?;
+            let rows = statement
+                .query_map([DISPLAY_NAME_MIGRATION_PAGE_SIZE as i64], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            (query, rows)
         };
-        let update = format!("UPDATE {table} SET name = ?1 WHERE {id_column} = ?2");
+        drop(query);
+        let Some(next_last_id) = rows.last().map(|(id, _)| id.clone()) else {
+            break;
+        };
         for (resource_id, name) in rows {
             if validate_display_name("resource name", &name).is_err() {
                 transaction.execute(&update, params![sanitize_display_name(&name), resource_id])?;
             }
         }
+        last_id = Some(next_last_id);
     }
     Ok(())
 }
@@ -1477,6 +1503,10 @@ pub(super) fn validate_resource_patch(patch: &ResourcePatch) -> anyhow::Result<(
     for change in &patch.changes {
         let target = match change {
             ResourceChange::UpsertWorkspace { workspace, .. } => {
+                // Keep the resource-patch boundary explicit. `validate_registry`
+                // also checks this field for legacy callers, but every direct
+                // patch must enforce the same terminal-safe label contract.
+                validate_display_name("workspace name", &workspace.name)?;
                 validate_registry(std::slice::from_ref(workspace))?;
                 format!("workspace:{}", workspace.public_id)
             }
