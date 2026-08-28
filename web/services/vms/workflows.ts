@@ -253,6 +253,12 @@ export function createVm(input: {
   readonly perMachineHome?: boolean;
   /** Runtime memory requested by the caller, in MB. Providers may ignore it. */
   readonly memoryMb?: number;
+  /**
+   * Machine-level env injected at provider create (e.g. the coderouter
+   * model-plane vars). May hold secrets: passed to the driver only, never
+   * persisted in the VM row or providerMetadata.
+   */
+  readonly envs?: Readonly<Record<string, string>>;
   readonly timing?: VmTimingSink;
 }): Effect.Effect<VmEntry, VmWorkflowError, VmRepository | VmProviderGateway | VmBillingGateway> {
   return Effect.gen(function* () {
@@ -296,6 +302,7 @@ export function createVm(input: {
             ? homeVolumeNameForUser(input.userId)
             : undefined,
         memoryMb: input.memoryMb,
+        envs: input.envs,
       }),
     ).pipe(
       Effect.tapError((err) =>
