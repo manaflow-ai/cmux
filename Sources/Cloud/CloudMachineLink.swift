@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import os
 
@@ -11,6 +12,8 @@ import os
 /// or until it exits on its own (machine slept, route expired), which flips the state
 /// and ends the `changes` stream so the owner can re-link on demand.
 actor CloudMachineLink {
+    private static let maximumInvitationBytes = 64 * 1024
+
     struct Connected: Sendable, Equatable {
         let socketPath: String
         let session: String
@@ -18,8 +21,9 @@ actor CloudMachineLink {
 
     enum LinkError: Error, LocalizedError {
         case clientMissing
-        case spawnFailed(String)
-        case exited(status: Int32, output: String)
+        case alreadyConnecting
+        case spawnFailed
+        case exited(status: Int32, code: RemoteFailureCode)
         case outputLimitExceeded
         case timedOut
 
@@ -27,6 +31,8 @@ actor CloudMachineLink {
             switch self {
             case .clientMissing:
                 return String(localized: "cloud.link.clientMissing", defaultValue: "The cloud terminal client is not available. Reinstall cmux and try again.")
+            case .alreadyConnecting:
+                return String(localized: "cloud.link.alreadyConnecting", defaultValue: "The cloud terminal is already connecting. Try again.")
             case .spawnFailed, .outputLimitExceeded:
                 return String(localized: "cloud.link.operationFailed", defaultValue: "The cloud terminal operation failed. Try again.")
             case .exited:
@@ -39,8 +45,8 @@ actor CloudMachineLink {
         /// A small internal classification used for recovery without retaining or
         /// displaying the remote command's diagnostic text.
         var remoteFailureCode: RemoteFailureCode {
-            guard case .exited(_, let output) = self else { return .other }
-            return CloudMachineLink.remoteFailureCode(in: output)
+            guard case .exited(_, let code) = self else { return .other }
+            return code
         }
 
         enum RemoteFailureCode: Equatable, Sendable {
@@ -72,9 +78,11 @@ actor CloudMachineLink {
     // Foundation `Process` and its pipes are actor-isolated state; every callback hops
     // back into the actor through a Task, so nothing else touches them.
     private var process: Process?
+    private var processStopper: CloudLinkProcessStopper?
+    private var processGeneration: UUID?
     private var eventsProcess: Process?
+    private var eventsProcessStopper: CloudLinkProcessStopper?
     private var inviteFileURL: URL?
-    private var stderrTail: [String] = []
 
     /// One tick per daemon-side change (from `session current events`) or link state
     /// change; ends when the link dies.
@@ -93,13 +101,11 @@ actor CloudMachineLink {
     /// Spawns the headless client against `route` and waits for its local socket.
     func connect(route: String, session: String, invitationURI: String?, timeout: Duration = .seconds(60)) async throws -> Connected {
         if let connected, state == .connected { return connected }
+        if process != nil { throw LinkError.alreadyConnecting }
         try paths.ensureStateDir()
         var inviteFilePath: String?
         if let invitationURI, !invitationURI.isEmpty {
-            let url = FileManager.default.temporaryDirectory
-                .appendingPathComponent("cmux-cloud-link-invite-\(UUID().uuidString.lowercased())")
-            try (invitationURI + "\n").data(using: .utf8)!.write(to: url, options: .atomic)
-            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+            let url = try Self.writeInvitationFile(invitationURI)
             inviteFileURL = url
             inviteFilePath = url.path
         }
@@ -119,50 +125,88 @@ actor CloudMachineLink {
         process.standardOutput = stdout
         process.standardError = stderr
         process.standardInput = FileHandle.nullDevice
+        let stopper = CloudLinkProcessStopper(
+            process: process,
+            handles: [stdout.fileHandleForReading, stderr.fileHandleForReading]
+        )
+        let generation = UUID()
+        let exit = CloudLinkFirstValue<Int32>()
         process.terminationHandler = { [weak self] terminated in
             let status = terminated.terminationStatus
-            Task { await self?.linkProcessDidExit(status: status) }
+            exit.resolve(status)
+            Task { await self?.linkProcessDidExit(status: status, generation: generation) }
         }
         state = .connecting
         lastError = nil
+        self.process = process
+        self.processStopper = stopper
+        self.processGeneration = generation
         do {
             try process.run()
         } catch {
             state = .error
-            lastError = Self.errorText(LinkError.spawnFailed(error.localizedDescription))
+            exit.resolve(nil)
+            stopper.stop()
+            lastError = Self.errorText(LinkError.spawnFailed)
             removeInviteFile()
-            throw LinkError.spawnFailed(error.localizedDescription)
+            self.process = nil
+            self.processStopper = nil
+            self.processGeneration = nil
+            throw LinkError.spawnFailed
         }
-        self.process = process
-        drainStderr(stderr.fileHandleForReading)
+        drainAndDiscard(stderr.fileHandleForReading)
 
         // The first connection-snapshot line names the socket; later lines only update
         // transport topology and are ignored — but stdout keeps draining for the
         // process's whole life so the client never blocks on a full pipe.
-        let firstSocket = CloudLinkFirstValue<String>()
-        let stdoutLines = CloudLinkPipe.lines(from: stdout.fileHandleForReading)
-        Task.detached {
-            for await line in stdoutLines {
-                if let socket = CmuxTuiSnapshotParser.localSocket(fromLinkLine: line) {
-                    firstSocket.resolve(socket)
-                }
+        // Search the stream directly instead of putting lines into a finite queue.
+        // A peer can write arbitrary diagnostics before the snapshot; queueing those
+        // lines could evict the only snapshot and turn a valid connection into a
+        // timeout. The scanner keeps draining after it finds the socket so the child
+        // cannot block on a full stdout pipe.
+        let firstSocketTask = Task {
+            await CloudLinkPipe.firstMatchingLine(from: stdout.fileHandleForReading) { line in
+                CmuxTuiSnapshotParser.localSocket(fromLinkLine: line)
             }
-            firstSocket.resolve(nil)
         }
-        let socketPath: String = try await withThrowingTaskGroup(of: String?.self) { group in
-            group.addTask { await firstSocket.result }
-            group.addTask {
-                try await Task.sleep(for: timeout)
-                return nil
+        let socketPath: String
+        do {
+            socketPath = try await withTaskCancellationHandler {
+                try await withThrowingTaskGroup(of: String?.self) { group in
+                    group.addTask { await firstSocketTask.value }
+                    group.addTask {
+                        try await Task.sleep(for: timeout)
+                        return nil
+                    }
+                    defer { group.cancelAll() }
+                    guard let first = try await group.next(), let socket = first else {
+                        throw LinkError.timedOut
+                    }
+                    return socket
+                }
+            } onCancel: {
+                firstSocketTask.cancel()
+                stopper.stop()
             }
-            defer { group.cancelAll() }
-            guard let first = try await group.next(), let socket = first else {
-                throw LinkError.timedOut
-            }
-            return socket
+        } catch {
+            firstSocketTask.cancel()
+            stopper.stop()
+            self.process = nil
+            self.processStopper = nil
+            self.processGeneration = nil
+            removeInviteFile()
+            if Task.isCancelled { throw CancellationError() }
+            state = .error
+            lastError = Self.errorText(error)
+            throw error
         }
         guard process.isRunning else {
-            throw LinkError.exited(status: process.terminationStatus, output: stderrTail.joined(separator: "\n"))
+            stopper.stop()
+            self.process = nil
+            self.processStopper = nil
+            self.processGeneration = nil
+            removeInviteFile()
+            throw LinkError.exited(status: process.terminationStatus, code: .other)
         }
         let connected = Connected(socketPath: socketPath, session: session)
         self.connected = connected
@@ -173,10 +217,13 @@ actor CloudMachineLink {
     }
 
     func disconnect() {
-        eventsProcess?.terminate()
+        eventsProcessStopper?.stop()
+        eventsProcessStopper = nil
         eventsProcess = nil
-        process?.terminate()
+        processStopper?.stop()
+        processStopper = nil
         process = nil
+        processGeneration = nil
         connected = nil
         state = .unavailable
         removeInviteFile()
@@ -199,40 +246,97 @@ actor CloudMachineLink {
         // which ends both drains with a non-zero status.
         let exit = CloudLinkFirstValue<Int32>()
         process.terminationHandler = { exited in exit.resolve(exited.terminationStatus) }
-        try process.run()
-        async let outData = CloudLinkPipe.readToEndResult(
-            stdout.fileHandleForReading,
-            maximumBytes: CloudLinkPipe.maximumCommandOutputBytes
+        let stopper = CloudLinkProcessStopper(
+            process: process,
+            handles: [stdout.fileHandleForReading, stderr.fileHandleForReading]
         )
-        async let errData = CloudLinkPipe.readToEndResult(
-            stderr.fileHandleForReading,
-            maximumBytes: CloudLinkPipe.maximumDiagnosticOutputBytes
-        )
+        let outReader = BoundedReadState(maximumBytes: CloudLinkPipe.maximumCommandOutputBytes)
+        outReader.install(on: stdout.fileHandleForReading)
+        let errReader = BoundedReadState(maximumBytes: CloudLinkPipe.maximumDiagnosticOutputBytes)
+        errReader.install(on: stderr.fileHandleForReading)
+        let outTask = Task {
+            await outReader.result()
+        }
+        let errTask = Task {
+            await errReader.result()
+        }
+        do {
+            try process.run()
+        } catch {
+            exit.resolve(nil)
+            stopper.stop()
+            outReader.cancel()
+            errReader.cancel()
+            _ = await outTask.value
+            _ = await errTask.value
+            throw LinkError.spawnFailed
+        }
         let deadline = Task<Bool, Never> {
             do {
                 try await Task.sleep(for: timeout)
             } catch {
                 return false
             }
-            process.terminate()
+            stopper.stop()
+            outReader.cancel()
+            errReader.cancel()
             return true
         }
-        let status = await exit.result ?? process.terminationStatus
+        let status = await withTaskCancellationHandler {
+            await exit.result ?? process.terminationStatus
+        } onCancel: {
+            stopper.stop()
+            outReader.cancel()
+            errReader.cancel()
+            exit.resolve(nil)
+        }
         deadline.cancel()
         let timedOut = await deadline.value
-        let out = await outData
-        let err = await errData
+        let out = await outTask.value
+        let err = await errTask.value
+        stopper.stop()
+        process.terminationHandler = nil
+        if Task.isCancelled { throw CancellationError() }
         if timedOut { throw LinkError.timedOut }
         if out.truncated || err.truncated { throw LinkError.outputLimitExceeded }
         guard status == 0 else {
             let text = String(decoding: err.data, as: UTF8.self)
             let fallback = String(decoding: out.data, as: UTF8.self)
-            throw LinkError.exited(status: status, output: text.isEmpty ? fallback : text)
+            throw LinkError.exited(
+                status: status,
+                code: Self.remoteFailureCode(in: text.isEmpty ? fallback : text)
+            )
         }
         return out.data
     }
 
     // MARK: - internals
+
+    private static func writeInvitationFile(_ invitationURI: String) throws -> URL {
+        guard let data = (invitationURI + "\n").data(using: .utf8),
+              data.count <= maximumInvitationBytes else {
+            throw LinkError.outputLimitExceeded
+        }
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-cloud-link-invite-\(UUID().uuidString.lowercased())")
+        let descriptor = Darwin.open(
+            url.path,
+            O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW,
+            mode_t(0o600)
+        )
+        guard descriptor >= 0 else { throw LinkError.spawnFailed }
+        do {
+            let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+            try handle.write(contentsOf: data)
+            try handle.close()
+            return url
+        } catch {
+            // `FileHandle` owns the descriptor, including the failure path.
+            // Closing it here also prevents a descriptor leak before the file is removed.
+            try? FileManager.default.removeItem(at: url)
+            throw LinkError.spawnFailed
+        }
+    }
 
     private nonisolated static func remoteFailureCode(in output: String) -> LinkError.RemoteFailureCode {
         let normalized = output.lowercased()
@@ -250,12 +354,15 @@ actor CloudMachineLink {
         process.standardError = FileHandle.nullDevice
         let stdout = Pipe()
         process.standardOutput = stdout
+        let stopper = CloudLinkProcessStopper(process: process, handles: [stdout.fileHandleForReading])
         do {
             try process.run()
         } catch {
+            stopper.stop()
             return
         }
         eventsProcess = process
+        eventsProcessStopper = stopper
         let continuation = changesContinuation
         let lines = CloudLinkPipe.lines(from: stdout.fileHandleForReading)
         Task.detached {
@@ -266,29 +373,26 @@ actor CloudMachineLink {
         }
     }
 
-    private func drainStderr(_ handle: FileHandle) {
+    private func drainAndDiscard(_ handle: FileHandle) {
         let lines = CloudLinkPipe.lines(from: handle)
-        Task.detached { [weak self] in
-            for await line in lines {
-                await self?.recordStderr(line)
-            }
+        Task.detached {
+            for await _ in lines {}
         }
     }
 
-    private func recordStderr(_ line: String) {
-        stderrTail.append(line)
-        if stderrTail.count > 20 { stderrTail.removeFirst(stderrTail.count - 20) }
-    }
-
-    private func linkProcessDidExit(status: Int32) {
-        eventsProcess?.terminate()
+    private func linkProcessDidExit(status: Int32, generation: UUID) {
+        guard processGeneration == generation else { return }
+        eventsProcessStopper?.stop()
+        eventsProcessStopper = nil
         eventsProcess = nil
+        processStopper = nil
         process = nil
+        processGeneration = nil
         connected = nil
         removeInviteFile()
         if state != .unavailable {
             state = status == 0 ? .unavailable : .error
-            lastError = status == 0 ? nil : LinkError.exited(status: status, output: stderrTail.joined(separator: "\n")).errorDescription
+            lastError = status == 0 ? nil : LinkError.exited(status: status, code: .other).errorDescription
         }
         changesContinuation.yield()
         changesContinuation.finish()
@@ -298,6 +402,34 @@ actor CloudMachineLink {
         if let inviteFileURL {
             try? FileManager.default.removeItem(at: inviteFileURL)
             self.inviteFileURL = nil
+        }
+    }
+}
+
+/// Owns a child process and the parent-side read handles for its complete lifecycle.
+/// Cancellation closes the readers and sends TERM followed by KILL when the child does
+/// not exit immediately, so a timeout cannot leave an orphan holding a route or pipe.
+final class CloudLinkProcessStopper: @unchecked Sendable {
+    private let process: Process
+    private let handles: [FileHandle]
+
+    init(process: Process, handles: [FileHandle]) {
+        self.process = process
+        self.handles = handles
+    }
+
+    deinit { stop() }
+
+    func stop() {
+        let identifier = process.processIdentifier
+        if process.isRunning, identifier > 1 {
+            process.terminate()
+            if process.isRunning {
+                _ = Darwin.kill(identifier, SIGKILL)
+            }
+        }
+        for handle in handles {
+            try? handle.close()
         }
     }
 }
@@ -363,6 +495,29 @@ enum CloudLinkPipe {
         }
     }
 
+    /// Finds the first line for which ``matching`` returns a value while continuously
+    /// draining the handle. The reader remains installed after a match and discards
+    /// later lines until EOF, preventing a successful link from deadlocking on a noisy
+    /// child process. Cancellation before a match closes the reader and resolves nil;
+    /// cancellation after a match leaves the drain alive for the child lifecycle.
+    static func firstMatchingLine(
+        from handle: FileHandle,
+        maximumLineBytes: Int = Self.maximumLineBytes,
+        matching: @escaping @Sendable (String) -> String?
+    ) async -> String? {
+        let reader = FirstMatchingLineReader(
+            handle: handle,
+            maximumLineBytes: maximumLineBytes,
+            matching: matching
+        )
+        reader.install()
+        return await withTaskCancellationHandler {
+            await reader.result()
+        } onCancel: {
+            reader.cancel()
+        }
+    }
+
     /// Everything up to EOF, capped at ``maximumCommandOutputBytes``.
     static func readToEnd(_ handle: FileHandle) async -> Data {
         await readToEndResult(handle, maximumBytes: maximumCommandOutputBytes).data
@@ -372,7 +527,11 @@ enum CloudLinkPipe {
     static func readToEndResult(_ handle: FileHandle, maximumBytes: Int) async -> ReadResult {
         let reader = BoundedReadState(maximumBytes: max(0, maximumBytes))
         reader.install(on: handle)
-        return await reader.result()
+        return await withTaskCancellationHandler {
+            await reader.result()
+        } onCancel: {
+            reader.cancel()
+        }
     }
 
     /// Splits a byte stream into lines; only ever touched from the handle's GCD queue.
@@ -388,7 +547,7 @@ enum CloudLinkPipe {
         return (lines, Data(pending))
     }
 
-    private final class LineBuffer {
+    final class LineBuffer {
         private let maximumBytes: Int
         private var pending = Data()
         private var discardingOversizedLine = false
@@ -434,10 +593,88 @@ enum CloudLinkPipe {
     }
 }
 
+/// Owns the first-snapshot scan. The FileHandle retains the readability closure, so
+/// the scanner continues to drain after the async caller receives its match. Access to
+/// lifecycle state is synchronized because cancellation can race a GCD read callback.
+private final class FirstMatchingLineReader: @unchecked Sendable {
+    private let handle: FileHandle
+    private let buffer: CloudLinkPipe.LineBuffer
+    private let matching: @Sendable (String) -> String?
+    private let value = CloudLinkFirstValue<String>()
+    private let lock = NSLock()
+    private var matched = false
+    private var finished = false
+    private var cancelled = false
+
+    init(
+        handle: FileHandle,
+        maximumLineBytes: Int,
+        matching: @escaping @Sendable (String) -> String?
+    ) {
+        self.handle = handle
+        self.buffer = CloudLinkPipe.LineBuffer(maximumBytes: maximumLineBytes)
+        self.matching = matching
+    }
+
+    func install() {
+        handle.readabilityHandler = { [self] fileHandle in
+            let data = fileHandle.availableData
+            if data.isEmpty {
+                finish()
+                return
+            }
+            for line in buffer.append(data) {
+                lock.lock()
+                let shouldMatch = !cancelled && !matched
+                lock.unlock()
+                guard shouldMatch, let result = matching(line) else { continue }
+                lock.lock()
+                guard !cancelled, !matched else {
+                    lock.unlock()
+                    continue
+                }
+                matched = true
+                lock.unlock()
+                value.resolve(result)
+            }
+        }
+    }
+
+    func result() async -> String? {
+        await value.result
+    }
+
+    func cancel() {
+        lock.lock()
+        guard !finished, !matched else {
+            lock.unlock()
+            return
+        }
+        cancelled = true
+        finished = true
+        lock.unlock()
+        handle.readabilityHandler = nil
+        value.resolve(nil)
+    }
+
+    private func finish() {
+        lock.lock()
+        guard !finished else {
+            lock.unlock()
+            return
+        }
+        finished = true
+        let hadMatch = matched
+        lock.unlock()
+        handle.readabilityHandler = nil
+        if !hadMatch { value.resolve(nil) }
+    }
+}
+
 /// Accumulates one process pipe on its readability callback and resolves one
 /// continuation at EOF. The lock protects only this synchronous callback seam;
 /// callers never access the mutable buffer directly.
-private final class BoundedReadState: @unchecked Sendable {
+final class BoundedReadState: @unchecked Sendable {
     private struct State: Sendable {
         var data = Data()
         var truncated = false
@@ -447,6 +684,8 @@ private final class BoundedReadState: @unchecked Sendable {
     private let maximumBytes: Int
     private let state: OSAllocatedUnfairLock<State>
     private let completion = CloudLinkFirstValue<CloudLinkPipe.ReadResult>()
+    private let handleLock = NSLock()
+    private var installedHandle: FileHandle?
 
     init(maximumBytes: Int) {
         self.maximumBytes = maximumBytes
@@ -454,6 +693,9 @@ private final class BoundedReadState: @unchecked Sendable {
     }
 
     func install(on handle: FileHandle) {
+        handleLock.lock()
+        installedHandle = handle
+        handleLock.unlock()
         handle.readabilityHandler = { [weak self] fileHandle in
             guard let self else { return }
             let data = fileHandle.availableData
@@ -468,6 +710,21 @@ private final class BoundedReadState: @unchecked Sendable {
 
     func result() async -> CloudLinkPipe.ReadResult {
         await completion.result ?? CloudLinkPipe.ReadResult(data: Data(), truncated: true)
+    }
+
+    func cancel() {
+        handleLock.lock()
+        let handle = installedHandle
+        installedHandle = nil
+        handleLock.unlock()
+        handle?.readabilityHandler = nil
+        let result: CloudLinkPipe.ReadResult? = state.withLock { state in
+            guard !state.finished else { return nil }
+            state.finished = true
+            state.truncated = true
+            return CloudLinkPipe.ReadResult(data: state.data, truncated: true)
+        }
+        if let result { completion.resolve(result) }
     }
 
     private func consume(_ chunk: Data) {
@@ -493,6 +750,9 @@ private final class BoundedReadState: @unchecked Sendable {
             state.finished = true
             return CloudLinkPipe.ReadResult(data: state.data, truncated: state.truncated)
         }
+        handleLock.lock()
+        installedHandle = nil
+        handleLock.unlock()
         if let result { completion.resolve(result) }
     }
 }

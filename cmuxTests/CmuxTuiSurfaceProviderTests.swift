@@ -240,6 +240,8 @@ import Testing
             ["--socket", "/k.sock", "--json", "session", "current", "terminal", "defaults", "set", "--background", "#171b2e"])
         // No colors, no command: pushing an empty defaults update would be a no-op round trip.
         #expect(CloudTuiCommandLine.setDefaultColorsArguments(socketPath: "/k.sock", foreground: nil, background: nil) == nil)
+        #expect(CloudTuiCommandLine.setDefaultColorsArguments(socketPath: "/k.sock", foreground: "#d8dee9; rm -rf /", background: nil) == nil)
+        #expect(CloudTuiCommandLine.setDefaultColorsArguments(socketPath: "/k.sock", foreground: "d8dee9", background: nil) == nil)
     }
 
     @Test func clientPathsMirrorTheCLI() throws {
@@ -333,9 +335,23 @@ import Testing
         #expect(output.count < payload.count)
     }
 
+    @Test func cloudLinkFirstMatchingLineSurvivesDiagnosticFlood() async throws {
+        let pipe = Pipe()
+        let socket = Task {
+            await CloudLinkPipe.firstMatchingLine(from: pipe.fileHandleForReading) { line in
+                line == "snapshot" ? "/tmp/cmux-flood.sock" : nil
+            }
+        }
+        await Task.yield()
+        let diagnostics = (0..<256).map { "diagnostic-\($0)" }.joined(separator: "\n")
+        pipe.fileHandleForWriting.write(Data((diagnostics + "\nsnapshot\n").utf8))
+        try pipe.fileHandleForWriting.close()
+        #expect(await socket.value == "/tmp/cmux-flood.sock")
+    }
+
     @Test func cloudLinkErrorsDoNotExposeRemoteOutput() {
         let secret = "/remote/private/path\nTOKEN=not-for-ui"
-        let error = CloudMachineLink.LinkError.exited(status: 1, output: secret)
+        let error = CloudMachineLink.LinkError.exited(status: 1, code: .other)
         let text = CloudMachineLink.errorText(error)
         #expect(!text.contains(secret))
         #expect(!text.contains("TOKEN=not-for-ui"))
@@ -352,4 +368,5 @@ import Testing
         eof.resolve(nil)
         #expect(await eof.result == nil, "finished without a value reads as nil")
     }
+
 }
