@@ -158,7 +158,14 @@ struct CloudTreeNodeActions {
                 guard confirmDestructive(title: title, message: message, verb: String(localized: "cloudTree.deleteWorkspace.confirm", defaultValue: "Delete")) else { return }
                 run(String(format: String(localized: "cloudTree.operation.deleteWorkspace", defaultValue: "Deleting %@\u{2026}"), workspace.name)) { catalog in
                     guard let provider = catalog.provider(for: machine) else { throw SurfaceCatalogError.noProvider(machine) }
-                    for terminal in terminals {
+                    // Re-sync and re-enumerate AT operation time: the pre-confirm list
+                    // above only words the dialog. A terminal created while the dialog
+                    // was up must die with the workspace too, not detach into the pool.
+                    await provider.refresh()
+                    let doomed = catalog.snapshot.resources(on: machine).filter { resource in
+                        resource.kind == .terminal && resource.remoteWorkspaces.contains { $0.id == workspace.id }
+                    }
+                    for terminal in doomed {
                         try await provider.closeTerminal(terminal.id)
                     }
                     try await provider.closeRemoteWorkspace(id: workspace.id)
