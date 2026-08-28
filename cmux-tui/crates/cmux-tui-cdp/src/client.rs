@@ -2199,6 +2199,14 @@ mod tests {
     }
 
     #[test]
+    fn websocket_write_buffer_is_bounded_to_the_outbound_budget() {
+        let config = cdp_websocket_config();
+
+        assert!(config.max_write_buffer_size < usize::MAX);
+        assert!(config.max_write_buffer_size >= CDP_OUTBOUND_QUEUE_MAX_BYTES);
+    }
+
+    #[test]
     fn protocol_errors_are_not_classified_as_connection_failures() {
         let error = anyhow::anyhow!("browser failed: invalid target");
         assert!(!is_connection_unavailable(&error));
