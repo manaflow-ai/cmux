@@ -10,6 +10,7 @@ public struct BetaFeaturesSection: View {
     @State private var feed: DefaultsValueModel<Bool>
     @State private var dock: DefaultsValueModel<Bool>
     @State private var cloudMachines: DefaultsValueModel<Bool>
+    @State private var cloudTerminalManualIO: DefaultsValueModel<Bool>
     @State private var extensions: DefaultsValueModel<Bool>
     @State private var customSidebars: DefaultsValueModel<Bool>
     @State private var remoteTmux: DefaultsValueModel<Bool>
@@ -20,6 +21,7 @@ public struct BetaFeaturesSection: View {
         _feed = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.rightSidebarFeed))
         _dock = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.rightSidebarDock))
         _cloudMachines = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.cloudMachines))
+        _cloudTerminalManualIO = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.cloudTerminalManualIO))
         _extensions = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.extensions))
         _customSidebars = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.customSidebars))
         _remoteTmux = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.remoteTmux))
@@ -41,6 +43,8 @@ public struct BetaFeaturesSection: View {
                 SettingsCardDivider()
                 cloudMachinesRow
                 SettingsCardDivider()
+                cloudTerminalManualIORow
+                SettingsCardDivider()
                 extensionsRow
                 SettingsCardDivider()
                 customSidebarsRow
@@ -60,6 +64,7 @@ public struct BetaFeaturesSection: View {
             feed,
             dock,
             cloudMachines,
+            cloudTerminalManualIO,
             extensions,
             customSidebars,
             remoteTmux,
@@ -158,6 +163,23 @@ public struct BetaFeaturesSection: View {
                 .labelsHidden()
                 .controlSize(.small)
                 .accessibilityIdentifier("SettingsBetaCloudMachinesToggle")
+        }
+    }
+
+    @ViewBuilder
+    private var cloudTerminalManualIORow: some View {
+        SettingsCardRow(
+            configurationReview: .json("cloud.beta.terminalManualIO.enabled"),
+            searchAnchorID: "setting:betaFeatures:cloudTerminalManualIO",
+            String(localized: "settings.betaFeatures.cloudTerminalManualIO", defaultValue: "Cloud Terminal Manual IO"),
+            subtitle: cloudTerminalManualIO.current
+                ? String(localized: "settings.betaFeatures.cloudTerminalManualIO.subtitleOn", defaultValue: "Cloud machine terminals render through a byte relay with structured replay and an in-pane reconnect overlay.")
+                : String(localized: "settings.betaFeatures.cloudTerminalManualIO.subtitleOff", defaultValue: "Cloud machine terminals run the cmux-tui attach client as the pane's process.")
+        ) {
+            Toggle("", isOn: Binding(get: { cloudTerminalManualIO.current }, set: { cloudTerminalManualIO.set($0) }))
+                .labelsHidden()
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsBetaCloudTerminalManualIOToggle")
         }
     }
 

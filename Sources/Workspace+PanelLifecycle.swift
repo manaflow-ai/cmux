@@ -460,6 +460,12 @@ extension Workspace {
                 panelID: panelId
             )
         }
+        // A manual-IO pump follows its surface: a detach transfer keeps the
+        // surface (and pump) alive; every other discard stops the relay. The
+        // daemon-side terminal stays alive in the machine's session.
+        if closePanel, !preservesTerminalForTransfer {
+            TuiManualIOPumpRegistry.shared.stopAndRemove(surfaceID: panelId)
+        }
         if closePanel {
             panel?.close()
         }

@@ -7333,7 +7333,12 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     }
 
     func cloudTerminalReconnectOverlayPresentation(forSurfaceId surfaceId: UUID) -> CloudTerminalReconnectOverlayPolicy.Presentation? {
-        CloudTerminalReconnectOverlayPolicy.presentation(
+        // Manual-IO cloud terminal panes carry their own per-pane relay state
+        // machine; its overlay wins over the workspace-level presentation.
+        if let pump = TuiManualIOPumpRegistry.shared.pump(forSurfaceID: surfaceId) {
+            return pump.overlayPresentation
+        }
+        return CloudTerminalReconnectOverlayPolicy.presentation(
             isManagedCloudWorkspace: isManagedCloudVMWorkspace,
             isRemoteTerminalSurface: isRemoteTerminalSurface(surfaceId) || remoteDisconnectPlaceholderPanelIds.contains(surfaceId),
             connectionState: remoteConnectionState,
@@ -8550,7 +8555,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         initialDividerPosition: CGFloat? = nil,
         remotePTYSessionID: String? = nil,
         suppressWorkspaceRemoteStartupCommand: Bool = false,
-        allowTextBoxFocusDefault: Bool = true
+        allowTextBoxFocusDefault: Bool = true,
+        cloudTuiManualIOAttach: CloudTuiManualIOAttach? = nil
     ) -> TerminalPanelCreationOutcome {
         guard !isRetiredFromOwningTabManager else { return .failed }
         // In a remote tmux mirror workspace a split means "split the mirrored
@@ -8593,7 +8599,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             initialDividerPosition: initialDividerPosition,
             remotePTYSessionID: remotePTYSessionID,
             suppressWorkspaceRemoteStartupCommand: suppressWorkspaceRemoteStartupCommand,
-            allowTextBoxFocusDefault: allowTextBoxFocusDefault
+            allowTextBoxFocusDefault: allowTextBoxFocusDefault,
+            cloudTuiManualIOAttach: cloudTuiManualIOAttach
         ) else { return .failed }
         return .created(panel)
     }
@@ -8610,7 +8617,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         initialDividerPosition: CGFloat?,
         remotePTYSessionID: String?,
         suppressWorkspaceRemoteStartupCommand: Bool,
-        allowTextBoxFocusDefault: Bool
+        allowTextBoxFocusDefault: Bool,
+        cloudTuiManualIOAttach: CloudTuiManualIOAttach? = nil
     ) -> TerminalPanel? {
 #if DEBUG
         let splitTimingStart = ProcessInfo.processInfo.systemUptime
@@ -8683,17 +8691,28 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 #endif
 
         // Create the new terminal panel.
-        let newPanel = TerminalPanel(
-            id: newPanelID,
-            workspaceId: id,
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: inheritedConfig,
-            workingDirectory: splitWorkingDirectory,
-            portOrdinal: portOrdinal,
-            initialCommand: startupCommand,
-            tmuxStartCommand: tmuxStartCommand,
-            additionalEnvironment: effectiveStartupEnvironment
-        )
+        let newPanel: TerminalPanel
+        if let cloudTuiManualIOAttach {
+            // Same as the tab path: a cloud cmux-tui terminal has no local
+            // process, so the pump feeds the surface instead of a command.
+            newPanel = makeCloudTuiManualIOPanel(
+                id: newPanelID,
+                attach: cloudTuiManualIOAttach,
+                configTemplate: inheritedConfig
+            )
+        } else {
+            newPanel = TerminalPanel(
+                id: newPanelID,
+                workspaceId: id,
+                context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+                configTemplate: inheritedConfig,
+                workingDirectory: splitWorkingDirectory,
+                portOrdinal: portOrdinal,
+                initialCommand: startupCommand,
+                tmuxStartCommand: tmuxStartCommand,
+                additionalEnvironment: effectiveStartupEnvironment
+            )
+        }
         configureNewTerminalPanel(
             newPanel,
             allowTextBoxFocusDefault: focus && allowTextBoxFocusDefault
@@ -8815,7 +8834,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         terminalFontSizeCreationPolicy: TerminalFontSizeCreationPolicy = .inherit,
         inheritWorkingDirectoryFallback: Bool = false,
         workingDirectoryFallbackSourcePanelId: UUID? = nil,
-        allowTextBoxFocusDefault: Bool = true
+        allowTextBoxFocusDefault: Bool = true,
+        cloudTuiManualIOAttach: CloudTuiManualIOAttach? = nil
     ) -> TerminalPanel? {
         return newTerminalSurfaceOutcome(
             inPane: paneId,
@@ -8835,7 +8855,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             terminalFontSizeCreationPolicy: terminalFontSizeCreationPolicy,
             inheritWorkingDirectoryFallback: inheritWorkingDirectoryFallback,
             workingDirectoryFallbackSourcePanelId: workingDirectoryFallbackSourcePanelId,
-            allowTextBoxFocusDefault: allowTextBoxFocusDefault
+            allowTextBoxFocusDefault: allowTextBoxFocusDefault,
+            cloudTuiManualIOAttach: cloudTuiManualIOAttach
         ).panel
     }
 
@@ -8860,7 +8881,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         terminalFontSizeCreationPolicy: TerminalFontSizeCreationPolicy = .inherit,
         inheritWorkingDirectoryFallback: Bool = false,
         workingDirectoryFallbackSourcePanelId: UUID? = nil,
-        allowTextBoxFocusDefault: Bool = true
+        allowTextBoxFocusDefault: Bool = true,
+        cloudTuiManualIOAttach: CloudTuiManualIOAttach? = nil
     ) -> TerminalPanelCreationOutcome {
         guard !isRetiredFromOwningTabManager else { return .failed }
         // In a remote tmux mirror, a new tab means "create a tmux window"; never
@@ -8922,7 +8944,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             terminalFontSizeCreationPolicy: terminalFontSizeCreationPolicy,
             inheritWorkingDirectoryFallback: inheritWorkingDirectoryFallback,
             workingDirectoryFallbackSourcePanelId: workingDirectoryFallbackSourcePanelId,
-            allowTextBoxFocusDefault: allowTextBoxFocusDefault
+            allowTextBoxFocusDefault: allowTextBoxFocusDefault,
+            cloudTuiManualIOAttach: cloudTuiManualIOAttach
         ) else { return .failed }
         return .created(panel)
     }
@@ -8945,7 +8968,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         terminalFontSizeCreationPolicy: TerminalFontSizeCreationPolicy,
         inheritWorkingDirectoryFallback: Bool,
         workingDirectoryFallbackSourcePanelId: UUID?,
-        allowTextBoxFocusDefault: Bool
+        allowTextBoxFocusDefault: Bool,
+        cloudTuiManualIOAttach: CloudTuiManualIOAttach? = nil
     ) -> TerminalPanel? {
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
         let previousFocusedPanelId = focusedPanelId
@@ -8994,23 +9018,36 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         // surface id (the panel/surface id IS the ghostty surface id, a
         // Swift-side UUID), so a session's terminal binding survives relaunch
         // and restore. The caller only passes an id it has verified is free.
-        let newPanel = TerminalPanel(
-            id: newPanelID,
-            workspaceId: id,
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: inheritedConfig,
-            workingDirectory: requestedWorkingDirectory,
-            portOrdinal: portOrdinal,
-            initialCommand: startupCommand,
-            tmuxStartCommand: tmuxStartCommand,
-            initialInput: initialInput,
-            additionalEnvironment: effectiveStartupEnvironment,
-            runtimeSpawnPolicy: terminalStartupRestoreCoordinator.runtimeSpawnPolicy(
-                requestedPolicy: runtimeSpawnPolicy,
-                willRunStartupCommand: false,
-                willRunStartupInput: startupRestoreAgent != nil && initialInput != nil
+        let newPanel: TerminalPanel
+        if let cloudTuiManualIOAttach {
+            // A cloud cmux-tui terminal has no local process: the surface
+            // parses daemon bytes fed by the pump's `--pipe-io` relay, and
+            // every startup-command/input/environment input above is
+            // meaningless for it by construction.
+            newPanel = makeCloudTuiManualIOPanel(
+                id: newPanelID,
+                attach: cloudTuiManualIOAttach,
+                configTemplate: inheritedConfig
             )
-        )
+        } else {
+            newPanel = TerminalPanel(
+                id: newPanelID,
+                workspaceId: id,
+                context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+                configTemplate: inheritedConfig,
+                workingDirectory: requestedWorkingDirectory,
+                portOrdinal: portOrdinal,
+                initialCommand: startupCommand,
+                tmuxStartCommand: tmuxStartCommand,
+                initialInput: initialInput,
+                additionalEnvironment: effectiveStartupEnvironment,
+                runtimeSpawnPolicy: terminalStartupRestoreCoordinator.runtimeSpawnPolicy(
+                    requestedPolicy: runtimeSpawnPolicy,
+                    willRunStartupCommand: false,
+                    willRunStartupInput: startupRestoreAgent != nil && initialInput != nil
+                )
+            )
+        }
         configureNewTerminalPanel(
             newPanel,
             allowTextBoxFocusDefault: shouldFocusNewTab && allowTextBoxFocusDefault
@@ -9090,6 +9127,34 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             )
         }
         return newPanel
+    }
+
+    /// Builds the manual-IO panel + pump pair for one cloud cmux-tui
+    /// terminal: the pane renders daemon bytes through a manual-mirror
+    /// surface, and the pump owns the `attach --pipe-io` relay against the
+    /// machine link's local socket (reconnect state machine included). The
+    /// pump is registered by surface id, which stays stable across detach
+    /// transfers; ``Workspace/removePanel`` stops it on a real discard.
+    private func makeCloudTuiManualIOPanel(
+        id newPanelID: UUID,
+        attach: CloudTuiManualIOAttach,
+        configTemplate: CmuxSurfaceConfigTemplate?
+    ) -> TerminalPanel {
+        let pump = attach.makePump()
+        let surface = TerminalSurface(
+            id: newPanelID,
+            tabId: id,
+            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+            configTemplate: configTemplate,
+            ioMode: .manualMirror,
+            manualInputHandler: pump.makeManualInputHandler()
+        )
+        pump.start(surface: surface)
+        pump.onStateChange = { [weak surface] in
+            surface?.owningWorkspace()?.postRemoteConnectionPresentationDidChange()
+        }
+        TuiManualIOPumpRegistry.shared.register(pump, surfaceID: surface.id)
+        return TerminalPanel(workspaceId: id, surface: surface)
     }
 
     /// Creates a configured manual-mirror ``TerminalPanel`` for one remote tmux pane,
