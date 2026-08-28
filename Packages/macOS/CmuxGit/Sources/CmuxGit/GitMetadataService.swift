@@ -1,11 +1,12 @@
 import Foundation
+import Dispatch
 
-/// Reads a directory's git metadata from the on-disk repository, with a bounded
-/// non-locking `git status` fallback for indexes that are unsafe to scan directly.
+/// Reads a directory's git metadata from the on-disk repository, with bounded
+/// Git fallbacks for non-files reference storage and unsafe index scans.
 ///
 /// This service does the filesystem work that powers the workspace sidebar's
 /// branch label, dirty indicator, and pull-request badge: resolving the
-/// enclosing repository, parsing `HEAD`/`index`/`config`, and deriving the set
+/// enclosing repository, resolving refs, parsing `index`/`config`, and deriving the set
 /// of paths a filesystem watcher should observe to know when that metadata
 /// becomes stale.
 ///
@@ -30,9 +31,13 @@ import Foundation
 public struct GitMetadataService: Sendable {
     let fileStatusReader: any GitFileStatusReading
     let dirtyStatusReader: any GitDirtyStatusReading
+    /// Resolves the checked-out ref without exposing storage details to callers.
+    let referenceReader: any GitReferenceReading
     let degradationRecorder: GitMetadataDegradationRecorder
     let safetyConfiguration: GitMetadataSafetyConfiguration
+    let referenceSnapshotLimiter: GitReferenceSnapshotLimiter
     private let trackedChangesSnapshotCache: GitTrackedChangesSnapshotCache
+    private let watchPlanCache: GitMetadataWatchPlanCache
 
     /// Creates a git-metadata service.
     public init() {
@@ -41,22 +46,33 @@ public struct GitMetadataService: Sendable {
         self.dirtyStatusReader = SystemGitDirtyStatusReader(
             boundedCommandWallTimeLimit: safetyConfiguration.gitStatusWallTime
         )
+        self.referenceReader = SystemGitReferenceReader(
+            boundedCommandWallTimeLimit: safetyConfiguration.gitStatusWallTime
+        )
         self.degradationRecorder = GitMetadataDegradationRecorder(
             gitStatusWallTime: safetyConfiguration.gitStatusWallTime
         )
         self.safetyConfiguration = safetyConfiguration
         self.trackedChangesSnapshotCache = GitTrackedChangesSnapshotCache()
+        self.watchPlanCache = GitMetadataWatchPlanCache()
+        self.referenceSnapshotLimiter = GitReferenceSnapshotLimiter()
     }
 
     init(
         fileStatusReader: any GitFileStatusReading,
         dirtyStatusReader: (any GitDirtyStatusReading)? = nil,
+        referenceReader: (any GitReferenceReading)? = nil,
         degradationRecorder: GitMetadataDegradationRecorder? = nil,
         safetyConfiguration: GitMetadataSafetyConfiguration = GitMetadataSafetyConfiguration(),
-        trackedChangesSnapshotCache: GitTrackedChangesSnapshotCache = GitTrackedChangesSnapshotCache()
+        trackedChangesSnapshotCache: GitTrackedChangesSnapshotCache = GitTrackedChangesSnapshotCache(),
+        referenceSnapshotLimiter: GitReferenceSnapshotLimiter = GitReferenceSnapshotLimiter(),
+        watchPlanCache: GitMetadataWatchPlanCache = GitMetadataWatchPlanCache()
     ) {
         self.fileStatusReader = fileStatusReader
         self.dirtyStatusReader = dirtyStatusReader ?? SystemGitDirtyStatusReader(
+            boundedCommandWallTimeLimit: safetyConfiguration.gitStatusWallTime
+        )
+        self.referenceReader = referenceReader ?? SystemGitReferenceReader(
             boundedCommandWallTimeLimit: safetyConfiguration.gitStatusWallTime
         )
         self.degradationRecorder = degradationRecorder ?? GitMetadataDegradationRecorder(
@@ -64,6 +80,8 @@ public struct GitMetadataService: Sendable {
         )
         self.safetyConfiguration = safetyConfiguration
         self.trackedChangesSnapshotCache = trackedChangesSnapshotCache
+        self.referenceSnapshotLimiter = referenceSnapshotLimiter
+        self.watchPlanCache = watchPlanCache
     }
 
     /// Reads a point-in-time git snapshot for `directory`.
@@ -75,6 +93,7 @@ public struct GitMetadataService: Sendable {
     /// - Parameter directory: An absolute path to inspect.
     /// - Returns: The git metadata for the enclosing repository, or
     ///   ``GitWorkspaceMetadata/notARepository`` when there is none.
+    @concurrent
     public nonisolated func workspaceMetadata(for directory: String) async -> GitWorkspaceMetadata {
         await workspaceMetadata(for: directory, trackedPathEventGeneration: nil)
     }
@@ -91,6 +110,7 @@ public struct GitMetadataService: Sendable {
     ///     then avoids reuse.
     /// - Returns: The git metadata for the enclosing repository, or
     ///   ``GitWorkspaceMetadata/notARepository`` when there is none.
+    @concurrent
     public nonisolated func workspaceMetadata(
         for directory: String,
         trackedPathEventGeneration: GitTrackedPathEventGeneration?
@@ -98,17 +118,42 @@ public struct GitMetadataService: Sendable {
         guard let repository = Self.resolveGitRepository(containing: directory) else {
             return .notARepository
         }
-        let trackedChanges = await gitTrackedChangesSnapshot(
+        async let initialReferences = gitReferenceSnapshot(repository: repository)
+        async let initialTrackedChanges = gitTrackedChangesSnapshot(
             repository: repository,
             trackedPathEventGeneration: trackedPathEventGeneration
         )
+        let initialReferences = await initialReferences
+        var trackedChanges = await initialTrackedChanges
+        // HEAD and index updates are separate filesystem operations. Reconcile
+        // the reference signature after the index scan for every backend; the
+        // files implementation uses a cheap bounded direct revalidation.
+        let resolvedReferences: GitReferenceSnapshot
+        let latestReferences: GitReferenceSnapshot
+        if initialReferences.usesGitPlumbing {
+            // Plumbing snapshots already perform a stable symbolic-ref/commit
+            // read under the shared limiter. Repeating that full probe after
+            // the index scan doubles process work for reftable repositories;
+            // the watcher will schedule a new snapshot when ref metadata
+            // changes.
+            latestReferences = initialReferences
+        } else {
+            latestReferences = await gitReferenceSnapshot(
+                repository: repository,
+                revalidateFileBackedHead: true
+            )
+        }
+        if latestReferences.headSignature != initialReferences.headSignature {
+            trackedChanges = await gitTrackedChangesSnapshot(repository: repository)
+        }
+        resolvedReferences = latestReferences
         return GitWorkspaceMetadata(
             isRepository: true,
-            branch: Self.gitBranchName(repository: repository),
+            branch: resolvedReferences.branchName,
             isDirty: trackedChanges.isDirty,
             indexSignature: trackedChanges.indexSignature,
             indexContentSignature: trackedChanges.indexContentSignature,
-            headSignature: Self.gitHeadSignature(repository: repository)
+            headSignature: resolvedReferences.headSignature
         )
     }
 
@@ -151,13 +196,11 @@ public struct GitMetadataService: Sendable {
     ///
     /// - Parameter directory: An absolute path to inspect.
     /// - Returns: Sorted existing paths to watch, or `nil` when `directory` is
-    ///   not inside a git repository.
+    ///   outside a repository. Incomplete branch-aware plans retain conservative
+    ///   root metadata paths so a later event can trigger a retry.
     @concurrent
     public nonisolated func watchedPaths(for directory: String) async -> [String]? {
-        Self.workspaceGitMetadataWatchedPaths(
-            for: directory,
-            safetyConfiguration: safetyConfiguration
-        )
+        await watchDescriptor(for: directory)?.watchedPaths
     }
 
     /// The complete Git-aware event plan for `directory`, including tracked
@@ -166,28 +209,42 @@ public struct GitMetadataService: Sendable {
     public nonisolated func watchDescriptor(
         for directory: String
     ) async -> GitWorkspaceMetadataWatchDescriptor? {
-        Self.workspaceGitMetadataWatchDescriptor(
-            for: directory,
-            safetyConfiguration: safetyConfiguration
-        )
+        guard let repository = Self.resolveGitRepository(containing: directory) else {
+            return nil
+        }
+        return await watchPlanCache.plan(for: repository) { [self] in
+            let watchInputs = await branchAwareConfigPathsByRepository(
+                repository: repository,
+                safetyConfiguration: safetyConfiguration
+            )
+            guard let descriptor = await watchDescriptorBlocking(
+                for: directory,
+                repository: repository,
+                safetyConfiguration: safetyConfiguration,
+                watchInputs: watchInputs
+            ) else {
+                return nil
+            }
+            return applyingForcedWorkTreeRoots(
+                descriptor,
+                repositories: watchInputs.forceWorkTreeRootRepositories
+            )
+        }
     }
 
     /// The GitHub repository slugs (`owner/name`) configured as remotes for the
     /// repository enclosing `directory`.
     ///
-    /// Reads remote URLs straight from `config` (no `git` process), following
-    /// `include`/`includeIf`, and orders the result `upstream`, then `origin`,
-    /// then the rest, de-duplicated.
+    /// Reads remote URLs straight from `config`, following `include`/`includeIf`
+    /// with the same resolved branch context as Git. Orders the result
+    /// `upstream`, then `origin`, then the rest, de-duplicated.
     ///
     /// - Parameter directory: An absolute path to inspect.
     /// - Returns: Ordered, de-duplicated GitHub slugs; empty when there is no
     ///   repository or no GitHub remote.
+    @concurrent
     public nonisolated func repositorySlugs(forDirectory directory: String) async -> [String] {
-        guard let repository = Self.resolveGitRepository(containing: directory),
-              let output = Self.gitRemoteVOutput(repository: repository) else {
-            return []
-        }
-        return Self.githubRepositorySlugs(fromGitRemoteVOutput: output)
+        await repositoryDiscoverySnapshot(forDirectory: directory).repositorySlugs
     }
 
     /// Reads the checked-out branch state for the repository enclosing
@@ -200,11 +257,13 @@ public struct GitMetadataService: Sendable {
     /// - Parameter directory: An absolute path to inspect.
     /// - Returns: The ``GitCheckedOutBranch`` for the enclosing repository, or
     ///   ``GitCheckedOutBranch/notARepository`` when there is none.
+    @concurrent
     public nonisolated func checkedOutBranch(forDirectory directory: String) async -> GitCheckedOutBranch {
         guard let repository = Self.resolveGitRepository(containing: directory) else {
             return .notARepository
         }
-        return Self.gitCheckedOutBranch(repository: repository)
+        let references = await gitReferenceSnapshot(repository: repository)
+        return references.checkedOutBranch
     }
 
     /// Whether this module's `nonisolated async` methods execute off the calling
