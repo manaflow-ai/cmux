@@ -12330,12 +12330,15 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 
         switch request.destination {
         case .insert(let paneId, let index):
-            return !openFileSurfaces(
+            let opened = openFileSurfaces(
                 inPane: paneId,
                 filePaths: entries.map(\.filePath),
                 focus: true,
                 targetIndex: index
-            ).isEmpty
+            )
+            guard let firstPanel = opened.first else { return false }
+            handKeyboardFocusFromRightSidebarAfterFileDrop(to: firstPanel)
+            return true
 
         case .split(let sourcePaneId, let orientation, let insertFirst):
             guard let first = entries.first,
@@ -12354,8 +12357,22 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 filePaths: entries.dropFirst().map(\.filePath),
                 focus: true
             )
+            handKeyboardFocusFromRightSidebarAfterFileDrop(to: firstPanel)
             return true
         }
+    }
+
+    /// A drag that started in the right-sidebar file explorer never resigns
+    /// the sidebar's first responder, so after the drop opens a panel the
+    /// find/shortcut router still targets the sidebar (Cmd+F lands in its
+    /// file search instead of the just-opened document). Hand keyboard focus
+    /// to the opened panel the same way the text-drop path does; the call is
+    /// a no-op when the sidebar does not own focus (drops from Finder or
+    /// between panes).
+    private func handKeyboardFocusFromRightSidebarAfterFileDrop(to panel: any Panel) {
+        _ = AppDelegate.shared?.restoreMainPanelKeyboardFocusFromRightSidebar(
+            in: activationWindow(for: panel)
+        )
     }
 
     @discardableResult

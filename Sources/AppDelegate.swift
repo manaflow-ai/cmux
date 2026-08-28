@@ -7684,6 +7684,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         keyboardFocusCoordinator(for: window)?.syncAfterResponderChange()
     }
 
+    /// Hands keyboard focus from the right sidebar to the workspace's focused
+    /// panel, when the sidebar currently owns it. Used after a sidebar-origin
+    /// action opens a panel in the main area (for example a file drag-drop):
+    /// the drag never resigns the sidebar's first responder, so without this
+    /// the find/shortcut router keeps targeting the sidebar. No-op when the
+    /// sidebar does not own focus.
+    @discardableResult
+    func restoreMainPanelKeyboardFocusFromRightSidebar(in window: NSWindow?) -> Bool {
+        keyboardFocusCoordinator(for: window)?
+            .restoreFocusedPanelFocusFromRightSidebarIfNeeded() ?? false
+    }
+
     @discardableResult
     func focusRightSidebarInActiveMainWindow(
         mode requestedMode: RightSidebarMode? = nil,

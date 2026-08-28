@@ -421,9 +421,10 @@ struct MarkdownWebTheme: Equatable {
 final class MarkdownRendererSession {
     private let ownedCoordinator = MarkdownWebRenderer.Coordinator()
 
-    /// The live preview web view, for find-in-page script evaluation.
-    /// `nil` until the renderer has been mounted once.
-    var findScriptWebView: WKWebView? {
+    /// The live preview web view — the panel's keyboard surface in preview
+    /// mode, and the evaluation target for find-in-page scripts. `nil` until
+    /// the renderer has been mounted once.
+    var webView: WKWebView? {
         ownedCoordinator.webView
     }
 

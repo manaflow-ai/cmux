@@ -371,9 +371,21 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     // MARK: - Panel protocol
 
     func focus() {
-        guard displayMode == .text else { return }
-        _ = textView?.window?.makeFirstResponder(textView)
-        applyPendingSearchNeedleIfPossible()
+        if displayMode == .text {
+            _ = textView?.window?.makeFirstResponder(textView)
+            applyPendingSearchNeedleIfPossible()
+            return
+        }
+        // Preview mode: the rendered web view is the panel's keyboard
+        // surface. Taking first responder on activation is what moves the
+        // keyboard out of wherever it was (for example the right-sidebar
+        // file list after a click- or drag-open), so the find/shortcut
+        // router targets this panel — the same behavior terminal and
+        // browser panels have. No-op while the web view is not mounted;
+        // the drop/open paths also hand off focus at the coordinator level.
+        if let webView = rendererSession.webView, let window = webView.window {
+            _ = window.makeFirstResponder(webView)
+        }
     }
 
     func unfocus() {
