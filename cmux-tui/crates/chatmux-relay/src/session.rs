@@ -459,10 +459,8 @@ pub async fn stay_online(
         )
         .await
         {
-            Ok(_) => eprintln!("Tunnel terminal listener is up on loopback."),
-            Err(_) => eprintln!(
-                "Tunnel terminal listener is unavailable. Terminals stay on the relay socket path."
-            ),
+            Ok(_) => eprintln!("Terminal access is ready."),
+            Err(_) => eprintln!("Terminal access is unavailable. Reconnect and try again."),
         }
     }
     let mut attempt: u32 = 0;
