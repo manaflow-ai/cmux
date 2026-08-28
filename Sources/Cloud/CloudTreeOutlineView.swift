@@ -441,11 +441,12 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                     item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() },
                 ]
             case .workspace(let machine, let workspace, _):
-                let group = node.dragGroup ?? SurfaceResourceGroup(title: workspace.name, resources: [])
                 return [
-                    // One open verb, same as double-click: the remote workspace gets
-                    // its own local workspace (remote and local never intermingle, D13).
-                    item(String(localized: "cloudTree.menu.openWorkspace", defaultValue: "Open Workspace")) { [nodeActions] in nodeActions.openGroupAsWorkspace(machine, group, workspace.id) },
+                    // One open verb, THE SAME PATH as double-click and Return (`open`):
+                    // focus the pane already showing the workspace instead of opening a
+                    // duplicate, refuse an empty group, else open as an own local
+                    // workspace (remote and local never intermingle, D13).
+                    item(String(localized: "cloudTree.menu.openWorkspace", defaultValue: "Open Workspace")) { [weak self] in self?.open(node) },
                     item(String(localized: "cloudTree.menu.newTerminalHere", defaultValue: "New Terminal Here")) { [nodeActions] in nodeActions.newTerminal(machine, workspace.id) },
                     .separator(),
                     item(String(localized: "cloudTree.menu.renameWorkspace", defaultValue: "Rename\u{2026}")) { [nodeActions] in nodeActions.renameWorkspace(machine, workspace) },
