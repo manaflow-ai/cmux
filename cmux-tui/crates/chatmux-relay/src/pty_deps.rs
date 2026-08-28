@@ -918,12 +918,7 @@ fn socket_fingerprint_at(dir_fd: libc::c_int, name: &std::ffi::OsStr) -> Option<
     let mut stat = MaybeUninit::<libc::stat>::uninit();
     // SAFETY: `name` is NUL terminated and `stat` points to writable storage.
     let result = unsafe {
-        libc::fstatat(
-            dir_fd,
-            name.as_ptr(),
-            stat.as_mut_ptr(),
-            libc::AT_SYMLINK_NOFOLLOW,
-        )
+        libc::fstatat(dir_fd, name.as_ptr(), stat.as_mut_ptr(), libc::AT_SYMLINK_NOFOLLOW)
     };
     if result != 0 {
         return None;
