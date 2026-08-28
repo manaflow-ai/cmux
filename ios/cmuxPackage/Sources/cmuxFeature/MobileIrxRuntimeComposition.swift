@@ -181,11 +181,16 @@ public actor MobileIrxRuntimeComposition {
             // catching that publish.
             await auth.awaitBootstrapped()
             guard !Task.isCancelled else { return }
+            Self.journal.record("client-runtime", "auth-gate-bootstrapped")
             if await self?.provisionSignedInWithRetry() == true { return }
             // Fresh sign-ins and account transitions: provision the instant
             // the session publishes. Still zero pre-auth attempts.
             for await identity in await auth.authenticatedSessionIdentities() {
                 guard !Task.isCancelled else { return }
+                Self.journal.record(
+                    "client-runtime", "auth-gate-identity",
+                    ["signed_in": String(identity != nil)]
+                )
                 guard identity != nil else { continue }
                 if await self?.provisionSignedInWithRetry() == true { return }
             }
@@ -196,9 +201,13 @@ public actor MobileIrxRuntimeComposition {
     /// false immediately when not signed in (the caller's auth signal owns
     /// the next attempt, so no pre-auth retries ever run).
     private func provisionSignedInWithRetry() async -> Bool {
-        guard let auth,
-            (try? await auth.authenticatedSessionSnapshot()) != nil
-        else { return false }
+        guard let auth else { return false }
+        Self.journal.record("client-runtime", "auth-gate-snapshot-check")
+        guard (try? await auth.authenticatedSessionSnapshot()) != nil else {
+            Self.journal.record("client-runtime", "auth-gate-not-signed-in")
+            return false
+        }
+        Self.journal.record("client-runtime", "auth-gate-signed-in")
         var delay: Duration = .seconds(1)
         while !Task.isCancelled {
             if await provisionIfPossible() { return true }
