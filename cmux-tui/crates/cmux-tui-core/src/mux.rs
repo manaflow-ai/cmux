@@ -5314,12 +5314,13 @@ impl Mux {
         Ok(commit)
     }
 
-    /// Fold one fresh `agent.*` journal commit into the roster reducer and
-    /// apply the resulting deltas (projection commits, change broadcasts).
-    /// The roster is derived state: this fold plus the startup tail replay
-    /// are its only writers, so the journal fully determines it. Best
-    /// effort by design: a hook may outlive its terminal, and a journal
-    /// append must never start failing because a view cannot update.
+    /// Fold fresh journal records into the roster reducer and apply the
+    /// resulting deltas (projection commits, change broadcasts). The caller
+    /// provides one newly committed agent record, but the fold always reads
+    /// the complete journal prefix after the reducer cursor. This is required
+    /// because ingress workers can commit sequences out of order: advancing
+    /// directly to a later sequence would permanently skip the earlier row.
+    /// The roster is derived state, so the journal remains the source of truth.
     fn fold_agent_roster(
         &self,
         ingress: &crate::JournalIngress,
@@ -5332,36 +5333,49 @@ impl Mux {
         if ingress.producer_id != crate::agent_hooks::AGENT_HOOK_PRODUCER_ID {
             return;
         }
-        // Fold the record as the journal stored it, not the ingress the
-        // caller sent: the stored row carries the committed timestamp and
-        // is the exact input the startup tail replay folds, so live folds
-        // and replays are identical by construction.
-        let record = match self
-            .workspace_registry
-            .lock()
-            .unwrap()
-            .session_journal_after(commit.sequence.saturating_sub(1), 1)
-        {
-            Ok(page) => {
-                match page.records.into_iter().find(|record| record.sequence == commit.sequence) {
-                    Some(record) => record,
-                    None => return,
+        let (folded, cursor, snapshot) = 'retry: loop {
+            let cursor = self.agent_roster.lock().unwrap().cursor;
+            if commit.sequence <= cursor {
+                // Another worker already folded this commit, possibly while
+                // repairing an earlier out-of-order record.
+                return;
+            }
+            let page = match self.workspace_registry.lock().unwrap().session_journal_after(cursor, 512) {
+                Ok(page) => page,
+                Err(error) => {
+                    eprintln!("cmux-tui: reading committed agent events back failed: {error}");
+                    return;
                 }
-            }
-            Err(error) => {
-                eprintln!("cmux-tui: reading a committed agent event back failed: {error}");
+            };
+            if page.records.is_empty() {
                 return;
             }
-        };
-        let (deltas, cursor, snapshot) = {
+
             let mut host = self.agent_roster.lock().unwrap();
-            if commit.sequence <= host.cursor {
-                // The startup tail replay already folded this sequence.
-                return;
+            if host.cursor != cursor {
+                // A concurrent fold won the race after the page read. Retry
+                // from its new cursor instead of dropping this page.
+                continue 'retry;
             }
-            let deltas = host.roster.apply(&RosterEvent::from_record(&record));
-            host.cursor = host.cursor.max(commit.sequence);
-            (deltas, host.cursor, host.roster.snapshot().to_string())
+            let mut folded = Vec::new();
+            for record in page.records {
+                if record.sequence <= host.cursor {
+                    continue;
+                }
+                let deltas = host.roster.apply(&RosterEvent::from_record(&record));
+                host.cursor = record.sequence;
+                let echo = record
+                    .payload
+                    .get("adapter")
+                    .and_then(|adapter| adapter.get("id"))
+                    .and_then(Value::as_str)
+                    == Some(SOCKET_REPORT_ADAPTER);
+                folded.push((deltas, record.kind, echo));
+            }
+            if folded.is_empty() {
+                continue 'retry;
+            }
+            break (folded, host.cursor, host.roster.snapshot().to_string());
         };
         if let Err(error) = self.workspace_registry.lock().unwrap().put_journal_reducer_state(
             AGENT_ROSTER_REDUCER_ID,
@@ -5373,17 +5387,13 @@ impl Mux {
         }
         // Socket echo events already committed their projection and change
         // broadcast on the direct report path; their fold is roster-only.
-        let echo = ingress
-            .payload
-            .get("adapter")
-            .and_then(|adapter| adapter.get("id"))
-            .and_then(Value::as_str)
-            == Some(SOCKET_REPORT_ADAPTER);
-        if echo {
-            return;
-        }
-        for delta in deltas {
-            self.apply_roster_delta(delta, &ingress.kind);
+        for (deltas, kind, echo) in folded {
+            if echo {
+                continue;
+            }
+            for delta in deltas {
+                self.apply_roster_delta(delta, &kind);
+            }
         }
     }
 
@@ -5450,7 +5460,7 @@ impl Mux {
         source: AgentSource,
         session: Option<&str>,
         updated_at_ms: u64,
-    ) {
+    ) -> anyhow::Result<()> {
         use crate::journal_reducers::{SOCKET_REPORT_ADAPTER, SOCKET_REPORT_NATIVE_EVENT};
         let ingress = crate::JournalIngress {
             producer_id: crate::agent_hooks::AGENT_HOOK_PRODUCER_ID.into(),
@@ -5482,10 +5492,9 @@ impl Mux {
         };
         let idempotency_key =
             format!("agent-report-echo-{}", crate::workspace_registry::new_uuid_v4());
-        if let Err(error) = self.append_journal_ingress(&ingress, "agent-report", &idempotency_key)
-        {
-            eprintln!("cmux-tui: journaling an agent report for {terminal_id} failed: {error}");
-        }
+        self.append_journal_ingress(&ingress, "agent-report", &idempotency_key)
+            .with_context(|| format!("journaling agent report echo for {terminal_id}"))?;
+        Ok(())
     }
 
     /// Snapshot of live terminals for the screen-detection scanner.
@@ -9009,6 +9018,19 @@ impl Mux {
                         && source == AgentSource::Socket
                 },
             );
+        // A direct socket report cannot identify the adapter behind the
+        // terminal. Preserve the reducer's adapter identity when arbitration
+        // keeps an existing hook or screen record; emitting `None` here would
+        // erase that identity from every live client on the next poll.
+        let preserved_agent_adapter = existing.as_ref().and_then(|_| {
+            self.agent_roster
+                .lock()
+                .unwrap()
+                .roster
+                .entries
+                .get(terminal_id.as_str())
+                .and_then(|entry| entry.agent.clone())
+        });
         let record = match existing {
             Some(existing) => TerminalAgentRecord {
                 state: parse_projection_agent_state(&existing.state),
@@ -9065,10 +9087,24 @@ impl Mux {
             state: record.state,
             source: record.source,
             session: record.session,
-            agent: agent_adapter,
+            agent: agent_adapter.or(preserved_agent_adapter),
             updated_at_ms: record.updated_at_ms,
         };
         if !commit.replayed {
+            if origin == AgentReportOrigin::Direct {
+                // A direct report is not complete until its durable echo is
+                // accepted. The projection is already durable, so returning
+                // this error exposes the partial operation to the caller and
+                // allows it to retry instead of silently losing the roster
+                // source event.
+                self.append_agent_report_echo(
+                    &agent.terminal_id,
+                    agent.state,
+                    agent.source,
+                    agent.session.as_deref(),
+                    agent.updated_at_ms,
+                )?;
+            }
             self.publish_resource_event();
             self.emit(MuxEvent::AgentChanged {
                 surface: agent.surface,
@@ -9078,18 +9114,6 @@ impl Mux {
                 agent: agent.agent.as_deref().map(Arc::from),
                 updated_at_ms: agent.updated_at_ms,
             });
-            if origin == AgentReportOrigin::Direct {
-                // The roster only folds journal events, so a direct report
-                // records its intent in the log; the fold recognizes the
-                // echo adapter and applies it roster-only.
-                self.append_agent_report_echo(
-                    &agent.terminal_id,
-                    agent.state,
-                    agent.source,
-                    agent.session.as_deref(),
-                    agent.updated_at_ms,
-                );
-            }
         }
         Ok((commit, Some(agent)))
     }
@@ -21961,6 +21985,7 @@ mod tests {
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].state, AgentState::Idle);
         assert_eq!(records[0].source, AgentSource::Hook);
+        assert_eq!(records[0].agent.as_deref(), Some("claude"));
 
         append("UserPromptSubmit", "hook-2");
         assert_eq!(mux.list_agents(Some(surface_id), None)[0].state, AgentState::Working);
@@ -21976,7 +22001,10 @@ mod tests {
         assert_eq!(mux.list_agents(Some(surface_id), None)[0].state, AgentState::Idle);
 
         // A socket report cannot downgrade a hook-owned record.
-        mux.report_agent(surface_id, AgentState::Working, AgentSource::Socket, None).unwrap();
+        let socket = mux
+            .report_agent(surface_id, AgentState::Working, AgentSource::Socket, None)
+            .unwrap();
+        assert_eq!(socket.agent.as_deref(), Some("claude"));
         assert_eq!(mux.list_agents(Some(surface_id), None)[0].state, AgentState::Idle);
 
         // An exited agent leaves the roster; a fresh one starts clean.
@@ -22073,9 +22101,13 @@ mod tests {
         let manifests = ManifestSet::bundled();
         let t0 = Instant::now();
         let step = |milliseconds: u64| t0 + Duration::from_millis(milliseconds);
-        let shell = |_: &Surface| Some("zsh".to_string());
-        let codex = |_: &Surface| Some("codex".to_string());
-        let gone = |_: &Surface| None;
+        let shell = |_: &Surface| {
+            crate::screen_detect::scanner::ProcessNameResolution::Known("zsh".to_string())
+        };
+        let codex = |_: &Surface| {
+            crate::screen_detect::scanner::ProcessNameResolution::Known("codex".to_string())
+        };
+        let gone = |_| crate::screen_detect::scanner::ProcessNameResolution::Exited;
 
         // A shell pane never enters the roster, quiesced or not.
         scanner::scan(&mux, &mut tracker, manifests, step(0), &shell);
@@ -22115,6 +22147,12 @@ mod tests {
         scanner::scan(&mux, &mut tracker, manifests, step(1_100), &codex);
         scanner::scan(&mux, &mut tracker, manifests, step(1_500), &codex);
         assert_eq!(journal_len(&mux), before);
+
+        // A permission-denied process lookup is unknown, not an exit. It
+        // must not erase the last screen-derived state.
+        let unknown = |_| crate::screen_detect::scanner::ProcessNameResolution::Unknown;
+        scanner::scan(&mux, &mut tracker, manifests, step(1_550), &unknown);
+        assert_eq!(mux.list_agents(Some(surface_id), None).len(), 1);
 
         // Replaying the committed journal reproduces the live roster.
         let records = mux.workspace_registry.lock().unwrap().session_journal_after(0, 512).unwrap();
@@ -22159,7 +22197,9 @@ mod tests {
         let mut tracker = ScreenDetectTracker::default();
         let manifests = ManifestSet::bundled();
         let t0 = Instant::now();
-        let claude = |_: &Surface| Some("claude".to_string());
+        let claude = |_: &Surface| {
+            crate::screen_detect::scanner::ProcessNameResolution::Known("claude".to_string())
+        };
         scanner::scan(&mux, &mut tracker, manifests, t0, &claude);
         scanner::scan(&mux, &mut tracker, manifests, t0 + Duration::from_millis(400), &claude);
         let records = mux.list_agents(Some(surface_id), None);

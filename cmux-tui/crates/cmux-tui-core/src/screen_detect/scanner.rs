@@ -21,9 +21,20 @@ use crate::surface::Surface;
 /// tick plus the journal fold.
 const SCAN_INTERVAL: Duration = Duration::from_millis(100);
 
-/// Resolves a surface to its foreground process name; injectable so tests
-/// drive detection without spawning agent-named processes.
-pub(crate) type ProcessNameResolver = dyn Fn(&Surface) -> Option<String> + Send + Sync;
+/// Result of a foreground-process lookup. An inaccessible `/proc` entry is
+/// not evidence that the process exited, so the scanner must preserve the
+/// previous identity on `Unknown` and only close a detected agent on
+/// `Exited`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ProcessNameResolution {
+    Known(String),
+    Exited,
+    Unknown,
+}
+
+/// Resolves a surface to its foreground process; injectable so tests drive
+/// detection without spawning agent-named processes.
+pub(crate) type ProcessNameResolver = dyn Fn(&Surface) -> ProcessNameResolution + Send + Sync;
 
 pub(crate) fn start(mux: &Arc<Mux>) {
     let weak = Arc::downgrade(mux);
@@ -54,11 +65,17 @@ fn run_scanner(weak: Weak<Mux>) {
 
 /// Production resolver: the foreground process-group leader's executable
 /// name for the terminal's PTY child. An exited terminal resolves to none.
-fn foreground_process_name(surface: &Surface) -> Option<String> {
+fn foreground_process_name(surface: &Surface) -> ProcessNameResolution {
     if surface.terminal_exit().is_some() {
-        return None;
+        return ProcessNameResolution::Exited;
     }
-    crate::platform::foreground_process_name(surface.process_id()?)
+    let Some(pid) = surface.process_id() else {
+        return ProcessNameResolution::Unknown;
+    };
+    match crate::platform::foreground_process_name(pid) {
+        Some(name) => ProcessNameResolution::Known(name),
+        None => ProcessNameResolution::Unknown,
+    }
 }
 
 /// One scan pass over the live terminal catalog. Pure over its inputs
@@ -81,7 +98,12 @@ pub(crate) fn scan(
         // Identity is resolved every tick: presence comes from the
         // foreground process, so a freshly launched agent is detected on
         // the next scan, never gated behind output quiescence.
-        let manifest = resolver(&surface).and_then(|name| manifests.identify(&name));
+        let resolution = resolver(&surface);
+        let manifest = match resolution {
+            ProcessNameResolution::Known(name) => manifests.identify(&name),
+            ProcessNameResolution::Exited => None,
+            ProcessNameResolution::Unknown => continue,
+        };
         let identity_edge =
             tracker.note_foreground_agent(terminal_id, manifest.map(|manifest| manifest.id()));
         let emission = match manifest {

@@ -112,6 +112,15 @@ fn redact_agent_value(
         Value::Object(fields) => {
             for (field, child) in fields.iter_mut() {
                 if agent_field_is_sensitive(field) {
+                    // Sensitive leaves bypass recursive traversal, so charge
+                    // them explicitly. Otherwise an attacker can submit an
+                    // arbitrarily wide object of credential-shaped fields
+                    // without consuming the structural budget.
+                    if *budget == 0 {
+                        complete = false;
+                        break;
+                    }
+                    *budget -= 1;
                     *child = Value::String(REDACTED_AGENT_VALUE.into());
                 } else if !redact_agent_value(
                     child,
