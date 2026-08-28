@@ -76,6 +76,49 @@ impl Drop for CloseUncommittedLink {
     }
 }
 
+/// A reconnect whose transport replay is complete but whose shared reliability
+/// state has not been committed yet.
+///
+/// The transition write guard stays with the transaction while the owning
+/// connection coordinates its publication with shutdown. Dropping this value
+/// before [`Self::commit`] leaves the old session untouched and closes the
+/// candidate link through `CloseUncommittedLink`.
+pub(crate) struct PreparedReconnect {
+    shared: Arc<SharedState>,
+    transition: Option<tokio::sync::OwnedRwLockWriteGuard<()>>,
+    staged: ReliabilityState,
+    reconnected: ReliableSession,
+    close_uncommitted: CloseUncommittedLink,
+    original_generation: u64,
+}
+
+impl PreparedReconnect {
+    /// Atomically commit the staged reliability state and return its session.
+    /// There are no await points after the state write, so a caller can hold a
+    /// higher-level publication gate across this method without exposing a
+    /// half-published generation to cancellation.
+    pub(crate) fn commit(self) -> Result<ReliableSession, SessionError> {
+        let PreparedReconnect {
+            shared,
+            mut transition,
+            staged,
+            reconnected,
+            close_uncommitted,
+            original_generation,
+        } = self;
+        let mut state = shared.state.lock().unwrap();
+        state.require_generation(original_generation)?;
+        *state = staged;
+        drop(state);
+        for progress in &shared.outbound_progress {
+            progress.notify_waiters();
+        }
+        close_uncommitted.disarm();
+        drop(transition.take());
+        Ok(reconnected)
+    }
+}
+
 impl fmt::Debug for ReliableSession {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
@@ -92,7 +135,7 @@ impl ReliableSession {
         let shared = Arc::new(SharedState {
             session,
             limits,
-            transition: tokio::sync::RwLock::new(()),
+            transition: Arc::new(tokio::sync::RwLock::new(())),
             lane_sends: std::array::from_fn(|_| tokio::sync::Mutex::new(())),
             outbound_progress: std::array::from_fn(|_| tokio::sync::Notify::new()),
             state: Mutex::new(ReliabilityState::new()),
@@ -404,13 +447,13 @@ impl ReliableSession {
     /// but need not be contiguous: a cancelled connection attempt burns its
     /// generation so a later attempt cannot collide with a daemon that already
     /// committed the cancelled attempt.
-    pub(crate) async fn reconnect_to(
+    pub(crate) async fn prepare_reconnect_to(
         &self,
         link: Arc<dyn FrameLink>,
         peer_resume: &BTreeMap<Lane, u64>,
         generation: u64,
-    ) -> Result<Self, SessionError> {
-        let _transition = self.shared.transition.write().await;
+    ) -> Result<PreparedReconnect, SessionError> {
+        let transition = self.shared.transition.clone().write_owned().await;
         let (staged, replay) = {
             let state = self.shared.state.lock().unwrap();
             state.require_generation(self.generation)?;
@@ -453,15 +496,23 @@ impl ReliableSession {
                 .await
                 .map_err(ScheduleError::into_session_error)?;
         }
-        let mut state = self.shared.state.lock().unwrap();
-        state.require_generation(self.generation)?;
-        *state = staged;
-        drop(state);
-        for progress in &self.shared.outbound_progress {
-            progress.notify_waiters();
-        }
-        close_uncommitted.disarm();
-        Ok(reconnected)
+        Ok(PreparedReconnect {
+            shared: self.shared.clone(),
+            transition: Some(transition),
+            staged,
+            reconnected,
+            close_uncommitted,
+            original_generation: self.generation,
+        })
+    }
+
+    pub(crate) async fn reconnect_to(
+        &self,
+        link: Arc<dyn FrameLink>,
+        peer_resume: &BTreeMap<Lane, u64>,
+        generation: u64,
+    ) -> Result<Self, SessionError> {
+        self.prepare_reconnect_to(link, peer_resume, generation).await?.commit()
     }
 
     pub async fn close(&self) -> Result<(), SessionError> {
@@ -511,7 +562,7 @@ async fn run_ack_sender(
 struct SharedState {
     session: SessionId,
     limits: SessionLimits,
-    transition: tokio::sync::RwLock<()>,
+    transition: Arc<tokio::sync::RwLock<()>>,
     lane_sends: [tokio::sync::Mutex<()>; 4],
     outbound_progress: [tokio::sync::Notify; 4],
     state: Mutex<ReliabilityState>,
@@ -900,7 +951,7 @@ mod tests {
     use std::sync::atomic::AtomicBool;
 
     use async_trait::async_trait;
-    use tokio::sync::{Mutex as AsyncMutex, Semaphore};
+    use tokio::sync::{Mutex as AsyncMutex, Semaphore, oneshot};
 
     use super::*;
     use crate::link::{LaneMuxLink, LinkRoute, test_support};
@@ -1435,6 +1486,64 @@ mod tests {
         assert_eq!(replay.generation, 2);
         assert_eq!(replay.payload, b"replay me");
         assert!(replay.flags.contains(FrameFlags::REPLAY));
+    }
+
+    #[tokio::test]
+    async fn cancelled_prepared_reconnect_leaves_shared_state_unchanged() {
+        let (old_link, old_peer) = test_support::pair(128 * 1024);
+        let session = ReliableSession::new(
+            SessionId([17; 16]),
+            Arc::new(old_link),
+            SessionLimits::default(),
+        );
+        session
+            .send(Lane::Control, 1, Bytes::from_static(b"keep me"), FrameFlags::empty())
+            .await
+            .unwrap();
+        let first = WireFrame::decode(&old_peer.receive().await.unwrap().unwrap()).unwrap();
+        assert_eq!(first.generation, 0);
+
+        let candidate = Arc::new(GatedRecordingLink::new());
+        let (prepared_tx, prepared_rx) = oneshot::channel();
+        let attempt = tokio::spawn({
+            let session = session.clone();
+            let candidate = candidate.clone();
+            async move {
+                let prepared = session
+                    .prepare_reconnect_to(candidate, &BTreeMap::new(), 1)
+                    .await
+                    .unwrap();
+                prepared_tx.send(()).unwrap();
+                std::future::pending::<()>().await;
+                let _ = prepared.commit();
+            }
+        });
+
+        candidate.entered.acquire().await.unwrap().forget();
+        candidate.release.add_permits(1);
+        prepared_rx.await.unwrap();
+        attempt.abort();
+        assert!(attempt.await.unwrap_err().is_cancelled());
+
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while !candidate.closed.load(Ordering::Acquire) {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("cancelled prepared reconnect did not close its candidate link");
+
+        // Cancellation before commit must not advance the shared reliability
+        // epoch. The original session remains usable and keeps its sequence.
+        assert_eq!(session.generation(), 0);
+        let sequence = session
+            .send(Lane::Control, 1, Bytes::from_static(b"still here"), FrameFlags::empty())
+            .await
+            .unwrap();
+        assert_eq!(sequence, 2);
+        let second = WireFrame::decode(&old_peer.receive().await.unwrap().unwrap()).unwrap();
+        assert_eq!(second.generation, 0);
+        assert_eq!(second.sequence, 2);
     }
 
     #[tokio::test]

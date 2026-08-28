@@ -493,17 +493,41 @@ impl ClientConnection {
         }
     }
 
-    /// Replace a failed provider group while preserving reliable application
-    /// sequence numbers and replaying only frames the daemon did not ack.
-    pub async fn reconnect(&self, group: Arc<dyn LinkGroup>) -> Result<(), ConnectionError> {
-        let _reconnecting = self.reconnecting.lock().await;
+    /// Acquire the single reconnect owner while remaining interruptible by
+    /// shutdown. A Tokio mutex queues waiters, so subscribing before the lock
+    /// avoids making a waiter sit behind cleanup after close has started.
+    async fn lock_reconnecting(
+        &self,
+        close_state: &mut watch::Receiver<CloseState>,
+    ) -> Result<tokio::sync::OwnedMutexGuard<()>, ConnectionError> {
         if self.closed.load(Ordering::Acquire) {
             return Err(ConnectionError::Closed);
         }
+        let lock = self.reconnecting.clone().lock_owned();
+        tokio::pin!(lock);
+        tokio::select! {
+            biased;
+            _ = close_state.changed() => Err(ConnectionError::Closed),
+            guard = &mut lock => {
+                if self.closed.load(Ordering::Acquire) {
+                    drop(guard);
+                    Err(ConnectionError::Closed)
+                } else {
+                    Ok(guard)
+                }
+            }
+        }
+    }
+
+    /// Replace a failed provider group while preserving reliable application
+    /// sequence numbers and replaying only frames the daemon did not ack.
+    pub async fn reconnect(&self, group: Arc<dyn LinkGroup>) -> Result<(), ConnectionError> {
+        let mut close_state = self.close_state.subscribe();
+        let _reconnecting = self.lock_reconnecting(&mut close_state).await?;
         let previous_state = self.diagnostics_state();
         self.set_diagnostics_state(ConnectionState::Reconnecting);
-        let mut close_state = self.close_state.subscribe();
         let result = tokio::select! {
+            biased;
             _ = close_state.changed() => Err(ConnectionError::Closed),
             result = self.reconnect_once(group) => result,
         };
@@ -559,9 +583,10 @@ impl ClientConnection {
         let lane_bindings = lane_bindings(self.config.lane_policy, group.capabilities());
         let physical_link_count = lane_bindings.len();
         let transport = group.transport_snapshot().await;
-        // Take both publication guards before the cancellation-sensitive replay
-        // transition. ReliableSession commits only after replay succeeds, and
-        // there is no await between that commit and publishing both wrappers.
+        // Keep the connection publication locks while preparing the candidate,
+        // but do not mutate shared reliability state until shutdown owns the
+        // publication gate below. A dropped preparation therefore leaves the
+        // old session fully usable.
         let mut active_group = self.group.write().await;
         let mut active_session = self.session.write().await;
         if self.closed.load(Ordering::Acquire) {
@@ -573,14 +598,18 @@ impl ClientConnection {
                 actual: active_session.generation(),
             });
         }
-        let next = current.reconnect_to(Arc::new(link), &daemon_resume, generation).await?;
-        // Shutdown takes this gate before publishing its start signal. This
-        // gives reconnect publication and shutdown a clear linearization
-        // point without holding the gate across dialing or replay.
-        let _shutdown_gate = self.shutdown_gate.lock().await;
+        let prepared = current
+            .prepare_reconnect_to(Arc::new(link), &daemon_resume, generation)
+            .await?;
+        // The transaction has not changed shared reliability state yet. Once
+        // this gate is acquired, `commit` and all wrapper publication below
+        // contain no await points, so close cannot observe a half-published
+        // generation and cancellation cannot strand one.
+        let shutdown_gate = self.shutdown_gate.lock().await;
         if self.closed.load(Ordering::Acquire) {
             return Err(ConnectionError::Closed);
         }
+        let next = prepared.commit()?;
         let generation = next.generation();
         let previous = std::mem::replace(&mut *active_group, group.clone());
         *active_session = next;
@@ -602,7 +631,7 @@ impl ClientConnection {
                 diagnostics.state = ConnectionState::Connected;
             }
         }
-        drop(_shutdown_gate);
+        drop(shutdown_gate);
         drop(active_session);
         drop(active_group);
         // Publishing the replacement first lets blocked readers recover onto
@@ -638,29 +667,33 @@ impl ClientConnection {
     }
 
     async fn recover(&self, observed_generation: u64) -> Result<(), ConnectionError> {
-        let _reconnecting = self.reconnecting.lock().await;
+        let mut close_state = self.close_state.subscribe();
+        let _reconnecting = self.lock_reconnecting(&mut close_state).await?;
         if self.session.read().await.generation() != observed_generation {
             return Ok(());
         }
         self.set_diagnostics_state(ConnectionState::Reconnecting);
-        let result = self.recover_locked().await;
+        let result = self.recover_locked(&mut close_state).await;
         if result.is_err() && !self.closed.load(Ordering::Acquire) {
             self.set_diagnostics_state(ConnectionState::Disconnected);
         }
         result
     }
 
-    async fn recover_locked(&self) -> Result<(), ConnectionError> {
+    async fn recover_locked(
+        &self,
+        close_state: &mut watch::Receiver<CloseState>,
+    ) -> Result<(), ConnectionError> {
         let mut attempt = 0_u32;
         let mut delay = self.config.reconnect.initial_delay;
         let mut group = self.group.read().await.clone();
-        let mut close_state = self.close_state.subscribe();
         loop {
             if self.closed.load(Ordering::Acquire) {
                 return Err(ConnectionError::Closed);
             }
             attempt = attempt.saturating_add(1);
             let reconnect = tokio::select! {
+                biased;
                 _ = close_state.changed() => return Err(ConnectionError::Closed),
                 reconnect = tokio::time::timeout(
                     self.config.reconnect.attempt_timeout,
@@ -697,6 +730,7 @@ impl ClientConnection {
                     }
                     if let Some(source) = &self.reconnect_groups {
                         let next = tokio::select! {
+                            biased;
                             _ = close_state.changed() => return Err(ConnectionError::Closed),
                             next = resolve_reconnect_group(
                                 source.as_ref(),
@@ -709,6 +743,7 @@ impl ClientConnection {
                     }
                     let retry_delay = self.config.reconnect.retry_delay(delay);
                     tokio::select! {
+                        biased;
                         _ = tokio::time::sleep(retry_delay) => {}
                         _ = close_state.changed() => return Err(ConnectionError::Closed),
                     }
@@ -811,9 +846,15 @@ async fn wait_for_close(mut state: watch::Receiver<CloseState>) -> Result<(), Co
 async fn run_heartbeat(weak: Weak<ClientConnection>, interval: Duration, timeout: Duration) {
     let Some(initial) = weak.upgrade() else { return };
     let mut close_state = initial.close_state.subscribe();
+    // A new watch receiver considers the current value seen. The atomic flag
+    // closes the gap when shutdown started immediately before subscription.
+    if initial.closed.load(Ordering::Acquire) {
+        return;
+    }
     drop(initial);
     loop {
         tokio::select! {
+            biased;
             _ = tokio::time::sleep(interval) => {}
             _ = close_state.changed() => return,
         }
@@ -842,6 +883,7 @@ async fn run_heartbeat(weak: Weak<ClientConnection>, interval: Duration, timeout
             FrameFlags::HEARTBEAT_REQUEST,
         );
         let send_result = tokio::select! {
+            biased;
             result = tokio::time::timeout_at(deadline, send) => result,
             _ = close_state.changed() => return,
         };
@@ -854,6 +896,7 @@ async fn run_heartbeat(weak: Weak<ClientConnection>, interval: Duration, timeout
             }
         }
         let live = tokio::select! {
+            biased;
             result = tokio::time::timeout_at(deadline, connection.probe_liveness(generation, observed)) => result.unwrap_or(false),
             _ = close_state.changed() => return,
         };
@@ -2402,6 +2445,7 @@ mod tests {
             epochs: Mutex::new(Vec::new()),
             evidence: CarrierEvidence::LocalPeer { uid: None, pid: None },
         });
+        let reconnect_group = group.clone();
         let client = ClientConnection::connect(
             group,
             ClientConnectionConfig {
@@ -2420,6 +2464,10 @@ mod tests {
 
         let publication = client.reconnecting.lock().await;
         let mut close_state = client.close_state.subscribe();
+        let waiting_reconnect = tokio::spawn({
+            let client = client.clone();
+            async move { client.reconnect(reconnect_group).await }
+        });
         let closing = tokio::spawn({
             let client = client.clone();
             async move { client.close().await }
@@ -2436,7 +2484,18 @@ mod tests {
             .expect("shutdown start was not published while cleanup was blocked")
             .expect("close state channel closed before shutdown completed");
         assert!(matches!(*close_state.borrow(), CloseState::Started));
+        tokio::time::timeout(
+            Duration::from_millis(100),
+            run_heartbeat(Arc::downgrade(&client), Duration::from_secs(60), Duration::from_secs(1)),
+        )
+        .await
+        .expect("heartbeat missed shutdown that was published before subscription");
         assert!(!closing.is_finished(), "close bypassed reconnect publication serialization");
+        let waiting_result = tokio::time::timeout(Duration::from_secs(1), waiting_reconnect)
+            .await
+            .expect("reconnect waiter remained behind cleanup after shutdown started")
+            .expect("reconnect waiter task panicked");
+        assert!(matches!(waiting_result, Err(ConnectionError::Closed)));
         closing.abort();
         assert!(closing.await.unwrap_err().is_cancelled());
 
