@@ -52,7 +52,8 @@ use tokio::sync::{Semaphore, mpsc, watch};
 use tokio_util::sync::CancellationToken;
 
 use crate::pty::{
-    FrameContext, PTY_PROTOCOL_VERSION, PtyManager, random_hex, session_name_ok, surface_ref_ok,
+    FrameContext, PTY_PROTOCOL_VERSION, PtyManager, TransportKind, random_hex, session_name_ok,
+    surface_ref_ok,
 };
 
 /// Loopback port the gateway's spliced streams dial. The chatmux Worker
@@ -511,6 +512,8 @@ impl Connection {
             local_roots: auth.local_roots,
             owner_user_id: auth.owner_user_id,
             transport_id: Some(self.pty_id.clone()),
+            transport_kind: TransportKind::Tunnel,
+            auth_generation: Some(self.auth_generation),
         }
     }
 
@@ -618,6 +621,7 @@ async fn serve_connection(
     manager: Arc<PtyManager>,
     parent: CancellationToken,
     auth_state: TunnelAuthState,
+    mut authority_changes: watch::Receiver<u64>,
     _connection_permit: tokio::sync::OwnedSemaphorePermit,
 ) {
     let _ = stream.set_nodelay(true);
@@ -726,6 +730,19 @@ async fn serve_connection(
                 break;
             }
             _ = connection.done.cancelled() => break,
+            changed = authority_changes.changed() => {
+                match changed {
+                    Ok(()) if *authority_changes.borrow_and_update() != connection.auth_generation => {
+                        connection.protocol_error("trust_revoked");
+                        break;
+                    }
+                    Ok(()) => {}
+                    Err(_) => {
+                        connection.finish();
+                        break;
+                    }
+                }
+            }
             _ = &mut open_deadline, if !connection.opened_seen.load(Ordering::SeqCst) => {
                 connection.protocol_error("bad_request");
                 break;
@@ -774,7 +791,7 @@ async fn serve_connection(
     // Remove the per-transport authority even when the open was refused or
     // the peer disconnected before an attachment existed. Otherwise a busy
     // local tunnel endpoint could accumulate stale snapshots indefinitely.
-    manager.detach_transport(&connection.pty_id);
+    manager.detach_transport_kind(&connection.pty_id, TransportKind::Tunnel);
     // A peer that stopped reading can wedge the final flush forever; the
     // attachment is already released above, so cap the flush and reap.
     if tokio::time::timeout(Duration::from_secs(30), &mut writer).await.is_err() {
@@ -792,6 +809,7 @@ pub async fn start_tunnel_terminal_listener(
     host: &str,
     port: u16,
     auth_state: TunnelAuthState,
+    authority_changes: watch::Receiver<u64>,
 ) -> std::io::Result<u16> {
     // The gateway's capability check ends at this process. Binding any
     // address other than the fixed IPv4 loopback would turn a local-only
@@ -801,7 +819,7 @@ pub async fn start_tunnel_terminal_listener(
     if host != TUNNEL_TERMINAL_HOST {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
-            "tunnel terminal listener must bind 127.0.0.1",
+            "tunnel terminal listener is unavailable",
         ));
     }
     let listener = TcpListener::bind((host, port)).await?;
@@ -831,6 +849,7 @@ pub async fn start_tunnel_terminal_listener(
                         manager,
                         child,
                         Arc::clone(&auth_state),
+                        authority_changes.clone(),
                         permit,
                     ));
                 }
@@ -961,6 +980,7 @@ mod tests {
         spawned: Arc<StdMutex<Vec<FakePty>>>,
         port: u16,
         cancel: CancellationToken,
+        generation: watch::Sender<u64>,
     }
 
     async fn rig_with_limits(max_ptys: usize) -> Rig {
@@ -987,16 +1007,18 @@ mod tests {
                 owner_user_id: None,
             }),
         }));
+        let (generation, generation_rx) = watch::channel(0_u64);
         let port = start_tunnel_terminal_listener(
             Arc::clone(&manager),
             cancel.clone(),
             TUNNEL_TERMINAL_HOST,
             0,
             auth_state,
+            generation_rx,
         )
         .await
         .expect("bind test listener");
-        Rig { manager, spawned, port, cancel }
+        Rig { manager, spawned, port, cancel, generation }
     }
 
     async fn rig() -> Rig {
@@ -1044,6 +1066,13 @@ mod tests {
         let data_limit = queue_limit(false);
         assert!(data_limit + TUNNEL_CONTROL_QUEUE_RESERVE_BYTES <= queue_limit(true));
         assert!(TUNNEL_CONTROL_QUEUE_RESERVE_BYTES > 0);
+    }
+
+    #[test]
+    fn maximum_valid_data_frame_fits_the_reserved_budget() {
+        let encoded = encode_pty_frame(&vec![0_u8; MAX_TUNNEL_FRAME_BYTES]).expect("max frame");
+        assert_eq!(encoded.len(), MAX_TUNNEL_FRAME_BYTES + HEADER_BYTES);
+        assert!(encoded.len() as u64 <= queue_limit(false));
     }
 
     /// Wait until the fake spawn landed (open settles asynchronously).
@@ -1354,6 +1383,39 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn authority_revocation_closes_a_quiet_open_attachment() {
+        let rig = rig().await;
+        let stream = connect(&rig).await;
+        let (mut read, mut write) = stream.into_split();
+        write
+            .write_all(
+                &encode_control_frame(&json!({ "t": "open", "cols": 80, "rows": 24 })).unwrap(),
+            )
+            .await
+            .unwrap();
+        let mut decoder = TunnelFrameDecoder::new(MAX_TUNNEL_FRAME_BYTES);
+        let mut queue = Vec::new();
+        let opened = control_json(&next_frame(&mut read, &mut decoder, &mut queue).await);
+        assert_eq!(opened["t"], "opened");
+        assert_eq!(rig.manager.attachment_count(), 1);
+
+        // The session publishes the new floor before notifying sockets. A
+        // quiet connection must close without requiring another client frame.
+        rig.manager.set_tunnel_authority_generation(1);
+        rig.generation.send(1).unwrap();
+        read_eof(&mut read).await;
+        for _ in 0..100 {
+            if rig.manager.attachment_count() == 0 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert_eq!(rig.manager.attachment_count(), 0);
+        drop(write);
+        rig.cancel.cancel();
+    }
+
+    #[tokio::test]
     async fn duplicate_open_is_a_protocol_error() {
         let rig = rig().await;
         let stream = connect(&rig).await;
@@ -1454,6 +1516,7 @@ mod tests {
             "0.0.0.0",
             0,
             Arc::new(RwLock::new(TunnelAuthority::default())),
+            watch::channel(0_u64).1,
         )
         .await
         .expect_err("wildcard bind must be rejected");

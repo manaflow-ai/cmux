@@ -24,7 +24,7 @@ use std::time::Duration;
 use futures_util::{SinkExt as _, StreamExt as _};
 use serde_json::Value;
 use tokio::sync::mpsc;
-use tokio::sync::{Mutex as AsyncMutex, OwnedSemaphorePermit, Semaphore};
+use tokio::sync::{Mutex as AsyncMutex, OwnedSemaphorePermit, Semaphore, watch};
 use tokio::task::JoinSet;
 use tokio::time::timeout;
 use tokio_tungstenite::connect_async_with_config;
@@ -36,7 +36,7 @@ use crate::actions::{ActionContext, perform_action, process_env_snapshot, scrubb
 use crate::config::{Config, save_config};
 use crate::error::RelayError;
 use crate::pairing::websocket_url;
-use crate::pty::FrameContext;
+use crate::pty::{FrameContext, TransportKind};
 #[cfg(unix)]
 use crate::pty::PtyManager;
 use crate::trust::{
@@ -319,6 +319,8 @@ pub struct SessionRuntime {
     pty: Arc<PtyManager>,
     #[cfg(unix)]
     pub(crate) tunnel_auth: TunnelAuthState,
+    #[cfg(unix)]
+    pub(crate) tunnel_generation: watch::Sender<u64>,
 }
 
 impl SessionRuntime {
@@ -342,6 +344,8 @@ impl SessionRuntime {
             pty,
             #[cfg(unix)]
             tunnel_auth: Arc::new(std::sync::RwLock::new(TunnelAuthority::default())),
+            #[cfg(unix)]
+            tunnel_generation: watch::channel(0).0,
         }
     }
 }
@@ -433,12 +437,13 @@ pub async fn stay_online(
             crate::tunnel_terminal::TUNNEL_TERMINAL_HOST,
             crate::tunnel_terminal::TUNNEL_TERMINAL_PORT,
             Arc::clone(&runtime.tunnel_auth),
+            runtime.tunnel_generation.subscribe(),
         )
         .await
         {
             Ok(_) => eprintln!("Tunnel terminal listener is up on loopback."),
-            Err(error) => eprintln!(
-                "Tunnel terminal listener bind failed: {error}. Terminals stay on the relay socket path."
+            Err(_) => eprintln!(
+                "Tunnel terminal listener is unavailable. Terminals stay on the relay socket path."
             ),
         }
     }
@@ -552,6 +557,8 @@ fn make_context(
         local_roots: auth.roots.clone(),
         owner_user_id: auth.owner.clone(),
         transport_id: Some(transport_id.to_owned()),
+        transport_kind: TransportKind::Relay,
+        auth_generation: None,
     }
 }
 
@@ -615,10 +622,9 @@ async fn relay_session(
     // this socket opens carries this connection's identity, so closing or
     // reconnecting the socket cannot detach an independent tunnel attachment.
     #[cfg(unix)]
-    let transport_id =
-        crate::pty::random_hex(16).map(|id| format!("relay-{id}")).map_err(|error| {
-            RelayError::transient(format!("unable to create relay transport identity: {error}"))
-        })?;
+    let transport_id = crate::pty::random_hex(16)
+        .map(|id| format!("relay-{id}"))
+        .map_err(|_| RelayError::transient("unable to initialize relay transport identity"))?;
 
     // Ordered PTY frame dispatch on its own task so a slow open (daemon
     // spawn) never stalls heartbeats or other frames.
@@ -941,6 +947,9 @@ async fn relay_session(
                                         owner_user_id: snapshot.owner.clone(),
                                     },
                                 );
+                                let generation = authority.generation;
+                                runtime.pty.set_tunnel_authority_generation(generation);
+                                let _ = runtime.tunnel_generation.send(generation);
                                 runtime.pty.detach_tunnel_transports();
                             }
                             workspace.set_local_observe(local_observe);
@@ -1234,8 +1243,11 @@ async fn relay_session(
         {
             let mut authority = runtime.tunnel_auth.write().expect("tunnel auth lock");
             *authority = TunnelAuthority::revoked(authority.generation);
+            let generation = authority.generation;
+            runtime.pty.set_tunnel_authority_generation(generation);
+            let _ = runtime.tunnel_generation.send(generation);
+            runtime.pty.detach_tunnel_transports();
         }
-        runtime.pty.detach_tunnel_transports();
     }
 
     // Workspace requests own Git children. Give them a cooperative
@@ -1261,7 +1273,7 @@ async fn relay_session(
     // managed tunnel listener's attachments are another transport's — a
     // reconnect must never detach them (docs/TERMINAL.md).
     #[cfg(unix)]
-    runtime.pty.detach_transport(&transport_id);
+    runtime.pty.detach_transport_kind(&transport_id, TransportKind::Relay);
     result
 }
 
