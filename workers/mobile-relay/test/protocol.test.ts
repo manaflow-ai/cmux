@@ -43,13 +43,14 @@ describe("data frames", () => {
 
 describe("control message schemas", () => {
   test("accepts a refresh", () => {
-    expect(decodeClientControl({ t: "refresh", ticket: "v1.a.b" })._tag).toBe("Right");
+    expect(decodeClientControl({ t: "refresh", accessToken: "eyJ.a.b" })._tag).toBe("Right");
   });
 
   test("rejects unknown client messages and extra fields", () => {
     expect(decodeClientControl({ t: "welcome" })._tag).toBe("Left");
-    expect(decodeClientControl({ t: "refresh", ticket: "x", extra: 1 })._tag).toBe("Left");
-    expect(decodeClientControl({ t: "refresh", ticket: "" })._tag).toBe("Left");
+    expect(decodeClientControl({ t: "refresh", accessToken: "x", extra: 1 })._tag).toBe("Left");
+    expect(decodeClientControl({ t: "refresh", accessToken: "" })._tag).toBe("Left");
+    expect(decodeClientControl({ t: "refresh", ticket: "v1.a.b" })._tag).toBe("Left");
   });
 
   test("accepts every server message shape", () => {

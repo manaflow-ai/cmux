@@ -4,6 +4,12 @@
 // output rides the capability-negotiated render-grid / terminal.bytes topics,
 // exactly like the legacy TCP path. Raw terminal channels are a reserved
 // follow-up (RelayProtocol.channelTerminal).
+//
+// v2 connect: the transport dials with the endpoint's own Stack access token
+// (the worker verifies it), then writes the end-to-end admission request as
+// the FIRST bytes on the RPC stream, so the host binds this session to the
+// account before any other request can arrive. Requests after admission
+// carry no credentials at all.
 
 import CMUXMobileCore
 import Foundation
@@ -17,15 +23,14 @@ public enum RelayTransportError: Error, Equatable, Sendable {
 
 public actor RelayClientByteTransport: CmxByteTransport {
     /// Refresh the session this long before its deadline.
-    private static let refreshLead: TimeInterval = 60 * 60
+    private static let refreshLead: TimeInterval = 10 * 60
 
-    /// Debug-only dial override; nil dials the URL the ticket mint returns,
-    /// so the server (per environment) controls the relay endpoint and a
-    /// shipped client needs no baked-in host.
+    /// Debug-only dial override; nil dials the production relay URL, so a
+    /// shipped client needs no configuration.
     private let relayURLOverride: URL?
     private let hostDeviceID: String
     private let deviceID: @Sendable () async throws -> String
-    private let ticketProvider: any RelayTicketProviding
+    private let accessToken: RelayAccessTokenProvider
     private let makeConnection: RelayConnectionFactory
 
     private var connection: (any RelayConnecting)?
@@ -37,30 +42,46 @@ public actor RelayClientByteTransport: CmxByteTransport {
         relayURLOverride: URL? = nil,
         hostDeviceID: String,
         deviceID: @escaping @Sendable () async throws -> String,
-        ticketProvider: any RelayTicketProviding,
+        accessToken: @escaping RelayAccessTokenProvider,
         makeConnection: @escaping RelayConnectionFactory = RelayConnection.factory()
     ) {
         self.relayURLOverride = relayURLOverride
         self.hostDeviceID = hostDeviceID
         self.deviceID = deviceID
-        self.ticketProvider = ticketProvider
+        self.accessToken = accessToken
         self.makeConnection = makeConnection
     }
 
     public func connect() async throws {
         let ownDeviceID = try await deviceID()
-        let grant = try await ticketProvider.mintTicket(
+        let token = try await accessToken()
+        guard let url = relayURLOverride ?? RelayConnectAuth.defaultRelayURL() else {
+            throw RelayTransportError.invalidRequest("no relay URL")
+        }
+        let connection = makeConnection(url, RelayConnectAuth.headers(
+            accessToken: token,
+            role: .client,
             hostDeviceID: hostDeviceID,
-            deviceID: ownDeviceID,
-            role: .client
-        )
-        let connection = makeConnection(relayURLOverride ?? grant.relayURL, grant.ticket)
+            deviceID: ownDeviceID
+        ))
         let welcome = try await connection.connect()
         guard welcome.hostPresent else {
             await connection.close()
             throw RelayTransportError.hostNotConnected
         }
         self.connection = connection
+
+        // End-to-end admission, guaranteed first on the stream because it is
+        // written before this transport is handed to the RPC session. Fire
+        // and forget: a rejected admission ends with the host closing the
+        // session (EOF here), which drives the normal repair path.
+        try await connection.sendData(
+            sessionID: RelayProtocol.hostSessionID,
+            payload: RelayFrameCodec.channelPayload(
+                channel: RelayProtocol.channelRPC,
+                data: try RelayAdmission.admitFrame(accessToken: token, deviceID: ownDeviceID)
+            )
+        )
 
         let queue = RelayByteQueue()
         inbound = queue
@@ -74,7 +95,7 @@ public actor RelayClientByteTransport: CmxByteTransport {
             }
             await queue.finish()
         }
-        scheduleRefresh(deadline: Date(timeIntervalSince1970: welcome.deadline / 1000), deviceID: ownDeviceID)
+        scheduleRefresh(deadline: Date(timeIntervalSince1970: welcome.deadline / 1000))
     }
 
     public func receive() async throws -> Data? {
@@ -106,7 +127,7 @@ public actor RelayClientByteTransport: CmxByteTransport {
         case .data(let frame):
             guard let (channel, data) = RelayFrameCodec.splitChannel(frame.payload),
                   channel == RelayProtocol.channelRPC else {
-                return true // Reserved channel; ignore in v1.
+                return true // Reserved channel; ignore in v2.
             }
             await queue.yield(data)
             return true
@@ -117,39 +138,29 @@ public actor RelayClientByteTransport: CmxByteTransport {
         case .control(.bye):
             return false
         case .control(.refreshAck(let ack)):
-            scheduleRefresh(deadline: Date(timeIntervalSince1970: ack.deadline / 1000), deviceID: nil)
+            scheduleRefresh(deadline: Date(timeIntervalSince1970: ack.deadline / 1000))
             return true
         case .control:
             return true
         }
     }
 
-    private func scheduleRefresh(deadline: Date, deviceID knownDeviceID: String?) {
+    private func scheduleRefresh(deadline: Date) {
         refreshTask?.cancel()
         let wait = deadline.timeIntervalSinceNow - Self.refreshLead
         guard wait > 0 else { return }
         refreshTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(wait))
             guard !Task.isCancelled else { return }
-            await self?.refresh(knownDeviceID: knownDeviceID)
+            await self?.refresh()
         }
     }
 
-    private func refresh(knownDeviceID: String?) async {
+    private func refresh() async {
         guard let connection else { return }
         do {
-            let ownDeviceID: String
-            if let knownDeviceID {
-                ownDeviceID = knownDeviceID
-            } else {
-                ownDeviceID = try await deviceID()
-            }
-            let grant = try await ticketProvider.mintTicket(
-                hostDeviceID: hostDeviceID,
-                deviceID: ownDeviceID,
-                role: .client
-            )
-            try await connection.sendControl(JSONEncoder().encode(RelayRefresh(ticket: grant.ticket)))
+            let token = try await accessToken()
+            try await connection.sendControl(JSONEncoder().encode(RelayRefresh(accessToken: token)))
         } catch {
             // Refresh is best effort; the deadline close surfaces as EOF and
             // the owner redials.

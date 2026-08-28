@@ -327,12 +327,12 @@ import Testing
         )
     }
 
-    /// A definitive bearer rejection on a pipelined relay request must park
-    /// the connection on the awaited input path (which owns token refresh and
-    /// the re-auth decision) instead of jumping to the re-auth prompt, and
-    /// later input must still deliver, serialized.
+    /// Relay sessions are transport-admitted (the transport's first frame
+    /// proves the account end to end), so a host that rejects a pipelined
+    /// request with an auth-shaped error is un-admitting the session: the
+    /// same re-auth disconnect semantics as iroh apply.
     @MainActor
-    @Test func relayPipelinedAuthRejectionParksConnectionOnAwaitedPath() async throws {
+    @Test func relayPipelinedAuthRejectionKeepsDisconnectSemantics() async throws {
         let router = RoutingHostRouter()
         await router.setRejectTerminalInput(at: 0, code: "unauthorized")
         let store = try await makeRoutingConnectedStore(
@@ -344,69 +344,11 @@ import Testing
         )
 
         await store.submitTerminalRawInput(
-            Data("a".utf8),
-            surfaceID: RoutingHostRouter.terminalA
-        )
-        #expect(await waitForAuthorizationFallback(store: store))
-        #expect(store.connectionRequiresReauth == false)
-        #expect(store.connectionState != .disconnected)
-
-        await router.setHoldAllTerminalInputs(true)
-        let completionTracker = TerminalRawInputTaskCompletionTracker()
-        for character in ["b", "c"] {
-            Task { @MainActor in
-                await store.submitTerminalRawInput(
-                    Data(character.utf8),
-                    surfaceID: RoutingHostRouter.terminalA
-                )
-                await completionTracker.recordCompletion()
-            }
-        }
-
-        // The awaited path serializes: "c" must wait for "b" to settle, so
-        // exactly one request is in flight while the host holds it open.
-        #expect(await waitForTerminalInputCount(2, router: router))
-        #expect(await router.recordedTerminalInputInFlightCount() == 1)
-
-        await router.releaseAllTerminalInputs()
-        #expect(await waitForTerminalInputCount(3, router: router))
-        await router.releaseAllTerminalInputs()
-        #expect(await waitForProducerCompletion(
-            expectedCount: 2,
-            tracker: completionTracker
-        ))
-        #expect(await waitForTerminalInputQuiescence(router: router))
-        #expect(
-            await router.recordedTerminalInputs().map(\.text)
-                == ["a", "b", "c"]
-        )
-        #expect(store.connectionRequiresReauth == false)
-    }
-
-    /// Iroh requests carry no per-request bearer, so an auth-shaped rejection
-    /// there keeps its existing disconnect semantics.
-    @MainActor
-    @Test func irohPipelinedAuthRejectionKeepsDisconnectSemantics() async throws {
-        let router = RoutingHostRouter()
-        await router.setRejectTerminalInput(at: 0, code: "unauthorized")
-        let store = try await makeRoutingConnectedStore(
-            router: router,
-            hostCapabilities: [
-                MobileShellComposite.terminalInputOrderedCapability,
-            ],
-            routeKind: .iroh
-        )
-
-        await store.submitTerminalRawInput(
             Data("x".utf8),
             surfaceID: RoutingHostRouter.terminalA
         )
 
         #expect(await waitForConnectionRequiresReauth(store: store))
-        #expect(
-            store.terminalInputPipelineHasAuthorizationFallbackForTesting()
-                == false
-        )
     }
 
     @MainActor
@@ -585,22 +527,6 @@ import Testing
 
         #expect(store.connectionError == nil)
         #expect(store.connectionState == .connected)
-    }
-
-    @MainActor
-    private func waitForAuthorizationFallback(
-        store: MobileShellComposite,
-        deadline deadlineDuration: Duration = .milliseconds(500)
-    ) async -> Bool {
-        let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: deadlineDuration)
-        while clock.now < deadline {
-            if store.terminalInputPipelineHasAuthorizationFallbackForTesting() {
-                return true
-            }
-            await Task.yield()
-        }
-        return false
     }
 
     @MainActor

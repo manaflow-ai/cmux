@@ -1,11 +1,15 @@
 # Dev/staging deployment of the mobile relay: same code, separate worker name,
 # no custom domain (served from workers.dev). Deploy with:
 #   wrangler deploy --config wrangler.dev.toml
-# Provision its own MOBILE_RELAY_TICKET_SECRET; dev and prod never share it.
+# Verifies against the DEV Stack project, so dev and prod accounts never mix.
 
 name = "cmux-mobile-relay-dev"
 main = "src/index.ts"
 compatibility_date = "2026-05-01"
+
+[vars]
+STACK_PROJECT_ID = "454ecd03-1db2-4050-845e-4ce5b0cd9895"
+STACK_PUBLISHABLE_CLIENT_KEY = "pck_xb63160bwe9699vtxfzfj6emmxpafg5mkjrtp6ehzxv5g"
 
 [observability]
 enabled = true

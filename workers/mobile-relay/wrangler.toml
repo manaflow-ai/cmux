@@ -14,14 +14,17 @@
 # Deploys run from .github/workflows/mobile-relay.yml. The [[migrations]]
 # block is append-only; never hand-edit past tags.
 #
-# Secrets (survive deploys, never in [vars]):
-#   wrangler secret put MOBILE_RELAY_TICKET_SECRET   # base64/hex >= 32 bytes,
-#                                                    # shared only with the web
-#                                                    # app's ticket mint route
+# No secrets: connect auth verifies the endpoint's own Stack access token
+# against the Stack API using only the project's public client configuration
+# below (the same values every shipped app embeds).
 
 name = "cmux-mobile-relay"
 main = "src/index.ts"
 compatibility_date = "2026-05-01"
+
+[vars]
+STACK_PROJECT_ID = "1467bed0-8522-45ee-a8d8-055de324118c"
+STACK_PUBLISHABLE_CLIENT_KEY = "pck_pt4nwry6sdskews2pxk4g2fbe861ak2zvaf3mqendspa0"
 
 [observability]
 enabled = true

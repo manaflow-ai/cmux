@@ -8,17 +8,20 @@ frames between them. It stores nothing durable except a session counter;
 terminal replay lives in the host's ring buffers.
 
 Wire contract: `src/protocol.ts` (Effect Schema, single source of truth).
-`bun run generate` emits the checked-in copies for the web app
-(`web/services/mobileRelay/generated/`) and Swift
+`bun run generate` emits the checked-in Swift copy
 (`Packages/Shared/CmuxRelayTransport/.../Generated/RelayProtocolGenerated.swift`);
 `bun run generate:check` gates drift in CI.
 
-Auth: the web app mints 5-minute HMAC tickets at `POST /api/mobile-relay/ticket`
-after Stack auth + device-registry ownership checks. The worker verifies the
-ticket and derives the object id from the verified claims
-(`v1:<userId>:<hostDeviceId>`), so isolation is by construction. Long sessions
-extend in-band with `refresh` (re-verified by the object); the session
-deadline caps at 12 h past the last accepted ticket.
+Auth: the endpoint presents its OWN Stack access token on the WebSocket
+upgrade (`x-cmux-stack-access`); the worker verifies it against the Stack API
+(client access type, public project configuration only, short per-isolate
+verdict cache) and derives the object id from the VERIFIED user id
+(`v2:<userId>:<hostDeviceId>`), so isolation is by construction and no web-app
+call exists anywhere on the connect path. The host additionally admits each
+client session end to end (`mobile.session.admit`, the session's first frame)
+before serving it. Long sessions extend in-band with `refresh` (a current
+access token, re-verified by the object); the session deadline caps at 1 h
+past the last verified token.
 
 ## Operations
 
@@ -28,16 +31,10 @@ bun run check            # generate:check + typecheck + tests + deploy dry-run
 bun run dev              # local wrangler dev
 ```
 
-Secrets (provision once per environment; never in `[vars]`):
-
-```bash
-wrangler secret put MOBILE_RELAY_TICKET_SECRET                             # prod
-wrangler secret put MOBILE_RELAY_TICKET_SECRET --config wrangler.dev.toml # dev
-```
-
-The secret is an opaque string of at least 32 characters, shared only with
-the web app (`CMUX_MOBILE_RELAY_TICKET_SECRET` there). Dev and prod must not
-share a secret.
+No secrets exist: `[vars]` carries only the Stack project's PUBLIC client
+configuration (project id + publishable client key; every shipped app embeds
+the same values). `wrangler.toml` binds the prod Stack project and
+`wrangler.dev.toml` the dev project, so dev and prod accounts can never mix.
 
 Deploys run from `.github/workflows/mobile-relay.yml` (workflow_dispatch,
 `target: prod|dev`). Production serves `mr.cmux.dev` (custom domain from

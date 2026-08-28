@@ -7,7 +7,7 @@ import Foundation
 /// Wire constants shared with the relay worker. See src/protocol.ts for the
 /// full contract (framing, session policy, close codes).
 public enum RelayProtocol {
-    public static let version = 1
+    public static let version = 2
     public static let dataFrameType: UInt8 = 1
     public static let dataHeaderBytes = 5
     public static let hostSessionID: UInt32 = 0
@@ -17,11 +17,13 @@ public enum RelayProtocol {
     public static let channelCredit: UInt8 = 3
     public static let maxDataPayloadBytes = 262144
     public static let maxControlBytes = 4096
-    public static let sessionMaxAgeMilliseconds = 43200000
-    public static let ticketTTLSeconds = 300
+    public static let sessionMaxAgeMilliseconds = 3600000
     public static let pingText = "ping"
     public static let pongText = "pong"
-    public static let ticketHeaderName = "x-cmux-relay-ticket"
+    public static let stackAccessHeaderName = "x-cmux-stack-access"
+    public static let roleHeaderName = "x-cmux-role"
+    public static let hostDeviceHeaderName = "x-cmux-host-device"
+    public static let deviceHeaderName = "x-cmux-device"
     public static let connectPath = "/v1/connect"
     public static let defaultRelayURL = "wss://mr.cmux.dev/v1/connect"
     public static let byeSuperseded = "superseded"
@@ -98,9 +100,9 @@ public struct RelayBye: Codable, Sendable, Equatable {
 public struct RelayRefresh: Codable, Sendable, Equatable {
     public static let type = "refresh"
     public var t: String = Self.type
-    public var ticket: String
-    public init(ticket: String) {
-        self.ticket = ticket
+    public var accessToken: String
+    public init(accessToken: String) {
+        self.accessToken = accessToken
     }
 }
 
@@ -110,23 +112,6 @@ public struct RelayCloseSession: Codable, Sendable, Equatable {
     public var sessionId: Int
     public init(sessionId: Int) {
         self.sessionId = sessionId
-    }
-}
-
-public struct RelayTicketClaims: Codable, Sendable, Equatable {
-    public var userId: String
-    public var hostDeviceId: String
-    public var deviceId: String
-    public var role: RelayRole
-    public var iat: Int
-    public var exp: Int
-    public init(userId: String, hostDeviceId: String, deviceId: String, role: RelayRole, iat: Int, exp: Int) {
-        self.userId = userId
-        self.hostDeviceId = hostDeviceId
-        self.deviceId = deviceId
-        self.role = role
-        self.iat = iat
-        self.exp = exp
     }
 }
 

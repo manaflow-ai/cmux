@@ -2,17 +2,23 @@
 //
 // Routes:
 //   GET /healthz       liveness, no auth
-//   GET /v1/connect    WebSocket upgrade. Auth: `x-cmux-relay-ticket` header
-//                      carrying a web-app-minted HMAC ticket. The worker
-//                      verifies the ticket, derives the HostRelay object id
-//                      from the VERIFIED claims (`v1:<userId>:<hostDeviceId>`),
-//                      stamps verified-identity headers, and forwards. The
-//                      object never sees an unverified connect.
+//   GET /v1/connect    WebSocket upgrade. Auth: the endpoint's own Stack
+//                      access token in `x-cmux-stack-access` plus role and
+//                      device headers. The worker verifies the token against
+//                      the Stack API (short per-isolate verdict cache),
+//                      derives the HostRelay object id from the VERIFIED user
+//                      id (`v2:<userId>:<hostDeviceId>`), stamps
+//                      verified-identity headers, and forwards. The object
+//                      never sees an unverified connect, and a token can
+//                      never reach another user's relay: isolation is by
+//                      construction of the object name.
 //
-// Stack bearer tokens never reach this worker; the web app owns Stack auth
-// and device-registry ownership checks at ticket mint time
-// (web/app/api/mobile-relay/ticket). See src/protocol.ts for the wire
-// contract and workers/mobile-relay/README.md for operations.
+// There is no ticket and no web-app involvement. The web app's device
+// registry is not consulted: a client that names an arbitrary hostDeviceId
+// still lands on an object namespaced by its OWN verified user id, and the
+// host additionally admits each session end to end (mobile.session.admit)
+// before serving it. See src/protocol.ts for the wire contract and
+// workers/mobile-relay/README.md for operations.
 
 import {
   HostRelay,
@@ -22,15 +28,20 @@ import {
   RELAY_USER_HEADER,
   type RelayEnv,
 } from "./do";
-import { verifyTicket } from "./ticket";
+import {
+  DEVICE_HEADER,
+  HOST_DEVICE_HEADER,
+  MAX_DEVICE_ID_CHARS,
+  ROLE_HEADER,
+  STACK_ACCESS_HEADER,
+} from "./protocol";
+import { verifyStackAccessToken } from "./stackAuth";
 
 export { HostRelay };
 
 export interface Env extends RelayEnv {
   HOST_RELAY: DurableObjectNamespace<HostRelay>;
 }
-
-export const TICKET_HEADER = "x-cmux-relay-ticket";
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -40,7 +51,13 @@ function json(body: unknown, status = 200): Response {
 }
 
 export function relayObjectName(userId: string, hostDeviceId: string): string {
-  return `v1:${userId}:${hostDeviceId}`;
+  return `v2:${userId}:${hostDeviceId}`;
+}
+
+function normalizedDeviceId(raw: string | null): string | null {
+  const trimmed = raw?.trim().toLowerCase();
+  if (!trimmed || trimmed.length > MAX_DEVICE_ID_CHARS) return null;
+  return trimmed;
 }
 
 export default {
@@ -56,25 +73,35 @@ export default {
       if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
         return json({ error: "expected_websocket" }, 426);
       }
-      const secret = env.MOBILE_RELAY_TICKET_SECRET;
-      if (!secret) return json({ error: "relay_not_configured" }, 503);
-      const ticket = request.headers.get(TICKET_HEADER);
-      if (!ticket) return json({ error: "missing_ticket" }, 401);
-      const verified = await verifyTicket(secret, ticket, Date.now());
-      if (!verified.ok) return json({ error: verified.error }, 401);
-      const { claims } = verified;
+      const role = request.headers.get(ROLE_HEADER);
+      if (role !== "host" && role !== "client") return json({ error: "invalid_role" }, 400);
+      const hostDeviceId = normalizedDeviceId(request.headers.get(HOST_DEVICE_HEADER));
+      const deviceId = normalizedDeviceId(request.headers.get(DEVICE_HEADER));
+      if (!hostDeviceId || !deviceId) return json({ error: "invalid_device" }, 400);
+      // A host proves it is connecting for itself; the object name pins it.
+      if (role === "host" && deviceId !== hostDeviceId) {
+        return json({ error: "host_device_mismatch" }, 400);
+      }
+      const accessToken = request.headers.get(STACK_ACCESS_HEADER);
+      if (!accessToken) return json({ error: "missing_token" }, 401);
+      const verified = await verifyStackAccessToken(env, accessToken, Date.now());
+      if (!verified.ok) {
+        return json(
+          { error: verified.error },
+          verified.error === "invalid_token" ? 401 : 503,
+        );
+      }
 
-      const id = env.HOST_RELAY.idFromName(relayObjectName(claims.userId, claims.hostDeviceId));
+      const id = env.HOST_RELAY.idFromName(relayObjectName(verified.userId, hostDeviceId));
       const stub = env.HOST_RELAY.get(id);
-      // Forward with verified-identity headers only; the ticket itself is not
-      // forwarded (refresh tickets travel in-band and are re-verified by the
-      // object).
+      // Forward with verified-identity headers only; the access token is not
+      // forwarded (in-band refresh tokens are re-verified by the object).
       const headers = new Headers(request.headers);
-      headers.delete(TICKET_HEADER);
-      headers.set(RELAY_ROLE_HEADER, claims.role);
-      headers.set(RELAY_USER_HEADER, claims.userId);
-      headers.set(RELAY_HOST_DEVICE_HEADER, claims.hostDeviceId);
-      headers.set(RELAY_DEVICE_HEADER, claims.deviceId);
+      headers.delete(STACK_ACCESS_HEADER);
+      headers.set(RELAY_ROLE_HEADER, role);
+      headers.set(RELAY_USER_HEADER, verified.userId);
+      headers.set(RELAY_HOST_DEVICE_HEADER, hostDeviceId);
+      headers.set(RELAY_DEVICE_HEADER, deviceId);
       return stub.fetch(new Request(request.url, { method: "GET", headers }));
     }
 
