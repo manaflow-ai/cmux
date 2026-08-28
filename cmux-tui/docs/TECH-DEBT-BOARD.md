@@ -1,5 +1,22 @@
 # cmux-tui technical-debt board
 
+## Wave 92 authoritative snapshot
+
+Snapshot: 2026-08-28T14:10:26Z. Current `main`: `87e71b229ca8337f86d0c67e5761413abacc6a34`. Use this section for current state; sections below are historical archive.
+
+| Debt | Current PR head | Exit condition |
+| --- | --- | --- |
+| Reconnect and heartbeat shutdown | [#11112](https://github.com/manaflow-ai/cmux/pull/11112), `3d9433469544a463dc94b573492f8230a66394c3` | Close cancels waits without leaks or late writes. |
+| Hook ordering and terminal tombstones | [#11024](https://github.com/manaflow-ai/cmux/pull/11024), `c897b40a93c7f9085e903ae40a1d96540f951f0d` | Restart, stale-hook, and public-snapshot tests pass. |
+| CDP queue and diagnostic privacy | [#11013](https://github.com/manaflow-ai/cmux/pull/11013), `b8470b455e0bdf73b4d29030f4d322e3a6e34c61`; stacked [#11078](https://github.com/manaflow-ai/cmux/pull/11078), `46fe5348e2631769c4e9482e1127ad0c75a8dbff` | Byte cap and safe public errors are proven. |
+| Journal identity and screen parity | [#11002](https://github.com/manaflow-ai/cmux/pull/11002), `8da5643df4d89ecf4b3a0abad5809241c57e6b1d`; [#11068](https://github.com/manaflow-ai/cmux/pull/11068), `b3eca00fd03dd76763bd5273066df2779c236abc` | Cursor, tombstone, identity, and parity tests pass. |
+| External session tree and manual I/O | [#11063](https://github.com/manaflow-ai/cmux/pull/11063), `bd5d47b03facb3e20eff1b8aba8d697f1f96c9d6` | Attach, reconnect, drag, and raw/echo cleanup are proven. |
+| Sidebar retention, preview input, and agent drag | [#10994](https://github.com/manaflow-ai/cmux/pull/10994), `15121a79e558f908baa718f3efe25cceb99d4e7d`; [#10969](https://github.com/manaflow-ai/cmux/pull/10969), `2e8024606f650c26124adc9e0b71e8d1fb9509ea`; [#10401](https://github.com/manaflow-ai/cmux/pull/10401), `46590bacaed87fba46d4ceb5cdacadcafad07833` | Collapse, focus, routing, and no-text-injection tests pass. |
+
+Closed duplicate trust-reader fixes: #11058 (`710e93df3dad1cd3afb9b6c7ee3c45d23e1f807`) and #11064 (`20a259160353df20c23d08fac6959eb59934e84c`) are not active debt rows. The #10993 remote-global-options fix is merged in current main.
+
+Rollback rule: inspect `git rev-list --parents -n 1 <sha>` first. One parent uses `git revert <sha>`; two parents use `git revert -m 1 <sha>`.
+
 ## Current reconciliation: main `af31628f7b0b2f6c34e184049254fa2fe91f285d`
 
 Audit basis: 2026-08-27T19:39:39Z. Current merged log: [#10984](https://github.com/manaflow-ai/cmux/pull/10984)

@@ -1,5 +1,18 @@
 # cmux-tui aggregate change log
 
+## Wave 92 authoritative snapshot, 2026-08-28T14:10:26Z
+
+Current `main`: `87e71b229ca8337f86d0c67e5761413abacc6a34`. The rows below are the latest merged records; the existing rows later in this file remain the historical archive.
+
+| PR | Source head | Merge commit | Merged at | Rollback |
+| --- | --- | --- | --- | --- |
+| [#11025](https://github.com/manaflow-ai/cmux/pull/11025) | `478a6f96084738e699d94afabbd96041beee4778` | `e45af147e9677e844c611e83b1a32cbda7711ebd` | 2026-08-28T12:11:04Z | `git revert e45af147e9677e844c611e83b1a32cbda7711ebd` |
+| [#11113](https://github.com/manaflow-ai/cmux/pull/11113) | `ba9a5581cf8a57dae070531ac27a151b7b780c38` | `495477e5716bfda23acfb424867cfd4d2ff7e863` | 2026-08-28T12:54:21Z | `git revert 495477e5716bfda23acfb424867cfd4d2ff7e863` |
+| [#11028](https://github.com/manaflow-ai/cmux/pull/11028) | `a703004f4eb714f7a9ecdda774bf54beb1304c0c` | `b91d338727659adc55465b989babd076cdaa3baf` | 2026-08-28T13:36:34Z | `git revert b91d338727659adc55465b989babd076cdaa3baf` |
+| [#10993](https://github.com/manaflow-ai/cmux/pull/10993) | `87974b03cf311c481a37b5ce41f32cb2f24abfb0` | `87e71b229ca8337f86d0c67e5761413abacc6a34` | 2026-08-28T14:04:34Z | `git revert 87e71b229ca8337f86d0c67e5761413abacc6a34` |
+
+Before any rollback, run `git rev-list --parents -n 1 <sha>`. Use plain `git revert <sha>` for one parent and `git revert -m 1 <sha>` for two parents, then run focused checks.
+
 ## Current reconciliation: main `af31628f7b0b2f6c34e184049254fa2fe91f285d`
 
 Audit basis: 2026-08-27T19:39:39Z. The current merged cmux-tui log is

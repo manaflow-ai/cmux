@@ -1,5 +1,27 @@
 # cmux TUI PR intent and merge board
 
+## Wave 92 authoritative snapshot
+
+Snapshot: 2026-08-28T14:10:26Z. Current `main`: `87e71b229ca8337f86d0c67e5761413abacc6a34`. Use this section for current state; sections below are historical archive.
+
+| PR | State | Exact head | Next action |
+| --- | --- | --- | --- |
+| [#11112](https://github.com/manaflow-ai/cmux/pull/11112) | Open | `3d9433469544a463dc94b573492f8230a66394c3` | Verify close cancellation for reconnect and heartbeat waits. |
+| [#11024](https://github.com/manaflow-ai/cmux/pull/11024) | Open | `c897b40a93c7f9085e903ae40a1d96540f951f0d` | Run restart, stale-hook, and public-snapshot checks. |
+| [#11013](https://github.com/manaflow-ai/cmux/pull/11013) | Open | `b8470b455e0bdf73b4d29030f4d322e3a6e34c61` | Verify bounded CDP queue and safe public errors. |
+| [#11078](https://github.com/manaflow-ai/cmux/pull/11078) | Open, stacked | `46fe5348e2631769c4e9482e1127ad0c75a8dbff` | Retarget after #11013 and verify overflow redaction. |
+| [#11068](https://github.com/manaflow-ai/cmux/pull/11068) | Open | `b3eca00fd03dd76763bd5273066df2779c236abc` | Resolve identity and parity findings. |
+| [#11002](https://github.com/manaflow-ai/cmux/pull/11002) | Open | `8da5643df4d89ecf4b3a0abad5809241c57e6b1d` | Resolve journal cursor, tombstone, and recovery design. |
+| [#11063](https://github.com/manaflow-ai/cmux/pull/11063) | Open, stacked | `bd5d47b03facb3e20eff1b8aba8d697f1f96c9d6` | Publish the hierarchical tree follow-up. |
+| [#10994](https://github.com/manaflow-ai/cmux/pull/10994) | Open | `15121a79e558f908baa718f3efe25cceb99d4e7d` | Verify collapsed-sidebar retention. |
+| [#10969](https://github.com/manaflow-ai/cmux/pull/10969) | Open | `2e8024606f650c26124adc9e0b71e8d1fb9509ea` | Complete preview-input checks. |
+| [#10966](https://github.com/manaflow-ai/cmux/pull/10966) | Open | `3885306fb27853a60732dbbbf79fe44d172f2949` | Cover agent lifecycle and attention events. |
+| [#10401](https://github.com/manaflow-ai/cmux/pull/10401) | Open | `46590bacaed87fba46d4ceb5cdacadcafad07833` | Rebase drag-into-terminal work and reject text insertion. |
+
+Merged in this snapshot: #11025 (`478a6f96084738e699d94afabbd96041beee4778` -> `e45af147e9677e844c611e83b1a32cbda7711ebd`), #11113 (`ba9a5581cf8a57dae070531ac27a151b7b780c38` -> `495477e5716bfda23acfb424867cfd4d2ff7e863`), #11028 (`a703004f4eb714f7a9ecdda774bf54beb1304c0c` -> `b91d338727659adc55465b989babd076cdaa3baf`), and #10993 (`87974b03cf311c481a37b5ce41f32cb2f24abfb0` -> `87e71b229ca8337f86d0c67e5761413abacc6a34`). Closed duplicate fixes: #11058 head `710e93df3dad1cd3afb9b6c7ee3c45d23e1f807` and #11064 head `20a259160353df20c23d08fac6959eb59934e84c`.
+
+Rollback rule: inspect `git rev-list --parents -n 1 <sha>` first. One parent uses `git revert <sha>`; two parents use `git revert -m 1 <sha>`.
+
 ## Current reconciliation: main `af31628f7b0b2f6c34e184049254fa2fe91f285d`
 
 Audit basis: 2026-08-27T19:39:39Z. Main currently includes the following

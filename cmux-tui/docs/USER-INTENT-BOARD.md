@@ -1,5 +1,24 @@
 # cmux-tui user-intent board
 
+## Wave 92 authoritative snapshot
+
+Snapshot: 2026-08-28T14:10:26Z. Current `main`: `87e71b229ca8337f86d0c67e5761413abacc6a34`. Use this section for current state; later sections are historical archive. New evidence references use sanitized IDs.
+
+| User intent | Current PR or status | Exact head / evidence | Acceptance condition |
+| --- | --- | --- | --- |
+| Cancel reconnect and heartbeat waits on close. | [#11112](https://github.com/manaflow-ai/cmux/pull/11112) open | `3d9433469544a463dc94b573492f8230a66394c3` | Close cancels waits and prevents late writes. |
+| Order hook records and suppress done restores. | [#11024](https://github.com/manaflow-ai/cmux/pull/11024) open | `c897b40a93c7f9085e903ae40a1d96540f951f0d` | Restart and stale-hook tests pass. |
+| Bound CDP output and redact diagnostics. | [#11013](https://github.com/manaflow-ai/cmux/pull/11013) and stacked [#11078](https://github.com/manaflow-ai/cmux/pull/11078) | `b8470b455e0bdf73b4d29030f4d322e3a6e34c61`, `46fe5348e2631769c4e9482e1127ad0c75a8dbff` | Byte-cap and safe public-error tests pass. |
+| Give sessions one durable identity and a hierarchical tree. | [#11002](https://github.com/manaflow-ai/cmux/pull/11002), [#11068](https://github.com/manaflow-ai/cmux/pull/11068), [#11063](https://github.com/manaflow-ai/cmux/pull/11063) | `evidence-record:session-catalog` | Attach, reconnect, reorder, and detach preserve one identity. |
+| Keep sidebar state and preview input stable. | [#10994](https://github.com/manaflow-ai/cmux/pull/10994), [#10969](https://github.com/manaflow-ai/cmux/pull/10969) | `evidence-record:sidebar-state` | Collapse, focus, and routing stay deterministic. |
+| Drag an agent into a terminal without text injection. | [#10401](https://github.com/manaflow-ai/cmux/pull/10401) | `46590bacaed87fba46d4ceb5cdacadcafad07833` | A drop opens the target session and never types its label. |
+| Keep account-scoped discovery and pairing authorized. | Deferred | `evidence-record:account-pairing` | Device scope, expiry, and reconnect authorization have behavior tests. |
+| Enforce sandbox capability authorization. | Deferred | `evidence-record:sandbox-capability` | Every capability request is scoped, denied by default, and audited. |
+| Preserve cloud resource lifecycle and restore safety. | Deferred | `evidence-record:cloud-lifecycle` | Create, attach, detach, restore, and delete transitions are explicit and recoverable. |
+| Keep direct manual I/O cloud-only. | Deferred | `evidence-record:manual-io-policy` | Local creation is unchanged; cloud attach has bounded reconnect and error states. |
+
+Merged in this snapshot: #11025, #11113, #11028, and #10993. Closed duplicate fixes #11058 and #11064 are not active intents. These rows are requests and acceptance criteria, not completion claims.
+
 ## Current reconciliation: main `af31628f7b0b2f6c34e184049254fa2fe91f285d`
 
 Audit basis: 2026-08-27T19:39:39Z. Main's current cmux-tui merge log is

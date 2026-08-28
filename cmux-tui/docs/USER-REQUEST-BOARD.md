@@ -1,5 +1,24 @@
 # cmux-tui user request board
 
+## Wave 92 authoritative snapshot
+
+Snapshot: 2026-08-28T14:10:26Z. Current `main`: `87e71b229ca8337f86d0c67e5761413abacc6a34`. Use this section for current state; later sections are historical archive. New evidence references use sanitized IDs.
+
+| Request | PR and exact head | State | Required proof |
+| --- | --- | --- | --- |
+| Cancel reconnect and heartbeat waits on close. | [#11112](https://github.com/manaflow-ai/cmux/pull/11112), `3d9433469544a463dc94b573492f8230a66394c3` | Open | Close, cancellation, and late-write tests. |
+| Order hook records and suppress done restores. | [#11024](https://github.com/manaflow-ai/cmux/pull/11024), `c897b40a93c7f9085e903ae40a1d96540f951f0d` | Open | Restart and stale-hook tests. |
+| Bound CDP outbound bytes and redact overflow details. | [#11013](https://github.com/manaflow-ai/cmux/pull/11013), `b8470b455e0bdf73b4d29030f4d322e3a6e34c61`; [#11078](https://github.com/manaflow-ai/cmux/pull/11078), `46fe5348e2631769c4e9482e1127ad0c75a8dbff` | Open, stacked | Byte-cap, overflow, and public-error tests. |
+| Derive agent state from a durable journal. | [#11002](https://github.com/manaflow-ai/cmux/pull/11002), `8da5643df4d89ecf4b3a0abad5809241c57e6b1d`; [#11068](https://github.com/manaflow-ai/cmux/pull/11068), `b3eca00fd03dd76763bd5273066df2779c236abc` | Open | Cursor, tombstone, identity, and parity tests. |
+| Attach external sessions through a hierarchical tree. | [#11063](https://github.com/manaflow-ai/cmux/pull/11063), `bd5d47b03facb3e20eff1b8aba8d697f1f96c9d6` | Open, stacked | Attach, reconnect, drag, and raw/echo cleanup proof. |
+| Retain collapsed sidebar specs and simplify preview input. | [#10994](https://github.com/manaflow-ai/cmux/pull/10994), `15121a79e558f908baa718f3efe25cceb99d4e7d`; [#10969](https://github.com/manaflow-ai/cmux/pull/10969), `2e8024606f650c26124adc9e0b71e8d1fb9509ea` | Open | Collapse, focus, and routing tests. |
+| Drop an agent into a terminal without text injection. | [#10401](https://github.com/manaflow-ai/cmux/pull/10401), `46590bacaed87fba46d4ceb5cdacadcafad07833` | Open | Session payload and terminal-drop behavior tests. |
+| Preserve Unicode glyph invariants. | [#11028](https://github.com/manaflow-ai/cmux/pull/11028), source `a703004f4eb714f7a9ecdda774bf54beb1304c0c`, merge `b91d338727659adc55465b989babd076cdaa3baf` | Merged | Hosted verification status is not recorded in this board. |
+
+Closed duplicate fixes: [#11058](https://github.com/manaflow-ai/cmux/pull/11058), head `710e93df3dad1cd3afb9b6c7ee3c45d23e1f807`, and [#11064](https://github.com/manaflow-ai/cmux/pull/11064), head `20a259160353df20c23d08fac6959eb59934e84c`, are closed. These rows are requests and acceptance criteria, not completion claims.
+
+Merged in this snapshot: #11025, #11113, #11028, and #10993. The #11028 hosted verification status remains unrecorded here.
+
 ## Current reconciliation: main `af31628f7b0b2f6c34e184049254fa2fe91f285d`
 
 Audit basis: 2026-08-27T19:39:39Z. Current merged log: [#10984](https://github.com/manaflow-ai/cmux/pull/10984)
