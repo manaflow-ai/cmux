@@ -69,13 +69,13 @@ final class SurfaceCatalog {
     /// A provider call with no remaining caller must not occupy a resource forever when the
     /// provider ignores task cancellation. The deadline starts only after the last caller
     /// detaches, so a slow but observed materialization is still allowed to finish normally.
-    static let defaultAbandonedMaterializationTimeout: Duration = .seconds(30)
-    static let defaultRetiredMaterializationRetention: Duration = .seconds(30)
-    static let defaultCompletedMaterializationRetention: Duration = .seconds(30)
+    nonisolated static let defaultAbandonedMaterializationTimeout: Duration = .seconds(30)
+    nonisolated static let defaultRetiredMaterializationRetention: Duration = .seconds(30)
+    nonisolated static let defaultCompletedMaterializationRetention: Duration = .seconds(30)
     /// The coordinator never allows more than this many tasks from one machine to remain tracked
     /// while cancellation is unresolved. This prevents one unhealthy machine from blocking
     /// unrelated machines while also bounding repeated provider replacements.
-    static let defaultMaximumTrackedMaterializations = 16
+    nonisolated static let defaultMaximumTrackedMaterializations = 16
 
     static let didChangeNotification = Notification.Name("cmux.surfaces.didChange")
 
@@ -466,7 +466,7 @@ final class SurfaceCatalog {
                 return
             }
             guard !Task.isCancelled else { return }
-            await self?.expireCompletedMaterialization(id, token: token)
+            self?.expireCompletedMaterialization(id, token: token)
         }
     }
 
@@ -554,7 +554,7 @@ final class SurfaceCatalog {
                     return
                 }
                 guard !Task.isCancelled else { return }
-                await self?.expireAbandonedMaterialization(id, token: token)
+                self?.expireAbandonedMaterialization(id, token: token)
             }
         }
         inFlightProjects[id] = inFlight
@@ -590,7 +590,7 @@ final class SurfaceCatalog {
                 return
             }
             guard !Task.isCancelled else { return }
-            await self?.evictRetiredMaterialization(token)
+            self?.evictRetiredMaterialization(token)
         }
         guard retiredMaterializationTokens.contains(token) else {
             evictionTask.cancel()
