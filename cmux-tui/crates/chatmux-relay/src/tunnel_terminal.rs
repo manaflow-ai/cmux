@@ -763,6 +763,17 @@ pub async fn start_tunnel_terminal_listener(
     port: u16,
     auth_state: TunnelAuthState,
 ) -> std::io::Result<u16> {
+    // The gateway's capability check ends at this process. Binding any
+    // address other than the fixed IPv4 loopback would turn a local-only
+    // listener into an unauthenticated network terminal service. Keep the
+    // host argument for the test and call-site contract, but fail closed if a
+    // future caller passes a configurable or wildcard address.
+    if host != TUNNEL_TERMINAL_HOST {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "tunnel terminal listener must bind 127.0.0.1",
+        ));
+    }
     let listener = TcpListener::bind((host, port)).await?;
     let bound = listener.local_addr()?.port();
     let connection_slots = Arc::new(Semaphore::new(TUNNEL_MAX_CONNECTIONS));
@@ -1300,5 +1311,29 @@ mod tests {
         assert_eq!(error["code"], "session_limit");
         read_eof(&mut read).await;
         rig.cancel.cancel();
+    }
+
+    #[tokio::test]
+    async fn listener_rejects_non_loopback_bind_addresses() {
+        let spawned = Arc::new(StdMutex::new(Vec::new()));
+        let deps = Arc::new(FakeDeps { spawned: Arc::clone(&spawned) });
+        let manager = Arc::new(PtyManager::with_limits(
+            deps,
+            std::env::temp_dir(),
+            HashMap::new(),
+            1,
+            32,
+            1_048_576,
+        ));
+        let error = start_tunnel_terminal_listener(
+            manager,
+            CancellationToken::new(),
+            "0.0.0.0",
+            0,
+            Arc::new(RwLock::new(TunnelAuthority::default())),
+        )
+        .await
+        .expect_err("wildcard bind must be rejected");
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
     }
 }
