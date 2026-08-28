@@ -499,7 +499,9 @@ final class MobileHostIrxRuntime {
 }
 
 /// Synchronous trust-snapshot reader for the admission path (no actor hop,
-/// no network): reads the JSON the broker service persists.
+/// no network): reads the JSON the broker service persists. The caller passes
+/// the per-bundle, per-broker state directory computed at activation so
+/// admission never reads another build's (or another environment's) cache.
 enum IrxDiskCacheTrustReader {
     /// Reads the trust snapshot from the state directory selected at activation.
     nonisolated static func read(stateDirectory: URL) -> IrxTrustSnapshot? {
