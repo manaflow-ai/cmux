@@ -378,6 +378,9 @@ struct ShellInner {
 #[derive(Clone)]
 struct Attachment {
     closing: Arc<AtomicBool>,
+    /// Serializes operations for this attachment only. The relay state lock
+    /// must never be held while a PTY control method runs.
+    operation_gate: Arc<Mutex<()>>,
     /// Releases this attachment (detach a viewer, close a control stream,
     /// kill a viewer PTY) — never kills a shared session.
     control: Arc<dyn PtyControl>,
@@ -391,6 +394,15 @@ struct OpeningOwner {
     owner: TransportOwner,
 }
 
+#[derive(Default)]
+struct OpeningState {
+    reservations: HashMap<String, OpeningOwner>,
+    /// The owner is part of the cancellation key. A late drop from an old
+    /// reservation cannot clear a marker for a newer reservation of the same
+    /// pty id.
+    cancelled: HashMap<String, OpeningOwner>,
+}
+
 struct Inner {
     deps: Arc<dyn PtyDeps>,
     home: PathBuf,
@@ -399,9 +411,9 @@ struct Inner {
     scrollback_limit: usize,
     output_cap: u64,
     attachments: Mutex<HashMap<String, Attachment>>,
-    /// ptyId -> typed transport that reserved it.
-    opening_ids: Mutex<HashMap<String, OpeningOwner>>,
-    cancelled_openings: Mutex<std::collections::HashSet<String>>,
+    /// Reservations and cancellation markers share one lock so close and
+    /// open cannot observe a gap between the two states.
+    opening_state: Mutex<OpeningState>,
     shell_sessions: Mutex<HashMap<String, Arc<ShellSession>>>,
     shell_starting: Mutex<HashMap<String, Arc<Notify>>>,
     /// Authentication is scoped to the transport that owns an attachment.
@@ -409,10 +421,9 @@ struct Inner {
     /// one global snapshot would let the last frame on either transport
     /// authorize asynchronous output for every other attachment.
     transport_auth: Mutex<HashMap<TransportOwner, AuthSnapshot>>,
-    /// Serializes tunnel authorization side effects with authority revocation.
-    /// The lock is held only across synchronous PTY operations and final
-    /// attachment installation, never across provider awaits.
-    tunnel_lifecycle: Mutex<()>,
+    /// Serializes short authority and attachment state transitions. It is
+    /// never held while a PTY control method, callback, or provider await runs.
+    tunnel_state: Mutex<()>,
     /// Monotonic floor for managed tunnel authority generations. It remains
     /// effective while a stale open is still unwinding after revocation.
     tunnel_authority_generation: AtomicU64,
@@ -443,12 +454,13 @@ struct OpeningReservation {
 impl Drop for OpeningReservation {
     fn drop(&mut self) {
         if self.active {
-            let mut opening = self.inner.opening_ids.lock().expect("opening lock");
-            if opening.get(&self.id) == Some(&self.owner) {
-                opening.remove(&self.id);
+            let mut state = self.inner.opening_state.lock().expect("opening state lock");
+            if state.reservations.get(&self.id) == Some(&self.owner) {
+                state.reservations.remove(&self.id);
+                if state.cancelled.get(&self.id) == Some(&self.owner) {
+                    state.cancelled.remove(&self.id);
+                }
             }
-            drop(opening);
-            self.inner.cancelled_openings.lock().expect("cancelled openings lock").remove(&self.id);
         }
     }
 }
@@ -468,12 +480,11 @@ impl PtyManager {
                 scrollback_limit: SCROLLBACK_LIMIT,
                 output_cap: OUTPUT_BUFFER_CAP,
                 attachments: Mutex::new(HashMap::new()),
-                opening_ids: Mutex::new(HashMap::new()),
-                cancelled_openings: Mutex::new(std::collections::HashSet::new()),
+                opening_state: Mutex::new(OpeningState::default()),
                 shell_sessions: Mutex::new(HashMap::new()),
                 shell_starting: Mutex::new(HashMap::new()),
                 transport_auth: Mutex::new(HashMap::new()),
-                tunnel_lifecycle: Mutex::new(()),
+                tunnel_state: Mutex::new(()),
                 tunnel_authority_generation: AtomicU64::new(0),
             }),
         }
@@ -496,12 +507,11 @@ impl PtyManager {
                 scrollback_limit,
                 output_cap,
                 attachments: Mutex::new(HashMap::new()),
-                opening_ids: Mutex::new(HashMap::new()),
-                cancelled_openings: Mutex::new(std::collections::HashSet::new()),
+                opening_state: Mutex::new(OpeningState::default()),
                 shell_sessions: Mutex::new(HashMap::new()),
                 shell_starting: Mutex::new(HashMap::new()),
                 transport_auth: Mutex::new(HashMap::new()),
-                tunnel_lifecycle: Mutex::new(()),
+                tunnel_state: Mutex::new(()),
                 tunnel_authority_generation: AtomicU64::new(0),
             }),
         }
@@ -517,7 +527,6 @@ impl PtyManager {
             "pty_open" => self.inner.clone().open(frame, context).await,
             "pty_input" => {
                 let Some(pty_id) = frame.get("ptyId").and_then(Value::as_str) else { return };
-                let _lifecycle = self.inner.tunnel_lifecycle_guard(context);
                 if !self.inner.tunnel_authority_generation_current(context) {
                     return;
                 }
@@ -532,13 +541,12 @@ impl PtyManager {
                 else {
                     return;
                 };
-                if let Some(attachment) = self.inner.authorize(pty_id, context, "input") {
+                self.inner.with_authorized(pty_id, context, "input", |attachment| {
                     attachment.control.write(&data);
-                }
+                });
             }
             "pty_resize" => {
                 let Some(pty_id) = frame.get("ptyId").and_then(Value::as_str) else { return };
-                let _lifecycle = self.inner.tunnel_lifecycle_guard(context);
                 if !self.inner.tunnel_authority_generation_current(context) {
                     return;
                 }
@@ -550,13 +558,12 @@ impl PtyManager {
                 else {
                     return;
                 };
-                if let Some(attachment) = self.inner.authorize(pty_id, context, "resize") {
+                self.inner.with_authorized(pty_id, context, "resize", |attachment| {
                     attachment.control.resize(cols, rows);
-                }
+                });
             }
             "pty_flow" => {
                 let Some(pty_id) = frame.get("ptyId").and_then(Value::as_str) else { return };
-                let _lifecycle = self.inner.tunnel_lifecycle_guard(context);
                 if !self.inner.tunnel_authority_generation_current(context) {
                     return;
                 }
@@ -564,17 +571,16 @@ impl PtyManager {
                     return;
                 }
                 let pause = frame.get("pause").and_then(Value::as_bool).unwrap_or(false);
-                if let Some(attachment) = self.inner.authorize(pty_id, context, "flow") {
+                self.inner.with_authorized(pty_id, context, "flow", |attachment| {
                     if pause {
                         attachment.control.pause();
                     } else {
                         attachment.control.resume();
                     }
-                }
+                });
             }
             "pty_close" => {
                 let Some(pty_id) = frame.get("ptyId").and_then(Value::as_str) else { return };
-                let _lifecycle = self.inner.tunnel_lifecycle_guard(context);
                 if !self.inner.tunnel_authority_generation_current(context) {
                     return;
                 }
@@ -593,7 +599,7 @@ impl PtyManager {
     /// Network frames never get to replace an existing snapshot implicitly.
     pub fn update_transport_auth(&self, context: &FrameContext) {
         debug_assert!(context.transport_id.is_some(), "transport refresh needs an id");
-        let _lifecycle = self.inner.tunnel_lifecycle_guard(context);
+        let _state = self.inner.tunnel_state.lock().expect("tunnel state lock");
         if !self.inner.tunnel_authority_generation_current(context) {
             return;
         }
@@ -608,7 +614,7 @@ impl PtyManager {
     /// matching snapshot. A stale in-flight frame cannot recreate a removed
     /// transport entry after this point.
     pub fn set_tunnel_authority_generation(&self, generation: u64) {
-        let _lifecycle = self.inner.tunnel_lifecycle.lock().expect("tunnel lifecycle lock");
+        let _state = self.inner.tunnel_state.lock().expect("tunnel state lock");
         let mut current = self.inner.tunnel_authority_generation.load(Ordering::Acquire);
         while generation > current {
             match self.inner.tunnel_authority_generation.compare_exchange_weak(
@@ -661,43 +667,48 @@ impl PtyManager {
     /// tunnel authority on disconnect or trust renegotiation; existing tunnel
     /// viewers must lose their attachments at the same boundary.
     pub fn detach_tunnel_transports(&self) {
-        let _lifecycle = self.inner.tunnel_lifecycle.lock().expect("tunnel lifecycle lock");
-        self.detach_matching_unlocked(|owner| owner.kind == TransportKind::Tunnel);
+        self.detach_matching(|owner| owner.kind == TransportKind::Tunnel);
     }
 
     fn detach_matching(&self, owns: impl Fn(&TransportOwner) -> bool) {
-        let _lifecycle = self.inner.tunnel_lifecycle.lock().expect("tunnel lifecycle lock");
-        self.detach_matching_unlocked(owns);
-    }
-
-    fn detach_matching_unlocked(&self, owns: impl Fn(&TransportOwner) -> bool) {
-        // Openings first: close() records cancellation for a reserved id, so
-        // a late open cannot install an attachment after its transport died.
-        let mut ids: Vec<String> = {
-            let opening = self.inner.opening_ids.lock().expect("opening lock");
-            opening
-                .iter()
-                .filter(|(_, owner)| owns(&owner.owner))
-                .map(|(id, _)| id.clone())
-                .collect()
-        };
-        {
-            let attachments = self.inner.attachments.lock().expect("attach lock");
-            ids.extend(
-                attachments
-                    .iter()
-                    .filter(|(_, attachment)| owns(&attachment.owner))
-                    .map(|(id, _)| id.clone()),
-            );
-        }
-        for id in ids {
-            self.inner.close(&id);
-        }
+        // The state lock couples authority transitions with the final open
+        // install. PTY kill calls happen after it is released, so one slow
+        // attachment cannot block unrelated tunnel operations.
+        let _state = self.inner.tunnel_state.lock().expect("tunnel state lock");
         self.inner
             .transport_auth
             .lock()
             .expect("transport auth lock")
             .retain(|owner, _| !owns(owner));
+        let mut retired = Vec::new();
+        {
+            let mut opening = self.inner.opening_state.lock().expect("opening state lock");
+            let cancelled: Vec<(String, OpeningOwner)> = opening
+                .reservations
+                .iter()
+                .filter(|(_, owner)| owns(&owner.owner))
+                .map(|(id, owner)| (id.clone(), owner.clone()))
+                .collect();
+            for (id, owner) in cancelled {
+                opening.cancelled.insert(id, owner);
+            }
+
+            let mut attachments = self.inner.attachments.lock().expect("attach lock");
+            let ids: Vec<String> = attachments
+                .iter()
+                .filter(|(_, attachment)| owns(&attachment.owner))
+                .map(|(id, _)| id.clone())
+                .collect();
+            for id in ids {
+                if let Some(attachment) = attachments.remove(&id) {
+                    retired.push(attachment);
+                }
+            }
+        }
+        drop(_state);
+        for attachment in retired {
+            self.inner.retire_attachment(attachment);
+        }
     }
 }
 
@@ -760,19 +771,18 @@ impl Inner {
         let fail = |code: &str, message: &str| send_pty_error(context, &pty_id, code, message);
         let reservation_owner = OpeningOwner { owner: TransportOwner::from_context(context) };
         let reservation_result = {
-            let mut opening = self.opening_ids.lock().expect("opening lock");
-            let attached = self.attachments.lock().expect("attach lock").contains_key(&pty_id);
-            if attached || opening.contains_key(&pty_id) {
+            let _state = self.tunnel_state.lock().expect("tunnel state lock");
+            let mut opening = self.opening_state.lock().expect("opening state lock");
+            let attachments = self.attachments.lock().expect("attach lock");
+            if attachments.contains_key(&pty_id) || opening.reservations.contains_key(&pty_id) {
                 Err(("bad_request", "ptyId is already attached".to_owned()))
-            } else if self.attachments.lock().expect("attach lock").len() + opening.len()
-                >= self.max_ptys
-            {
+            } else if attachments.len() + opening.reservations.len() >= self.max_ptys {
                 Err((
                     "session_limit",
                     format!("this relay caps concurrent terminals at {}", self.max_ptys),
                 ))
             } else {
-                opening.insert(pty_id.clone(), reservation_owner.clone());
+                opening.reservations.insert(pty_id.clone(), reservation_owner.clone());
                 Ok(())
             }
         };
@@ -929,62 +939,62 @@ impl Inner {
         };
 
         // Keep the opening reservation held until the attachment is installed.
-        // `close` takes this lock first, so it cannot observe a gap between
-        // removing the opening marker and inserting the attachment.
-        let _lifecycle = self.tunnel_lifecycle_guard(context);
-        let mut opening = self.opening_ids.lock().expect("opening lock");
-        let cancelled =
-            self.cancelled_openings.lock().expect("cancelled openings lock").remove(&pty_id);
-        let auth_changed = self
-            .transport_auth
-            .lock()
-            .expect("transport auth lock")
-            .get(&TransportOwner::from_context(context))
-            .is_none_or(|auth| {
-                auth.trust != context.trust
-                    || auth.local_roots != context.local_roots
-                    || auth.owner_user_id != context.owner_user_id
-                    || auth.auth_generation != context.auth_generation
-                    || auth.transport_kind != context.transport_kind
-            });
-        let authority_changed = !self.tunnel_authority_generation_current(context);
-        let reservation_owned = opening.get(&pty_id) == Some(&reservation_owner);
-        if !reservation_owned || cancelled || auth_changed || authority_changed {
-            if reservation_owned {
-                opening.remove(&pty_id);
+        // The short state lock couples this transition with revocation, while
+        // no PTY operation runs under it.
+        let (surface, start, previous) = {
+            let _state = self.tunnel_state.lock().expect("tunnel state lock");
+            let auth_changed = self
+                .transport_auth
+                .lock()
+                .expect("transport auth lock")
+                .get(&TransportOwner::from_context(context))
+                .is_none_or(|auth| {
+                    auth.trust != context.trust
+                        || auth.local_roots != context.local_roots
+                        || auth.owner_user_id != context.owner_user_id
+                        || auth.auth_generation != context.auth_generation
+                        || auth.transport_kind != context.transport_kind
+                });
+            let mut opening = self.opening_state.lock().expect("opening state lock");
+            let cancelled = opening.cancelled.get(&pty_id) == Some(&reservation_owner);
+            let authority_changed = !self.tunnel_authority_generation_current(context);
+            let reservation_owned =
+                opening.reservations.get(&pty_id) == Some(&reservation_owner);
+            if !reservation_owned || cancelled || auth_changed || authority_changed {
+                if reservation_owned {
+                    opening.reservations.remove(&pty_id);
+                }
+                if opening.cancelled.get(&pty_id) == Some(&reservation_owner) {
+                    opening.cancelled.remove(&pty_id);
+                }
+                reservation.active = false;
+                return;
             }
-            drop(opening);
+            // The value is now owned by the attachment map. Its Drop handler
+            // must not release a live viewer when this local is consumed below.
+            opened.cleanup_on_drop = false;
+            let closing = opened.closing.take().expect("opened closing handle");
+            let control = opened.control.take().expect("opened control handle");
+            let start = opened.start.take().expect("opened start callback");
+            let surface = opened.surface.take();
+            let previous = self.attachments.lock().expect("attach lock").insert(
+                pty_id.clone(),
+                Attachment {
+                    closing,
+                    operation_gate: Arc::new(Mutex::new(())),
+                    control,
+                    actor_id: actor.to_owned(),
+                    owner: TransportOwner::from_context(context),
+                },
+            );
+            opening.reservations.remove(&pty_id);
+            opening.cancelled.remove(&pty_id);
             reservation.active = false;
-            return;
-        }
-        // The value is now owned by the attachment map. Its Drop handler
-        // must not release a live viewer when this local is consumed below.
-        opened.cleanup_on_drop = false;
-        let closing = opened.closing.take().expect("opened closing handle");
-        let control = opened.control.take().expect("opened control handle");
-        let start = opened.start.take().expect("opened start callback");
-        let surface = opened.surface.take();
-        let previous = self.attachments.lock().expect("attach lock").insert(
-            pty_id.clone(),
-            Attachment {
-                closing,
-                control,
-                actor_id: actor.to_owned(),
-                owner: TransportOwner::from_context(context),
-            },
-        );
+            (surface, start, previous)
+        };
         if let Some(previous) = previous {
-            previous.closing.store(true, Ordering::SeqCst);
-            previous.control.kill();
+            self.retire_attachment(previous);
         }
-        opening.remove(&pty_id);
-        drop(opening);
-        reservation.active = false;
-
-        // The attachment is installed. Release the lifecycle guard before
-        // callbacks: `start` can synchronously emit output, which takes this
-        // guard again.
-        drop(_lifecycle);
 
         let mut opened_frame = serde_json::Map::new();
         opened_frame.insert("version".to_owned(), Value::from(PTY_PROTOCOL_VERSION));
@@ -1024,14 +1034,19 @@ impl Inner {
     }
 
     fn emit_output(&self, pty_id: &str, chunk: &Bytes, context: &FrameContext) {
-        let _lifecycle = self.tunnel_lifecycle_guard(context);
         if !self.tunnel_authority_generation_current(context) {
             return;
         }
         let Some(auth) = self.auth_for_transport(context) else {
             return;
         };
-        if self.authorize_snapshot(pty_id, &auth, context, "output").is_none() {
+        let Some(attachment) = self.attachment(pty_id) else {
+            return;
+        };
+        let _operation = attachment.operation_gate.lock().expect("attachment operation lock");
+        if !self.attachment_is_authorized(pty_id, &attachment, &auth, context) {
+            drop(_operation);
+            self.handle_authorization_failure(pty_id, &attachment, &auth, context, "output");
             return;
         }
         // Zero-byte chunks carry nothing and historically crashed the web
@@ -1044,7 +1059,8 @@ impl Inner {
         // frame exactly at the cap, but must reject one that would push the
         // buffered amount over the cap.
         if buffered.saturating_add(chunk.len() as u64) > self.output_cap {
-            self.close(pty_id);
+            drop(_operation);
+            self.retire_if_current(pty_id, &attachment);
             send_pty_error(
                 context,
                 pty_id,
@@ -1065,23 +1081,34 @@ impl Inner {
     }
 
     fn emit_exit(&self, pty_id: &str, code: i64, context: &FrameContext) {
-        let _lifecycle = self.tunnel_lifecycle_guard(context);
         if !self.tunnel_authority_generation_current(context) {
             return;
         }
         let Some(auth) = self.auth_for_transport(context) else {
             return;
         };
-        if self.authorize_snapshot(pty_id, &auth, context, "exit").is_none() {
+        let Some(attachment) = self.attachment(pty_id) else {
+            return;
+        };
+        let _operation = attachment.operation_gate.lock().expect("attachment operation lock");
+        if !self.attachment_is_authorized(pty_id, &attachment, &auth, context) {
+            drop(_operation);
+            self.handle_authorization_failure(pty_id, &attachment, &auth, context, "exit");
             return;
         }
-        let mut attachments = self.attachments.lock().expect("attach lock");
-        match attachments.get(pty_id) {
-            Some(attachment) if !attachment.closing.load(Ordering::SeqCst) => {}
-            _ => return,
+        let removed = {
+            let _state = self.tunnel_state.lock().expect("tunnel state lock");
+            let mut attachments = self.attachments.lock().expect("attach lock");
+            let same = attachments
+                .get(pty_id)
+                .is_some_and(|current| Arc::ptr_eq(&current.operation_gate, &attachment.operation_gate));
+            if same { attachments.remove(pty_id).is_some() } else { false }
+        };
+        if !removed {
+            return;
         }
-        attachments.remove(pty_id);
-        drop(attachments);
+        attachment.closing.store(true, Ordering::SeqCst);
+        drop(_operation);
         (auth.send)(json!({
             "version": PTY_PROTOCOL_VERSION,
             "type": "pty_exit",
@@ -1093,20 +1120,18 @@ impl Inner {
     /// Detach, NOT kill: idempotent, unknown ptyId tolerated.
     fn close(&self, pty_id: &str) {
         // Match `open`'s lock order. If opening still owns the reservation,
-        // record cancellation and let it dispose the newly opened PTY.
-        let opening = self.opening_ids.lock().expect("opening lock");
-        if opening.contains_key(pty_id) {
-            self.cancelled_openings
-                .lock()
-                .expect("cancelled openings lock")
-                .insert(pty_id.to_owned());
-            return;
-        }
-        drop(opening);
-        let attachment = self.attachments.lock().expect("attach lock").remove(pty_id);
+        // record an owner-specific cancellation and let it dispose the PTY.
+        let attachment = {
+            let _state = self.tunnel_state.lock().expect("tunnel state lock");
+            let mut opening = self.opening_state.lock().expect("opening state lock");
+            if let Some(owner) = opening.reservations.get(pty_id).cloned() {
+                opening.cancelled.insert(pty_id.to_owned(), owner);
+                return;
+            }
+            self.attachments.lock().expect("attach lock").remove(pty_id)
+        };
         if let Some(attachment) = attachment {
-            attachment.closing.store(true, Ordering::SeqCst);
-            attachment.control.kill();
+            self.retire_attachment(attachment);
         }
     }
 
@@ -1115,20 +1140,38 @@ impl Inner {
     /// transport may not act on it. A `None` caller owns everything (legacy).
     fn transport_owns(&self, pty_id: &str, context: &FrameContext) -> bool {
         let Some(transport_id) = context.transport_id.as_deref() else { return true };
+        if let Some(owner) = self
+            .opening_state
+            .lock()
+            .expect("opening state lock")
+            .reservations
+            .get(pty_id)
+            .cloned()
+        {
+            return owner.owner.id.as_deref() == Some(transport_id)
+                && owner.owner.kind == context.transport_kind;
+        }
         if let Some(attachment) = self.attachments.lock().expect("attach lock").get(pty_id) {
             return attachment.owner.id.as_deref() == Some(transport_id)
                 && attachment.owner.kind == context.transport_kind;
         }
-        if let Some(owner) = self.opening_ids.lock().expect("opening lock").get(pty_id) {
-            return owner.owner.id.as_deref() == Some(transport_id)
-                && owner.owner.kind == context.transport_kind;
-        }
         true
     }
 
-    fn authorize(&self, pty_id: &str, context: &FrameContext, action: &str) -> Option<Attachment> {
-        let auth = self.auth_for_transport(context)?;
-        self.authorize_snapshot(pty_id, &auth, context, action)
+    fn with_authorized<F>(&self, pty_id: &str, context: &FrameContext, action: &str, operation: F)
+    where
+        F: FnOnce(&Attachment),
+    {
+        let Some(auth) = self.auth_for_transport(context) else { return };
+        let Some(attachment) = self.attachment(pty_id) else { return };
+        let operation_gate = Arc::clone(&attachment.operation_gate);
+        let _operation = operation_gate.lock().expect("attachment operation lock");
+        if !self.attachment_is_authorized(pty_id, &attachment, &auth, context) {
+            drop(_operation);
+            self.handle_authorization_failure(pty_id, &attachment, &auth, context, action);
+            return;
+        }
+        operation(&attachment);
     }
 
     fn auth_for_transport(&self, context: &FrameContext) -> Option<AuthSnapshot> {
@@ -1136,35 +1179,119 @@ impl Inner {
         self.transport_auth.lock().expect("transport auth lock").get(&key).cloned()
     }
 
-    fn authorize_snapshot(
+    fn attachment(&self, pty_id: &str) -> Option<Attachment> {
+        self.attachments.lock().expect("attach lock").get(pty_id).cloned()
+    }
+
+    fn attachment_is_authorized(
         &self,
         pty_id: &str,
+        attachment: &Attachment,
         auth: &AuthSnapshot,
         context: &FrameContext,
-        action: &str,
-    ) -> Option<Attachment> {
-        let attachment = self.attachments.lock().expect("attach lock").get(pty_id)?.clone();
+    ) -> bool {
         let owner = auth.owner_user_id.as_deref();
-        let allowed = !auth.trust.is_empty()
+        let trust_allowed = !auth.trust.is_empty()
             && (auth.trust != "observe"
                 || (owner.is_some() && owner == Some(attachment.actor_id.as_str())));
-        if allowed {
-            Some(attachment)
-        } else {
-            self.close(pty_id);
-            send_pty_error(
-                context,
-                pty_id,
-                "trust_revoked",
-                &format!("PTY {action} refused after trust change"),
-            );
-            None
-        }
+        trust_allowed
+            && !attachment.closing.load(Ordering::SeqCst)
+            && self.tunnel_authority_generation_current(context)
+            && self.attachment_is_current(pty_id, attachment)
+            && self.transport_auth_is_current(context, auth)
+            && (context.transport_id.is_none()
+                || (attachment.owner.id == context.transport_id
+                    && attachment.owner.kind == context.transport_kind))
     }
 
     fn close_authorized(&self, pty_id: &str, context: &FrameContext) {
-        let _ = self.authorize(pty_id, context, "close");
-        self.close(pty_id);
+        let Some(auth) = self.auth_for_transport(context) else { return };
+        let Some(attachment) = self.attachment(pty_id) else { return };
+        let _operation = attachment.operation_gate.lock().expect("attachment operation lock");
+        if !self.attachment_is_authorized(pty_id, &attachment, &auth, context) {
+            drop(_operation);
+            self.handle_authorization_failure(pty_id, &attachment, &auth, context, "close");
+            return;
+        }
+        let removed = {
+            let _state = self.tunnel_state.lock().expect("tunnel state lock");
+            let mut attachments = self.attachments.lock().expect("attach lock");
+            let same = attachments
+                .get(pty_id)
+                .is_some_and(|current| Arc::ptr_eq(&current.operation_gate, &attachment.operation_gate));
+            if same { attachments.remove(pty_id).is_some() } else { false }
+        };
+        if removed {
+            attachment.closing.store(true, Ordering::SeqCst);
+            attachment.control.kill();
+        }
+    }
+
+    fn attachment_is_current(&self, pty_id: &str, attachment: &Attachment) -> bool {
+        self.attachments.lock().expect("attach lock").get(pty_id).is_some_and(|current| {
+            Arc::ptr_eq(&current.operation_gate, &attachment.operation_gate)
+        })
+    }
+
+    fn transport_auth_is_current(&self, context: &FrameContext, auth: &AuthSnapshot) -> bool {
+        self.transport_auth
+            .lock()
+            .expect("transport auth lock")
+            .get(&TransportOwner::from_context(context))
+            .is_some_and(|current| {
+                current.trust == auth.trust
+                    && current.local_roots == auth.local_roots
+                    && current.owner_user_id == auth.owner_user_id
+                    && current.auth_generation == auth.auth_generation
+                    && current.transport_kind == auth.transport_kind
+            })
+    }
+
+    fn handle_authorization_failure(
+        &self,
+        pty_id: &str,
+        attachment: &Attachment,
+        auth: &AuthSnapshot,
+        context: &FrameContext,
+        action: &str,
+    ) {
+        let trust_allowed = !auth.trust.is_empty()
+            && (auth.trust != "observe"
+                || (auth.owner_user_id.is_some()
+                    && auth.owner_user_id.as_deref() == Some(attachment.actor_id.as_str())));
+        if trust_allowed
+            && self.tunnel_authority_generation_current(context)
+            && self.transport_auth_is_current(context, auth)
+        {
+            return;
+        }
+        self.retire_if_current(pty_id, attachment);
+        send_pty_error(
+            context,
+            pty_id,
+            "trust_revoked",
+            &format!("PTY {action} refused after trust change"),
+        );
+    }
+
+    fn retire_if_current(&self, pty_id: &str, attachment: &Attachment) {
+        let removed = {
+            let _state = self.tunnel_state.lock().expect("tunnel state lock");
+            let mut attachments = self.attachments.lock().expect("attach lock");
+            let same = attachments
+                .get(pty_id)
+                .is_some_and(|current| Arc::ptr_eq(&current.operation_gate, &attachment.operation_gate));
+            if same { attachments.remove(pty_id) } else { None }
+        };
+        if let Some(removed) = removed {
+            self.retire_attachment(removed);
+        }
+    }
+
+    fn retire_attachment(&self, attachment: Attachment) {
+        let _operation = attachment.operation_gate.lock().expect("attachment operation lock");
+        attachment.closing.store(true, Ordering::SeqCst);
+        attachment.control.kill();
     }
 }
 
@@ -1213,16 +1340,8 @@ fn drive_handle(
 }
 
 impl Inner {
-    fn tunnel_lifecycle_guard(
-        &self,
-        context: &FrameContext,
-    ) -> Option<std::sync::MutexGuard<'_, ()>> {
-        (context.transport_kind == TransportKind::Tunnel)
-            .then(|| self.tunnel_lifecycle.lock().expect("tunnel lifecycle lock"))
-    }
-
     fn cache_transport_auth(&self, context: &FrameContext) -> bool {
-        let _lifecycle = self.tunnel_lifecycle_guard(context);
+        let _state = self.tunnel_state.lock().expect("tunnel state lock");
         if !self.tunnel_authority_generation_current(context) {
             return false;
         }
@@ -2187,7 +2306,6 @@ impl Inner {
                 }));
             }
         }
-        let _lifecycle = self.tunnel_lifecycle_guard(context);
         if !self.tunnel_authority_generation_current(context) {
             return;
         }
@@ -2288,7 +2406,7 @@ mod tests {
     use crate::control::{CloseHandler, EventHandler};
     use std::future::Future;
     use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
-    use std::sync::{Arc as TestArc, Barrier, Mutex as StdMutex};
+    use std::sync::{Arc as TestArc, Barrier, Mutex as StdMutex, mpsc::sync_channel};
     use std::thread;
 
     static NEXT_TEST_DIRECTORY: AtomicU64 = AtomicU64::new(0);
@@ -2384,6 +2502,23 @@ mod tests {
             state.on_data = Some(on_data);
             state.on_exit = Some(on_exit);
         }
+    }
+
+    struct BlockingControl {
+        entered: Arc<Barrier>,
+        release: Arc<Barrier>,
+    }
+
+    impl PtyControl for BlockingControl {
+        fn write(&self, _data: &[u8]) {
+            self.entered.wait();
+            self.release.wait();
+        }
+
+        fn resize(&self, _cols: u16, _rows: u16) {}
+        fn pause(&self) {}
+        fn resume(&self) {}
+        fn kill(&self) {}
     }
 
     #[derive(Default)]
@@ -3094,6 +3229,121 @@ mod tests {
         // A caller with no transport identity owns the whole manager (legacy).
         h.manager.handle_frame(&close, &h.context("supervised", h.owner.clone())).await;
         assert!(!h.manager.has_attachment("p1"));
+    }
+
+    #[test]
+    fn tunnel_operations_on_different_attachments_do_not_share_a_gate() {
+        let h = harness(None, None);
+        let inner = Arc::clone(&h.manager.inner);
+        let entered = Arc::new(Barrier::new(2));
+        let release = Arc::new(Barrier::new(2));
+        let slow: Arc<dyn PtyControl> = Arc::new(BlockingControl {
+            entered: Arc::clone(&entered),
+            release: Arc::clone(&release),
+        });
+        let fast = FakePty {
+            state: Arc::new(StdMutex::new(FakeState::default())),
+            spawn_file: String::new(),
+            spawn_cwd: PathBuf::new(),
+            spawn_term: String::new(),
+        };
+        let owner_a = TransportOwner {
+            id: Some("tunnel-a".to_owned()),
+            kind: TransportKind::Tunnel,
+        };
+        let owner_b = TransportOwner {
+            id: Some("tunnel-b".to_owned()),
+            kind: TransportKind::Tunnel,
+        };
+        {
+            let mut attachments = inner.attachments.lock().unwrap();
+            attachments.insert(
+                "p1".to_owned(),
+                Attachment {
+                    closing: Arc::new(AtomicBool::new(false)),
+                    operation_gate: Arc::new(Mutex::new(())),
+                    control: slow,
+                    actor_id: "user_owner".to_owned(),
+                    owner: owner_a.clone(),
+                },
+            );
+            attachments.insert(
+                "p2".to_owned(),
+                Attachment {
+                    closing: Arc::new(AtomicBool::new(false)),
+                    operation_gate: Arc::new(Mutex::new(())),
+                    control: Arc::new(fast),
+                    actor_id: "user_owner".to_owned(),
+                    owner: owner_b.clone(),
+                },
+            );
+        }
+        let mut context_a = h.context_with_transport("supervised", h.owner.clone(), Some("tunnel-a"));
+        let mut context_b = h.context_with_transport("supervised", h.owner.clone(), Some("tunnel-b"));
+        context_a.transport_kind = TransportKind::Tunnel;
+        context_b.transport_kind = TransportKind::Tunnel;
+        inner.cache_transport_auth(&context_a);
+        inner.cache_transport_auth(&context_b);
+
+        let slow_inner = Arc::clone(&inner);
+        let slow_context = context_a.clone();
+        let slow_thread = thread::spawn(move || {
+            slow_inner.with_authorized("p1", &slow_context, "input", |attachment| {
+                attachment.control.write(b"slow");
+            });
+        });
+        entered.wait();
+
+        let (done_tx, done_rx) = sync_channel(1);
+        let fast_inner = Arc::clone(&inner);
+        let fast_context = context_b.clone();
+        let fast_thread = thread::spawn(move || {
+            fast_inner.with_authorized("p2", &fast_context, "input", |attachment| {
+                attachment.control.write(b"fast");
+            });
+            done_tx.send(()).unwrap();
+        });
+        assert!(done_rx.recv_timeout(Duration::from_secs(1)).is_ok());
+        release.wait();
+        slow_thread.join().unwrap();
+        fast_thread.join().unwrap();
+    }
+
+    #[test]
+    fn an_old_open_drop_cannot_clear_a_new_owner_cancellation_marker() {
+        let h = harness(None, None);
+        let inner = Arc::clone(&h.manager.inner);
+        let id = "reused".to_owned();
+        let owner_a = OpeningOwner {
+            owner: TransportOwner {
+                id: Some("tunnel-a".to_owned()),
+                kind: TransportKind::Tunnel,
+            },
+        };
+        let owner_b = OpeningOwner {
+            owner: TransportOwner {
+                id: Some("tunnel-b".to_owned()),
+                kind: TransportKind::Tunnel,
+            },
+        };
+        let old = OpeningReservation {
+            inner: Arc::clone(&inner),
+            id: id.clone(),
+            owner: owner_a.clone(),
+            active: true,
+        };
+        {
+            let mut state = inner.opening_state.lock().unwrap();
+            state.reservations.insert(id.clone(), owner_a.clone());
+            state.cancelled.insert(id.clone(), owner_a.clone());
+            state.reservations.remove(&id);
+            state.reservations.insert(id.clone(), owner_b.clone());
+            state.cancelled.insert(id.clone(), owner_b.clone());
+        }
+        drop(old);
+        let state = inner.opening_state.lock().unwrap();
+        assert_eq!(state.reservations.get(&id), Some(&owner_b));
+        assert_eq!(state.cancelled.get(&id), Some(&owner_b));
     }
 
     #[tokio::test]
