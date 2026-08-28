@@ -6,32 +6,32 @@ extension CMUXCLI {
         switch object {
         case let dictionary as [String: Any]:
             var selected: [String: Any] = [:]
+            let commandContainsPrivateEnvironment = (dictionary["environment"] as? [String: Any])?
+                .keys
+                .contains(where: isPrivateSubrouterRoutingKey) == true
             for (key, value) in dictionary
-                where !key.hasPrefix("SUBROUTER_CODEX_")
-                    && key != SubrouterCodexResumeRouting.launchBoundEnvironmentKey
-                    && key != "CMUX_CUSTOM_CODEX_PATH" {
-                selected[key] = publicSurfaceResumePayload(value)
+                where !isPrivateSubrouterRoutingKey(key) {
+                if key == "command", commandContainsPrivateEnvironment {
+                    selected[key] = NSNull()
+                } else if key == "arguments", let arguments = value as? [String] {
+                    selected[key] = SubrouterCodexResumeRouting()
+                        .removingPrivateRoutingArguments(from: arguments)
+                } else {
+                    selected[key] = publicSurfaceResumePayload(value)
+                }
             }
             return selected
         case let array as [Any]:
             return array.map(publicSurfaceResumePayload)
-        case let value as String where containsPrivateSubrouterRoutingMetadata(value):
-            return NSNull()
         default:
             return object
         }
     }
 
-    private func containsPrivateSubrouterRoutingMetadata(_ value: String) -> Bool {
-        if value.contains("SUBROUTER_CODEX_") || value.contains("model_providers.subrouter.") {
-            return true
-        }
-        let normalized = value.filter {
-            !$0.isWhitespace && $0 != "\"" && $0 != "'"
-        }
-        // `sr`/`subrouter`/`cx` are user-facing launcher names and remain public;
-        // only captured routing inputs and internal provider configuration are private.
-        return normalized.contains("model_provider=subrouter")
+    private func isPrivateSubrouterRoutingKey(_ key: String) -> Bool {
+        key.hasPrefix("SUBROUTER_CODEX_")
+            || key == SubrouterCodexResumeRouting.launchBoundEnvironmentKey
+            || key == "CMUX_CUSTOM_CODEX_PATH"
     }
 
     func jsonString(_ object: Any) -> String {

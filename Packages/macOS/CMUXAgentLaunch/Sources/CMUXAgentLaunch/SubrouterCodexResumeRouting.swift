@@ -160,6 +160,36 @@ public struct SubrouterCodexResumeRouting: Sendable, Equatable {
         return selected
     }
 
+    /// Removes only actual pre-terminator Subrouter configuration options from
+    /// an argv intended for a public status surface. Prompt text and the literal
+    /// `--` suffix remain byte-for-byte intact.
+    public func removingPrivateRoutingArguments(from arguments: [String]) -> [String] {
+        var selected: [String] = []
+        var index = 0
+        while index < arguments.count {
+            let argument = arguments[index]
+            if argument == "--" {
+                selected.append(contentsOf: arguments[index...])
+                break
+            }
+            if (argument == "-c" || argument == "--config"), index + 1 < arguments.count,
+               isPrivateSubrouterRoutingAssignment(arguments[index + 1]) {
+                index += 2
+                continue
+            }
+            if ["-c=", "--config="].contains(where: { prefix in
+                argument.hasPrefix(prefix)
+                    && isPrivateSubrouterRoutingAssignment(String(argument.dropFirst(prefix.count)))
+            }) {
+                index += 1
+                continue
+            }
+            selected.append(argument)
+            index += 1
+        }
+        return selected
+    }
+
     private func launchArgumentsContainSubrouterProvider(_ arguments: [String]) -> Bool {
         var effectiveProvider: String?
         var index = 0
@@ -207,6 +237,17 @@ public struct SubrouterCodexResumeRouting: Sendable, Equatable {
         guard parts.count == 2 else { return false }
         let key = parts[0].trimmingCharacters(in: .whitespacesAndNewlines)
         return key == "model_provider" || key.hasPrefix("model_providers.subrouter.")
+    }
+
+    private func isPrivateSubrouterRoutingAssignment(_ rawValue: String) -> Bool {
+        if modelProviderAssignment(in: rawValue) == "subrouter" {
+            return true
+        }
+        let parts = rawValue.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+        guard parts.count == 2 else { return false }
+        return parts[0]
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .hasPrefix("model_providers.subrouter.")
     }
 
     private func sanitizedRoutingValue(key: String, value: String?) -> String? {
