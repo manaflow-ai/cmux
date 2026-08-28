@@ -317,7 +317,7 @@ impl WatchRegistry {
                     let previous = slot.opening.replace(Opening {
                         generation,
                         live: Arc::clone(&opening_live),
-                        cancellation: opening_cancellation.clone(),
+                        cancellation: opening_cancellation,
                         abort: None,
                     });
                     // Spawn while the state lock is held, then install the
@@ -1297,16 +1297,19 @@ mod tests {
                 }),
             },
         );
-        let task = tokio::spawn(finish_open_failure(
-            "failed",
-            1,
+        let context = OpenContext {
+            watch_id: "failed".to_owned(),
+            generation: 1,
             live,
             cancellation,
-            Arc::clone(&sessions),
-            sink,
-            wire::WorkspaceErrorCode::Failed,
-            None,
-        ));
+            resources: WatchResources {
+                sessions: Arc::clone(&sessions),
+                outbound: sink,
+                setup_slots: Arc::new(Semaphore::new(1)),
+                teardown_slots: Arc::new(Semaphore::new(1)),
+            },
+        };
+        let task = tokio::spawn(finish_open_failure(context, wire::WorkspaceErrorCode::Failed, None));
         let mut frame = critical.recv().await.expect("failure frame");
         assert!(frame.live.is_some(), "failure keeps its opening liveness token until delivery");
         let value: Value = serde_json::from_str(&frame.text).expect("failure json");
@@ -1337,16 +1340,19 @@ mod tests {
                 }),
             },
         );
-        let task = tokio::spawn(finish_open_failure(
-            "saturated",
-            1,
+        let context = OpenContext {
+            watch_id: "saturated".to_owned(),
+            generation: 1,
             live,
             cancellation,
-            Arc::clone(&sessions),
-            sink,
-            wire::WorkspaceErrorCode::Failed,
-            None,
-        ));
+            resources: WatchResources {
+                sessions: Arc::clone(&sessions),
+                outbound: sink,
+                setup_slots: Arc::new(Semaphore::new(1)),
+                teardown_slots: Arc::new(Semaphore::new(1)),
+            },
+        };
+        let task = tokio::spawn(finish_open_failure(context, wire::WorkspaceErrorCode::Failed, None));
         tokio::task::yield_now().await;
         assert!(!task.is_finished(), "failure waits instead of dropping under queue pressure");
 
