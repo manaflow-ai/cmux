@@ -211,18 +211,16 @@ fn install_command(positionals: &[String], options: &CliOptions) -> Result<Value
 
     let mut metadata_temp_path = None;
     let result = (|| -> Result<Value, ManagerError> {
-        let manifest = read_manifest(&temp_dir)
-            .map_err(|error| ManagerError::validation(None, error.to_string()))?;
+        let manifest = read_manifest(&temp_dir).map_err(|_| {
+            ManagerError::validation(Some("manifest"), "plugin manifest is invalid")
+        })?;
         let name = installed_name(&manifest, options.name.as_deref())
-            .map_err(|error| ManagerError::validation(Some("name"), error.to_string()))?;
+            .map_err(|_| ManagerError::validation(Some("name"), "plugin name is invalid"))?;
         let target = root.join(&name);
         if target.exists() && !options.force {
             return Err(ManagerError::validation(
                 Some("name"),
-                format!(
-                    "plugin {name:?} is already installed at {}; use --force to replace it",
-                    target.display()
-                ),
+                "plugin is already installed; use --force to replace it",
             ));
         }
         run_build_if_needed(&manifest, &temp_dir)?;
