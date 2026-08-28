@@ -12337,7 +12337,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 targetIndex: index
             )
             guard let firstPanel = opened.first else { return false }
-            handKeyboardFocusFromRightSidebarAfterFileDrop(to: firstPanel)
+            handKeyboardFocusFromRightSidebarAfterFileOpen(to: firstPanel)
             return true
 
         case .split(let sourcePaneId, let orientation, let insertFirst):
@@ -12357,19 +12357,22 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 filePaths: entries.dropFirst().map(\.filePath),
                 focus: true
             )
-            handKeyboardFocusFromRightSidebarAfterFileDrop(to: firstPanel)
+            handKeyboardFocusFromRightSidebarAfterFileOpen(to: firstPanel)
             return true
         }
     }
 
-    /// A drag that started in the right-sidebar file explorer never resigns
-    /// the sidebar's first responder, so after the drop opens a panel the
-    /// find/shortcut router still targets the sidebar (Cmd+F lands in its
-    /// file search instead of the just-opened document). Hand keyboard focus
-    /// to the opened panel the same way the text-drop path does; the call is
-    /// a no-op when the sidebar does not own focus (drops from Finder or
-    /// between panes).
-    private func handKeyboardFocusFromRightSidebarAfterFileDrop(to panel: any Panel) {
+    /// A sidebar-initiated open (click on a file row, or a drag whose
+    /// mouse-down made the sidebar first responder) never resigns the
+    /// sidebar's keyboard focus by itself, and a freshly created panel's
+    /// view may not be mounted yet when activation asks it to take first
+    /// responder. Without this handoff the find/shortcut router keeps
+    /// targeting the sidebar (Cmd+F lands in its file search instead of the
+    /// just-opened document). Hand keyboard focus to the opened panel the
+    /// same way the text-drop path does; the call is a no-op when the
+    /// sidebar does not own focus (opens from Finder, the CLI, or between
+    /// panes).
+    func handKeyboardFocusFromRightSidebarAfterFileOpen(to panel: any Panel) {
         _ = AppDelegate.shared?.restoreMainPanelKeyboardFocusFromRightSidebar(
             in: activationWindow(for: panel)
         )
