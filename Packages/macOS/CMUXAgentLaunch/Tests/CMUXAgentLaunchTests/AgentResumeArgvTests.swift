@@ -253,8 +253,8 @@ struct AgentResumeArgvTests {
         )
     }
 
-    @Test("Subrouter-routed Codex resumes through the explicit sr launcher")
-    func subrouterCodexResumeUsesExplicitLauncher() {
+    @Test("Subrouter-routed Codex resumes through the captured explicit launcher")
+    func subrouterCodexResumeUsesCapturedExplicitLauncher() {
         let routedArguments = [
             "/opt/bin/codex",
             "-c",
@@ -272,6 +272,18 @@ struct AgentResumeArgvTests {
                 environment: ["SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume"]
             ) == .resolved(["sr", "codex", "resume", "SID"])
         )
+
+        for command in ["subrouter", "cx"] {
+            #expect(
+                AgentResumeArgv().launcherResolution(
+                    launcher: "codex",
+                    sessionId: "SID",
+                    executablePath: "/opt/bin/codex",
+                    arguments: routedArguments,
+                    environment: ["SUBROUTER_CODEX_RESUME_COMMAND": "\(command) codex resume"]
+                ) == .resolved([command, "codex", "resume", "SID"])
+            )
+        }
 
         #expect(
             AgentResumeArgv().launcherResolution(
@@ -310,6 +322,16 @@ struct AgentResumeArgvTests {
                 executablePath: "/opt/bin/codex",
                 arguments: routedArguments,
                 environment: ["SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume; echo unsafe"]
+            ) == .passthrough
+        )
+
+        #expect(
+            AgentResumeArgv().launcherResolution(
+                launcher: "codex",
+                sessionId: "SID",
+                executablePath: "/opt/bin/codex",
+                arguments: routedArguments,
+                environment: ["SUBROUTER_CODEX_RESUME_COMMAND": "router codex resume"]
             ) == .passthrough
         )
     }

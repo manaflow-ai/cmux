@@ -163,6 +163,36 @@ import Testing
         #expect(invocation.environment["CMUX_AGENT_RESTORE_LAUNCH"] == nil)
     }
 
+    @Test("Structured Subrouter restore preserves the captured launcher alias", arguments: ["subrouter", "cx"])
+    func structuredSubrouterCodexRestorePreservesLauncherAlias(command: String) throws {
+        let request = AgentRestoreRequest(
+            mode: .resumeAgent,
+            kind: "codex",
+            checkpointID: sessionID,
+            source: "agent-hook",
+            workingDirectory: "/tmp/project",
+            environment: [:],
+            launchCommand: AgentLaunchCommand(
+                launcher: "codex",
+                executablePath: "/opt/bin/codex",
+                arguments: ["/opt/bin/codex", "-c", "model_provider=subrouter"],
+                workingDirectory: "/tmp/project",
+                environment: ["SUBROUTER_CODEX_RESUME_COMMAND": "\(command) codex resume"]
+            ),
+            preparedArguments: nil,
+            observedPermissionMode: nil
+        )
+
+        let invocation = try #require(
+            AgentRestorePlanner(isExecutableFile: { _ in false }).invocation(
+                for: request,
+                ambientEnvironment: ["PATH": "/usr/bin:/bin"]
+            )
+        )
+
+        #expect(invocation.arguments == [command, "codex", "resume", sessionID])
+    }
+
     @Test func structuredCodexRestoreCanonicalizesRelativeHomeFromLaunchDirectory() throws {
         let launchDirectory = "/tmp/codex-launch-root/repository"
         let restoredDirectory = "/tmp/codex-launch-root/repository/worktree"
