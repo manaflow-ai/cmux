@@ -14,6 +14,11 @@ public struct WorkspaceShellCompactNavigationPolicy {
     /// - Parameters:
     ///   - currentPath: The current navigation path.
     ///   - selectedWorkspaceID: The newly selected workspace, or `nil` to clear.
+    ///   - listIsAuthoritative: Whether the workspace list reflects a healthy
+    ///     connection. A cleared selection pops to the root only when it does;
+    ///     while reconnecting or disconnected the mounted detail stays, because
+    ///     a connection-state change must never exit the user's current
+    ///     workspace.
     /// - Returns: The path to apply. Stays empty when the user is at the root,
     ///   clears when the authoritative selection clears, and retargets when the
     ///   store selects a different workspace. Transient workspace-list omissions
@@ -21,13 +26,14 @@ public struct WorkspaceShellCompactNavigationPolicy {
     public func pathForSelectionChange<ID: Hashable>(
         currentPath: [ID],
         selectedWorkspaceID: ID?,
-        visibleWorkspaceIDs: Set<ID> = []
+        visibleWorkspaceIDs: Set<ID> = [],
+        listIsAuthoritative: Bool = true
     ) -> [ID] {
         guard !currentPath.isEmpty else {
             return currentPath
         }
         guard let selectedWorkspaceID else {
-            return []
+            return listIsAuthoritative ? [] : currentPath
         }
         guard currentPath.last != selectedWorkspaceID else {
             return currentPath
@@ -80,10 +86,16 @@ public struct WorkspaceShellCompactNavigationPolicy {
     /// terminal arrives. If the authoritative selection has moved away, pop or
     /// remap to the selected visible workspace so deleted workspaces do not stay
     /// mounted from a stale route snapshot.
+    /// - Parameter listIsAuthoritative: Whether the workspace list reflects a
+    ///   healthy connection. Routes are dropped only when it does; a list hole
+    ///   opened by a reconnecting or disconnected state keeps the mounted
+    ///   detail, which renders its last-known snapshot until the next healthy
+    ///   list restores the row or confirms the deletion.
     public func pathForVisibleWorkspaceIDsChange<ID: Hashable>(
         currentPath: [ID],
         visibleWorkspaceIDs: Set<ID>,
-        selectedWorkspaceID: ID?
+        selectedWorkspaceID: ID?,
+        listIsAuthoritative: Bool = true
     ) -> [ID] {
         guard let currentDetailID = currentPath.last else {
             return currentPath
@@ -97,6 +109,9 @@ public struct WorkspaceShellCompactNavigationPolicy {
         if let selectedWorkspaceID,
            visibleWorkspaceIDs.contains(selectedWorkspaceID) {
             return [selectedWorkspaceID]
+        }
+        guard listIsAuthoritative else {
+            return currentPath
         }
         return currentPath.filter { visibleWorkspaceIDs.contains($0) }
     }

@@ -232,6 +232,15 @@ struct WorkspaceShellView: View {
         return store.workspaceListConnectionStatus
     }
 
+    /// Whether the workspace list reflects a healthy connection. Compact
+    /// navigation pops a mounted detail only when it does: a reconnecting or
+    /// disconnected state must never exit the user's current workspace, so
+    /// list holes and cleared selections during a degraded connection keep the
+    /// pushed route mounted on its last-known snapshot.
+    private var workspaceListIsAuthoritative: Bool {
+        listConnectionStatus == .connected
+    }
+
     private var canCreateWorkspaceOnForegroundConnection: Bool {
         store.connectionState == .connected
     }
@@ -611,7 +620,8 @@ struct WorkspaceShellView: View {
             compactNavigationPath = compactNavigationPolicy.pathForSelectionChange(
                 currentPath: compactNavigationPath,
                 selectedWorkspaceID: selectedWorkspaceID,
-                visibleWorkspaceIDs: Set(store.workspaces.map(\.id))
+                visibleWorkspaceIDs: Set(store.workspaces.map(\.id)),
+                listIsAuthoritative: workspaceListIsAuthoritative
             )
             autoOpenSelectedWorkspaceForSoakIfNeeded()
         }
@@ -629,7 +639,8 @@ struct WorkspaceShellView: View {
             compactNavigationPath = compactNavigationPolicy.pathForVisibleWorkspaceIDsChange(
                 currentPath: compactNavigationPath,
                 visibleWorkspaceIDs: Set(workspaceIDs),
-                selectedWorkspaceID: store.selectedWorkspaceID
+                selectedWorkspaceID: store.selectedWorkspaceID,
+                listIsAuthoritative: workspaceListIsAuthoritative
             )
             autoOpenSelectedWorkspaceForSoakIfNeeded()
         }

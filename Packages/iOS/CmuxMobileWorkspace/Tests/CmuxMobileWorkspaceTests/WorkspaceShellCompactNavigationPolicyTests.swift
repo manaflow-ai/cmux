@@ -148,4 +148,49 @@ import Testing
 
         #expect(path.isEmpty)
     }
+
+    @Test func clearedSelectionKeepsDetailWhileListIsNotAuthoritative() {
+        let detailID = MobileWorkspacePreview.ID(rawValue: "workspace-a")
+        let path = policy.pathForSelectionChange(
+            currentPath: [detailID],
+            selectedWorkspaceID: nil,
+            listIsAuthoritative: false
+        )
+
+        #expect(path == [detailID])
+    }
+
+    @Test func clearedSelectionStillPopsWhenListIsAuthoritative() {
+        let path = policy.pathForSelectionChange(
+            currentPath: [MobileWorkspacePreview.ID(rawValue: "workspace-a")],
+            selectedWorkspaceID: nil,
+            listIsAuthoritative: true
+        )
+
+        #expect(path.isEmpty)
+    }
+
+    @Test func listHoleKeepsDetailWhileListIsNotAuthoritative() {
+        let detailID = MobileWorkspacePreview.ID(rawValue: "workspace-a")
+        let path = policy.pathForVisibleWorkspaceIDsChange(
+            currentPath: [detailID],
+            visibleWorkspaceIDs: [],
+            selectedWorkspaceID: nil,
+            listIsAuthoritative: false
+        )
+
+        #expect(path == [detailID])
+    }
+
+    @Test func retargetsToVisibleSelectionEvenWhileListIsNotAuthoritative() {
+        let selectedID = MobileWorkspacePreview.ID(rawValue: "workspace-b")
+        let path = policy.pathForVisibleWorkspaceIDsChange(
+            currentPath: [MobileWorkspacePreview.ID(rawValue: "workspace-a")],
+            visibleWorkspaceIDs: [selectedID],
+            selectedWorkspaceID: selectedID,
+            listIsAuthoritative: false
+        )
+
+        #expect(path == [selectedID])
+    }
 }

@@ -10234,8 +10234,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connectionAttemptGeneration = UUID()
         // Capture the tagged foreground key BEFORE the identity clears below:
         // `foregroundMacKey` derives from `activeMacInstanceTag`, which
-        // `clearActiveConnectionContext()` nils, and the offline retention
-        // filter must keep the exact tagged entry.
+        // `clearActiveConnectionContext()` nils, and the offline status
+        // downgrade must hit the exact tagged entry.
         let offlineForegroundKey = foregroundMacKey
         focusedHandoffPreparedGenerations.removeAll()
         cancelRemoteOperationTasks()
@@ -10257,23 +10257,26 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         replaceRemoteClient(with: nil)
         foregroundMacDeviceID = nil
         if !preservingOtherMacWorkspaceState {
-            // Cancel the live secondary subscriptions (slice 3) and keep only the
-            // now-offline foreground Mac's last-known workspaces for the offline
-            // view; the derived list recomputes to just the offline Mac's rows.
+            // Cancel the live secondary subscriptions (slice 3). Their rows STAY:
+            // teardown is a transport event, and transport events never remove
+            // user-visible workspace state. Rows are removed only by authoritative
+            // events (a healthy list reconcile, unpair/hide, sign-out, team
+            // change). Removing them here popped the mounted workspace detail the
+            // moment a reconnect began: dropping secondary entries flips multi-Mac
+            // row-id scoping (re-keying the selection and every pushed navigation
+            // route), and a failed first dial re-entered this teardown with
+            // `foregroundMacDeviceID` already nil, so a retention filter keyed on
+            // the anonymous sentinel wiped the whole list.
             teardownSecondaryMacSubscriptions()
-            workspacesByMac = workspacesByMac.filter { $0.key == offlineForegroundKey }
         }
-        // The retained foreground entry still carries its last-known
-        // `status: .connected`; `macConnectionStatuses` (the Computers screen's
-        // per-Mac dots) derives from these per-Mac states, so without this the
-        // just-disconnected Mac would keep showing a green connected dot. Downgrade
-        // it to `.unavailable` to match the global connection state.
-        let offlineDeviceID = offlineForegroundKey.canonicalMacDeviceID
+        // Retained entries still carry their last-known `status: .connected`;
+        // `macConnectionStatuses` (the Computers screen's per-Mac dots) derives
+        // from these per-Mac states, so without this the just-disconnected Macs
+        // would keep showing a green connected dot. Downgrade the foreground
+        // entry — and every entry whose secondary subscription was torn down
+        // above — to `.unavailable` to match the global connection state.
         let keysToDowngrade = workspacesByMac.keys.filter { key in
-            key == offlineForegroundKey
-                || (!preservingOtherMacWorkspaceState
-                    && offlineForegroundKey != .anonymousForeground
-                    && key.canonicalMacDeviceID == offlineDeviceID)
+            key == offlineForegroundKey || !preservingOtherMacWorkspaceState
         }
         var updatedWorkspacesByMac = workspacesByMac
         for key in keysToDowngrade {
