@@ -222,7 +222,7 @@ import Testing
         let socketPath = "/tmp/cmux-resume-private-\(UUID().uuidString.prefix(8)).sock"
         let response = try jsonResponse(result: [
             "resume_binding": [
-                "command": "sr codex resume session-id",
+                "command": "env 'SUBROUTER_CODEX_USER_EMAIL=private@example.test' sr codex resume session-id",
                 "environment": [
                     "PATH": "/usr/bin:/bin",
                     "SUBROUTER_CODEX_SERVER": "private-server",
@@ -231,7 +231,10 @@ import Testing
             "restore_record": [
                 "kind": "codex",
                 "launch_command": [
-                    "arguments": ["codex", "-c", "model_provider=subrouter"],
+                    "arguments": [
+                        "codex", "-c", "model_provider=subrouter",
+                        "-c", "model_providers.subrouter.base_url=https://router.example.test/v1",
+                    ],
                     "environment": [
                         "PATH": "/usr/bin:/bin",
                         "SUBROUTER_CODEX_ACCOUNT_ID": "private-account",
@@ -264,6 +267,8 @@ import Testing
         #expect(!result.timedOut, Comment(rawValue: result.diagnostics))
         #expect(result.status == 0, Comment(rawValue: result.diagnostics))
         #expect(result.stdout.contains("SUBROUTER_CODEX_") == false)
+        #expect(result.stdout.contains("private@example.test") == false)
+        #expect(result.stdout.contains("router.example.test") == false)
         let payload = try #require(
             JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any]
         )
