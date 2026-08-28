@@ -15,7 +15,7 @@ use crate::server::MAX_CREATION_SELECTOR_FALLBACKS;
 use crate::workspace_registry::{
     RegistryPane, RegistryScreen, RegistryViewportColumn, ResourceCreationPreparation,
     ResourceCreationRecovery, ResourcePatchCommit, ResourceWorkspaceClose, TerminalLifecycle,
-    TerminalResourceCloseCommit,
+    TerminalOnExit, TerminalResourceCloseCommit,
 };
 use crate::{ResolvedResourcePath, ResourceSelectors, ResourceTarget, SurfaceKind};
 
@@ -47,6 +47,7 @@ struct TerminalEffectOptions {
     name: Option<String>,
     created_screen_name: Option<String>,
     size: Option<(u16, u16)>,
+    on_exit: Option<TerminalOnExit>,
 }
 
 struct CreatedTerminalEffect {
@@ -2180,6 +2181,7 @@ impl Mux {
                     screen: Some(state.workspaces[workspace_index].screens[screen_index].id),
                     pane: Some(pane),
                     tab: Some(surface),
+                    terminal: None,
                 })
             },
         )?;
@@ -2190,25 +2192,28 @@ impl Mux {
 
     pub(crate) fn commit_resource_terminal_close_effect(
         &self,
-        surface: SurfaceId,
+        terminal_id: &TerminalPublicId,
         idempotency_key: &str,
         operation_name: &str,
         fingerprint: &Value,
     ) -> anyhow::Result<ResourcePatchCommit> {
         let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
         let _creation_fence = self.resource_creation_execution.lock().unwrap();
+        let terminal_id = terminal_id.clone();
         let committed = self.commit_resource_close_with(
             ResourceOperation::TerminalClose,
             None,
             idempotency_key,
             operation_name,
             fingerprint,
-            move |state| {
-                anyhow::ensure!(
-                    state.terminal_runtime_by_id(surface).is_some(),
-                    "terminal disappeared"
-                );
-                Ok(EffectSlots { workspace: None, screen: None, pane: None, tab: Some(surface) })
+            move |_| {
+                Ok(EffectSlots {
+                    workspace: None,
+                    screen: None,
+                    pane: None,
+                    tab: None,
+                    terminal: Some(terminal_id),
+                })
             },
         )?;
         drop(_creation_fence);
@@ -2258,48 +2263,53 @@ impl Mux {
             return Err(terminal_close_state_error("terminal resource changed hosts"));
         }
         let content_id = ContentPublicId::Terminal(public_id.clone());
-        let (target, mut plan) = if let Some(runtime) =
-            state.terminal_catalog.get(&public_id).cloned()
-        {
-            let host = self.resource_terminal_host_identity(&runtime).ok_or_else(|| {
-                terminal_close_state_error("terminal runtime omitted its durable host identity")
-            })?;
-            if host.terminal_id != terminal_id {
-                return Err(terminal_close_state_error("terminal resource changed hosts"));
-            }
-            if let Some(expected) = expected_incarnation {
-                anyhow::ensure!(host.incarnation == expected, "terminal_incarnation_mismatch");
-            }
-            let target = state.placements_of_content(&content_id).first().copied();
-            let plan = self.resource_close_plan_locked(
-                ResourceOperation::TerminalClose,
-                EffectSlots { workspace: None, screen: None, pane: None, tab: Some(runtime.id) },
-                &registry,
-                &state,
-                &notifications,
-            )?;
-            (target, plan)
-        } else {
-            if !state.placements_of_content(&content_id).is_empty() {
-                return Err(terminal_close_state_error(format!(
-                    "live terminal resource {public_id} has views but no runtime owner"
-                )));
-            }
-            (
-                None,
-                ResourceClosePlan {
-                    state: state.clone(),
-                    removed: Vec::new(),
-                    terminal_runtime: None,
-                    closed_terminal_public_id: Some(public_id.clone()),
-                    terminal_batch: Vec::new(),
-                    workspace_close: None,
-                    delta: None,
-                    changed_screens: Vec::new(),
-                    selection_resync: false,
-                },
-            )
-        };
+        let (target, mut plan) =
+            if let Some(runtime) = state.terminal_catalog.get(&public_id).cloned() {
+                let host = self.resource_terminal_host_identity(&runtime).ok_or_else(|| {
+                    terminal_close_state_error("terminal runtime omitted its durable host identity")
+                })?;
+                if host.terminal_id != terminal_id {
+                    return Err(terminal_close_state_error("terminal resource changed hosts"));
+                }
+                if let Some(expected) = expected_incarnation {
+                    anyhow::ensure!(host.incarnation == expected, "terminal_incarnation_mismatch");
+                }
+                let target = state.placements_of_content(&content_id).first().copied();
+                let plan = self.resource_close_plan_locked(
+                    ResourceOperation::TerminalClose,
+                    EffectSlots {
+                        workspace: None,
+                        screen: None,
+                        pane: None,
+                        tab: None,
+                        terminal: Some(public_id.clone()),
+                    },
+                    &registry,
+                    &state,
+                    &notifications,
+                )?;
+                (target, plan)
+            } else {
+                if !state.placements_of_content(&content_id).is_empty() {
+                    return Err(terminal_close_state_error(format!(
+                        "live terminal resource {public_id} has views but no runtime owner"
+                    )));
+                }
+                (
+                    None,
+                    ResourceClosePlan {
+                        state: state.clone(),
+                        removed: Vec::new(),
+                        terminal_runtime: None,
+                        closed_terminal_public_id: Some(public_id.clone()),
+                        terminal_batch: Vec::new(),
+                        workspace_close: None,
+                        delta: None,
+                        changed_screens: Vec::new(),
+                        selection_resync: false,
+                    },
+                )
+            };
         let mut projection =
             self.resource_effect_projection_locked(&registry, &mut plan.state, json!({}))?;
         if !projection.patch.changes.iter().any(|change| {
@@ -2560,6 +2570,15 @@ impl Mux {
             return Ok(false);
         };
         let mut state = self.state.lock().unwrap();
+        // A keep-policy terminal retains its views while the runtime screen
+        // surface is alive; reconciliation must not force-detach it out from
+        // under a live daemon. Without a runtime (a daemon restart dropped
+        // the in-memory VT) the kept terminal degrades to the normal detach.
+        if terminal.on_exit == TerminalOnExit::Keep
+            && state.terminal_catalog.contains_key(&terminal_public_id)
+        {
+            return Ok(false);
+        }
         let Some(projection) = self.terminal_exit_detach_projection_locked(
             &registry,
             &state,
@@ -2618,8 +2637,16 @@ impl Mux {
         }
         let mut plan =
             self.resource_close_plan_locked(operation, slots, &registry, &state, &notifications)?;
-        let projection =
+        let mut projection =
             self.resource_effect_projection_locked(&registry, &mut plan.state, json!({}))?;
+        // Full projection derives terminal tombstones from detached tabs, but
+        // an exited terminal receipt has zero tabs. Explicit close must still
+        // retire that receipt.
+        if let Some(terminal_id) = plan.closed_terminal_public_id.as_ref() {
+            let expected_incarnation =
+                plan.terminal_batch.first().and_then(|(_, incarnation)| incarnation.as_deref());
+            projection.ensure_terminal_close(terminal_id, expected_incarnation)?;
+        }
         #[cfg(test)]
         if let Some(hook) = self.resource_projection_before_commit.lock().unwrap().clone() {
             hook();
@@ -2705,7 +2732,7 @@ impl Mux {
         &self,
         operation: ResourceOperation,
         slots: EffectSlots,
-        _registry: &WorkspaceRegistry,
+        registry: &WorkspaceRegistry,
         state: &State,
         notifications: &HashMap<SurfaceId, SurfaceNotification>,
     ) -> anyhow::Result<ResourceClosePlan> {
@@ -2793,29 +2820,40 @@ impl Mux {
                 }
             }
             ResourceOperation::TerminalClose => {
-                let surface = slots.tab.context("terminal disappeared")?;
-                let runtime = state
-                    .terminal_runtime_by_id(surface)
-                    .cloned()
-                    .context("terminal disappeared")?;
-                let public_id = runtime
-                    .terminal_public_id()
-                    .cloned()
-                    .context("terminal catalog entry omitted its public identity")?;
-                let host = self
-                    .resource_terminal_host_identity(&runtime)
-                    .context("terminal omitted its durable host identity")?;
+                let public_id = slots.terminal.clone().context("terminal disappeared")?;
+                let host_id = registry
+                    .terminal_host_id(&public_id)?
+                    .with_context(|| format!("terminal {public_id} has no durable host"))?;
+                let terminal = registry
+                    .terminal_record(&host_id)?
+                    .with_context(|| format!("terminal {public_id} has no durable receipt"))?;
+                // An exited terminal is a durable receipt with no runtime and
+                // no views; explicit close is the one operation that retires
+                // it. A live terminal still requires its catalog runtime.
+                let runtime = state.terminal_catalog.get(&public_id).cloned();
+                if let Some(runtime) = runtime.as_ref() {
+                    let host = self
+                        .resource_terminal_host_identity(runtime)
+                        .context("terminal omitted its durable host identity")?;
+                    anyhow::ensure!(host.terminal_id == host_id, "terminal changed durable hosts");
+                }
                 let placements = state
                     .placements_of_content(&ContentPublicId::Terminal(public_id.clone()))
                     .to_vec();
+                if runtime.is_none() {
+                    anyhow::ensure!(
+                        placements.is_empty(),
+                        "live terminal resource {public_id} has views but no runtime owner"
+                    );
+                }
                 let screens = unique_screen_ids(
                     placements.iter().filter_map(|surface| surface_screen_id(state, *surface)),
                 );
                 ResourceCloseInputs {
                     surface_ids: placements,
                     changed_screens: screens,
-                    terminal_runtime: Some(runtime),
-                    terminal_batch: vec![(host.terminal_id, Some(host.incarnation))],
+                    terminal_runtime: runtime,
+                    terminal_batch: vec![(host_id, terminal.incarnation)],
                     terminal_public_id: Some(public_id),
                     ..Default::default()
                 }
@@ -2828,13 +2866,14 @@ impl Mux {
         if let Some(public_id) = &terminal_public_id {
             let (removed_runtime, terminal_views, changed) =
                 remove_terminal_content_from_state(self, &mut projected, public_id);
-            anyhow::ensure!(
-                removed_runtime
-                    .as_ref()
-                    .zip(terminal_runtime.as_ref())
-                    .is_some_and(|(removed, planned)| removed.shares_terminal_runtime(planned)),
-                "terminal close lost its catalog runtime"
-            );
+            match (removed_runtime.as_ref(), terminal_runtime.as_ref()) {
+                (Some(removed), Some(planned)) => anyhow::ensure!(
+                    removed.shares_terminal_runtime(planned),
+                    "terminal close changed its catalog runtime"
+                ),
+                (None, None) => {}
+                _ => anyhow::bail!("terminal close lost its catalog runtime"),
+            }
             removed = terminal_views;
             split_index_changed = changed;
             for surface in surface_ids {
@@ -3508,6 +3547,7 @@ impl Mux {
                         name: optional_owned_string(fields, "terminal_name")?,
                         created_screen_name: None,
                         size: effect_cell_size(fields)?,
+                        on_exit: None,
                     },
                 )
                 .map(|created| created.path)
@@ -3533,6 +3573,7 @@ impl Mux {
                         name: optional_owned_string(fields, "name")?,
                         created_screen_name: None,
                         size: effect_cell_size(fields)?,
+                        on_exit: effect_on_exit(fields)?,
                     },
                 )
                 .map(|created| created.path)
@@ -3563,6 +3604,7 @@ impl Mux {
                             name: None,
                             created_screen_name: name,
                             size: effect_cell_size(fields)?,
+                            on_exit: None,
                         },
                     ),
                 }
@@ -3622,6 +3664,7 @@ impl Mux {
                             name: None,
                             created_screen_name: None,
                             size: effect_cell_size(fields)?,
+                            on_exit: None,
                         },
                     ),
                     None => self.effect_create_workspace_terminal(
@@ -3633,6 +3676,7 @@ impl Mux {
                             name: None,
                             created_screen_name: None,
                             size: effect_cell_size(fields)?,
+                            on_exit: None,
                         },
                     ),
                 }
@@ -3673,6 +3717,7 @@ impl Mux {
                     optional_owned_string(fields, "cwd")?,
                     optional_owned_string(fields, "name")?,
                     effect_cell_size(fields)?,
+                    effect_on_exit(fields)?,
                 )
                 .map(|created| created.path)
             }
@@ -3686,6 +3731,7 @@ impl Mux {
                         optional_owned_string(fields, "cwd")?,
                         optional_owned_string(fields, "name")?,
                         effect_cell_size(fields)?,
+                        None,
                     ),
                     None if slots.workspace.is_some() => self.effect_create_terminal_in_workspace(
                         intent,
@@ -3696,6 +3742,7 @@ impl Mux {
                             name: optional_owned_string(fields, "name")?,
                             created_screen_name: None,
                             size: effect_cell_size(fields)?,
+                            on_exit: None,
                         },
                     ),
                     None => self.effect_create_workspace_terminal(
@@ -3707,6 +3754,7 @@ impl Mux {
                             name: optional_owned_string(fields, "name")?,
                             created_screen_name: None,
                             size: effect_cell_size(fields)?,
+                            on_exit: None,
                         },
                     ),
                 }
@@ -3831,7 +3879,7 @@ impl Mux {
                     .with_context(|| format!("tab {id} disappeared"))
             })
             .transpose()?;
-        Ok(EffectSlots { workspace, screen, pane, tab })
+        Ok(EffectSlots { workspace, screen, pane, tab, terminal: path.terminal.clone() })
     }
 
     pub(super) fn created_resource_path(&self, surface: SurfaceId) -> anyhow::Result<Value> {
@@ -3904,6 +3952,7 @@ impl Mux {
         Ok((key, public_id, mutation))
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn effect_terminal_reservation(
         &self,
         intent: &Value,
@@ -3912,6 +3961,7 @@ impl Mux {
         cwd: Option<&str>,
         name: Option<&str>,
         size: Option<(u16, u16)>,
+        on_exit: Option<TerminalOnExit>,
     ) -> anyhow::Result<TerminalReservationRequest> {
         let stored = intent["terminal_reservation"]
             .as_object()
@@ -3939,9 +3989,11 @@ impl Mux {
                 cwd,
                 name,
                 size,
+                on_exit,
             )?,
             expected_generation: None,
             expected_revision: None,
+            on_exit: on_exit.unwrap_or_default(),
         })
     }
 
@@ -3987,7 +4039,7 @@ impl Mux {
         workspace: WorkspaceId,
         options: TerminalEffectOptions,
     ) -> anyhow::Result<CreatedTerminalEffect> {
-        let TerminalEffectOptions { argv, cwd, name, created_screen_name, size } = options;
+        let TerminalEffectOptions { argv, cwd, name, created_screen_name, size, on_exit } = options;
         let workspace_key = self
             .with_state(|state| state.workspace_by_id(workspace).map(|item| item.key.clone()))
             .with_context(|| format!("workspace {workspace} disappeared"))?;
@@ -3998,6 +4050,7 @@ impl Mux {
             cwd.as_deref(),
             name.as_deref(),
             size,
+            on_exit,
         )?;
         let terminal_hex = reservation.terminal_id.to_hex();
         let result = self.create_terminal_in_workspace_with_mutation(
@@ -4010,6 +4063,7 @@ impl Mux {
             None,
             None,
             &reservation.mutation,
+            on_exit,
         )?;
         let surface =
             result.created_surface.context("created terminal result omitted its local surface")?;
@@ -4024,6 +4078,7 @@ impl Mux {
         Ok(CreatedTerminalEffect { path })
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn effect_add_terminal_tab(
         self: &Arc<Self>,
         intent: &Value,
@@ -4032,6 +4087,7 @@ impl Mux {
         cwd: Option<String>,
         name: Option<String>,
         size: Option<(u16, u16)>,
+        on_exit: Option<TerminalOnExit>,
     ) -> anyhow::Result<CreatedTerminalEffect> {
         let workspace_key = self
             .workspace_key_for_pane(target)
@@ -4044,6 +4100,7 @@ impl Mux {
             cwd.as_deref(),
             name.as_deref(),
             size,
+            on_exit,
         )?;
         let surface =
             self.spawn_surface_in_workspace_reserved(&workspace_key, cwd, size, argv, reservation)?;
@@ -4123,6 +4180,7 @@ impl Mux {
             cwd.as_deref(),
             None,
             size,
+            None,
         )?;
         let surface =
             self.spawn_surface_in_workspace_reserved(&workspace_key, cwd, size, None, reservation)?;
@@ -4223,6 +4281,7 @@ impl Mux {
             cwd.as_deref(),
             None,
             size,
+            None,
         )?;
         let surface =
             self.spawn_surface_in_workspace_reserved(&workspace_key, cwd, size, None, reservation)?;
@@ -4384,12 +4443,13 @@ impl Mux {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 struct EffectSlots {
     workspace: Option<WorkspaceId>,
     screen: Option<ScreenId>,
     pane: Option<PaneId>,
     tab: Option<SurfaceId>,
+    terminal: Option<TerminalPublicId>,
 }
 
 enum ResourceCreationEvidence {
@@ -4614,6 +4674,16 @@ fn optional_owned_string(
                 .as_str()
                 .map(str::to_string)
                 .with_context(|| format!("field {name:?} must be a string"))
+        })
+        .transpose()
+}
+
+fn effect_on_exit(fields: &Map<String, Value>) -> anyhow::Result<Option<TerminalOnExit>> {
+    fields
+        .get("on_exit")
+        .map(|value| {
+            let value = value.as_str().context("field \"on_exit\" must be a string")?;
+            TerminalOnExit::parse(value)
         })
         .transpose()
 }

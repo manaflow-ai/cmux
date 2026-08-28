@@ -1,5 +1,6 @@
 #if canImport(UIKit)
 import CmuxMobileDiagnostics
+import CmuxMobileTerminalKit
 import GhosttyKit
 import UIKit
 import os
@@ -43,6 +44,7 @@ extension GhosttySurfaceView {
                 $0.epoch &+= 1
                 $0.remainderPx = 0
                 $0.lastApplied = nil
+                $0.topRevealPx = 0
             }
             return
         }
@@ -77,7 +79,8 @@ extension GhosttySurfaceView {
             surface: surface,
             generation: surfaceGeneration,
             token: token,
-            pixelStateEpoch: localPixelScrollState.withLock { $0.epoch }
+            pixelStateEpoch: localPixelScrollState.withLock { $0.epoch },
+            maxTopRevealPx: hostedScrollTopRevealBudgetPx
         )
         let workQueue = outputQueue
         let gate = viewportRestoreGate
@@ -175,7 +178,9 @@ extension GhosttySurfaceView {
             }
             return
         }
-        var (remainder, held) = pixelState.withLock { ($0.remainderPx, $0.lastApplied) }
+        var (remainder, held, reveal) = pixelState.withLock {
+            ($0.remainderPx, $0.lastApplied, $0.topRevealPx)
+        }
         for _ in 0..<2 {
             var scrollbar = ghostty_surface_scrollbar_s()
             guard ghostty_surface_scrollbar(operation.surface, &scrollbar) else { break }
@@ -197,7 +202,19 @@ extension GhosttySurfaceView {
             } else {
                 current = min(Double(scrollbar.offset) * cellHeightPx + remainder, maxPosition)
             }
-            let next = min(max(current + deltaPixels, 0), maxPosition)
+            // The axis continues past scrollback-top into the top-reveal
+            // zone (the keyboard-up presentation's clipped top), so the
+            // oldest rows stay reachable while the keyboard is up. The grid
+            // gets the non-negative side; the host's content cap follows the
+            // reveal side on its display link.
+            let resolved = TerminalLetterboxGeometry.scrollTopRevealResolution(
+                currentPositionPx: current,
+                currentRevealPx: reveal,
+                deltaPixels: deltaPixels,
+                maxPositionPx: maxPosition,
+                maxRevealPx: operation.maxTopRevealPx
+            )
+            let next = resolved.positionPx
             var row = UInt64((next / cellHeightPx).rounded(.down))
             // Ghostty gets whole device pixels: a fractional-pixel offset
             // makes glyph antialiasing resample every frame (shimmer);
@@ -224,6 +241,7 @@ extension GhosttySurfaceView {
                 let appliedRow = row
                 let appliedOffset = pixelOffset
                 let appliedPosition = next
+                let appliedReveal = resolved.revealPx
                 let appliedRevision = applied.row_space_revision
                 let appliedTotal = applied.total
                 pixelState.withLock {
@@ -232,6 +250,7 @@ extension GhosttySurfaceView {
                     // resurrect the cleared scroll authority.
                     guard $0.epoch == operation.pixelStateEpoch else { return }
                     $0.remainderPx = appliedOffset
+                    $0.topRevealPx = appliedReveal
                     $0.lastApplied = (
                         row: appliedRow,
                         remainderPx: appliedOffset,
@@ -244,7 +263,9 @@ extension GhosttySurfaceView {
             }
             // Content changed shape mid-batch; rebase once from the live
             // viewport with a zeroed remainder (held row numbers are no
-            // longer trustworthy in the new row space).
+            // longer trustworthy in the new row space). The reveal survives:
+            // it is presentation-space, not row-space, so a reflow does not
+            // invalidate how far the render has slid.
             remainder = 0
             held = nil
         }
@@ -255,6 +276,7 @@ extension GhosttySurfaceView {
             if state.epoch == operation.pixelStateEpoch {
                 state.remainderPx = 0
                 state.lastApplied = nil
+                state.topRevealPx = 0
             }
             let now = CACurrentMediaTime()
             guard now - state.lastFallbackLogTime >= 1 else { return false }
@@ -285,5 +307,9 @@ private nonisolated struct LocalPixelScrollSurfaceOperation: @unchecked Sendable
     /// Pixel-state epoch captured at pump time; the batch only commits its
     /// results while the state still carries this epoch.
     let pixelStateEpoch: UInt64
+    /// The scroll-top reveal budget in device pixels, captured on the main
+    /// actor at pump time: how much of the render the keyboard-up bottom-pin
+    /// clips above the screen (0 with the keyboard down).
+    let maxTopRevealPx: Double
 }
 #endif

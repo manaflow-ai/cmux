@@ -202,7 +202,6 @@ private struct WorkspaceDetailHarness: View {
 
     var body: some View {
         WorkspaceDetailView(
-            host: "Mac",
             connectionStatus: .connected,
             workspace: model.workspace,
             store: store,

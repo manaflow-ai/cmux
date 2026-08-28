@@ -329,6 +329,19 @@ struct MobileSettingsView: View {
                         )
                     }
                     .accessibilityIdentifier("MobileSettingsShellIconLab")
+
+                    NavigationLink {
+                        UnreadIndicatorLabView()
+                    } label: {
+                        Label(
+                            L10n.string(
+                                "mobile.settings.unreadIndicatorLab",
+                                defaultValue: "Unread Indicator Lab"
+                            ),
+                            systemImage: "circle.badge"
+                        )
+                    }
+                    .accessibilityIdentifier("MobileSettingsUnreadIndicatorLab")
                 }
                 #endif
 

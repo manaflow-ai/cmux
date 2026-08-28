@@ -3,7 +3,7 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
-use std::io::{self, BufRead, BufReader, Write};
+use std::io::{self, BufRead, BufReader, Read, Write};
 use std::net::Shutdown;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -15,10 +15,10 @@ use base64::Engine;
 use cmux_tui_core::server::{VIEWPORT_COLUMN_RESIZE_CAPABILITY, VIEWPORT_SPLITS_CAPABILITY};
 use cmux_tui_core::{
     BrowserFrame, BrowserFrameUpdate, BrowserSource, BrowserStatus, ClearHistoryDelivery,
-    ClearHistoryFailure, DefaultColors, GraphicsStatus, GuardedMouseEncode, MuxEvent,
-    MuxEventBroadcaster, MuxEventReceiver, NotificationEvent, NotificationLevel, PairingChallenge,
-    PointerSemanticProbe, PointerSnapshotProbe, REMOTE_SESSION_MESSAGE_MAX_BYTES, Rgb, SurfaceId,
-    SurfaceKind, TerminalPointerSnapshot,
+    ClearHistoryFailure, GraphicsStatus, GuardedMouseEncode, MuxEvent, MuxEventBroadcaster,
+    MuxEventReceiver, NotificationEvent, NotificationLevel, PairingChallenge, PointerSemanticProbe,
+    PointerSnapshotProbe, REMOTE_SESSION_MESSAGE_MAX_BYTES, Rgb, SurfaceId, SurfaceKind,
+    TerminalPointerSnapshot,
     platform::transport,
     server::{
         CLEAR_HISTORY_CAPABILITY, CLEAR_HISTORY_KEY_CAPABILITY, CREATION_RECEIPTS_CAPABILITY,
@@ -1476,8 +1476,20 @@ struct ExitedSurfaceState {
     handles: HashMap<SurfaceId, Weak<RemoteSurface>>,
 }
 
+#[derive(Default)]
+enum DisconnectState {
+    #[default]
+    Active,
+    LocalShutdown,
+    Remote(String),
+}
+
 pub struct RemoteSession {
     interactive_writer: InteractiveWriter,
+    /// The first terminal state wins. Local shutdown is kept separate from a
+    /// reader failure so closing our own transport does not report a fake
+    /// remote diagnostic.
+    disconnect_state: Mutex<DisconnectState>,
     pending: Mutex<HashMap<u64, PendingRemoteRequest>>,
     next_id: AtomicU64,
     attach_progress: AtomicU64,
@@ -1659,6 +1671,23 @@ fn read_json_line_with_progress_bounded<R: BufRead>(
     decode_json_line(bytes).map(Some)
 }
 
+fn remote_reader_end_reason(result: &io::Result<Option<String>>) -> Option<String> {
+    match result {
+        Ok(Some(_)) => None,
+        Ok(None) => Some("the daemon closed the connection".to_string()),
+        Err(error) => Some(error.to_string()),
+    }
+}
+
+fn remote_reader_message_too_large(message: &mut String) -> String {
+    let reason = format!(
+        "remote session message exceeds the \
+         {REMOTE_SESSION_MESSAGE_MAX_BYTES}-byte limit"
+    );
+    zeroize_string(message);
+    reason
+}
+
 impl RemoteMessageReader for JsonLineReader {
     fn receive(&mut self) -> io::Result<Option<String>> {
         self.receive_with_progress(&mut |_| {})
@@ -1816,6 +1845,7 @@ impl RemoteSession {
             .map_err(|error| anyhow::anyhow!("cannot start remote interactive writer: {error}"))?;
         let session = Arc::new(RemoteSession {
             interactive_writer,
+            disconnect_state: Mutex::new(DisconnectState::default()),
             pending: Mutex::new(HashMap::new()),
             next_id: AtomicU64::new(1),
             attach_progress: AtomicU64::new(0),
@@ -1851,19 +1881,24 @@ impl RemoteSession {
                     session.report_read_progress(partial);
                 }
             };
-            while let Ok(Some(mut message)) = reader.receive_with_progress(&mut report_progress) {
+            let reason = loop {
+                let received = reader.receive_with_progress(&mut report_progress);
+                if let Some(reason) = remote_reader_end_reason(&received) {
+                    break Some(reason);
+                }
+                let Ok(Some(mut message)) = received else { unreachable!("end reason handled") };
                 if message.len() > REMOTE_SESSION_MESSAGE_MAX_BYTES {
-                    break;
+                    break Some(remote_reader_message_too_large(&mut message));
                 }
                 let value = serde_json::from_str::<Value>(&message);
                 zeroize_string(&mut message);
                 let Ok(value) = value else { continue };
-                let Some(session) = reader_session.upgrade() else { break };
+                let Some(session) = reader_session.upgrade() else { break None };
                 session.handle_line(value);
-            }
-            // Connection lost: tell the app to quit.
+            };
+            // Connection lost: retain the reason before telling the app to quit.
             if let Some(session) = reader_session.upgrade() {
-                session.disconnect_transport();
+                session.disconnect_transport_with_reason(reason);
                 session.emit(MuxEvent::Empty);
             }
         })?;
@@ -2843,8 +2878,28 @@ impl RemoteSession {
     }
 
     fn disconnect_transport(&self) {
+        self.disconnect_transport_with_reason(None);
+    }
+
+    fn disconnect_transport_with_reason(&self, reason: Option<String>) {
+        let mut state = self.disconnect_state.lock().unwrap();
+        if matches!(&*state, DisconnectState::Active) {
+            *state = match reason {
+                Some(reason) => DisconnectState::Remote(reason),
+                None => DisconnectState::LocalShutdown,
+            };
+        }
+        drop(state);
         self.begin_shutdown();
         self.interactive_writer.close();
+    }
+
+    /// Returns the first reason recorded when the remote reader stopped.
+    pub fn transport_disconnect_reason(&self) -> Option<String> {
+        match &*self.disconnect_state.lock().unwrap() {
+            DisconnectState::Remote(reason) => Some(reason.clone()),
+            DisconnectState::Active | DisconnectState::LocalShutdown => None,
+        }
     }
 
     pub fn set_cell_pixel_size(
@@ -3011,48 +3066,6 @@ impl RemoteSession {
             }
         }
         if failures.is_empty() { Ok(()) } else { anyhow::bail!("{}", failures.join("; ")) }
-    }
-
-    pub fn set_default_colors(&self, colors: DefaultColors) -> anyhow::Result<()> {
-        let palette = colors
-            .palette
-            .into_iter()
-            .enumerate()
-            .filter_map(|(index, color)| {
-                color.map(|color| (index.to_string(), Value::String(hex_color(color))))
-            })
-            .collect::<serde_json::Map<String, Value>>();
-        let mut cmd = json!({
-            "cmd": "set-default-colors",
-            "complete": true,
-            "palette": palette,
-        });
-        if let Some(fg) = colors.fg {
-            cmd["fg"] = json!(hex_color(fg));
-        }
-        if let Some(bg) = colors.bg {
-            cmd["bg"] = json!(hex_color(bg));
-        }
-        if let Some(cursor) = colors.cursor {
-            cmd["cursor"] = json!(hex_color(cursor));
-        }
-        if let Some(selection_bg) = colors.selection_bg {
-            cmd["selection_bg"] = json!(hex_color(selection_bg));
-        }
-        if let Some(selection_fg) = colors.selection_fg {
-            cmd["selection_fg"] = json!(hex_color(selection_fg));
-        }
-        if let Some(cursor_style) = colors.cursor_style {
-            cmd["cursor_style"] = json!(match cursor_style {
-                CursorShape::Block | CursorShape::BlockHollow => "block",
-                CursorShape::Underline => "underline",
-                CursorShape::Bar => "bar",
-            });
-        }
-        if let Some(cursor_blink) = colors.cursor_blink {
-            cmd["cursor_blink"] = json!(cursor_blink);
-        }
-        self.request(cmd).map(|_| ())
     }
 
     pub fn supports_browser_attach(&self) -> bool {
@@ -3717,10 +3730,6 @@ fn terminal_palette_override_delta(
     output
 }
 
-fn hex_color(color: Rgb) -> String {
-    format!("#{:02x}{:02x}{:02x}", color.r, color.g, color.b)
-}
-
 fn parse_browser_frame(value: &Value) -> Option<RemoteBrowserFrame> {
     let data_b64 = value.get("data")?.as_str()?.to_string();
     let seq = value.get("seq")?.as_u64()?;
@@ -3788,6 +3797,7 @@ fn test_session_with_writer(
 ) -> Arc<RemoteSession> {
     Arc::new(RemoteSession {
         interactive_writer: InteractiveWriter::spawn(writer, Arc::new(NoopTransportAbort)).unwrap(),
+        disconnect_state: Mutex::new(DisconnectState::default()),
         pending: Mutex::new(HashMap::new()),
         next_id: AtomicU64::new(1),
         attach_progress: AtomicU64::new(0),
@@ -5028,6 +5038,7 @@ mod tests {
     ) -> Arc<RemoteSession> {
         Arc::new(RemoteSession {
             interactive_writer: InteractiveWriter::spawn(writer, abort).unwrap(),
+            disconnect_state: Mutex::new(DisconnectState::default()),
             pending: Mutex::new(HashMap::new()),
             next_id: AtomicU64::new(1),
             attach_progress: AtomicU64::new(0),
@@ -6133,6 +6144,52 @@ mod tests {
     }
 
     #[test]
+    fn remote_reader_end_reason_distinguishes_eof_from_read_failure() {
+        let eof: io::Result<Option<String>> = Ok(None);
+        assert_eq!(
+            remote_reader_end_reason(&eof).as_deref(),
+            Some("the daemon closed the connection")
+        );
+
+        let failure = Err(io::Error::new(io::ErrorKind::ConnectionReset, "peer reset"));
+        assert_eq!(remote_reader_end_reason(&failure).as_deref(), Some("peer reset"));
+
+        let message = Ok(Some("{}".to_string()));
+        assert!(remote_reader_end_reason(&message).is_none());
+    }
+
+    #[test]
+    fn oversized_remote_reader_message_is_zeroized_before_disconnect() {
+        let mut message = "secret remote payload".to_string();
+        let reason = remote_reader_message_too_large(&mut message);
+
+        assert_eq!(
+            reason,
+            format!(
+                "remote session message exceeds the \
+                 {REMOTE_SESSION_MESSAGE_MAX_BYTES}-byte limit"
+            )
+        );
+        assert!(message.bytes().all(|byte| byte == 0));
+    }
+
+    #[test]
+    fn json_reader_preserves_non_eof_read_errors() {
+        struct FailingReader;
+
+        impl Read for FailingReader {
+            fn read(&mut self, _buffer: &mut [u8]) -> io::Result<usize> {
+                Err(io::Error::new(io::ErrorKind::ConnectionReset, "peer reset"))
+            }
+        }
+
+        let mut reader = BufReader::new(FailingReader);
+        let result = read_json_line_with_progress(&mut reader, &mut |_| {});
+        assert_eq!(result.as_ref().unwrap_err().to_string(), "peer reset");
+        assert_eq!(remote_reader_end_reason(&result).as_deref(), Some("peer reset"));
+    }
+
+    #[test]
     fn remote_terminal_dimensions_are_bounded_by_dimension_and_total_cells() {
         assert_eq!(remote_terminal_size(&json!({})), Some((80, 24)));
         assert_eq!(remote_terminal_size(&json!({"cols": 4096, "rows": 256})), Some((4096, 256)));
@@ -6165,6 +6222,33 @@ mod tests {
 
         assert!(session.shutdown.load(Ordering::Acquire));
         assert!(closed.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn transport_disconnect_reason_is_first_writer_wins() {
+        let session = test_session(Box::new(CloseTrackingWriter {
+            closed: Arc::new(AtomicBool::new(false)),
+        }));
+
+        session.disconnect_transport_with_reason(Some("the daemon closed the connection".into()));
+        session.disconnect_transport_with_reason(Some("peer reset".into()));
+
+        assert_eq!(
+            session.transport_disconnect_reason().as_deref(),
+            Some("the daemon closed the connection")
+        );
+    }
+
+    #[test]
+    fn local_shutdown_does_not_preserve_reader_error() {
+        let session = test_session(Box::new(CloseTrackingWriter {
+            closed: Arc::new(AtomicBool::new(false)),
+        }));
+
+        session.disconnect_transport();
+        session.disconnect_transport_with_reason(Some("peer reset".into()));
+
+        assert_eq!(session.transport_disconnect_reason(), None);
     }
 
     #[test]

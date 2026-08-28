@@ -248,6 +248,7 @@ pub(crate) struct ShortcutMessages {
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct BrowserMessages {
     failed_prefix: &'static str,
+    control_failed: &'static str,
     not_responding: &'static str,
     resize_recovery: &'static str,
     new_page_verification_prefix: &'static str,
@@ -264,6 +265,10 @@ pub(crate) struct BrowserMessages {
 }
 
 impl BrowserMessages {
+    pub(crate) fn control_failed(&self, error: &str) -> String {
+        self.control_failed.replace("{error}", error)
+    }
+
     pub(crate) fn loading(&self, url: &str) -> String {
         self.loading.replace("{url}", url)
     }
@@ -872,7 +877,6 @@ pub(crate) struct SidebarMessages {
     pub machine_provider_lifecycle_update_failed: &'static str,
     pub machine_provider_workspace_update_failed: &'static str,
     pub machine_reconnect_failed: &'static str,
-    pub machine_terminal_colors_failed: &'static str,
     pub machine_provider_external_connect_unsupported: &'static str,
     pub machine_provider_external_connect_ambiguous: &'static str,
     pub machine_not_ready_to_connect: &'static str,
@@ -1005,12 +1009,16 @@ pub(crate) struct LocalServerMessages {
     pub session_stop_help: &'static str,
     pub help: &'static str,
     pub start_help: &'static str,
+    pub ensure_help: &'static str,
     pub status_help: &'static str,
     pub stop_help: &'static str,
     pub reload_config_help: &'static str,
     pub running: &'static str,
+    pub started: &'static str,
     pub stopped: &'static str,
     pub not_running: &'static str,
+    pub owner_spawn_failed: &'static str,
+    pub owner_not_ready: &'static str,
     pub reloaded: &'static str,
     pub connect_failed: &'static str,
     pub starting: &'static str,
@@ -1023,6 +1031,7 @@ pub(crate) struct LocalServerMessages {
     pub wrong_owner: &'static str,
     pub different_session: &'static str,
     pub invalid_identity: &'static str,
+    pub unsupported_protocol: &'static str,
     pub force_unsupported: &'static str,
     pub session_conflict: &'static str,
     pub machine_not_supported: &'static str,
@@ -1040,6 +1049,10 @@ pub(crate) struct LocalServerMessages {
 }
 
 impl LocalServerMessages {
+    pub(crate) fn owner_spawn_failed(&self) -> String {
+        self.owner_spawn_failed.to_string()
+    }
+
     pub(crate) fn unknown_scope(&self, scope: &str, suggestion: Option<&str>) -> String {
         self.with_suggestion(self.unknown_scope.replace("{scope}", scope), suggestion)
     }
@@ -1115,17 +1128,21 @@ static ENGLISH: Catalog = Catalog {
     local_server: LocalServerMessages {
         startup_lifecycle_usage: "  cmux server <ACTION>     Start, inspect, stop, or reload one local session\n  cmux remote connect <ROUTE>  Attach through an authenticated remote route\n  cmux remote ssh <HOST>       Bootstrap and attach over direct SSH\n  cmux remote forward <ROUTE>  Forward a workspace TCP service locally\n  cmux remote rpc <ROUTE>     Run workspace coding-agent RPC requests\n  cmux remote enroll <ACTION> Enroll, approve, list, or revoke devices\n  cmux remote known-daemons   List client-pinned daemon identities and routes\n  cmux remote stop            Stop a replaceable SSH sidecar explicitly",
         root_remote_usage: "  cmux remote <connect|ssh|forward|rpc|enroll|known-daemons|stop> [OPTIONS]",
-        root_server_usage: "  cmux server <start|status|stop|reload-config> [OPTIONS]",
+        root_server_usage: "  cmux server <start|ensure|status|stop|reload-config> [OPTIONS]",
         root_server_scope: "  server        Manage one named local durable session owner",
         session_stop_help: "  cmux session <name>|current stop",
-        help: "USAGE\n  cmux server start [START OPTIONS]\n  cmux server status [--session <name>] [--socket <path>]\n  cmux server stop [--session <name>] [--socket <path>] [--force]\n  cmux server reload-config [--session <name>] [--socket <path>]\n\n`server` always targets the local durable mux owner for one named session.\nUse `cmux remote --help` for authenticated remote-daemon lifecycle.\n",
+        help: "USAGE\n  cmux server start [START OPTIONS]\n  cmux server ensure [--session <name>] [--socket <path>]\n  cmux server status [--session <name>] [--socket <path>]\n  cmux server stop [--session <name>] [--socket <path>] [--force]\n  cmux server reload-config [--session <name>] [--socket <path>]\n\n`server` always targets the local durable mux owner for one named session.\nUse `cmux remote --help` for authenticated remote-daemon lifecycle.\n",
         start_help: "USAGE\n  cmux server start [START OPTIONS]\n\nStart the local durable mux owner for one named session in the foreground.\n",
+        ensure_help: "USAGE\n  cmux server ensure [--session <name>] [--socket <path>]\n\nStart a detached local session owner when none is running, wait until it\naccepts clients, and report it. Ensuring a running session succeeds.\n",
         status_help: "USAGE\n  cmux server status [--session <name>] [--socket <path>]\n",
         stop_help: "USAGE\n  cmux server stop [--session <name>] [--socket <path>] [--force]\n\nStopping an absent server succeeds. Durable session topology is preserved.\n",
         reload_config_help: "USAGE\n  cmux server reload-config [--session <name>] [--socket <path>]\n",
         running: "local server is running",
+        started: "local server started",
         stopped: "local server stopped; durable session topology was preserved",
         not_running: "local server is not running; nothing needed to be stopped",
+        owner_spawn_failed: "cannot start the detached session owner; check the session state and retry",
+        owner_not_ready: "the detached session owner did not become ready; inspect the client log under the session state directory and retry",
         reloaded: "local server configuration reloaded",
         connect_failed: "cannot connect to the local server; check that the named session is running and retry",
         starting: "the local server is still starting; retry the lifecycle command",
@@ -1138,6 +1155,7 @@ static ENGLISH: Catalog = Catalog {
         wrong_owner: "the selected socket is not owned by a cmux local server",
         different_session: "the selected socket belongs to a different session",
         invalid_identity: "the local server returned an incomplete lifecycle identity",
+        unsupported_protocol: "the selected session uses an incompatible cmux-tui protocol; restart it with this cmux build",
         force_unsupported: "this local server cannot accept a safely fenced forced stop; use the cmux build that started it",
         session_conflict: "the session name conflicts with --session",
         machine_not_supported: "--machine cannot target a local server; use the machine resource commands",
@@ -1309,6 +1327,7 @@ edits shell files. Authenticate with the configured host before retrying.
     },
     browser: BrowserMessages {
         failed_prefix: "browser failed: ",
+        control_failed: "browser command failed: {error}",
         not_responding: "browser failed: browser is not responding",
         resize_recovery: "browser failed: browser resize recovery failed; reload to retry",
         new_page_verification_prefix: "browser failed: could not verify new page pixels: ",
@@ -1711,7 +1730,6 @@ OPTIONS:
         machine_provider_lifecycle_update_failed: "Machine provider lifecycle update failed",
         machine_provider_workspace_update_failed: "Machine provider workspace update failed",
         machine_reconnect_failed: "Could not reconnect machine",
-        machine_terminal_colors_failed: "Could not apply terminal colors",
         machine_provider_external_connect_unsupported: "This machine provider cannot connect external machines",
         machine_provider_external_connect_ambiguous: "The previous connection attempt may have succeeded; reconnect the provider and retry with the same pairing code",
         machine_not_ready_to_connect: "Selected machine is not ready to connect",
@@ -1754,17 +1772,21 @@ static JAPANESE: Catalog = Catalog {
     local_server: LocalServerMessages {
         startup_lifecycle_usage: "  cmux server <操作>       一つのローカルセッションを起動、確認、停止、再読み込み\n  cmux remote connect <ルート>  認証済みリモートルート経由で接続\n  cmux remote ssh <ホスト>       直接 SSH で導入して接続\n  cmux remote forward <ルート>  ワークスペースの TCP サービスをローカル転送\n  cmux remote rpc <ルート>       ワークスペースのコーディングエージェント RPC を実行\n  cmux remote enroll <操作>      デバイスを登録、承認、一覧、失効\n  cmux remote known-daemons      クライアントに固定したデーモン ID とルートを一覧表示\n  cmux remote stop               置換可能な SSH サイドカーを明示的に停止",
         root_remote_usage: "  cmux remote <connect|ssh|forward|rpc|enroll|known-daemons|stop> [オプション]",
-        root_server_usage: "  cmux server <start|status|stop|reload-config> [オプション]",
+        root_server_usage: "  cmux server <start|ensure|status|stop|reload-config> [オプション]",
         root_server_scope: "  server        一つの名前付きローカル永続セッション所有者を管理",
         session_stop_help: "  cmux session <名前>|current stop",
-        help: "使用方法\n  cmux server start [起動オプション]\n  cmux server status [--session <名前>] [--socket <パス>]\n  cmux server stop [--session <名前>] [--socket <パス>] [--force]\n  cmux server reload-config [--session <名前>] [--socket <パス>]\n\n`server` は常に一つの名前付きセッションのローカル永続 mux 所有者を対象にします。\n認証済みリモートデーモンの操作は `cmux remote --help` を参照してください。\n",
+        help: "使用方法\n  cmux server start [起動オプション]\n  cmux server ensure [--session <名前>] [--socket <パス>]\n  cmux server status [--session <名前>] [--socket <パス>]\n  cmux server stop [--session <名前>] [--socket <パス>] [--force]\n  cmux server reload-config [--session <名前>] [--socket <パス>]\n\n`server` は常に一つの名前付きセッションのローカル永続 mux 所有者を対象にします。\n認証済みリモートデーモンの操作は `cmux remote --help` を参照してください。\n",
         start_help: "使用方法\n  cmux server start [起動オプション]\n\n一つの名前付きセッションのローカル永続 mux 所有者をフォアグラウンドで起動します。\n",
+        ensure_help: "使用方法\n  cmux server ensure [--session <名前>] [--socket <パス>]\n\nローカルセッション所有者が実行されていない場合はデタッチ状態で起動し、\nクライアントを受け付けるまで待って結果を報告します。実行中の場合も成功します。\n",
         status_help: "使用方法\n  cmux server status [--session <名前>] [--socket <パス>]\n",
         stop_help: "使用方法\n  cmux server stop [--session <名前>] [--socket <パス>] [--force]\n\nサーバーが存在しない場合も成功します。永続セッションの構成は保持されます。\n",
         reload_config_help: "使用方法\n  cmux server reload-config [--session <名前>] [--socket <パス>]\n",
         running: "ローカルサーバーは実行中です",
+        started: "ローカルサーバーを起動しました",
         stopped: "ローカルサーバーを停止しました。永続セッションの構成は保持されています",
         not_running: "ローカルサーバーは実行されていません。停止は不要でした",
+        owner_spawn_failed: "デタッチされたセッション所有者を起動できません。セッション状態を確認して再試行してください",
+        owner_not_ready: "デタッチされたセッション所有者が準備完了になりませんでした。セッション状態ディレクトリのクライアントログを確認して再試行してください",
         reloaded: "ローカルサーバーの設定を再読み込みしました",
         connect_failed: "ローカルサーバーに接続できません。名前付きセッションが実行中であることを確認して再試行してください",
         starting: "ローカルサーバーは起動中です。ライフサイクルコマンドを再試行してください",
@@ -1777,6 +1799,7 @@ static JAPANESE: Catalog = Catalog {
         wrong_owner: "選択したソケットは cmux ローカルサーバーに所有されていません",
         different_session: "選択したソケットは別のセッションに属しています",
         invalid_identity: "ローカルサーバーが完全なライフサイクル識別情報を返しませんでした",
+        unsupported_protocol: "選択したセッションは互換性のない cmux-tui プロトコルを使用しています。この cmux ビルドで再起動してください",
         force_unsupported: "このローカルサーバーは安全にフェンスされた強制停止に対応していません。起動に使用した cmux ビルドで停止してください",
         session_conflict: "セッション名が --session と競合しています",
         machine_not_supported: "--machine でローカルサーバーを対象にすることはできません。machine リソースコマンドを使用してください",
@@ -1948,6 +1971,7 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
     },
     browser: BrowserMessages {
         failed_prefix: "ブラウザでエラーが発生しました: ",
+        control_failed: "ブラウザ操作に失敗しました: {error}",
         not_responding: "ブラウザが応答していません",
         resize_recovery: "ブラウザのサイズ変更を復旧できませんでした。再読み込みして再試行してください",
         new_page_verification_prefix: "新しいページの表示を確認できませんでした: ",
@@ -2347,7 +2371,6 @@ ID とセッション:
         machine_provider_lifecycle_update_failed: "マシンプロバイダーのライフサイクル更新に失敗しました",
         machine_provider_workspace_update_failed: "マシンプロバイダーのワークスペース更新に失敗しました",
         machine_reconnect_failed: "マシンに再接続できませんでした",
-        machine_terminal_colors_failed: "ターミナルの色を適用できませんでした",
         machine_provider_external_connect_unsupported: "このマシンプロバイダーは外部マシンに接続できません",
         machine_provider_external_connect_ambiguous: "前回の接続処理が完了している可能性があります。プロバイダーを再接続し、同じペアリングコードで再試行してください",
         machine_not_ready_to_connect: "選択したマシンは接続準備ができていません",
@@ -2839,6 +2862,22 @@ mod tests {
                 japanese
             );
         }
+    }
+
+    #[test]
+    fn browser_control_failures_are_localized_at_the_ui_boundary() {
+        assert_eq!(
+            catalog_for_locale("en_US.UTF-8")
+                .browser
+                .control_failed("browser panes are not supported over attach yet"),
+            "browser command failed: browser panes are not supported over attach yet"
+        );
+        assert_eq!(
+            catalog_for_locale("ja_JP.UTF-8")
+                .browser
+                .control_failed("browser panes are not supported over attach yet"),
+            "ブラウザ操作に失敗しました: browser panes are not supported over attach yet"
+        );
     }
 
     #[test]
