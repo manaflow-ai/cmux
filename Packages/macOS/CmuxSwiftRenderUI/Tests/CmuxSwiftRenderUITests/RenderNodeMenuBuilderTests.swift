@@ -256,10 +256,12 @@ struct RenderNodeMenuBuilderTests {
         let content = NSView(frame: container.bounds)
         let nested = RenderNodeContextMenuView(frame: NSRect(x: 150, y: 0, width: 50, height: 40))
         nested.nodes = menuNodes
+        nested.contextMenuPath = [0, 1]
         content.addSubview(nested)
         container.addSubview(content)
         let rowOverlay = RenderNodeContextMenuView(frame: container.bounds)
         rowOverlay.nodes = menuNodes
+        rowOverlay.contextMenuPath = [0]
         container.addSubview(rowOverlay)
 
         // Over the nested overlay: the row overlay must yield.
@@ -287,11 +289,13 @@ struct RenderNodeMenuBuilderTests {
         let siblingRow = NSView(frame: NSRect(x: 150, y: 40, width: 50, height: 40))
         let siblingOverlay = RenderNodeContextMenuView(frame: siblingRow.bounds)
         siblingOverlay.nodes = menuNodes
+        siblingOverlay.contextMenuPath = [1]
         siblingRow.addSubview(siblingOverlay)
         container.addSubview(siblingRow)
 
         let rowOverlay = RenderNodeContextMenuView(frame: NSRect(x: 0, y: 0, width: 200, height: 80))
         rowOverlay.nodes = menuNodes
+        rowOverlay.contextMenuPath = [0]
         container.addSubview(rowOverlay)
 
         // The point is inside both rows. Only a nested overlay in the current
