@@ -5012,6 +5012,24 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         return materializeDeferredBrowserPanel(deferredPanel) != nil
     }
 
+    /// Returns the current panel after materializing a deferred browser when needed.
+    ///
+    /// Materialization replaces the registry object while preserving its panel ID, so
+    /// callers that continue a focus or activation transaction must use the returned value.
+    private func materializedPanel(
+        _ panel: any Panel,
+        panelId: UUID,
+        reason: String
+    ) -> any Panel {
+        guard panel is DeferredBrowserPanel else { return panel }
+        _ = requestDeferredBrowserMaterialization(
+            panelId: panelId,
+            isVisibleInUI: true,
+            reason: reason
+        )
+        return panels[panelId] ?? panel
+    }
+
     /// Replaces a restore placeholder with its WebKit-backed browser on first use.
     ///
     /// The Bonsplit tab and panel identity stay stable, so selection, closed-item
@@ -11137,10 +11155,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         // A browser restored lazily has the same Bonsplit tab identity as its
         // eventual live panel. Materialize it before focus routing asks AppKit
         // for a WebView/first-responder target.
-        if panels[panelId] is DeferredBrowserPanel {
-            _ = requestDeferredBrowserMaterialization(
+        if let panel = panels[panelId] {
+            _ = materializedPanel(
+                panel,
                 panelId: panelId,
-                isVisibleInUI: true,
                 reason: "workspace.focusPanel"
             )
         }
@@ -11537,15 +11555,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         // Materialization replaces the placeholder in the registry while keeping
         // its stable UUID. Continue this reconciliation with the replacement so
         // focus and panel metadata are applied to the live BrowserPanel.
-        var resolvedTargetPanel: any Panel = targetPanel
-        if targetPanel is DeferredBrowserPanel {
-            _ = requestDeferredBrowserMaterialization(
-                panelId: targetPanelId,
-                isVisibleInUI: true,
-                reason: "workspace.reconcileFocus"
-            )
-            resolvedTargetPanel = panels[targetPanelId] ?? targetPanel
-        }
+        let resolvedTargetPanel = materializedPanel(
+            targetPanel,
+            panelId: targetPanelId,
+            reason: "workspace.reconcileFocus"
+        )
 
         for (panelId, panel) in panels where panelId != targetPanelId {
             panel.unfocus()
@@ -13159,18 +13173,14 @@ extension Workspace: BonsplitDelegate {
         }
         let effectiveFocusedPanelId = effectiveSelectedPanelId(inPane: focusedPane) ?? selectedPanelId
         guard let initialPanel = panels[effectiveFocusedPanelId] else { return }
-        var panel: any Panel = initialPanel
-        if panel is DeferredBrowserPanel {
-            _ = requestDeferredBrowserMaterialization(
-                panelId: effectiveFocusedPanelId,
-                isVisibleInUI: true,
-                reason: "workspace.applyTabSelection"
-            )
-            // The request may replace the object while preserving the panel ID.
-            // Re-resolve before preparing or activating focus so the live browser
-            // receives the normal focus/autofocus path.
-            panel = panels[effectiveFocusedPanelId] ?? panel
-        }
+        // The request may replace the object while preserving the panel ID.
+        // Re-resolve before preparing or activating focus so the live browser
+        // receives the normal focus/autofocus path.
+        let panel = materializedPanel(
+            initialPanel,
+            panelId: effectiveFocusedPanelId,
+            reason: "workspace.applyTabSelection"
+        )
         guard let activationPanel = controlSurfaceProjection(
             forContainerPanelID: effectiveFocusedPanelId
         )?.panel else { return }
