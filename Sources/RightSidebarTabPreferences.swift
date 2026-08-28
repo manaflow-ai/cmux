@@ -61,6 +61,25 @@ enum RightSidebarTabPreferences {
         return true
     }
 
+    /// Rewrites the relative order of the modes in `displayed` (the mode bar's
+    /// pills, left to right) while every other tab keeps its slot in the full
+    /// order. Used by drag-to-reorder: the bar shows a subset (hidden tabs are
+    /// absent, except a revealed active one), so only that subset's slots are
+    /// permuted.
+    static func setDisplayedOrder(_ displayed: [RightSidebarMode], defaults: UserDefaults = .standard) {
+        var queue = displayed.filter { $0 != .customSidebar }
+        let displayedSet = Set(queue)
+        let currentOrder = orderedModes(defaults: defaults)
+        var order = currentOrder
+        for index in order.indices where displayedSet.contains(order[index]) {
+            guard !queue.isEmpty else { break }
+            order[index] = queue.removeFirst()
+        }
+        guard order != currentOrder else { return }
+        defaults.set(order.map(\.rawValue), forKey: orderKey)
+        notifyChanged()
+    }
+
     /// Moves one tab by `offset` within the full ordered tab list (hidden tabs
     /// keep their slot so re-showing one restores its place).
     static func move(_ mode: RightSidebarMode, offset: Int, defaults: UserDefaults = .standard) {
