@@ -77,7 +77,7 @@ const FLOW_RESUME_BYTES: u64 = 32_768;
 /// The manager's output cap is one MiB. Keep a small control-frame reserve so
 /// a queued output frame cannot prevent an exit or refusal from being sent,
 /// while still making the total writer memory bound explicit.
-const TUNNEL_QUEUE_BYTES: u64 = MAX_TUNNEL_FRAME_BYTES as u64 + 64 * 1024;
+const TUNNEL_QUEUE_BYTES: u64 = MAX_TUNNEL_FRAME_BYTES as u64 + HEADER_BYTES as u64 + 64 * 1024;
 /// Bytes held back for terminal control/error frames. Data frames cannot
 /// consume this budget, so a saturated output queue can still report failure
 /// or completion.
@@ -1070,28 +1070,50 @@ mod tests {
         }
     }
 
+    async fn queue_connection(
+        manager: Arc<PtyManager>,
+    ) -> (Connection, mpsc::Receiver<WriterMessage>) {
+        let (writer_tx, writer_rx) = mpsc::channel::<WriterMessage>(TUNNEL_WRITER_QUEUE_ITEMS);
+        let end_permit = writer_tx.clone().reserve_owned().await.expect("reserve End slot");
+        let (flow_tx, _) = watch::channel(false);
+        (
+            Connection {
+                pty_id: "queue-test".to_owned(),
+                manager,
+                writer_tx,
+                end_permit: StdMutex::new(Some(end_permit)),
+                queue_gate: StdMutex::new(()),
+                flow_tx,
+                auth_state: Arc::new(RwLock::new(TunnelAuthority::default())),
+                auth_generation: 0,
+                pending_out: AtomicU64::new(0),
+                paused: AtomicBool::new(false),
+                open_sent: AtomicBool::new(false),
+                opened_seen: AtomicBool::new(false),
+                finished: AtomicBool::new(false),
+                done: CancellationToken::new(),
+            },
+            writer_rx,
+        )
+    }
+
+    #[tokio::test]
+    async fn maximum_valid_pty_frame_fits_the_bounded_data_budget() {
+        let rig = rig().await;
+        let (connection, mut writer_rx) = queue_connection(Arc::clone(&rig.manager)).await;
+        let frame = encode_pty_frame(&vec![b'x'; MAX_TUNNEL_FRAME_BYTES]).expect("valid frame");
+        assert!(connection.enqueue_frame(frame, false));
+        connection.finish();
+        drop(connection);
+        assert!(matches!(writer_rx.recv().await, Some(WriterMessage::Frame(_))));
+        assert!(matches!(writer_rx.recv().await, Some(WriterMessage::End)));
+        rig.cancel.cancel();
+    }
+
     #[tokio::test]
     async fn saturated_writer_queue_still_delivers_error_and_end() {
         let rig = rig().await;
-        let (writer_tx, mut writer_rx) = mpsc::channel::<WriterMessage>(TUNNEL_WRITER_QUEUE_ITEMS);
-        let end_permit = writer_tx.clone().reserve_owned().await.expect("reserve End slot");
-        let (flow_tx, _) = watch::channel(false);
-        let connection = Connection {
-            pty_id: "queue-test".to_owned(),
-            manager: Arc::clone(&rig.manager),
-            writer_tx,
-            end_permit: StdMutex::new(Some(end_permit)),
-            queue_gate: StdMutex::new(()),
-            flow_tx,
-            auth_state: Arc::new(RwLock::new(TunnelAuthority::default())),
-            auth_generation: 0,
-            pending_out: AtomicU64::new(0),
-            paused: AtomicBool::new(false),
-            open_sent: AtomicBool::new(false),
-            opened_seen: AtomicBool::new(false),
-            finished: AtomicBool::new(false),
-            done: CancellationToken::new(),
-        };
+        let (connection, mut writer_rx) = queue_connection(Arc::clone(&rig.manager)).await;
 
         // Data can fill every ordinary slot, but the reserved permit keeps
         // the shutdown item available and the item reserve leaves room for
