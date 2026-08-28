@@ -133,9 +133,19 @@ export function cmuxTuiPinCheckCommand(source: CmuxTuiSource): string {
   return `test -x ${shellQuote(CMUX_TUI_BINARY_PATH)} && printf '%s  %s\n' ${shellQuote(source.sha256)} ${shellQuote(CMUX_TUI_BINARY_PATH)} | sha256sum -c >/dev/null 2>&1`;
 }
 
-/** The daemon command every provider's supervisor runs. Launch cwd = /root so new terminals open in the persistent home. */
-export function cmuxTuiDaemonCommand(): string {
-  return `cd /root && env HOME=/root TERM=xterm-256color ${CMUX_TUI_BINARY_PATH} server start --session ${CMUX_TUI_SESSION} --remote-ws 0.0.0.0:${CMUX_TUI_PORT} --remote-ws-insecure-bind`;
+/** The listener bind every container provider uses; cmux-devbox-boot's CMUX_TUI_REMOTE_WS_BIND default. */
+export const CMUX_TUI_DEFAULT_REMOTE_WS_BIND = `0.0.0.0:${CMUX_TUI_PORT}`;
+
+/**
+ * The daemon command every provider's supervisor runs. Launch cwd = /root so
+ * new terminals open in the persistent home. `remoteWsBind` defaults to the
+ * IPv4 wildcard the container providers' proxies dial; Freestyle beta machines
+ * are reached at their public IPv6 and pass a dual-stack `[::]` bind instead
+ * (a container with IPv6 disabled cannot bind `[::]` at all, so dual-stack is
+ * per-provider, not the default).
+ */
+export function cmuxTuiDaemonCommand(remoteWsBind: string = CMUX_TUI_DEFAULT_REMOTE_WS_BIND): string {
+  return `cd /root && env HOME=/root TERM=xterm-256color ${CMUX_TUI_BINARY_PATH} server start --session ${CMUX_TUI_SESSION} --remote-ws ${remoteWsBind} --remote-ws-insecure-bind`;
 }
 
 /** Enrollment invitations are `cmux://enroll/<base64url JSON>`; the id and expiry inside are what the approve flow needs. */
