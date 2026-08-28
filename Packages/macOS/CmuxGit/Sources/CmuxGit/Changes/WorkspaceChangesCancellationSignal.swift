@@ -1,4 +1,3 @@
-import Dispatch
 import Foundation
 
 /// Bridges Swift task cancellation into GCD-hosted git work, where
@@ -11,12 +10,7 @@ import Foundation
 final class WorkspaceChangesCancellationSignal: @unchecked Sendable {
     private static let threadKey = "com.cmux.workspace-changes.cancellation"
     private let lock = NSLock()
-    private let deadline: DispatchTime?
     private var cancelled = false
-
-    init(deadline: DispatchTime? = nil) {
-        self.deadline = deadline
-    }
 
     func cancel() {
         lock.lock()
@@ -26,9 +20,8 @@ final class WorkspaceChangesCancellationSignal: @unchecked Sendable {
 
     var isCancelled: Bool {
         lock.lock()
-        let cancelled = self.cancelled
-        lock.unlock()
-        return cancelled || deadline.map { $0 <= DispatchTime.now() } == true
+        defer { lock.unlock() }
+        return cancelled
     }
 
     /// The signal bound to the current worker thread, if any.

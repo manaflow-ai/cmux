@@ -9,8 +9,8 @@ extension GitMetadataService {
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    /// The current branch name from a file-backed `HEAD`
-    /// (`ref: refs/heads/<name>`), or `nil` for a detached or unreadable `HEAD`.
+    /// The current branch name from `HEAD` (`ref: refs/heads/<name>`), or `nil`
+    /// for a detached HEAD or unreadable `HEAD`.
     nonisolated static func gitBranchName(repository: ResolvedGitRepository) -> String? {
         let headURL = URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("HEAD")
         guard let contents = try? String(contentsOf: headURL, encoding: .utf8) else {
@@ -25,8 +25,9 @@ extension GitMetadataService {
         return branch.isEmpty ? nil : branch
     }
 
-    /// Classifies a file-backed `HEAD` into a ``GitCheckedOutBranch``, keeping a
-    /// legitimate non-branch checkout distinct from malformed metadata.
+    /// Classifies the repository's `HEAD` into a ``GitCheckedOutBranch``,
+    /// keeping a legitimate non-branch checkout (detached commit, non-branch
+    /// symbolic ref) distinct from a missing/unreadable/malformed `HEAD`.
     nonisolated static func gitCheckedOutBranch(repository: ResolvedGitRepository) -> GitCheckedOutBranch {
         let headURL = URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("HEAD")
         guard let contents = try? String(contentsOf: headURL, encoding: .utf8) else {
@@ -56,8 +57,8 @@ extension GitMetadataService {
         return value.allSatisfy(\.isHexDigit)
     }
 
-    /// A signature of file-backed `HEAD` plus the commit it resolves to: the
-    /// symbolic ref text and resolved ref value, or the detached SHA directly.
+    /// A signature of `HEAD` plus the commit it resolves to: the symbolic ref
+    /// text and the resolved ref value joined, or the detached SHA directly.
     nonisolated static func gitHeadSignature(repository: ResolvedGitRepository) -> String? {
         let headURL = URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("HEAD")
         guard let contents = try? String(contentsOf: headURL, encoding: .utf8) else {
@@ -75,8 +76,8 @@ extension GitMetadataService {
         return "\(trimmed)\n\(refValue)"
     }
 
-    /// Resolves a file-backed ref name by checking loose refs under the git and
-    /// common directories, then `packed-refs`. A ref name is repo-controlled
+    /// Resolves a ref name to its value, checking the loose ref under the git
+    /// and common directories, then `packed-refs`. A ref name is repo-controlled
     /// input from `HEAD`; names whose standardized path escapes the directory
     /// they are joined to (e.g. `../../outside`) are ignored rather than read.
     nonisolated static func gitRefValue(repository: ResolvedGitRepository, refName: String) -> String? {
@@ -111,5 +112,33 @@ extension GitMetadataService {
             return String(parts[0])
         }
         return nil
+    }
+
+    /// The current commit SHA the repository's `HEAD` resolves to (40 lowercase
+    /// hex chars), or `nil` if it cannot be resolved to a commit.
+    nonisolated static func gitCurrentCommit(repository: ResolvedGitRepository) -> String? {
+        let headURL = URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("HEAD")
+        guard let contents = try? String(contentsOf: headURL, encoding: .utf8) else {
+            return nil
+        }
+        let trimmed = contents.trimmingCharacters(in: .whitespacesAndNewlines)
+        let refPrefix = "ref: "
+        let value: String
+        if trimmed.hasPrefix(refPrefix) {
+            let refName = String(trimmed.dropFirst(refPrefix.count))
+            guard !refName.isEmpty, let refValue = gitRefValue(repository: repository, refName: refName) else {
+                return nil
+            }
+            value = refValue
+        } else {
+            value = trimmed
+        }
+
+        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard normalized.count == 40,
+              normalized.allSatisfy({ $0.isHexDigit }) else {
+            return nil
+        }
+        return normalized
     }
 }

@@ -1,7 +1,7 @@
 import Foundation
 
-/// The result of resolving a directory's checked-out branch through its
-/// repository's configured reference backend.
+/// The result of reading a directory's checked-out branch from its
+/// repository's `HEAD`.
 ///
 /// Distinguishes a legitimate non-branch checkout (``detached``) from a
 /// repository whose `HEAD` could not be read or parsed (``unreadable``), so
