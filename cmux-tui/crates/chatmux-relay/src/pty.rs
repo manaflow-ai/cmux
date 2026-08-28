@@ -449,20 +449,23 @@ impl PtyManager {
 
     /// Handle one Worker -> relay PTY frame.
     pub async fn handle_frame(&self, frame: &Value, context: &FrameContext) {
-        let snapshot = AuthSnapshot::from_context(context);
-        let mut transport_auth = self.inner.transport_auth.lock().expect("transport auth lock");
-        if context.transport_id.is_none() {
-            // Legacy whole-manager callers use `None` and provide the current
-            // trust on each frame. Keep that contract for non-transport code.
-            transport_auth.insert(context.transport_id.clone(), snapshot);
-        } else {
-            // A connection can have an open in flight while trust is
-            // renegotiated. Do not let that stale frame overwrite the
-            // authoritative snapshot; session code calls
-            // `update_transport_auth` at each reconciliation boundary.
-            transport_auth.entry(context.transport_id.clone()).or_insert(snapshot);
+        {
+            let snapshot = AuthSnapshot::from_context(context);
+            let mut transport_auth =
+                self.inner.transport_auth.lock().expect("transport auth lock");
+            if context.transport_id.is_none() {
+                // Legacy whole-manager callers use `None` and provide the
+                // current trust on each frame. Keep that contract for non-
+                // transport code.
+                transport_auth.insert(context.transport_id.clone(), snapshot);
+            } else {
+                // A connection can have an open in flight while trust is
+                // renegotiated. Do not let that stale frame overwrite the
+                // authoritative snapshot; session code calls
+                // `update_transport_auth` at each reconciliation boundary.
+                transport_auth.entry(context.transport_id.clone()).or_insert(snapshot);
+            }
         }
-        drop(transport_auth);
         let frame_type = frame.get("type").and_then(Value::as_str).unwrap_or_default();
         match frame_type {
             "pty_open" => self.inner.clone().open(frame, context).await,
