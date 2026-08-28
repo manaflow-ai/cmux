@@ -412,6 +412,8 @@ actor CloudMachineLink {
 final class CloudLinkProcessStopper: @unchecked Sendable {
     private let process: Process
     private let handles: [FileHandle]
+    private let lock = NSLock()
+    private var stopped = false
 
     init(process: Process, handles: [FileHandle]) {
         self.process = process
@@ -421,6 +423,13 @@ final class CloudLinkProcessStopper: @unchecked Sendable {
     deinit { stop() }
 
     func stop() {
+        lock.lock()
+        guard !stopped else {
+            lock.unlock()
+            return
+        }
+        stopped = true
+        lock.unlock()
         let identifier = process.processIdentifier
         if process.isRunning, identifier > 1 {
             process.terminate()
