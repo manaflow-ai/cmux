@@ -6,6 +6,7 @@
 //! manifest and the viewport tail plus OSC title are evaluated. The
 //! tracker turns per-scan states into edge-triggered journal emissions.
 
+use std::collections::HashSet;
 use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant};
 
@@ -72,8 +73,11 @@ pub(crate) fn scan(
     resolver: &ProcessNameResolver,
 ) {
     let terminals = mux.screen_detect_terminals();
-    tracker
-        .retain_terminals(|terminal_id| terminals.iter().any(|(id, _)| id.as_str() == terminal_id));
+    // Build an index once. The tracker can contain thousands of retired
+    // terminals, so scanning the live list for every tracked entry creates
+    // an avoidable O(tracked × live) pass on every tick.
+    let live_ids: HashSet<&str> = terminals.iter().map(|(id, _)| id.as_str()).collect();
+    tracker.retain_terminals(|terminal_id| live_ids.contains(terminal_id));
     for (terminal_id, surface) in terminals {
         let Ok(revision) = surface.terminal_stream_revision() else { continue };
         let terminal_id = terminal_id.as_str();
