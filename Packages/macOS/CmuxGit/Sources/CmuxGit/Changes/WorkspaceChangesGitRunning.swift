@@ -11,31 +11,12 @@ protocol WorkspaceChangesGitRunning: Sendable {
     func run(
         arguments: [String],
         in directory: URL,
-        maximumOutputByteCount: Int,
-        wallTimeLimit: TimeInterval
-    ) throws -> WorkspaceChangesGitResult
-    func run(
-        arguments: [String],
-        in directory: URL,
         writingOutputTo destination: URL,
         maximumOutputByteCount: Int64
     ) throws -> WorkspaceChangesGitResult
 }
 
 extension WorkspaceChangesGitRunning {
-    func run(
-        arguments: [String],
-        in directory: URL,
-        maximumOutputByteCount: Int,
-        wallTimeLimit _: TimeInterval
-    ) throws -> WorkspaceChangesGitResult {
-        try run(
-            arguments: arguments,
-            in: directory,
-            maximumOutputByteCount: maximumOutputByteCount
-        )
-    }
-
     func run(
         arguments: [String],
         in directory: URL,
