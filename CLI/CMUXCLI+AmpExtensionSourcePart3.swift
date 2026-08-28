@@ -34,6 +34,7 @@ extension CMUXCLI {
     if (!sessionId) return;
     const lifecycle = lifecycleFor(sessionId);
     if (!lifecycle) return;
+    lifecycle.stateReadVersion += 1;
     lifecycle.observationVersion += 1;
     lifecycle.turnStateStartVersion = lifecycle.observationVersion;
     lifecycle.authoritativeState = "running";

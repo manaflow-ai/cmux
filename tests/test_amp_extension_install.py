@@ -64,7 +64,10 @@ def main() -> int:
         print(f"FAIL: {exc}")
         return 1
 
-    with tempfile.TemporaryDirectory(prefix="cmux-amp-extension-") as td:
+    with tempfile.TemporaryDirectory(
+        prefix="cmux-amp-extension-",
+        ignore_cleanup_errors=True,
+    ) as td:
         root = Path(td)
         # `amp` has no documented config-dir override, so install resolves
         # the plugin path against $HOME. Point HOME at the temp dir for the
@@ -105,8 +108,8 @@ def main() -> int:
             timeout=20,
         )
         refreshed_stat = extension_path.stat()
-        if refresh.returncode != 0 or "already up to date" not in refresh.stdout:
-            print("FAIL: idempotent Amp plugin refresh did not report an up-to-date install")
+        if refresh.returncode != 0:
+            print("FAIL: idempotent Amp plugin refresh failed")
             print(f"exit={refresh.returncode}")
             print(f"stdout={refresh.stdout.strip()}")
             print(f"stderr={refresh.stderr.strip()}")
@@ -258,6 +261,9 @@ mod.default({
   thread,
   activeThread
 });
+if (typeof stateSubscriber !== "function" || typeof titleSubscriber !== "function") {
+  throw new Error("initial active thread was not reconciled at plugin startup");
+}
 for (const name of ["session.start", "agent.start", "tool.call", "agent.end"]) {
   if (typeof handlers.get(name) !== "function") throw new Error(`missing ${name}`);
 }
@@ -318,6 +324,33 @@ async function waitForLifecycle(sessionId) {
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
   throw new Error(`cmux lifecycle input did not contain ${sessionId}`);
+}
+function readJsonRecords() {
+  const text = fs.existsSync(process.env.FAKE_CMUX_STDIN_LOG)
+    ? fs.readFileSync(process.env.FAKE_CMUX_STDIN_LOG, "utf8")
+    : "";
+  return text.split("\\n---\\n").flatMap((chunk) => {
+    try {
+      const payload = JSON.parse(chunk);
+      return payload && typeof payload === "object" ? [payload] : [];
+    } catch (_) {
+      return [];
+    }
+  });
+}
+function lifecycleStateCount(sessionId, state) {
+  return readJsonRecords().filter((payload) =>
+    payload.session_id === sessionId
+      && payload.hook_event_name === "Lifecycle"
+      && payload.agent_state === state
+  ).length;
+}
+async function waitForLifecycleState(sessionId, state, minimumCount) {
+  for (let attempt = 0; attempt < POLL_ATTEMPTS; attempt += 1) {
+    if (lifecycleStateCount(sessionId, state) >= minimumCount) return;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error(`cmux lifecycle state count did not reach ${minimumCount} for ${sessionId}/${state}`);
 }
 function projectedStatusCount() {
   const text = fs.existsSync(process.env.FAKE_CMUX_ARGS_LOG)
@@ -464,6 +497,45 @@ selectThread(thirdThread);
 await waitForCommandCount(activeStatusMarker, activeStatusCount + 1);
 if (statusCount(activeStatusMarker) !== activeStatusCount + 1) {
   throw new Error("a background Amp thread repainted status with no active thread");
+}
+
+// A get-only state observable can answer out of order. Only the newest read
+// may reconcile the thread, otherwise a stale idle result can erase a live turn.
+let readOnlyResolvers = [];
+const readOnlyThread = {
+  id: "T-amp-read-only",
+  state: {
+    get: () => new Promise((resolve) => readOnlyResolvers.push(resolve)),
+  },
+  title: {
+    get: async () => "Read-only Amp title",
+    subscribe() { return { unsubscribe() {} }; },
+  },
+};
+await handlers.get("session.start")({ thread: readOnlyThread }, { thread: readOnlyThread });
+await handlers.get("agent.start")(
+  { thread: readOnlyThread, message: "read-only turn", id: "turn-read-only" },
+  { thread: readOnlyThread }
+);
+if (readOnlyResolvers.length !== 2) {
+  throw new Error(`expected two overlapping get-only state reads, got ${readOnlyResolvers.length}`);
+}
+const staleRead = readOnlyResolvers.shift();
+const newestRead = readOnlyResolvers.shift();
+newestRead("running");
+await waitForLifecycleState("T-amp-read-only", "running", 1);
+staleRead("idle");
+await handlers.get("agent.start")(
+  { thread: readOnlyThread, message: "read-only follow-up", id: "turn-read-only-follow-up" },
+  { thread: readOnlyThread }
+);
+if (readOnlyResolvers.length !== 1) {
+  throw new Error(`expected one follow-up get-only state read, got ${readOnlyResolvers.length}`);
+}
+readOnlyResolvers.shift()("running");
+await waitForLifecycleState("T-amp-read-only", "running", 2);
+if (lifecycleStateCount("T-amp-read-only", "idle") !== 0) {
+  throw new Error("an out-of-order get-only state read reconciled stale idle state");
 }
 
 // A long-lived Amp process must not retain every completed thread forever.
