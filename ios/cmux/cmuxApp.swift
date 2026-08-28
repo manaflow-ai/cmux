@@ -58,16 +58,27 @@ struct cmuxApp: App {
                 "Connectivity invalidation disabled: presence service URL unavailable"
             )
         }
-        // Exactly one iroh runtime owns the app's broker binding slot: the
-        // irx rebuild when its DEBUG flag is on, the legacy composition
-        // otherwise. The unconfigured one stays dormant.
-        let irxEnabled = MobileIrxRuntimeComposition.isEnabled
+        // Exactly one transport composition owns the `.iroh` route: dor (the
+        // account Durable Object relay) by default, then the irx rebuild,
+        // then the legacy composition. The unconfigured ones stay dormant —
+        // in dor mode no iroh networking starts at all.
+        let dorEnabled = MobileDorRuntimeComposition.isEnabled
+        let irxEnabled = !dorEnabled && MobileIrxRuntimeComposition.isEnabled
+        let dor = MobileDorRuntimeComposition(
+            apiBaseURL: auth.config.apiBaseURL,
+            appNamespace: auth.appNamespace,
+            keychainAccessGroup: auth.keychainAccessGroup,
+            isDevelopmentAuthChannel: auth.authEnvironment == .development
+        )
         let irx = MobileIrxRuntimeComposition(
             apiBaseURL: auth.config.apiBaseURL,
             appNamespace: auth.appNamespace,
             keychainAccessGroup: auth.keychainAccessGroup
         )
-        if irxEnabled {
+        if dorEnabled {
+            let coordinator = auth.coordinator
+            Task { await dor.configure(auth: coordinator, legacy: iroh) }
+        } else if irxEnabled {
             let coordinator = auth.coordinator
             Task { await irx.configure(auth: coordinator, legacy: iroh) }
         } else {
@@ -83,6 +94,7 @@ struct cmuxApp: App {
         // real transports. Force-relay mode (soak rigs) registers NO fallback
         // kinds so even a simulator exercises the real relay path.
         let forceRelay = MobileIrxRuntimeComposition.forceRelayOnly
+            || MobileDorRuntimeComposition.forceTransportOnly
         #if targetEnvironment(simulator) || DEBUG
         let supportedKinds: [CmxAttachTransportKind] =
             forceRelay ? [] : [.debugLoopback, .tailscale]
@@ -96,7 +108,9 @@ struct cmuxApp: App {
         let registrations = [
             CmxRouteTransportFactoryRegistration(
                 kind: .iroh,
-                factory: irxEnabled ? irx.transportFactory : iroh.transportFactory
+                factory: dorEnabled
+                    ? dor.transportFactory
+                    : (irxEnabled ? irx.transportFactory : iroh.transportFactory)
             ),
         ] + fallbackRegistrations
         let transportFactory: CmxRouteTransportFactory
@@ -112,13 +126,23 @@ struct cmuxApp: App {
             stackAccessTokenForStatusProvider: CMUXMobileRuntime.stackAccessTokenForStatusProvider(from: auth.coordinator),
             stackAccessTokenForceRefresher: CMUXMobileRuntime.stackAccessTokenForceRefresher(from: auth.coordinator),
             independentEventByteStreamProvider: { request in
-                irxEnabled
+                if dorEnabled {
+                    return try await dor.serverEventByteStream(for: request)
+                }
+                return irxEnabled
                     ? try await irx.serverEventByteStream(for: request)
                     : try await iroh.serverEventByteStream(for: request)
             },
             terminalLaneProvider: { request, surfaceID, cursor in
                 guard let surfaceUUID = UUID(uuidString: surfaceID) else {
                     throw MobileIrohTerminalLaneError.invalidSurfaceID
+                }
+                if dorEnabled {
+                    return try await dor.openTerminalLane(
+                        for: request,
+                        surfaceID: surfaceUUID,
+                        cursor: cursor
+                    )
                 }
                 return irxEnabled
                     ? try await irx.openTerminalLane(
@@ -133,7 +157,14 @@ struct cmuxApp: App {
                     )
             },
             artifactLaneProvider: { request, resourceID, offset in
-                irxEnabled
+                if dorEnabled {
+                    return try await dor.openArtifactLane(
+                        for: request,
+                        resourceID: resourceID,
+                        offset: offset
+                    )
+                }
+                return irxEnabled
                     ? try await irx.openArtifactLane(
                         for: request,
                         resourceID: resourceID,
@@ -149,8 +180,8 @@ struct cmuxApp: App {
                 guard let panelUUID = UUID(uuidString: panelID) else {
                     throw MobileIrohSimulatorStreamLaneError.invalidPanelID
                 }
-                guard !irxEnabled else {
-                    // Simulator streaming is not served by irx v1.
+                guard !dorEnabled, !irxEnabled else {
+                    // Simulator streaming is not served by dor/irx v1.
                     throw MobileIrohSimulatorStreamLaneError.closed
                 }
                 return try await iroh.openSimulatorStreamLane(
@@ -165,6 +196,7 @@ struct cmuxApp: App {
             auth: auth,
             iroh: iroh,
             irx: irxEnabled ? irx : nil,
+            dor: dorEnabled ? dor : nil,
             buildCompatibilityPolicy: buildCompatibilityPolicy,
             reachability: reachability,
             diagnosticLog: diagnosticLog
@@ -208,7 +240,9 @@ struct cmuxApp: App {
         .environment(
             \.dogfoodAttachPreparation,
             DogfoodAttachPreparation {
-                if let irx = Self.root.irx {
+                if let dor = Self.root.dor {
+                    await dor.didBecomeActive()
+                } else if let irx = Self.root.irx {
                     await irx.didBecomeActive()
                 } else {
                     await Self.root.iroh.prepareForConnection()

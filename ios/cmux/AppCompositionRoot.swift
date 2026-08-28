@@ -25,6 +25,9 @@ final class AppCompositionRoot {
     /// The irx (from-scratch iroh) composition when its DEBUG flag owns the
     /// `.iroh` route; nil when the legacy runtime is active.
     let irx: MobileIrxRuntimeComposition?
+    /// The dor (account Durable Object relay) composition when its gate owns
+    /// the `.iroh` route — the default; nil when irx or legacy is active.
+    let dor: MobileDorRuntimeComposition?
     /// One build-compatibility policy shared by discovery, persistence, and
     /// connection validation. Keeping it here prevents composition paths from
     /// admitting different Mac app instances.
@@ -87,6 +90,7 @@ final class AppCompositionRoot {
         auth: MobileAuthComposition,
         iroh: MobileIrohRuntimeComposition,
         irx: MobileIrxRuntimeComposition? = nil,
+        dor: MobileDorRuntimeComposition? = nil,
         buildCompatibilityPolicy: MobileMacBuildCompatibilityPolicy,
         reachability: any ReachabilityProviding,
         diagnosticLog: DiagnosticLog
@@ -101,6 +105,7 @@ final class AppCompositionRoot {
         self.auth = auth
         self.iroh = iroh
         self.irx = irx
+        self.dor = dor
         self.buildCompatibilityPolicy = buildCompatibilityPolicy
         self.reachability = reachability
         self.diagnosticLog = diagnosticLog
@@ -373,6 +378,11 @@ final class AppCompositionRoot {
             diagnosticLog.recordAppEvent(.appForegrounded)
             connectionMethodStore.recordConfiguredMethodDiagnostic()
             let isFullForegroundReturn = iroh.didBecomeActive()
+            if let dor {
+                // Engine warm-up: iOS suspension pauses the leg watchdogs, so
+                // a session that died in the background redials now.
+                Task { await dor.didBecomeActive() }
+            }
             if let irx {
                 // Credential freshness re-check + engine warm-up: iOS
                 // suspension pauses the autopilot's sleep loop.
