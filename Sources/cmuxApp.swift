@@ -79,36 +79,6 @@ struct cmuxApp: App {
     }
 
     init() {
-        // The right-sidebar digit shortcuts default to the mode's position
-        // among the visible tabs, and the visible tab order is app state the
-        // CmuxSettings package cannot read. Install the override before any
-        // shortcut resolution so the package's Settings UI and the runtime
-        // matcher agree on the same defaults. The provider reads live defaults
-        // on every call, so tab-preference changes need no re-install.
-        ShortcutDefaultOverrides.install { action in
-            let mode: RightSidebarMode
-            switch action {
-            case .switchRightSidebarToFiles: mode = .files
-            case .switchRightSidebarToFind: mode = .find
-            case .switchRightSidebarToSessions: mode = .sessions
-            case .switchRightSidebarToFeed: mode = .feed
-            case .switchRightSidebarToDock: mode = .dock
-            case .switchRightSidebarToMachines: mode = .machines
-            default: return .useBuiltIn
-            }
-            guard let digit = RightSidebarMode.positionalDigit(for: mode) else {
-                return .stroke(nil)
-            }
-            // Fully qualified: the app target declares a legacy ShortcutStroke
-            // of its own, which this initializer must not resolve to.
-            return .stroke(CmuxSettings.ShortcutStroke(key: String(digit), control: true))
-        }
-        // Stored-property initializers above this init body (the
-        // KeyboardShortcutSettingsObserver.shared @State member) already built
-        // matcher snapshots against the builtin table; the standard change
-        // notification rebuilds them against the provider.
-        NotificationCenter.default.post(name: KeyboardShortcutSettings.didChangeNotification, object: nil)
-
         // Gather settings package dependencies once. The runtime itself
         // is assigned after the saved language override below, because
         // it owns localized search-index text for the process lifetime.
@@ -255,7 +225,8 @@ struct cmuxApp: App {
             hostActions: HostSettingsActions(
                 configFileURL: configFileURL,
                 computerUseRuntimeService: computerUseRuntimeService
-            )
+            ),
+            shortcutDefaultResolver: Self.makeShortcutDefaultResolver()
         )
         StartupBreadcrumbLog.append("app.init.settingsRuntime.created")
 
@@ -359,6 +330,28 @@ struct cmuxApp: App {
         )
         historyMenuCoordinator.refreshIfNeeded()
         StartupBreadcrumbLog.append("app.init.delegate.configured")
+    }
+
+    /// Builds the host-owned resolver used by Settings UI shortcut models.
+    /// Dynamic right-sidebar defaults depend on app state and must not be
+    /// installed into the settings package as process-global mutable state.
+    private static func makeShortcutDefaultResolver() -> CmuxSettings.ShortcutDefaultResolver {
+        CmuxSettings.ShortcutDefaultResolver { action in
+            let mode: RightSidebarMode
+            switch action {
+            case .switchRightSidebarToFiles: mode = .files
+            case .switchRightSidebarToFind: mode = .find
+            case .switchRightSidebarToSessions: mode = .sessions
+            case .switchRightSidebarToFeed: mode = .feed
+            case .switchRightSidebarToDock: mode = .dock
+            case .switchRightSidebarToMachines: mode = .machines
+            default: return .useBuiltIn
+            }
+            guard let digit = RightSidebarMode.positionalDigit(for: mode) else {
+                return .stroke(nil)
+            }
+            return .stroke(CmuxSettings.ShortcutStroke(key: String(digit), control: true))
+        }
     }
 
     private static func terminateForMissingLaunchTag() -> Never {
