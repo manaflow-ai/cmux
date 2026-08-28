@@ -122,6 +122,13 @@ struct WatchSlot {
 
 type Sessions = Arc<Mutex<HashMap<String, WatchSlot>>>;
 
+fn lock_sessions(sessions: &Sessions) -> std::sync::MutexGuard<'_, HashMap<String, WatchSlot>> {
+    // A poisoned lifecycle lock must not leave a watch token live forever.
+    // Recover the protected state so close, replacement, and runner cleanup
+    // can still retire resources and invalidate queued frames.
+    sessions.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 /// Resources shared by one socket's opening coordinators and active runners.
 /// Grouping them keeps the lifecycle functions explicit without passing a
 /// long list of independently-owned handles through every transition.
@@ -194,11 +201,10 @@ impl Drop for WatchRegistry {
         // on the next connection.
         self.cancellation.cancel();
         self.outbound.with_delivery_gate(|| {
-            if let Ok(mut sessions) = self.sessions.lock() {
-                for (_, slot) in sessions.drain() {
-                    for watch in slot.retire() {
-                        watch.stop();
-                    }
+            let mut sessions = lock_sessions(&self.sessions);
+            for (_, slot) in sessions.drain() {
+                for watch in slot.retire() {
+                    watch.stop();
                 }
             }
         });
@@ -280,9 +286,8 @@ impl WatchRegistry {
 
     pub fn close(&self, watch_id: &str) {
         self.outbound.with_delivery_gate(|| {
-            if let Ok(mut sessions) = self.sessions.lock()
-                && let Some(slot) = sessions.remove(watch_id)
-            {
+            let mut sessions = lock_sessions(&self.sessions);
+            if let Some(slot) = sessions.remove(watch_id) {
                 for watch in slot.retire() {
                     watch.stop();
                 }
@@ -305,44 +310,42 @@ impl WatchRegistry {
             teardown_slots: Arc::clone(&self.teardown_slots),
         };
         let local_roots_for_task = local_roots.map(<[String]>::to_vec);
-        let reservation = self.outbound.with_delivery_gate(|| match self.sessions.lock() {
-            Ok(mut state) => {
-                let existing = state.contains_key(&watch_id);
-                if !existing && state.len() >= WATCH_MAX_SESSIONS {
-                    Reservation::Limit
-                } else {
-                    let slot = state
-                        .entry(watch_id.clone())
-                        .or_insert_with(|| WatchSlot { active: None, opening: None });
-                    if let Some(previous) = slot.opening.replace(Opening {
-                        generation,
-                        live: Arc::clone(&opening_live),
-                        cancellation: opening_cancellation.clone(),
-                        abort: None,
-                    }) {
-                        // Invalidate the replaced opening while the delivery
-                        // fence is held. Its failure frame cannot race a
-                        // newer opening after this point.
-                        RetiredWatch::Opening(previous).stop();
-                    }
-                    // Spawn while the state lock is held, then install the
-                    // abort handle before another caller can close/replace
-                    // this slot. Tokio guarantees `spawn` does not poll the
-                    // future synchronously as part of this call.
-                    let context = OpenContext {
-                        watch_id: watch_id.clone(),
-                        generation,
-                        live: Arc::clone(&opening_live),
-                        cancellation: opening_cancellation,
-                        resources,
-                    };
-                    let task = tokio::spawn(coordinate_open(context, frame, local_roots_for_task));
-                    slot.opening.as_mut().expect("opening was just reserved").abort =
-                        Some(task.abort_handle());
-                    Reservation::Accepted
+        let reservation = self.outbound.with_delivery_gate(|| {
+            let mut state = lock_sessions(&self.sessions);
+            let existing = state.contains_key(&watch_id);
+            if !existing && state.len() >= WATCH_MAX_SESSIONS {
+                Reservation::Limit
+            } else {
+                let slot = state
+                    .entry(watch_id.clone())
+                    .or_insert_with(|| WatchSlot { active: None, opening: None });
+                if let Some(previous) = slot.opening.replace(Opening {
+                    generation,
+                    live: Arc::clone(&opening_live),
+                    cancellation: opening_cancellation.clone(),
+                    abort: None,
+                }) {
+                    // Invalidate the replaced opening while the delivery
+                    // fence is held. Its failure frame cannot race a
+                    // newer opening after this point.
+                    RetiredWatch::Opening(previous).stop();
                 }
+                // Spawn while the state lock is held, then install the
+                // abort handle before another caller can close/replace
+                // this slot. Tokio guarantees `spawn` does not poll the
+                // future synchronously as part of this call.
+                let context = OpenContext {
+                    watch_id: watch_id.clone(),
+                    generation,
+                    live: Arc::clone(&opening_live),
+                    cancellation: opening_cancellation,
+                    resources,
+                };
+                let task = tokio::spawn(coordinate_open(context, frame, local_roots_for_task));
+                slot.opening.as_mut().expect("opening was just reserved").abort =
+                    Some(task.abort_handle());
+                Reservation::Accepted
             }
-            Err(_) => Reservation::Limit,
         });
         match reservation {
             Reservation::Accepted => {}
@@ -469,9 +472,7 @@ fn commit_open(context: OpenContext, root: PathBuf, prepared: PreparedWatch) {
     // close can invalidate this frame before it reaches the writer.
     let admitted = outbound.try_critical_text_with_token(opened, Some(Arc::clone(&live))).is_ok();
     outbound.with_delivery_gate(|| {
-        let Ok(mut state) = sessions.lock() else {
-            return;
-        };
+        let mut state = lock_sessions(&sessions);
         let mut remove_slot = false;
         let current = state.get(&watch_id).is_some_and(|slot| {
             slot.opening.as_ref().is_some_and(|opening| {
@@ -560,11 +561,9 @@ async fn finish_open_failure(
     let OpenContext { watch_id, generation, live, cancellation, resources } = context;
     let WatchResources { sessions, outbound, .. } = resources;
     let text = watch_error_frame(&watch_id, code, message.as_deref());
-    let should_report = sessions.lock().ok().is_some_and(|state| {
-        state.get(&watch_id).is_some_and(|slot| {
-            slot.opening.as_ref().is_some_and(|opening| {
-                opening.generation == generation && !opening.cancellation.is_cancelled()
-            })
+    let should_report = lock_sessions(&sessions).get(&watch_id).is_some_and(|slot| {
+        slot.opening.as_ref().is_some_and(|opening| {
+            opening.generation == generation && !opening.cancellation.is_cancelled()
         })
     });
     if !should_report {
@@ -582,9 +581,7 @@ async fn finish_open_failure(
     }
 
     let remove_slot = outbound.with_delivery_gate(|| {
-        let Ok(mut state) = sessions.lock() else {
-            return false;
-        };
+        let mut state = lock_sessions(&sessions);
         let remove_slot = if let Some(slot) = state.get_mut(&watch_id)
             && slot.opening.as_ref().is_some_and(|opening| {
                 opening.generation == generation && !opening.cancellation.is_cancelled()
@@ -614,19 +611,18 @@ fn finish_active(watch_id: &str, generation: u64, sessions: Sessions, outbound: 
     // terminal critical frame is awaited before those paths return, so it is
     // delivered before this token is retired.
     outbound.with_delivery_gate(|| {
-        if let Ok(mut state) = sessions.lock() {
-            let mut remove_slot = false;
-            if let Some(slot) = state.get_mut(watch_id)
-                && slot.active.as_ref().is_some_and(|active| active.generation == generation)
-            {
-                if let Some(live) = slot.active.take().map(|active| active.live) {
-                    live.store(false, Ordering::Release);
-                }
-                remove_slot = slot.opening.is_none();
+        let mut state = lock_sessions(&sessions);
+        let mut remove_slot = false;
+        if let Some(slot) = state.get_mut(watch_id)
+            && slot.active.as_ref().is_some_and(|active| active.generation == generation)
+        {
+            if let Some(live) = slot.active.take().map(|active| active.live) {
+                live.store(false, Ordering::Release);
             }
-            if remove_slot {
-                state.remove(watch_id);
-            }
+            remove_slot = slot.opening.is_none();
+        }
+        if remove_slot {
+            state.remove(watch_id);
         }
     });
 }

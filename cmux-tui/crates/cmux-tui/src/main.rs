@@ -218,7 +218,11 @@ pub(crate) async fn wait_for_shutdown_signal_async() -> io::Result<()> {
             "shutdown wake reader unavailable",
         ));
     }
-    let duplicate = unsafe { libc::dup(reader) };
+    // `dup` clears close-on-exec. A waiter can live while commands spawn
+    // children, so inheriting this process-wide wake descriptor would leak a
+    // shutdown capability into those children and keep the descriptor alive
+    // past the daemon that owns it. Duplicate it atomically with CLOEXEC.
+    let duplicate = unsafe { libc::fcntl(reader, libc::F_DUPFD_CLOEXEC, 0) };
     if duplicate < 0 {
         return Err(io::Error::last_os_error());
     }

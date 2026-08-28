@@ -519,12 +519,14 @@ pub(crate) fn public_session_snapshot_with_journal_head(
             .iter()
             .map(|terminal| (terminal.terminal_id.as_str(), terminal))
             .collect::<HashMap<_, _>>();
-        let terminal_resources_by_host =
-            terminal_resource_ids.iter().cloned().collect::<HashMap<_, _>>();
-        let terminal_hosts_by_resource = terminal_resource_ids
-            .into_iter()
-            .map(|(host_id, terminal_id)| (terminal_id, host_id))
-            .collect::<HashMap<_, _>>();
+        // A resource row can outlive its durable terminal if a process dies
+        // between the two registry writes. Keep the public projection
+        // internally consistent by excluding those rows before building both
+        // directions of the map. Building one filtered pair also prevents a
+        // later lookup from reintroducing a row that was logged as skipped.
+        let live_terminal_hosts = terminals_by_id.keys().copied().collect::<HashSet<_>>();
+        let (terminal_resources_by_host, terminal_hosts_by_resource) =
+            live_terminal_resource_maps(terminal_resource_ids, &live_terminal_hosts);
 
         let workspaces = registry_snapshot
             .workspaces
@@ -607,12 +609,16 @@ pub(crate) fn public_session_snapshot_with_journal_head(
         let mut seen_terminals = HashSet::new();
         for tab in &topology.tabs {
             if let ContentPublicId::Terminal(terminal_id) = &tab.content_id {
+                let Some(host_id) = terminal_hosts_by_resource.get(terminal_id) else {
+                    // The durable host was removed before the resource row.
+                    // Omit the stale topology entry from the terminal
+                    // projection instead of turning one corrupt row into a
+                    // failed snapshot for every client.
+                    continue;
+                };
                 if seen_terminals.insert(terminal_id.clone()) {
                     terminal_order.push(terminal_id.clone());
                 }
-                let host_id = terminal_hosts_by_resource.get(terminal_id).with_context(|| {
-                    format!("terminal {terminal_id} omitted its durable identity")
-                })?;
                 if let Some(tab_host_id) = &tab.terminal_id {
                     anyhow::ensure!(
                         tab_host_id == host_id,
@@ -640,20 +646,6 @@ pub(crate) fn public_session_snapshot_with_journal_head(
                 terminal_order.push(terminal_id.clone());
             }
         }
-        for (host_id, terminal_id) in &terminal_resources_by_host {
-            if !terminals_by_id.contains_key(host_id.as_str()) {
-                // A resource row whose durable host vanished (a close that
-                // tombstoned the registry but not the resource row, or a crash
-                // between the two writes) must not fail the whole snapshot:
-                // every client renders a failed snapshot as "machine
-                // unreachable". Skip the dangling row; the close path owns the
-                // repair.
-                eprintln!(
-                    "cmux-tui: snapshot skipping terminal {terminal_id} referencing missing {host_id}"
-                );
-            }
-        }
-
         let terminals = terminal_order
             .into_iter()
             .map(|terminal_id| {
@@ -761,6 +753,28 @@ pub(crate) fn public_session_snapshot_with_journal_head(
         Ok((snapshot, journal_head))
     })
     .map_err(operation_failed)
+}
+
+/// Keep the two terminal-resource indexes in lockstep and report rows whose
+/// durable host has already disappeared. The shared builder prevents the
+/// snapshot path from filtering one index but not the other.
+fn live_terminal_resource_maps(
+    terminal_resource_ids: impl IntoIterator<Item = (String, TerminalPublicId)>,
+    live_terminal_hosts: &HashSet<&str>,
+) -> (HashMap<String, TerminalPublicId>, HashMap<TerminalPublicId, String>) {
+    let mut resources_by_host = HashMap::new();
+    let mut hosts_by_resource = HashMap::new();
+    for (host_id, terminal_id) in terminal_resource_ids {
+        if live_terminal_hosts.contains(host_id.as_str()) {
+            resources_by_host.insert(host_id.clone(), terminal_id.clone());
+            hosts_by_resource.insert(terminal_id, host_id);
+        } else {
+            eprintln!(
+                "cmux-tui: snapshot skipping terminal {terminal_id} referencing missing {host_id}"
+            );
+        }
+    }
+    (resources_by_host, hosts_by_resource)
 }
 
 fn checked_index(index: usize) -> anyhow::Result<u32> {
@@ -1274,6 +1288,29 @@ mod tests {
         assert_eq!(layout["root"]["columns"][0]["root"]["second"]["kind"], "split");
         assert_eq!(layout["root"]["columns"][0]["root"]["first"]["tab_ids"], json!([tab_a]));
         assert_eq!(layout["root"]["columns"][1]["root"]["kind"], "stack");
+    }
+
+    #[test]
+    fn dangling_terminal_resource_rows_are_filtered_from_both_indexes() {
+        let live_terminal_id = TerminalPublicId::random().unwrap();
+        let stale_terminal_id = TerminalPublicId::random().unwrap();
+        let live_hosts = ["host-live"].into_iter().collect::<HashSet<_>>();
+        let (resources_by_host, hosts_by_resource) = live_terminal_resource_maps(
+            vec![
+                ("host-live".to_owned(), live_terminal_id.clone()),
+                ("host-gone".to_owned(), stale_terminal_id.clone()),
+            ],
+            &live_hosts,
+        );
+
+        assert_eq!(resources_by_host.len(), 1);
+        assert_eq!(resources_by_host.get("host-live"), Some(&live_terminal_id));
+        assert_eq!(hosts_by_resource.len(), 1);
+        assert_eq!(
+            hosts_by_resource.get(&live_terminal_id).map(String::as_str),
+            Some("host-live")
+        );
+        assert!(!hosts_by_resource.contains_key(&stale_terminal_id));
     }
 
     fn public_id<T>(prefix: &str, value: u128) -> T
