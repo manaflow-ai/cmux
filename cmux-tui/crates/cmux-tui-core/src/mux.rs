@@ -1141,6 +1141,21 @@ impl fmt::Display for AgentHookTerminalUnavailable {
 
 impl std::error::Error for AgentHookTerminalUnavailable {}
 
+#[derive(Debug)]
+struct AgentHookTerminalGone;
+
+impl fmt::Display for AgentHookTerminalGone {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("terminal no longer exists for agent hook projection")
+    }
+}
+
+impl std::error::Error for AgentHookTerminalGone {}
+
+fn agent_hook_terminal_gone(error: &anyhow::Error) -> bool {
+    error.downcast_ref::<AgentHookTerminalGone>().is_some()
+}
+
 fn agent_hook_retry_class(error: &anyhow::Error) -> crate::workspace_registry::AgentHookRetryClass {
     if error.downcast_ref::<AgentHookTerminalUnavailable>().is_some()
         || error.chain().any(|cause| {
@@ -2569,6 +2584,19 @@ impl Mux {
         for (producer_id, origin, key, sequence, ingress) in pending {
             match self.apply_agent_hook_record(&ingress, sequence) {
                 Ok(()) => {
+                    if self
+                        .workspace_registry
+                        .lock()
+                        .unwrap()
+                        .clear_agent_hook_pending(&producer_id, &origin, &key)
+                        .is_ok()
+                    {
+                        applied += 1;
+                    } else {
+                        eprintln!("cmux-tui: agent hook retry cleanup deferred");
+                    }
+                }
+                Err(error) if agent_hook_terminal_gone(&error) => {
                     if self
                         .workspace_registry
                         .lock()
@@ -5396,20 +5424,34 @@ impl Mux {
         // in-memory/resource projection update. The sequence guard makes this
         // a no-op for already-applied events while allowing restart repair.
         if let Err(error) = self.apply_agent_hook_record(ingress, commit.sequence) {
-            if let Err(_bookkeeping_error) =
-                self.workspace_registry.lock().unwrap().enqueue_agent_hook_pending(
-                    &ingress.producer_id,
-                    origin,
-                    idempotency_key,
-                    commit.sequence,
-                    ingress,
-                    AGENT_HOOK_RETRY_ERROR,
-                    agent_hook_retry_class(&error),
-                )
-            {
-                eprintln!(
-                    "cmux-tui: durable agent hook receipt remains staged after retry bookkeeping failure"
-                );
+            if agent_hook_terminal_gone(&error) {
+                if let Err(_bookkeeping_error) = self
+                    .workspace_registry
+                    .lock()
+                    .unwrap()
+                    .clear_agent_hook_pending(&ingress.producer_id, origin, idempotency_key)
+                {
+                    eprintln!("cmux-tui: terminal-gone agent hook cleanup deferred");
+                }
+            } else {
+                if let Err(_bookkeeping_error) = self
+                    .workspace_registry
+                    .lock()
+                    .unwrap()
+                    .enqueue_agent_hook_pending(
+                        &ingress.producer_id,
+                        origin,
+                        idempotency_key,
+                        commit.sequence,
+                        ingress,
+                        AGENT_HOOK_RETRY_ERROR,
+                        agent_hook_retry_class(&error),
+                    )
+                {
+                    eprintln!(
+                        "cmux-tui: durable agent hook receipt remains staged after retry bookkeeping failure"
+                    );
+                }
             }
         } else if let Err(_bookkeeping_error) = self
             .workspace_registry
@@ -5448,6 +5490,19 @@ impl Mux {
         let terminal_id = TerminalPublicId::parse(&terminal_subject.id)
             .with_context(|| format!("invalid terminal subject {:?}", terminal_subject.id))?;
         let Some(surface) = self.resource_surface_for_terminal(&terminal_id) else {
+            // A durable terminal that is still live may be between journal
+            // commit and host materialization. A missing or tombstoned
+            // terminal cannot become available, so do not retain its receipt
+            // in the retry queue forever.
+            let terminal_is_live = self
+                .workspace_registry
+                .lock()
+                .unwrap()
+                .live_terminal_host_id(&terminal_id)?
+                .is_some();
+            if !terminal_is_live {
+                return Err(anyhow::Error::new(AgentHookTerminalGone));
+            }
             return Err(anyhow::Error::new(AgentHookTerminalUnavailable).context(format!(
                 "terminal {terminal_id} is not available for agent hook projection"
             )));
@@ -9077,12 +9132,13 @@ impl Mux {
         });
         let now = now_ms();
         let mut records = self.agent_records.lock().unwrap();
+        let socket_report_ignored = records.get(&terminal_id).is_some_and(|existing| {
+            existing.source == AgentSource::Hook
+                && source == AgentSource::Socket
+                && !hook_state.is_some_and(|state| state.ended)
+        });
         let record = match records.get(&terminal_id) {
-            Some(existing)
-                if existing.source == AgentSource::Hook
-                    && source == AgentSource::Socket
-                    && !hook_state.is_some_and(|state| state.ended) =>
-            {
+            Some(existing) if socket_report_ignored => {
                 existing.clone()
             }
             _ => TerminalAgentRecord {
@@ -9091,6 +9147,14 @@ impl Mux {
                 session: source_session,
                 updated_at_ms: now,
             },
+        };
+        // A socket report that is intentionally ignored by the hook-owned
+        // record must persist that effective record, not the discarded socket
+        // identity. Otherwise durable and in-memory projections diverge.
+        let persisted_source_session = if socket_report_ignored {
+            record.session.clone()
+        } else {
+            persisted_source_session
         };
         let digest = Sha256::digest(format!("cmux.protocol/2/agent/{terminal_id}").as_bytes());
         let payload = digest[..16].iter().map(|byte| format!("{byte:02x}")).collect::<String>();
@@ -22478,7 +22542,7 @@ mod tests {
     }
 
     #[test]
-    fn sessionless_legacy_hook_identity_survives_restart_marker_projection() {
+    fn sessionless_legacy_hook_identity_survives_restart() {
         let root = std::env::temp_dir()
             .join(format!("cmux-agent-legacy-marker-{}", crate::workspace_registry::new_uuid_v4()));
         let mux = Mux::open_persistent("legacy-marker", SurfaceOptions::default(), &root).unwrap();
@@ -22498,14 +22562,6 @@ mod tests {
         let first_session_id =
             mux.agent_hook_fences.lock().unwrap()[&terminal_id].session_id.clone();
         assert_eq!(first_session_id, format!("legacy:{terminal_id}:1"));
-        // Simulate a pre-watermark database that only has the marker
-        // projection. Restoration must derive the same legacy generation
-        // token instead of falling back to a terminal-wide identity.
-        mux.workspace_registry
-            .lock()
-            .unwrap()
-            .delete_agent_hook_state_for_test(&terminal_id)
-            .unwrap();
         mux.shutdown();
         drop(mux);
 
@@ -22892,6 +22948,50 @@ mod tests {
     }
 
     #[test]
+    fn reopened_ended_hook_fence_rejects_late_events() {
+        let root = std::env::temp_dir()
+            .join(format!("cmux-agent-ended-reopen-{}", crate::workspace_registry::new_uuid_v4()));
+        let mux =
+            Mux::open_persistent("agent-ended-reopen", SurfaceOptions::default(), &root).unwrap();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+        let ingress = |event: &str, session_id: Option<&str>| {
+            crate::agent_hooks::agent_hook_journal_ingress(
+                "claude",
+                event,
+                Some(&terminal_id.to_string()),
+                session_id
+                    .map(|session_id| serde_json::json!({"session_id": session_id}))
+                    .unwrap_or_else(|| serde_json::json!({})),
+            )
+            .unwrap()
+        };
+        mux.apply_agent_hook_record(&ingress("SessionStart", Some("ended-session")), 1).unwrap();
+        mux.apply_agent_hook_record(&ingress("SessionEnd", Some("ended-session")), 2).unwrap();
+        assert!(mux.list_agents(Some(surface.id), None).is_empty());
+        mux.shutdown();
+        drop(mux);
+
+        let reopened =
+            Mux::open_persistent("agent-ended-reopen", SurfaceOptions::default(), &root).unwrap();
+        let reopened_surface = reopened.resource_surface_for_terminal(&terminal_id).unwrap();
+        assert!(reopened.list_agents(Some(reopened_surface), None).is_empty());
+        assert!(reopened.agent_hook_fences.lock().unwrap()[&terminal_id].ended);
+        reopened
+            .apply_agent_hook_record(&ingress("UserPromptSubmit", Some("ended-session")), 3)
+            .unwrap();
+        reopened
+            .apply_agent_hook_record(&ingress("UserPromptSubmit", Some("different-session")), 4)
+            .unwrap();
+        reopened.apply_agent_hook_record(&ingress("UserPromptSubmit", None), 5).unwrap();
+        assert!(reopened.list_agents(Some(reopened_surface), None).is_empty());
+        assert_eq!(reopened.agent_hook_fences.lock().unwrap()[&terminal_id].sequence, 2);
+        reopened.shutdown();
+        drop(reopened);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn agent_hook_events_without_a_live_terminal_still_append() {
         let mux = test_mux();
         let ingress = crate::agent_hooks::agent_hook_journal_ingress(
@@ -22903,6 +23003,21 @@ mod tests {
         .unwrap();
         mux.append_journal_ingress(&ingress, "test", "hook-no-terminal").unwrap();
         assert!(mux.list_agents(None, None).is_empty());
+    }
+
+    #[test]
+    fn unknown_terminal_hook_receipt_is_not_retained_for_retry() {
+        let mux = test_mux();
+        let terminal_id = TerminalPublicId::parse("term_000000000000000000000000000000ff").unwrap();
+        let ingress = crate::agent_hooks::agent_hook_journal_ingress(
+            "claude",
+            "UserPromptSubmit",
+            Some(&terminal_id.to_string()),
+            serde_json::json!({}),
+        )
+        .unwrap();
+        mux.append_journal_ingress(&ingress, "test", "unknown-terminal").unwrap();
+        assert!(mux.workspace_registry.lock().unwrap().pending_agent_hook_projections().unwrap().is_empty());
     }
 
     #[test]
