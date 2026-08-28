@@ -21,10 +21,7 @@ extension GitMetadataService {
         let output = await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
                 Self.blockingStatusQueue.async {
-                    // Explicit result type: inferring String? across the
-                    // `return output` / `return nil` join fails on newer
-                    // Swift toolchains (Xcode 26.2) and broke the build.
-                    let output = cancellationSignal.withCurrentBinding { () -> String? in
+                    let output = cancellationSignal.withCurrentBinding {
                         let selector = GitReferenceRunnerSelector(wallTimeLimit: wallTimeLimit)
                         let deadline = effectiveDeadline
                         for runner in selector.candidateRunners {
