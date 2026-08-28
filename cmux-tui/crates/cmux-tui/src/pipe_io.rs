@@ -25,7 +25,7 @@ use std::io::{BufRead, Write};
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, SyncSender};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use base64::Engine as _;
 use cmux_tui_core::SurfaceId;
@@ -162,14 +162,17 @@ fn classify_daemon_loss(
     socket_path: &Path,
     terminal: &TerminalPublicId,
 ) -> PipeIoExitReason {
-    let terminal_still_exists =
-        remote.refresh_tree_with_timeout(DAEMON_LOSS_PROBE_TIMEOUT).ok().map(|tree| tree.resolve_terminal(terminal).is_some()).or_else(
-            || {
-                let probe = RemoteSession::connect_for_terminal_attach(socket_path).ok()?;
-                let tree = probe.refresh_tree_with_timeout(DAEMON_LOSS_PROBE_TIMEOUT).ok()?;
-                Some(tree.resolve_terminal(terminal).is_some())
-            },
-        );
+    let deadline = Instant::now() + DAEMON_LOSS_PROBE_TIMEOUT;
+    let terminal_still_exists = remote
+        .refresh_tree_until(deadline)
+        .ok()
+        .map(|tree| tree.resolve_terminal(terminal).is_some())
+        .or_else(|| {
+            let probe =
+                RemoteSession::connect_for_terminal_attach_until(socket_path, deadline).ok()?;
+            let tree = probe.refresh_tree_until(deadline).ok()?;
+            Some(tree.resolve_terminal(terminal).is_some())
+        });
     match terminal_still_exists {
         Some(false) => PipeIoExitReason::TerminalEnded,
         Some(true) | None => PipeIoExitReason::DaemonLost,
