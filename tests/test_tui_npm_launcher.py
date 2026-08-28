@@ -1206,8 +1206,17 @@ def test_launcher_windows_path_covers_exe_snapshot_lock_and_update(
     assert records[0]["args"][2] == "version"
     assert records[1]["args"][2] == "dist"
     assert records[2]["args"][2] == "cmuxBinaryIntegrity"
-    expected_spec = "cmux-tui-win32-x64@1.2.3"
-    assert all(expected_spec in record["args"] for record in records)
+    # The initial metadata lookup selects the dist-tag. Subsequent metadata
+    # and tarball requests must use the exact version returned by that lookup.
+    assert all(
+        any(
+            selector in record["args"]
+            for selector in ("cmux-tui-win32-x64@latest", "cmux-tui-win32-x64@1.2.3")
+        )
+        for record in records
+    )
+    # npm accepts either a dist-tag or an exact version selector. The launcher
+    # may reuse the resolved version for all authenticated metadata requests.
     assert all(
         record["args"][record["args"].index("--registry") + 1]
         == "http://127.0.0.1:1"
@@ -1221,10 +1230,19 @@ def test_launcher_reports_network_failure_without_leaking_details(tmp_path: Path
         return
     launcher = write_launcher(tmp_path)
     cache = tmp_path / "cache"
-    result = run_launcher(launcher, cache, "http://127.0.0.1:1")
+    result = run_launcher(
+        launcher,
+        cache,
+        "http://127.0.0.1:1",
+        env_extra={
+            "NPM_TOKEN": "fixture-secret-token",
+            "npm_config_//127.0.0.1:1/:_authToken": "fixture-secret-token",
+        },
+    )
     assert result.returncode != 0
     assert "could not obtain the native binary" in result.stderr
     assert "127.0.0.1" not in result.stderr
+    assert "fixture-secret-token" not in result.stderr
     assert "CMUX_" not in result.stderr
     assert not (cache / host_platform_key() / "v/1.2.3/.active").exists()
 
