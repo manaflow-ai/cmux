@@ -314,6 +314,33 @@ import Testing
         #expect(String(decoding: data, as: UTF8.self) == "all of it")
     }
 
+    @Test func cloudLinkPipeBoundsUntrustedLinesAndCommandOutput() async throws {
+        let linePipe = Pipe()
+        let lines = CloudLinkPipe.lines(from: linePipe.fileHandleForReading)
+        let oversizedLine = Data(repeating: 0x78, count: 64 * 1024 + 1)
+        linePipe.fileHandleForWriting.write(oversizedLine)
+        linePipe.fileHandleForWriting.write(Data("\nkept\n".utf8))
+        try linePipe.fileHandleForWriting.close()
+        var received: [String] = []
+        for await line in lines { received.append(line) }
+        #expect(received == ["kept"])
+
+        let outputPipe = Pipe()
+        let payload = Data(repeating: 0x79, count: 4 * 1024 * 1024 + 1)
+        outputPipe.fileHandleForWriting.write(payload)
+        try outputPipe.fileHandleForWriting.close()
+        let output = await CloudLinkPipe.readToEnd(outputPipe.fileHandleForReading)
+        #expect(output.count < payload.count)
+    }
+
+    @Test func cloudLinkErrorsDoNotExposeRemoteOutput() {
+        let secret = "/remote/private/path\nTOKEN=not-for-ui"
+        let error = CloudMachineLink.LinkError.exited(status: 1, output: secret)
+        let text = CloudMachineLink.errorText(error)
+        #expect(!text.contains(secret))
+        #expect(!text.contains("TOKEN=not-for-ui"))
+    }
+
     @Test func linkFirstValueResolvesOnce() async {
         let socket = CloudLinkFirstValue<String>()
         async let awaited = socket.result
