@@ -382,6 +382,45 @@ struct AgentResumeArgvTests {
         )
     }
 
+    @Test("Subrouter routing proof and filtering stop at the option terminator")
+    func subrouterRoutingStopsAtOptionTerminator() {
+        let marker = ["SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume"]
+
+        #expect(
+            AgentResumeArgv().launcherResolution(
+                launcher: "codex",
+                sessionId: "SID",
+                executablePath: "/opt/bin/codex",
+                arguments: [
+                    "/opt/bin/codex",
+                    "-c", "model_provider=subrouter",
+                    "--",
+                    "-c", "model_provider=openai",
+                ],
+                environment: marker
+            ) == .resolved([
+                "sr", "codex", "resume", "SID",
+                "-c", "check_for_update_on_startup=false",
+                "--",
+                "-c", "model_provider=openai",
+            ])
+        )
+
+        #expect(
+            AgentResumeArgv().launcherResolution(
+                launcher: "codex",
+                sessionId: "SID",
+                executablePath: "/opt/bin/codex",
+                arguments: [
+                    "/opt/bin/codex",
+                    "--",
+                    "--config=model_provider=subrouter",
+                ],
+                environment: marker
+            ) == .passthrough
+        )
+    }
+
     @Test("Codex wrapper rendering does not rewrite sr's codex subcommand")
     func renderedSubrouterResumeKeepsExplicitLauncher() {
         let quote: (String) -> String = { "'" + $0 + "'" }

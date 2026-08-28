@@ -217,6 +217,62 @@ import Testing
         )
     }
 
+    @Test func testSurfaceResumeJSONDoesNotExposePrivateSubrouterRoutingMetadata() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = "/tmp/cmux-resume-private-\(UUID().uuidString.prefix(8)).sock"
+        let response = try jsonResponse(result: [
+            "resume_binding": [
+                "command": "sr codex resume session-id",
+                "environment": [
+                    "PATH": "/usr/bin:/bin",
+                    "SUBROUTER_CODEX_SERVER": "private-server",
+                ],
+            ],
+            "restore_record": [
+                "kind": "codex",
+                "launch_command": [
+                    "arguments": ["codex", "-c", "model_provider=subrouter"],
+                    "environment": [
+                        "PATH": "/usr/bin:/bin",
+                        "SUBROUTER_CODEX_ACCOUNT_ID": "private-account",
+                        "SUBROUTER_CODEX_BASE_URL": "https://router.example.test/v1",
+                        "SUBROUTER_CODEX_BIN": "/opt/bin/codex",
+                        "SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
+                        "SUBROUTER_CODEX_SERVER": "private-server",
+                        "SUBROUTER_CODEX_USER_EMAIL": "private@example.test",
+                    ],
+                ],
+            ],
+        ])
+        let responder = try UnixSocketResponder(path: socketPath, response: response)
+        defer { responder.stop() }
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["surface", "resume", "show", "--json"],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.diagnostics))
+        #expect(result.status == 0, Comment(rawValue: result.diagnostics))
+        #expect(result.stdout.contains("SUBROUTER_CODEX_") == false)
+        let payload = try #require(
+            JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any]
+        )
+        let record = try #require(payload["restore_record"] as? [String: Any])
+        let launchCommand = try #require(record["launch_command"] as? [String: Any])
+        let launchEnvironment = try #require(launchCommand["environment"] as? [String: Any])
+        #expect(launchEnvironment["PATH"] as? String == "/usr/bin:/bin")
+    }
+
     @Test func testIOSContextFromTerminalFallsBackToWorkspaceSimulator() throws {
         let cliPath = try bundledCLIPath()
         let workspaceID = UUID().uuidString.lowercased()

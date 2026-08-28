@@ -209,6 +209,55 @@ import Testing
         ])
     }
 
+    @Test func structuredSubrouterRestoreKeepsProvedLaunchRoutingInputsAuthoritative() throws {
+        let request = AgentRestoreRequest(
+            mode: .resumeAgent,
+            kind: "codex",
+            checkpointID: sessionID,
+            source: "agent-hook",
+            workingDirectory: "/tmp/project",
+            environment: [
+                "SUBROUTER_CODEX_ACCOUNT_ID": "replacement-account",
+                "SUBROUTER_CODEX_BASE_URL": "https://replacement.example.test/v1",
+                "SUBROUTER_CODEX_BIN": "/tmp/replacement-codex",
+                "SUBROUTER_CODEX_RESUME_COMMAND": "cx codex resume",
+                "SUBROUTER_CODEX_SERVER": "replacement-server",
+                "SUBROUTER_CODEX_USER_EMAIL": "replacement@example.test",
+            ],
+            launchCommand: AgentLaunchCommand(
+                launcher: "codex",
+                executablePath: "/opt/bin/codex",
+                arguments: ["/opt/bin/codex", "-c", "model_provider=subrouter"],
+                workingDirectory: "/tmp/project",
+                environment: [
+                    "SUBROUTER_CODEX_ACCOUNT_ID": "captured-account",
+                    "SUBROUTER_CODEX_BASE_URL": "https://captured.example.test/v1",
+                    "SUBROUTER_CODEX_BIN": "/opt/bin/codex",
+                    "SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
+                    "SUBROUTER_CODEX_SERVER": "captured-server",
+                    "SUBROUTER_CODEX_USER_EMAIL": "captured@example.test",
+                ]
+            ),
+            preparedArguments: nil,
+            observedPermissionMode: nil
+        )
+
+        let invocation = try #require(
+            AgentRestorePlanner(isExecutableFile: { _ in false }).invocation(
+                for: request,
+                ambientEnvironment: ["PATH": "/usr/bin:/bin"]
+            )
+        )
+
+        #expect(invocation.arguments.prefix(4) == ["sr", "codex", "resume", sessionID])
+        #expect(invocation.environment["SUBROUTER_CODEX_ACCOUNT_ID"] == "captured-account")
+        #expect(invocation.environment["SUBROUTER_CODEX_BASE_URL"] == "https://captured.example.test/v1")
+        #expect(invocation.environment["SUBROUTER_CODEX_BIN"] == "/opt/bin/codex")
+        #expect(invocation.environment["SUBROUTER_CODEX_RESUME_COMMAND"] == nil)
+        #expect(invocation.environment["SUBROUTER_CODEX_SERVER"] == "captured-server")
+        #expect(invocation.environment["SUBROUTER_CODEX_USER_EMAIL"] == "captured@example.test")
+    }
+
     @Test func structuredCodexRestoreCanonicalizesRelativeHomeFromLaunchDirectory() throws {
         let launchDirectory = "/tmp/codex-launch-root/repository"
         let restoredDirectory = "/tmp/codex-launch-root/repository/worktree"
