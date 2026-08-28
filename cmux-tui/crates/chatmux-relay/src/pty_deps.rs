@@ -213,6 +213,31 @@ struct CancelOnDrop {
     armed: bool,
 }
 
+/// Keep a control probe owned until its async handshake finishes. The
+/// `ControlHandle` trait deliberately exposes an explicit `end()` operation
+/// instead of relying on `Drop`, so cancellation must close the socket here.
+struct ControlEndGuard {
+    control: Option<Arc<dyn ControlHandle>>,
+}
+
+impl ControlEndGuard {
+    fn new(control: Arc<dyn ControlHandle>) -> Self {
+        Self { control: Some(control) }
+    }
+
+    fn disarm(&mut self) {
+        self.control = None;
+    }
+}
+
+impl Drop for ControlEndGuard {
+    fn drop(&mut self) {
+        if let Some(control) = self.control.take() {
+            control.end();
+        }
+    }
+}
+
 impl CancelOnDrop {
     fn new(flag: Arc<std::sync::atomic::AtomicBool>) -> Self {
         Self { flag, armed: true }
@@ -455,7 +480,7 @@ fn spawn_pipe_mode(
             let alive = Arc::new(std::sync::atomic::AtomicBool::new(true));
             if cancelled.load(std::sync::atomic::Ordering::Acquire) {
                 unsafe {
-                    libc::kill(pid, libc::SIGKILL);
+                    libc::kill(-(pid as libc::pid_t), libc::SIGKILL);
                 }
                 let _ = child.wait();
                 output.push_exit(1);
@@ -649,8 +674,10 @@ impl PtyDeps for RealPtyDeps {
         if socket_exists(&socket_path).await {
             let ready = match connect_control(&socket_path, CONTROL_TIMEOUT_MS).await {
                 Ok(control) => {
+                    let mut control_guard = ControlEndGuard::new(Arc::clone(&control));
                     let ready = control_ready(&control, session).await;
                     control.end();
+                    control_guard.disarm();
                     ready
                 }
                 Err(_) => false,
@@ -691,8 +718,10 @@ impl PtyDeps for RealPtyDeps {
                 while Instant::now() < deadline {
                     match connect_control(&socket_path, CONTROL_TIMEOUT_MS).await {
                         Ok(control) => {
+                            let mut control_guard = ControlEndGuard::new(Arc::clone(&control));
                             let ready = control_ready(&control, session).await;
                             control.end();
+                            control_guard.disarm();
                             if ready {
                                 process_guard.disarm();
                                 return Ok(EnsureDaemon { created: true, socket_path });

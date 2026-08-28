@@ -606,7 +606,7 @@ async fn handle_client_frame(
             // `handle_frame` future from `timeout` can abandon work while it
             // owns manager resources. An explicit abort, followed by the
             // normal close path, gives cancellation a defined cleanup point.
-            let open_task = tokio::spawn({
+            let mut open_task = tokio::spawn({
                 let manager = Arc::clone(&connection.manager);
                 async move { manager.handle_frame(&open, &context).await }
             });
