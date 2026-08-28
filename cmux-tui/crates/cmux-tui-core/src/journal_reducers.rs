@@ -27,8 +27,9 @@ use crate::{AgentSource, AgentState, JournalSubject};
 
 pub(crate) const AGENT_ROSTER_REDUCER_ID: &str = "agent_roster";
 /// Bump to discard persisted snapshots and re-fold from the journal head.
-/// Version 2 added the agent adapter id to roster entries.
-pub(crate) const AGENT_ROSTER_REDUCER_VERSION: u32 = 2;
+/// Version 2 added the agent adapter id to roster entries. Version 3 adds the
+/// durable hook-generation fence used to reject events from ended sessions.
+pub(crate) const AGENT_ROSTER_REDUCER_VERSION: u32 = 3;
 
 /// The adapter id and native event the socket report path uses for its echo
 /// journal events. The echo carries the explicit state in `normalized`, so
@@ -78,6 +79,9 @@ fn state_for_hook_kind(kind: &str) -> Option<AgentState> {
 /// `SessionJournalRecord`s during tail replay, with identical semantics so
 /// both paths fold to the same state.
 pub(crate) struct RosterEvent<'a> {
+    /// Monotonic journal sequence. Synthetic callers may use zero; persisted
+    /// records always carry their committed sequence.
+    pub(crate) sequence: u64,
     pub(crate) producer_id: &'a str,
     pub(crate) kind: &'a str,
     pub(crate) subjects: &'a [JournalSubject],
@@ -88,6 +92,7 @@ pub(crate) struct RosterEvent<'a> {
 impl<'a> RosterEvent<'a> {
     pub(crate) fn from_record(record: &'a SessionJournalRecord) -> Self {
         Self {
+            sequence: record.sequence,
             producer_id: &record.producer.id,
             kind: &record.kind,
             subjects: &record.subjects,
@@ -110,6 +115,13 @@ impl<'a> RosterEvent<'a> {
     fn normalized(&self, field: &str) -> Option<&str> {
         self.payload.get("normalized")?.get(field)?.as_str()
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct RosterFence {
+    session_id: String,
+    sequence: u64,
+    ended: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -149,9 +161,14 @@ pub(crate) enum RosterDelta {
 /// the journal and the durable agent projection); a hook-owned entry
 /// ignores socket reports so a slow poller cannot overwrite live hook
 /// state.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub(crate) struct AgentRoster {
     pub(crate) entries: HashMap<String, RosterEntry>,
+    /// Hook generation watermarks are retained after an entry is removed.
+    /// This prevents a late event from an ended session from resurrecting it
+    /// after restart. The field is serde-defaulted for version-two snapshots.
+    #[serde(default)]
+    fences: HashMap<String, RosterFence>,
 }
 
 impl AgentRoster {
@@ -163,29 +180,96 @@ impl AgentRoster {
             return Vec::new();
         }
         let Some(terminal_id) = event.terminal_id() else { return Vec::new() };
-        let (state, source, session, agent, updated_at_ms) =
-            if event.adapter_id() == Some(SOCKET_REPORT_ADAPTER) {
-                // Socket echo: explicit state and timestamp carried in the
-                // payload, so the roster mirrors the direct projection
-                // commit exactly. The reporter does not know the agent type.
-                let Some(state) = event.normalized("state").and_then(agent_state_from_str) else {
-                    return Vec::new();
-                };
-                // The socket adapter is authoritative about origin. Do not
-                // trust the user-controlled normalized source field, or it
-                // could bypass hook-over-socket precedence.
-                let source = AgentSource::Socket;
-                let updated_at_ms = event
-                    .normalized("updated_at_ms")
-                    .and_then(|value| value.parse::<u64>().ok())
-                    .unwrap_or(event.committed_at_ms);
-                let session = event.normalized("source_session").map(str::to_string);
-                (state, source, session, None, updated_at_ms)
-            } else {
-                let Some(state) = state_for_hook_kind(event.kind) else { return Vec::new() };
-                let agent = event.adapter_id().map(str::to_string);
-                (state, AgentSource::Hook, None, agent, event.committed_at_ms)
+        let (state, source, session, agent, updated_at_ms) = if event.adapter_id()
+            == Some(SOCKET_REPORT_ADAPTER)
+        {
+            // Socket echo: explicit state and timestamp carried in the
+            // payload, so the roster mirrors the direct projection
+            // commit exactly. The reporter does not know the agent type.
+            let Some(state) = event.normalized("state").and_then(agent_state_from_str) else {
+                return Vec::new();
             };
+            // The socket adapter is authoritative about origin. Do not
+            // trust the user-controlled normalized source field, or it
+            // could bypass hook-over-socket precedence.
+            let source = AgentSource::Socket;
+            let updated_at_ms = event
+                .normalized("updated_at_ms")
+                .and_then(|value| value.parse::<u64>().ok())
+                .unwrap_or(event.committed_at_ms);
+            let session = event.normalized("source_session").map(str::to_string);
+            if let Some(fence) = self.fences.get(terminal_id) {
+                // A socket report may start a genuinely new non-hook
+                // session after a hook ended, but an unqualified report
+                // cannot reopen the ended generation.
+                if fence.ended
+                    && session.as_deref().is_none_or(|session| session == fence.session_id)
+                {
+                    return Vec::new();
+                }
+                if !fence.ended
+                    && self
+                        .entries
+                        .get(terminal_id)
+                        .is_some_and(|entry| entry.agent_source() == AgentSource::Hook)
+                {
+                    return Vec::new();
+                }
+            } else if self
+                .entries
+                .get(terminal_id)
+                .is_some_and(|entry| entry.agent_source() == AgentSource::Hook)
+            {
+                return Vec::new();
+            }
+            (state, source, session, None, updated_at_ms)
+        } else {
+            let Some(state) = state_for_hook_kind(event.kind) else { return Vec::new() };
+            let agent = event.adapter_id().map(str::to_string);
+            let explicit_session = event
+                .normalized("agent_session_id")
+                .filter(|session| !session.is_empty())
+                .map(str::to_owned);
+            let is_session_start = event.kind == "agent.session.started";
+            let previous_fence = self.fences.get(terminal_id).cloned();
+            // Once a provider supplied a native identity, a later
+            // session-less event is ambiguous and must not attach to the
+            // current generation.
+            if explicit_session.is_none()
+                && previous_fence
+                    .as_ref()
+                    .is_some_and(|fence| !fence.session_id.starts_with("legacy:"))
+            {
+                return Vec::new();
+            }
+            let session_id = explicit_session
+                .clone()
+                .or_else(|| {
+                    (!is_session_start)
+                        .then(|| previous_fence.as_ref().filter(|fence| !fence.ended))
+                        .flatten()
+                        .map(|fence| fence.session_id.clone())
+                })
+                .unwrap_or_else(|| format!("legacy:{terminal_id}:{}", event.sequence));
+            if let Some(fence) = previous_fence.as_ref() {
+                if fence.session_id == session_id {
+                    if fence.ended || event.sequence <= fence.sequence {
+                        return Vec::new();
+                    }
+                } else if !is_session_start || !fence.ended || event.sequence <= fence.sequence {
+                    return Vec::new();
+                }
+            }
+            self.fences.insert(
+                terminal_id.to_string(),
+                RosterFence {
+                    session_id,
+                    sequence: event.sequence,
+                    ended: state == AgentState::Done,
+                },
+            );
+            (state, AgentSource::Hook, None, agent, event.committed_at_ms)
+        };
         if source == AgentSource::Socket
             && self
                 .entries
@@ -213,7 +297,8 @@ impl AgentRoster {
             // A socket entry keeps any agent identity a hook already
             // established for this terminal.
             agent: if source == AgentSource::Socket {
-                agent.or_else(|| self.entries.get(terminal_id).and_then(|entry| entry.agent.clone()))
+                agent
+                    .or_else(|| self.entries.get(terminal_id).and_then(|entry| entry.agent.clone()))
             } else {
                 agent
             },
@@ -235,7 +320,29 @@ impl AgentRoster {
     /// tombstoned). Terminal lifecycle does not flow through `agent.*`
     /// events yet, so the host retires entries explicitly.
     pub(crate) fn retire_terminal(&mut self, terminal_id: &str) -> bool {
+        // Keep the ended-generation fence after removing the live entry. A
+        // late hook/socket event for the old terminal must not resurrect it
+        // after restart or terminal-id reuse. A later explicit
+        // `agent.session.started` event with a new sequence replaces it.
         self.entries.remove(terminal_id).is_some()
+    }
+
+    /// Seed a generation fence restored from the legacy durable projection.
+    /// The reducer uses this only when its own snapshot is unavailable.
+    pub(crate) fn seed_fence(
+        &mut self,
+        terminal_id: impl Into<String>,
+        session_id: String,
+        sequence: u64,
+        ended: bool,
+    ) {
+        self.fences.insert(terminal_id.into(), RosterFence { session_id, sequence, ended });
+    }
+
+    /// Seed a live entry restored from the durable projection when journal
+    /// history before the retention floor is unavailable.
+    pub(crate) fn seed_entry(&mut self, terminal_id: impl Into<String>, entry: RosterEntry) {
+        self.entries.insert(terminal_id.into(), entry);
     }
 
     pub(crate) fn snapshot(&self) -> Value {
@@ -243,7 +350,20 @@ impl AgentRoster {
     }
 
     pub(crate) fn restore(snapshot: &str) -> Option<Self> {
-        serde_json::from_str(snapshot).ok()
+        let roster: Self = serde_json::from_str(snapshot).ok()?;
+        // Do not accept a cursor paired with a semantically invalid snapshot.
+        // The host can safely replay the journal, while coercing an invalid
+        // source to `Hook` would silently change source precedence.
+        if roster.entries.values().any(|entry| {
+            agent_state_from_str(&entry.state).is_none()
+                || agent_source_from_str(&entry.source).is_none()
+        }) {
+            return None;
+        }
+        if roster.fences.values().any(|fence| fence.session_id.is_empty()) {
+            return None;
+        }
+        Some(roster)
     }
 }
 
@@ -259,6 +379,7 @@ mod tests {
         payload: &'a Value,
     ) -> RosterEvent<'a> {
         RosterEvent {
+            sequence,
             producer_id: AGENT_HOOK_PRODUCER_ID,
             kind,
             subjects,
