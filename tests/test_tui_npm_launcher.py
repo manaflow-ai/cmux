@@ -1206,8 +1206,23 @@ def test_launcher_windows_path_covers_exe_snapshot_lock_and_update(
     assert records[0]["args"][2] == "version"
     assert records[1]["args"][2] == "dist"
     assert records[2]["args"][2] == "cmuxBinaryIntegrity"
-    expected_spec = "cmux-tui-win32-x64@1.2.3"
-    assert all(expected_spec in record["args"] for record in records)
+    # Version discovery queries the dist-tag first. Version-specific metadata
+    # and pack requests must carry the resolved version selector.
+    assert all(
+        any(
+            selector in record["args"]
+            for selector in ("cmux-tui-win32-x64@latest", "cmux-tui-win32-x64@1.2.3")
+        )
+        for record in records
+    )
+    assert all(
+        "cmux-tui-win32-x64@latest" in records[index]["args"]
+        for index in range(3)
+    )
+    assert all(
+        "cmux-tui-win32-x64@1.2.3" in record["args"]
+        for record in records[3:]
+    )
     assert all(
         record["args"][record["args"].index("--registry") + 1]
         == "http://127.0.0.1:1"
