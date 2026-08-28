@@ -1423,28 +1423,70 @@ _cmux_run_pr_probe_with_timeout() {
 # `kill -0 $pid` guard is defeated by PID reuse. macOS recycles PIDs within
 # days on a busy machine, so once the recorded shell PID is reassigned to any
 # live process the guard returns true forever and the watcher never exits.
-# Pair the PID with the kernel start time from /bin/ps so a recycled PID no
-# longer counts as the parent.
+# Pair the PID with Darwin's kernel start time (seconds) from /bin/ps so a
+# recycled PID no longer counts as the parent.
 _cmux_watcher_parent_start_time() {
-    local raw
-    raw="$(/bin/ps -o lstart= -p "$1" 2>/dev/null)" || return 1
-    # Normalize whitespace: lstart pads single-digit days with spaces, and the
-    # identity must compare stably across ps invocations.
+    local pid="${1:-}" raw month day clock year token
+    case "$pid" in ''|*[!0-9]*) return 1 ;; esac
+    case "$pid" in *[1-9]*) ;; *) return 1 ;; esac
+    # Darwin's ps exposes process start time through `lstart`, which is a
+    # locale-formatted string. Force the stable C locale and UTC timezone,
+    # then convert the five fields to a fixed-width numeric token before
+    # comparing.
+    raw="$(TZ=UTC LC_ALL=C /bin/ps -o lstart= -p "$pid" 2>/dev/null)" || return 1
+    case "$raw" in *$'\n'*) return 1 ;; esac
     local -a words=()
     read -r -a words <<< "$raw" || true
-    (( ${#words[@]} )) || return 1
-    printf '%s\n' "${words[*]}"
+    (( ${#words[@]} == 5 )) || return 1
+    case "${words[0]}" in Mon|Tue|Wed|Thu|Fri|Sat|Sun) ;; *) return 1 ;; esac
+    case "${words[1]}" in
+        Jan) month=01 ;; Feb) month=02 ;; Mar) month=03 ;;
+        Apr) month=04 ;; May) month=05 ;; Jun) month=06 ;;
+        Jul) month=07 ;; Aug) month=08 ;; Sep) month=09 ;;
+        Oct) month=10 ;; Nov) month=11 ;; Dec) month=12 ;;
+        *) return 1 ;;
+    esac
+    case "${words[2]}" in
+        [1-9]) day="0${words[2]}" ;;
+        0[1-9]|[12][0-9]|3[01]) day="${words[2]}" ;;
+        *) return 1 ;;
+    esac
+    case "${words[3]}" in
+        [01][0-9]:[0-5][0-9]:[0-5][0-9]|2[0-3]:[0-5][0-9]:[0-5][0-9]) clock="${words[3]}" ;;
+        *) return 1 ;;
+    esac
+    case "${words[4]}" in
+        [0-9][0-9][0-9][0-9]) year="${words[4]}" ;;
+        *) return 1 ;;
+    esac
+    token="${year}${month}${day}${clock//:/}"
+    _cmux_watcher_parent_identity_valid "$pid" "$token" || return 1
+    printf '%s\n' "$token"
+}
+
+_cmux_watcher_parent_identity_valid() {
+    local pid="${1:-}" identity="${2:-}"
+    case "$pid" in
+        ''|*[!0-9]*) return 1 ;;
+    esac
+    case "$pid" in
+        *[1-9]*) ;;
+        *) return 1 ;;
+    esac
+    case "$identity" in
+        ''|*[!0-9]*) return 1 ;;
+    esac
+    (( ${#identity} == 14 ))
 }
 
 _cmux_watcher_parent_alive() {
-    # $1 = parent PID, $2 = start time recorded at watcher spawn. A start-time
+    # $1 = parent PID, $2 = numeric start time recorded at watcher spawn. A
     # mismatch means the PID was recycled; a failed /bin/ps counts as
-    # parent-dead. An empty recorded start time (ps failed at spawn) degrades
-    # to the plain PID liveness check.
-    local pid="$1" expected="$2" actual
-    [[ -n "$pid" ]] || return 1
+    # parent-dead. Missing or malformed identity is also parent-dead, so a
+    # watcher never falls back to PID-only liveness.
+    local pid="${1:-}" expected="${2:-}" actual
+    _cmux_watcher_parent_identity_valid "$pid" "$expected" || return 1
     kill -0 "$pid" >/dev/null 2>&1 || return 1
-    [[ -n "$expected" ]] || return 0
     actual="$(_cmux_watcher_parent_start_time "$pid")" || return 1
     [[ "$actual" == "$expected" ]]
 }
@@ -1452,10 +1494,20 @@ _cmux_watcher_parent_alive() {
 _cmux_capture_shell_start_time() {
     # Cache this shell's own start time once per shell lifetime: $$ never
     # changes, so the value cannot go stale, and watcher starts must not pay
-    # a /bin/ps fork per command. Only a non-empty value is cached so a
-    # transient ps failure heals on the next watcher start.
-    [[ -n "${_CMUX_SHELL_START_TIME:-}" ]] && return 0
-    _CMUX_SHELL_START_TIME="$(_cmux_watcher_parent_start_time "$$" 2>/dev/null)" || _CMUX_SHELL_START_TIME=""
+    # a /bin/ps fork per command. Only a valid value tied to this shell PID is
+    # cached, so a transient ps failure heals on the next watcher start.
+    if [[ "${_CMUX_SHELL_START_PID:-}" == "$$" ]] \
+        && _cmux_watcher_parent_identity_valid "$$" "${_CMUX_SHELL_START_TIME:-}"; then
+        return 0
+    fi
+    _CMUX_SHELL_START_TIME=""
+    _CMUX_SHELL_START_PID=""
+    _CMUX_SHELL_START_TIME="$(_cmux_watcher_parent_start_time "$$" 2>/dev/null)" || return 1
+    _cmux_watcher_parent_identity_valid "$$" "$_CMUX_SHELL_START_TIME" || {
+        _CMUX_SHELL_START_TIME=""
+        return 1
+    }
+    _CMUX_SHELL_START_PID="$$"
 }
 
 _cmux_watcher_guard_tick() {
@@ -1466,10 +1518,15 @@ _cmux_watcher_guard_tick() {
     # once per second. PID-reuse detection latency is bounded by N iterations.
     # Runs inside the forked watcher, so the countdown global is private to
     # that watcher.
-    local pid="$1" expected="$2"
+    local pid="${1:-}" expected="${2:-}"
+    _cmux_watcher_parent_identity_valid "$pid" "$expected" || return 1
     kill -0 "$pid" >/dev/null 2>&1 || return 1
-    if (( ${_CMUX_WATCHER_GUARD_COUNTDOWN:-0} > 0 )); then
-        _CMUX_WATCHER_GUARD_COUNTDOWN=$(( _CMUX_WATCHER_GUARD_COUNTDOWN - 1 ))
+    local countdown="${_CMUX_WATCHER_GUARD_COUNTDOWN:-0}"
+    case "$countdown" in
+        ''|*[!0-9]*) countdown=0 ;;
+    esac
+    if (( countdown > 0 )); then
+        _CMUX_WATCHER_GUARD_COUNTDOWN=$(( countdown - 1 ))
         return 0
     fi
     local interval="${_CMUX_WATCHER_IDENTITY_INTERVAL:-30}"
@@ -1513,7 +1570,7 @@ _cmux_start_pr_poll_loop() {
     local watch_pwd="${1:-$PWD}"
     local force_restart="${2:-0}"
     local watch_shell_pid="$$"
-    _cmux_capture_shell_start_time
+    _cmux_capture_shell_start_time || return 0
     local watch_shell_start="$_CMUX_SHELL_START_TIME"
     local interval="${_CMUX_PR_POLL_INTERVAL:-45}"
 
@@ -1532,6 +1589,7 @@ _cmux_start_pr_poll_loop() {
     {
         local signal_path=""
         signal_path="$(_cmux_pr_force_signal_path 2>/dev/null || true)"
+        _CMUX_WATCHER_GUARD_COUNTDOWN=0
         while :; do
             _cmux_watcher_guard_tick "$watch_shell_pid" "$watch_shell_start" || break
             local force_probe=0
