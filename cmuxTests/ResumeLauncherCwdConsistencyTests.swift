@@ -146,6 +146,35 @@ struct ResumeLauncherCwdConsistencyTests {
         #expect(!input.contains(savedDirectory))
     }
 
+    @Test("remote inline Subrouter resume routes its Codex child through the managed wrapper")
+    func remoteInlineSubrouterResumeKeepsCodexHooks() throws {
+        let sessionId = "a22293b7-bcef-4707-8439-2f538c8517a4"
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: sessionId,
+            workingDirectory: "/home/dev/repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "/opt/custom/codex",
+                arguments: ["/opt/custom/codex", "-c", "model_provider=subrouter"],
+                workingDirectory: "/home/dev/repo",
+                environment: [
+                    "SUBROUTER_CODEX_BIN": "/opt/custom/codex",
+                    "SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
+                ],
+                capturedAt: 123,
+                source: "remote"
+            )
+        )
+
+        let input = try #require(snapshot.resumeStartupInput(useLocalRestoreVerb: false))
+
+        #expect(input.contains("CMUX_AGENT_RESTORE_LAUNCH=codex:\(sessionId)"), "\(input)")
+        #expect(input.contains("SUBROUTER_CODEX_BIN="), "\(input)")
+        #expect(input.contains("CMUX_CODEX_WRAPPER_SHIM"), "\(input)")
+        #expect(input.contains("CMUX_CUSTOM_CODEX_PATH=/opt/custom/codex"), "\(input)")
+    }
+
     @Test("restored terminal command wrapper sources login files once")
     func restoredTerminalCommandWrapperAvoidsNestedLoginStartup() throws {
         let fileManager = FileManager.default
