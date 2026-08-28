@@ -28,6 +28,12 @@ extension CodexTurnLedger {
         return min(Self.maximumChildrenPerTurn * Self.maximumTurnKeys, exact + unknown)
     }
 
+    func activeChildCount(for key: String, in record: CodexTurnLedgerRecord) -> Int {
+        let exact = record.activeChildrenByTurn[key]?.count ?? 0
+        let unknown = record.unknownChildrenByTurn[key] ?? 0
+        return min(Self.maximumChildrenPerTurn, exact + unknown)
+    }
+
     func turnKey(_ turnID: String?) -> String {
         Self.normalized(turnID) ?? "@current"
     }
@@ -49,10 +55,18 @@ extension CodexTurnLedger {
     }
 
     func trim(_ record: inout CodexTurnLedgerRecord) {
+        let protectedKeys = Set(
+            [turnKey(record.activeTurnID)]
+                + Array(record.activeChildrenByTurn.keys)
+                + Array(record.unknownChildrenByTurn.keys)
+                + Array(record.pendingTurns.keys)
+        )
         func trimDictionary<T>(_ dictionary: inout [String: T], limit: Int) {
             guard dictionary.count > limit else { return }
-            let keys = dictionary.keys.sorted()
-            for key in keys.prefix(dictionary.count - limit) {
+            let removableKeys = dictionary.keys
+                .filter { !protectedKeys.contains($0) }
+                .sorted()
+            for key in removableKeys.prefix(dictionary.count - limit) {
                 dictionary.removeValue(forKey: key)
             }
         }
@@ -69,8 +83,11 @@ extension CodexTurnLedger {
         }
     }
 
-    func prune(_ state: inout CodexTurnLedgerFile) {
-        guard state.records.count > Self.maximumRecords else { return }
+    func prune(
+        _ state: inout CodexTurnLedgerFile,
+        retainingAtMost limit: Int = Self.maximumRecords
+    ) {
+        guard state.records.count > limit else { return }
         let removable = state.records
             .filter {
                 $0.value.activeChildrenByTurn.isEmpty
@@ -78,9 +95,14 @@ extension CodexTurnLedger {
                     && $0.value.pendingTurns.isEmpty
             }
             .sorted { $0.value.updatedAt < $1.value.updatedAt }
-        for (sessionID, _) in removable.prefix(state.records.count - Self.maximumRecords) {
+        let removableIDs = Set(
+            removable.prefix(state.records.count - limit).map(\.key)
+        )
+        for sessionID in removableIDs {
             state.records.removeValue(forKey: sessionID)
-            state.surfaceOwners = state.surfaceOwners.filter { $0.value != sessionID }
+        }
+        state.surfaceOwners = state.surfaceOwners.filter {
+            state.records[$0.value] != nil && !removableIDs.contains($0.value)
         }
     }
 
@@ -135,9 +157,6 @@ extension CodexTurnLedger {
         guard let data = fileManager.contents(atPath: path) else {
             return CodexTurnLedgerFile()
         }
-        guard let state = try? decoder.decode(CodexTurnLedgerFile.self, from: data) else {
-            throw CLIError(message: "Codex turn ledger is corrupt")
-        }
-        return state
+        return (try? decoder.decode(CodexTurnLedgerFile.self, from: data)) ?? CodexTurnLedgerFile()
     }
 }

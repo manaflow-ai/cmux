@@ -133,13 +133,19 @@ struct CodexTurnLifecycleCoordinator {
         workspaceID: String?,
         surfaceID: String?
     ) -> CodexTurnLedgerDecision {
-        subagent(
+        let starts: Bool
+        switch eventName {
+        case "SubagentStart": starts = true
+        case "SubagentStop": starts = false
+        default: return .ignored
+        }
+        return subagent(
             sessionID: sessionID,
             agentID: agentID,
             turnID: turnID,
             workspaceID: workspaceID,
             surfaceID: surfaceID,
-            starts: eventName == "SubagentStart"
+            starts: starts
         )
     }
 }

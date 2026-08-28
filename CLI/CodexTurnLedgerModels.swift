@@ -140,11 +140,79 @@ struct CodexTurnLedgerRecord: Codable, Equatable {
     var settledTurnIDs: [String]
     var notifiedTurnIDs: [String]
     var updatedAt: TimeInterval
+
+    init(
+        workspaceID: String,
+        surfaceID: String,
+        owner: CodexTurnLedgerOwner,
+        activeTurnID: String?,
+        activeChildrenByTurn: [String: [String]],
+        unknownChildrenByTurn: [String: Int],
+        terminalChildrenByTurn: [String: [String]],
+        pendingTurns: [String: CodexTurnLedgerPending],
+        settledTurnIDs: [String],
+        notifiedTurnIDs: [String],
+        updatedAt: TimeInterval
+    ) {
+        self.workspaceID = workspaceID
+        self.surfaceID = surfaceID
+        self.owner = owner
+        self.activeTurnID = activeTurnID
+        self.activeChildrenByTurn = activeChildrenByTurn
+        self.unknownChildrenByTurn = unknownChildrenByTurn
+        self.terminalChildrenByTurn = terminalChildrenByTurn
+        self.pendingTurns = pendingTurns
+        self.settledTurnIDs = settledTurnIDs
+        self.notifiedTurnIDs = notifiedTurnIDs
+        self.updatedAt = updatedAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        workspaceID = try container.decodeIfPresent(String.self, forKey: .workspaceID) ?? ""
+        surfaceID = try container.decodeIfPresent(String.self, forKey: .surfaceID) ?? ""
+        owner = try container.decodeIfPresent(CodexTurnLedgerOwner.self, forKey: .owner)
+            ?? CodexTurnLedgerOwner(token: nil, pid: nil, generation: nil)
+        activeTurnID = try container.decodeIfPresent(String.self, forKey: .activeTurnID)
+        activeChildrenByTurn = try container.decodeIfPresent(
+            [String: [String]].self,
+            forKey: .activeChildrenByTurn
+        ) ?? [:]
+        unknownChildrenByTurn = try container.decodeIfPresent(
+            [String: Int].self,
+            forKey: .unknownChildrenByTurn
+        ) ?? [:]
+        terminalChildrenByTurn = try container.decodeIfPresent(
+            [String: [String]].self,
+            forKey: .terminalChildrenByTurn
+        ) ?? [:]
+        pendingTurns = try container.decodeIfPresent(
+            [String: CodexTurnLedgerPending].self,
+            forKey: .pendingTurns
+        ) ?? [:]
+        settledTurnIDs = try container.decodeIfPresent([String].self, forKey: .settledTurnIDs) ?? []
+        notifiedTurnIDs = try container.decodeIfPresent([String].self, forKey: .notifiedTurnIDs) ?? []
+        updatedAt = try container.decodeIfPresent(TimeInterval.self, forKey: .updatedAt) ?? 0
+    }
 }
 
 struct CodexTurnLedgerFile: Codable {
     var records: [String: CodexTurnLedgerRecord] = [:]
     var surfaceOwners: [String: String] = [:]
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        records = try container.decodeIfPresent(
+            [String: CodexTurnLedgerRecord].self,
+            forKey: .records
+        ) ?? [:]
+        surfaceOwners = try container.decodeIfPresent(
+            [String: String].self,
+            forKey: .surfaceOwners
+        ) ?? [:]
+    }
 }
 
 extension CMUXCLI {

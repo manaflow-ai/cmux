@@ -56,6 +56,8 @@ final class CodexTurnLedger {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
     }
 
+    deinit {}
+
     func sessionStart(
         sessionID: String,
         workspaceID: String?,
@@ -192,6 +194,9 @@ final class CodexTurnLedger {
                 surfaceOwner: ownerRecord
             )
             if existing == nil, ownerRecord == nil, state.records.count >= Self.maximumRecords {
+                self.prune(&state, retainingAtMost: Self.maximumRecords - 1)
+            }
+            if existing == nil, ownerRecord == nil, state.records.count >= Self.maximumRecords {
                 return .ignored
             }
 
@@ -215,8 +220,8 @@ final class CodexTurnLedger {
                        oldSessionID != normalizedSessionID,
                        self.sameOwner(oldOwner.owner, invocation) == false {
                         state.records.removeValue(forKey: oldSessionID)
-    }
-}
+                    }
+                }
                 state.records[normalizedSessionID] = record
                 if !normalizedSurfaceID.isEmpty {
                     state.surfaceOwners[normalizedSurfaceID] = normalizedSessionID
@@ -256,7 +261,13 @@ final class CodexTurnLedger {
             let decision: CodexTurnLedgerDecision
             switch event {
             case .promptSubmit(let turnID):
-                record.activeTurnID = Self.normalized(turnID) ?? record.activeTurnID
+                let normalizedTurnID = Self.normalized(turnID)
+                record.activeTurnID = normalizedTurnID
+                let key = self.turnKey(normalizedTurnID)
+                record.pendingTurns.removeValue(forKey: key)
+                record.settledTurnIDs.removeAll { $0 == key }
+                record.notifiedTurnIDs.removeAll { $0 == key }
+                record.terminalChildrenByTurn.removeValue(forKey: key)
                 decision = self.decision(
                     ownership: .foreground,
                     settlement: .none,
@@ -274,14 +285,35 @@ final class CodexTurnLedger {
                     shouldNotify: false
                 )
             case .subagentStop(let id, let turnID):
+                let key = self.turnKey(turnID ?? record.activeTurnID)
+                let validChildID = Self.normalized(id) != nil
                 self.stopChild(id: id, turnID: turnID, in: &record)
-                decision = self.decision(
-                    ownership: .foreground,
-                    settlement: .none,
-                    activeChildCount: self.activeChildCount(record),
-                    turnID: Self.normalized(turnID) ?? record.activeTurnID,
-                    shouldNotify: false
-                )
+                if validChildID,
+                   self.activeChildCount(for: key, in: record) == 0,
+                   let pending = record.pendingTurns.removeValue(forKey: key) {
+                    if !record.settledTurnIDs.contains(key) {
+                        record.settledTurnIDs.append(key)
+                    }
+                    let shouldNotify = !record.notifiedTurnIDs.contains(key)
+                    if shouldNotify {
+                        record.notifiedTurnIDs.append(key)
+                    }
+                    decision = self.decision(
+                        ownership: .foreground,
+                        settlement: .settled,
+                        activeChildCount: self.activeChildCount(record),
+                        turnID: pending.turnID,
+                        shouldNotify: shouldNotify
+                    )
+                } else {
+                    decision = self.decision(
+                        ownership: .foreground,
+                        settlement: .none,
+                        activeChildCount: self.activeChildCount(record),
+                        turnID: Self.normalized(turnID) ?? record.activeTurnID,
+                        shouldNotify: false
+                    )
+                }
             case .stop(let turnID):
                 let key = self.turnKey(turnID ?? record.activeTurnID)
                 let active = self.activeChildCount(record)
@@ -295,12 +327,16 @@ final class CodexTurnLedger {
                         shouldNotify: false
                     )
                 } else if record.settledTurnIDs.contains(key) {
+                    let shouldNotify = !record.notifiedTurnIDs.contains(key)
+                    if shouldNotify {
+                        record.notifiedTurnIDs.append(key)
+                    }
                     decision = self.decision(
                         ownership: .foreground,
-                        settlement: .duplicate,
+                        settlement: shouldNotify ? .settled : .duplicate,
                         activeChildCount: 0,
                         turnID: Self.normalized(turnID ?? record.activeTurnID),
-                        shouldNotify: false
+                        shouldNotify: shouldNotify
                     )
                 } else {
                     record.pendingTurns.removeValue(forKey: key)
@@ -369,8 +405,7 @@ final class CodexTurnLedger {
                let ownerToken = owner.owner.token,
                token == ownerToken {
                 if invocation.hasExplicitObservedPID,
-                   let ownerPID = owner.owner.pid,
-                   invocation.observedPID != ownerPID {
+                   owner.owner.pid != invocation.ownerPID {
                     return .nested
                 }
                 // A hook shell may sit between the foreground Codex and the
@@ -384,7 +419,7 @@ final class CodexTurnLedger {
                invocation.token == nil,
                owner.owner.token == nil {
                 if invocation.hasExplicitObservedPID,
-                   owner.owner.pid != invocation.observedPID {
+                   owner.owner.pid != invocation.ownerPID {
                     return .nested
                 }
                 return .foreground
