@@ -13,11 +13,11 @@ use std::time::{Duration, Instant};
 use anyhow::Context;
 use base64::Engine;
 use serde_json::{Value, json};
-use tungstenite::client::IntoClientRequest;
+use tungstenite::client::{IntoClientRequest, client_with_config};
 use tungstenite::http::HeaderValue;
 use tungstenite::http::header::AUTHORIZATION;
 use tungstenite::protocol::WebSocketConfig;
-use tungstenite::{Error as WsError, Message, WebSocket, client_with_config};
+use tungstenite::{Error as WsError, Message, WebSocket};
 
 /// Maximum number of pending events in each bounded CDP event queue.
 ///
