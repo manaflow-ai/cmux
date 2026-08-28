@@ -406,7 +406,7 @@ final class WebSurfaceSelectionReader {
 
     private static let evaluationTimeoutMilliseconds = 4_000
     private static let script = """
-    (async () => {
+return await (async () => {
       const readSelection = () => {
         const runtime = globalThis.__cmuxSurfaceSelectionRuntime;
         if (!runtime || typeof runtime.read !== 'function') return null;
@@ -439,7 +439,7 @@ final class WebSurfaceSelectionReader {
         Promise.resolve().then(readSelection),
         new Promise((resolve) => setTimeout(() => resolve(null), \(WebSurfaceSelectionReader.evaluationTimeoutMilliseconds)))
       ]);
-    })()
+})()
     """
 
     /// Installs the event-owned snapshot in the page world because WebKit does
