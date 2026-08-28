@@ -449,6 +449,16 @@ Custom sidebar commands:
 | `sidebar select <name>` | Validate and activate one custom sidebar in the sidebar picker. |
 | `sidebar open <name>` | Validate and open one custom sidebar as a normal Bonsplit pane tab, preferring the right-side split from the focused surface. |
 
+All four resolve a name through one shared list of extensions, in this order:
+`.swift`, `.json`, `.html`, `.url`. Interpreted sources win, so adding a
+`board.html` beside an existing `board.swift` never changes which file the CLI
+acts on, and the CLI always acts on the same file the sidebar picker renders.
+
+Each reported sidebar carries a `kind` of `swift`, `json`, `html`, or `url`.
+Validation per kind: `.swift` is interpreted and must produce a view, `.json`
+must decode against the sidebar schema, `.html` must be readable, and `.url` must
+name an `http` or `https` target (a rejected scheme is reported by name).
+
 Docs topics:
 
 | Command | Contract |

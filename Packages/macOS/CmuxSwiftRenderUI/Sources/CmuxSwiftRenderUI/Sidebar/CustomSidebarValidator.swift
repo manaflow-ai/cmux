@@ -1,4 +1,6 @@
+import CmuxFoundation
 import CmuxSwiftRender
+import Darwin
 import Foundation
 
 /// Validates custom sidebar files using the same JSON schema and Swift interpreter as rendering.
@@ -15,9 +17,13 @@ public struct CustomSidebarValidator {
         self.fallbackDataContext = fallbackDataContext
     }
 
-    /// Discovers custom sidebar source files in a directory.
+    /// Discovers custom sidebar source files in a directory, one per sidebar name.
     ///
-    /// Swift files are preferred over JSON files with the same base name.
+    /// Resolution order is ``CustomSidebarSource/fileExtensions`` — `.swift`, `.json`, `.html`,
+    /// `.url` — the same order the render path and the picker use. Sharing it is the point: when the
+    /// CLI resolved only `.swift`/`.json`, `cmux sidebar select board` on an HTML sidebar reported
+    /// the file as missing while the picker showed it working, and `cmux sidebar validate` invented
+    /// a `board.json` that had never existed.
     public func discover(in directory: URL, name requestedName: String? = nil) -> [URL] {
         guard let entries = try? fileManager.contentsOfDirectory(
             at: directory,
@@ -26,15 +32,27 @@ public struct CustomSidebarValidator {
 
         var fileByName: [String: URL] = [:]
         for url in entries {
-            let ext = url.pathExtension.lowercased()
-            guard ext == "swift" || ext == "json" else { continue }
+            guard let rank = Self.resolutionRank(of: url) else { continue }
             let name = url.deletingPathExtension().lastPathComponent
             if let requestedName, requestedName != name { continue }
-            if fileByName[name]?.pathExtension.lowercased() == "swift" { continue }
+            if let existing = fileByName[name],
+               let existingRank = Self.resolutionRank(of: existing),
+               existingRank <= rank {
+                continue
+            }
             fileByName[name] = url
         }
 
         return fileByName.keys.sorted().compactMap { fileByName[$0] }
+    }
+
+    /// Position of a file's extension in the shared resolution order, or `nil` if unrecognised.
+    ///
+    /// Matched exactly, not case-folded. Discovery reads the disk while name resolution builds
+    /// `<name>.<ext>` from this same lowercase list, so folding here would let discovery report a
+    /// `board.HTML` that resolution cannot then find on a case-sensitive volume.
+    private static func resolutionRank(of url: URL) -> Int? {
+        CustomSidebarSource.fileExtensions.firstIndex(of: url.pathExtension)
     }
 
     /// Validates every discovered sidebar, or one requested sidebar name.
@@ -60,8 +78,17 @@ public struct CustomSidebarValidator {
         dataContext: [String: SwiftValue]? = nil
     ) -> CustomSidebarValidationEntry {
         let name = fileURL.deletingPathExtension().lastPathComponent
-        let ext = fileURL.pathExtension.lowercased()
-        let kind: CustomSidebarFileKind = ext == "swift" ? .swift : .json
+        guard let kind = CustomSidebarFileKind(fileURL: fileURL), Self.resolutionRank(of: fileURL) != nil else {
+            return CustomSidebarValidationEntry(
+                name: name,
+                fileURL: fileURL,
+                kind: .json,
+                errorMessage: String(
+                    localized: "sidebar.custom.validation.unsupportedExtension",
+                    defaultValue: "Sidebar file must be .swift, .json, .html, or .url."
+                )
+            )
+        }
 
         guard fileManager.fileExists(atPath: fileURL.path) else {
             return CustomSidebarValidationEntry(
@@ -88,6 +115,44 @@ public struct CustomSidebarValidator {
             case .json:
                 let data = try Data(contentsOf: fileURL)
                 _ = try JSONDecoder().decode(DSLDocument.self, from: data)
+            case .html:
+                // The markup is validated by rendering it, not by parsing it here: HTML has no
+                // failure a parser could report that a browser would not simply recover from, so a
+                // "your markup is wrong" verdict from cmux would be wrong more often than the page
+                // is. What can genuinely fail is getting at the bytes at all, and existence does not
+                // establish that — a directory exists, and so does a file the user cannot read.
+                // Both mount and render blank, which is the failure this command exists to pre-empt.
+                if isDirectory(fileURL) {
+                    return CustomSidebarValidationEntry(
+                        name: name,
+                        fileURL: fileURL,
+                        kind: kind,
+                        errorMessage: String(
+                            localized: "sidebar.custom.validation.documentIsDirectory",
+                            defaultValue: "Sidebar .html path is a directory, not a document."
+                        )
+                    )
+                }
+                guard isReadableRegularFile(fileURL) else {
+                    return CustomSidebarValidationEntry(
+                        name: name,
+                        fileURL: fileURL,
+                        kind: kind,
+                        errorMessage: String(
+                            localized: "sidebar.custom.validation.readFailed",
+                            defaultValue: "Failed to read sidebar file."
+                        )
+                    )
+                }
+            case .url:
+                if let problem = CustomSidebarWebSourceProblem.diagnose(urlFile: fileURL) {
+                    return CustomSidebarValidationEntry(
+                        name: name,
+                        fileURL: fileURL,
+                        kind: kind,
+                        errorMessage: describe(problem)
+                    )
+                }
             }
             return CustomSidebarValidationEntry(
                 name: name,
@@ -103,6 +168,83 @@ public struct CustomSidebarValidator {
                 errorMessage: describe(error)
             )
         }
+    }
+
+    /// Converts a web-source problem into sidebar-facing text.
+    ///
+    /// Says which scheme was rejected when there was one. "Invalid URL" sends the author back to
+    /// re-read a file they have already read; "cmux sidebars cannot open 'file' URLs" tells them
+    /// what to change.
+    ///
+    /// - Parameter problem: The diagnosed problem.
+    public func describe(_ problem: CustomSidebarWebSourceProblem) -> String {
+        switch problem {
+        case .unreadable:
+            return String(
+                localized: "sidebar.custom.validation.readFailed",
+                defaultValue: "Failed to read sidebar file."
+            )
+        case .tooLarge:
+            return String(
+                localized: "sidebar.custom.validation.urlFileTooLarge",
+                defaultValue: "Sidebar .url file is too large to be a shortcut file."
+            )
+        case .noURL:
+            return String(
+                localized: "sidebar.custom.validation.urlFileEmpty",
+                defaultValue: "Sidebar .url file does not contain a URL."
+            )
+        case .missingHost:
+            return String(
+                localized: "sidebar.custom.validation.urlFileNoHost",
+                defaultValue: "Sidebar .url file's URL has no host to load from."
+            )
+        case let .unsupportedScheme(scheme):
+            guard let scheme else {
+                return String(
+                    localized: "sidebar.custom.validation.urlFileNoScheme",
+                    defaultValue: "Sidebar .url file must contain an http or https URL."
+                )
+            }
+            return String(
+                format: String(
+                    localized: "sidebar.custom.validation.urlFileScheme",
+                    defaultValue: "Sidebar .url file must be http or https, not '%@'."
+                ),
+                scheme
+            )
+        }
+    }
+
+    /// Whether a path opens immediately as a readable regular file.
+    ///
+    /// One byte is enough to establish readability, including EOF for an empty document. Opening with
+    /// `O_NONBLOCK` and checking `fstat` first rejects FIFOs, sockets, and devices without waiting on
+    /// them, while following ordinary symlinks to regular files just as WebKit does.
+    private func isReadableRegularFile(_ url: URL) -> Bool {
+        let descriptor = Darwin.open(url.path, O_RDONLY | O_NONBLOCK | O_CLOEXEC)
+        guard descriptor >= 0 else { return false }
+        defer { Darwin.close(descriptor) }
+
+        var metadata = Darwin.stat()
+        guard Darwin.fstat(descriptor, &metadata) == 0,
+              metadata.st_mode & mode_t(S_IFMT) == mode_t(S_IFREG) else {
+            return false
+        }
+
+        var byte: UInt8 = 0
+        while true {
+            let count = Darwin.read(descriptor, &byte, 1)
+            if count >= 0 { return true }
+            if errno != EINTR { return false }
+        }
+    }
+
+    /// Whether a path is a directory.
+    private func isDirectory(_ url: URL) -> Bool {
+        var isDir: ObjCBool = false
+        guard fileManager.fileExists(atPath: url.path, isDirectory: &isDir) else { return false }
+        return isDir.boolValue
     }
 
     /// Converts decoding and filesystem errors into sidebar-facing text.
@@ -172,14 +314,17 @@ public struct CustomSidebarValidator {
         "clock": .string("12:00")
     ]
 
+    /// Reports a name that resolved to no file.
+    ///
+    /// The reported path is the `.swift` one the author would create, not a guess at which of four
+    /// extensions they meant. Naming a `.json` file that was never written — the previous behaviour,
+    /// which surfaced as `cmux sidebar validate board` saying `board.json` is missing for a sidebar
+    /// written as `board.html` — sends the author to a path that does not and should not exist.
     private func missingEntry(name: String, directory: URL) -> CustomSidebarValidationEntry {
-        let swiftURL = directory.appendingPathComponent("\(name).swift")
-        let jsonURL = directory.appendingPathComponent("\(name).json")
-        let missingURL = fileManager.fileExists(atPath: swiftURL.path) ? swiftURL : jsonURL
-        return CustomSidebarValidationEntry(
+        CustomSidebarValidationEntry(
             name: name,
-            fileURL: missingURL,
-            kind: missingURL.pathExtension.lowercased() == "swift" ? .swift : .json,
+            fileURL: directory.appendingPathComponent("\(name).swift"),
+            kind: .swift,
             errorMessage: String(localized: "sidebar.custom.validation.fileMissing", defaultValue: "Sidebar file is missing.")
         )
     }

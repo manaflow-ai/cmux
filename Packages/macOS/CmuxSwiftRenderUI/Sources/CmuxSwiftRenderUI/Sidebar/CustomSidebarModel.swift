@@ -162,6 +162,12 @@ public final class CustomSidebarModel {
     }
 
     /// Re-reads the file: stores `.swift` source verbatim, decodes `.json`.
+    ///
+    /// Anything that is not one of those two extensions is refused rather than read. The previous
+    /// shape — `.swift`, else decode as JSON — meant *any* file handed to the model became a
+    /// candidate sidebar document, so a `.url` or `.html` the web path had already rejected would
+    /// render here instead, complete with live action dispatch. Refusing at the model keeps that
+    /// guarantee off the mount sites, where one missed branch is enough to lose it.
     public func reload() {
         defer {
             sourceRevision += 1 // re-fire the view's render trigger
@@ -169,38 +175,53 @@ public final class CustomSidebarModel {
             if watchTask != nil || watchedPath != nil { startWatcher() }
         }
         fileURL = preferredFileURL()
-        guard fileManager.fileExists(atPath: fileURL.path) else {
-            state = .missing
-            return
-        }
-        if fileURL.pathExtension.lowercased() == "swift" {
+        // Classified through the shared kind, which matches the extension exactly and in lowercase,
+        // agreeing with `CustomSidebarSource.classify` and the resolver: a folded `board.SWIFT` is a
+        // file no other path can open. Sharing the classifier is what keeps "which files are
+        // interpreted" one answer rather than a list repeated here.
+        //
+        // `.html`, `.url`, and an unrecognised extension all land in the same place: `.missing`
+        // rather than `.failed`, because there is no interpreted sidebar at this name — exactly what
+        // the empty state says — and a web sidebar reaching here is a mount-site bug the user should
+        // not be shown a parse error for.
+        switch CustomSidebarFileKind(fileURL: fileURL) {
+        case .swift:
+            guard CustomSidebarFileLookup(fileManager: fileManager).exists(fileURL) else {
+                state = .missing
+                return
+            }
             do {
                 state = .swiftSource(try String(contentsOf: fileURL, encoding: .utf8))
             } catch {
                 state = .failed(CustomSidebarValidator().describe(error))
             }
-            return
-        }
-        do {
-            let data = try Data(contentsOf: fileURL)
-            let document = try JSONDecoder().decode(DSLDocument.self, from: data)
-            state = .json(document)
-        } catch {
-            state = .failed(CustomSidebarValidator().describe(error))
+        case .json:
+            guard CustomSidebarFileLookup(fileManager: fileManager).exists(fileURL) else {
+                state = .missing
+                return
+            }
+            do {
+                let data = try Data(contentsOf: fileURL)
+                let document = try JSONDecoder().decode(DSLDocument.self, from: data)
+                state = .json(document)
+            } catch {
+                state = .failed(CustomSidebarValidator().describe(error))
+            }
+        case .html, .url, nil:
+            state = .missing
         }
     }
 
     private func preferredFileURL() -> URL {
-        let swiftURL = directoryURL.appendingPathComponent("\(sidebarName).swift")
-        if fileManager.fileExists(atPath: swiftURL.path) {
-            return swiftURL
+        // Exact-name lookup, not `fileExists`: APFS is case-insensitive by default, so a plain
+        // existence check for `board.swift` resolves a file actually named `board.SWIFT` — which
+        // `reload()` then refuses, leaving a sidebar that resolves to something and renders
+        // nothing. See ``CustomSidebarFileLookup``.
+        let lookup = CustomSidebarFileLookup(fileManager: fileManager)
+        for fileExtension in CustomSidebarSource.interpretedFileExtensions {
+            let candidate = directoryURL.appendingPathComponent("\(sidebarName).\(fileExtension)")
+            if lookup.exists(candidate) { return candidate }
         }
-
-        let jsonURL = directoryURL.appendingPathComponent("\(sidebarName).json")
-        if fileManager.fileExists(atPath: jsonURL.path) {
-            return jsonURL
-        }
-
         return fileURL
     }
 }

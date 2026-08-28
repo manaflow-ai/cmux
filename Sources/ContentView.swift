@@ -10545,10 +10545,20 @@ enum CmuxExtensionSidebarSelection {
         ) else { return [] }
         var extensionByName: [String: String] = [:]
         for url in entries {
-            let ext = url.pathExtension.lowercased()
-            guard ext == "swift" || ext == "json" else { continue }
+            // Matched exactly, not case-folded. Resolution builds `<name>.<ext>` from the lowercase
+            // list and the classifier matches exactly, so a folded `board.HTML` is a sidebar the
+            // picker offers and then cannot open. Listing only what resolves is the version of this
+            // that is right on a case-sensitive volume too.
+            let ext = url.pathExtension
+            guard customSidebarFileExtensions.contains(ext) else { continue }
             let name = url.deletingPathExtension().lastPathComponent
-            if extensionByName[name] == "swift" { continue }
+            // First match by preference order wins, so a name backed by several files resolves the
+            // same way here as in `customSidebarFileURL`.
+            if let existing = extensionByName[name],
+               customSidebarFileExtensions.firstIndex(of: existing) ?? Int.max
+                   <= customSidebarFileExtensions.firstIndex(of: ext) ?? Int.max {
+                continue
+            }
             extensionByName[name] = ext
         }
         return extensionByName.keys.sorted().map { name in
@@ -10575,12 +10585,25 @@ enum CmuxExtensionSidebarSelection {
         guard providerId.hasPrefix(customSidebarProviderPrefix) else { return nil }
         let name = String(providerId.dropFirst(customSidebarProviderPrefix.count))
         guard isValidCustomSidebarFileBaseName(name) else { return nil }
-        let swiftURL = sidebarsDirectory.appendingPathComponent("\(name).swift", isDirectory: false)
-        if FileManager.default.fileExists(atPath: swiftURL.path) { return swiftURL }
-        let jsonURL = sidebarsDirectory.appendingPathComponent("\(name).json", isDirectory: false)
-        if FileManager.default.fileExists(atPath: jsonURL.path) { return jsonURL }
+        let lookup = CustomSidebarFileLookup()
+        for fileExtension in customSidebarFileExtensions {
+            let candidate = sidebarsDirectory.appendingPathComponent(
+                "\(name).\(fileExtension)",
+                isDirectory: false
+            )
+            // Exact-name lookup: APFS is case-insensitive by default, so `fileExists` would
+            // resolve `board.HTML` for a `board.html` candidate — a file the classifier then
+            // refuses, leaving a sidebar that resolves and renders nothing.
+            if lookup.exists(candidate) { return candidate }
+        }
         return nil
     }
+
+    /// Recognised custom sidebar file extensions, most preferred first.
+    ///
+    /// Interpreted sources keep precedence over web ones so an existing `.swift` sidebar is never
+    /// shadowed by an `.html` file that happens to share its name.
+    static let customSidebarFileExtensions: [String] = CustomSidebarSource.fileExtensions
 
     private static func isValidCustomSidebarFileBaseName(_ name: String) -> Bool {
         guard !name.isEmpty, name != ".", name != ".." else { return false }
@@ -10643,8 +10666,15 @@ enum CmuxExtensionSidebarSelection {
     /// `SettingCatalog` twice (via ``isEnabled``/``customSidebarsEnabled``) and
     /// enumerates the custom-sidebars directory. Those are far too expensive to
     /// run on every SwiftUI body pass; doing so was the multiplier behind the
-    /// ~100% CPU re-render loop in issue #5970. Only cheap static lookups and at
-    /// most two `fileExists` probes run here, so it is safe for the body.
+    /// ~100% CPU re-render loop in issue #5970.
+    ///
+    /// What remains for the body is cheap static lookups plus, for a custom
+    /// selection only, up to four exact-name probes — one per recognised
+    /// extension — of a single directory entry each. It deliberately does not
+    /// classify what it finds: a `.url` file's target lives in its bytes, and
+    /// reading those on a body pass is the stall this check exists to avoid.
+    /// Deciding what the resolved file *mounts as* belongs to
+    /// ``CustomSidebarWebReloadObserver``, which does it off the main thread.
     ///
     /// The input must be ``effectiveProviderId``'s output: that already routes a
     /// hosted/custom selection back to the default sidebar while its feature gate
@@ -12393,7 +12423,88 @@ struct VerticalTabsSidebar: View, Equatable {
                 )
             )
         } else if effectiveExtensionSidebarProviderId.hasPrefix(CmuxExtensionSidebarSelection.customSidebarProviderPrefix),
-                  let customSidebarURL = CmuxExtensionSidebarSelection.customSidebarFileURL(forProviderId: effectiveExtensionSidebarProviderId) {
+                  let customSidebarName = CmuxExtensionSidebarSelection.customSidebarName(
+                      forProviderId: effectiveExtensionSidebarProviderId
+                  ) {
+            // Resolved by *name* on every reload rather than captured once, so `cmux sidebar reload`
+            // reaches a hosted page and a precedence flip (`board.html` gaining a `board.swift`, or
+            // losing it) switches renderer under the live rail.
+            //
+            // Whether the name resolves to anything is decided by
+            // `resolvesToDefaultSidebar(effectiveProviderId:)`, which is what routes a custom
+            // selection here in the first place; re-probing the filesystem in this builder asked the
+            // same question a second time, on the body's hot path. The observer publishes
+            // `.unavailable` if the file goes away under a live rail, and that renders nothing.
+            //
+            // No fallback file: unlike a pane, the rail is switched away entirely when its sidebar
+            // stops resolving, so a last-known file here would outlive the selection that justified
+            // it.
+            CustomSidebarResolvedSourceView(sidebarName: customSidebarName) { decision, reloadToken in
+                customSidebarRailContent(decision: decision, reloadToken: reloadToken)
+            }
+            .id(customSidebarName)
+        } else {
+            SidebarUnreadSnapshotReader(source: sidebarUnread) { unreadSnapshot in
+                TimelineView(.periodic(from: .now, by: 30)) { timeline in
+                    let model = extensionSidebarRenderModel(
+                        renderContext: renderContext,
+                        unreadSnapshot: unreadSnapshot,
+                        now: timeline.date
+                    )
+                    extensionSidebarTimelineContent(
+                        renderContext: renderContext,
+                        model: model,
+                        now: timeline.date
+                    )
+                }
+            }
+        }
+    }
+
+    /// Renders whichever file the custom sidebar name currently resolves to.
+    ///
+    /// A web source renders itself, so it needs no interpreter re-render tick. Either way the
+    /// sidebar sits under the same floating chrome, so both branches are handed the inset metrics
+    /// the workspace list uses; sharing the constant is what stops them drifting when the titlebar
+    /// metric changes.
+    @ViewBuilder
+    private func customSidebarRailContent(
+        decision: CustomSidebarMountDecision,
+        reloadToken: CustomSidebarWebReloadToken
+    ) -> some View {
+        switch decision {
+        case let .web(webSource):
+            CustomSidebarWebView(
+                source: webSource,
+                insets: CustomSidebarWebInsets(
+                    top: SidebarWorkspaceScrollInsets.workspaceList.top,
+                    bottom: SidebarWorkspaceScrollInsets.workspaceList.bottom
+                ),
+                reloadToken: reloadToken,
+                // Offered for every web sidebar; the package registers the handler only for a
+                // source that arms a focus scope, so a page on the open internet never sees it.
+                // Routing through the shared control path is what lets a click here select a
+                // workspace owned by another window and bring that window forward.
+                focusWorkspace: { workspaceId in
+                    CustomSidebarWorkspaceFocusRouter(controller: TerminalController.shared)
+                        .focus(workspaceId)
+                },
+                requestInputFocus: { window in
+                    AppDelegate.shared?.noteRightSidebarKeyboardFocusIntent(
+                        mode: .customSidebar,
+                        in: window
+                    )
+                }
+            )
+            // Only meaningful for a page that opted into full-bleed layout; a page laid out inside
+            // the safe region has nothing under the footer to dissolve.
+            .mask(
+                SidebarWorkspaceScrollEdgeFadeMask(
+                    topHeight: 0,
+                    bottomHeight: sidebarBottomScrimHeight
+                )
+            )
+        case let .interpreted(interpretedURL):
             // Periodic tick so the custom sidebar re-renders live (clock,
             // countdowns, and refreshed workspace/data context), mirroring the
             // default sidebar's TimelineView. No banned timers involved.
@@ -12409,7 +12520,7 @@ struct VerticalTabsSidebar: View, Equatable {
             SidebarUnreadSnapshotReader(source: sidebarUnread) { unreadSnapshot in
                 TimelineView(.periodic(from: .now, by: 1)) { timeline in
                     CustomSidebarSurface(
-                        fileURL: customSidebarURL,
+                        fileURL: interpretedURL,
                         dataContext: customSidebarDataContext(
                             now: timeline.date,
                             unreadSnapshot: unreadSnapshot
@@ -12430,21 +12541,11 @@ struct VerticalTabsSidebar: View, Equatable {
                     bottomHeight: sidebarBottomScrimHeight
                 )
             )
-        } else {
-            SidebarUnreadSnapshotReader(source: sidebarUnread) { unreadSnapshot in
-                TimelineView(.periodic(from: .now, by: 30)) { timeline in
-                    let model = extensionSidebarRenderModel(
-                        renderContext: renderContext,
-                        unreadSnapshot: unreadSnapshot,
-                        now: timeline.date
-                    )
-                    extensionSidebarTimelineContent(
-                        renderContext: renderContext,
-                        model: model,
-                        now: timeline.date
-                    )
-                }
-            }
+        case .unavailable:
+            // A rejected web source must not fall through to the interpreter, which does not check
+            // extensions and would decode the file as a declarative sidebar with live action
+            // dispatch. Nothing is the honest render for a sidebar that named nothing loadable.
+            Color.clear
         }
     }
 

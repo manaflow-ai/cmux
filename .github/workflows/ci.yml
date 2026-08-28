@@ -1670,6 +1670,8 @@ jobs:
             CmuxNotifications
             CmuxSettings
             CmuxSettingsUI
+            CmuxSidebar
+            CmuxSwiftRenderUI
             CmuxTerminal
             CmuxTerminalCore
             CmuxUpdater

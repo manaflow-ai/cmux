@@ -1,4 +1,5 @@
 import CmuxAppKitSupportUI
+import CmuxFoundation
 import CmuxNotifications
 import CmuxSettings
 import CmuxSettingsUI
@@ -25,22 +26,7 @@ struct CustomSidebarPanelView: View {
     @State private var completedFocusFlashStartedAt: Date?
 
     var body: some View {
-        Group {
-            if isVisibleInUI {
-                TimelineView(.periodic(from: .now, by: 1)) { timeline in
-                    CustomSidebarSurface(
-                        fileURL: panel.fileURL,
-                        dataContext: customSidebarDataContext(now: timeline.date),
-                        dispatch: makeCmuxSidebarActionDispatch(),
-                        contentInsets: CustomSidebarContentInsets.zero,
-                        rendersInProcess: customSidebarRenderer == .inProcess,
-                        client: $renderWorkerClient
-                    )
-                }
-            } else {
-                Color.clear
-            }
-        }
+        content
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(sidebarBackdrop)
         .environment(\.colorScheme, windowAppearance.sidebarContentColorScheme)
@@ -67,6 +53,66 @@ struct CustomSidebarPanelView: View {
         }
         .onDisappear {
             shutdownRenderWorkerClient()
+        }
+    }
+
+    /// The pane's content: a hosted page for a web source, the interpreter otherwise.
+    ///
+    /// `cmux sidebar open board` resolves the same file the picker does, so a `.html` or `.url`
+    /// sidebar has to render as a page here too. Routing it through the interpreter — which is what
+    /// happened before web sources were resolvable by name — produced an empty pane for a sidebar
+    /// that worked in the rail.
+    ///
+    /// A pane has no floating window chrome over it, so no insets, and no focus bridge: the bridge
+    /// exists for the workspace rail, and a pane sitting beside the terminals it would select is not
+    /// that.
+    ///
+    /// The file is re-resolved from the pane's *name* rather than captured at open, so a pane
+    /// follows `cmux sidebar reload` and a precedence flip the same way the rail does. When every
+    /// file backing the name is gone the pane keeps its last known file rather than blanking, since
+    /// a sidebar being edited in place is briefly absent from disk.
+    @ViewBuilder
+    private var content: some View {
+        if !isVisibleInUI {
+            Color.clear
+        } else {
+            CustomSidebarResolvedSourceView(
+                sidebarName: panel.name,
+                fallbackFileURL: panel.fileURL
+            ) { decision, reloadToken in
+                resolvedContent(decision: decision, reloadToken: reloadToken)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func resolvedContent(
+        decision: CustomSidebarMountDecision,
+        reloadToken: CustomSidebarWebReloadToken
+    ) -> some View {
+        switch decision {
+        case let .web(webSource):
+            CustomSidebarWebView(
+                source: webSource,
+                reloadToken: reloadToken,
+                requestInputFocus: { _ in onRequestPanelFocus() }
+            )
+        case let .interpreted(interpretedURL):
+            TimelineView(.periodic(from: .now, by: 1)) { timeline in
+                CustomSidebarSurface(
+                    fileURL: interpretedURL,
+                    dataContext: customSidebarDataContext(now: timeline.date),
+                    dispatch: makeCmuxSidebarActionDispatch(),
+                    contentInsets: CustomSidebarContentInsets.zero,
+                    rendersInProcess: customSidebarRenderer == .inProcess,
+                    client: $renderWorkerClient
+                )
+            }
+        case .unavailable:
+            // A rejected web source must not fall through to the interpreter, which does not check
+            // extensions and would decode the file as a declarative sidebar with live action
+            // dispatch. Nothing is the honest render for a sidebar that named nothing loadable.
+            Color.clear
         }
     }
 

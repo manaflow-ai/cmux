@@ -4,7 +4,8 @@ cmux lets you build your own sidebar UI by writing a small SwiftUI-style file.
 It is interpreted at runtime (no Xcode, no build step, no signing), renders as
 native SwiftUI in the real sidebar, hot-reloads on save, binds to live cmux
 state, and can run cmux commands on tap. This guide is the authoring contract
-for you or a coding agent.
+for you or a coding agent. It also covers HTML sidebars, which trade the live
+bindings for the whole web platform.
 
 This guide covers interpreted custom sidebars, which cannot import frameworks
 or start child processes. For compiled Swift in an ExtensionKit sidebar, start
@@ -40,8 +41,9 @@ SwiftUI, files, or syntax. Concretely:
   status dot / pill / highlight patterns below so it is scannable at a glance.
 - Lazy-load / cap large lists (see Performance). Do not render hundreds of rows.
 - Iterate by saving the file and opening it as a pane with
-  `cmux sidebar open <name>`; it hot-reloads there while you edit. Verify it
-  shows real data and that taps do the right thing before declaring it done.
+  `cmux sidebar open <name>`; an interpreted sidebar hot-reloads there while you
+  edit, and a web one refreshes on `cmux sidebar reload <name>`. Verify it shows
+  real data and that taps do the right thing before declaring it done.
 - Stay inside the supported subset below. If something is not supported, choose
   the closest supported approach rather than failing.
 
@@ -51,12 +53,160 @@ Write a named file (the name becomes the menu label; use short kebab-case):
 
     ~/.config/cmux/sidebars/<name>.swift     # interpreted Swift (preferred)
     ~/.config/cmux/sidebars/<name>.json      # declarative JSON (simpler, static)
+    ~/.config/cmux/sidebars/<name>.html      # a local HTML document
+    ~/.config/cmux/sidebars/<name>.url       # a page served over http(s)
 
 Each file shows up as an option in the **sidebar toggle button's right-click
 menu** and can also open as a normal Bonsplit pane tab. Pick it from the menu
-for the left sidebar, or run `cmux sidebar open <name>` to show it in a pane;
-edit the file and save and it hot-reloads. If both `<name>.swift` and
-`<name>.json` exist, `.swift` wins.
+for the left sidebar, or run `cmux sidebar open <name>` to show it in a pane.
+When one name has several files, the first of `.swift`, `.json`, `.html`, `.url`
+wins, so adding an `.html` file never shadows an existing interpreted sidebar.
+
+Interpreted sidebars (`.swift`, `.json`) hot-reload on save: edit the file, save,
+and the sidebar re-renders. **Web sidebars do not.** `.html` and `.url` sidebars
+refresh when you ask for it:
+
+    cmux sidebar reload <name>     # this sidebar
+    cmux sidebar reload            # all of them
+
+That re-reads the file, re-resolves which file the name points at (so adding or
+deleting a `.swift` beside your `.html` switches renderer), and for a `.url`
+sidebar re-fetches from the server rather than the cache. Editing a page and
+expecting the sidebar to notice on its own will not work — run the reload.
+
+## HTML sidebars
+
+`.swift` and `.json` sidebars describe a *render model* of rows and sections —
+the right shape for a list of workspaces, but it cannot express an arbitrary
+interface. When you want a real UI, or you already have a web app, use an HTML
+sidebar: cmux renders the page in the sidebar with no browser chrome.
+
+    ~/.config/cmux/sidebars/board.html                # rendered from disk
+
+For an app you already serve, write a `.url` file containing its address. Plain
+text or a Windows `[InternetShortcut]` file both work, so dragging a page out of
+a browser produces a valid sidebar:
+
+    printf 'http://127.0.0.1:8787/\n' > ~/.config/cmux/sidebars/board.url
+
+Only `http` and `https` are honoured, and the address must name a host. A
+`file://` target, a custom scheme, or a hostless string like `http:` is ignored
+and the sidebar renders nothing, since a `.url` file is untrusted input that can
+arrive by drag-and-drop.
+
+A web sidebar refreshes on `cmux sidebar reload <name>`, not on save. See
+[Where to put a sidebar](#where-to-put-a-sidebar).
+
+The trade-off against an interpreted sidebar: the live data bindings above
+(`workspaces`, `clock`, and the rest) and `cmux(...)` tap actions are features of
+the interpreter, so an HTML sidebar does not get them. Read your data through
+`cmux` on the CLI or its socket the way any other program does. In exchange you
+get the whole web platform, including the interactive controls the interpreter
+does not support (`TextField`, `@State`, popovers).
+
+Focusing a workspace is the exception, and it has its own native call — see
+below. Do not shell out to `cmux workspace select` for it from a sidebar that
+qualifies; the native call is synchronous, tells you whether the workspace still
+exists, and works across windows.
+
+### Focusing a workspace from an HTML sidebar
+
+A qualifying sidebar (see the next section) can select a workspace directly:
+
+    const reply = await window.webkit.messageHandlers
+        .cmuxSidebarFocusWorkspace
+        .postMessage({ v: 1, workspaceId: id })
+
+    // reply === { v: 1, status: 'focused' | 'not-found' | 'unavailable' }
+
+The request must be exactly `{ v: 1, workspaceId: "<uuid>" }` — both keys, no
+others, `v` the number `1`, and `workspaceId` a UUID string. Anything else
+rejects the promise, including an extra key you might add for a later protocol
+version. Handle the rejection; it is also what you get if the page has navigated
+somewhere it is no longer allowed to call from.
+
+The three statuses mean different things and are worth handling separately:
+
+| `status` | Meaning | What to do |
+| --- | --- | --- |
+| `focused` | Selected, and its window was brought forward. | Nothing. |
+| `not-found` | No workspace with that id. | Drop the row; your list is stale. |
+| `unavailable` | No window could be resolved right now. | Transient — keep the row and let the user retry. |
+
+Feature-detect rather than assuming: on a sidebar that does not qualify, and in a
+Dock pane, the handler does not exist at all.
+
+    const focus = window.webkit?.messageHandlers?.cmuxSidebarFocusWorkspace
+    if (focus) {
+      await focus.postMessage({ v: 1, workspaceId: id })
+    } else {
+      // Not a qualifying source. Fall back to the CLI, or render the rows
+      // non-interactive rather than showing a button that silently does nothing.
+    }
+
+This is the only native call an HTML sidebar gets. There is no general command
+bridge, and there is deliberately no way to pass a method name and parameters:
+that would give any page the whole socket surface. Anything else still goes
+through `cmux` on the CLI.
+
+### Which sidebars can focus a workspace
+
+The bridge is **workspace-rail only**. A sidebar opened as a Dock pane
+(`cmux sidebar open <name>`) hosts the same page with no handler registered and
+no navigation lock, whatever its source: a pane sits beside the terminals it
+would be selecting, so there is nothing for it to bring forward. Feature-detect,
+and the same page works in both places.
+
+In the rail, only two kinds of source qualify, decided from the source alone
+before the page loads:
+
+- **`<name>.html`** — a local document in your sidebars directory.
+- **`<name>.url`** pointing at a **literal loopback address**: `127.0.0.1`,
+  anything else in `127.0.0.0/8`, or `[::1]`. Any port, `http` or `https`.
+
+`http://localhost:8787/` does **not** qualify, and neither does any other
+hostname. A name is whatever the resolver, the hosts file, or the network says it
+is at that moment, so it cannot prove the server is on this machine. Use the
+address literal: `http://127.0.0.1:8787/`. A public address never qualifies.
+
+A qualifying sidebar is also **pinned to its own source** while it renders. A
+local document may not navigate away from that file; a loopback page may not
+leave its origin (same scheme, host, and port — paths and queries are free).
+Redirects, cross-origin links, and `file:`-to-`http:` hops in the main frame are
+cancelled rather than followed, which is what stops a page from carrying the
+native call somewhere that never earned it. Iframes navigate freely, because the
+lock applies to the main frame only. An iframe *can* post to the handler — the
+handler is registered on the page, not on a frame — and the call is rejected at
+dispatch: cmux checks that the message came from the main frame and that the
+frame's origin still matches the armed source. So a subframe gets a rejected
+promise, not a missing handler.
+
+If you need to navigate the whole sidebar between origins, you are describing a
+browser rather than a sidebar — use a Dock browser pane, or serve the pages from
+one loopback origin and route inside it.
+
+### Window chrome
+
+The window's titlebar controls float over the top of the sidebar and the footer
+floats over the bottom. By default cmux lays the page out inside the region they
+leave free, so the page's viewport *is* the usable area and ordinary markup —
+`height: 100vh` included — lands correctly. Write your page and ignore this.
+
+If you want rows to scroll *underneath* the translucent chrome, the way the
+built-in workspace list does, opt into the full sidebar rect and pad the content
+yourself:
+
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+
+cmux then publishes the chrome heights as CSS custom properties on `:root`,
+updated in place when the window changes:
+
+    .toolbar { padding-top: var(--cmux-sidebar-inset-top); }
+    .list    { padding-bottom: var(--cmux-sidebar-inset-bottom); }
+
+These are custom properties rather than the usual `env(safe-area-inset-*)`
+because macOS `WKWebView` does not forward the view's safe-area insets to CSS —
+`env()` resolves to `0px` there regardless of what the host sets.
 
 A sidebar file is a single SwiftUI-style view expression (no `struct`, no
 `var body` wrapper, just the view).

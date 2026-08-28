@@ -226918,6 +226918,23 @@
         }
       }
     },
+    "sidebar.custom.validation.documentIsDirectory": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidebar .html path is a directory, not a document."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーの .html パスはドキュメントではなくディレクトリです。"
+          }
+        }
+      }
+    },
     "sidebar.custom.validation.fileMissing": {
       "extractionState": "manual",
       "localizations": {
@@ -227033,6 +227050,108 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ の型が一致しません"
+          }
+        }
+      }
+    },
+    "sidebar.custom.validation.unsupportedExtension": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidebar file must be .swift, .json, .html, or .url."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーファイルは .swift、.json、.html、.url のいずれかである必要があります。"
+          }
+        }
+      }
+    },
+    "sidebar.custom.validation.urlFileEmpty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidebar .url file does not contain a URL."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーの .url ファイルに URL が含まれていません。"
+          }
+        }
+      }
+    },
+    "sidebar.custom.validation.urlFileNoHost": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidebar .url file's URL has no host to load from."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーの .url ファイルの URL に読み込み先のホストがありません。"
+          }
+        }
+      }
+    },
+    "sidebar.custom.validation.urlFileNoScheme": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidebar .url file must contain an http or https URL."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーの .url ファイルには http または https の URL を指定してください。"
+          }
+        }
+      }
+    },
+    "sidebar.custom.validation.urlFileScheme": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidebar .url file must be http or https, not '%@'."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーの .url ファイルは http または https である必要があります（「%@」は使用できません）。"
+          }
+        }
+      }
+    },
+    "sidebar.custom.validation.urlFileTooLarge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidebar .url file is too large to be a shortcut file."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーの .url ファイルが大きすぎます。ショートカットファイルではありません。"
           }
         }
       }
