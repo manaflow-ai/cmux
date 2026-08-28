@@ -334,9 +334,6 @@ mod tests {
         packet.put_u32(parts);
 
         let mut assembler = MuxLineAssembler::with_maximum(usize::MAX);
-        assert_eq!(
-            assembler.push(Lane::Bulk, packet.freeze()),
-            Err(MuxCodecError::InvalidPacket)
-        );
+        assert_eq!(assembler.push(Lane::Bulk, packet.freeze()), Err(MuxCodecError::InvalidPacket));
     }
 }
