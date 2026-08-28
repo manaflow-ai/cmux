@@ -1385,7 +1385,7 @@ impl WorkspaceRegistry {
         // patch's own upserts inside this same transaction.
         let workspace_revision = workspace_ledger
             .map(|ledger| {
-                super::commit_workspace_registry_in_transaction(
+                commit_workspace_registry_in_transaction(
                     &tx,
                     mutation,
                     &fingerprint,
