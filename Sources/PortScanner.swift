@@ -67,6 +67,12 @@ final class PortScanner: @unchecked Sendable {
     /// Whether a burst sequence is currently running.
     private var burstActive = false
 
+    /// Generation invalidates callbacks that were queued before a panel
+    /// lifecycle changed. The queue is the sole owner, so cancellation and
+    /// generation checks are deterministic and race-free.
+    private var burstGeneration: UInt64 = 0
+    private var scheduledBurstWorkItems: [DispatchWorkItem] = []
+
     private var coalesceTimer: DispatchSourceTimer?
 
     /// Periodic timer for agent-owned process trees that aren't attached to a TTY.
@@ -131,6 +137,12 @@ final class PortScanner: @unchecked Sendable {
         let key = PanelKey(workspaceId: workspaceId, panelId: panelId)
         publicationState.invalidatePanelLifecycle(for: key)
         queue.async { [self] in
+            burstGeneration &+= 1
+            scheduledBurstWorkItems.forEach { $0.cancel() }
+            scheduledBurstWorkItems.removeAll()
+            burstActive = false
+            coalesceTimer?.cancel()
+            coalesceTimer = nil
             ttyNames.removeValue(forKey: key)
             panelRevisionByKey.removeValue(forKey: key)
             pendingKicks.remove(key)
@@ -139,6 +151,9 @@ final class PortScanner: @unchecked Sendable {
             }
             panelPortSnapshot.remove(keys: [key])
             panelPortOwnersByKey.removeValue(forKey: key)
+            if !pendingKicks.isEmpty {
+                startCoalesce()
+            }
         }
     }
 
@@ -224,11 +239,12 @@ final class PortScanner: @unchecked Sendable {
 
         guard !pendingKicks.isEmpty else { return }
         burstActive = true
-        runBurst(index: 0)
+        runBurst(index: 0, generation: burstGeneration)
     }
 
-    private func runBurst(index: Int, burstStart: DispatchTime? = nil) {
+    private func runBurst(index: Int, burstStart: DispatchTime? = nil, generation: UInt64) {
         // Already on `queue`.
+        guard generation == burstGeneration else { return }
         guard index < Self.burstOffsets.count else {
             burstActive = false
             // If new kicks arrived during the burst, start a new coalesce cycle.
@@ -240,11 +256,15 @@ final class PortScanner: @unchecked Sendable {
 
         let start = burstStart ?? .now()
         let deadline = start + Self.burstOffsets[index]
-        queue.asyncAfter(deadline: deadline) { [weak self] in
+        let workItem = DispatchWorkItem { [weak self] in
             guard let self else { return }
+            guard generation == self.burstGeneration else { return }
             self.runScan()
-            self.runBurst(index: index + 1, burstStart: start)
+            self.scheduledBurstWorkItems.removeAll { $0.isCancelled }
+            self.runBurst(index: index + 1, burstStart: start, generation: generation)
         }
+        scheduledBurstWorkItems.append(workItem)
+        queue.asyncAfter(deadline: deadline, execute: workItem)
     }
 
     // MARK: - Scan
