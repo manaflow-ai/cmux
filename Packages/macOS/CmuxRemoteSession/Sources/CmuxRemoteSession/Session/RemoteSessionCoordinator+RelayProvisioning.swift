@@ -196,11 +196,15 @@ extension RemoteSessionCoordinator {
            !codexWrapperScript.components(separatedBy: .newlines).contains("CMUXREMOTE_CODEX_WRAPPER") {
             codexWrapperInstall = """
             codex_wrapper_tmp="$HOME/.cmux/bin/.codex-wrapper.tmp.$$"
-            cat > "$codex_wrapper_tmp" <<'CMUXREMOTE_CODEX_WRAPPER'
+            if ! cat > "$codex_wrapper_tmp" <<'CMUXREMOTE_CODEX_WRAPPER'
             \(codexWrapperScript)
             CMUXREMOTE_CODEX_WRAPPER
-            chmod 755 "$codex_wrapper_tmp"
-            mv -f "$codex_wrapper_tmp" "$HOME/.cmux/bin/cmux-codex-wrapper"
+            then
+              rm -f "$codex_wrapper_tmp"
+              exit 1
+            fi
+            chmod 755 "$codex_wrapper_tmp" || { rm -f "$codex_wrapper_tmp"; exit 1; }
+            mv -f "$codex_wrapper_tmp" "$HOME/.cmux/bin/cmux-codex-wrapper" || { rm -f "$codex_wrapper_tmp"; exit 1; }
             """
         } else {
             codexWrapperInstall = ""

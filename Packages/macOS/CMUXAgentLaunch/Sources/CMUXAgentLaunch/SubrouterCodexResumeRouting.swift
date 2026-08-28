@@ -71,8 +71,8 @@ public struct SubrouterCodexResumeRouting: Sendable, Equatable {
     ) -> String? {
         let candidates = [
             sanitizedPathValue(environment?["CMUX_CUSTOM_CODEX_PATH"]),
-            sanitizedPathValue(environment?["SUBROUTER_CODEX_BIN"]),
             sanitizedPathValue(fallbackExecutable),
+            sanitizedPathValue(environment?["SUBROUTER_CODEX_BIN"]),
         ]
         return candidates.compactMap { $0 }.first { $0 != wrapperShim }
     }

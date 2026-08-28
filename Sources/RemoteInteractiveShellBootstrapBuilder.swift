@@ -264,7 +264,7 @@ enum RemoteInteractiveShellBootstrapBuilder {
         lines.append(contentsOf: shellExportLines(shellFeatures: shellFeatures))
         lines.append("export PATH=\"$HOME/.cmux/bin:$PATH\"")
         lines.append("export CMUX_BUNDLED_CLI_PATH=\"$HOME/.cmux/bin/cmux\"")
-        lines.append("if [ -x \"$HOME/.cmux/bin/cmux-codex-wrapper\" ] && command -v bash >/dev/null 2>&1; then export CMUX_CODEX_WRAPPER_SHIM=\"$HOME/.cmux/bin/cmux-codex-wrapper\"; fi")
+        lines.append("unset CMUX_CODEX_WRAPPER_SHIM; if [ -x \"$HOME/.cmux/bin/cmux-codex-wrapper\" ] && command -v bash >/dev/null 2>&1; then export CMUX_CODEX_WRAPPER_SHIM=\"$HOME/.cmux/bin/cmux-codex-wrapper\"; fi")
         lines.append(
             "export CMUX_PERSISTENT_PTY_EXEC_HELPER=\"${CMUX_PERSISTENT_PTY_EXEC_HELPER:-$CMUX_BUNDLED_CLI_PATH}\""
         )

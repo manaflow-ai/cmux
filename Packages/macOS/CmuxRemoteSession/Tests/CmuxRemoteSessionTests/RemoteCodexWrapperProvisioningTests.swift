@@ -62,12 +62,9 @@ struct RemoteCodexWrapperProvisioningTests {
         let chmod = fakeBin.appendingPathComponent("chmod")
         try """
         #!/bin/sh
-        count_file="$HOME/chmod-count"
-        count=0
-        [ ! -r "$count_file" ] || count="$(cat "$count_file")"
-        count=$((count + 1))
-        printf '%s' "$count" > "$count_file"
-        [ "$count" -ne 2 ] || exit 23
+        case "$*" in
+          *".codex-wrapper.tmp."*) exit 23 ;;
+        esac
         exec /bin/chmod "$@"
         """.write(to: chmod, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: chmod.path)
