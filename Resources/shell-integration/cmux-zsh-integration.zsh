@@ -1532,6 +1532,39 @@ _cmux_watcher_parent_alive() {
     [[ "$actual" == "$expected" ]]
 }
 
+_cmux_capture_shell_start_time() {
+    # Cache this shell's own start time once per shell lifetime: $$ never
+    # changes, so the value cannot go stale, and watcher starts (one runs from
+    # preexec) must not pay a /bin/ps fork per command. Only a non-empty value
+    # is cached so a transient ps failure heals on the next watcher start.
+    [[ -n "${_CMUX_SHELL_START_TIME:-}" ]] && return 0
+    typeset -g _CMUX_SHELL_START_TIME
+    _CMUX_SHELL_START_TIME="$(_cmux_watcher_parent_start_time "$$" 2>/dev/null)" || _CMUX_SHELL_START_TIME=""
+}
+
+_cmux_watcher_guard_tick() {
+    # Tiered per-iteration guard for watcher loops: the builtin kill -0 runs
+    # every call (plain parent death is caught within one iteration), and the
+    # /bin/ps identity comparison runs only every Nth call (default 30, via
+    # _CMUX_WATCHER_IDENTITY_INTERVAL) so steady-state watchers do not fork
+    # once per second. PID-reuse detection latency is bounded by N iterations.
+    # Runs inside the forked watcher, so the countdown global is private to
+    # that watcher.
+    local pid="$1" expected="$2"
+    kill -0 "$pid" >/dev/null 2>&1 || return 1
+    if (( ${_CMUX_WATCHER_GUARD_COUNTDOWN:-0} > 0 )); then
+        _CMUX_WATCHER_GUARD_COUNTDOWN=$(( _CMUX_WATCHER_GUARD_COUNTDOWN - 1 ))
+        return 0
+    fi
+    local interval="${_CMUX_WATCHER_IDENTITY_INTERVAL:-30}"
+    case "$interval" in
+        ''|*[!0-9]*) interval=30 ;;
+    esac
+    (( interval > 0 )) || interval=30
+    _CMUX_WATCHER_GUARD_COUNTDOWN=$(( interval - 1 ))
+    _cmux_watcher_parent_alive "$pid" "$expected"
+}
+
 _cmux_halt_pr_poll_loop() {
     # Process-group kill: background jobs are process-group leaders, so
     # negative PID kills the loop + all descendants (gh, sleep) without
@@ -1563,8 +1596,8 @@ _cmux_start_pr_poll_loop() {
     local watch_pwd="${1:-$PWD}"
     local force_restart="${2:-0}"
     local watch_shell_pid="$$"
-    local watch_shell_start
-    watch_shell_start="$(_cmux_watcher_parent_start_time "$watch_shell_pid" 2>/dev/null)" || watch_shell_start=""
+    _cmux_capture_shell_start_time
+    local watch_shell_start="$_CMUX_SHELL_START_TIME"
     local interval="${_CMUX_PR_POLL_INTERVAL:-45}"
 
     if [[ "$force_restart" != "1" && "$watch_pwd" == "$_CMUX_PR_POLL_PWD" && -n "$_CMUX_PR_POLL_PID" ]] \
@@ -1583,7 +1616,7 @@ _cmux_start_pr_poll_loop() {
         local signal_path=""
         signal_path="$(_cmux_pr_force_signal_path 2>/dev/null || true)"
         while true; do
-            _cmux_watcher_parent_alive "$watch_shell_pid" "$watch_shell_start" || break
+            _cmux_watcher_guard_tick "$watch_shell_pid" "$watch_shell_start" || break
             local force_probe=0
             if [[ -n "$signal_path" && -f "$signal_path" ]]; then
                 force_probe=1
@@ -1593,7 +1626,7 @@ _cmux_start_pr_poll_loop() {
 
             local slept=0
             while (( slept < interval )); do
-                _cmux_watcher_parent_alive "$watch_shell_pid" "$watch_shell_start" || exit 0
+                _cmux_watcher_guard_tick "$watch_shell_pid" "$watch_shell_start" || exit 0
                 if [[ -n "$signal_path" && -f "$signal_path" ]]; then
                     break
                 fi
@@ -1632,12 +1665,12 @@ _cmux_start_git_head_watch() {
 
     _cmux_stop_git_head_watch
     local watch_shell_pid="$$"
-    local watch_shell_start
-    watch_shell_start="$(_cmux_watcher_parent_start_time "$watch_shell_pid" 2>/dev/null)" || watch_shell_start=""
+    _cmux_capture_shell_start_time
+    local watch_shell_start="$_CMUX_SHELL_START_TIME"
     {
         local last_signature="$watch_head_signature"
         while true; do
-            _cmux_watcher_parent_alive "$watch_shell_pid" "$watch_shell_start" || break
+            _cmux_watcher_guard_tick "$watch_shell_pid" "$watch_shell_start" || break
             sleep 1
 
             local signature
