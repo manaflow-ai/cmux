@@ -5,10 +5,10 @@ You are helping the user work with cmux Cloud machines through the `cmux` CLI. T
 ## Mental model
 
 - A machine is a persistent cloud VM owned by the signed-in cmux user. Its generated name (like `brave-otter`) is its address everywhere; `cmux vm rename` sets a display label only. The machine outlives panes, closed laptops, and reconnects.
-- Every machine runs cmuxd-remote, a daemon that owns terminal sessions and scrollback. Clients attach over short-lived WebSocket leases; SSH is a degraded fallback some providers cannot mint.
+- Every machine runs a cmux session daemon (cmux-tui on current images, cmuxd-remote on older ones) that owns terminal sessions and scrollback. Clients attach through short-lived leases minted by the backend; the transport depends on what the provider and image support. SSH is a fallback some providers and images cannot mint, and its absence is not an error.
 - New machines boot a desktop image (xfce + noVNC) plus a shell, with a persistent per-machine home. `--base` gives a shell-only machine.
 - Base is a separate single per-user persistent slot, pinned to the top of the sidebar. `cmux vm new` mints fresh machines; `cmux vm base` always reopens the same one.
-- Terminals on a machine live in its cmux-tui session (workspaces `ws_…`, terminals `term_…`). They keep running detached. `cmux vm tree` catalogs every surface, and every line is an address `cmux vm open` accepts: `brave-otter/main/term_2f9c…`, `brave-otter:desktop`, `brave-otter:port/3000`.
+- Terminals on a machine live in its cmux-tui session (workspaces `ws_…`, terminals `term_…`). They keep running detached. `cmux vm tree` catalogs every surface, and every line is an address `cmux vm open` (machine targets) or `cmux surface open` (any entry, including This Mac) accepts: `brave-otter/main/term_2f9c…`, `brave-otter:desktop`, `brave-otter:port/3000`.
 - Pool machines (labeled `agent-pool` in `cmux vm ls`) are provisioned by the `vm run`/`vm agent` router and reused for routed work. The router never drafts machines a person made by hand.
 - Plans cap active machine count and memory. `cmux vm ls` prints the meter and, on free plans, when free cloud access expires.
 
@@ -51,7 +51,7 @@ cmux vm open <machine>                   # same as vm shell
 cmux vm open <machine>/<ws>[/<term>]     # a cmux-tui workspace or one terminal
 cmux vm open <machine>:desktop
 cmux vm open <machine> <port> [--print]  # private tokened URL for an HTTP port
-cmux vm ssh <id>                         # degraded fallback only
+cmux vm ssh <id>                         # SSH fallback; unavailable on some providers/images
 ```
 
 Run commands:
@@ -98,7 +98,7 @@ cmux vm rm <id>          # irreversible and unprompted
 
 ## Inside a machine
 
-The guest `cmux` binary relays to the connected cmux app on the user's Mac; it does not act inside the VM. The most useful verb for agents running on a machine:
+The guest `cmux` binary is the machine's relay CLI: commands go to the connected cmux app on the user's Mac; they do not act inside the VM. The most useful verb for agents running on a machine:
 
 ```
 cmux notify --title "Build done" --subtitle "myrepo" --body "Tests green"
@@ -109,6 +109,6 @@ cmux notify --title "Build done" --subtitle "myrepo" --body "Tests green"
 - Never run `cmux vm rm` on a machine you did not create in this session unless the user names it this turn. Use `cmux vm base reset` for a fresh Base; it retains the old VM.
 - Prefer `vm run`/`vm agent` routing over creating machines; creation bills the user and counts against the plan. Check `cmux vm ls` before `vm new`.
 - Use `cmux vm wait` instead of polling `vm status`.
-- Every command takes `--json`; use it instead of parsing tables.
+- Use `--json` only on commands whose `--help` documents it; interactive verbs (`shell`, `tui`, `desktop`) have none. Do not parse the human table output either way.
 - `vm exec` quoting is faithful per argv element; wrap shell constructs as `-- sh -c '<script>'`.
 - Read plan limits and sizes from `cmux vm ls` and `--help`, not from memory.

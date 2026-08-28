@@ -1,4 +1,5 @@
-import XCTest
+import Foundation
+import Testing
 
 #if canImport(cmux_DEV)
     @testable import cmux_DEV
@@ -6,48 +7,42 @@ import XCTest
     @testable import cmux
 #endif
 
-final class CloudAgentSkillLauncherTests: XCTestCase {
-    func testBundledSkillResourceExistsAndMentionsTheCLI() {
+@Suite struct CloudAgentSkillLauncherTests {
+    @Test func bundledSkillResourceExistsAndMentionsTheCLI() {
         let markdown = CloudAgentSkillLauncher.skillMarkdown()
-        XCTAssertNotNil(markdown, "Resources/cloud-agent-skill.md must ship in the app bundle")
-        XCTAssertTrue(markdown?.contains("cmux vm") == true)
-        XCTAssertTrue(markdown?.contains("--help` is authoritative") == true)
+        #expect(markdown != nil, "Resources/cloud-agent-skill.md must ship in the app bundle")
+        #expect(markdown?.contains("cmux vm") == true)
+        #expect(markdown?.contains("--help` is authoritative") == true)
     }
 
-    func testKickoffPromptReferencesTheSkillPathAndDiscovery() {
+    @Test func kickoffPromptReferencesTheSkillPathAndDiscovery() {
         let prompt = CloudAgentSkillLauncher.kickoffPrompt(skillPath: "/tmp/skill.md")
-        XCTAssertTrue(prompt.contains("/tmp/skill.md"))
-        XCTAssertTrue(prompt.contains("cmux vm ls"))
-        XCTAssertTrue(prompt.contains("--help"))
+        #expect(prompt.contains("/tmp/skill.md"))
+        #expect(prompt.contains("cmux vm ls"))
+        #expect(prompt.contains("--help"))
     }
 
-    func testAgentArgvShapes() {
-        XCTAssertEqual(
-            CloudAgentSkillLauncher.CodingAgent.claude.argv(prompt: "p"),
-            ["claude", "p"]
-        )
-        XCTAssertEqual(
-            CloudAgentSkillLauncher.CodingAgent.codex.argv(prompt: "p"),
-            ["codex", "p"]
-        )
-        XCTAssertEqual(
-            CloudAgentSkillLauncher.CodingAgent.opencode.argv(prompt: "p"),
-            ["opencode", "--prompt", "p"]
+    @Test func agentArgvShapes() {
+        #expect(CloudAgentSkillLauncher.CodingAgent.claude.argv(prompt: "p") == ["claude", "p"])
+        #expect(CloudAgentSkillLauncher.CodingAgent.codex.argv(prompt: "p") == ["codex", "p"])
+        #expect(
+            CloudAgentSkillLauncher.CodingAgent.opencode.argv(prompt: "p")
+                == ["opencode", "--prompt", "p"]
         )
     }
 
-    func testInstallSkillFileWritesUnderTheGivenHome() throws {
+    @Test func installSkillFileWritesUnderTheGivenHome() throws {
         let home = FileManager.default.temporaryDirectory
             .appendingPathComponent("cloud-agent-skill-tests-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: home) }
 
         let url = try CloudAgentSkillLauncher.installSkillFile(homeDirectory: home)
-        XCTAssertEqual(
-            url.path,
-            home.appendingPathComponent(CloudAgentSkillLauncher.installedSkillRelativePath).path
+        #expect(
+            url.path
+                == home.appendingPathComponent(CloudAgentSkillLauncher.installedSkillRelativePath).path
         )
         let contents = try String(contentsOf: url, encoding: .utf8)
-        XCTAssertTrue(contents.contains("cmux vm"))
+        #expect(contents.contains("cmux vm"))
 
         // Regeneration overwrites in place rather than failing.
         _ = try CloudAgentSkillLauncher.installSkillFile(homeDirectory: home)
