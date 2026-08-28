@@ -94,6 +94,7 @@ pub fn wire_error_code(code: &str) -> &'static str {
 // Framing codec
 // ---------------------------------------------------------------------------
 
+#[derive(Debug, PartialEq)]
 pub struct TunnelFrame {
     pub kind: u8,
     pub payload: Vec<u8>,
