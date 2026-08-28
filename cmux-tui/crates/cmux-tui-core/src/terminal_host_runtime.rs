@@ -1132,11 +1132,14 @@ mod unix {
             let mut payload = Vec::with_capacity(KITTY_GRAPHICS_LIMITS_ENCODED_LEN);
             encode_kitty_graphics_limits(&mut payload, limits)?;
             let response = self
-                .send_control_request_until(
+                .send_control_request_with_policy(
                     MessageKind::SetKittyGraphicsLimits,
                     MessageKind::KittyGraphicsLimitsAck,
                     payload,
                     deadline,
+                    // Advisory control: a missed ack must degrade graphics for
+                    // this surface, not tear down a healthy host connection.
+                    false,
                 )
                 .map_err(ClearHistoryFailure::into_error)
                 .context("terminal host did not acknowledge Kitty graphics limits")?;
@@ -1541,6 +1544,29 @@ mod unix {
             payload: Vec<u8>,
             deadline: Instant,
         ) -> Result<Vec<u8>, ClearHistoryFailure> {
+            self.send_control_request_with_policy(
+                request_kind,
+                response_kind,
+                payload,
+                deadline,
+                true,
+            )
+        }
+
+        /// `disconnect_on_timeout` = false keeps the channel alive when the
+        /// ack misses the deadline. Responses are matched by request id and
+        /// an unknown id is dropped on arrival, so a late ack is harmless.
+        /// Advisory controls (Kitty graphics limits) use this: tearing down
+        /// a healthy host over a slow ack forced a full terminal reconnect,
+        /// which reset the budget blocklist and re-armed the retry storm.
+        fn send_control_request_with_policy(
+            &self,
+            request_kind: MessageKind,
+            response_kind: MessageKind,
+            payload: Vec<u8>,
+            deadline: Instant,
+            disconnect_on_timeout: bool,
+        ) -> Result<Vec<u8>, ClearHistoryFailure> {
             let request_id = self.next_request.fetch_add(1, Ordering::Relaxed);
             if request_id == 0 {
                 return Err(ClearHistoryFailure::known_not_delivered(anyhow::anyhow!(
@@ -1585,7 +1611,9 @@ mod unix {
                 Ok(frame) => Ok(frame.payload),
                 Err(error) => {
                     self.control_responses.waiters.lock().unwrap().remove(&request_id);
-                    self.disconnect();
+                    if disconnect_on_timeout {
+                        self.disconnect();
+                    }
                     Err(ClearHistoryFailure::ambiguous(anyhow::anyhow!(
                         "terminal host did not acknowledge {request_kind:?}: {error}"
                     )))
@@ -1767,16 +1795,20 @@ mod unix {
             rows: options.rows,
             cell_pixels,
             scrollback: options.scrollback,
-            cwd: options.cwd.clone().or_else(|| {
-                crate::platform::home_dir().map(|path| path.to_string_lossy().into_owned())
-            }),
+            cwd: options.cwd.clone().or_else(crate::platform::default_terminal_cwd),
             command,
             extra_env: options.extra_env.clone(),
             default_colors,
             kitty_graphics_limits,
         };
 
-        let binary = std::env::current_exe().context("resolve cmux-tui terminal-host binary")?;
+        // Exec the daemon's own running build (open inode on Linux): after an
+        // in-place binary upgrade, resolving the executable path yields
+        // "<path> (deleted)" and exec fails, which broke every new tab/split
+        // on a long-lived daemon. This also guarantees daemon and host can
+        // never run skewed builds.
+        let binary = crate::platform::self_exe_for_spawn()
+            .context("resolve cmux-tui terminal-host binary")?;
         let mut command = Command::new(binary);
         command
             .args(["__terminal-host", "--bootstrap-stdio"])
@@ -4836,6 +4868,9 @@ mod unix {
         let mut command = PtyCommand::new(&launch.command[0]);
         command.args(launch.command[1..].iter().cloned());
         command.env("TERM", &launch.term);
+        // Terminal-host children get the same truecolor guarantee as directly
+        // spawned surfaces (see Surface spawn in surface.rs); extra_env wins.
+        command.env("COLORTERM", "truecolor");
         for (key, value) in &launch.extra_env {
             command.env(key, value);
         }
@@ -4932,6 +4967,19 @@ mod unix {
         thread::Builder::new().name("terminal-host-parser".into()).spawn(move || {
             let mut last_colors = initial_colors;
             let mut last_pwd = None;
+            // Ghostty can answer terminal queries without producing a parser
+            // frame. Flush those answers after every parser command, not only
+            // after PTY output, so lifecycle operations (for example resize
+            // during a Pi reload) cannot leave replies queued in memory and
+            // deliver them to a later TUI write.
+            let flush_pending_responses = || {
+                let responses = std::mem::take(&mut *pending_responses.lock().unwrap());
+                if !responses.is_empty() {
+                    let mut writer = parser_host.writer.lock().unwrap();
+                    let _ = writer.write_all(&responses);
+                    let _ = writer.flush();
+                }
+            };
             while let Ok(command) = parser_command_receiver.recv() {
                 match command {
                     ParserCommand::Output { bytes, source_cursor, accounted_bytes } => {
@@ -4977,12 +5025,7 @@ mod unix {
                         if bell.swap(false, Ordering::AcqRel) {
                             parser_host.broadcast(MessageKind::Bell, Vec::new());
                         }
-                        let responses = std::mem::take(&mut *pending_responses.lock().unwrap());
-                        if !responses.is_empty() {
-                            let mut writer = parser_host.writer.lock().unwrap();
-                            let _ = writer.write_all(&responses);
-                            let _ = writer.flush();
-                        }
+                        flush_pending_responses();
                     }
                     ParserCommand::Resize {
                         cols,
@@ -5001,11 +5044,13 @@ mod unix {
                             targeted_ack,
                             cell_pixels,
                         );
+                        flush_pending_responses();
                         let _ = response.send(result);
                     }
                     ParserCommand::SetDefaults { colors, source_cursor, response } => {
                         let colors = *colors;
                         last_colors = parser_host.apply_parser_defaults(colors, source_cursor);
+                        flush_pending_responses();
                         let _ = response.send(());
                     }
                     ParserCommand::ClearHistory { fallback_key, response } => {
@@ -5016,6 +5061,7 @@ mod unix {
                             parser_host.note_parser_progress();
                             parser_host.stream_progress.notify();
                         }
+                        flush_pending_responses();
                         let _ = response.send(result);
                     }
                     ParserCommand::Drain => {
@@ -5023,6 +5069,7 @@ mod unix {
                         // the PTY reader has reached the authoritative parser.
                         parser_host.mark_pty_drained();
                         parser_host.publish_exit_if_drained();
+                        flush_pending_responses();
                         break;
                     }
                 }

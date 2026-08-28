@@ -34,9 +34,10 @@ enum SidebarWorkspaceRenderItem {
 
     static func renderItems(
         tabs: [Workspace],
-        groupsById: [UUID: WorkspaceGroup]
+        groupsById: [UUID: WorkspaceGroup],
+        orderedGroups: [WorkspaceGroup]? = nil
     ) -> [SidebarWorkspaceRenderItem] {
-        guard !tabs.isEmpty else { return [] }
+        guard !tabs.isEmpty || !groupsById.isEmpty else { return [] }
         var items: [SidebarWorkspaceRenderItem] = []
         items.reserveCapacity(tabs.count + groupsById.count)
         var lastEmittedGroupId: UUID? = nil
@@ -70,7 +71,90 @@ enum SidebarWorkspaceRenderItem {
                 items.append(.workspace(workspaceId: tab.id))
             }
         }
-        return items
+
+        // Empty pinned groups have no tab row from which a header can be
+        // discovered. Emit them as first-class header-only rows, keeping the
+        // model's group order within each pin tier. Empty unpinned groups are
+        // placed after live rows; they are uncommon (normal close paths remove
+        // them) but remain renderable until an explicit mutation removes them.
+        let ordered = orderedGroups
+            ?? groupsById.values.sorted { $0.id.uuidString < $1.id.uuidString }
+        let memberGroupIds = Set(tabs.compactMap(\.groupId))
+        let tabsById = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) })
+        let emptyGroups = ordered.filter { !memberGroupIds.contains($0.id) }
+        guard !emptyGroups.isEmpty else { return items }
+
+        var emptyBeforeGroup: [UUID: [WorkspaceGroup]] = [:]
+        var trailingPinned: [WorkspaceGroup] = []
+        var trailingUnpinned: [WorkspaceGroup] = []
+        var nextLivePinnedGroup: WorkspaceGroup?
+        var nextLiveUnpinnedGroup: WorkspaceGroup?
+        var nextLiveSameTierByIndex: [WorkspaceGroup?] = Array(
+            repeating: nil,
+            count: ordered.count
+        )
+        for index in ordered.indices.reversed() {
+            let group = ordered[index]
+            nextLiveSameTierByIndex[index] = group.isPinned
+                ? nextLivePinnedGroup
+                : nextLiveUnpinnedGroup
+            guard memberGroupIds.contains(group.id) else { continue }
+            if group.isPinned {
+                nextLivePinnedGroup = group
+            } else {
+                nextLiveUnpinnedGroup = group
+            }
+        }
+        for (index, group) in ordered.enumerated() where !memberGroupIds.contains(group.id) {
+            // Preserve the group's authoritative slot within its pin tier.
+            // Crossing tiers would violate the sidebar's pinned-first
+            // invariant, so only a later live group in the same tier is a
+            // valid insertion anchor; otherwise defer to that tier boundary.
+            let nextLiveSameTierGroup = nextLiveSameTierByIndex[index]
+            if let nextLiveSameTierGroup {
+                emptyBeforeGroup[nextLiveSameTierGroup.id, default: []].append(group)
+            } else if group.isPinned {
+                trailingPinned.append(group)
+            } else {
+                trailingUnpinned.append(group)
+            }
+        }
+
+        var rendered: [SidebarWorkspaceRenderItem] = []
+        rendered.reserveCapacity(items.count + emptyGroups.count)
+        for item in items {
+            if case .groupHeader(let groupId, _) = item,
+               let preceding = emptyBeforeGroup[groupId] {
+                rendered.append(contentsOf: preceding.map {
+                    .groupHeader(groupId: $0.id, anchorWorkspaceId: $0.anchorWorkspaceId)
+                })
+            }
+            rendered.append(item)
+        }
+        if !trailingPinned.isEmpty {
+            let firstUnpinnedIndex = rendered.firstIndex { item in
+                switch item {
+                case .groupHeader(let groupId, _):
+                    return groupsById[groupId]?.isPinned == false
+                case .workspace(let workspaceId):
+                    guard let workspace = tabsById[workspaceId] else {
+                        return false
+                    }
+                    if let groupId = workspace.groupId,
+                       let group = groupsById[groupId] {
+                        return !group.isPinned
+                    }
+                    return !workspace.isPinned
+                }
+            } ?? rendered.count
+            rendered.insert(contentsOf: trailingPinned.map {
+                .groupHeader(groupId: $0.id, anchorWorkspaceId: $0.anchorWorkspaceId)
+            }, at: firstUnpinnedIndex)
+        }
+        rendered.append(contentsOf: trailingUnpinned.map {
+            .groupHeader(groupId: $0.id, anchorWorkspaceId: $0.anchorWorkspaceId)
+        })
+        return rendered
     }
 
     /// Workspace ids represented by ordinary rows, in their rendered order.

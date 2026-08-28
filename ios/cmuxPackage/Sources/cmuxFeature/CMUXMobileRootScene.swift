@@ -66,6 +66,18 @@ public struct CMUXMobileRootScene: View {
     /// every screen (including sheets) and any descendant can present through
     /// `@Environment(ToastCenter.self)`.
     @State private var toastCenter: ToastCenter
+    #if os(iOS)
+    /// What's New state (binary catalog visibility via the remote list,
+    /// remote announcements, acknowledgement marker), hosted at this root so
+    /// the shell's one-time sheet and Settings > What's New share one fetch
+    /// and one cache through `@Environment(MobileWhatsNewCenter.self)`.
+    @State private var whatsNewCenter: MobileWhatsNewCenter
+    /// Exchanges the native Stack session for cmux web session cookies so
+    /// in-app webviews (What's New web pages) render as the signed-in user.
+    /// Injected as a plain environment value through
+    /// `\.mobileWebAppSession`.
+    private let webAppSession: MobileWebAppSessionBroker
+    #endif
     /// Per-terminal composer drafts for the app session, so an unsent message
     /// survives keyboard dismiss and terminal switches. In-memory only for now;
     /// a disk-backed ``TerminalDraftStoring`` (drafts surviving relaunch) lands
@@ -150,6 +162,14 @@ public struct CMUXMobileRootScene: View {
         self.draftStore = InMemoryTerminalDraftStore()
         self.diagnosticLog = diagnosticLog
         _toastCenter = State(initialValue: ToastCenter(diagnosticLog: diagnosticLog))
+        _whatsNewCenter = State(
+            initialValue: MobileWhatsNewCenter(apiBaseURL: auth.config.apiBaseURL)
+        )
+        webAppSession = MobileWebAppSessionBroker(
+            tokens: auth.coordinator,
+            apiBaseURL: auth.config.apiBaseURL,
+            projectID: auth.config.stack.projectId
+        )
     }
     #else
     /// Creates the root scene (non-iOS: no push).
@@ -258,10 +278,15 @@ public struct CMUXMobileRootScene: View {
                     stackUserID: userID,
                     teamID: teamID
                 )
-                let target = cmxCanonicalDeviceID(macDeviceID)
+                let targetID = CmxMacAppInstanceIdentity(
+                    macDeviceID: macDeviceID,
+                    instanceTag: instanceTag
+                ).id
                 return pairedMacs?.first(where: {
-                    cmxCanonicalDeviceID($0.macDeviceID) == target
-                        && $0.instanceTag == instanceTag
+                    CmxMacAppInstanceIdentity(
+                        macDeviceID: $0.macDeviceID,
+                        instanceTag: $0.instanceTag
+                    ).id == targetID
                 })?.routes
             }
         )
@@ -369,8 +394,11 @@ public struct CMUXMobileRootScene: View {
             .environment(pushCoordinator)
             .environment(displaySettings)
             .terminalFilesChipEnabled(featureFlags.terminalFilesChipEnabled)
+            .keyboardDockRebuildRevertEnabled(featureFlags.keyboardDockRebuildRevertEnabled)
             .environment(connectionMethodStore)
             .environment(autoConnectMigrationStore)
+            .environment(whatsNewCenter)
+            .environment(\.mobileWebAppSession, webAppSession)
             #endif
     }
 

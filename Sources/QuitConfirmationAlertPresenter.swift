@@ -63,7 +63,11 @@ final class QuitConfirmationAlertPresenter: NSObject, NSWindowDelegate {
     }
 
     private func presentStandalone() {
+        alert.layout()
+
         // AppKit assigns each alert button a tag of alertFirstButtonReturn + index.
+        // Wire every button generically: the tui keep-vs-stop quit dialog has
+        // three buttons, not the fixed confirm/cancel pair.
         for button in alert.buttons {
             button.target = self
             button.action = #selector(alertButtonClicked(_:))
@@ -132,6 +136,8 @@ extension AppDelegate {
         if managerHasDirtyWorkspace(tabManager) {
             return true
         }
-        return recoverableMainWindowRoutes().contains { managerHasDirtyWorkspace($0.tabManager) }
+        // Quit confirmation is a lifecycle/data-safety check, so it must include
+        // windowless recoverable owners that UI-routing snapshots intentionally hide.
+        return mainWindowSessionPersistenceRoutes().contains { managerHasDirtyWorkspace($0.tabManager) }
     }
 }

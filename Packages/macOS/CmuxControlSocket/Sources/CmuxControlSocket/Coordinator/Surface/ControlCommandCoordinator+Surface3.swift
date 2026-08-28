@@ -112,11 +112,30 @@ extension ControlCommandCoordinator {
         guard context?.controlSurfaceRoutingResolvesTabManager(routing: routing) ?? false else {
             return .err(code: "unavailable", message: Self.surfaceWindowUnavailableMessage, data: nil)
         }
+        let claimCheckpointID = optionalTrimmedRawString(params, "claim_checkpoint_id")
+        let claimSource = optionalTrimmedRawString(params, "claim_source")
+        let claimUpdatedAt = double(params, "claim_updated_at")
+        let hasClaimParameter = params["claim_checkpoint_id"] != nil
+            || params["claim_source"] != nil
+            || params["claim_updated_at"] != nil
+        guard !hasClaimParameter
+            || (claimCheckpointID != nil
+                && claimSource != nil
+                && claimUpdatedAt?.isFinite == true) else {
+            return .err(
+                code: "invalid_params",
+                message: surfaceResumeStrings().restoreClaimMustBeValid,
+                data: nil
+            )
+        }
         return surfaceResumeResult(
             context?.controlSurfaceResumeGet(
                 routing: routing,
                 explicitTargetID: surfaceResumeExplicitTargetID(params),
-                hasResolvedWindowID: uuid(params, "window_id") != nil
+                hasResolvedWindowID: uuid(params, "window_id") != nil,
+                claimCheckpointID: claimCheckpointID,
+                claimSource: claimSource,
+                claimUpdatedAt: claimUpdatedAt
             ) ?? .surfaceNotFound
         )
     }
@@ -150,6 +169,7 @@ extension ControlCommandCoordinator {
             expectedCheckpointID: optionalTrimmedRawString(params, "checkpoint_id")
                 ?? optionalTrimmedRawString(params, "checkpointId"),
             expectedSource: optionalTrimmedRawString(params, "source"),
+            expectedUpdatedAt: double(params, "expected_updated_at"),
             agentSessionEnded: agentSessionEnded
         ) ?? .surfaceNotFound
         return surfaceResumeResult(resolution)
@@ -183,7 +203,7 @@ extension ControlCommandCoordinator {
         case .setFailed:
             return .err(code: "internal_error", message: "Failed to set resume binding", data: nil)
         case .result(let snapshot):
-            return .ok(.object([
+            var result: [String: JSONValue] = [
                 "window_id": orNull(snapshot.windowID?.uuidString),
                 "window_ref": ref(.window, snapshot.windowID),
                 "workspace_id": .string(snapshot.workspaceID.uuidString),
@@ -195,7 +215,11 @@ extension ControlCommandCoordinator {
                 "cleared": .bool(snapshot.cleared),
                 "resume_binding": surfaceResumeBindingPayload(snapshot.binding),
                 "restore_record": surfaceRestoreRecordPayload(snapshot.restoreRecord),
-            ]))
+            ]
+            if let resumeClaimed = snapshot.resumeClaimed {
+                result["resume_claimed"] = .bool(resumeClaimed)
+            }
+            return .ok(.object(result))
         }
     }
 
@@ -325,6 +349,7 @@ extension ControlCommandCoordinator {
         switch value {
         case .double(let value): value
         case .int(let value): Double(value)
+        case .decimal(let value): NSDecimalNumber(string: value).doubleValue
         default: nil
         }
     }

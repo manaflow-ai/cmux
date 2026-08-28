@@ -52,6 +52,7 @@ export async function SiteFooter() {
         { label: t("guides"), href: "/guides" },
         { label: t("compare"), href: "/compare" },
         { label: t("changelog"), href: "/docs/changelog" },
+        { label: t("support"), href: "/support" },
       ] satisfies FooterLink[],
     },
     {

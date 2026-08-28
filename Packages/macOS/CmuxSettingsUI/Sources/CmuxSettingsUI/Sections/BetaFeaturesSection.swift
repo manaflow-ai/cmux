@@ -9,6 +9,7 @@ import SwiftUI
 public struct BetaFeaturesSection: View {
     @State private var feed: DefaultsValueModel<Bool>
     @State private var dock: DefaultsValueModel<Bool>
+    @State private var cloudMachines: DefaultsValueModel<Bool>
     @State private var extensions: DefaultsValueModel<Bool>
     @State private var customSidebars: DefaultsValueModel<Bool>
     @State private var remoteTmux: DefaultsValueModel<Bool>
@@ -19,6 +20,7 @@ public struct BetaFeaturesSection: View {
     public init(defaultsStore: UserDefaultsSettingsStore, catalog: SettingCatalog) {
         _feed = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.rightSidebarFeed))
         _dock = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.rightSidebarDock))
+        _cloudMachines = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.cloudMachines))
         _extensions = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.extensions))
         _customSidebars = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.customSidebars))
         _remoteTmux = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.remoteTmux))
@@ -38,6 +40,8 @@ public struct BetaFeaturesSection: View {
                 feedRow
                 SettingsCardDivider()
                 dockRow
+                SettingsCardDivider()
+                cloudMachinesRow
                 SettingsCardDivider()
                 extensionsRow
                 SettingsCardDivider()
@@ -59,6 +63,7 @@ public struct BetaFeaturesSection: View {
         let models: [any SettingObservationStarting] = [
             feed,
             dock,
+            cloudMachines,
             extensions,
             customSidebars,
             remoteTmux,
@@ -141,6 +146,23 @@ public struct BetaFeaturesSection: View {
                 .labelsHidden()
                 .controlSize(.small)
                 .accessibilityIdentifier("SettingsBetaDockToggle")
+        }
+    }
+
+    @ViewBuilder
+    private var cloudMachinesRow: some View {
+        SettingsCardRow(
+            configurationReview: .json("cloud.beta.machines.enabled"),
+            searchAnchorID: "setting:betaFeatures:cloudMachines",
+            String(localized: "settings.betaFeatures.cloudMachines", defaultValue: "Cloud Machines"),
+            subtitle: cloudMachines.current
+                ? String(localized: "settings.betaFeatures.cloudMachines.subtitleOn", defaultValue: "Shows Cloud in the right sidebar plus the Cloud Machines settings, palette commands, and new-workspace entries.")
+                : String(localized: "settings.betaFeatures.cloudMachines.subtitleOff", defaultValue: "Hides every Cloud Machines surface unless remote rollout enables it.")
+        ) {
+            Toggle("", isOn: Binding(get: { cloudMachines.current }, set: { cloudMachines.set($0) }))
+                .labelsHidden()
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsBetaCloudMachinesToggle")
         }
     }
 

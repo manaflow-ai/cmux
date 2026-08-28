@@ -772,6 +772,7 @@ struct EmptyPanelView: View {
     @ObservedObject var workspace: Workspace
     let paneId: PaneID
     @State private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
+    @State private var browserAvailable = BrowserAvailabilitySettings.isEnabled()
 
     private struct ShortcutHint: View {
         let text: String
@@ -852,22 +853,45 @@ struct EmptyPanelView: View {
 
             HStack(spacing: 12) {
                 emptyPaneActionButton(
-                    title: "Terminal",
+                    title: String(localized: "emptyPanel.action.terminal", defaultValue: "Terminal"),
                     systemImage: "terminal.fill",
                     shortcut: newSurfaceShortcut,
                     action: createTerminal
                 )
 
-                emptyPaneActionButton(
-                    title: "Browser",
-                    systemImage: "globe",
-                    shortcut: openBrowserShortcut,
-                    action: createBrowser
-                )
+                if browserAvailable {
+                    emptyPaneActionButton(
+                        title: String(localized: "emptyPanel.action.browser", defaultValue: "Browser"),
+                        systemImage: "globe",
+                        shortcut: openBrowserShortcut,
+                        action: createBrowser
+                    )
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: GhosttyBackgroundTheme.currentColor()))
+        .task {
+            browserAvailable = BrowserAvailabilitySettings.isEnabled()
+            // The gate is mutated from several entrypoints that signal
+            // differently: palette/policy post didChangeNotification, the
+            // Settings toggle writes defaults directly (defaults
+            // notification), and the CLI writes from another process
+            // (caught on app activation at the latest).
+            await withTaskGroup(of: Void.self) { group in
+                for name in [
+                    BrowserAvailabilitySettings.didChangeNotification,
+                    UserDefaults.didChangeNotification,
+                    NSApplication.didBecomeActiveNotification,
+                ] {
+                    group.addTask { @MainActor in
+                        for await _ in NotificationCenter.default.notifications(named: name) {
+                            browserAvailable = BrowserAvailabilitySettings.isEnabled()
+                        }
+                    }
+                }
+            }
+        }
 #if DEBUG
         .onAppear {
             DebugUIEventCounters.emptyPanelAppearCount += 1

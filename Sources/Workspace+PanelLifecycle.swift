@@ -455,6 +455,7 @@ extension Workspace {
             )
         }
         if !preservesTerminalForTransfer {
+            removeDeferredAgentResumeRestore(panelId: panelId)
             terminalStartupRestoreCoordinator.discardPendingRestoreForPanelTeardown(
                 panelID: panelId
             )
@@ -538,6 +539,10 @@ extension Workspace {
         surfaceTTYNames.removeValue(forKey: panelId)
         discardRemotePTYSessionID(panelId: panelId)
         surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
+        surfaceResumeRestoreClaimsByPanelId.removeValue(forKey: panelId)
+        pendingPlainSSHRestorePanelIds.remove(panelId)
+        observedPlainSSHPanelIds.remove(panelId)
+        plainSSHDetectionMissesByPanelId.removeValue(forKey: panelId)
         surfaceListeningPorts.removeValue(forKey: panelId)
         restoredTerminalScrollbackByPanelId.removeValue(forKey: panelId)
 #if DEBUG

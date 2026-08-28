@@ -141,10 +141,11 @@ public actor CmxIrohClientSession {
         try await controlStream.sendStream.send(data)
     }
 
-    /// Opens a terminal or artifact bidirectional lane on the admitted connection.
+    /// Opens a terminal, artifact, or simulator-stream bidirectional lane on
+    /// the admitted connection.
     ///
     /// - Parameters:
-    ///   - lane: A terminal or artifact lane declaration.
+    ///   - lane: A terminal, artifact, or simulator-stream lane declaration.
     ///   - priority: The Iroh relative stream priority selected by the caller.
     /// - Returns: The stream after its lane header has been written.
     /// - Throws: A transport, framing, or lifecycle error.
@@ -153,7 +154,7 @@ public actor CmxIrohClientSession {
         priority: Int32
     ) async throws -> CmxIrohBidirectionalStream {
         switch lane {
-        case .terminal, .artifact:
+        case .terminal, .artifact, .simulatorStream:
             break
         case .control, .serverEvents:
             throw CmxIrohClientSessionError.invalidOutgoingLane

@@ -19,7 +19,7 @@ use std::path::Path;
 #[cfg(unix)]
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 #[cfg(unix)]
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, SyncSender, TrySendError};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender, TrySendError};
 #[cfg(unix)]
 use std::sync::{Arc, Condvar, Mutex, Weak};
 #[cfg(unix)]
@@ -28,19 +28,19 @@ use std::time::{Duration, Instant};
 #[cfg(unix)]
 use cmux_tui_machine_protocol::{
     AcknowledgeNoticeParams, AcknowledgeNoticeResult, ActionValue, BearerToken,
-    CLIENT_CAPABILITY_NEGOTIATION_CAPABILITY, ClientDescriptor, CloseMachineParams,
-    CloseMachineResult, ConnectExternalMachineParams, ConnectExternalMachineResult,
-    CreateMachineParams, CreateMachineResult, CreateWorkspaceParams, CreateWorkspaceResult,
-    DURABLE_NOTICES_CAPABILITY, EXTERNAL_MACHINE_CONNECT_CAPABILITY, EventEnvelope,
-    ExternalMachineSpecifier, HelloParams, HelloResult, InvokeActionParams, InvokeActionResult,
-    MACHINE_LIFECYCLE_CAPABILITY, MachineLifecycleSnapshotParams, MachineLifecycleSnapshotResult,
-    MachineMutationParams, MachineMutationResult, NegotiateClientCapabilitiesParams,
-    NegotiateClientCapabilitiesResult, NoticeDelivery, OpaqueId, OpenMachineParams,
-    OpenMachineResult, PROVIDER_ACTION_TARGETS_CLIENT_CAPABILITY, Protocol, ProviderError,
-    ProviderEvent, ProviderRequest, ProviderResponse, RenameMachineParams, RenameWorkspaceParams,
-    RequestEnvelope, ResponseEnvelope, SelectScopeParams, SelectScopeResult, SnapshotParams,
-    SnapshotResult, SubscribeNoticesParams, SubscribeNoticesResult, TransportDescriptor,
-    TransportHandshake, TransportHandshakeResult, TransportRole, Version,
+    CLIENT_CAPABILITY_NEGOTIATION_CAPABILITY, CONNECTION_PROGRESS_CLIENT_CAPABILITY,
+    ClientDescriptor, CloseMachineParams, CloseMachineResult, ConnectExternalMachineParams,
+    ConnectExternalMachineResult, CreateMachineParams, CreateMachineResult, CreateWorkspaceParams,
+    CreateWorkspaceResult, DURABLE_NOTICES_CAPABILITY, EXTERNAL_MACHINE_CONNECT_CAPABILITY,
+    EventEnvelope, ExternalMachineSpecifier, HelloParams, HelloResult, InvokeActionParams,
+    InvokeActionResult, MACHINE_LIFECYCLE_CAPABILITY, MachineLifecycleSnapshotParams,
+    MachineLifecycleSnapshotResult, MachineMutationParams, MachineMutationResult,
+    NegotiateClientCapabilitiesParams, NegotiateClientCapabilitiesResult, NoticeDelivery, OpaqueId,
+    OpenMachineParams, OpenMachineResult, PROVIDER_ACTION_TARGETS_CLIENT_CAPABILITY, Protocol,
+    ProviderError, ProviderEvent, ProviderRequest, ProviderResponse, RenameMachineParams,
+    RenameWorkspaceParams, RequestEnvelope, ResponseEnvelope, SelectScopeParams, SelectScopeResult,
+    SnapshotParams, SnapshotResult, SubscribeNoticesParams, SubscribeNoticesResult,
+    TransportDescriptor, TransportHandshake, TransportHandshakeResult, TransportRole, Version,
     WORKSPACE_LIFECYCLE_CAPABILITY, WorkspaceCreateMode, WorkspaceMutationParams,
     WorkspaceMutationResult, WorkspaceSnapshotParams, WorkspaceSnapshotResult,
 };
@@ -362,7 +362,7 @@ struct ProviderClientInner {
     writer: Mutex<Box<dyn Write + Send>>,
     control_guard: ProviderIoGuard,
     streams: Arc<dyn MachineStreamConnector>,
-    pending: Mutex<HashMap<String, Sender<PendingResponse>>>,
+    pending: Mutex<HashMap<String, SyncSender<PendingResponse>>>,
     events: Mutex<ProviderEventHubState>,
     snapshot_subscribers: Mutex<Vec<SyncSender<u64>>>,
     next_request_id: AtomicU64,
@@ -381,7 +381,7 @@ impl ProviderClientInner {
             return;
         };
         for (_, response) in pending.drain() {
-            let _ = response.send(Err(failure.clone()));
+            let _ = response.try_send(Err(failure.clone()));
         }
     }
 
@@ -1058,7 +1058,10 @@ impl ProviderClient {
         if !self.advertises_capability(CLIENT_CAPABILITY_NEGOTIATION_CAPABILITY)? {
             return Ok(());
         }
-        let requested = vec![PROVIDER_ACTION_TARGETS_CLIENT_CAPABILITY.to_string()];
+        let requested = vec![
+            PROVIDER_ACTION_TARGETS_CLIENT_CAPABILITY.to_string(),
+            CONNECTION_PROGRESS_CLIENT_CAPABILITY.to_string(),
+        ];
         let result: NegotiateClientCapabilitiesResult =
             self.request(ProviderRequest::NegotiateClientCapabilities(
                 NegotiateClientCapabilitiesParams { capabilities: requested.clone() },
@@ -1114,7 +1117,9 @@ impl ProviderClient {
             .map_err(|error| ProviderClientError::Protocol(error.to_string()))?;
         let id_key = id.as_str().to_string();
         let envelope = RequestEnvelope::new(id.clone(), request);
-        let (sender, receiver) = mpsc::channel();
+        // A request has exactly one response. Keep one slot so a late or
+        // duplicated response cannot accumulate memory after cancellation.
+        let (sender, receiver) = mpsc::sync_channel(1);
         {
             let mut pending = self
                 .inner
@@ -1300,10 +1305,11 @@ fn dispatch_control_frame(
                 .remove(&id);
             zeroize_json_strings(&mut value);
             if let Some(response) = response {
-                if let Err(error) = response.send(Ok(frame))
-                    && let Ok(mut frame) = error.0
-                {
-                    frame.zeroize();
+                match response.try_send(Ok(frame)) {
+                    Ok(()) => {}
+                    Err(TrySendError::Full(Ok(mut frame)))
+                    | Err(TrySendError::Disconnected(Ok(mut frame))) => frame.zeroize(),
+                    Err(TrySendError::Full(Err(_))) | Err(TrySendError::Disconnected(Err(_))) => {}
                 }
             } else {
                 frame.zeroize();

@@ -229,12 +229,12 @@ fn recv_attach_event(reader: &mut BufReader<UnixStream>, event: &str) -> Value {
 }
 
 fn wait_for<T>(mut f: impl FnMut() -> Option<T>, timeout: Duration) -> Option<T> {
-    let start = Instant::now();
+    let deadline = Instant::now() + test_duration(timeout);
     loop {
         if let Some(value) = f() {
             return Some(value);
         }
-        if start.elapsed() > timeout {
+        if Instant::now() >= deadline {
             return None;
         }
         thread::sleep(Duration::from_millis(20));
@@ -1537,7 +1537,7 @@ fn browser_capture_scale_applies_to_metrics_screencast_and_input() {
             let frame_seq = surface.browser_frame_seq()?;
             (frame.seq == frame_seq).then_some((frame, frame_seq))
         },
-        test_duration(Duration::from_secs(10)),
+        Duration::from_secs(10),
     )
     .expect("browser produced a pointer-authoritative frame");
     assert_eq!(frame.data_b64, "c2NhbGU=");

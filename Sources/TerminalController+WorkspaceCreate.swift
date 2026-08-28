@@ -81,64 +81,69 @@ extension TerminalController {
         let tabManager = preparation.tabManager
         let operationID = preparation.operationID
 
-        var newWorkspace: Workspace?
-        if let operationID, !operationAlreadyAccepted {
-            // Acceptance must be durable before addWorkspace constructs a
-            // terminal and can execute the task command. A crash in between
-            // intentionally favors at-most-once startup over workspace recovery.
-            do {
-                try preparation.idempotencyCache.accept(operationID: operationID)
-            } catch {
-                workspaceCreateIdempotencyLogger.error(
-                    "Task reservation failed: \(String(describing: error), privacy: .private)"
-                )
-                return .err(
-                    code: "persistence_failed",
-                    message: "Workspace task could not be reserved safely",
-                    data: nil
-                )
+        guard let result = tabManager.acquireWorkspaceIfActive({ () -> V2CallResult in
+            var newWorkspace: Workspace?
+            if let operationID, !operationAlreadyAccepted {
+                // Acceptance must be durable before addWorkspace constructs a
+                // terminal and can execute the task command. A crash in between
+                // intentionally favors at-most-once startup over workspace recovery.
+                do {
+                    try preparation.idempotencyCache.accept(operationID: operationID)
+                } catch {
+                    workspaceCreateIdempotencyLogger.error(
+                        "Task reservation failed: \(String(describing: error), privacy: .private)"
+                    )
+                    return .err(
+                        code: "persistence_failed",
+                        message: "Workspace task could not be reserved safely",
+                        data: nil
+                    )
+                }
             }
-        }
-        v2MainSync {
-            let ws = tabManager.addWorkspace(
-                title: execution.title,
-                workingDirectory: execution.workingDirectory,
-                initialTerminalCommand: execution.layoutNode == nil ? execution.initialCommand : nil,
-                initialTerminalEnvironment: execution.layoutNode == nil ? execution.initialEnvironment : [:],
-                workspaceEnvironment: execution.workspaceEnvironment,
-                select: execution.shouldFocus,
-                eagerLoadTerminal: execution.shouldEagerLoadTerminal,
-                autoRefreshMetadata: execution.shouldAutoRefreshMetadata
-            )
-            ws.taskCreateOperationID = operationID
-            ws.setCustomDescription(execution.description)
-            if let layoutNode = execution.layoutNode {
-                ws.applyCustomLayout(
-                    layoutNode,
-                    baseCwd: execution.workingDirectory ?? ws.currentDirectory
-                )
+            v2MainSync {
+                guard let ws = tabManager.addWorkspaceIfActive(
+                    title: execution.title,
+                    workingDirectory: execution.workingDirectory,
+                    initialTerminalCommand: execution.layoutNode == nil ? execution.initialCommand : nil,
+                    initialTerminalEnvironment: execution.layoutNode == nil ? execution.initialEnvironment : [:],
+                    workspaceEnvironment: execution.workspaceEnvironment,
+                    select: execution.shouldFocus,
+                    eagerLoadTerminal: execution.shouldEagerLoadTerminal,
+                    autoRefreshMetadata: execution.shouldAutoRefreshMetadata
+                ) else { return }
+                ws.taskCreateOperationID = operationID
+                ws.setCustomDescription(execution.description)
+                if let layoutNode = execution.layoutNode {
+                    ws.applyCustomLayout(
+                        layoutNode,
+                        baseCwd: execution.workingDirectory ?? ws.currentDirectory
+                    )
+                }
+                if let groupID = execution.groupID {
+                    tabManager.addWorkspaceToGroup(
+                        workspaceId: ws.id,
+                        groupId: groupID,
+                        placement: execution.groupPlacement ?? .top,
+                        referenceWorkspaceId: execution.groupReferenceWorkspaceID
+                    )
+                }
+                newWorkspace = ws
             }
-            if let groupID = execution.groupID {
-                tabManager.addWorkspaceToGroup(
-                    workspaceId: ws.id,
-                    groupId: groupID,
-                    placement: execution.groupPlacement ?? .top,
-                    referenceWorkspaceId: execution.groupReferenceWorkspaceID
-                )
-            }
-            newWorkspace = ws
-        }
 
-        guard let newWorkspace else {
+            guard let newWorkspace else {
+                return .err(code: "internal_error", message: "Failed to create workspace", data: nil)
+            }
+            if let operationID {
+                preparation.idempotencyCache.associate(operationID: operationID, workspaceID: newWorkspace.id)
+            }
+            return workspaceCreateResult(
+                workspace: newWorkspace,
+                windowID: v2ResolveWindowId(tabManager: tabManager)
+            )
+        }) else {
             return .err(code: "internal_error", message: "Failed to create workspace", data: nil)
         }
-        if let operationID {
-            preparation.idempotencyCache.associate(operationID: operationID, workspaceID: newWorkspace.id)
-        }
-        return workspaceCreateResult(
-            workspace: newWorkspace,
-            windowID: v2ResolveWindowId(tabManager: tabManager)
-        )
+        return result
     }
 
     private func workspaceCreateResult(
@@ -233,6 +238,34 @@ extension TerminalController {
         ])
     }
 
+    /// `workspace.cloud_vm_bind`: record which cloud machine a cmux-tui workspace hosts.
+    /// Runs on the main actor like `workspace.cloud_vm_terminal_ready`: it mutates a
+    /// published workspace property the sidebar observes. No focus change.
+    func v2WorkspaceCloudVMBind(params: [String: Any]) -> V2CallResult {
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "unavailable", message: "TabManager not available", data: nil)
+        }
+        guard let rawWorkspaceId = v2RawString(params, "workspace_id")?.trimmingCharacters(in: .whitespacesAndNewlines),
+              let workspaceId = UUID(uuidString: rawWorkspaceId) else {
+            return .err(code: "invalid_params", message: "workspace_id is required", data: nil)
+        }
+        guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else {
+            return .err(code: "not_found", message: "Workspace not found", data: ["workspace_id": workspaceId.uuidString])
+        }
+        guard let vmID = WorkspaceCloudVMBinding.normalizedVMID(v2RawString(params, "vm_id")) else {
+            return .err(code: "invalid_params", message: "vm_id is required", data: ["workspace_id": workspaceId.uuidString])
+        }
+        let isBase = v2Bool(params, "base") ?? false
+        workspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: vmID, isBase: isBase)
+        return .ok([
+            "workspace_id": workspaceId.uuidString,
+            "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
+            "vm_id": vmID,
+            "base": isBase,
+            "transport": "cmux-remote",
+        ])
+    }
+
     func v2MobileWorkspaceCreate(
         params: [String: Any],
         workingDirectoryValidator: WorkspaceCreateWorkingDirectoryValidator? = nil,
@@ -323,6 +356,12 @@ extension TerminalController {
         case let .ready(ready):
             execution = ready
         }
+        // Working-directory validation can suspend while the target window
+        // closes. Reject before durably accepting the operation so the caller
+        // can retry against a live window with the same operation ID.
+        guard !preparation.tabManager.isFinalizedForWindowClose else {
+            return .err(code: "internal_error", message: "Failed to create workspace", data: nil)
+        }
         var operationAlreadyAccepted = false
         switch await v2ReserveMobileWorkspaceCreate(preparation: preparation) {
         case .notRequired:
@@ -353,6 +392,24 @@ extension TerminalController {
                 createdWorkspaceID: createdWorkspaceID
             )
         case .err:
+            if operationAlreadyAccepted,
+               let operationID = preparation.operationID {
+                do {
+                    _ = try await preparation.idempotencyCache
+                        .releaseUnassociatedAcceptanceAsynchronously(
+                            operationID: operationID
+                        )
+                } catch {
+                    workspaceCreateIdempotencyLogger.error(
+                        "Failed mobile task reservation rollback: \(String(describing: error), privacy: .private)"
+                    )
+                    return .err(
+                        code: "persistence_failed",
+                        message: "Workspace task could not be reserved safely",
+                        data: nil
+                    )
+                }
+            }
             return createResult
         }
     }
