@@ -1102,9 +1102,9 @@ impl Inner {
             return;
         }
         let mut attachments = self.attachments.lock().expect("attach lock");
-        let same = attachments
-            .get(pty_id)
-            .is_some_and(|current| Arc::ptr_eq(&current.operation_gate, &attachment.operation_gate));
+        let same = attachments.get(pty_id).is_some_and(|current| {
+            Arc::ptr_eq(&current.operation_gate, &attachment.operation_gate)
+        });
         let removed = if same { attachments.remove(pty_id).is_some() } else { false };
         drop(attachments);
         if !removed {
@@ -1221,9 +1221,9 @@ impl Inner {
             return;
         }
         let mut attachments = self.attachments.lock().expect("attach lock");
-        let same = attachments
-            .get(pty_id)
-            .is_some_and(|current| Arc::ptr_eq(&current.operation_gate, &attachment.operation_gate));
+        let same = attachments.get(pty_id).is_some_and(|current| {
+            Arc::ptr_eq(&current.operation_gate, &attachment.operation_gate)
+        });
         let removed = if same { attachments.remove(pty_id).is_some() } else { false };
         drop(attachments);
         if removed {
@@ -3364,10 +3364,7 @@ mod tests {
             entered: Arc::clone(&entered),
             release: Arc::clone(&release),
         });
-        let owner = TransportOwner {
-            id: Some("tunnel-a".to_owned()),
-            kind: TransportKind::Tunnel,
-        };
+        let owner = TransportOwner { id: Some("tunnel-a".to_owned()), kind: TransportKind::Tunnel };
         {
             inner.attachments.lock().unwrap().insert(
                 "p1".to_owned(),
