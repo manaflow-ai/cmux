@@ -541,8 +541,19 @@ extension PortScanner {
         var values: [Int: Set<Int>] = [:]
         var incomplete: Set<Int> = []
         var complete = true
-        for start in stride(from: 0, to: pids.count, by: 256) {
-            let chunk = pids[start..<min(start + 256, pids.count)]
+        var chunk: [Int] = []
+        for pid in pids {
+            let candidate = chunk + [pid]
+            let csv = candidate.map(String.init).joined(separator: ",")
+            if !chunk.isEmpty && csv.utf8.count + Self.lsofArgumentOverhead > Self.lsofArgumentByteBudget {
+                let result = await runLsofChunk(pidsCsv: chunk.map(String.init).joined(separator: ","))
+                for (pid, ports) in result.values { values[pid, default: []].formUnion(ports) }
+                incomplete.formUnion(result.incompletePIDs)
+                complete = complete && result.globallyComplete
+                chunk = [pid]
+            } else { chunk = candidate }
+        }
+        if !chunk.isEmpty {
             let result = await runLsofChunk(pidsCsv: chunk.map(String.init).joined(separator: ","))
             for (pid, ports) in result.values { values[pid, default: []].formUnion(ports) }
             incomplete.formUnion(result.incompletePIDs)
@@ -550,6 +561,9 @@ extension PortScanner {
         }
         return PortLsofScanResult(values: values, globallyComplete: complete, incompletePIDs: incomplete)
     }
+
+    private static let lsofArgumentByteBudget = 32 * 1024
+    private static let lsofArgumentOverhead = 256
 
     private func runLsofChunk(pidsCsv: String) async -> PortLsofScanResult {
         let result = await commandRunner.run(
