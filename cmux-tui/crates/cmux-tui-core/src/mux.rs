@@ -5274,6 +5274,10 @@ impl Mux {
             return;
         };
         let Some(surface) = self.resource_surface_for_terminal(&terminal_id) else { return };
+        // Serialize the sequence check, projection commit, and sequence
+        // update as one operation. The projection path takes registry, state,
+        // then agent-record locks, so teardown acquires sequence before those
+        // locks as well.
         let mut sequences = self.agent_hook_sequences.lock().unwrap();
         if sequences.get(&terminal_id).is_some_and(|latest| sequence <= *latest) {
             return;
@@ -8832,8 +8836,8 @@ impl Mux {
     }
 
     fn purge_terminal_side_tables(&self, terminal_id: &TerminalPublicId) {
-        self.agent_records.lock().unwrap().remove(terminal_id);
         self.agent_hook_sequences.lock().unwrap().remove(terminal_id);
+        self.agent_records.lock().unwrap().remove(terminal_id);
         self.terminal_notifications.lock().unwrap().remove(terminal_id);
     }
 
