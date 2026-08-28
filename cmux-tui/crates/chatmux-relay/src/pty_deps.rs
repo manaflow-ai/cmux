@@ -167,6 +167,11 @@ impl ThreadOutput {
     }
 
     fn push_data(&self, chunk: Bytes) {
+        // Empty reads carry no output and must not consume an unbounded queue
+        // entry while a subscriber is late.
+        if chunk.is_empty() {
+            return;
+        }
         let should_drain = {
             let mut state = self.state.lock().expect("source lock");
             if state.exited || state.overflowed {
@@ -700,5 +705,17 @@ mod tests {
             *seen.lock().expect("seen lock"),
             vec![format!("data:{THREAD_OUTPUT_BACKLOG_CAP}"), "exit:75".to_owned()]
         );
+    }
+
+    #[test]
+    fn empty_chunks_do_not_bypass_backlog_cap() {
+        let output = ThreadOutput::new();
+        for _ in 0..10_000 {
+            output.push_data(Bytes::new());
+        }
+
+        let state = output.state.lock().expect("source lock");
+        assert!(state.backlog.is_empty());
+        assert_eq!(state.backlog_bytes, 0);
     }
 }
