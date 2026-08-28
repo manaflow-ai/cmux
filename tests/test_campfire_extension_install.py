@@ -128,6 +128,14 @@ class MockCmuxSocket:
                     }
                 ]
             }
+        elif method == "agent.resolve_delivery_target":
+            params = payload.get("params")
+            source = "pid" if isinstance(params, dict) and "pid" in params else "surface"
+            result = {
+                "workspace_id": self.workspace_id,
+                "surface_id": self.surface_id,
+                "source": source,
+            }
         elif method == "surface.resume.set":
             result = {"ok": True}
         elif method == "feed.push":
