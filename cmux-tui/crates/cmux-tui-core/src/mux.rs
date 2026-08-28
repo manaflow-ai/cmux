@@ -22574,8 +22574,8 @@ mod tests {
     fn new_non_hook_session_can_start_after_hook_session_end() {
         let root = std::env::temp_dir()
             .join(format!("cmux-agent-hook-restart-{}", crate::workspace_registry::new_uuid_v4()));
-        let mux = Mux::open_persistent("agent-hook-restart", SurfaceOptions::default(), &root)
-            .unwrap();
+        let mux =
+            Mux::open_persistent("agent-hook-restart", SurfaceOptions::default(), &root).unwrap();
         let surface = mux.new_workspace(None, None).unwrap();
         let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
         let hook = |event: &str| {
@@ -22611,14 +22611,13 @@ mod tests {
 
         mux.shutdown();
         drop(mux);
-        let reopened = Mux::open_persistent("agent-hook-restart", SurfaceOptions::default(), &root)
-            .unwrap();
+        let reopened =
+            Mux::open_persistent("agent-hook-restart", SurfaceOptions::default(), &root).unwrap();
         let reopened_record = &reopened.list_agents(Some(surface.id), None)[0];
         assert_eq!(reopened_record.source, AgentSource::Socket);
         assert_eq!(reopened_record.session.as_deref(), Some("new-socket-session"));
         assert_eq!(
-            crate::resource_api::public_session_snapshot(&reopened).unwrap()["agents"][0]
-                ["source_session"],
+            crate::resource_api::public_session_snapshot(&reopened).unwrap()["agents"][0]["source_session"],
             "new-socket-session"
         );
         reopened.shutdown();
