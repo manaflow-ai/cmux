@@ -50,7 +50,11 @@ impl WireOperation {
 
     pub fn name(&self) -> Result<String, UsageError> {
         match self {
-            Self::Typed(operation) => Ok(operation.wire_name().to_owned()),
+            Self::Typed(operation) => serde_json::to_value(operation)
+                .map_err(|error| UsageError::new(format!("cannot encode operation: {error}")))?
+                .as_str()
+                .map(str::to_owned)
+                .ok_or_else(|| UsageError::new("operation did not encode as a string")),
             Self::Raw { name, .. } => Ok(name.clone()),
         }
     }

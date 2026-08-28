@@ -195,24 +195,6 @@ extension TerminalController {
                 let endpoint = try await VMClient.shared.openPort(id: vmId, port: port)
                 return ["url": endpoint.url, "token": endpoint.token, "open_url": endpoint.openUrl]
             }
-        case "vm.cloud_agent_open":
-            // Shared entrypoint with the Machines panel's cloud-agent menu:
-            // both call CloudAgentSkillLauncher.openAgent, which installs the
-            // bundled skill file and opens a local terminal running the agent.
-            guard let agentRaw = Self.socketWorkerString(params["agent"]),
-                  let agent = CloudAgentSkillLauncher.CodingAgent(rawValue: agentRaw.lowercased())
-            else {
-                let names = CloudAgentSkillLauncher.CodingAgent.allCases.map(\.rawValue).joined(separator: "|")
-                return v2Error(id: id, code: "invalid_params", message: "vm.cloud_agent_open requires `agent` (\(names)).")
-            }
-            return v2VmCall(id: id, timeoutSeconds: 60) {
-                try await CloudAgentSkillLauncher.openAgent(agent)
-            }
-        case "vm.cloud_prompt":
-            return v2VmCall(id: id) {
-                let payload = try CloudAgentSkillLauncher.promptPayload()
-                return ["prompt": payload.prompt, "skill_path": payload.skillPath]
-            }
         case "vm.ssh_info":
             guard let vmId = Self.socketWorkerString(params["id"]), !vmId.isEmpty else {
                 return v2Error(id: id, code: "invalid_params", message: "vm.ssh_info requires `id`. Run `cmux vm ls` to find one.")

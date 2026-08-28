@@ -5819,7 +5819,11 @@ fn trusted_local_resource_client(
     if mux.control_clients.is_unix(client) {
         Ok(())
     } else {
-        let operation = operation.wire_name().to_owned();
+        let operation = serde_json::to_value(operation)
+            .expect("resource operations serialize")
+            .as_str()
+            .expect("resource operations serialize as strings")
+            .to_string();
         Err(ResourceError::operation_failed(
             operation,
             "operation requires a trusted local connection",

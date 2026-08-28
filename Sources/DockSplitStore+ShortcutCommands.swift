@@ -477,9 +477,7 @@ extension DockSplitStore {
             return false
         }
         browser.startFind()
-        // A diff viewer page owns find in-page; the native bar stays hidden
-        // but the shortcut was handled.
-        return browser.searchState != nil || browser.isDiffViewerFindOwner
+        return browser.searchState != nil
     }
 
     private func performDockFindNavigation(

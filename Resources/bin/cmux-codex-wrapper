@@ -2,9 +2,9 @@
 # cmux codex wrapper - per-invocation Codex hook injection + launch detection.
 #
 # When running inside a cmux terminal (CMUX_SURFACE_ID is set), this wrapper
-# makes `codex` carry exactly one cmux producer per event. The emitter reads
-# ~/.codex/hooks.json without changing it, then injects only missing cmux hooks
-# for THIS invocation. It never rewrites the user's Codex settings.
+# makes `codex` carry exactly one cmux hook channel. If ~/.codex/hooks.json has
+# a cmux-owned persistent channel, the emitter reconciles it and emits no
+# overlapping overrides; otherwise it injects hooks for THIS invocation only.
 # Codex's own SessionStart/UserPromptSubmit/Stop/PreToolUse/PostToolUse/
 # PermissionRequest then fire back into cmux with Codex's real session_id.
 # Those hook payloads are the source of truth for session identity; the wrapper
@@ -229,27 +229,7 @@ fi
 
 # Export launch identity so the hook subprocesses and cmux's agent-pid /
 # ended-detection can bind this Codex to its surface and pid. Because we exec
-# codex below, $$ becomes the real codex pid. The invocation token is owned by
-# this wrapper generation. A wrapper launched from another Codex keeps the
-# inherited token as an explicit parent token, then gets a fresh child token;
-# a direct `codex exec` that bypasses this wrapper retains the outer token and
-# is distinguished by its live hook-process identity.
-CMUX_CODEX_PARENT_INVOCATION_ID="${CMUX_CODEX_INVOCATION_ID:-}"
-# A hook callback records its own immediate Codex parent. Never let a wrapper
-# launched from inside a callback inherit that callback's observation as if it
-# were the new process's identity.
-unset CMUX_CODEX_HOOK_PID
-if command -v uuidgen >/dev/null 2>&1; then
-    CMUX_CODEX_INVOCATION_ID="$(uuidgen | tr '[:upper:]' '[:lower:]')"
-else
-    CMUX_CODEX_INVOCATION_ID="cmux-codex-$$-$(date +%s)"
-fi
-export CMUX_CODEX_INVOCATION_ID
-if [[ -n "$CMUX_CODEX_PARENT_INVOCATION_ID" ]]; then
-    export CMUX_CODEX_PARENT_INVOCATION_ID
-else
-    unset CMUX_CODEX_PARENT_INVOCATION_ID
-fi
+# codex below, $$ becomes the real codex pid.
 export CMUX_CODEX_PID=$$
 export CMUX_CODEX_HOOK_CMUX_BIN="$(resolve_hook_cmux_bin)"
 export CMUX_AGENT_LAUNCH_KIND="codex"
@@ -267,15 +247,16 @@ export CMUX_AGENT_LAUNCH_CWD="$PWD"
     [[ -n "$cmux_codex_argv_b64" ]] && export CMUX_AGENT_LAUNCH_ARGV_B64="$cmux_codex_argv_b64"
 }
 
-# Select the launch's cmux hook channel. The cmux CLI inventories installed
-# cmux-owned events read-only, then emits the exact NUL-separated arguments that
-# enable hooks for this run and inject only the missing cmux commands.
-# Turn/status hooks remain FIRE-AND-FORGET: codex runs hooks synchronously and
-# would block on a full socket round trip. Native child lifecycle hooks are the
-# exception; they synchronously commit the tiny cmux-owned ledger event before
-# returning, while all larger telemetry remains detached. The generated command
-# captures codex's stdin payload to a temp file, backgrounds the asynchronous
-# call with a 30s watchdog, and returns `{}` to codex immediately.
+# Select the launch's cmux hook channel. The cmux CLI first reconciles an
+# installed cmux-owned persistent channel, when present; otherwise it emits the
+# exact arg list (NUL-separated) that enables hooks and injects cmux's
+# FIRE-AND-FORGET hook command for each event. Fire-and-forget is critical:
+# codex runs hooks
+# synchronously and BLOCKS until they return, so a synchronous `cmux hooks codex
+# <sub>` made every launch hang ~35s on "Running SessionStart hook". The emitted
+# command captures codex's stdin payload to a temp file, nohup-backgrounds the
+# real cmux call with a 30s watchdog, and `echo '{}'` returns to codex instantly,
+# so detection still binds the real session id while codex never blocks.
 #
 # Resolving the args via the CLI (instead of re-deriving fragile shell here)
 # avoids quoting bugs in the fire-and-forget command (it contains single quotes
@@ -307,6 +288,7 @@ if cmux_codex_read_inject_args; then
     exec "$REAL_CODEX" "${cmux_codex_injected_args[@]}" "$@"
 fi
 
-# An emitter failure returns nothing. Preserve the cmux surface context so
-# persistent, native, or future hooks can still bind this session.
+# A reconciled persistent channel intentionally emits no overrides; an emitter
+# failure also returns nothing. In both cases preserve the cmux surface context
+# so persistent, native, or future hooks can still bind this session.
 exec "$REAL_CODEX" "$@"

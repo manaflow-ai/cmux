@@ -32,21 +32,6 @@ struct WorkspaceGroupHeaderRow: View, Equatable {
     @State private var renameDraft = ""
     @State private var pendingDestructiveAction: WorkspaceGroupHeaderPendingDestructiveAction?
 
-    /// Daylight between the unread badge's trailing edge and the chevron's
-    /// hit frame. Internal (not private) so layout tests can assert the
-    /// reservation math against the shipped constant.
-    static let indicatorChevronVisualGap: CGFloat = 3
-
-    /// Width reserved between the unread gutter and the chevron so the badge's
-    /// gutter overflow never reaches the chevron.
-    private var chevronLayoutGap: CGFloat {
-        WorkspaceUnreadDot.layoutGap(
-            afterGutterForDiameter: value.unreadBadgeDiameter,
-            leftShift: value.unreadIndicatorLeftShift,
-            visualGap: Self.indicatorChevronVisualGap
-        )
-    }
-
     /// The leading disclosure chevron. Its own hit target, so tapping it only
     /// collapses/expands and never opens the anchor.
     private var chevron: some View {
@@ -122,7 +107,7 @@ struct WorkspaceGroupHeaderRow: View, Equatable {
     }
 
     var body: some View {
-        HStack(spacing: 0) {
+        HStack(spacing: 6) {
             // Same leading unread gutter as workspace rows (indicator hidden
             // when read) so headers and top-level rows keep their columns
             // aligned.
@@ -131,18 +116,7 @@ struct WorkspaceGroupHeaderRow: View, Equatable {
                 leftShift: value.unreadIndicatorLeftShift,
                 diameter: value.unreadBadgeDiameter
             )
-            // The badge overflows the gutter toward the chevron, so the
-            // chevron must reserve that overflow (exactly as `WorkspaceRow`
-            // reserves it for the rail) or the badge leans on it. The gap is
-            // measured to the chevron's hit frame; its glyph centers ~5pt
-            // inside, so the optical badge-to-glyph gap matches the rows'
-            // 8pt badge-to-rail rhythm. The reservation ignores unread state,
-            // so read and unread headers keep one chevron column.
-            Spacer()
-                .frame(width: chevronLayoutGap)
             chevron
-            Spacer()
-                .frame(width: 6)
             anchorTarget
                 // The indicator itself is accessibility-hidden; VoiceOver hears
                 // the unread state on the anchor target, like workspace rows.

@@ -8,20 +8,12 @@ import Testing
         MobileOnboardingProgress.welcome,
         MobileOnboardingProgress.connect,
     ])
-    func showsEveryIncompleteMilestoneWhenSignedIn(_ progress: MobileOnboardingProgress) {
-        #expect(progress.shouldShowOnboarding(isAuthenticated: true))
+    func showsEveryIncompleteMilestone(_ progress: MobileOnboardingProgress) {
+        #expect(progress.shouldShowOnboarding)
     }
 
     @Test func skipsCompletedOnboarding() {
-        #expect(!MobileOnboardingProgress.complete.shouldShowOnboarding(isAuthenticated: true))
+        #expect(!MobileOnboardingProgress.complete.shouldShowOnboarding)
     }
 
-    @Test(arguments: [
-        MobileOnboardingProgress.welcome,
-        MobileOnboardingProgress.connect,
-        MobileOnboardingProgress.complete,
-    ])
-    func neverShowsSignedOut(_ progress: MobileOnboardingProgress) {
-        #expect(!progress.shouldShowOnboarding(isAuthenticated: false))
-    }
 }

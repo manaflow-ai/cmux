@@ -29,7 +29,6 @@ struct CMUXMobileRootView: View {
     /// capability closures are rebuilt for the newly selected method.
     @State private var connectionMethodObservationToken: MobileConnectionMethod?
     @Environment(\.dogfoodAttachPreparation) private var dogfoodAttachPreparation
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private let signOutHook: MobileSignOutHook
     private let startupConnectionCoordinator: MobileStartupConnectionCoordinator
     #if os(iOS)
@@ -256,11 +255,7 @@ struct CMUXMobileRootView: View {
             pairingSheet(initialPresentation: pairingPresentation)
         }
         #endif
-        // Full-screen surface swaps (sign-in <-> onboarding <-> shell) get a
-        // longer, softer curve than in-shell phase changes; 0.18s reads as a
-        // hard cut across two unrelated screens.
-        .animation(.smooth(duration: 0.35), value: isAuthenticated)
-        .animation(.smooth(duration: 0.35), value: shouldShowOnboarding)
+        .animation(.snappy(duration: 0.18), value: isAuthenticated)
         .animation(.snappy(duration: 0.18), value: store.phase)
         .onAppear {
             syncShellAuthentication(isAuthenticated)
@@ -475,19 +470,9 @@ struct CMUXMobileRootView: View {
         } else if shouldShowOnboardingPreview {
             onboardingPreview
         } else if shouldShowOnboarding {
-            // Sign-in hands directly into onboarding, so the swap reads as a
-            // forward push in the tour's paging direction rather than a cut.
             onboardingFlow
-                .transition(reduceMotion ? .opacity : .asymmetric(
-                    insertion: .move(edge: .trailing).combined(with: .opacity),
-                    removal: .opacity
-                ))
         } else if !isAuthenticated {
             SignInView()
-                .transition(reduceMotion ? .opacity : .asymmetric(
-                    insertion: .opacity,
-                    removal: .move(edge: .leading).combined(with: .opacity)
-                ))
         } else {
             switch MobileRootAuthGate.shellSurface(
                 connectionState: store.connectionState,
@@ -812,18 +797,10 @@ struct CMUXMobileRootView: View {
         )
     }
 
-    /// Whether first-run onboarding should present: only for a signed-in
-    /// account session, and only while a durable milestone remains unfinished.
-    /// Signed out, `rootContent` falls through to the sign-in screen instead.
-    /// Deliberately narrower than the composite `isAuthenticated`: a temporary
-    /// attach-ticket authentication must reach the shell so the attach
-    /// completes, not detour into the tour (whose discovery keep-alive
-    /// requires an account session anyway).
+    /// Whether first-run onboarding has an unfinished durable milestone.
     private var shouldShowOnboarding: Bool {
         #if os(iOS)
-        return onboardingStore.progress.shouldShowOnboarding(
-            isAuthenticated: authManager.isAuthenticated
-        )
+        return onboardingStore.progress.shouldShowOnboarding
         #else
         return false
         #endif
@@ -1073,11 +1050,8 @@ struct CMUXMobileRootView: View {
         }
     }
 
-    /// No method gate: `addComputerAction` renders this entrypoint everywhere,
-    /// so a runtime re-check here would turn visible Add Computer buttons into
-    /// silent no-ops on Iroh-only setups (the Computers sheet would dismiss
-    /// with nothing after it). Only the scanner entrypoints below re-check.
     private func showAddDevice() {
+        guard currentlyAllowsManualPairing else { return }
         presentPairing(.manual)
     }
 

@@ -52,9 +52,6 @@ import type { DiffViewerLabelResolver } from "./labels";
 import type { DiffViewerStatus } from "./status";
 import type { DiffViewerConfig } from "./types";
 import { createDiffTransport, DiffTransportError, type DiffTransport } from "./diff/transport";
-import { FindBar } from "./find/FindBar";
-import { useDiffFind, type DiffFindController } from "./find/useDiffFind";
-import { useFindKeyboard } from "./find/useFindKeyboard";
 import type { DiffSource, DiffTransportConfig } from "./diff/generated/protocol";
 import { createDiffWorkerPoolOptions } from "./worker-pool";
 
@@ -81,9 +78,6 @@ type AppState = {
   fileSearchRequest: number;
   filesWidth: number;
   filesVisible: boolean;
-  findOpen: boolean;
-  findQuery: string;
-  findRequest: number;
   items: DiffItem[];
   languages: string[];
   metrics: StreamMetrics | null;
@@ -104,9 +98,6 @@ type AppAction =
   | { type: "set-draft"; draft: CommentDraft | null }
   | { type: "set-file-search-open"; open: boolean }
   | { type: "request-file-search" }
-  | { type: "set-find-open"; open: boolean }
-  | { type: "set-find-query"; query: string }
-  | { type: "request-find" }
   | { type: "set-files-width"; width: number }
   | { type: "set-files-visible"; visible: boolean }
   | { type: "set-metrics"; metrics: StreamMetrics }
@@ -134,9 +125,6 @@ function initialAppState(config: DiffViewerConfig, initialStatus: DiffViewerStat
     fileSearchRequest: 0,
     filesWidth: 252,
     filesVisible: true,
-    findOpen: false,
-    findQuery: "",
-    findRequest: 0,
     items: [],
     languages: ["text"],
     metrics: null,
@@ -231,13 +219,6 @@ function reducer(state: AppState, action: AppAction): AppState {
     return { ...state, fileSearchOpen: action.open, filesVisible: action.open ? true : state.filesVisible };
   case "request-file-search":
     return { ...state, fileSearchOpen: true, fileSearchRequest: state.fileSearchRequest + 1, filesVisible: true };
-  case "set-find-open":
-    // The query is kept when closing so reopening recovers the last search.
-    return { ...state, findOpen: action.open };
-  case "set-find-query":
-    return { ...state, findQuery: action.query };
-  case "request-find":
-    return { ...state, findOpen: true, findRequest: state.findRequest + 1 };
   case "set-files-width":
     return { ...state, filesWidth: action.width };
   case "set-files-visible":
@@ -451,17 +432,7 @@ export function App({ config, initialStatus }: ConfigProps) {
   const handleCodeViewScroll = useCallback((scrollTop: number) => {
     codeViewScrollTopRef.current = scrollTop;
   }, []);
-  const find = useDiffFind({
-    items: state.items,
-    open: state.findOpen,
-    query: state.findQuery,
-    dispatch,
-    codeViewRef,
-    viewerContainerRef,
-  });
-  const findBridgeRef = useSyncedRef({ open: state.findOpen, controller: find });
-  useFindKeyboard(dispatch, findBridgeRef);
-  useNativeViewerNavigation(viewerContainerRef, dispatch, jumpAdjacentFile, findBridgeRef);
+  useNativeViewerNavigation(viewerContainerRef, dispatch, jumpAdjacentFile);
   const setStatus = (status: DiffViewerStatus) => {
     applyDiffViewerStatusToDocument(status);
     dispatch({ type: "set-status", status });
@@ -538,14 +509,6 @@ export function App({ config, initialStatus }: ConfigProps) {
           state={state}
         />
         <main id="viewer" aria-label={label("diffViewer")}>
-          {state.findOpen ? (
-            <FindBar
-              controller={find}
-              label={label}
-              query={state.findQuery}
-              requestToken={state.findRequest}
-            />
-          ) : null}
           {state.items.length > 0 ? (
             <WorkerPoolContextProvider
               poolOptions={workerPoolOptions}
@@ -1757,12 +1720,7 @@ function useRenderDiff(
         }
         const empty = error instanceof DiffTransportError && error.code === "emptyDiff";
         if (!empty) {
-          // Error objects JSON.stringify to {} in the native console mirror,
-          // so serialize the message and stack explicitly.
-          console.error(
-            "cmux diff viewer render failed",
-            String((error as any)?.stack ?? (error as any)?.message ?? error),
-          );
+          console.error("cmux diff viewer render failed", error);
         }
         const emptyMessage = typeof payload.emptyMessage === "string" ? payload.emptyMessage : label("noFileDiffs");
         dispatch({
@@ -1974,7 +1932,6 @@ function useNativeViewerNavigation(
   viewerRef: React.MutableRefObject<HTMLDivElement | null>,
   dispatch: React.Dispatch<AppAction>,
   onJumpAdjacentFile: (direction: -1 | 1) => void,
-  findBridgeRef: React.MutableRefObject<{ open: boolean; controller: DiffFindController }>,
 ) {
   useEffect(() => {
     window.__cmuxPerformDiffViewerNavigationAction = (action: string) => {
@@ -1982,7 +1939,6 @@ function useNativeViewerNavigation(
       if (viewer && CmuxViewerNavigation.performAction(action, viewer)) {
         return true;
       }
-      const findBridge = findBridgeRef.current;
       switch (action) {
         case "diffViewerOpenFileSearch":
           dispatch({ type: "request-file-search" });
@@ -1994,21 +1950,6 @@ function useNativeViewerNavigation(
         case "diffViewerPreviousFile":
           if (viewer) CmuxViewerNavigation.resetSmoothTarget(viewer);
           onJumpAdjacentFile(-1);
-          return true;
-        case "diffViewerOpenFind":
-          dispatch({ type: "request-find" });
-          return true;
-        case "diffViewerFindNext":
-          if (!findBridge.open) return false;
-          findBridge.controller.goToNext();
-          return true;
-        case "diffViewerFindPrevious":
-          if (!findBridge.open) return false;
-          findBridge.controller.goToPrevious();
-          return true;
-        case "diffViewerCloseFind":
-          if (!findBridge.open) return false;
-          findBridge.controller.closeFind();
           return true;
       }
       return false;
@@ -2025,7 +1966,7 @@ function useNativeViewerNavigation(
       document.dispatchEvent(new window.Event("cmux-diff-viewer-navigation-readiness-change"));
       disposeManualInputReset();
     };
-  }, [dispatch, findBridgeRef, onJumpAdjacentFile, viewerRef]);
+  }, [dispatch, onJumpAdjacentFile, viewerRef]);
 }
 
 function useOptionsDismiss(optionsOpen: boolean, dispatch: React.Dispatch<AppAction>) {

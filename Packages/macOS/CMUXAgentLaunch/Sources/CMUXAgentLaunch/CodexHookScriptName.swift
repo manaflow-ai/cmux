@@ -88,11 +88,6 @@ private let recognizedLegacyCodexHookSubcommands: Set<String> = [
     "persistent-feed-PostCompact",
     "persistent-feed-SubagentStart",
     "persistent-feed-SubagentStop",
-    // Transitional wrapper generations emitted the native child events before
-    // content-addressed script names were enforced. Keep those paths
-    // removable so a captured launch cannot replay stale cmux hooks.
-    "subagent-start",
-    "subagent-stop",
 ]
 
 private func isLowercaseCodexHookHexadecimal(_ byte: UInt8) -> Bool {

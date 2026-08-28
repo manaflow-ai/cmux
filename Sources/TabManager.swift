@@ -858,9 +858,7 @@ class TabManager: ObservableObject {
     }
 
     var isFindVisible: Bool {
-        selectedTerminalPanel?.searchState != nil ||
-            focusedBrowserPanel?.searchState != nil ||
-            focusedMarkdownPanel?.searchState != nil
+        selectedTerminalPanel?.searchState != nil || focusedBrowserPanel?.searchState != nil
     }
 
     var canUseSelectionForFind: Bool {
@@ -890,15 +888,9 @@ class TabManager: ObservableObject {
 #endif
             return handled
         }
-        if let browserPanel = focusedBrowserPanel {
-            browserPanel.startFind()
-            // A diff viewer page owns find in-page; the native bar stays
-            // hidden but the shortcut was handled.
-            return browserPanel.searchState != nil || browserPanel.isDiffViewerFindOwner
-        }
-        guard let markdownPanel = focusedMarkdownPanel else { return false }
-        markdownPanel.startFind()
-        return markdownPanel.searchState != nil
+        guard let browserPanel = focusedBrowserPanel else { return false }
+        browserPanel.startFind()
+        return browserPanel.searchState != nil
     }
 
     func searchSelection() {
@@ -922,11 +914,7 @@ class TabManager: ObservableObject {
             return
         }
 
-        if let browserPanel = focusedBrowserPanel {
-            browserPanel.findNext()
-            return
-        }
-        focusedMarkdownPanel?.findNext()
+        focusedBrowserPanel?.findNext()
     }
 
     func findPrevious() {
@@ -935,11 +923,7 @@ class TabManager: ObservableObject {
             return
         }
 
-        if let browserPanel = focusedBrowserPanel {
-            browserPanel.findPrevious()
-            return
-        }
-        focusedMarkdownPanel?.findPrevious()
+        focusedBrowserPanel?.findPrevious()
     }
 
     @discardableResult
@@ -1038,11 +1022,7 @@ class TabManager: ObservableObject {
             return
         }
 
-        if let browserPanel = focusedBrowserPanel {
-            browserPanel.hideFind()
-            return
-        }
-        focusedMarkdownPanel?.hideFind()
+        focusedBrowserPanel?.hideFind()
     }
 
     func makeWorkspaceForCreation(

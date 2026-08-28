@@ -1,4 +1,3 @@
-import Dispatch
 import Foundation
 
 extension GitMetadataService {
@@ -21,69 +20,29 @@ extension GitMetadataService {
     /// event source but impose a much longer throttle before bounded Git status.
     nonisolated static func workspaceGitMetadataWatchDescriptor(
         for directory: String,
-        safetyConfiguration: GitMetadataSafetyConfiguration = GitMetadataSafetyConfiguration(),
-        resolvedRepository: ResolvedGitRepository? = nil,
-        configPathsByRepository: [String: [String]]? = nil,
-        watchOnlyPathsByRepository: [String: [String]]? = nil,
-        metadataSentinelPathsByRepository: [String: [String]]? = nil,
-        indexSnapshotsByRepository: [String: GitIndexSnapshot]? = nil,
-        deadline: DispatchTime? = nil
+        safetyConfiguration: GitMetadataSafetyConfiguration = GitMetadataSafetyConfiguration()
     ) -> GitWorkspaceMetadataWatchDescriptor? {
-        guard let repository = resolvedRepository
-            ?? resolveGitRepository(containing: directory, deadline: deadline) else {
+        guard let repository = resolveGitRepository(containing: directory) else {
             return nil
         }
 
-        let normalizedMetadataSentinelPaths = Array(
-            sortedUniqueNormalizedPaths(
-                metadataSentinelPathsByRepository?.values.flatMap { $0 } ?? []
-            ).prefix(256)
-        )
-        let metadataSentinelParentPaths = normalizedMetadataSentinelPaths.map {
-            URL(fileURLWithPath: $0).deletingLastPathComponent().standardizedFileURL.path
-        }
-        let watchOnlyPaths = sortedUniqueNormalizedPaths(
-            (watchOnlyPathsByRepository?.values.flatMap { $0 } ?? [])
-                + metadataSentinelParentPaths
-        )
-        let watchOnlyPathSet = Set(watchOnlyPaths)
-        let gitMetadataPaths = gitRepositoryMetadataWatchPaths(
-            repository: repository,
-            configPathsByRepository: configPathsByRepository
-        ) + gitlinkMetadataWatchPaths(
-            repository: repository,
-            safetyConfiguration: safetyConfiguration,
-            configPathsByRepository: configPathsByRepository,
-            indexSnapshotsByRepository: indexSnapshotsByRepository,
-            deadline: deadline
-        )
+        let gitMetadataPaths = gitRepositoryMetadataWatchPaths(repository: repository)
+            + gitlinkMetadataWatchPaths(
+                repository: repository,
+                safetyConfiguration: safetyConfiguration
+            )
         let indexPath = joinedPath(root: repository.gitDirectory, relativePath: "index")
-        let indexReadResult = GitIndexDataReader().read(
-            at: URL(fileURLWithPath: indexPath),
-            maximumByteCount: safetyConfiguration.directIndexByteCount,
-            deadline: deadline
-        )
-        let indexExists = indexReadResult.exists
-        let header = indexReadResult.header
+        let indexExists = FileManager.default.fileExists(atPath: indexPath)
+        let header = gitIndexHeaderSummary(indexPath: indexPath)
         let declaredEntryCount = header?.entryCount ?? 0
         let exceedsTrackedPathBudget = header.map {
             $0.entryCount > safetyConfiguration.trackedEventPathCount
                 || $0.fileByteCount > Int64(safetyConfiguration.directIndexByteCount)
         } ?? false
-        let indexSnapshot: GitIndexSnapshot?
-        if header != nil && !exceedsTrackedPathBudget {
-            let parser = GitIndexSnapshotParser()
-            if let cached = indexSnapshotsByRepository?[repository.workTreeRoot],
-               let data = indexReadResult.data,
-               parser.signature(data: data) == cached.signature {
-                indexSnapshot = cached
-            } else {
-                indexSnapshot = indexReadResult.data.flatMap {
-                    parser.parse(data: $0, deadline: deadline)
-                }
-            }
+        let indexSnapshot: GitIndexSnapshot? = if header != nil, !exceedsTrackedPathBudget {
+            gitIndexSnapshot(indexURL: URL(fileURLWithPath: indexPath))
         } else {
-            indexSnapshot = nil
+            nil
         }
         let acceptsAllWorkTreeEvents = exceedsTrackedPathBudget
         let includesWorkTreeRoot = acceptsAllWorkTreeEvents
@@ -122,21 +81,12 @@ extension GitMetadataService {
         let eventCoalescingInterval = acceptsAllWorkTreeEvents
             ? safetyConfiguration.unfilteredWorkTreeEventThrottle
             : safetyConfiguration.filteredWorkTreeEventThrottle
-        let filterIdentity: String? = if normalizedMetadataSentinelPaths.isEmpty {
-            indexSnapshot?.contentSignature
-        } else {
-            [indexSnapshot?.contentSignature, normalizedMetadataSentinelPaths.joined(separator: "\u{1f}")]
-                .compactMap { $0 }
-                .joined(separator: "\u{1e}")
-        }
         let candidatePaths = (includesWorkTreeRoot ? [repository.workTreeRoot] : [])
             + gitMetadataPaths
-            + watchOnlyPaths
         var watchedPaths: [String] = []
         var seen: Set<String> = []
         for path in candidatePaths {
-            let standardized = URL(fileURLWithPath: path).standardizedFileURL.path
-            let normalized = String(decoding: standardized.utf8, as: UTF8.self)
+            let normalized = nativeStandardizedPath(path)
             guard seen.insert(normalized).inserted else { continue }
             var isDirectory: ObjCBool = false
             guard FileManager.default.fileExists(atPath: normalized, isDirectory: &isDirectory) else {
@@ -149,36 +99,26 @@ extension GitMetadataService {
             repositoryRoot: repository.workTreeRoot,
             watchedPaths: watchedPaths.sorted(),
             gitMetadataPaths: sortedUniqueNormalizedPaths(gitMetadataPaths),
-            metadataSentinelPaths: normalizedMetadataSentinelPaths,
             trackedEntryPaths: trackedEntryPaths,
             acceptsAllWorkTreeEvents: acceptsAllWorkTreeEvents,
             eventCoalescingInterval: eventCoalescingInterval,
-            eventFilterIdentity: filterIdentity,
+            eventFilterIdentity: indexSnapshot?.contentSignature,
             degradation: degradation
         )
     }
 
-    /// The metadata paths (`HEAD`, `index`, `refs`, `packed-refs`, `reftable`,
-    /// every reachable `config`) for a single resolved repository.
+    /// The metadata paths (`HEAD`, `index`, `refs`, `packed-refs`, every reachable
+    /// `config`) for a single resolved repository.
     nonisolated static func gitRepositoryMetadataWatchPaths(
-        repository: ResolvedGitRepository,
-        configPathsByRepository: [String: [String]]? = nil
+        repository: ResolvedGitRepository
     ) -> [String] {
-        let configPaths = if let configPathsByRepository {
-            configPathsByRepository[repository.workTreeRoot]
-                ?? gitRootConfigURLs(repository: repository).map(\.path)
-        } else {
-            gitConfigURLs(repository: repository).map(\.path)
-        }
         [
             joinedPath(root: repository.gitDirectory, relativePath: "HEAD"),
             joinedPath(root: repository.gitDirectory, relativePath: "index"),
             joinedPath(root: repository.gitDirectory, relativePath: "refs"),
-            joinedPath(root: repository.gitDirectory, relativePath: "reftable"),
             joinedPath(root: repository.commonDirectory, relativePath: "refs"),
             joinedPath(root: repository.commonDirectory, relativePath: "packed-refs"),
-            joinedPath(root: repository.commonDirectory, relativePath: "reftable"),
-        ] + configPaths
+        ] + gitConfigURLs(repository: repository).map(\.path)
     }
 
     private nonisolated static func sortedUniqueTrackedPaths(
@@ -200,12 +140,18 @@ extension GitMetadataService {
         var result: [String] = []
         var seen: Set<String> = []
         for path in paths {
-            let standardized = URL(fileURLWithPath: path).standardizedFileURL.path
-            let normalized = String(decoding: standardized.utf8, as: UTF8.self)
+            let normalized = nativeStandardizedPath(path)
             guard seen.insert(normalized).inserted else { continue }
             result.append(normalized)
         }
         return result.sorted()
+    }
+
+    /// Standardizes once outside event loops and copies Foundation-backed path
+    /// strings into native Swift UTF-8 storage for fast comparisons.
+    private nonisolated static func nativeStandardizedPath(_ path: String) -> String {
+        let standardized = URL(fileURLWithPath: path).standardizedFileURL.path
+        return String(decoding: standardized.utf8, as: UTF8.self)
     }
 
     /// The metadata paths contributed by gitlink (submodule) entries in the
@@ -213,20 +159,14 @@ extension GitMetadataService {
     /// depth wakes the watcher. Cycle-safe via the visited work-tree set.
     nonisolated static func gitlinkMetadataWatchPaths(
         repository: ResolvedGitRepository,
-        safetyConfiguration: GitMetadataSafetyConfiguration,
-        configPathsByRepository: [String: [String]]? = nil,
-        indexSnapshotsByRepository: [String: GitIndexSnapshot]? = nil,
-        deadline: DispatchTime? = nil
+        safetyConfiguration: GitMetadataSafetyConfiguration
     ) -> [String] {
         var visitedWorkTreeRoots: Set<String> = [repository.workTreeRoot]
         return gitlinkMetadataWatchPaths(
             repository: repository,
             depth: 0,
             visitedWorkTreeRoots: &visitedWorkTreeRoots,
-            safetyConfiguration: safetyConfiguration,
-            configPathsByRepository: configPathsByRepository,
-            indexSnapshotsByRepository: indexSnapshotsByRepository,
-            deadline: deadline
+            safetyConfiguration: safetyConfiguration
         )
     }
 
@@ -234,19 +174,9 @@ extension GitMetadataService {
         repository: ResolvedGitRepository,
         depth: Int,
         visitedWorkTreeRoots: inout Set<String>,
-        safetyConfiguration: GitMetadataSafetyConfiguration,
-        configPathsByRepository: [String: [String]]?,
-        indexSnapshotsByRepository: [String: GitIndexSnapshot]?,
-        deadline: DispatchTime?
+        safetyConfiguration: GitMetadataSafetyConfiguration
     ) -> [String] {
         guard depth < safetyConfiguration.submoduleDepth else { return [] }
-        if let deadline, deadline <= DispatchTime.now() { return [] }
-        if let indexSnapshotsByRepository,
-           indexSnapshotsByRepository[repository.workTreeRoot] == nil {
-            // The aggregate planner did not finish this child before its
-            // deadline/budget. Do not start a second index parse here.
-            return []
-        }
         let indexPath = joinedPath(root: repository.gitDirectory, relativePath: "index")
         guard let header = gitIndexHeaderSummary(indexPath: indexPath),
               header.entryCount <= safetyConfiguration.trackedEventPathCount,
@@ -254,8 +184,7 @@ extension GitMetadataService {
             return []
         }
         let indexURL = URL(fileURLWithPath: indexPath)
-        guard let indexSnapshot = indexSnapshotsByRepository?[repository.workTreeRoot]
-            ?? gitIndexSnapshot(indexURL: indexURL) else {
+        guard let indexSnapshot = gitIndexSnapshot(indexURL: indexURL) else {
             return []
         }
 
@@ -264,35 +193,17 @@ extension GitMetadataService {
         for entry in indexSnapshot.entries where (entry.mode & 0o170000) == gitlinkMode {
             let gitlinkPath = joinedPath(root: repository.workTreeRoot, relativePath: entry.path)
             guard visitedWorkTreeRoots.insert(gitlinkPath).inserted,
-                  let submoduleRepository = resolveGitRepository(
-                      containing: gitlinkPath,
-                      deadline: deadline
-                  ),
+                  let submoduleRepository = resolveGitRepository(containing: gitlinkPath),
                   submoduleRepository.workTreeRoot == gitlinkPath else {
                 continue
             }
-            // A missing child entry means the aggregate planner exhausted its
-            // deadline/budget. Use only bounded root sentinels here; starting a
-            // fresh include walk would escape that aggregate bound.
-            let submoduleConfigPaths = configPathsByRepository?[submoduleRepository.workTreeRoot]
-                ?? [
-                    joinedPath(root: submoduleRepository.commonDirectory, relativePath: "config"),
-                    joinedPath(root: submoduleRepository.gitDirectory, relativePath: "config"),
-                    joinedPath(root: submoduleRepository.gitDirectory, relativePath: "config.worktree"),
-                ]
-            paths.append(contentsOf: gitRepositoryMetadataWatchPaths(
-                repository: submoduleRepository,
-                configPathsByRepository: [submoduleRepository.workTreeRoot: submoduleConfigPaths]
-            ))
+            paths.append(contentsOf: gitRepositoryMetadataWatchPaths(repository: submoduleRepository))
             paths.append(
                 contentsOf: gitlinkMetadataWatchPaths(
                     repository: submoduleRepository,
                     depth: depth + 1,
                     visitedWorkTreeRoots: &visitedWorkTreeRoots,
-                    safetyConfiguration: safetyConfiguration,
-                    configPathsByRepository: configPathsByRepository,
-                    indexSnapshotsByRepository: indexSnapshotsByRepository,
-                    deadline: deadline
+                    safetyConfiguration: safetyConfiguration
                 )
             )
         }

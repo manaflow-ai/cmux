@@ -469,14 +469,11 @@ final class cmuxUITests: XCTestCase {
         capture("onboarding-09-connect-compact-height")
     }
 
-    /// Add Computer (the manual host:port form) is available under every
-    /// connection method: entering the address where a same-account Mac is
-    /// reachable IS discovery for networks Iroh may not find fast enough.
-    /// Regression: the always-on affordance must actually present the form; a
-    /// stale method re-check in the root's showAddDevice() made the tap a
-    /// silent no-op on Auto-Connect setups.
+    /// Manual pairing only authorizes a Tailscale route, so Auto-Connect must
+    /// not expose Add Computer. Switching Settings still reveals the scanner
+    /// owned by the Tailscale method.
     @MainActor
-    func testAutomaticConnectionMethodPresentsAddComputer() throws {
+    func testAutomaticConnectionMethodHidesAddComputer() throws {
         let automaticEnvironment = [
             "CMUX_UITEST_AUTOCONNECT_MIGRATION": "ineligible",
             "CMUX_UITEST_AUTOCONNECT_MIGRATION_ID": UUID().uuidString,
@@ -491,26 +488,57 @@ final class cmuxUITests: XCTestCase {
             app.descendants(matching: .any)["MobileDisconnectedWorkspaceShell"]
                 .waitForExistence(timeout: 12)
         )
-        let addComputerToolbarButton = app.buttons["MobileShowAddDeviceToolbarButton"]
-        XCTAssertTrue(addComputerToolbarButton.waitForExistence(timeout: 4))
-        tap(addComputerToolbarButton, in: app)
+        XCTAssertFalse(app.buttons["MobileShowAddDeviceButton"].exists)
+        XCTAssertFalse(app.buttons["MobileShowAddDeviceToolbarButton"].exists)
+        let automaticDescription = app.descendants(matching: .any)[
+            "MobileDisconnectedEmptyDescription"
+        ]
+        XCTAssertTrue(automaticDescription.waitForExistence(timeout: 4))
+        for requiredFragment in [
+            "cmux 0.64.20 or later",
+            "same cmux account",
+            "keep cmux running on the Mac",
+            "both devices are online",
+            "will not appear automatically",
+        ] {
+            XCTAssertTrue(
+                automaticDescription.label.contains(requiredFragment),
+                "Auto-Connect empty-state copy is missing: \(requiredFragment)"
+            )
+        }
         XCTAssertTrue(
-            app.textFields["MobileAddDeviceHostField"].waitForExistence(timeout: 8),
-            "Add Computer must present the manual pairing form under Auto-Connect."
+            automaticDescription.label.contains(
+                "To use Tailscale instead, open Settings, tap Connection Method, and choose Tailscale Only."
+            )
         )
-        let cancelPairing = app.buttons["MobilePairingCancelButton"]
-        XCTAssertTrue(cancelPairing.waitForExistence(timeout: 4))
-        tap(cancelPairing, in: app)
+
+        let settings = app.buttons["MobileWorkspaceSettingsMenu"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 4))
+        tap(settings, in: app)
+        let picker = app.descendants(matching: .any)["MobileSettingsConnectionMethod"]
+        XCTAssertTrue(picker.waitForExistence(timeout: 4))
+        tap(picker, in: app)
+        let tailscale = app.descendants(matching: .any)[
+            "MobileSettingsConnectionMethodTailscale"
+        ]
+        XCTAssertTrue(tailscale.waitForExistence(timeout: 4))
+        tap(tailscale, in: app)
         XCTAssertTrue(
-            app.textFields["MobileAddDeviceHostField"].waitForNonExistence(timeout: 8)
+            app.buttons["MobileSettingsTailscaleScanButton"].waitForExistence(timeout: 4)
+        )
+
+        let done = app.buttons["MobileSettingsDone"]
+        XCTAssertTrue(done.waitForExistence(timeout: 4))
+        tap(done, in: app)
+        XCTAssertTrue(
+            app.descendants(matching: .any)["MobileSettingsView"]
+                .waitForNonExistence(timeout: 4)
         )
     }
 
     /// An externally supplied Auto-Connect attach ticket may still need an
     /// explicit compatibility approval. That approval must remain reachable
-    /// without restoring any manual Add Computer controls mid-flow. Afterwards,
-    /// Add Computer inside the Computers sheet must hand the modal slot to the
-    /// manual pairing form instead of only dismissing the sheet.
+    /// without restoring any manual Add Computer controls.
     @MainActor
     func testAutomaticAttachVersionApprovalDoesNotExposeManualPairing() async throws {
         let server = try MobileSyncMockHostServer()
@@ -551,25 +579,10 @@ final class cmuxUITests: XCTestCase {
         let devices = app.buttons["MobileWorkspaceDevicesButton"]
         XCTAssertTrue(devices.waitForExistence(timeout: 8))
         tap(devices, in: app)
-        let deviceTree = app.descendants(matching: .any)["MobileDeviceTree"]
-        XCTAssertTrue(deviceTree.waitForExistence(timeout: 4))
-
-        // Regression: on an Auto-Connect (non-Tailscale) setup, tapping Add
-        // Computer inside the Computers sheet silently no-opped — the sheet
-        // dismissed and nothing appeared, because a stale method re-check in
-        // the root's showAddDevice() dropped the presentation the always-on
-        // Add Computer affordance had just requested.
-        let addComputer = app.buttons["MobileComputersAddButton"]
-        XCTAssertTrue(addComputer.waitForExistence(timeout: 4))
-        tap(addComputer, in: app)
         XCTAssertTrue(
-            deviceTree.waitForNonExistence(timeout: 8),
-            "Add Computer must dismiss the Computers sheet before pairing presents."
+            app.descendants(matching: .any)["MobileDeviceTree"].waitForExistence(timeout: 4)
         )
-        XCTAssertTrue(
-            app.textFields["MobileAddDeviceHostField"].waitForExistence(timeout: 8),
-            "Add Computer from the Computers sheet must present the manual pairing form."
-        )
+        XCTAssertFalse(app.buttons["MobileComputersAddButton"].exists)
     }
 
     @MainActor

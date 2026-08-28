@@ -82,34 +82,77 @@ struct CLICodexHookTimeoutRegressionTests {
         })
     }
 
-    @Test func codexWrapperPreservesPersistentSettingsAndInjectsOnlyMissingEvents() throws {
+    @Test func codexWrapperReconcilesPersistentHooksToOneProducerPerEvent() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-codex-settings-preserved-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("cmux-codex-one-producer-\(UUID().uuidString)", isDirectory: true)
         let codexHome = root.appendingPathComponent(".codex", isDirectory: true)
+        let hooksDirectory = root
+            .appendingPathComponent(".cmux", isDirectory: true)
+            .appendingPathComponent("hooks", isDirectory: true)
         try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
 
         let environment = codexHookTestEnvironment(root: root, codexHome: codexHome)
+        let install = runCodexHookProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "install", "--yes"],
+            environment: environment,
+            timeout: 10
+        )
+        #expect(!install.timedOut, Comment(rawValue: install.stderr))
+        #expect(install.status == 0, Comment(rawValue: install.stderr))
+
         let hooksURL = codexHome.appendingPathComponent("hooks.json", isDirectory: false)
-        let configURL = codexHome.appendingPathComponent("config.toml", isDirectory: false)
-        let hooksContent = #"""
-        {"custom":{"format":"must stay exact"},"hooks":{"Stop":[{"hooks":[{"type":"command","command":"cmux hooks codex stop","timeout":5},{"type":"command","command":"/usr/local/bin/user-stop","timeout":42}]}]}}
-        """#
-        let configContent = """
-        model = "gpt-5.5"
-        approval_policy = "on-request"
+        var json = try #require(
+            JSONSerialization.jsonObject(with: Data(contentsOf: hooksURL)) as? [String: Any]
+        )
+        var hookGroups = try #require(json["hooks"] as? [String: Any])
+        var preToolGroups = try #require(hookGroups["PreToolUse"] as? [[String: Any]])
+        preToolGroups.insert(try #require(preToolGroups.first), at: 0)
 
-        [features]
-        hooks = false
+        let legacyStopScript = hooksDirectory
+            .appendingPathComponent("cmux-codex-hook-stop.sh", isDirectory: false)
+        let staleHashedScript = hooksDirectory
+            .appendingPathComponent(
+                "cmux-codex-hook-0123456789abcdef-old-generation.sh",
+                isDirectory: false
+            )
+        let userScript = hooksDirectory
+            .appendingPathComponent("cmux-codex-hook-unrecognized.sh", isDirectory: false)
+        try makeCodexHookExecutableShellFile(at: legacyStopScript, lines: ["#!/bin/sh", "echo '{}'"])
+        try makeCodexHookExecutableShellFile(at: staleHashedScript, lines: ["#!/bin/sh", "echo '{}'"])
+        try makeCodexHookExecutableShellFile(at: userScript, lines: ["#!/bin/sh", "echo user-hook"])
+        let staleDate = Date(timeIntervalSince1970: 0)
+        try FileManager.default.setAttributes(
+            [.modificationDate: staleDate],
+            ofItemAtPath: legacyStopScript.path
+        )
+        try FileManager.default.setAttributes(
+            [.modificationDate: staleDate],
+            ofItemAtPath: staleHashedScript.path
+        )
 
-        [custom]
-        keep = "exactly"
-        """
-        try Data(hooksContent.utf8).write(to: hooksURL, options: .atomic)
-        try Data(configContent.utf8).write(to: configURL, options: .atomic)
-        let hooksBeforeLaunch = try Data(contentsOf: hooksURL)
-        let configBeforeLaunch = try Data(contentsOf: configURL)
+        var stopGroups = try #require(hookGroups["Stop"] as? [[String: Any]])
+        stopGroups.append([
+            "hooks": [[
+                "command": legacyStopScript.path,
+                "timeout": 10_000,
+                "type": "command",
+            ]],
+        ])
+        stopGroups.append([
+            "hooks": [[
+                "command": userScript.path,
+                "timeout": 10_000,
+                "type": "command",
+            ]],
+        ])
+        hookGroups["PreToolUse"] = preToolGroups
+        hookGroups["Stop"] = stopGroups
+        json["hooks"] = hookGroups
+        try JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys])
+            .write(to: hooksURL, options: .atomic)
 
         let emit = runCodexHookProcess(
             executablePath: cliPath,
@@ -121,28 +164,31 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(emit.status == 0, Comment(rawValue: emit.stderr))
 
         let emittedEvents = injectedCodexHookEventNames(emit.stdout)
-        let emittedArguments = emit.stdout.split(separator: "\0").map(String.init)
-        #expect(Array(emittedArguments.prefix(3)) == [
-            "--enable",
-            "hooks",
-            "--dangerously-bypass-hook-trust",
-        ])
-        let expectedInjectedEvents: Set<String> = [
+        let installedHooks = try codexHookEntries(in: codexHome)
+        let wrapperEvents = [
             "SessionStart",
             "UserPromptSubmit",
+            "Stop",
             "PreToolUse",
             "PostToolUse",
             "PermissionRequest",
-            "SubagentStart",
-            "SubagentStop",
         ]
-        #expect(Set(emittedEvents) == expectedInjectedEvents)
-        #expect(emittedEvents.count == expectedInjectedEvents.count)
-
-        let hooksAfterLaunch = try Data(contentsOf: hooksURL)
-        let configAfterLaunch = try Data(contentsOf: configURL)
-        #expect(hooksAfterLaunch == hooksBeforeLaunch)
-        #expect(configAfterLaunch == configBeforeLaunch)
+        for eventName in wrapperEvents {
+            let installedProducerCount = installedHooks.filter {
+                $0.eventName == eventName
+                    && ($0.body.contains("hooks codex ")
+                        || $0.body.contains("hooks feed --source codex"))
+            }.count
+            let emittedProducerCount = emittedEvents.filter { $0 == eventName }.count
+            #expect(
+                installedProducerCount + emittedProducerCount == 1,
+                "Expected one cmux producer for \(eventName), installed=\(installedProducerCount) emitted=\(emittedProducerCount)"
+            )
+        }
+        #expect(installedHooks.contains { $0.command == userScript.path })
+        #expect(!FileManager.default.fileExists(atPath: legacyStopScript.path))
+        #expect(!FileManager.default.fileExists(atPath: staleHashedScript.path))
+        #expect(FileManager.default.fileExists(atPath: userScript.path))
     }
 
     @Test func codexPermissionRequestHandlerPreservesFeedTelemetryAndNeedsInputState() throws {

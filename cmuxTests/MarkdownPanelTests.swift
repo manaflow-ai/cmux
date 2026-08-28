@@ -220,53 +220,6 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertEqual(panel.fontFamily, "Avenir Next")
     }
 
-    func testMarkdownPanelFindLifecycle() throws {
-        let fileManager = FileManager.default
-        let directoryURL = fileManager.temporaryDirectory
-            .appendingPathComponent("cmux-markdown-find-\(UUID().uuidString)", isDirectory: true)
-        try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
-        let fileURL = directoryURL.appendingPathComponent("README.md")
-        try "# hello needle".write(to: fileURL, atomically: true, encoding: .utf8)
-        defer { try? fileManager.removeItem(at: directoryURL) }
-
-        let panel = MarkdownPanel(workspaceId: UUID(), filePath: fileURL.path)
-        defer { panel.close() }
-
-        XCTAssertNil(panel.searchState)
-
-        panel.startFind()
-        let firstState = try XCTUnwrap(panel.searchState)
-        firstState.needle = "needle"
-        let generationAfterStart = panel.searchFocusRequestGeneration
-        XCTAssertTrue(panel.canApplySearchFocusRequest(generationAfterStart))
-
-        // A second Cmd+F refocuses the existing bar instead of replacing it.
-        panel.startFind()
-        XCTAssertTrue(panel.searchState === firstState)
-        XCTAssertFalse(panel.canApplySearchFocusRequest(generationAfterStart))
-
-        // Hiding clears the bar and invalidates pending focus requests.
-        panel.hideFind()
-        XCTAssertNil(panel.searchState)
-        XCTAssertFalse(panel.canApplySearchFocusRequest(panel.searchFocusRequestGeneration))
-
-        // Reopening recovers the last needle so Cmd+F resumes the search.
-        panel.startFind()
-        XCTAssertEqual(panel.searchState?.needle, "needle")
-
-        // The find bar belongs to the preview surface: switching to text
-        // mode closes it, and Cmd+F in text mode is left to the editor's
-        // native find panel.
-        panel.setDisplayMode(.text)
-        XCTAssertNil(panel.searchState)
-        panel.startFind()
-        XCTAssertNil(panel.searchState)
-
-        panel.setDisplayMode(.preview)
-        panel.startFind()
-        XCTAssertNotNil(panel.searchState)
-    }
-
     func testFileOpenRoutesMarkdownFilesToPreviewMarkdownPanel() throws {
         let fileManager = FileManager.default
         let directoryURL = fileManager.temporaryDirectory

@@ -17,26 +17,9 @@ struct WorkspaceUnreadDot: View {
     /// list does not drift right. Indicators are LEADING-aligned in it: the
     /// badge is wider than the dot, and anchoring both to the same left edge
     /// keeps the leading margin identical whether a row shows a dot, a badge,
-    /// or nothing. All overflow goes toward the next element, which every
-    /// surface must reserve through ``layoutGap(afterGutterForDiameter:leftShift:visualGap:)``.
+    /// or nothing. All overflow goes toward the rail, which `WorkspaceRow`'s
+    /// layout math reserves via `badgeDiameter`.
     static let gutterWidth: CGFloat = 10
-
-    /// The width a surface must lay out between the gutter and its next
-    /// element so that element keeps `visualGap` points of daylight from the
-    /// badge's trailing edge. The badge is leading-aligned in the gutter and
-    /// wider than it, so its trailing edge lands `diameter - leftShift` from
-    /// the gutter's leading edge — past the gutter itself. `WorkspaceRow`
-    /// (rail column) and `WorkspaceGroupHeaderRow` (disclosure chevron) both
-    /// space off the badge with this one formula; a surface that skips it puts
-    /// its next element inside the badge's overflow.
-    static func layoutGap(
-        afterGutterForDiameter diameter: Double,
-        leftShift: Double,
-        visualGap: CGFloat
-    ) -> CGFloat {
-        let indicatorTrailing = CGFloat(diameter) - CGFloat(leftShift)
-        return max(0, visualGap + indicatorTrailing - gutterWidth)
-    }
     let unread: MobileWorkspaceUnreadState
     var leftShift: Double = MobileDisplaySettings.defaultUnreadIndicatorLeftShift
     var diameter: Double = MobileDisplaySettings.defaultUnreadBadgeDiameter

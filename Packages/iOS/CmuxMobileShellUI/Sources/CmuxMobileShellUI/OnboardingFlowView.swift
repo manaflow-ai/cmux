@@ -4,8 +4,8 @@ import CmuxMobileShellModel
 import CmuxMobileSupport
 import SwiftUI
 
-/// A short product tour presented after sign-in, ending in same-account
-/// computer discovery, with pairing available for Tailscale.
+/// A short product tour that routes into authentication after the tour, then
+/// same-account computer discovery, with pairing available for Tailscale.
 struct OnboardingFlowView: View {
     let context: OnboardingContext
     let isAuthenticated: Bool

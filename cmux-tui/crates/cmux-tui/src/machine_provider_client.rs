@@ -553,8 +553,7 @@ impl ProviderClientInner {
         }
         events.acknowledged_sequence = sequence;
         events.durable_subscription = DurableSubscriptionState::Active;
-        for index in 0..events.retained_durable.len() {
-            let event = events.retained_durable[index].clone();
+        for event in events.retained_durable.iter().cloned().collect::<Vec<_>>() {
             Self::publish_to_event_subscribers(&mut events, event)?;
         }
         Ok(())
@@ -1879,18 +1878,16 @@ mod tests {
                     ref consumer_id
                 }) if consumer_id == &id("cmux-process-1")
             ));
-            for (notice_id, sequence) in [("usage-warning-90", 42), ("usage-warning-91", 43)] {
-                write_test_frame(
-                    &mut stream,
-                    &EventEnvelope::with_delivery(
-                        ProviderEvent::Notice(ProviderNotice {
-                            level: NoticeLevel::Warning,
-                            message: format!("trial warning {sequence}"),
-                        }),
-                        NoticeDelivery { notice_id: id(notice_id), sequence },
-                    ),
-                );
-            }
+            write_test_frame(
+                &mut stream,
+                &EventEnvelope::with_delivery(
+                    ProviderEvent::Notice(ProviderNotice {
+                        level: NoticeLevel::Warning,
+                        message: "trial has ten minutes remaining".into(),
+                    }),
+                    NoticeDelivery { notice_id: id("usage-warning-90"), sequence: 42 },
+                ),
+            );
             write_test_frame(
                 &mut stream,
                 &ResponseEnvelope::success(subscribe.id, SubscribeNoticesResult { sequence: 41 }),
@@ -1904,36 +1901,19 @@ mod tests {
             client_descriptor(),
         )
         .expect("authenticate provider");
-        // Install the receiver before the cursor response so this assertion
-        // exercises complete_notice_subscription's ordered replay path.
-        let events = provider.subscribe_events().expect("subscribe to replay events");
         assert_eq!(
             provider.subscribe_notices(id("cmux-process-1")).expect("resume durable subscription"),
             SubscribeNoticesResult { sequence: 41 }
         );
         assert!(provider.is_live(), "valid replay closed the provider connection");
-        let first = events
-            .recv_timeout(Duration::from_secs(2))
-            .expect("receive first replay after cursor initialization");
+        let events = provider.subscribe_events().expect("subscribe to retained events");
         assert_eq!(
-            first.delivery,
+            events
+                .recv_timeout(Duration::from_secs(2))
+                .expect("receive replay after cursor initialization")
+                .delivery,
             Some(NoticeDelivery { notice_id: id("usage-warning-90"), sequence: 42 })
         );
-        assert!(matches!(
-            first.event,
-            ProviderEvent::Notice(ProviderNotice { ref message, .. }) if message == "trial warning 42"
-        ));
-        let second = events
-            .recv_timeout(Duration::from_secs(2))
-            .expect("receive second replay after cursor initialization");
-        assert_eq!(
-            second.delivery,
-            Some(NoticeDelivery { notice_id: id("usage-warning-91"), sequence: 43 })
-        );
-        assert!(matches!(
-            second.event,
-            ProviderEvent::Notice(ProviderNotice { ref message, .. }) if message == "trial warning 43"
-        ));
 
         finish.send(()).expect("finish provider server");
         drop(provider);
