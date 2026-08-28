@@ -9,7 +9,7 @@ import SwiftUI
 enum CloudTreeRowGrid {
     /// Width of the outline's disclosure slot; content starts `disclosureGap` after it.
     static let disclosureSlot: CGFloat = 16
-    static let disclosureGap: CGFloat = 6
+    static let disclosureGap: CGFloat = 10
     /// Machine rows: the status dot has its own slot, never adjacent to the chevron.
     static let dotSlot: CGFloat = 10
     static let dotGap: CGFloat = 8
@@ -524,11 +524,16 @@ struct CloudTreeMachineRowContent: View {
             // Finder-like: dot, name, one dim inline fact. Everything else is
             // in the tooltip and the context menu.
             CloudTreeMachineBand(style: style) {
-                // .center, not baseline: the dot is a shape with no baseline and
-                // would ride high against the name otherwise.
+                // No status dot (lawrence, 2026-08-27): the name starts right after
+                // the chevron. A locked (free-window-expired) machine keeps a lock
+                // glyph — that one changes what a click does.
                 HStack(alignment: .center, spacing: CloudTreeRowGrid.dotGap) {
-                    activityDot
-                        .frame(width: CloudTreeRowGrid.dotSlot, alignment: .center)
+                    if machine.freeAccess == .expired {
+                        Image(systemName: "lock.fill")
+                            .font(.system(size: 8, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                            .frame(width: CloudTreeRowGrid.dotSlot, alignment: .center)
+                    }
                     Text(machine.displayName)
                         .cmuxFont(size: style.machineNameSize, weight: style.machineBand ? .semibold : .medium, design: style.fontDesign)
                         .foregroundStyle(.primary)
@@ -547,11 +552,16 @@ struct CloudTreeMachineRowContent: View {
             .accessibilityElement(children: .combine)
             .accessibilityLabel("\(machine.displayName), \(machine.activityLabel)")
         case .twoLine:
-            // Top-aligned: the dot and the outline's chevron both sit on the name line
-            // (see `CloudTreeNSOutlineView.frameOfOutlineCell`), not on the row's middle.
+            // Top-aligned: the chevron sits on the name line (see
+            // `CloudTreeNSOutlineView.frameOfOutlineCell`), not on the row's middle.
+            // No status dot; only the expired lock earns the leading slot.
             HStack(alignment: .top, spacing: CloudTreeRowGrid.dotGap) {
-                activityDot
-                    .frame(width: CloudTreeRowGrid.dotSlot, height: style.machineNameLineHeight, alignment: .center)
+                if machine.freeAccess == .expired {
+                    Image(systemName: "lock.fill")
+                        .font(.system(size: 8, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: CloudTreeRowGrid.dotSlot, height: style.machineNameLineHeight, alignment: .center)
+                }
                 VStack(alignment: .leading, spacing: CloudTreeRowGrid.machineLineSpacing) {
                     Text(machine.displayName)
                         .cmuxFont(size: style.machineNameSize, weight: .medium, design: style.fontDesign)
@@ -582,30 +592,6 @@ struct CloudTreeMachineRowContent: View {
             .padding(.trailing, CloudTreeRowGrid.trailingPadding)
             .accessibilityElement(children: .combine)
             .accessibilityLabel("\(machine.displayName), \(machine.activityLabel)")
-        }
-    }
-
-    @ViewBuilder
-    private var activityDot: some View {
-        if machine.freeAccess == .expired {
-            Image(systemName: "lock.fill")
-                .font(.system(size: 8, weight: .semibold))
-                .foregroundStyle(.secondary)
-        } else {
-            Circle()
-                .fill(dotColor)
-                .frame(width: 7, height: 7)
-        }
-    }
-
-    /// The one colored element in the monochrome trees: the sidebar's semantic
-    /// status colors (running, pending, needs attention), so a glance still
-    /// answers "is it up".
-    private var dotColor: Color {
-        switch machine.activity {
-        case .ready: return Color.green.opacity(0.85)
-        case .pending: return Color.orange.opacity(0.9)
-        case .attention: return Color.red.opacity(0.85)
         }
     }
 

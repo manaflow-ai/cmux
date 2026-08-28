@@ -457,6 +457,16 @@ final class MachinesPanelModelTests: XCTestCase {
         XCTAssertTrue(flattened[0].isMachineRow)
         XCTAssertTrue(flattened[3].isMachineRow)
         XCTAssertEqual(flattened[3].machine, .cloud("vivid-newt"))
+        // Only terminals and displays leave the tree by drag; workspaces,
+        // browsers, machines, and headers do not.
+        for node in flattened {
+            switch node.kind {
+            case .terminal, .display:
+                XCTAssertTrue(node.isDragSource, "\(node.id) should drag")
+            default:
+                XCTAssertFalse(node.isDragSource, "\(node.id) should not drag")
+            }
+        }
     }
 
     func testCloudTreeLocalBrowsersGroupAndEmptyLocalPlaceholder() {
