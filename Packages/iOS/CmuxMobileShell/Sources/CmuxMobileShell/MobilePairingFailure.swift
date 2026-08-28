@@ -378,7 +378,7 @@ extension MobilePairingFailureCategory {
         case .hostUnreachable, .dnsFailed, .handshakeTimedOut:
             return L10n.string(
                 "mobile.pairing.guidance.reachability",
-                defaultValue: "Iroh reconnects automatically. For a saved private-network fallback, connect both devices to that network, wake the Mac, and open cmux."
+                defaultValue: "cmux reconnects automatically over the relay. Wake the Mac, keep cmux open on it, and check that it is online."
             )
         case .listenerNotRunning, .connectionDropped:
             return L10n.string(

@@ -154,18 +154,6 @@ extension MobileShellComposite {
         // discovery snapshot for those Macs before recovery dials, so the
         // next dial rebuilds its plan from a fresh broker fetch instead of
         // redialing corpse route state (docs/transport-plane.md, D5).
-        if let personalIrohDiscovery {
-            var invalidatedDeviceIDs = Set<String>()
-            for instance in hostInstances where instance.routes?.isEmpty == false {
-                let deviceID = cmxCanonicalDeviceID(instance.deviceId)
-                guard invalidatedDeviceIDs.insert(deviceID).inserted else {
-                    continue
-                }
-                await personalIrohDiscovery.invalidateDiscovery(
-                    forMacDeviceID: instance.deviceId
-                )
-            }
-        }
         await performSerializedPairedMacWrite(ifStillCurrent: nil) { [weak self] in
             guard let self, await self.isScopeCurrent(scope) else { return }
             // Presence can arrive after another path paired or restored a Mac
@@ -219,7 +207,7 @@ extension MobileShellComposite {
         let evidenceChanged = lastPresenceReconnectEvidence?.scope != scope
             || lastPresenceReconnectEvidence?.instances != reconnectEvidence
         lastPresenceReconnectEvidence = (scope, reconnectEvidence)
-        var shouldRecover = personalIrohDiscovery != nil
+        var shouldRecover = false
         if let activeMac = pairedMacs.first(where: { $0.isActive }) {
             let activeIDs = pairedMacAliasIDs(
                 for: activeMac.macDeviceID,

@@ -3,7 +3,7 @@ import CmuxMobileShellModel
 import CmuxMobileSupport
 import SwiftUI
 
-/// The Auto-Connect vs Tailscale choice on the onboarding connect page.
+/// The Relay vs Tailscale choice on the onboarding connect page.
 /// Selection persists through the shared connection-method store, so the
 /// Settings picker shows the same value afterward.
 struct OnboardingConnectionMethodPicker: View {
@@ -14,17 +14,17 @@ struct OnboardingConnectionMethodPicker: View {
     var body: some View {
         VStack(spacing: density.pickerOptionSpacing) {
             optionCard(
-                .automatic,
+                .relay,
                 title: L10n.string(
-                    "mobile.onboarding.connect.method.automatic",
-                    defaultValue: "Iroh"
+                    "mobile.connections.method.relay",
+                    defaultValue: "Relay"
                 ),
                 subtitle: L10n.string(
-                    "mobile.onboarding.connect.method.automaticDetail",
-                    defaultValue: "Requires cmux 0.64.20 or later on your Mac."
+                    "mobile.onboarding.connect.method.relayDetail",
+                    defaultValue: "Works from any network. No setup required."
                 ),
                 systemImage: "bolt.fill",
-                accessibilityIdentifier: "MobileOnboardingConnectionMethodAutomatic"
+                accessibilityIdentifier: "MobileOnboardingConnectionMethodRelay"
             )
             optionCard(
                 .tailscale,

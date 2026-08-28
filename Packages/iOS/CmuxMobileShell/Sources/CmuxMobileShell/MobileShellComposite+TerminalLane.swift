@@ -9,23 +9,17 @@ extension MobileShellComposite {
               terminalOutputTransport != .renderGrid,
               terminalByteContinuationsBySurfaceID[surfaceID] != nil,
               let activeRoute,
-              activeRoute.kind == .iroh,
               let activeTicket else {
             return
         }
-        // A lane request can redial the peer session, so it must carry the
-        // same method-pinned allowlist as the control dial or a Direct or
-        // Tailscale Only Computer's lane reconnect could ride relay or
-        // discovered paths the method forbids.
+        // Lanes exist only where the composition wired a lane provider; today
+        // none is wired (the iroh lane is gone), so this body is inert until
+        // the relay's reserved raw terminal channel lands a provider.
         let request = CmxByteTransportRequest(
             route: activeRoute,
             expectedPeerDeviceID: activeTicket.macDeviceID,
             authorizationMode: .transportAdmission,
-            sessionPurpose: .featureLane,
-            irohDirectOnlyDialCandidates: irohMethodPinnedDialCandidates(
-                forMacDeviceID: activeTicket.macDeviceID,
-                instanceTag: activeMacInstanceTag
-            )
+            sessionPurpose: .featureLane
         )
         let connectionGeneration = connectionGeneration
         let lifecycleID = terminalLaneLifecycleID

@@ -8,7 +8,7 @@ import SwiftUI
 
 /// The Computers screen: the user's Computers — paired Mac app instances
 /// (device + build) — each shown once, grouped under the connection method
-/// that Computer is configured to use (Iroh or Tailscale, set per Computer in
+/// that Computer is configured to use (Relay or Tailscale, set per Computer in
 /// its configuration). The main workspace list owns the Mac picker; this
 /// screen manages the saved set and lets users inspect one or choose whether
 /// it appears on this iPhone. The data is the durable-object–backed device
@@ -202,11 +202,11 @@ struct DeviceTreeView: View {
         return showAddDevice != nil
             ? L10n.string(
                 "mobile.connections.empty",
-                defaultValue: "No computers yet. Iroh finds Macs running cmux 0.64.20 or later. Both devices must be signed in to the same cmux account, and the Mac must keep cmux running while both devices are online. If any requirement is missing, the Mac will not appear automatically. To use Tailscale instead, open Settings, tap Connection Method, and choose Tailscale Only."
+                defaultValue: "No computers yet. Sign in to cmux on your Mac with the same account and keep it running; it appears here automatically. To use Tailscale instead, open the computer's page and set Connection Method to Tailscale Only."
             )
             : L10n.string(
                 "mobile.devices.emptyDescription",
-                defaultValue: "For Iroh to find a Mac, run cmux 0.64.20 or later on the Mac, sign in to cmux on both devices with the same account, and keep cmux running on the Mac while both devices are online. If any requirement is missing, the Mac will not appear automatically. To use Tailscale instead, open Settings, tap Connection Method, and choose Tailscale Only."
+                defaultValue: "To see a Mac here, run cmux on it, sign in to cmux on both devices with the same account, and keep cmux running on the Mac while both devices are online. To use Tailscale instead, open the computer's page and set Connection Method to Tailscale Only."
             )
     }
 

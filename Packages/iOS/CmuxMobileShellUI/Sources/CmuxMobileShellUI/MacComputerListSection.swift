@@ -17,40 +17,33 @@ struct MacComputerListSection: Equatable, Identifiable {
 
     /// Group per-Computer snapshots by their configured connection method,
     /// preserving the input (last-seen-newest-first) order within each
-    /// section. Only non-empty sections are returned, Iroh first.
+    /// section. Only non-empty sections are returned, Relay first.
     static func sections(from snapshots: [MacComputerSnapshot]) -> [MacComputerListSection] {
         var byMethod: [MobileConnectionMethod: [MacComputerSnapshot]] = [:]
         for snapshot in snapshots {
-            byMethod[snapshot.connectionMethod ?? .automatic, default: []].append(snapshot)
+            byMethod[snapshot.connectionMethod ?? .relay, default: []].append(snapshot)
         }
-        return [MobileConnectionMethod.automatic, .tailscale, .direct, .relay].compactMap { method in
+        return [MobileConnectionMethod.relay, .tailscale].compactMap { method in
             byMethod[method].map { MacComputerListSection(method: method, computers: $0) }
         }
     }
 }
 
 extension MobileConnectionMethod {
-    /// User-facing name of the connection method ("Iroh"/"Tailscale"/"Direct").
+    /// User-facing name of the connection method ("Relay"/"Tailscale").
     var mobileConnectionMethodName: String {
         switch self {
-        case .automatic:
-            L10n.string("mobile.connections.method.iroh", defaultValue: "Iroh")
         case .tailscale:
             L10n.string("mobile.connections.method.tailscale", defaultValue: "Tailscale")
-        case .direct:
-            L10n.string("mobile.connections.method.direct", defaultValue: "Direct")
         case .relay:
             L10n.string("mobile.connections.method.relay", defaultValue: "Relay")
         }
     }
 
-    /// The route kind this method dials; Direct dials user-entered addresses
-    /// instead of an advertised route kind.
+    /// The route kind this method dials.
     var routeKind: CmxAttachTransportKind? {
         switch self {
-        case .automatic: .iroh
         case .tailscale: .tailscale
-        case .direct: nil
         case .relay: .websocket
         }
     }

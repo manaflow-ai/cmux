@@ -25,7 +25,6 @@ struct MobileSettingsView: View {
     @Environment(MobileConnectionMethodStore.self) private var connectionMethodStore:
         MobileConnectionMethodStore?
     @Environment(ToastCenter.self) private var toasts
-    @Environment(\.irohSettingsController) private var irohSettingsController
     @Environment(\.mobileDiagnosticLog) private var diagnosticLog
     let connectedHostName: String
     let startPairingScanner: (() -> Void)?
@@ -183,22 +182,6 @@ struct MobileSettingsView: View {
                     .accessibilityIdentifier("MobileSettingsHowPairingWorks")
                 }
 
-                if let irohSettingsController {
-                    Section(L10n.string("mobile.settings.networking", defaultValue: "Networking")) {
-                        NavigationLink {
-                            MobileIrohSettingsView(
-                                controller: irohSettingsController,
-                                diagnosticLog: diagnosticLog
-                            )
-                        } label: {
-                            Label(
-                                L10n.string("mobile.settings.iroh", defaultValue: "Networking"),
-                                systemImage: "network"
-                            )
-                        }
-                        .accessibilityIdentifier("MobileSettingsIroh")
-                    }
-                }
 
                 Section(L10n.string("mobile.settings.terminal", defaultValue: "Terminal")) {
                     Toggle(isOn: $displaySettings.showAltScreenNotice) {

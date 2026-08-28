@@ -975,13 +975,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// reconnect uses the locally persisted paired-Mac routes, so pairing
     /// survives the cloud registry being down.
     let deviceRegistry: (any DeviceRegistryRefreshing)?
-    /// Live same-account Iroh discovery. This is distinct from route refresh so
-    /// only a current broker response may initiate a first pairing.
-    let personalIrohDiscovery: (any MobileIrohMacDiscovering)?
-    /// Revokes a hidden computer's account bindings when the user forgets it.
-    /// Optional so tests and non-iOS hosts run without the transport graph; when
-    /// `nil`, the Forget action is a no-op and the row stays put.
-    let personalIrohForget: (any MobileIrohMacForgetting)?
     /// Live presence subscription (the `workers/presence` Durable Object edge).
     /// Optional and failure-tolerant like the registry: when `nil` or down, the
     /// device tree simply keeps its registry "last seen" hints.
@@ -1671,8 +1664,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         buildCompatibilityPolicy: MobileMacBuildCompatibilityPolicy? = nil,
         pairedMacRestoreBoundary: PairedMacRestoreBoundary? = nil,
         deviceRegistry: (any DeviceRegistryRefreshing)? = nil,
-        personalIrohDiscovery: (any MobileIrohMacDiscovering)? = nil,
-        personalIrohForget: (any MobileIrohMacForgetting)? = nil,
         presence: (any PresenceSubscribing)? = nil,
         clientIDRepository: MobileClientIDRepository = MobileClientIDRepository(defaults: .standard),
         identityProvider: (any MobileIdentityProviding)? = nil,
@@ -1727,8 +1718,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.macInstanceTagAuthority = MobileMacInstanceTagAuthority()
         self.pairedMacRestoreBoundary = pairedMacRestoreBoundary
         self.deviceRegistry = deviceRegistry
-        self.personalIrohDiscovery = personalIrohDiscovery
-        self.personalIrohForget = personalIrohForget
         self.presence = presence
         self.identityProvider = identityProvider
         self.teamIDProvider = teamIDProvider
@@ -2968,7 +2957,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 !irohReconnectIsBlocked || $0.kind != .iroh
             }
             let localHasIroh = localRoutes.contains { $0.kind == .iroh }
-            let localCanConnectSecurely = localHasIroh
+            // A relay-method pairing needs no locally persisted route: the
+            // WebSocket route is synthesized at connect time, so the dial is
+            // always possible.
+            let localCanConnectSecurely = connectionMethod(for: mac) == .relay
+                || localHasIroh
                 || localRoutes.contains { $0.kind == .debugLoopback }
                 || localRoutes.contains { route in
                     Self.legacyTailscaleAuthorizationEvidence(
@@ -3037,53 +3030,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // development fleet, so only ask for zero-touch candidates after every
         // saved candidate failed. This keeps a healthy saved Mac from sitting
         // behind an unrelated account-wide discovery request.
-        var zeroTouchCandidates: [MobilePairedMac] = []
-        if connectionState != .connected, !tailscaleOnly,
-           !automaticIrohReconnectIsBlocked(accountID: scope.userID) {
-            zeroTouchCandidates = await discoverZeroTouchIrohCandidates(
-                scope: scope,
-                generation: generation,
-                excluding: Set(candidates.map {
-                    MobilePairedMac.pairingID(
-                        macDeviceID: $0.macDeviceID,
-                        instanceTag: $0.instanceTag
-                    )
-                })
-            )
-            guard generation == storedMacReconnectGeneration else {
-                return .superseded
-            }
-            guard await isScopeCurrent(scope) else {
-                finishStoredMacReconnectAttempt(generation: generation)
-                return .superseded
-            }
-            for mac in zeroTouchCandidates {
-                guard generation == storedMacReconnectGeneration,
-                      await isScopeCurrent(scope),
-                      await !isHiddenMacDeviceID(
-                          mac.macDeviceID,
-                          instanceTag: mac.instanceTag,
-                          scope: scope
-                      ) else { break }
-                let routes = storedReconnectRoutes(mac)
-                attemptedAutomaticIroh = attemptedAutomaticIroh
-                    || routes.contains { $0.kind == .iroh }
-                lastDialOutcome = await connectStoredMacOutcome(
-                    name: mac.displayName ?? mac.macDeviceID,
-                    routes: routes,
-                    pairedMacDeviceID: mac.macDeviceID,
-                    instanceTag: mac.instanceTag,
-                    legacyTailscaleRoutes: mac.legacyTailscaleRoutes ?? [],
-                    automaticReconnectAccountID: scope.userID,
-                    knownPairing: mac,
-                    ifStillCurrent: { [weak self] in
-                        self?.storedMacReconnectGeneration == generation
-                    }
-                )
-                if connectionState == .connected { break }
-            }
-        }
-        if candidates.isEmpty, zeroTouchCandidates.isEmpty {
+        if candidates.isEmpty {
             if !hasKnownStoredMac, !irohReconnectIsBlocked {
                 setHasKnownPairedMac(false, generation: generation)
             }
@@ -3840,14 +3787,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             macDeviceID: macDeviceID,
             instanceTag: instanceTag
         ) {
-            if await warmIrohFocusCandidateIsAuthorized(promotableOwnerKey),
-               focusWarmIrohPeer(
-                promotableOwnerKey,
-                switchAttemptID: switchAttemptID
-               ) {
-                macSwitchRestoreBaseline = nil
-                return true
-            }
             switch await promoteSecondaryToForegroundOutcome(
                 promotableOwnerKey,
                 switchAttemptID: switchAttemptID
@@ -3957,7 +3896,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             supportedKinds: supportedKinds
         )
         let localHasIroh = candidateRoutes.contains { $0.kind == .iroh }
-        let localCanConnectSecurely = localHasIroh
+        // Same relay rule as the stored-Mac loop: the relay route is
+        // synthesized at connect time, so a relay-method pairing always dials.
+        let localCanConnectSecurely = connectionMethod(for: refreshedTarget) == .relay
+            || localHasIroh
             || candidateRoutes.contains { $0.kind == .debugLoopback }
             || candidateRoutes.contains { route in
                 Self.legacyTailscaleAuthorizationEvidence(
@@ -4850,16 +4792,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     ) async -> SecondaryClientAttempt {
         guard let runtime else { return .permanentFailure }
         let supportedKinds = runtime.supportedRouteKinds
-        // Background control obeys the per-Computer method allowlist exactly
-        // like the foreground dial: pinned addresses only, fail closed.
-        let directOnlyCandidates = irohMethodPinnedDialCandidates(
-            forMacDeviceID: mac.macDeviceID,
-            instanceTag: mac.instanceTag,
-            knownPairing: mac
-        )
-        if let directOnlyCandidates, directOnlyCandidates.isEmpty {
-            return .permanentFailure
-        }
         let pinnedRoutes = orderedReconnectRoutes(
             for: mac,
             supportedKinds: supportedKinds
@@ -4963,7 +4895,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             ticket: ticket,
             allowsStackAuthFallback: MobileShellRouteAuthPolicy.routeAllowsStackAuth(route),
             legacyTailscaleAuthorizationEvidence: legacyTailscaleAuthorizationEvidence,
-            irohDirectOnlyDialCandidates: directOnlyCandidates,
             connectAttemptRegistry: connectAttemptRegistry,
             stackTokenGate: stackTokenGate,
             stackTokenForceRefreshGate: stackTokenForceRefreshGate,
@@ -5268,15 +5199,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                   remoteClient != nil,
                   let scope = await currentScopeSnapshot(),
                   await isAggregationScopeValid(scope) else { return }
-            let loadedMacs = (try? await pairedMacStore.loadAll(
-                stackUserID: scope.userID,
-                teamID: scope.teamID
-            )) ?? []
-            guard await isAggregationScopeValid(scope) else { return }
-            await establishDiscoveredSecondaryIrohMacs(
-                scope: scope,
-                excluding: loadedMacs
-            )
             return
         }
         let retryEvidenceGenerationAtStart =
@@ -5605,18 +5527,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // compatibility check. A future presence/backup/account edge can
             // attempt it again; no background timer should poll it.
             secondaryAggregationRetryState.reset()
-        }
-        if discoverLivePeers, onlyMacDeviceIDs == nil {
-            if allowsNewConnections {
-                await establishDiscoveredSecondaryIrohMacs(
-                    scope: scope,
-                    excluding: loadedMacs
-                )
-            } else {
-                // Preserve the explicit foreground/refresh discovery request
-                // until the shared connection cooldown permits new dials.
-                secondaryIrohDiscoveryPending = true
-            }
         }
     }
 
@@ -9216,7 +9126,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         allowsStackAuthFallback: Bool? = nil,
         legacyTailscaleRoutes: [CmxAttachRoute] = [],
         userTailscalePairingAuthorizations: [CmxUserTailscalePairingAuthorization] = [],
-        directOnlyDialCandidates: [CmxIrohDirectDialCandidate]? = nil,
         pairedMacDeviceID: String? = nil,
         instanceTagExpectation: MobileMacInstanceTagExpectation = .adopt,
         ifStillCurrent: (() -> Bool)? = nil
@@ -9253,29 +9162,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalInputRPCPipeline.clear()
         resumeRawTerminalInputDrainWaiters()
         let supportedKinds = runtime?.supportedRouteKinds ?? []
-        // Per-Computer Direct enforcement: stored-Mac reconnects resolve the
-        // allowlist from their freshly loaded row and pass it in; ticket
-        // dials resolve it here from the published pairing list, using the
-        // caller's pairing identity so a sibling build sharing the device id
-        // cannot supply the wrong method. `nil` means the target's method
-        // pins no addresses (automatic, or a legacy pairing without an Iroh
-        // identity).
-        let directOnlyDialCandidates = directOnlyDialCandidates
-            ?? irohMethodPinnedDialCandidates(
-                forMacDeviceID: requestedMacDeviceID ?? ticket.macDeviceID,
-                instanceTag: instanceTagExpectation.expectedTag
-            )
         let supportedRoutes = supportedRoutes(
             for: ticket,
             supportedKinds: supportedKinds,
             legacyTailscaleRoutes: legacyTailscaleRoutes,
             userTailscalePairingAuthorizations: userTailscalePairingAuthorizations,
-            directOnly: directOnlyDialCandidates != nil,
             pairedMacDeviceID: requestedMacDeviceID,
             instanceTag: instanceTagExpectation.expectedTag
         )
-        guard directOnlyDialCandidates?.isEmpty != true,
-              let firstRoute = supportedRoutes.first else {
+        guard let firstRoute = supportedRoutes.first else {
             // No route kind this build can dial: set the specific category;
             // the caller records the matching analytics reason from it.
             connectionError = MobilePairingFailureCategory.noSupportedRoute.message
@@ -9557,7 +9452,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     ?? MobileShellRouteAuthPolicy.routeAllowsStackAuth(route),
                 legacyTailscaleAuthorizationEvidence: legacyTailscaleAuthorizationEvidence,
                 userTailscalePairingAuthorization: userTailscalePairingAuthorization,
-                irohDirectOnlyDialCandidates: directOnlyDialCandidates,
                 connectAttemptRegistry: connectAttemptRegistry,
                 stackTokenGate: stackTokenGate,
                 stackTokenForceRefreshGate: stackTokenForceRefreshGate,
@@ -9958,21 +9852,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         || failure == .accountMismatch {
                         recordHostAuthenticationFailure(route: route, failure: failure)
                     }
-                    // An unreachable-class iroh route failure is staleness
-                    // evidence: drop any reusable discovery snapshot for this
-                    // Mac so the NEXT attempt rebuilds its dial plan from a
-                    // fresh broker fetch instead of redialing a corpse route.
-                    // The transport pool reports most dial failures itself,
-                    // but this request deadline cancels an in-flight dial (the
-                    // pool then sees only a cancellation), so the owner that
-                    // classified the outcome reports it too.
-                    if route.kind == .iroh,
-                       !ticket.macDeviceID.isEmpty,
-                       Self.routeFailureIndicatesStaleDiscovery(failure) {
-                        await personalIrohDiscovery?.invalidateDiscovery(
-                            forMacDeviceID: ticket.macDeviceID
-                        )
-                    }
                 }
             }
             // This route exhausted every workspace-list request without being
@@ -10004,7 +9883,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         supportedKinds: [CmxAttachTransportKind],
         legacyTailscaleRoutes: [CmxAttachRoute] = [],
         userTailscalePairingAuthorizations: [CmxUserTailscalePairingAuthorization] = [],
-        directOnly: Bool = false,
         pairedMacDeviceID: String? = nil,
         instanceTag: String? = nil
     ) -> [CmxAttachRoute] {
@@ -10032,13 +9910,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             forMacDeviceID: pairedMacDeviceID ?? ticket.macDeviceID,
             instanceTag: instanceTag
         )
-        // Direct rides the Iroh lane EXCLUSIVELY (identity-checked,
-        // encrypted; the transport dials only the user-enabled addresses):
-        // no dev loopback and no host/port lane, so an unusable allowlist
-        // fails closed instead of switching paths.
-        if directOnly || ticketMethod == .direct {
-            return supportedRoutes.filter { $0.kind == .iroh }
-        }
         // Relay is just as exclusive: one synthesized WebSocket route to the
         // cmux relay, nothing else, and no other method ever adds it. The
         // route is synthesized (never advertised by the Mac) because the dial

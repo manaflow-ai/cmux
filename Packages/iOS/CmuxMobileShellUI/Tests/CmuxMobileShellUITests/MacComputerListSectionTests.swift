@@ -6,32 +6,32 @@ import Testing
 
 @Suite struct MacComputerListSectionTests {
     @Test func computersGroupUnderTheirOwnConnectionMethod() {
-        let irohMac = snapshot(deviceId: "mac-iroh", method: .automatic)
+        let relayMac = snapshot(deviceId: "mac-relay", method: .relay)
         let tailscaleMac = snapshot(deviceId: "mac-ts", method: .tailscale)
 
-        let sections = MacComputerListSection.sections(from: [tailscaleMac, irohMac])
+        let sections = MacComputerListSection.sections(from: [tailscaleMac, relayMac])
 
-        #expect(sections.map(\.method) == [.automatic, .tailscale])
-        #expect(sections[0].computers.map(\.deviceId) == ["mac-iroh"])
+        #expect(sections.map(\.method) == [.relay, .tailscale])
+        #expect(sections[0].computers.map(\.deviceId) == ["mac-relay"])
         #expect(sections[1].computers.map(\.deviceId) == ["mac-ts"])
     }
 
     @Test func emptyMethodSectionsAreOmitted() {
         let sections = MacComputerListSection.sections(from: [
-            snapshot(deviceId: "mac-1", method: .automatic),
-            snapshot(deviceId: "mac-2", method: .automatic),
+            snapshot(deviceId: "mac-1", method: .relay),
+            snapshot(deviceId: "mac-2", method: .relay),
         ])
 
-        #expect(sections.map(\.method) == [.automatic])
+        #expect(sections.map(\.method) == [.relay])
         #expect(sections[0].computers.count == 2)
     }
 
-    @Test func methodlessSnapshotsFallToTheIrohSection() {
+    @Test func methodlessSnapshotsFallToTheRelaySection() {
         let sections = MacComputerListSection.sections(from: [
             snapshot(deviceId: "mac-1", method: nil)
         ])
 
-        #expect(sections.map(\.method) == [.automatic])
+        #expect(sections.map(\.method) == [.relay])
     }
 
     private func snapshot(

@@ -29,12 +29,6 @@ struct MacComputerDetailView: View {
     /// dismissing it lands back here. The scanner is one tap away inside.
     @State private var showsAddTailscaleConnection = false
     @Environment(\.dismiss) private var dismiss
-    @State private var newDirectAddress = ""
-    @State private var newDirectAddressLabel = ""
-    @State private var showsAddDirectAddress = false
-    /// The id of the Direct address being edited in the shared add/edit
-    /// alert; `nil` means the alert is adding a new entry.
-    @State private var editingDirectAddressID: String?
     /// Optimistic method selection: moves the picker the moment the user taps
     /// while the persist + store reload reconcile the authoritative value.
     @State private var pendingConnectionMethod: MobileConnectionMethod?
@@ -125,110 +119,6 @@ struct MacComputerDetailView: View {
         .navigationTitle(displayTitle)
         .navigationBarTitleDisplayMode(.inline)
         .alert(
-            editingDirectAddressID == nil
-                ? L10n.string("mobile.connections.direct.add", defaultValue: "Add Address")
-                : L10n.string("mobile.connections.direct.edit", defaultValue: "Edit Address"),
-            isPresented: $showsAddDirectAddress
-        ) {
-            TextField(
-                L10n.string(
-                    "mobile.connections.direct.addPlaceholder",
-                    defaultValue: "Address or address:port"
-                ),
-                text: $newDirectAddress
-            )
-            .textInputAutocapitalization(.never)
-            .autocorrectionDisabled()
-            .keyboardType(.URL)
-            .accessibilityIdentifier("MobileComputerDirectAddressField")
-            TextField(
-                L10n.string(
-                    "mobile.connections.direct.labelPlaceholder",
-                    defaultValue: "Label (optional)"
-                ),
-                text: $newDirectAddressLabel
-            )
-            .accessibilityIdentifier("MobileComputerDirectAddressLabelField")
-            Button(editingDirectAddressID == nil
-                ? L10n.string("mobile.connections.direct.addConfirm", defaultValue: "Add")
-                : L10n.string("mobile.common.save", defaultValue: "Save")
-            ) {
-                saveDirectAddress()
-            }
-            .disabled(parsedNewDirectAddress == nil)
-            Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel"), role: .cancel) {
-                editingDirectAddressID = nil
-            }
-        } message: {
-            Text(L10n.string(
-                "mobile.connections.direct.addMessage",
-                defaultValue: "A numeric IP where this computer is reachable, like 192.168.1.20 or 192.168.1.20:64000. Without a port, the Mac's advertised port is used."
-            ))
-        }
-        .confirmationDialog(
-            L10n.string(
-                "mobile.connections.route.deleteComputer.title",
-                defaultValue: "Delete this computer?"
-            ),
-            isPresented: Binding(
-                get: { pendingLastRouteRemoval != nil },
-                set: { if !$0 { pendingLastRouteRemoval = nil } }
-            ),
-            titleVisibility: .visible
-        ) {
-            Button(
-                L10n.string(
-                    "mobile.connections.route.deleteComputer.confirm",
-                    defaultValue: "Delete Computer"
-                ),
-                role: .destructive
-            ) {
-                guard let route = pendingLastRouteRemoval else { return }
-                pendingLastRouteRemoval = nil
-                Task {
-                    let removed = await store.removeRoute(
-                        route,
-                        macDeviceID: macDeviceID,
-                        instanceTag: instanceTag,
-                        deleteComputerIfLastRoute: true
-                    )
-                    if removed { dismiss() }
-                }
-            }
-            Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel"), role: .cancel) {
-                pendingLastRouteRemoval = nil
-            }
-        } message: {
-            Text(L10n.string(
-                "mobile.connections.route.deleteComputer.message",
-                defaultValue: "This is the last route. Deleting it will delete this computer record. You can reconnect later by pairing this computer again."
-            ))
-        }
-        .confirmationDialog(
-            L10n.string(
-                "mobile.connections.forget.confirmTitle",
-                defaultValue: "Forget this computer?"
-            ),
-            isPresented: $showsForgetComputer,
-            titleVisibility: .visible
-        ) {
-            Button(
-                L10n.string(
-                    "mobile.connections.forget.confirm",
-                    defaultValue: "Forget Computer"
-                ),
-                role: .destructive
-            ) {
-                forgetComputer()
-            }
-            Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel"), role: .cancel) {}
-        } message: {
-            Text(L10n.string(
-                "mobile.computers.forget.confirmMessage",
-                defaultValue: "It's removed from all your devices. If it's still online, it reappears the next time it connects."
-            ))
-        }
-        .alert(
             L10n.string(
                 "mobile.connections.forget.failureTitle",
                 defaultValue: "Couldn't forget computer"
@@ -281,10 +171,10 @@ struct MacComputerDetailView: View {
     // MARK: - Connection configuration
 
     /// This Computer's own networking configuration: the connection method it
-    /// dials (Iroh or Tailscale) and its private network addresses. Both are
-    /// per (device, build) and local to this iPhone.
+    /// dials (Relay by default, or Tailscale Only), per (device, build) and
+    /// local to this iPhone.
     private var selectedMethod: MobileConnectionMethod {
-        pairedMac.map { store.connectionMethod(for: $0) } ?? .automatic
+        pairedMac.map { store.connectionMethod(for: $0) } ?? .relay
     }
 
     /// The Settings connection-method UI, moved here verbatim (same picker
@@ -304,29 +194,17 @@ struct MacComputerDetailView: View {
                 )
             ) {
                 Text(L10n.string(
-                    "mobile.settings.connectionMethod.automatic",
-                    defaultValue: "Iroh"
+                    "mobile.connections.method.relay",
+                    defaultValue: "Relay"
                 ))
-                .tag(MobileConnectionMethod.automatic)
-                .accessibilityIdentifier("MobileComputerConnectionMethodIroh")
+                .tag(MobileConnectionMethod.relay)
+                .accessibilityIdentifier("MobileComputerConnectionMethodRelay")
                 Text(L10n.string(
                     "mobile.settings.connectionMethod.tailscale",
                     defaultValue: "Tailscale Only"
                 ))
                 .tag(MobileConnectionMethod.tailscale)
                 .accessibilityIdentifier("MobileComputerConnectionMethodTailscale")
-                Text(L10n.string(
-                    "mobile.connections.method.direct",
-                    defaultValue: "Direct"
-                ))
-                .tag(MobileConnectionMethod.direct)
-                .accessibilityIdentifier("MobileComputerConnectionMethodDirect")
-                Text(L10n.string(
-                    "mobile.connections.method.relay",
-                    defaultValue: "Relay"
-                ))
-                .tag(MobileConnectionMethod.relay)
-                .accessibilityIdentifier("MobileComputerConnectionMethodRelay")
             }
             .accessibilityIdentifier("MobileComputerConnectionMethod")
             // Tailscale Only with no authorized route for THIS computer is
@@ -365,203 +243,6 @@ struct MacComputerDetailView: View {
             Text(connectionMethodFooterText)
         }
 
-        if (pendingConnectionMethod ?? selectedMethod) == .direct {
-            directAddressesSection
-        }
-    }
-
-    /// The Computer's Direct dial candidates: a multi-selectable list — each
-    /// enabled row is a candidate, dialed in order — plus an add field.
-    /// Entries accept `host` or `host:port`; without a port the Mac's
-    /// advertised listener port is dialed (one listener serves all methods).
-    @ViewBuilder
-    private var directAddressesSection: some View {
-        Section {
-            ForEach(directAddressDrafts) { entry in
-                Button {
-                    toggleDirectAddress(entry)
-                } label: {
-                    HStack(spacing: 12) {
-                        Image(systemName: entry.enabled ? "checkmark.circle.fill" : "circle")
-                            .font(.title2)
-                            .foregroundStyle(entry.enabled ? Color.accentColor : Color(.tertiaryLabel))
-                        VStack(alignment: .leading, spacing: 2) {
-                            if let label = entry.label, !label.isEmpty {
-                                Text(label)
-                                    .font(.body)
-                                    .foregroundStyle(.primary)
-                                Text(entry.id)
-                                    .font(.footnote.monospaced())
-                                    .foregroundStyle(.secondary)
-                            } else {
-                                Text(entry.id)
-                                    .font(.body.monospaced())
-                                    .foregroundStyle(.primary)
-                            }
-                        }
-                        Spacer()
-                    }
-                    .padding(.vertical, 2)
-                    .contentShape(Rectangle())
-                }
-                // Plain style keeps the row text primary/secondary; only the
-                // check circle carries the accent color.
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("MobileComputerDirectAddress-\(entry.id)")
-                // Tap toggles, so editing lives one gesture away on both the
-                // leading swipe and the long-press menu.
-                .swipeActions(edge: .leading) {
-                    Button {
-                        beginEditingDirectAddress(entry)
-                    } label: {
-                        Label(
-                            L10n.string("mobile.common.edit", defaultValue: "Edit"),
-                            systemImage: "pencil"
-                        )
-                    }
-                    .tint(.orange)
-                }
-                .swipeActions(edge: .trailing) {
-                    Button(role: .destructive) {
-                        deleteDirectAddress(entry)
-                    } label: {
-                        Label(
-                            L10n.string("mobile.common.delete", defaultValue: "Delete"),
-                            systemImage: "trash"
-                        )
-                    }
-                }
-                .contextMenu {
-                    Button {
-                        beginEditingDirectAddress(entry)
-                    } label: {
-                        Label(
-                            L10n.string("mobile.common.edit", defaultValue: "Edit"),
-                            systemImage: "pencil"
-                        )
-                    }
-                    Button(role: .destructive) {
-                        deleteDirectAddress(entry)
-                    } label: {
-                        Label(
-                            L10n.string("mobile.common.delete", defaultValue: "Delete"),
-                            systemImage: "trash"
-                        )
-                    }
-                }
-            }
-            Button {
-                newDirectAddress = ""
-                newDirectAddressLabel = ""
-                editingDirectAddressID = nil
-                showsAddDirectAddress = true
-            } label: {
-                Label(
-                    L10n.string(
-                        "mobile.connections.direct.add",
-                        defaultValue: "Add Address"
-                    ),
-                    systemImage: "plus.circle.fill"
-                )
-            }
-            .accessibilityIdentifier("MobileComputerDirectAddressAdd")
-        } header: {
-            Text(L10n.string(
-                "mobile.connections.direct.title",
-                defaultValue: "Direct Addresses"
-            ))
-        } footer: {
-            Text(directAddressDrafts.contains(where: \.enabled)
-                ? L10n.string(
-                    "mobile.connections.direct.footer",
-                    defaultValue: "Enabled addresses feed the encrypted dial as hints; the connection is always identity-checked. Ports are optional."
-                )
-                : L10n.string(
-                    "mobile.connections.direct.noneEnabled",
-                    defaultValue: "No address is enabled — this computer stays disconnected until you enable or add one."
-                ))
-        }
-    }
-
-    private var directAddressDrafts: [MobilePairedMacDirectAddress] {
-        pairedMac?.directAddresses ?? []
-    }
-
-    private var parsedNewDirectAddress: MobilePairedMacDirectAddress? {
-        Self.parseDirectAddress(newDirectAddress)
-    }
-
-    /// Parses `host` or `host:port` (port 1...65535). The host must be a
-    /// numeric IPv4/IPv6 literal the Direct dial can actually use
-    /// (``CmxIrohCustomPrivateAddress``): hostnames, loopback, and scoped
-    /// addresses are refused at entry, because a stored entry the transport
-    /// skips would otherwise fail later with no feedback. IPv6 literals
-    /// without brackets keep their colons by only treating the suffix as a
-    /// port when exactly one colon is present.
-    static func parseDirectAddress(_ raw: String) -> MobilePairedMacDirectAddress? {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        let parts = trimmed.split(separator: ":", omittingEmptySubsequences: false)
-        if parts.count == 2, let port = Int(parts[1]), (1...65535).contains(port),
-           let host = try? CmxIrohCustomPrivateAddress(String(parts[0])) {
-            return MobilePairedMacDirectAddress(address: host.value, port: port)
-        }
-        guard let host = try? CmxIrohCustomPrivateAddress(trimmed) else { return nil }
-        return MobilePairedMacDirectAddress(address: host.value, port: nil)
-    }
-
-    /// Prefills the shared add/edit alert with an existing entry. The id is
-    /// captured so Save replaces that entry (keeping its enabled state)
-    /// instead of appending.
-    private func beginEditingDirectAddress(_ entry: MobilePairedMacDirectAddress) {
-        newDirectAddress = entry.id
-        newDirectAddressLabel = entry.label ?? ""
-        editingDirectAddressID = entry.id
-        showsAddDirectAddress = true
-    }
-
-    private func saveDirectAddress() {
-        guard var entry = parsedNewDirectAddress else {
-            editingDirectAddressID = nil
-            return
-        }
-        let trimmedLabel = newDirectAddressLabel.trimmingCharacters(in: .whitespacesAndNewlines)
-        entry.label = trimmedLabel.isEmpty ? nil : trimmedLabel
-        var drafts = directAddressDrafts
-        let editedID = editingDirectAddressID
-        editingDirectAddressID = nil
-        newDirectAddress = ""
-        if let editedID, let index = drafts.firstIndex(where: { $0.id == editedID }) {
-            // A duplicate of ANOTHER entry is a no-op, same as adding one.
-            guard !drafts.contains(where: { $0.id == entry.id && $0.id != editedID }) else {
-                return
-            }
-            entry.enabled = drafts[index].enabled
-            drafts[index] = entry
-        } else {
-            guard !drafts.contains(where: { $0.id == entry.id }) else { return }
-            drafts.append(entry)
-        }
-        persistDirectAddresses(drafts)
-    }
-
-    private func toggleDirectAddress(_ entry: MobilePairedMacDirectAddress) {
-        var drafts = directAddressDrafts
-        guard let index = drafts.firstIndex(where: { $0.id == entry.id }) else { return }
-        drafts[index].enabled.toggle()
-        persistDirectAddresses(drafts)
-    }
-
-    private func deleteDirectAddress(_ entry: MobilePairedMacDirectAddress) {
-        var drafts = directAddressDrafts
-        drafts.removeAll { $0.id == entry.id }
-        persistDirectAddresses(drafts)
-    }
-
-    private func persistDirectAddresses(_ drafts: [MobilePairedMacDirectAddress]) {
-        Task {
-            await store.setDirectAddresses(drafts, macDeviceID: macDeviceID, instanceTag: instanceTag)
-        }
     }
 
     /// Revokes this pairing's account binding on every device, then drops the
@@ -598,16 +279,6 @@ struct MacComputerDetailView: View {
 
     private var connectionMethodFooterText: String {
         switch pendingConnectionMethod ?? selectedMethod {
-        case .direct:
-            return L10n.string(
-                "mobile.settings.connectionMethod.directFooter",
-                defaultValue: "Dials this computer's encrypted Iroh identity using the addresses you enable below — for LAN, WireGuard, or any network where it's reachable. No relay discovery, no other computers' routes."
-            )
-        case .automatic:
-            return L10n.string(
-                "mobile.settings.connectionMethod.automaticFooter",
-                defaultValue: "Requires cmux 0.64.20 or later on your Mac. Connects automatically over an authenticated, end-to-end encrypted connection."
-            )
         case .tailscale:
             return L10n.string(
                 "mobile.settings.connectionMethod.tailscaleFooter",
