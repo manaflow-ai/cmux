@@ -450,10 +450,10 @@ final class MachinesPanelModelTests: XCTestCase {
         if case .localWorkspace(let row) = flattened[1].kind { XCTAssertEqual(row.title, "cmux90"); XCTAssertTrue(row.isSelected) } else { XCTFail("expected local workspace") }
         XCTAssertEqual(flattened.compactMap { $0.dragResource?.id.rawValue }, [
             "local/terminal/AAA",
+            "vivid-newt/terminal/term_1", "vivid-newt/terminal/term_1",
             "vivid-newt/terminal/term_1", "vivid-newt/terminal/term_2",
             "vivid-newt/display/display:1",
-            "vivid-newt/terminal/term_1", "vivid-newt/terminal/term_1",
-        ], "pool rows, then one drag resource per pointer row")
+        ], "workspace pointer rows precede pool rows, with one drag resource per visible row")
         XCTAssertTrue(flattened[0].isMachineRow)
         XCTAssertTrue(flattened[3].isMachineRow)
         XCTAssertEqual(flattened[3].machine, .cloud("vivid-newt"))
