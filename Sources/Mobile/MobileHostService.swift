@@ -473,12 +473,16 @@ final class MobileHostService {
     private init() {}
 
     /// Inject the auth dependency. Call once at the composition root.
-    /// Exactly one iroh host runtime owns the app's broker binding slot:
-    /// the irx rebuild when its DEBUG flag is on, the legacy runtime
-    /// otherwise. Running both would reincarnate the binding in a loop.
+    /// Exactly one host transport runtime owns the app's mobile slot: dor
+    /// (the account Durable Object relay) when its gate is on — the default —
+    /// then the irx rebuild, then the legacy iroh runtime. Running more than
+    /// one would reincarnate the broker binding in a loop; in dor mode no
+    /// iroh networking starts at all.
     func configure(auth: AuthCoordinator) {
         self.auth = auth
-        if MobileHostIrxRuntime.isEnabled {
+        if MobileHostDorRuntime.isEnabled {
+            MobileHostDorRuntime.shared.configure(auth: auth)
+        } else if MobileHostIrxRuntime.isEnabled {
             MobileHostIrxRuntime.shared.configure(auth: auth)
         } else {
             MobileHostIrohRuntime.shared.configure(auth: auth)

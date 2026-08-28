@@ -14,6 +14,14 @@ enabled = true
 name = "TEAM_PRESENCE"
 class_name = "TeamPresence"
 
+[[durable_objects.bindings]]
+name = "ACCOUNT_RELAY"
+class_name = "AccountRelay"
+
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["TeamPresence"]
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["AccountRelay"]
