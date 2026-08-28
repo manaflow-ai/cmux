@@ -1291,7 +1291,8 @@ mod tests {
     #[tokio::test]
     async fn close_cancels_reconnect_group_resolution() {
         let directory = tempdir().unwrap();
-        let auth = AuthDatabase::load_or_create(directory.path(), "close-group-resolution", true).unwrap();
+        let auth =
+            AuthDatabase::load_or_create(directory.path(), "close-group-resolution", true).unwrap();
         let (daemon, mut accepted) = RemoteDaemon::new(auth, SessionLimits::default());
         let group = Arc::new(OneShotGroup {
             daemon,
@@ -1329,10 +1330,8 @@ mod tests {
         )
         .await
         .unwrap();
-        let _server = tokio::time::timeout(Duration::from_secs(2), accepted.recv())
-            .await
-            .unwrap()
-            .unwrap();
+        let _server =
+            tokio::time::timeout(Duration::from_secs(2), accepted.recv()).await.unwrap().unwrap();
 
         group.fail();
         let send = tokio::spawn({
