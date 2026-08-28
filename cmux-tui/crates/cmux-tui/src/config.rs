@@ -4166,6 +4166,8 @@ fn write_config_value_atomic_with_sync(
     write_config_value_atomic_with_sync_and_staging(path, value, sync_parent, &staging_path)
 }
 
+const CONFIG_STAGING_ATTEMPTS: usize = 16;
+
 fn write_config_value_atomic_with_sync_and_staging(
     path: &Path,
     value: &Value,
@@ -4174,20 +4176,33 @@ fn write_config_value_atomic_with_sync_and_staging(
 ) -> anyhow::Result<ConfigWriteOutcome> {
     let parent = config_parent_directory(path);
     let created_directories = ensure_config_parent_directory(parent)?;
-    let tmp_path = staging_path(parent, 0);
-    let mut options = OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
+    let mut staged = None;
+    for attempt in 0..CONFIG_STAGING_ATTEMPTS {
+        let tmp_path = staging_path(parent, attempt);
+        let mut options = OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
 
-        // The config can contain the server authentication token. Create
-        // the staging file private from the start, independent of umask,
-        // and reject a pre-existing symlink if a concurrent writer races
-        // with this process before open(2).
-        options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
+            // The config can contain the server authentication token. Create
+            // the staging file private from the start, independent of umask,
+            // and reject a pre-existing symlink if a concurrent writer races
+            // with this process before open(2).
+            options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
+        }
+        match options.open(&tmp_path) {
+            Ok(file) => {
+                staged = Some((tmp_path, file));
+                break;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error.into()),
+        }
     }
-    let mut file = options.open(&tmp_path)?;
+    let Some((tmp_path, mut file)) = staged else {
+        anyhow::bail!("could not create a unique config staging file")
+    };
     let result = (|| -> anyhow::Result<()> {
         serde_json::to_writer_pretty(&mut file, value)?;
         file.write_all(b"\n")?;
