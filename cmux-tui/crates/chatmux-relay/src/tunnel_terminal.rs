@@ -78,6 +78,10 @@ const FLOW_RESUME_BYTES: u64 = 32_768;
 /// a queued output frame cannot prevent an exit or refusal from being sent,
 /// while still making the total writer memory bound explicit.
 const TUNNEL_QUEUE_BYTES: u64 = MAX_TUNNEL_FRAME_BYTES as u64 + 64 * 1024;
+/// Bytes held back for terminal control/error frames. Data frames cannot
+/// consume this budget, so a saturated output queue can still report failure
+/// or completion.
+const TUNNEL_CONTROL_QUEUE_RESERVE_BYTES: u64 = 64 * 1024;
 const TUNNEL_WRITER_QUEUE_ITEMS: usize = 256;
 /// Keep queue slots available for `opened`, `error`, and `exit` control
 /// frames. PTY output is rejected before it consumes the reserve.
@@ -301,8 +305,6 @@ pub fn generate_session_name() -> Result<String, getrandom::Error> {
 
 enum WriterMessage {
     Frame(Vec<u8>),
-    /// Flush what is queued, then close the write half.
-    End,
 }
 
 /// State shared between the reader task, the writer task, and the manager's
@@ -340,7 +342,7 @@ impl Connection {
         let _ = self.enqueue_frame(encoded, true);
     }
 
-    fn reserve_bytes(&self, length: usize) -> bool {
+    fn reserve_bytes(&self, length: usize, control: bool) -> bool {
         let length = length as u64;
         if length > TUNNEL_QUEUE_BYTES {
             return false;
@@ -348,7 +350,12 @@ impl Connection {
         let mut current = self.pending_out.load(Ordering::Acquire);
         loop {
             let Some(next) = current.checked_add(length) else { return false };
-            if next > TUNNEL_QUEUE_BYTES {
+            let limit = if control {
+                TUNNEL_QUEUE_BYTES
+            } else {
+                TUNNEL_QUEUE_BYTES.saturating_sub(TUNNEL_CONTROL_QUEUE_RESERVE_BYTES)
+            };
+            if next > limit {
                 return false;
             }
             match self.pending_out.compare_exchange_weak(
@@ -372,7 +379,7 @@ impl Connection {
                 control || self.writer_tx.capacity() > TUNNEL_CONTROL_QUEUE_RESERVE_ITEMS;
             if !self.finished.load(Ordering::SeqCst)
                 && queue_has_room
-                && self.reserve_bytes(frame.len())
+                && self.reserve_bytes(frame.len(), control)
             {
                 reserved = frame.len() as u64;
                 if self.writer_tx.try_send(WriterMessage::Frame(frame)).is_ok() {
@@ -400,7 +407,6 @@ impl Connection {
         if self.finished.swap(true, Ordering::SeqCst) {
             return;
         }
-        let _ = self.writer_tx.try_send(WriterMessage::End);
         self.done.cancel();
     }
 
@@ -634,7 +640,27 @@ async fn serve_connection(
     let mut writer = {
         let connection = Arc::clone(&connection);
         tokio::spawn(async move {
-            while let Some(message) = writer_rx.recv().await {
+            loop {
+                let message = tokio::select! {
+                    message = writer_rx.recv() => message,
+                    _ = connection.done.cancelled() => {
+                        // Cancellation is the reserved control path. Drain
+                        // already-accepted frames, then close without relying
+                        // on an additional bounded-channel End item.
+                        while let Ok(message) = writer_rx.try_recv() {
+                            match message {
+                                WriterMessage::Frame(frame) => {
+                                    let length = frame.len() as u64;
+                                    let written = write_half.write_all(&frame).await;
+                                    connection.pending_out.fetch_sub(length, Ordering::SeqCst);
+                                    if written.is_err() { break; }
+                                }
+                            }
+                        }
+                        break;
+                    }
+                };
+                let Some(message) = message else { break };
                 match message {
                     WriterMessage::Frame(frame) => {
                         let written = write_half.write_all(&frame).await;
@@ -652,7 +678,6 @@ async fn serve_connection(
                             let _ = connection.flow_tx.send(false);
                         }
                     }
-                    WriterMessage::End => break,
                 }
             }
             let _ = write_half.shutdown().await;
