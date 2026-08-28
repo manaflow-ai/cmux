@@ -67,10 +67,9 @@ final class RenderNodeContextMenuView: NSView {
     /// The on-demand menu, or nil when the row is disabled or the IR yields
     /// nothing presentable (no nodes, or separators only).
     func menuForPresentation() -> NSMenu? {
-        guard isMenuEnabled, !nodes.isEmpty else { return nil }
-        let menu = RenderNodeContextMenuBuilder(dispatch: dispatch).makeMenu(nodes: nodes)
-        guard menu.items.contains(where: { !$0.isSeparatorItem }) else { return nil }
-        return menu
+        guard isMenuEnabled,
+              RenderNodeContextMenuBuilder.hasPresentableItems(nodes: nodes) else { return nil }
+        return RenderNodeContextMenuBuilder(dispatch: dispatch).makeMenu(nodes: nodes)
     }
 
     /// Whether a descendant menu overlay also contains `point` (in the
@@ -108,7 +107,7 @@ private func subtreeContainsClaimingOverlay(
             if isStrictDescendant,
                overlay.bounds.contains(local),
                overlay.isMenuEnabled,
-               overlay.menuForPresentation() != nil {
+               RenderNodeContextMenuBuilder.hasPresentableItems(nodes: overlay.nodes) {
                 return true
             }
             // An unrelated overlay can itself contain platform descendants;

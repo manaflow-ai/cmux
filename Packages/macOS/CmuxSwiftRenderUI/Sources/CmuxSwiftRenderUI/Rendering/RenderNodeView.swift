@@ -2,15 +2,6 @@ import CmuxFoundation
 import CmuxSwiftRender
 import SwiftUI
 
-private let contextMenuModifierPathMarker = -2
-
-/// Appends a context-menu modifier component to a logical render path.
-/// Negative components are reserved for modifier scopes, so this cannot be
-/// confused with an ordinary child index.
-func appendingContextMenuModifierPath(_ path: [Int], modifierIndex: Int) -> [Int] {
-    path + [contextMenuModifierPathMarker, modifierIndex]
-}
-
 /// Renders the Swift interpreter's ``RenderNode`` IR as native SwiftUI.
 ///
 /// Modifier arguments arrive as source strings (e.g. `.title`, `.blue`, `8`)
@@ -18,6 +9,13 @@ func appendingContextMenuModifierPath(_ path: [Int], modifierIndex: Int) -> [Int
 /// `.onTapGesture` actions are dispatched through ``sidebarActionDispatch``
 /// from the environment.
 struct RenderNodeView: View {
+    /// Paths assigned to each modifier while applying a node's modifiers.
+    /// The final path is inherited by child render nodes.
+    struct ContextMenuPathPlan {
+        let modifierPaths: [[Int]]
+        let descendantPath: [Int]
+    }
+
     let node: RenderNode
     /// Logical location in the interpreted render tree. AppKit can flatten
     /// nested `NSViewRepresentable` overlays into one hosting-view sibling
@@ -29,6 +27,28 @@ struct RenderNodeView: View {
     init(node: RenderNode, contextMenuPath: [Int] = []) {
         self.node = node
         self.contextMenuPath = contextMenuPath
+    }
+
+    /// Appends a context-menu modifier component to a logical render path.
+    /// Negative components are reserved for modifier scopes, so this cannot be
+    /// confused with an ordinary child index.
+    func appendingContextMenuModifierPath(_ path: [Int], modifierIndex: Int) -> [Int] {
+        path + [-2, modifierIndex]
+    }
+
+    /// Computes the paths used while traversing this node's modifiers. The
+    /// same plan drives modifier application and is exposed for behavior tests
+    /// without requiring a SwiftUI host view.
+    func contextMenuPathPlan(for modifiers: [RenderModifier]) -> ContextMenuPathPlan {
+        var path = contextMenuPath
+        var modifierPaths: [[Int]] = []
+        for (index, modifier) in modifiers.enumerated() {
+            modifierPaths.append(path)
+            if isContextMenuOverlay(modifier) {
+                path = appendingContextMenuModifierPath(path, modifierIndex: index)
+            }
+        }
+        return ContextMenuPathPlan(modifierPaths: modifierPaths, descendantPath: path)
     }
 
     var body: some View {
@@ -178,12 +198,7 @@ struct RenderNodeView: View {
     /// presentable context-menu modifier is a logical ancestor of that
     /// content, even when SwiftUI flattens the platform views.
     private var descendantContextMenuPath: [Int] {
-        var path = contextMenuPath
-        for (index, modifier) in node.modifiers.enumerated()
-        where isContextMenuOverlay(modifier) {
-            path = appendingContextMenuModifierPath(path, modifierIndex: index)
-        }
-        return path
+        contextMenuPathPlan(for: node.modifiers).descendantPath
     }
 
     private func isContextMenuOverlay(_ modifier: RenderModifier) -> Bool {
@@ -192,12 +207,9 @@ struct RenderNodeView: View {
 
     private func applyModifiers(_ view: some View, _ modifiers: [RenderModifier]) -> AnyView {
         var result = AnyView(view)
-        var overlayPath = contextMenuPath
+        let pathPlan = contextMenuPathPlan(for: modifiers)
         for (index, modifier) in modifiers.enumerated() {
-            result = apply(modifier, index: index, overlayPath: overlayPath, to: result)
-            if isContextMenuOverlay(modifier) {
-                overlayPath = appendingContextMenuModifierPath(overlayPath, modifierIndex: index)
-            }
+            result = apply(modifier, index: index, overlayPath: pathPlan.modifierPaths[index], to: result)
         }
         return result
     }
