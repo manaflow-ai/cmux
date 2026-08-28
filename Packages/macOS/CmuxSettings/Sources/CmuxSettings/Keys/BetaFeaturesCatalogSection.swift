@@ -76,6 +76,18 @@ public struct BetaFeaturesCatalogSection: SettingCatalogSection {
         userDefaultsKey: "cloud.beta.machines.enabled"
     )
 
+    /// Cloud terminal manual IO: a cloud machine's cmux-tui terminal renders
+    /// through a manual-mirror Ghostty surface fed by an `attach --pipe-io`
+    /// relay (structured replay, in-pane reconnect overlay) instead of
+    /// running the full `cmux-tui attach` TUI as the pane's process. Defaults
+    /// on; off (or a bundled client without `--pipe-io`) falls back to the
+    /// exec attach pane. Only cloud machine terminals are affected.
+    public let cloudTerminalManualIO = DefaultsKey<Bool>(
+        id: "cloud.beta.terminalManualIO.enabled",
+        defaultValue: true,
+        userDefaultsKey: "cloud.beta.terminalManualIO.enabled"
+    )
+
     /// Remote tmux: mirror a remote host's tmux sessions in the cmux sidebar
     /// over `ssh … tmux -CC` (iTerm2-style control mode). Sessions appear as
     /// sidebar workspaces, tmux windows as tabs, and tmux panes as splits;
