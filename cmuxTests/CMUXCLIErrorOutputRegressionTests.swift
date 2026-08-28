@@ -222,6 +222,7 @@ import Testing
         let socketPath = "/tmp/cmux-resume-private-\(UUID().uuidString.prefix(8)).sock"
         let privateRestoreRecord: [String: Any] = [
             "kind": "codex",
+            "legacy_command": "env 'SUBROUTER_CODEX_USER_EMAIL=legacy-private@example.test' sr codex resume session-id",
             "launch_command": [
                 "arguments": [
                     "codex", "-c", "model_provider=\"subrouter\"",
@@ -293,11 +294,13 @@ import Testing
         #expect(result.combinedOutput.contains("[private routing metadata]") == false)
         #expect(result.combinedOutput.contains("model_provider") == false)
         #expect(result.combinedOutput.contains("private@example.test") == false)
+        #expect(result.combinedOutput.contains("legacy-private@example.test") == false)
         #expect(result.combinedOutput.contains("router.example.test") == false)
         let payload = try #require(
             JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any]
         )
         let record = try #require(payload["restore_record"] as? [String: Any])
+        #expect(record["legacy_command"] is NSNull)
         let launchCommand = try #require(record["launch_command"] as? [String: Any])
         let launchEnvironment = try #require(launchCommand["environment"] as? [String: Any])
         #expect(Set(launchEnvironment.keys) == Set(["PATH"]))
@@ -318,6 +321,7 @@ import Testing
         #expect(plainResult.combinedOutput.contains("[private routing metadata]") == false)
         #expect(plainResult.combinedOutput.contains("model_provider") == false)
         #expect(plainResult.combinedOutput.contains("private@example.test") == false)
+        #expect(plainResult.combinedOutput.contains("legacy-private@example.test") == false)
         #expect(plainResult.combinedOutput.contains("router.example.test") == false)
 
         let listResult = runProcess(
@@ -333,6 +337,7 @@ import Testing
         #expect(listResult.combinedOutput.contains("/private/custom/codex") == false)
         #expect(listResult.combinedOutput.contains("model_provider") == false)
         #expect(listResult.combinedOutput.contains("private@example.test") == false)
+        #expect(listResult.combinedOutput.contains("legacy-private@example.test") == false)
         #expect(listResult.combinedOutput.contains("router.example.test") == false)
 
         let directResult = runProcess(
