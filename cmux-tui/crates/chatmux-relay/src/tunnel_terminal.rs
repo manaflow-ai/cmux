@@ -892,7 +892,7 @@ mod tests {
         let cancel = CancellationToken::new();
         let port = start_tunnel_terminal_listener(
             Arc::clone(&manager),
-            authority,
+            Arc::clone(&authority),
             cancel.clone(),
             TUNNEL_TERMINAL_HOST,
             0,
