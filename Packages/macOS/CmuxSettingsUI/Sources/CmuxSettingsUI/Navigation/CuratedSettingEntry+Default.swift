@@ -307,6 +307,17 @@ extension Array where Element == CuratedSettingEntry {
                 paths: ["cloud.beta.machines.enabled"],
                 synonyms: "cloud machines vm virtual machine right sidebar persistent computer beta unstable"
             ),
+            .init(
+                section: .betaFeatures,
+                id: "cloudTerminalManualIO",
+                title: String(localized: "settings.betaFeatures.cloudTerminalManualIO", defaultValue: "Cloud Terminal Manual IO"),
+                detailText: [
+                    String(localized: "settings.betaFeatures.cloudTerminalManualIO.subtitleOn", defaultValue: "Cloud machine terminals render through a byte relay with structured replay and an in-pane reconnect overlay."),
+                    String(localized: "settings.betaFeatures.cloudTerminalManualIO.subtitleOff", defaultValue: "Cloud machine terminals run the cmux-tui attach client as the pane's process."),
+                ].joined(separator: " "),
+                paths: ["cloud.beta.terminalManualIO.enabled"],
+                synonyms: "cloud terminal manual io pipe-io relay reconnect replay tui beta unstable"
+            ),
             .init(section: .betaFeatures, id: "customSidebars", title: "Custom Sidebars", synonyms: "custom sidebars swift json interpreted vibe beta unstable"),
             .init(section: .betaFeatures, id: "remoteTmux", title: "Remote tmux", synonyms: "remote tmux ssh control mode -CC mirror session window pane sidebar workspace beta unstable"),
             .init(
