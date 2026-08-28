@@ -632,6 +632,9 @@ public actor DotLeg {
         authTask = nil
         establishTimeoutTask?.cancel()
         establishTimeoutTask = nil
+        // The cancelled auth loop may be parked on this continuation; unpark
+        // it so the task can actually exit.
+        failAuthWaiter(DotLegError.stopped)
     }
 
     /// Fire-and-forget control send; the receive loop owns failure handling.

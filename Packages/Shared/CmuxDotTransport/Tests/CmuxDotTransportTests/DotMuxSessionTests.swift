@@ -192,6 +192,38 @@ struct DotMuxSessionTests {
         }
     }
 
+    @Test func waitAdmittedUnparksOnCancellation() async throws {
+        let rig = DotHandshakeTests.Rig()
+        let initiator = try await DotHandshakeInitiator.make(
+            identity: rig.phone, grantJWS: try rig.grant())
+        let outcome = try await DotHandshakeResponder.respond(
+            hs1Payload: initiator.hs1Payload,
+            identity: rig.mac,
+            admission: rig.admission,
+            judge: { _ in }
+        )
+        let initiated = try initiator.processHs2(
+            outcome.hs2Payload, expectedPeerPublicKey: rig.mac.publicKey)
+        // Initiator session whose admit never arrives (transmit to nowhere).
+        let orphan = DotMuxSession(
+            role: .initiator,
+            keys: initiated.keys,
+            peer: outcome.peer,
+            sessionID: initiated.sessionID,
+            journal: .discarding,
+            transmit: { _ in },
+            onEnd: { _ in }
+        )
+        await orphan.begin()
+        // The deadline group must be able to exit even though no admit or
+        // session end will ever resume the waiter.
+        await #expect(throws: (any Error).self) {
+            try await withDeadline(seconds: 0.2) {
+                try await orphan.waitAdmitted()
+            }
+        }
+    }
+
     @Test func finDeliversBufferedDataBeforeEOF() async throws {
         let pair = try await MuxRig.makePair()
         let macEvents = pair.mac.events

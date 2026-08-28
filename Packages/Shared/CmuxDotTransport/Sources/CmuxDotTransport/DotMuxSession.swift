@@ -96,7 +96,7 @@ final actor DotMuxSession: DotSecureSessionProtocol {
 
     // Initiator-side key confirmation.
     private var admitted: Bool
-    private var admitWaiters: [CheckedContinuation<Void, any Error>] = []
+    private var admitWaiters: [(id: UUID, continuation: CheckedContinuation<Void, any Error>)] = []
 
     // Serialized outbound pump (seal order must equal wire order).
     private var outbound: [Data] = []
@@ -209,7 +209,7 @@ final actor DotMuxSession: DotSecureSessionProtocol {
             let waiters = admitWaiters
             admitWaiters = []
             for waiter in waiters {
-                waiter.resume()
+                waiter.continuation.resume()
             }
         case .open:
             handleOpen(streamID: frame.streamID, payload: frame.payload)
@@ -226,13 +226,34 @@ final actor DotMuxSession: DotSecureSessionProtocol {
     }
 
     /// Initiator: await the responder's sealed admit (key confirmation). The
-    /// caller bounds this externally.
+    /// caller bounds this externally — cancellation unparks the wait, so a
+    /// deadline task group can always exit.
     func waitAdmitted() async throws {
         guard !admitted else { return }
         guard !ended else { throw DotMuxError.sessionEnded(endReason ?? "ended") }
-        try await withCheckedThrowingContinuation { continuation in
-            admitWaiters.append(continuation)
+        let id = UUID()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                if admitted {
+                    continuation.resume()
+                } else if ended {
+                    continuation.resume(
+                        throwing: DotMuxError.sessionEnded(endReason ?? "ended"))
+                } else {
+                    admitWaiters.append((id, continuation))
+                }
+            }
+        } onCancel: {
+            Task { await self.cancelAdmitWaiter(id) }
         }
+    }
+
+    private func cancelAdmitWaiter(_ id: UUID) {
+        guard let index = admitWaiters.firstIndex(where: { $0.id == id }) else {
+            return
+        }
+        let waiter = admitWaiters.remove(at: index)
+        waiter.continuation.resume(throwing: CancellationError())
     }
 
     /// Session death from below (leg reset, engine shutdown): no goaway can
@@ -486,7 +507,7 @@ final actor DotMuxSession: DotSecureSessionProtocol {
         let admitWaiters = admitWaiters
         self.admitWaiters = []
         for waiter in admitWaiters {
-            waiter.resume(throwing: DotMuxError.sessionEnded(reason))
+            waiter.continuation.resume(throwing: DotMuxError.sessionEnded(reason))
         }
         let creditWaiters = creditWaiters
         self.creditWaiters = []
