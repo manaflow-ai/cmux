@@ -2481,6 +2481,25 @@ impl Mux {
 
     fn retry_pending_agent_hooks(&self) -> anyhow::Result<()> {
         let pending = self.workspace_registry.lock().unwrap().pending_agent_hook_projections()?;
+        self.retry_pending_agent_hooks_rows(pending)
+    }
+
+    fn retry_pending_agent_hooks_for_terminal(
+        &self,
+        terminal_id: &TerminalPublicId,
+    ) -> anyhow::Result<()> {
+        let pending = self
+            .workspace_registry
+            .lock()
+            .unwrap()
+            .pending_agent_hook_projections_for_terminal(terminal_id)?;
+        self.retry_pending_agent_hooks_rows(pending)
+    }
+
+    fn retry_pending_agent_hooks_rows(
+        &self,
+        pending: Vec<(String, String, String, u64, crate::JournalIngress)>,
+    ) -> anyhow::Result<()> {
         for (producer_id, origin, key, sequence, ingress) in pending {
             match self.apply_agent_hook_record(&ingress, sequence) {
                 Ok(()) => self.workspace_registry.lock().unwrap().clear_agent_hook_pending(
@@ -3083,6 +3102,12 @@ impl Mux {
         };
         drop(state);
         self.emit_terminal_registry_changed(&registry, revision);
+        drop(registry);
+        // Adoption makes the terminal's resource surface available. Retry
+        // only hooks scoped to this terminal, not the entire pending table.
+        if let Ok(terminal_id) = TerminalPublicId::parse(terminal_id) {
+            let _ = self.retry_pending_agent_hooks_for_terminal(&terminal_id);
+        }
         Ok(())
     }
 
@@ -5282,20 +5307,29 @@ impl Mux {
         // in-memory/resource projection update. The sequence guard makes this
         // a no-op for already-applied events while allowing restart repair.
         if let Err(error) = self.apply_agent_hook_record(ingress, commit.sequence) {
-            self.workspace_registry.lock().unwrap().enqueue_agent_hook_pending(
-                &ingress.producer_id,
-                origin,
-                idempotency_key,
-                commit.sequence,
-                ingress,
-                &error.to_string(),
-            )?;
-        } else {
-            self.workspace_registry.lock().unwrap().clear_agent_hook_pending(
-                &ingress.producer_id,
-                origin,
-                idempotency_key,
-            )?;
+            if let Err(_bookkeeping_error) =
+                self.workspace_registry.lock().unwrap().enqueue_agent_hook_pending(
+                    &ingress.producer_id,
+                    origin,
+                    idempotency_key,
+                    commit.sequence,
+                    ingress,
+                    &error.to_string(),
+                )
+            {
+                eprintln!(
+                    "cmux-tui: durable agent hook receipt remains staged after retry bookkeeping failure"
+                );
+            }
+        } else if let Err(_bookkeeping_error) = self
+            .workspace_registry
+            .lock()
+            .unwrap()
+            .clear_agent_hook_pending(&ingress.producer_id, origin, idempotency_key)
+        {
+            eprintln!(
+                "cmux-tui: agent hook projection applied; retry bookkeeping cleanup deferred"
+            );
         }
         Ok(commit)
     }
@@ -5304,8 +5338,9 @@ impl Mux {
     /// a fresh `agent.*` journal event updates its terminal's agent record,
     /// so agents views show working/blocked/idle/done without a separate
     /// reporting channel. The journal commit remains durable even when the
-    /// projection fails, and the error is returned so the caller can retry the
-    /// same idempotent ingress after the terminal or projection is available.
+    /// projection fails. The ingress path catches the projection error, stages
+    /// a durable pending row, and still returns the journal receipt so callers
+    /// can retain exactly-once semantics while the terminal becomes available.
     fn apply_agent_hook_record(
         &self,
         ingress: &crate::JournalIngress,
@@ -5315,22 +5350,23 @@ impl Mux {
             return Ok(());
         }
         let Some(state) = agent_state_for_hook_kind(&ingress.kind) else { return Ok(()) };
-        let Some(terminal_id) = ingress
-            .subjects
-            .iter()
-            .find(|subject| subject.kind == "terminal")
-            .and_then(|subject| TerminalPublicId::parse(&subject.id).ok())
+        let Some(terminal_subject) =
+            ingress.subjects.iter().find(|subject| subject.kind == "terminal")
         else {
             return Ok(());
         };
-        let Some(surface) = self.resource_surface_for_terminal(&terminal_id) else { return Ok(()) };
+        let terminal_id = TerminalPublicId::parse(&terminal_subject.id)
+            .with_context(|| format!("invalid terminal subject {:?}", terminal_subject.id))?;
+        let Some(surface) = self.resource_surface_for_terminal(&terminal_id) else {
+            anyhow::bail!("terminal {terminal_id} is not available for agent hook projection")
+        };
         let agent_session_id = ingress
             .payload
             .get("normalized")
-            .and_then(|value| value.get("agent_tree_id").or_else(|| value.get("agent_session_id")))
+            .and_then(|value| value.get("agent_session_id"))
             .and_then(Value::as_str)
             .map(str::to_owned)
-            .unwrap_or_else(|| "legacy".to_owned());
+            .unwrap_or_else(|| format!("legacy:{terminal_id}"));
         // Serialize the sequence check, projection commit, and sequence
         // update as one operation. The projection path takes registry, state,
         // then agent-record locks, so teardown acquires sequence before those
@@ -8764,9 +8800,9 @@ impl Mux {
         )?;
         let record = record.context("fresh raw agent report unexpectedly replayed")?;
         if source != AgentSource::Hook {
-            // A successful resource report means the terminal is available.
-            // Use that lifecycle signal to retry durable hook projections.
-            let _ = self.retry_pending_agent_hooks();
+            // A successful report means this terminal is available. Retry only
+            // durable hooks for that terminal, never the entire pending table.
+            let _ = self.retry_pending_agent_hooks_for_terminal(&record.terminal_id);
         }
         Ok(record)
     }
@@ -8802,7 +8838,7 @@ impl Mux {
             None,
         );
         if result.is_ok() && source != AgentSource::Hook {
-            let _ = self.retry_pending_agent_hooks();
+            let _ = self.retry_pending_agent_hooks_for_terminal(terminal_id);
         }
         result.map(|(commit, _)| commit)
     }
@@ -21947,29 +21983,37 @@ mod tests {
             serde_json::json!({}),
         )
         .unwrap();
-        mux.workspace_registry.lock().unwrap().set_resource_patch_failure(true).unwrap();
-        let receipt = mux.append_journal_ingress(&ingress, "test", "hook-pending-retry").unwrap();
+        let validated = mux.journal_kernel.validate_ingress(&ingress).unwrap();
+        let receipt = mux
+            .workspace_registry
+            .lock()
+            .unwrap()
+            .append_journal_ingress(&ingress, &validated, "test", "hook-pending-retry")
+            .unwrap();
         assert!(receipt.sequence > 0);
         assert_eq!(
             mux.workspace_registry.lock().unwrap().pending_agent_hook_projections().unwrap().len(),
             1
         );
-        mux.append_journal_ingress(&ingress, "other-origin", "hook-pending-retry").unwrap();
+        let validated = mux.journal_kernel.validate_ingress(&ingress).unwrap();
+        mux.workspace_registry
+            .lock()
+            .unwrap()
+            .append_journal_ingress(&ingress, &validated, "other-origin", "hook-pending-retry")
+            .unwrap();
         assert_eq!(
             mux.workspace_registry.lock().unwrap().pending_agent_hook_projections().unwrap().len(),
             2
         );
         assert!(mux.list_agents(Some(surface.id), None).is_empty());
+        mux.workspace_registry.lock().unwrap().set_resource_patch_failure(true).unwrap();
+        mux.retry_pending_agent_hooks().unwrap();
         mux.workspace_registry.lock().unwrap().set_resource_patch_failure(false).unwrap();
         let replay = mux.append_journal_ingress(&ingress, "test", "hook-pending-retry").unwrap();
         assert!(replay.replayed);
-        assert!(
-            mux.workspace_registry
-                .lock()
-                .unwrap()
-                .pending_agent_hook_projections()
-                .unwrap()
-                .is_empty()
+        assert_eq!(
+            mux.workspace_registry.lock().unwrap().pending_agent_hook_projections().unwrap().len(),
+            1
         );
         mux.append_journal_ingress(&ingress, "other-origin", "hook-pending-retry").unwrap();
         assert!(
@@ -22057,6 +22101,122 @@ mod tests {
                 .is_empty()
         );
         assert_eq!(mux.list_agents(Some(surface.id), None)[0].source, AgentSource::Hook);
+    }
+
+    #[test]
+    fn unavailable_terminal_hook_is_retained_for_projection_retry() {
+        let mux = test_mux();
+        let terminal_id = TerminalPublicId::random().unwrap();
+        let ingress = crate::agent_hooks::agent_hook_journal_ingress(
+            "claude",
+            "UserPromptSubmit",
+            Some(&terminal_id.to_string()),
+            serde_json::json!({}),
+        )
+        .unwrap();
+
+        let receipt = mux.append_journal_ingress(&ingress, "test", "missing-terminal").unwrap();
+        assert!(receipt.sequence > 0);
+        assert_eq!(
+            mux.workspace_registry
+                .lock()
+                .unwrap()
+                .pending_agent_hook_projections_for_terminal(&terminal_id)
+                .unwrap()
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn agent_report_retries_only_pending_hooks_for_its_terminal() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, None).unwrap();
+        let second = mux.new_workspace(None, None).unwrap();
+        let terminal_id =
+            |surface: &Surface| surface.terminal_public_id().cloned().expect("workspace terminal");
+        let first_terminal = terminal_id(&first);
+        let second_terminal = terminal_id(&second);
+        let hook = |terminal_id: &TerminalPublicId, key: &str| {
+            let ingress = crate::agent_hooks::agent_hook_journal_ingress(
+                "claude",
+                "UserPromptSubmit",
+                Some(&terminal_id.to_string()),
+                serde_json::json!({}),
+            )
+            .unwrap();
+            let validated = mux.journal_kernel.validate_ingress(&ingress).unwrap();
+            mux.workspace_registry
+                .lock()
+                .unwrap()
+                .append_journal_ingress(&ingress, &validated, "test", key)
+                .unwrap();
+        };
+
+        hook(&first_terminal, "first-pending");
+        hook(&second_terminal, "second-pending");
+
+        mux.report_agent(first.id, AgentState::Working, AgentSource::Socket, None).unwrap();
+        let pending =
+            mux.workspace_registry.lock().unwrap().pending_agent_hook_projections().unwrap();
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].0, crate::agent_hooks::AGENT_HOOK_PRODUCER_ID);
+        assert!(
+            mux.workspace_registry
+                .lock()
+                .unwrap()
+                .pending_agent_hook_projections_for_terminal(&first_terminal)
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(
+            mux.workspace_registry
+                .lock()
+                .unwrap()
+                .pending_agent_hook_projections_for_terminal(&second_terminal)
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(mux.list_agents(Some(first.id), None)[0].source, AgentSource::Hook);
+        assert!(mux.list_agents(Some(second.id), None).is_empty());
+
+        mux.report_agent(second.id, AgentState::Working, AgentSource::Socket, None).unwrap();
+        assert!(
+            mux.workspace_registry
+                .lock()
+                .unwrap()
+                .pending_agent_hook_projections()
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(mux.list_agents(Some(second.id), None)[0].source, AgentSource::Hook);
+    }
+
+    #[test]
+    fn sessionless_legacy_hook_identity_survives_restart_marker_projection() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+        let ingress = |event: &str| {
+            crate::agent_hooks::agent_hook_journal_ingress(
+                "claude",
+                event,
+                Some(&terminal_id.to_string()),
+                serde_json::json!({}),
+            )
+            .unwrap()
+        };
+
+        mux.apply_agent_hook_record(&ingress("SessionStart"), 1).unwrap();
+        // Simulate the canonical fence restored by a newer process after the
+        // marker projection was persisted.
+        mux.agent_hook_fences.lock().unwrap().get_mut(&terminal_id).unwrap().session_id =
+            format!("legacy:{terminal_id}");
+        let next = ingress("UserPromptSubmit");
+        assert_eq!(next.kind, "agent.turn.started");
+        mux.apply_agent_hook_record(&next, 2).unwrap();
+        assert_eq!(mux.list_agents(Some(surface.id), None)[0].state, AgentState::Working);
     }
 
     #[test]

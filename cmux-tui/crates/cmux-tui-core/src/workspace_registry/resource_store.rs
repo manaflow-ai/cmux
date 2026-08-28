@@ -162,6 +162,7 @@ pub(super) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::R
            producer_id TEXT NOT NULL,
            origin TEXT NOT NULL,
            idempotency_key TEXT NOT NULL,
+           terminal_id TEXT,
            event_sequence INTEGER NOT NULL CHECK(event_sequence >= 0),
            ingress_json TEXT NOT NULL CHECK(json_valid(ingress_json)),
            error TEXT NOT NULL,
@@ -193,6 +194,7 @@ pub(super) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::R
                producer_id TEXT NOT NULL,
                origin TEXT NOT NULL,
                idempotency_key TEXT NOT NULL,
+               terminal_id TEXT,
                event_sequence INTEGER NOT NULL CHECK(event_sequence >= 0),
                ingress_json TEXT NOT NULL CHECK(json_valid(ingress_json)),
                error TEXT NOT NULL,
@@ -200,12 +202,41 @@ pub(super) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::R
                PRIMARY KEY(producer_id, origin, idempotency_key)
              );
              INSERT INTO resource_agent_hook_pending(
-               producer_id, origin, idempotency_key, event_sequence, ingress_json, error, attempt
-             ) SELECT '', '', idempotency_key, event_sequence, ingress_json, error, attempt
+               producer_id, origin, idempotency_key, terminal_id, event_sequence, ingress_json, error, attempt
+             ) SELECT '', '', idempotency_key,
+               (SELECT json_extract(value, '$.id')
+                FROM json_each(resource_agent_hook_pending_legacy.ingress_json, '$.subjects')
+                WHERE json_extract(value, '$.kind') = 'terminal' LIMIT 1),
+               event_sequence, ingress_json, error, attempt
              FROM resource_agent_hook_pending_legacy;
              DROP TABLE resource_agent_hook_pending_legacy;",
         )?;
     }
+    let has_pending_terminal_id = transaction
+        .prepare("PRAGMA table_info(resource_agent_hook_pending)")?
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<Result<Vec<_>, _>>()?
+        .iter()
+        .any(|column| column == "terminal_id");
+    if !has_pending_terminal_id {
+        transaction
+            .execute("ALTER TABLE resource_agent_hook_pending ADD COLUMN terminal_id TEXT", [])?;
+        transaction.execute(
+            "UPDATE resource_agent_hook_pending
+             SET terminal_id = (
+               SELECT json_extract(value, '$.id')
+               FROM json_each(resource_agent_hook_pending.ingress_json, '$.subjects')
+               WHERE json_extract(value, '$.kind') = 'terminal' LIMIT 1
+             )
+             WHERE terminal_id IS NULL",
+            [],
+        )?;
+    }
+    transaction.execute(
+        "CREATE INDEX IF NOT EXISTS resource_agent_hook_pending_by_terminal
+         ON resource_agent_hook_pending(terminal_id, event_sequence)",
+        [],
+    )?;
     Ok(())
 }
 
@@ -468,14 +499,20 @@ impl WorkspaceRegistry {
         ingress: &crate::JournalIngress,
     ) -> anyhow::Result<()> {
         let ingress_json = serde_json::to_string(ingress)?;
+        let terminal_id = ingress
+            .subjects
+            .iter()
+            .find(|subject| subject.kind == "terminal")
+            .map(|subject| subject.id.as_str());
         transaction.execute(
             "INSERT INTO resource_agent_hook_pending(
-               producer_id, origin, idempotency_key, event_sequence, ingress_json, error, attempt
-             ) VALUES(?1, ?2, ?3, ?4, ?5, '', 0)
+               producer_id, origin, idempotency_key, terminal_id, event_sequence, ingress_json, error, attempt
+             ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, '', 0)
              ON CONFLICT(producer_id, origin, idempotency_key) DO UPDATE SET
+               terminal_id = excluded.terminal_id,
                event_sequence = excluded.event_sequence,
                ingress_json = excluded.ingress_json",
-            params![producer_id, origin, idempotency_key, i64::try_from(sequence)?, ingress_json],
+            params![producer_id, origin, idempotency_key, terminal_id, i64::try_from(sequence)?, ingress_json],
         )?;
         Ok(())
     }
@@ -491,12 +528,18 @@ impl WorkspaceRegistry {
     ) -> anyhow::Result<()> {
         const MAX_ERROR_CHARS: usize = 1_024;
         let ingress_json = serde_json::to_string(ingress)?;
+        let terminal_id = ingress
+            .subjects
+            .iter()
+            .find(|subject| subject.kind == "terminal")
+            .map(|subject| subject.id.as_str());
         let bounded_error = error.chars().take(MAX_ERROR_CHARS).collect::<String>();
         self.connection.execute(
             "INSERT INTO resource_agent_hook_pending(
-               producer_id, origin, idempotency_key, event_sequence, ingress_json, error, attempt
-             ) VALUES(?1, ?2, ?3, ?4, ?5, 1)
+               producer_id, origin, idempotency_key, terminal_id, event_sequence, ingress_json, error, attempt
+             ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, 1)
              ON CONFLICT(producer_id, origin, idempotency_key) DO UPDATE SET
+               terminal_id = excluded.terminal_id,
                event_sequence = excluded.event_sequence,
                ingress_json = excluded.ingress_json,
                error = excluded.error,
@@ -509,6 +552,7 @@ impl WorkspaceRegistry {
                 producer_id,
                 origin,
                 idempotency_key,
+                terminal_id,
                 i64::try_from(sequence)?,
                 ingress_json,
                 bounded_error
@@ -540,6 +584,40 @@ impl WorkspaceRegistry {
         )?;
         statement
             .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, i64>(3)?,
+                    row.get::<_, String>(4)?,
+                ))
+            })?
+            .map(|row| {
+                let (producer_id, origin, key, sequence, ingress_json) = row?;
+                Ok((
+                    producer_id,
+                    origin,
+                    key,
+                    u64::try_from(sequence).context("pending hook sequence is negative")?,
+                    serde_json::from_str(&ingress_json)?,
+                ))
+            })
+            .collect()
+    }
+
+    pub fn pending_agent_hook_projections_for_terminal(
+        &self,
+        terminal_id: &crate::resource::TerminalPublicId,
+    ) -> anyhow::Result<Vec<(String, String, String, u64, crate::JournalIngress)>> {
+        let mut statement = self.connection.prepare(
+            "SELECT producer_id, origin, idempotency_key, event_sequence, ingress_json
+             FROM resource_agent_hook_pending
+             WHERE terminal_id = ?1
+             ORDER BY event_sequence ASC, idempotency_key ASC
+             LIMIT 64",
+        )?;
+        statement
+            .query_map([terminal_id.as_str()], |row| {
                 Ok((
                     row.get::<_, String>(0)?,
                     row.get::<_, String>(1)?,
