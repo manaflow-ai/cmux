@@ -9,10 +9,11 @@ defeated by PID reuse: once macOS recycles the recorded PID onto any live
 process, the guard returns true forever and the watcher never exits
 (793 orphans / 2.1 GB after 20 days in the issue).
 
-The fix records a stable parent identity at spawn (PID plus a numeric UTC
-`/bin/ps` lstart token) in `_cmux_watcher_parent_start_time`, and the
+The fix records a stable parent identity at spawn (PID plus a provider-marked
+epoch-microsecond token) in `_cmux_watcher_parent_start_time`, and the
 per-iteration guard `_cmux_watcher_parent_alive` treats a start-time mismatch
-or a failed ps as parent-dead.
+or a failed provider lookup as parent-dead. The kernel provider keeps
+microseconds; the ps provider is explicitly coarse and uses zero microseconds.
 
 This test never touches a running cmux instance or /tmp/cmux-debug.sock:
 it builds its own scratch HOME, its own unix socket, and unique panel ids.
@@ -34,8 +35,9 @@ ROOT = Path(__file__).resolve().parents[1]
 ZSH_INTEGRATION = ROOT / "Resources" / "shell-integration" / "cmux-zsh-integration.zsh"
 BASH_INTEGRATION = ROOT / "Resources" / "shell-integration" / "cmux-bash-integration.bash"
 
-# Start identities are epoch seconds from both Darwin providers.
-FAKE_START_TIME = "1000000000"
+# Kernel identities use a `k` marker and ps identities use `p`, followed by
+# 16 decimal digits of epoch microseconds.
+FAKE_START_TIME = "k1000000000000000"
 
 FAILURES: list[str] = []
 
@@ -110,15 +112,140 @@ def wait_ready(read_fd: int, expected: int = 1, timeout_s: float = 5.0) -> bool:
     return True
 
 
-def shell_start_time(shell_argv: list[str], integration: Path, env: dict[str, str], pid: int) -> str:
-    """Read the identity token through the shipped shell helper."""
+def shell_start_time(
+    shell_argv: list[str],
+    integration: Path,
+    env: dict[str, str],
+    pid: int,
+    provider: str | None = None,
+) -> str:
+    """Read a provider-pinned identity token through the shipped helper."""
+    provider_arg = ' "$3"' if provider is not None else ""
     proc = run_shell(
         shell_argv,
-        'source "$1"; _cmux_watcher_parent_start_time "$2"',
-        [str(integration), str(pid)],
+        f'source "$1"; _cmux_watcher_parent_start_time "$2"{provider_arg}',
+        [str(integration), str(pid), *([provider] if provider is not None else [])],
         env,
     )
     return proc.stdout.strip() if proc.returncode == 0 else ""
+
+
+def check_identity_provider_contract(
+    name: str, shell_argv: list[str], integration: Path, env: dict[str, str]
+) -> None:
+    """Verify precision, fallback normalization, and provider pinning."""
+    decoy = subprocess.Popen(["/bin/sleep", "60"])
+    try:
+        kernel_is_synthetic = False
+        kernel = shell_start_time(shell_argv, integration, env, decoy.pid, "kernel")
+        ps = shell_start_time(shell_argv, integration, env, decoy.pid, "ps")
+        if not kernel:
+            # Some restricted Darwin environments do not expose the
+            # kern.proc.pid sysctl to unprivileged shells. Exercise the same
+            # normalization path with deterministic values, and require the
+            # live provider call to fail closed.
+            synthetic_script = (
+                'source "$1"; '
+                'a="$(_cmux_watcher_parent_kernel_token "$$" 1700000000 1)"; '
+                'b="$(_cmux_watcher_parent_kernel_token "$$" 1700000000 2)"; '
+                'printf "SYNTHETIC:%s:%s\\n" "$a" "$b"'
+            )
+            synthetic = run_shell(shell_argv, synthetic_script, [str(integration)], env)
+            fields = synthetic.stdout.strip().split(":", 2)
+            if len(fields) == 3:
+                kernel = fields[1]
+                kernel_is_synthetic = True
+                if fields[1] == fields[2]:
+                    fail(f"[{name}] kernel normalization dropped same-second microseconds")
+            else:
+                fail(f"[{name}] kernel normalization test did not run (stdout={synthetic.stdout!r})")
+            kernel_failure = run_shell(
+                shell_argv,
+                'source "$1"; _cmux_watcher_parent_start_time "$$" kernel; printf "KERNEL_STATUS:%s\\n" "$?"',
+                [str(integration)],
+                env,
+            )
+            if "KERNEL_STATUS:" not in kernel_failure.stdout or "KERNEL_STATUS:0" in kernel_failure.stdout:
+                fail(f"[{name}] unavailable kernel provider did not fail closed")
+        if len(kernel) != 17 or not kernel.startswith("k") or not kernel[1:].isdigit():
+            fail(f"[{name}] kernel identity is not a marked 16-digit epoch-microsecond token: {kernel!r}")
+        if len(ps) != 17 or not ps.startswith("p") or not ps[1:].isdigit():
+            fail(f"[{name}] ps fallback identity is not a marked 16-digit token: {ps!r}")
+        if ps and (
+            not ps.endswith("000000")
+            or (kernel and not kernel_is_synthetic and ps[1:11] != kernel[1:11])
+        ):
+            fail(f"[{name}] ps fallback does not normalize to the kernel epoch second: kernel={kernel!r} ps={ps!r}")
+
+        if ps:
+            fallback_guard = run_shell(
+                shell_argv,
+                'source "$1"; _cmux_watcher_parent_alive "$2" "$3"; printf "FALLBACK_GUARD:%s\\n" "$?"',
+                [str(integration), str(decoy.pid), ps],
+                env,
+            )
+            if "FALLBACK_GUARD:0" not in fallback_guard.stdout:
+                fail(f"[{name}] provider-pinned ps fallback rejected its live process: {fallback_guard.stdout!r}")
+
+        # Same-second reuse: changing only the kernel microseconds must fail,
+        # even when the PID remains live.
+        if len(kernel) == 17 and kernel[1:].isdigit():
+            usec = (int(kernel[11:]) + 1) % 1_000_000
+            same_second_replacement = f"k{kernel[1:11]}{usec:06d}"
+            guard_script = (
+                'source "$1"; _cmux_watcher_parent_alive "$2" "$3"; '
+                'printf "SAME_SECOND:%s\\n" "$?"'
+            )
+            proc = run_shell(
+                shell_argv,
+                guard_script,
+                [str(integration), str(decoy.pid), same_second_replacement],
+                env,
+            )
+            if "SAME_SECOND:0" in proc.stdout or "SAME_SECOND:" not in proc.stdout:
+                fail(
+                    f"[{name}] guard accepted same-second PID reuse with different microseconds "
+                    f"(stdout={proc.stdout!r} stderr={proc.stderr[-500:]!r})"
+                )
+
+        # A token from one provider must never be compared through the other
+        # provider. This models a provider switch and proves the marker pins
+        # the lookup path instead of silently reducing precision.
+        switch_script = (
+            'source "$1"; '
+            '_cmux_watcher_parent_start_time() { printf "p1700000000000000\\n"; }; '
+            '_cmux_watcher_parent_alive "$$" "k1700000000000000"; '
+            'printf "SWITCH_KERNEL:%s\\n" "$?"; '
+            '_cmux_watcher_parent_start_time() { printf "k1700000000000000\\n"; }; '
+            '_cmux_watcher_parent_alive "$$" "p1700000000000000"; '
+            'printf "SWITCH_PS:%s\\n" "$?"'
+        )
+        proc = run_shell(shell_argv, switch_script, [str(integration)], env)
+        if "SWITCH_KERNEL:0" in proc.stdout or "SWITCH_PS:0" in proc.stdout:
+            fail(f"[{name}] guard accepted a token from the wrong identity provider (stdout={proc.stdout!r})")
+
+        malformed = [
+            "1000000000000000",
+            "x1700000000000000",
+            "k170000000000000",
+            "p17000000000000000",
+            "k170000000000000x",
+            "k0000000000000000",
+            "p3000001000000000",
+        ]
+        malformed_args = " ".join(f'"{value}"' for value in malformed)
+        malformed_script = (
+            f'source "$1"; for value in {malformed_args}; do '
+            '_cmux_watcher_parent_alive "$$" "$value"; '
+            'printf "MALFORMED:%s:%s\\n" "$value" "$?"; done'
+        )
+        proc = run_shell(shell_argv, malformed_script, [str(integration)], env)
+        for line in proc.stdout.splitlines():
+            if line.startswith("MALFORMED:") and line.endswith(":0"):
+                fail(f"[{name}] guard accepted malformed identity {line!r}")
+    finally:
+        decoy.kill()
+        decoy.wait()
 
 
 def check_guard_semantics(name: str, shell_argv: list[str], integration: Path, env: dict[str, str]) -> None:
@@ -178,7 +305,7 @@ def check_guard_semantics(name: str, shell_argv: list[str], integration: Path, e
     ps_failure_script = (
         'source "$1"; '
         '_cmux_watcher_parent_start_time() { return 1; }; '
-        '_cmux_watcher_parent_alive "$$" "19700101000000"; '
+        '_cmux_watcher_parent_alive "$$" "p1000000000000000"; '
         'printf \'GUARD:%s\\n\' "$?"; '
         '_cmux_capture_shell_start_time; printf \'CAPTURE:%s\\n\' "$?"'
     )
@@ -480,6 +607,7 @@ def main() -> int:
         ]
         for name, argv, integration in shells:
             env = base_env(tmp)
+            check_identity_provider_contract(name, argv, integration, env)
             check_guard_semantics(name, argv, integration, env)
             check_tiered_cadence(name, argv, integration, env)
             check_injected_watcher_loop(name, argv, integration, env)

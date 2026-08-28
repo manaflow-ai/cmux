@@ -1423,24 +1423,37 @@ _cmux_run_pr_probe_with_timeout() {
 # `kill -0 $pid` guard is defeated by PID reuse. macOS recycles PIDs within
 # days on a busy machine, so once the recorded shell PID is reassigned to any
 # live process the guard returns true forever and the watcher never exits.
-# Pair the PID with Darwin's kernel start time (seconds) from /bin/ps so a
-# recycled PID no longer counts as the parent.
+# Pair the PID with Darwin's process start time so a recycled PID no longer
+# counts as the parent. The identity is a provider marker (`k` for
+# kern.proc.pid and `p` for ps) followed by a fixed 16-digit epoch-microsecond
+# value. The marker pins a watcher to the provider used at spawn, so a coarse
+# ps fallback cannot compare equal to a precise kernel value or cause a false
+# recycle.
 _cmux_watcher_parent_start_time() {
-    local pid="${1:-}" raw month day clock year token
+    local pid="${1:-}" provider="${2:-auto}" raw month day clock year token
     case "$pid" in ''|*[!0-9]*) return 1 ;; esac
     case "$pid" in *[1-9]*) ;; *) return 1 ;; esac
-    local kernel sec usec
-    kernel="$(/usr/sbin/sysctl -n "kern.proc.pid.$pid" 2>/dev/null | /usr/bin/od -An -tu4 2>/dev/null)"
-    while read -r sec usec; do
-        if [[ "$sec" =~ ^[0-9]+$ && "$usec" =~ ^[0-9]+$ && "$sec" -ge 1000000000 && "$sec" -le 3000000000 && "$usec" -lt 1000000 ]]; then
-            printf '%s%06d\n' "$sec" "$usec"
-            return 0
-        fi
-    done < <(printf '%s\n' "$kernel" | awk '{ for (i=1;i<NF;i++) print $i, $(i+1) }')
+    case "$provider" in
+        auto|kernel|ps) ;;
+        *) return 1 ;;
+    esac
+
+    if [[ "$provider" != ps ]]; then
+        local kernel sec usec
+        kernel="$(/usr/sbin/sysctl -n "kern.proc.pid.$pid" 2>/dev/null | /usr/bin/od -An -tu4 2>/dev/null)"
+        while read -r sec usec; do
+            if [[ "$sec" =~ ^[0-9]+$ && "$usec" =~ ^[0-9]+$ && "$sec" -ge 1000000000 && "$sec" -le 3000000000 && "$usec" -lt 1000000 ]]; then
+                _cmux_watcher_parent_kernel_token "$pid" "$sec" "$usec"
+                return $?
+            fi
+        done < <(printf '%s\n' "$kernel" | awk '{ for (i=1;i<NF;i++) print $i, $(i+1) }')
+        [[ "$provider" == kernel ]] && return 1
+    fi
+
     # Darwin's ps exposes process start time through `lstart`, which is a
     # locale-formatted string. Force the stable C locale and UTC timezone,
-    # then convert the five fields to a fixed-width numeric token before
-    # comparing.
+    # then use date(1) to convert it to epoch seconds. ps has no subsecond
+    # field, so its canonical microsecond component is explicitly zero.
     raw="$(TZ=UTC LC_ALL=C /bin/ps -o lstart= -p "$pid" 2>/dev/null)" || return 1
     case "$raw" in *$'\n'*) return 1 ;; esac
     local -a words=()
@@ -1449,10 +1462,7 @@ _cmux_watcher_parent_start_time() {
     (( ${#words[@]} == 5 )) || return 1
     case "${words[0]}" in Mon|Tue|Wed|Thu|Fri|Sat|Sun) ;; *) return 1 ;; esac
     case "${words[1]}" in
-        Jan) month=01 ;; Feb) month=02 ;; Mar) month=03 ;;
-        Apr) month=04 ;; May) month=05 ;; Jun) month=06 ;;
-        Jul) month=07 ;; Aug) month=08 ;; Sep) month=09 ;;
-        Oct) month=10 ;; Nov) month=11 ;; Dec) month=12 ;;
+        Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) month="${words[1]}" ;;
         *) return 1 ;;
     esac
     case "${words[2]}" in
@@ -1468,13 +1478,42 @@ _cmux_watcher_parent_start_time() {
         [0-9][0-9][0-9][0-9]) year="${words[4]}" ;;
         *) return 1 ;;
     esac
-    token="${year}${month}${day}${clock//:/}"
+    local epoch normalized="${words[0]} ${month} ${day} ${clock} ${year}"
+    epoch="$(TZ=UTC LC_ALL=C /bin/date -j -u -f '%a %b %d %T %Y' "$normalized" '+%s' 2>/dev/null)" || return 1
+    [[ "$epoch" =~ ^[0-9]+$ ]] || return 1
+    _cmux_watcher_parent_ps_token "$pid" "$epoch"
+}
+
+_cmux_watcher_parent_kernel_token() {
+    # Normalize Darwin's kern.proc.pid timeval to the canonical marked token.
+    # Keep all six microsecond digits; they distinguish processes started in
+    # the same epoch second.
+    local pid="${1:-}" sec="${2:-}" usec="${3:-}" token
+    case "$pid" in ''|*[!0-9]*) return 1 ;; esac
+    case "$pid" in *[1-9]*) ;; *) return 1 ;; esac
+    [[ "$sec" =~ ^[0-9]+$ && "$usec" =~ ^[0-9]+$ ]] || return 1
+    (( sec >= 1000000000 && sec <= 3000000000 && usec < 1000000 )) || return 1
+    printf -v token 'k%s%06d' "$sec" "$usec"
+    _cmux_watcher_parent_identity_valid "$pid" "$token" || return 1
+    printf '%s\n' "$token"
+}
+
+_cmux_watcher_parent_ps_token() {
+    # Normalize ps's second-resolution timestamp to the same epoch-
+    # microsecond shape. The zero component records that this provider is
+    # intentionally coarse, and the `p` marker keeps comparisons pinned.
+    local pid="${1:-}" epoch="${2:-}" token
+    case "$pid" in ''|*[!0-9]*) return 1 ;; esac
+    case "$pid" in *[1-9]*) ;; *) return 1 ;; esac
+    [[ "$epoch" =~ ^[0-9]+$ ]] || return 1
+    (( epoch >= 1000000000 && epoch <= 3000000000 )) || return 1
+    token="p${epoch}000000"
     _cmux_watcher_parent_identity_valid "$pid" "$token" || return 1
     printf '%s\n' "$token"
 }
 
 _cmux_watcher_parent_identity_valid() {
-    local pid="${1:-}" identity="${2:-}"
+    local pid="${1:-}" identity="${2:-}" seconds micros
     case "$pid" in
         ''|*[!0-9]*) return 1 ;;
     esac
@@ -1482,29 +1521,36 @@ _cmux_watcher_parent_identity_valid() {
         *[1-9]*) ;;
         *) return 1 ;;
     esac
-    case "$identity" in
-        ''|*[!0-9]*) return 1 ;;
-    esac
-    (( ${#identity} == 16 || ${#identity} == 14 ))
+    [[ "$identity" =~ ^[kp][0-9]{16}$ ]] || return 1
+    seconds="${identity:1:10}"
+    micros="${identity:11:6}"
+    (( 10#$seconds >= 1000000000 && 10#$seconds <= 3000000000 && 10#$micros < 1000000 ))
 }
 
 _cmux_watcher_parent_alive() {
-    # $1 = parent PID, $2 = numeric start time recorded at watcher spawn. A
-    # mismatch means the PID was recycled; a failed /bin/ps counts as
-    # parent-dead. Missing or malformed identity is also parent-dead, so a
-    # watcher never falls back to PID-only liveness.
-    local pid="${1:-}" expected="${2:-}" actual
+    # $1 = parent PID, $2 = provider-marked epoch-microsecond identity
+    # recorded at watcher spawn. A mismatch means the PID was recycled; a
+    # failed provider lookup counts as parent-dead. Missing or malformed
+    # identity is also parent-dead, so a watcher never falls back to PID-only
+    # liveness.
+    local pid="${1:-}" expected="${2:-}" actual provider
     _cmux_watcher_parent_identity_valid "$pid" "$expected" || return 1
     kill -0 "$pid" >/dev/null 2>&1 || return 1
-    actual="$(_cmux_watcher_parent_start_time "$pid")" || return 1
+    case "$expected" in
+        k*) provider=kernel ;;
+        p*) provider="ps" ;;
+        *) return 1 ;;
+    esac
+    actual="$(_cmux_watcher_parent_start_time "$pid" "$provider")" || return 1
     [[ "$actual" == "$expected" ]]
 }
 
 _cmux_capture_shell_start_time() {
     # Cache this shell's own start time once per shell lifetime: $$ never
     # changes, so the value cannot go stale, and watcher starts must not pay
-    # a /bin/ps fork per command. Only a valid value tied to this shell PID is
-    # cached, so a transient ps failure heals on the next watcher start.
+    # a process-identity lookup per command. Only a valid value tied to this
+    # shell PID is cached, so a transient provider failure heals on the next
+    # watcher start.
     if [[ "${_CMUX_SHELL_START_PID:-}" == "$$" ]] \
         && _cmux_watcher_parent_identity_valid "$$" "${_CMUX_SHELL_START_TIME:-}"; then
         return 0
@@ -1522,7 +1568,7 @@ _cmux_capture_shell_start_time() {
 _cmux_watcher_guard_tick() {
     # Tiered per-iteration guard for watcher loops: the builtin kill -0 runs
     # every call (plain parent death is caught within one iteration), and the
-    # /bin/ps identity comparison runs only every Nth call (default 30, via
+    # process-identity comparison runs only every Nth call (default 30, via
     # _CMUX_WATCHER_IDENTITY_INTERVAL) so steady-state watchers do not fork
     # once per second. PID-reuse detection latency is bounded by N iterations.
     # Runs inside the forked watcher, so the countdown global is private to
