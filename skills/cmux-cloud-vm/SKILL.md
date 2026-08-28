@@ -39,7 +39,7 @@ cmux vm run --sync -- bun test                           # push cwd to work/<dir
 cmux vm agent --agent claude --sync -- "run the tests and fix failures"   # a detached Claude Code session on the routed machine
 cmux vm tree                                             # the surface catalog: This Mac, then every machine, workspace, terminal, desktop, port
 cmux vm open vivid-newt/main/term_2f9c                   # show the human one terminal (reuses its pane if open)
-cmux surface open vivid-newt/screen/display:1 --pane pane:2 --left   # any surface, at a pane edge (same drop rules as the sidebar)
+cmux surface open vivid-newt/display/display:1 --pane pane:2 --left   # any surface, at a pane edge (same drop rules as the sidebar)
 ```
 
 Repeat runs from the same directory hit the same machine (sticky binding), so synced checkouts and dependencies stay warm. `--new` forces a fresh machine; `--machine <id>` pins one.
@@ -72,6 +72,7 @@ cmux vm wait <id> --wake                # block until ready and awake
 cmux vm tree <id>                       # live: terminals with title, cwd, agent state, (open: surface)
 cmux vm open <id>                       # the machine's shell (+ its screen on desktop machines)
 cmux vm open <id>/<ws>/<term>           # one terminal as a pane; reuses the pane already showing it
+cmux vm workspace open <id> <ws> [--here|--tabs|--pane <p> --left]   # a whole workspace: new local workspace, or into this one
 cmux vm open <id>:desktop               # the noVNC screen
 cmux vm open <id>:port/3000 [--print]   # private tokened URL for an HTTP port (--print: URL only)
 cmux surface ls --json                  # every surface (local + cloud) with ids, lifecycle, and which panes show it
@@ -113,6 +114,7 @@ CodeRouter routes **model credentials**, not compute. An agent started with `vm 
 | Reference | When to Use |
 |-----------|-------------|
 | [references/commands.md](references/commands.md) | Exhaustive `cmux vm` command list with examples |
+| [references/sidebar-parity.md](references/sidebar-parity.md) | Every Cloud-sidebar action and the CLI verb that does the same thing (1:1) |
 | [references/agent-workflows.md](references/agent-workflows.md) | Recipes: cloud dev box, routed agents, parallel forks, desktop/browser tasks, showing the human |
 | [../cmux/SKILL.md](../cmux/SKILL.md) | Windows/workspaces/panes when presenting machine panes |
 | [../cmux-workspace/SKILL.md](../cmux-workspace/SKILL.md) | Non-disruptive automation rules (focus, caller workspace) |
