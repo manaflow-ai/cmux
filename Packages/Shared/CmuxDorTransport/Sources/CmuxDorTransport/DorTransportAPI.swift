@@ -13,6 +13,77 @@
 
 public import Foundation
 
+/// Input safety rules shared by the relay protocol and its diagnostic sink.
+/// The relay and the peer are remote boundaries, so their text is never
+/// allowed to become an unbounded log line or a control-flow reason.
+enum DorSafety {
+    static let maxHandshakeBytes = 16 * 1024
+    static let maxReasonBytes = 128
+    static let maxAttributeBytes = 256
+
+    static func boundedText(_ raw: String?, fallback: String = "") -> String {
+        guard let raw else { return fallback }
+        var result = String.UnicodeScalarView()
+        var bytes = 0
+        for scalar in raw.unicodeScalars {
+            // Exclude C0/C1 controls and line/paragraph separators. They can
+            // forge log records or alter terminal diagnostics.
+            guard scalar.value >= 0x20,
+                  scalar.value != 0x7F,
+                  scalar.value != 0x85,
+                  scalar.value != 0x2028,
+                  scalar.value != 0x2029
+            else { continue }
+            let scalarBytes = String(scalar).utf8.count
+            guard bytes + scalarBytes <= maxAttributeBytes else { break }
+            result.append(scalar)
+            bytes += scalarBytes
+        }
+        return result.isEmpty ? fallback : String(result)
+    }
+
+    /// Convert peer-provided reasons to a small, stable vocabulary. A reason
+    /// must not carry arbitrary server, filesystem, or exception text.
+    static func stableReason(_ raw: String?, fallback: String = "peer-error") -> String {
+        guard let raw else { return fallback }
+        let value = raw.lowercased()
+        switch value {
+        case "stopped", "shutdown", "already-ended", "user-close", "test-over",
+             "keepalive-timeout", "admit-timeout", "admit-stall", "seal-failed",
+             "superseded", "superseded-by-handshake", "unauthorized", "capacity",
+             "protocol-error", "protocol-error-retry", "unauthorized-retry",
+             "leg-closed", "leg-stream-ended", "leg-reset", "download-sequence-gap",
+             "stream-buffer-overflow", "stream-capacity", "invalid-credit", "peer-closed",
+             "resume-refused", "unknown-session", "buffer-overflow", "gap-not-provable",
+             "invalid-grant", "not-admitted", "sign-failed", "identity-sign-failed",
+             "admission-denied", "peer-error", "no-grant":
+            return String(value.prefix(maxReasonBytes))
+        default:
+            return fallback
+        }
+    }
+
+    static func relayReason(_ raw: String?) -> String {
+        switch raw?.lowercased() {
+        case "unknown session": return "unknown-session"
+        case "buffer overflow": return "buffer-overflow"
+        case "gap not provable": return "gap-not-provable"
+        default: return "resume-refused"
+        }
+    }
+
+    /// Protect the journal even when a future call site forgets to classify
+    /// an error before recording it.
+    static func journalValue(key: String, value: String) -> String {
+        let lower = key.lowercased()
+        let secretKeys = ["token", "secret", "password", "authorization", "grant", "stderr", "stdout"]
+        if secretKeys.contains(where: { lower.contains($0) }) {
+            return "[redacted]"
+        }
+        return boundedText(value, fallback: "-")
+    }
+}
+
 // MARK: - Identity and trust material (injected by the apps)
 
 /// The device's long-lived Ed25519 identity. Adapted from the existing
@@ -167,6 +238,17 @@ public struct DorLaneDescriptor: Sendable, Codable, Equatable {
     }
     public static func artifact(resource: String, offset: UInt64?) -> DorLaneDescriptor {
         DorLaneDescriptor(lane: "artifact", resource: resource, offset: offset)
+    }
+
+    /// Validate untrusted descriptors before they enter the session map or
+    /// reach an application router. Unknown lane names remain forward
+    /// compatible, but text fields stay bounded and control-free.
+    var isValid: Bool {
+        guard !lane.isEmpty, lane.utf8.count <= 64,
+              DorSafety.boundedText(lane, fallback: "") == lane,
+              resource.map({ $0.utf8.count <= 512 && DorSafety.boundedText($0, fallback: "") == $0 }) ?? true
+        else { return false }
+        return true
     }
 }
 

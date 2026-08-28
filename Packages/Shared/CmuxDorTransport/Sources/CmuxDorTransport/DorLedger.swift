@@ -7,6 +7,12 @@
 import Foundation
 
 struct DorLedger: Sendable {
+    enum DownloadResult: Sendable, Equatable {
+        case accepted
+        case duplicate
+        case gap
+    }
+
     struct OutboundFrame: Sendable {
         let destination: UInt32
         let seq: UInt64
@@ -96,14 +102,20 @@ struct DorLedger: Sendable {
 
     // MARK: download
 
-    /// Dedup an inbound frame; false means it is a replay the caller drops.
-    /// Forward jumps are accepted (the relay never replays backwards).
+    /// Dedup an inbound frame. A forward gap is a continuity failure, not a
+    /// frame that can be acknowledged safely.
     mutating func acceptDownload(source: UInt32, seq: UInt64) -> Bool {
+        acceptDownloadResult(source: source, seq: seq) == .accepted
+    }
+
+    mutating func acceptDownloadResult(source: UInt32, seq: UInt64) -> DownloadResult {
         let key = downloadKey(source)
-        guard seq > (lastReceived[key] ?? 0) else { return false }
+        let previous = lastReceived[key] ?? 0
+        guard seq > previous else { return .duplicate }
+        guard previous < UInt64.max, seq == previous + 1 else { return .gap }
         lastReceived[key] = seq
         unackedDownloads[key] = (unackedDownloads[key] ?? 0) + 1
-        return true
+        return .accepted
     }
 
     /// Whether an ack should be emitted now for this stream (coalesced).

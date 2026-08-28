@@ -21,6 +21,9 @@ export const DOR_PROTOCOL = "dor/1";
 export const DATA_HEADER_BYTES = 14;
 export const DATA_FRAME_VERSION = 1;
 export const DATA_KIND_DATA = 1;
+/** JavaScript cannot represent every u64 exactly. Keep one value for the
+ * overflow boundary so `seq + 1` remains exact in all relay decisions. */
+export const MAX_SEQUENCE = Number.MAX_SAFE_INTEGER - 1;
 
 /** Control frames are small JSON. */
 export const MAX_CONTROL_BYTES = 4 * 1024;
@@ -69,7 +72,7 @@ export function decodeDataHeader(frame: ArrayBuffer): DataFrameHeader | null {
   if (kind !== DATA_KIND_DATA) return null;
   const legId = view.getUint32(2);
   const seq = Number(view.getBigUint64(6));
-  if (!Number.isSafeInteger(seq) || seq < 1) return null;
+  if (!Number.isSafeInteger(seq) || seq < 1 || seq > MAX_SEQUENCE) return null;
   return { version, kind, legId, seq };
 }
 
@@ -101,7 +104,7 @@ export type ControlFrame =
 /** Parse an inbound control frame. Only client→relay types are accepted;
  * unknown or oversized input returns null (protocol error). */
 export function decodeControl(text: string): ControlFrame | null {
-  if (text.length > MAX_CONTROL_BYTES) return null;
+  if (text.length > MAX_CONTROL_BYTES || new TextEncoder().encode(text).byteLength > MAX_CONTROL_BYTES) return null;
   let value: unknown;
   try {
     value = JSON.parse(text);
@@ -159,7 +162,7 @@ export function encodeControl(frame: ControlFrame): string {
 }
 
 function validSeq(value: unknown): value is number {
-  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 && value <= MAX_SEQUENCE;
 }
 
 interface RingEntry {
@@ -173,12 +176,17 @@ export class ReplayRing {
   private entries: RingEntry[] = [];
   private bytes = 0;
   /** Highest seq ever enqueued for this stream. */
-  lastEnqueued = 0;
+  lastEnqueued: number;
   /** Set when un-acked frames were evicted; cleared only by a fresh session. */
   broken = false;
 
-  push(seq: number, frame: ArrayBuffer): void {
-    if (seq <= this.lastEnqueued) return; // sender resends are idempotent
+  constructor(initialSequence = 0) {
+    this.lastEnqueued = initialSequence;
+  }
+
+  push(seq: number, frame: ArrayBuffer): boolean {
+    if (seq <= this.lastEnqueued) return true; // sender resends are idempotent
+    if (seq !== this.lastEnqueued + 1) return false;
     this.lastEnqueued = seq;
     this.entries.push({ seq, frame });
     this.bytes += frame.byteLength;
@@ -188,10 +196,12 @@ export class ReplayRing {
       this.bytes -= evicted.frame.byteLength;
       this.broken = true;
     }
+    return true;
   }
 
   /** Prune entries the receiver has acknowledged. */
   ackTo(seq: number): void {
+    if (seq > this.lastEnqueued) return;
     while (this.entries.length > 0 && this.entries[0]!.seq <= seq) {
       this.bytes -= this.entries[0]!.frame.byteLength;
       this.entries.shift();
@@ -222,6 +232,16 @@ export class ReplayRing {
   get size(): number {
     return this.entries.length;
   }
+}
+
+/** A host may route only to a phone leg authorized for the same Mac. */
+export function isAuthorizedPhoneLeg(
+  value: unknown,
+  mac: string,
+): value is { role: "phone"; mac: string } {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as { role?: unknown; mac?: unknown };
+  return candidate.role === "phone" && candidate.mac === mac;
 }
 
 /** Random 32-byte resume key, base64url. */

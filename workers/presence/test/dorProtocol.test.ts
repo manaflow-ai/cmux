@@ -9,6 +9,7 @@ import {
   decodeDataHeader,
   encodeControl,
   hostKey,
+  isAuthorizedPhoneLeg,
   mintResumeKey,
   phoneKey,
   rewriteLegId,
@@ -65,6 +66,7 @@ describe("control frames", () => {
     expect(decodeControl(JSON.stringify({ t: "auth.refresh", token: "x".repeat(9000) }))).toBeNull();
     expect(decodeControl(JSON.stringify({ t: "hello", proto: "dor/1", device: "d", acks: { "0": 1 } }))).toBeNull();
     expect(decodeControl("not json")).toBeNull();
+    expect(decodeControl(JSON.stringify({ t: "hello", proto: "😀".repeat(2000), device: "d" }))).toBeNull();
   });
 
   test("encodeControl emits parseable relay frames", () => {
@@ -95,12 +97,21 @@ describe("ReplayRing", () => {
 
   test("duplicate sender resends are idempotent", () => {
     const ring = new ReplayRing();
-    ring.push(1, frame(1, 1));
-    ring.push(1, frame(1, 1));
-    ring.push(2, frame(1, 2));
-    ring.push(1, frame(1, 1));
+    expect(ring.push(1, frame(1, 1))).toBe(true);
+    expect(ring.push(1, frame(1, 1))).toBe(true);
+    expect(ring.push(2, frame(1, 2))).toBe(true);
+    expect(ring.push(1, frame(1, 1))).toBe(true);
     expect(ring.size).toBe(2);
     expect(ring.lastEnqueued).toBe(2);
+  });
+
+  test("rejects sequence gaps and future acknowledgements", () => {
+    const ring = new ReplayRing();
+    expect(ring.push(1, frame(1, 1))).toBe(true);
+    expect(ring.push(3, frame(1, 3))).toBe(false);
+    expect(ring.lastEnqueued).toBe(1);
+    ring.ackTo(99);
+    expect(ring.size).toBe(1);
   });
 
   test("overflow marks broken and fails coverage forever", () => {
@@ -124,6 +135,13 @@ describe("addressing + keys", () => {
     expect(validOpaqueId("")).toBe(false);
     expect(validOpaqueId("has space")).toBe(false);
     expect(validOpaqueId("x".repeat(200))).toBe(false);
+  });
+
+  test("only a phone leg bound to the target Mac is a valid destination", () => {
+    expect(isAuthorizedPhoneLeg({ role: "phone", mac: "mac-a" }, "mac-a")).toBe(true);
+    expect(isAuthorizedPhoneLeg({ role: "phone", mac: "mac-b" }, "mac-a")).toBe(false);
+    expect(isAuthorizedPhoneLeg({ role: "host", mac: "mac-a" }, "mac-a")).toBe(false);
+    expect(isAuthorizedPhoneLeg(null, "mac-a")).toBe(false);
   });
 
   test("resume keys are unique and hash deterministically", async () => {

@@ -5,6 +5,31 @@ import Testing
 
 @Suite("dor/1 wire codec")
 struct DorWireTests {
+    @Test func remoteTextIsBoundedAndReasonsAreStable() {
+        let hostile = "ok\u{0000}\u{001b}[31m" + String(repeating: "x", count: 800)
+        let bounded = DorSafety.boundedText(hostile, fallback: "fallback")
+        #expect(bounded.utf8.count <= DorSafety.maxAttributeBytes)
+        #expect(!bounded.unicodeScalars.contains { $0.value < 0x20 || $0.value == 0x7f })
+        #expect(DorSafety.stableReason("grant:secret", fallback: "denied") == "denied")
+        #expect(DorSafety.relayReason("unknown session") == "unknown-session")
+    }
+
+    @Test func journalValuesRedactCredentialFields() {
+        #expect(DorSafety.journalValue(key: "token", value: "bearer-secret") == "[redacted]")
+        #expect(DorSafety.journalValue(key: "stderr", value: "private path") == "[redacted]")
+        #expect(DorSafety.journalValue(key: "device", value: "device-1") == "device-1")
+    }
+
+    @Test func relayURLPolicyAllowsTLSAndLoopbackOnlyForCleartext() throws {
+        #expect(DorLeg.isAllowedRelayBaseURL(try #require(URL(string: "https://presence.example"))))
+        #expect(DorLeg.isAllowedRelayBaseURL(try #require(URL(string: "http://127.0.0.1:8787"))))
+        #expect(DorLeg.isAllowedRelayBaseURL(try #require(URL(string: "ws://localhost:8787"))))
+        #expect(!DorLeg.isAllowedRelayBaseURL(try #require(URL(string: "http://presence.example"))))
+        #expect(!DorLeg.isAllowedRelayBaseURL(try #require(URL(string: "ws://198.51.100.2"))))
+        #expect(!DorLeg.isAllowedRelayBaseURL(try #require(URL(string: "ftp://presence.example"))))
+        #expect(!DorLeg.isAllowedRelayBaseURL(try #require(URL(string: "https://user:password@presence.example"))))
+    }
+
     @Test func dataFrameRoundTrip() throws {
         let frame = DorWire.DataFrame(legID: 7, seq: 42, payload: Data("hello".utf8))
         let decoded = try #require(DorWire.decodeData(DorWire.encodeData(frame)))
@@ -79,18 +104,18 @@ struct DorLedgerTests {
             ledger.acceptDownload(source: 1, seq: 2),
             ledger.acceptDownload(source: 1, seq: 2), // replay
             ledger.acceptDownload(source: 1, seq: 1), // replay
-            ledger.acceptDownload(source: 1, seq: 5), // forward jump OK
+            ledger.acceptDownload(source: 1, seq: 5), // forward gap rejected
         ]
-        #expect(outcomes == [true, true, false, false, true])
-        #expect(ledger.resumeAck == 5)
+        #expect(outcomes == [true, true, false, false, false])
+        #expect(ledger.resumeAck == 2)
     }
 
     @Test func hostResumeAcksAreKeyedByPhoneLeg() {
         var ledger = DorLedger(role: .host)
-        let first = ledger.acceptDownload(source: 11, seq: 3)
-        let second = ledger.acceptDownload(source: 12, seq: 7)
+        let first = ledger.acceptDownload(source: 11, seq: 1)
+        let second = ledger.acceptDownload(source: 12, seq: 1)
         #expect(first && second)
-        #expect(ledger.resumeAcks == [11: 3, 12: 7])
+        #expect(ledger.resumeAcks == [11: 1, 12: 1])
     }
 
     @Test func coalescedAcksFlushByCountAndTime() {

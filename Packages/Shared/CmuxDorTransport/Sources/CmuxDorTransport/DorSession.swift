@@ -77,6 +77,9 @@ public actor DorSecureSession: DorSecureSessionProtocol {
     /// Owner notification (engine/acceptor), separate from the app-consumed
     /// `events` stream so both can observe the end without sharing it.
     private var onEnded: (@Sendable (String) -> Void)?
+    private static let maxStreams = 64
+    private static let maxDescriptorBytes = 4 * 1024
+    private static let maxSessionCloseBytes = DorSafety.maxReasonBytes
     /// The initiator paces pings; the responder just answers and times out.
     private static let pingInterval: Duration = .seconds(15)
     private static let keepaliveTimeout: Duration = .seconds(60)
@@ -205,39 +208,75 @@ public actor DorSecureSession: DorSecureSessionProtocol {
         }
         switch frame.op {
         case .open:
-            guard streams[frame.streamID] == nil,
+            guard frame.streamID != 0,
+                  isPeerOwnedStreamID(frame.streamID),
+                  frame.payload.count <= Self.maxDescriptorBytes,
+                  streams[frame.streamID] == nil,
+                  streams.count < Self.maxStreams,
                   let descriptor = try? JSONDecoder().decode(
-                    DorLaneDescriptor.self, from: frame.payload)
-            else { return }
+                    DorLaneDescriptor.self, from: frame.payload),
+                  descriptor.isValid
+            else {
+                if frame.streamID != 0, isPeerOwnedStreamID(frame.streamID),
+                   streams[frame.streamID] == nil, streams.count >= Self.maxStreams
+                {
+                    await endSession(reason: "stream-capacity", notifyPeer: true)
+                }
+                return
+            }
             let state = DorStreamState(id: frame.streamID, descriptor: descriptor)
             streams[frame.streamID] = state
             eventsContinuation.yield(
                 .inboundStream(DorStreamHandle(
                     descriptor: descriptor, id: frame.streamID, session: self)))
         case .data:
+            guard frame.streamID != 0, frame.payload.count <= DorMuxLimits.chunkBytes else {
+                await endSession(reason: "stream-buffer-overflow", notifyPeer: true)
+                return
+            }
             guard let state = streams[frame.streamID] else { return }
             if !state.enqueue(frame.payload) {
                 await endSession(reason: "stream-buffer-overflow", notifyPeer: true)
             }
         case .eof:
+            guard frame.streamID != 0 else { return }
             streams[frame.streamID]?.finishEOF()
         case .reset:
+            guard frame.streamID != 0 else { return }
             if let state = streams.removeValue(forKey: frame.streamID) {
                 state.fail(DorStreamError.reset)
             }
         case .credit:
-            if let bytes = frame.creditBytes {
-                streams[frame.streamID]?.addSendWindow(bytes)
+            guard frame.streamID != 0,
+                  let bytes = frame.creditBytes,
+                  bytes > 0,
+                  let state = streams[frame.streamID],
+                  state.addSendWindow(bytes)
+            else {
+                await endSession(reason: "invalid-credit", notifyPeer: true)
+                return
             }
         case .admit:
+            guard frame.streamID == 0,
+                  let object = try? JSONSerialization.jsonObject(with: frame.payload)
+                    as? [String: Any],
+                  object.keys.count == 1,
+                  object["session"] as? String == sessionID
+            else { return }
             admitted = true
             resolveAdmitWaiters(ended: false)
         case .ping:
+            guard frame.streamID == 0, frame.payload.isEmpty else { return }
             try? await sendMux(DorMuxFrame(op: .pong, streamID: 0))
         case .pong:
-            break // lastInbound already updated
+            guard frame.streamID == 0, frame.payload.isEmpty else { return }
         case .sessionClose:
-            let reason = String(data: frame.payload, encoding: .utf8) ?? "peer-closed"
+            guard frame.streamID == 0, frame.payload.count <= Self.maxSessionCloseBytes else {
+                await endSession(reason: "peer-closed", notifyPeer: false)
+                return
+            }
+            let reason = DorSafety.stableReason(
+                String(data: frame.payload, encoding: .utf8), fallback: "peer-closed")
             await endSession(reason: reason, notifyPeer: false)
         }
     }
@@ -251,6 +290,13 @@ public actor DorSecureSession: DorSecureSessionProtocol {
 
     public func openStream(_ descriptor: DorLaneDescriptor) async throws -> any DorStream {
         guard !ended else { throw DorStreamError.sessionEnded }
+        guard descriptor.isValid, streams.count < Self.maxStreams else {
+            throw DorStreamError.streamLimit
+        }
+        guard nextStreamID <= UInt32.max - 2 else {
+            await endSession(reason: "stream-capacity", notifyPeer: false)
+            throw DorStreamError.streamLimit
+        }
         let id = nextStreamID
         nextStreamID &+= 2
         let state = DorStreamState(id: id, descriptor: descriptor)
@@ -261,7 +307,9 @@ public actor DorSecureSession: DorSecureSessionProtocol {
     }
 
     public func close(reason: String) async {
-        await endSession(reason: reason, notifyPeer: true)
+        await endSession(
+            reason: DorSafety.stableReason(reason, fallback: "user-close"),
+            notifyPeer: true)
     }
 
     // MARK: - Stream operations (via DorStreamHandle)
@@ -315,9 +363,14 @@ public actor DorSecureSession: DorSecureSessionProtocol {
 
     private func sendMux(_ frame: DorMuxFrame) async throws {
         guard !ended else { throw DorStreamError.sessionEnded }
+        let encoded = frame.encoded()
+        guard encoded.count <= DorWire.maxDataFrameBytes else {
+            await endSession(reason: "stream-buffer-overflow", notifyPeer: false)
+            throw DorStreamError.sessionEnded
+        }
         let sealed: Data
         do {
-            sealed = try sealer.seal(frame.encoded())
+            sealed = try sealer.seal(encoded)
         } catch {
             await endSession(reason: "seal-failed", notifyPeer: false)
             throw DorStreamError.sessionEnded
@@ -327,10 +380,11 @@ public actor DorSecureSession: DorSecureSessionProtocol {
 
     private func endSession(reason: String, notifyPeer: Bool) async {
         guard !ended else { return }
+        let safeReason = DorSafety.stableReason(reason, fallback: "peer-error")
         if notifyPeer {
             // Best effort; sealed with the still-valid keys.
             if let sealed = try? sealer.seal(
-                DorMuxFrame(op: .sessionClose, streamID: 0, payload: Data(reason.utf8)).encoded())
+                DorMuxFrame(op: .sessionClose, streamID: 0, payload: Data(safeReason.utf8)).encoded())
             {
                 try? await leg.send(sealed, to: destination)
             }
@@ -345,17 +399,25 @@ public actor DorSecureSession: DorSecureSessionProtocol {
         resolveAdmitWaiters(ended: true)
         journal.record(
             component: "session", event: "ended",
-            attributes: ["session": sessionID, "reason": reason])
-        eventsContinuation.yield(.ended(reason: reason))
+            attributes: ["session": sessionID, "reason": safeReason])
+        eventsContinuation.yield(.ended(reason: safeReason))
         eventsContinuation.finish()
-        onEnded?(reason)
+        onEnded?(safeReason)
         onEnded = nil
+    }
+
+    private func isPeerOwnedStreamID(_ id: UInt32) -> Bool {
+        // Stream zero is reserved for session control. The initiator owns odd
+        // ids and the responder owns even ids.
+        guard id != 0 else { return false }
+        return role == .initiator ? id.isMultiple(of: 2) : !id.isMultiple(of: 2)
     }
 }
 
 public enum DorStreamError: Error, Sendable {
     case reset
     case sessionEnded
+    case streamLimit
 }
 
 /// Per-stream state: inbound buffer with read waiters, credit windows both
@@ -478,8 +540,16 @@ private final class DorStreamState: @unchecked Sendable {
 
     // MARK: outbound window
 
-    func addSendWindow(_ bytes: Int) {
+    @discardableResult
+    func addSendWindow(_ bytes: Int) -> Bool {
         lock.lock()
+        guard bytes > 0,
+              sendWindow <= DorMuxLimits.initialWindow,
+              bytes <= DorMuxLimits.initialWindow - sendWindow
+        else {
+            lock.unlock()
+            return false
+        }
         sendWindow += bytes
         var resumable: [(Int, CheckedContinuation<Void, any Error>)] = []
         while let next = windowWaiters.first, sendWindow >= next.bytes {
@@ -491,6 +561,7 @@ private final class DorStreamState: @unchecked Sendable {
         for (_, continuation) in resumable {
             continuation.resume()
         }
+        return true
     }
 
     func acquireSendWindow(_ bytes: Int) async throws {
