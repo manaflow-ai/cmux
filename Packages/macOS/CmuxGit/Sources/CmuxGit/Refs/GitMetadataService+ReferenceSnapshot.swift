@@ -122,12 +122,12 @@ extension GitMetadataService {
                             )
                         }
                         if revalidateFileBackedHead {
-                            referenceReader.headSnapshot(
+                            return referenceReader.headSnapshot(
                                 repository: repository,
                                 deadline: deadline
                             )
                         } else {
-                            referenceReader.snapshot(
+                            return referenceReader.snapshot(
                                 repository: repository,
                                 deadline: deadline,
                                 includeStorageWatchPaths: includeStorageWatchPaths
