@@ -130,8 +130,15 @@ private func applyRenderNodeKeyEquivalent(from node: RenderNode, to item: NSMenu
 /// Resolves a key token (`.return`/`.escape`/arrows/single character) to
 /// an `NSMenuItem.keyEquivalent` string.
 private func renderNodeNSKeyEquivalent(_ token: String?) -> String? {
-    guard let raw = token?.trimmingCharacters(in: CharacterSet(charactersIn: ".\" ")),
+    guard var raw = token?.trimmingCharacters(in: .whitespacesAndNewlines),
           !raw.isEmpty else { return nil }
+    if raw.first == "\"", raw.last == "\"", raw.count >= 2 {
+        raw.removeFirst()
+        raw.removeLast()
+    } else if raw.first == "." {
+        raw.removeFirst()
+    }
+    guard !raw.isEmpty else { return nil }
     switch raw.lowercased() {
     case "return": return "\r"
     case "escape": return "\u{1B}"

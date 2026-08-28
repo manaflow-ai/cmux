@@ -108,7 +108,7 @@ private func subtreeContainsClaimingOverlay(
             if isStrictDescendant,
                overlay.bounds.contains(local),
                overlay.isMenuEnabled,
-               !overlay.nodes.isEmpty {
+               overlay.menuForPresentation() != nil {
                 return true
             }
             // An unrelated overlay can itself contain platform descendants;
