@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxMobileDiagnostics
 import CmuxMobileShell
 import CmuxMobileSupport
 import CmuxMobileTransport
@@ -104,7 +105,10 @@ struct cmuxApp: App {
         let relayCoordinator = auth.coordinator
         let relayFactory = RelayClientTransportFactory(
             deviceID: { await DeviceRegistryService.deviceID() },
-            accessToken: { try await relayCoordinator.accessToken() }
+            accessToken: { try await relayCoordinator.accessToken() },
+            // Every connect-lifecycle step lands in the in-app debug log so
+            // a failed relay dial is copyable from the computer page.
+            log: { MobileDebugLog.anchormux($0) }
         )
         let registrations = [
             CmxRouteTransportFactoryRegistration(

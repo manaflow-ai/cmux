@@ -1,5 +1,6 @@
 #if os(iOS)
 import CMUXMobileCore
+import CmuxMobileDiagnostics
 import CmuxMobilePairedMac
 import CmuxMobileShell
 import CmuxMobileShellModel
@@ -56,6 +57,8 @@ struct MacComputerDetailView: View {
     /// Drives the Forget confirmation; Forget is the only deletion path for a
     /// Computer whose remaining route is the permanent Iroh identity.
     @State private var showsForgetComputer = false
+    /// Feedback after Copy Connection Report: the copied debug-log line count.
+    @State private var copiedReportLineCount: Int?
     /// Presents the revoke-failure alert so a failed Forget is never silent.
     @State private var forgetComputerFailed = false
 
@@ -115,6 +118,7 @@ struct MacComputerDetailView: View {
             connectionSection
             presenceSection
             routesSection
+            diagnosticsSection
             identitySection
             actionsSection
         }
@@ -967,6 +971,60 @@ struct MacComputerDetailView: View {
             }
             isPinging = false
         }
+    }
+
+    /// One tap collects everything a connection bug report needs: a header
+    /// with this computer's method/status/routes and the relay dial target,
+    /// then the whole in-app debug log (where the relay transport logs every
+    /// dial step and its exact failure), onto the pasteboard.
+    private var diagnosticsSection: some View {
+        Section {
+            Button {
+                let report = connectionReportHeader()
+                Task { @MainActor in
+                    let lines = await MobileDebugLog.shared.copyToPasteboard(prepending: report)
+                    copiedReportLineCount = lines
+                }
+            } label: {
+                Label(
+                    L10n.string("mobile.computers.copyReport", defaultValue: "Copy Connection Report"),
+                    systemImage: "doc.on.doc"
+                )
+            }
+            .accessibilityIdentifier("MobileComputerCopyConnectionReport")
+            if let copiedReportLineCount {
+                Text(L10n.string(
+                    "mobile.computers.copyReport.copied",
+                    defaultValue: "Copied \(copiedReportLineCount) log lines"
+                ))
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+            }
+        } footer: {
+            Text(L10n.string(
+                "mobile.computers.copyReport.footer",
+                defaultValue: "Copies this computer's connection state and the app's debug log for troubleshooting. Paste it into a bug report or chat."
+            ))
+        }
+    }
+
+    private func connectionReportHeader() -> String {
+        var lines = [
+            "== cmux iOS connection report \(Date().formatted(.iso8601)) ==",
+            "build: \(MobileDebugLog.buildStamp)",
+            "computer: \(displayTitle) mac_device_id=\(macDeviceID) tag=\(instanceTag ?? "-")",
+            "method: \((pendingConnectionMethod ?? selectedMethod).rawValue)",
+            "status: \(connectionStatus.map(String.init(describing:)) ?? "unknown")",
+            MobileShellComposite.relayDialDescription(),
+        ]
+        let routes = pairedMac?.routes ?? []
+        lines.append("routes(\(routes.count)):")
+        for route in routes.sorted(by: { $0.priority > $1.priority }) {
+            let ping = pingResults[routeSignature(route)].map { " ping=\(String(describing: $0))" } ?? ""
+            lines.append("  \(route.kind.rawValue) endpoint=\(route.endpoint) priority=\(route.priority)\(ping)")
+        }
+        lines.append("== debug log ==")
+        return lines.joined(separator: "\n")
     }
 
     @ViewBuilder

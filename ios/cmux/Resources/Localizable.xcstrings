@@ -23715,6 +23715,57 @@
           }
         }
       }
+    },
+    "mobile.computers.copyReport": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Connection Report"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続レポートをコピー"
+          }
+        }
+      }
+    },
+    "mobile.computers.copyReport.copied": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copied %lld log lines"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld行のログをコピーしました"
+          }
+        }
+      }
+    },
+    "mobile.computers.copyReport.footer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copies this computer's connection state and the app's debug log for troubleshooting. Paste it into a bug report or chat."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このコンピュータの接続状態とアプリのデバッグログをトラブルシューティング用にコピーします。バグ報告やチャットに貼り付けてください。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

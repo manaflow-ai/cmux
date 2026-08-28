@@ -10045,8 +10045,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // target is a constant and the per-connect authority is the minted
         // ticket, not the route.
         if ticketMethod == .relay {
-            let advertised = supportedRoutes.filter { $0.kind == .websocket }
-            if !advertised.isEmpty { return advertised }
+            // Relay dials ONE synthesized route, always. Advertised or
+            // persisted websocket routes are ignored on purpose: nothing
+            // advertises the kind today, so any that exist are stale
+            // earlier-protocol state carrying a dead dial URL, and the
+            // resolved URL below is the single source of truth for which
+            // relay this build dials.
             guard let relayRoute = Self.synthesizedRelayRoute() else { return [] }
             return [relayRoute]
         }
@@ -10073,24 +10077,31 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return supportedRoutes.filter { $0.kind == .iroh || $0.kind == .debugLoopback }
     }
 
-    /// The one WebSocket route the Relay method dials: the production relay
-    /// connect URL (a Debug env override supports dev relay workers). Returns
-    /// nil only if the constant ever fails validation, which fails the dial
-    /// closed instead of substituting another method.
+    /// The one WebSocket route the Relay method dials, resolved through
+    /// `RelayConnectAuth.resolvedRelayURL()` (Debug: env override, else the
+    /// dev worker; Release: the production constant). Returns nil only if
+    /// resolution ever fails validation, which fails the dial closed instead
+    /// of substituting another method.
     static func synthesizedRelayRoute() -> CmxAttachRoute? {
-        var urlString = RelayProtocol.defaultRelayURL
-        #if DEBUG
-        if let override = ProcessInfo.processInfo.environment["CMUX_MOBILE_RELAY_URL"],
-           !override.isEmpty {
-            urlString = override
+        let resolved = RelayConnectAuth.resolvedRelayURL()
+        guard let url = resolved.url else {
+            MobileDebugLog.anchormux("relay.route_unavailable source=\(resolved.source)")
+            return nil
         }
-        #endif
+        MobileDebugLog.anchormux("relay.route url=\(url.absoluteString) source=\(resolved.source)")
         return try? CmxAttachRoute(
             id: "relay",
             kind: .websocket,
-            endpoint: .url(urlString),
+            endpoint: .url(url.absoluteString),
             priority: 0
         )
+    }
+
+    /// One human-readable line naming the relay this build would dial and why
+    /// (for the computer page's copyable connection report).
+    public static func relayDialDescription() -> String {
+        let resolved = RelayConnectAuth.resolvedRelayURL()
+        return "relay=\(resolved.url?.absoluteString ?? "INVALID") source=\(resolved.source)"
     }
 
     /// The user-entered pairing-code authorization covering `route`, if any.
