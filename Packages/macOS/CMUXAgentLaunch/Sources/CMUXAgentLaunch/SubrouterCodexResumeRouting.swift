@@ -76,6 +76,32 @@ public struct SubrouterCodexResumeRouting: Sendable, Equatable {
         return marker.split(separator: " ").map(String.init) + [sessionID]
     }
 
+    /// Retains a canonical, non-secret routing proof when prompt sanitization
+    /// removes Subrouter's trailing injected config block from captured argv.
+    public func retainingRoutingProof(
+        in sanitizedArguments: [String],
+        from capturedArguments: [String],
+        launcher: String?,
+        environment: [String: String]?
+    ) -> [String] {
+        guard resumeArguments(
+            launcher: launcher,
+            sessionID: "capture-routing-validation",
+            launchArguments: capturedArguments,
+            environment: environment
+        ) != nil else {
+            return sanitizedArguments
+        }
+        if launchArgumentsContainSubrouterProvider(sanitizedArguments) {
+            return sanitizedArguments
+        }
+
+        var retained = sanitizedArguments
+        let insertionIndex = retained.firstIndex(of: "--") ?? retained.endIndex
+        retained.insert(contentsOf: ["-c", "model_provider=subrouter"], at: insertionIndex)
+        return retained
+    }
+
     func removingRoutingArguments(from arguments: [String]) -> [String] {
         var selected: [String] = []
         var index = 0

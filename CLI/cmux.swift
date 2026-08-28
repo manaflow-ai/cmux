@@ -31186,12 +31186,20 @@ struct CMUXCLI {
             // replace it with an env-only fallback.
             return AgentHookLaunchCommandRecord(launcher: launcher, executablePath: executablePath, arguments: [], workingDirectory: workingDirectory, environment: nil, verificationHome: verificationHome, capturedAt: Date().timeIntervalSince1970, source: "rejected")
         }
+        let replayArguments = fallbackKind == "codex"
+            ? subrouterRouting.retainingRoutingProof(
+                in: sanitizedArguments,
+                from: arguments,
+                launcher: launcher,
+                environment: env
+            )
+            : sanitizedArguments
         let source = envArguments == nil ? "process" : "environment"
 
         return AgentHookLaunchCommandRecord(
             launcher: launcher,
             executablePath: executablePath,
-            arguments: sanitizedArguments,
+            arguments: replayArguments,
             workingDirectory: workingDirectory,
             environment: environment.isEmpty ? nil : environment,
             verificationHome: verificationHome,
