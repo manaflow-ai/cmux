@@ -129,7 +129,7 @@ extension GitMetadataService {
             return (pathsByRepository, watchOnlyPathsByRepository, metadataSentinelsByRepository, indexSnapshotsByRepository, forceWorkTreeRoots, visitedRoots, remainingRepositoryCount)
         }
 
-        let indexPath = joinedPath(root: repository.gitDirectory, relativePath: "index")
+        let indexPath = GitMetadataService.joinedPath(root: repository.gitDirectory, relativePath: "index")
         let indexResult = await watchIndexSnapshot(
             indexPath: indexPath,
             deadline: deadline,
@@ -180,7 +180,7 @@ extension GitMetadataService {
                 forceWorkTreeRoots.insert(repository.workTreeRoot)
                 break
             }
-            let gitlinkPath = joinedPath(
+            let gitlinkPath = GitMetadataService.joinedPath(
                 root: repository.workTreeRoot,
                 relativePath: entry.path
             )
@@ -346,7 +346,7 @@ extension GitMetadataService {
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
                 Self.blockingStatusQueue.async {
-                    let result = cancellationSignal.withCurrentBinding {
+                    let result: (header: GitIndexHeaderSummary?, snapshot: GitIndexSnapshot?) = cancellationSignal.withCurrentBinding {
                         guard deadline > DispatchTime.now() else { return (nil, nil) }
                         let readResult = GitIndexDataReader().read(
                             at: URL(fileURLWithPath: indexPath),
@@ -355,7 +355,7 @@ extension GitMetadataService {
                         )
                         let parser = GitIndexSnapshotParser()
                         let header = readResult.header
-                        let snapshot = readResult.data.flatMap { data in
+                        let snapshot: GitIndexSnapshot? = readResult.data.flatMap { data in
                             guard let header,
                                   header.entryCount <= maximumEntryCount else {
                                 return nil
@@ -432,8 +432,8 @@ extension GitMetadataService {
                     let descriptor = cancellationSignal.withCurrentBinding {
                         Self.workspaceGitMetadataWatchDescriptor(
                             for: directory,
-                            resolvedRepository: repository,
                             safetyConfiguration: safetyConfiguration,
+                            resolvedRepository: repository,
                             configPathsByRepository: watchInputs.configPathsByRepository,
                             watchOnlyPathsByRepository: watchInputs.watchOnlyPathsByRepository,
                             metadataSentinelPathsByRepository: watchInputs.metadataSentinelPathsByRepository,
@@ -453,14 +453,14 @@ extension GitMetadataService {
         repository: ResolvedGitRepository,
         deadline: DispatchTime
     ) -> [String] {
-        [
-            joinedPath(root: repository.gitDirectory, relativePath: "HEAD"),
-            joinedPath(root: repository.gitDirectory, relativePath: "index"),
-            joinedPath(root: repository.gitDirectory, relativePath: "refs"),
-            joinedPath(root: repository.gitDirectory, relativePath: "reftable"),
-            joinedPath(root: repository.commonDirectory, relativePath: "refs"),
-            joinedPath(root: repository.commonDirectory, relativePath: "packed-refs"),
-            joinedPath(root: repository.commonDirectory, relativePath: "reftable"),
+        return [
+            GitMetadataService.joinedPath(root: repository.gitDirectory, relativePath: "HEAD"),
+            GitMetadataService.joinedPath(root: repository.gitDirectory, relativePath: "index"),
+            GitMetadataService.joinedPath(root: repository.gitDirectory, relativePath: "refs"),
+            GitMetadataService.joinedPath(root: repository.gitDirectory, relativePath: "reftable"),
+            GitMetadataService.joinedPath(root: repository.commonDirectory, relativePath: "refs"),
+            GitMetadataService.joinedPath(root: repository.commonDirectory, relativePath: "packed-refs"),
+            GitMetadataService.joinedPath(root: repository.commonDirectory, relativePath: "reftable"),
         ] + GitWorktreeConfigEnablementReader()
             .rootConfigURLs(repository: repository, deadline: deadline)
             .map(\.path)

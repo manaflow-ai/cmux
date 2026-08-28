@@ -46,7 +46,6 @@ extension GitMetadataService {
             (watchOnlyPathsByRepository?.values.flatMap { $0 } ?? [])
                 + metadataSentinelParentPaths
         )
-        let watchOnlyPathSet = Set(watchOnlyPaths)
         let gitMetadataPaths = gitRepositoryMetadataWatchPaths(
             repository: repository,
             configPathsByRepository: configPathsByRepository
