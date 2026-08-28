@@ -5283,6 +5283,11 @@ impl Mux {
         // then agent-record locks, so teardown acquires sequence before those
         // locks as well.
         let mut sequences = self.agent_hook_sequences.lock().unwrap();
+        if self.agent_hook_tombstones.lock().unwrap().contains(&terminal_id)
+            && ingress.kind != "agent.session.started"
+        {
+            return;
+        }
         if sequences.get(&terminal_id).is_some_and(|latest| sequence <= *latest) {
             return;
         }
@@ -8798,13 +8803,20 @@ impl Mux {
             "updated_at_ms":record.updated_at_ms.to_string(),
             "source_session":persisted_source_session.or(record.session.clone()),
         });
-        let deltas = serde_json::json!([{
-            "kind":"upsert",
-            "sequence":0,
-            "resource":"agent",
-            "id":agent_id,
-            "value":value,
-        }]);
+        let deltas = if persisted_source_session
+            .as_deref()
+            .is_some_and(|value| value.starts_with("cmux-hook-ended:"))
+        {
+            serde_json::json!([])
+        } else {
+            serde_json::json!([{
+                "kind":"upsert",
+                "sequence":0,
+                "resource":"agent",
+                "id":agent_id,
+                "value":value,
+            }])
+        };
         let commit = registry.commit_agent_projection(
             mutation,
             fingerprint,
@@ -21812,6 +21824,15 @@ mod tests {
         )
         .unwrap();
         mux.apply_agent_hook_record(&ended, 9);
+        let delayed = crate::agent_hooks::agent_hook_journal_ingress(
+            "claude",
+            "UserPromptSubmit",
+            Some(&terminal_id.to_string()),
+            serde_json::json!({}),
+        )
+        .unwrap();
+        mux.apply_agent_hook_record(&delayed, 10);
+        assert!(mux.list_agents(Some(surface.id), None).is_empty());
         assert!(
             mux.report_agent(surface.id, AgentState::Working, AgentSource::Socket, None).is_err()
         );
