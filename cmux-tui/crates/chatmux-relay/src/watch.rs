@@ -122,6 +122,25 @@ struct WatchSlot {
 
 type Sessions = Arc<Mutex<HashMap<String, WatchSlot>>>;
 
+/// Resources shared by one socket's opening coordinators and active runners.
+/// Grouping them keeps the lifecycle functions explicit without passing a
+/// long list of independently-owned handles through every transition.
+#[derive(Clone)]
+struct WatchResources {
+    sessions: Sessions,
+    outbound: OutboundSink,
+    setup_slots: Arc<Semaphore>,
+    teardown_slots: Arc<Semaphore>,
+}
+
+struct OpenContext {
+    watch_id: String,
+    generation: u64,
+    live: Arc<AtomicBool>,
+    cancellation: CancellationToken,
+    resources: WatchResources,
+}
+
 enum RetiredWatch {
     Active(ActiveWatch),
     Opening(Opening),
@@ -218,6 +237,7 @@ async fn report_watch_failure(
 }
 
 impl WatchRegistry {
+    #[cfg(test)]
     pub(crate) fn new(outbound: OutboundSink) -> WatchRegistry {
         Self::new_with_teardown_slots(
             outbound,
@@ -225,6 +245,7 @@ impl WatchRegistry {
         )
     }
 
+    #[cfg(test)]
     pub(crate) fn new_with_teardown_slots(
         outbound: OutboundSink,
         teardown_slots: Arc<Semaphore>,
@@ -277,10 +298,12 @@ impl WatchRegistry {
         let generation = self.next_generation.fetch_add(1, Ordering::Relaxed);
         let opening_cancellation = self.cancellation.child_token();
         let opening_live = Arc::new(AtomicBool::new(true));
-        let sessions = Arc::clone(&self.sessions);
-        let outbound = self.outbound.clone();
-        let setup_slots = Arc::clone(&self.setup_slots);
-        let teardown_slots = Arc::clone(&self.teardown_slots);
+        let resources = WatchResources {
+            sessions: Arc::clone(&self.sessions),
+            outbound: self.outbound.clone(),
+            setup_slots: Arc::clone(&self.setup_slots),
+            teardown_slots: Arc::clone(&self.teardown_slots),
+        };
         let local_roots_for_task = local_roots.map(<[String]>::to_vec);
         let reservation = match self.sessions.lock() {
             Ok(mut state) => {
@@ -301,20 +324,14 @@ impl WatchRegistry {
                     // abort handle before another caller can close/replace
                     // this slot. Tokio guarantees `spawn` does not poll the
                     // future synchronously as part of this call.
-                    let task_id = watch_id.clone();
-                    let task_cancellation = opening_cancellation.clone();
-                    let task = tokio::spawn(coordinate_open(
-                        task_id,
-                        frame,
-                        local_roots_for_task,
+                    let context = OpenContext {
+                        watch_id: watch_id.clone(),
                         generation,
-                        Arc::clone(&opening_live),
-                        task_cancellation,
-                        Arc::clone(&sessions),
-                        outbound,
-                        setup_slots,
-                        teardown_slots,
-                    ));
+                        live: Arc::clone(&opening_live),
+                        cancellation: opening_cancellation.clone(),
+                        resources,
+                    };
+                    let task = tokio::spawn(coordinate_open(context, frame, local_roots_for_task));
                     slot.opening.as_mut().expect("opening was just reserved").abort =
                         Some(task.abort_handle());
                     Reservation::Accepted { previous }
@@ -403,60 +420,28 @@ async fn setup_watch(
 }
 
 async fn coordinate_open(
-    watch_id: String,
+    context: OpenContext,
     frame: wire::RelayFsWatchOpen,
     local_roots: Option<Vec<String>>,
-    generation: u64,
-    live: Arc<AtomicBool>,
-    cancellation: CancellationToken,
-    sessions: Sessions,
-    outbound: OutboundSink,
-    setup_slots: Arc<Semaphore>,
-    teardown_slots: Arc<Semaphore>,
 ) {
-    let setup =
-        setup_watch(frame, local_roots, cancellation.clone(), setup_slots.clone(), teardown_slots)
-            .await;
+    let setup = setup_watch(
+        frame,
+        local_roots,
+        context.cancellation.clone(),
+        Arc::clone(&context.resources.setup_slots),
+        Arc::clone(&context.resources.teardown_slots),
+    )
+    .await;
     match setup {
         Ok((root, prepared)) => {
-            commit_open(
-                watch_id,
-                root,
-                prepared,
-                generation,
-                live,
-                cancellation,
-                sessions,
-                outbound,
-                setup_slots,
-            );
+            commit_open(context, root, prepared);
         }
         Err(SetupFailure::Cancelled) => {}
         Err(SetupFailure::Refused { code, message }) => {
-            finish_open_failure(
-                &watch_id,
-                generation,
-                live,
-                cancellation,
-                sessions,
-                outbound,
-                code,
-                Some(message),
-            )
-            .await;
+            finish_open_failure(context, code, Some(message)).await;
         }
         Err(SetupFailure::Failed(_message)) => {
-            finish_open_failure(
-                &watch_id,
-                generation,
-                live,
-                cancellation,
-                sessions,
-                outbound,
-                wire::WorkspaceErrorCode::Failed,
-                None,
-            )
-            .await;
+            finish_open_failure(context, wire::WorkspaceErrorCode::Failed, None).await;
         }
     }
 }
@@ -464,22 +449,15 @@ async fn coordinate_open(
 /// Publish the acknowledgement and active task as one state transition.
 /// `prepared` stays outside the mutex on every rejection path so dropping a
 /// notify watcher cannot run while registry state is locked.
-fn commit_open(
-    watch_id: String,
-    root: PathBuf,
-    prepared: PreparedWatch,
-    generation: u64,
-    live: Arc<AtomicBool>,
-    cancellation: CancellationToken,
-    sessions: Sessions,
-    outbound: OutboundSink,
-    setup_slots: Arc<Semaphore>,
-) {
+fn commit_open(context: OpenContext, root: PathBuf, prepared: PreparedWatch) {
+    let OpenContext { watch_id, generation, live, cancellation, resources } = context;
+    let WatchResources { sessions, outbound, setup_slots, .. } = resources;
+    let opened_root = root.to_string_lossy().into_owned();
     let opened = serde_json::to_string(&wire::RelayFsWatchOpened {
         version: WORKSPACE_FRAME_VERSION,
         r#type: wire::TagFsWatchOpened::FsWatchOpened,
         watch_id: watch_id.clone(),
-        root: root.to_string_lossy().into_owned(),
+        root: opened_root,
     })
     .unwrap_or_else(|_| String::new());
     let mut prepared = Some(prepared);
@@ -496,10 +474,10 @@ fn commit_open(
         {
             let (start_tx, start_rx) = oneshot::channel();
             let run_id = watch_id.clone();
-            let run_root = root.clone();
-            let run_outbound = outbound.clone();
+            let run_root = root;
+            let run_outbound = outbound;
             let run_sessions = Arc::clone(&sessions);
-            let run_setup_slots = Arc::clone(&setup_slots);
+            let run_setup_slots = setup_slots;
             let run_cancellation = cancellation.clone();
             let run_live = Arc::clone(&live);
             let run_prepared = prepared.take().expect("prepared watch present");
@@ -564,18 +542,15 @@ fn commit_open(
 }
 
 async fn finish_open_failure(
-    watch_id: &str,
-    generation: u64,
-    live: Arc<AtomicBool>,
-    cancellation: CancellationToken,
-    sessions: Sessions,
-    outbound: OutboundSink,
+    context: OpenContext,
     code: wire::WorkspaceErrorCode,
     message: Option<String>,
 ) {
-    let text = watch_error_frame(watch_id, code, message.as_deref());
+    let OpenContext { watch_id, generation, live, cancellation, resources } = context;
+    let WatchResources { sessions, outbound, .. } = resources;
+    let text = watch_error_frame(&watch_id, code, message.as_deref());
     let should_report = sessions.lock().ok().is_some_and(|state| {
-        state.get(watch_id).is_some_and(|slot| {
+        state.get(&watch_id).is_some_and(|slot| {
             slot.opening.as_ref().is_some_and(|opening| {
                 opening.generation == generation && !opening.cancellation.is_cancelled()
             })
@@ -596,7 +571,7 @@ async fn finish_open_failure(
     }
 
     let remove_slot = if let Ok(mut state) = sessions.lock() {
-        let remove_slot = if let Some(slot) = state.get_mut(watch_id)
+        let remove_slot = if let Some(slot) = state.get_mut(&watch_id)
             && slot.opening.as_ref().is_some_and(|opening| {
                 opening.generation == generation && !opening.cancellation.is_cancelled()
             }) {
@@ -607,7 +582,7 @@ async fn finish_open_failure(
             false
         };
         if remove_slot {
-            state.remove(watch_id);
+        state.remove(&watch_id);
         }
         remove_slot
     } else {
