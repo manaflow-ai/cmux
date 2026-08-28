@@ -55,9 +55,8 @@ struct TerminalSurfaceRuntimeTeardownFenceTests {
             },
             freeSurface: { pointer in
                 freeStarted.withLock { $0 = true }
-                let pointerBits = UInt(bitPattern: pointer)
                 Task {
-                    await recorder.record(pointerBits)
+                    await recorder.record(UInt(bitPattern: pointer))
                 }
             }
         )
