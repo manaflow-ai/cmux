@@ -7,6 +7,8 @@ use super::*;
 pub(super) const RESOURCE_MUTATION_REPLAY_CAPACITY: usize = 4096;
 pub(super) const RESOURCE_MUTATION_PRUNE_INTERVAL: u64 = 128;
 const RESOURCE_EVENT_PAGE_SIZE: usize = 1024;
+pub(super) const AGENT_HOOK_RETRY_PAGE_SIZE: i64 = 64;
+pub(super) const AGENT_HOOK_MAX_ATTEMPTS: i64 = 8;
 
 pub(super) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     transaction.execute_batch(
@@ -232,10 +234,10 @@ pub(super) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::R
             [],
         )?;
     }
-    transaction.execute(
-        "CREATE INDEX IF NOT EXISTS resource_agent_hook_pending_by_terminal
-         ON resource_agent_hook_pending(terminal_id, event_sequence)",
-        [],
+    transaction.execute_batch(
+        "DROP INDEX IF EXISTS resource_agent_hook_pending_by_terminal;
+         CREATE INDEX IF NOT EXISTS resource_agent_hook_pending_by_terminal
+           ON resource_agent_hook_pending(terminal_id, event_sequence, idempotency_key);",
     )?;
     Ok(())
 }
@@ -575,6 +577,25 @@ impl WorkspaceRegistry {
         Ok(())
     }
 
+    fn record_agent_hook_pending_failure(
+        &self,
+        producer_id: &str,
+        origin: &str,
+        idempotency_key: &str,
+    ) -> anyhow::Result<()> {
+        self.connection.execute(
+            "UPDATE resource_agent_hook_pending
+             SET error = 'invalid pending agent hook payload',
+                 attempt = CASE
+                   WHEN attempt < 9223372036854775807 THEN attempt + 1
+                   ELSE attempt
+                 END
+             WHERE producer_id = ?1 AND origin = ?2 AND idempotency_key = ?3",
+            params![producer_id, origin, idempotency_key],
+        )?;
+        Ok(())
+    }
+
     pub fn pending_agent_hook_projections(
         &self,
     ) -> anyhow::Result<Vec<(String, String, String, u64, crate::JournalIngress)>> {
@@ -612,31 +633,96 @@ impl WorkspaceRegistry {
         let mut statement = self.connection.prepare(
             "SELECT producer_id, origin, idempotency_key, event_sequence, ingress_json
              FROM resource_agent_hook_pending
-             WHERE terminal_id = ?1
+             WHERE terminal_id = ?1 AND attempt < ?2
              ORDER BY event_sequence ASC, idempotency_key ASC
-             LIMIT 64",
+             LIMIT ?3",
         )?;
-        statement
-            .query_map([terminal_id.as_str()], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, i64>(3)?,
-                    row.get::<_, String>(4)?,
-                ))
-            })?
-            .map(|row| {
-                let (producer_id, origin, key, sequence, ingress_json) = row?;
-                Ok((
-                    producer_id,
-                    origin,
-                    key,
-                    u64::try_from(sequence).context("pending hook sequence is negative")?,
-                    serde_json::from_str(&ingress_json)?,
-                ))
-            })
-            .collect()
+        let rows = statement
+            .query_map(
+                params![terminal_id.as_str(), AGENT_HOOK_MAX_ATTEMPTS, AGENT_HOOK_RETRY_PAGE_SIZE],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, i64>(3)?,
+                        row.get::<_, String>(4)?,
+                    ))
+                },
+            )?
+            .collect::<Result<Vec<_>, _>>()?;
+        drop(statement);
+        let mut pending = Vec::with_capacity(rows.len());
+        for (producer_id, origin, key, sequence, ingress_json) in rows {
+            let ingress = match serde_json::from_str(&ingress_json) {
+                Ok(ingress) => ingress,
+                Err(_) => {
+                    self.record_agent_hook_pending_failure(&producer_id, &origin, &key)?;
+                    continue;
+                }
+            };
+            pending.push((
+                producer_id,
+                origin,
+                key,
+                u64::try_from(sequence).context("pending hook sequence is negative")?,
+                ingress,
+            ));
+        }
+        Ok(pending)
+    }
+
+    pub fn pending_agent_hook_projections_page(
+        &self,
+        after: Option<(u64, String)>,
+    ) -> anyhow::Result<(
+        Vec<(String, String, String, u64, crate::JournalIngress)>,
+        Option<(u64, String)>,
+    )> {
+        let (after_sequence, after_key) = after.unwrap_or((0, String::new()));
+        let mut statement = self.connection.prepare(
+            "SELECT producer_id, origin, idempotency_key, event_sequence, ingress_json
+             FROM resource_agent_hook_pending
+             WHERE attempt < ?1
+               AND (event_sequence > ?2 OR (event_sequence = ?2 AND idempotency_key > ?3))
+             ORDER BY event_sequence ASC, idempotency_key ASC
+             LIMIT ?4",
+        )?;
+        let rows = statement
+            .query_map(
+                params![
+                    AGENT_HOOK_MAX_ATTEMPTS,
+                    i64::try_from(after_sequence)?,
+                    after_key,
+                    AGENT_HOOK_RETRY_PAGE_SIZE
+                ],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, i64>(3)?,
+                        row.get::<_, String>(4)?,
+                    ))
+                },
+            )?
+            .collect::<Result<Vec<_>, _>>()?;
+        drop(statement);
+        let mut pending = Vec::with_capacity(rows.len());
+        let mut next_cursor = None;
+        for (producer_id, origin, key, sequence, ingress_json) in rows {
+            let sequence = u64::try_from(sequence).context("pending hook sequence is negative")?;
+            next_cursor = Some((sequence, key.clone()));
+            let ingress = match serde_json::from_str(&ingress_json) {
+                Ok(ingress) => ingress,
+                Err(_) => {
+                    self.record_agent_hook_pending_failure(&producer_id, &origin, &key)?;
+                    continue;
+                }
+            };
+            pending.push((producer_id, origin, key, sequence, ingress));
+        }
+        Ok((pending, next_cursor))
     }
 
     pub fn commit_agent_projection_with_hook_state(

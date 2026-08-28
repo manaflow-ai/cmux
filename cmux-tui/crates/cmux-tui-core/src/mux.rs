@@ -2480,44 +2480,82 @@ impl Mux {
     }
 
     fn retry_pending_agent_hooks(&self) -> anyhow::Result<()> {
-        let pending = self.workspace_registry.lock().unwrap().pending_agent_hook_projections()?;
-        self.retry_pending_agent_hooks_rows(pending)
+        let mut cursor = None;
+        loop {
+            let (pending, next_cursor) = self
+                .workspace_registry
+                .lock()
+                .unwrap()
+                .pending_agent_hook_projections_page(cursor.clone())?;
+            let Some(next_cursor) = next_cursor else { break };
+            cursor = Some(next_cursor);
+            self.retry_pending_agent_hooks_rows(pending)?;
+        }
+        Ok(())
     }
 
     fn retry_pending_agent_hooks_for_terminal(
         &self,
         terminal_id: &TerminalPublicId,
     ) -> anyhow::Result<()> {
-        let pending = self
-            .workspace_registry
-            .lock()
-            .unwrap()
-            .pending_agent_hook_projections_for_terminal(terminal_id)?;
-        self.retry_pending_agent_hooks_rows(pending)
+        loop {
+            let pending = self
+                .workspace_registry
+                .lock()
+                .unwrap()
+                .pending_agent_hook_projections_for_terminal(terminal_id)?;
+            if pending.is_empty() {
+                break;
+            }
+            let applied = self.retry_pending_agent_hooks_rows(pending)?;
+            if applied == 0 {
+                break;
+            }
+        }
+        Ok(())
     }
 
     fn retry_pending_agent_hooks_rows(
         &self,
         pending: Vec<(String, String, String, u64, crate::JournalIngress)>,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<usize> {
+        let mut applied = 0;
         for (producer_id, origin, key, sequence, ingress) in pending {
             match self.apply_agent_hook_record(&ingress, sequence) {
-                Ok(()) => self.workspace_registry.lock().unwrap().clear_agent_hook_pending(
-                    &producer_id,
-                    &origin,
-                    &key,
-                )?,
-                Err(error) => self.workspace_registry.lock().unwrap().enqueue_agent_hook_pending(
-                    &producer_id,
-                    &origin,
-                    &key,
-                    sequence,
-                    &ingress,
-                    &error.to_string(),
-                )?,
+                Ok(()) => {
+                    if self
+                        .workspace_registry
+                        .lock()
+                        .unwrap()
+                        .clear_agent_hook_pending(&producer_id, &origin, &key)
+                        .is_ok()
+                    {
+                        applied += 1;
+                    } else {
+                        eprintln!("cmux-tui: agent hook retry cleanup deferred");
+                    }
+                }
+                Err(error) => {
+                    if self
+                        .workspace_registry
+                        .lock()
+                        .unwrap()
+                        .enqueue_agent_hook_pending(
+                            &producer_id,
+                            &origin,
+                            &key,
+                            sequence,
+                            &ingress,
+                            &error.to_string(),
+                        )
+                        .is_err()
+                    {
+                        eprintln!("cmux-tui: agent hook retry bookkeeping deferred");
+                    }
+                }
             }
         }
-        Ok(())
+        Ok(applied)
     }
 
     /// Rehydrate workspace rows that belong to an interrupted correlated
@@ -8899,12 +8937,20 @@ impl Mux {
                 (surface, (*terminal_id).clone())
             }
         };
-        if source != AgentSource::Hook
-            && sequence_guard
+        if source != AgentSource::Hook {
+            let ended_fence = sequence_guard
                 .as_ref()
-                .is_some_and(|guard| guard.get(&terminal_id).is_some_and(|fence| fence.ended))
-        {
-            anyhow::bail!("agent session ended for terminal {terminal_id}");
+                .and_then(|guard| guard.get(&terminal_id))
+                .filter(|fence| fence.ended);
+            let fresh_session = source_session.as_deref().filter(|session| {
+                !session.starts_with("cmux-hook-sequence:")
+                    && !session.starts_with("cmux-hook-ended:")
+            });
+            if ended_fence.is_some_and(|fence| {
+                fresh_session.is_none_or(|session| session == fence.session_id)
+            }) {
+                anyhow::bail!("agent session ended for terminal {terminal_id}");
+            }
         }
         let persisted_source_session = if source == AgentSource::Hook {
             source_session.clone().filter(|value| {
@@ -22194,6 +22240,48 @@ mod tests {
     }
 
     #[test]
+    fn terminal_report_drains_more_than_one_pending_retry_page() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+        let ingress = crate::agent_hooks::agent_hook_journal_ingress(
+            "claude",
+            "UserPromptSubmit",
+            Some(&terminal_id.to_string()),
+            serde_json::json!({}),
+        )
+        .unwrap();
+        let validated = mux.journal_kernel.validate_ingress(&ingress).unwrap();
+        for index in 0..65 {
+            mux.workspace_registry
+                .lock()
+                .unwrap()
+                .append_journal_ingress(
+                    &ingress,
+                    &validated,
+                    "test",
+                    &format!("pending-page-{index}"),
+                )
+                .unwrap();
+        }
+        assert_eq!(
+            mux.workspace_registry.lock().unwrap().pending_agent_hook_projections().unwrap().len(),
+            65
+        );
+
+        mux.report_agent(surface.id, AgentState::Working, AgentSource::Socket, None).unwrap();
+        assert!(
+            mux.workspace_registry
+                .lock()
+                .unwrap()
+                .pending_agent_hook_projections()
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(mux.list_agents(Some(surface.id), None)[0].source, AgentSource::Hook);
+    }
+
+    #[test]
     fn sessionless_legacy_hook_identity_survives_restart_marker_projection() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, None).unwrap();
@@ -22267,6 +22355,40 @@ mod tests {
                 .unwrap()
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn new_non_hook_session_can_start_after_hook_session_end() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+        let hook = |event: &str| {
+            crate::agent_hooks::agent_hook_journal_ingress(
+                "claude",
+                event,
+                Some(&terminal_id.to_string()),
+                serde_json::json!({"session_id":"old-hook"}),
+            )
+            .unwrap()
+        };
+        mux.apply_agent_hook_record(&hook("SessionEnd"), 1).unwrap();
+
+        mux.report_agent(
+            surface.id,
+            AgentState::Working,
+            AgentSource::Socket,
+            Some("new-socket-session".into()),
+        )
+        .unwrap();
+        let record = &mux.list_agents(Some(surface.id), None)[0];
+        assert_eq!(record.source, AgentSource::Socket);
+        assert_eq!(record.session.as_deref(), Some("new-socket-session"));
+
+        // A late event from the ended hook session remains fenced.
+        mux.apply_agent_hook_record(&hook("UserPromptSubmit"), 2).unwrap();
+        let record = &mux.list_agents(Some(surface.id), None)[0];
+        assert_eq!(record.source, AgentSource::Socket);
+        assert_eq!(record.session.as_deref(), Some("new-socket-session"));
     }
 
     #[test]
