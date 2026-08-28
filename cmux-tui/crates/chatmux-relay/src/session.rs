@@ -39,6 +39,8 @@ use crate::pairing::websocket_url;
 use crate::pty::FrameContext;
 #[cfg(unix)]
 use crate::pty::PtyManager;
+#[cfg(unix)]
+use crate::tunnel_terminal::TunnelAuthority;
 use crate::trust::{
     DEFAULT_RELAY_TRUST, Trust, clear_invalid_yolo_confirmation, effective_local_trust,
     has_yolo_confirmation, relay_trust,
@@ -315,6 +317,8 @@ pub struct SessionRuntime {
     pub(crate) workspace: Arc<crate::workspace::SharedRuntime>,
     #[cfg(unix)]
     pty: Arc<PtyManager>,
+    #[cfg(unix)]
+    pub(crate) tunnel_authority: Arc<TunnelAuthority>,
 }
 
 impl SessionRuntime {
@@ -336,6 +340,8 @@ impl SessionRuntime {
             workspace: Arc::new(crate::workspace::SharedRuntime::new(local_roots)),
             #[cfg(unix)]
             pty,
+            #[cfg(unix)]
+            tunnel_authority: Arc::new(TunnelAuthority::default()),
         }
     }
 }
@@ -420,8 +426,10 @@ pub async fn stay_online(
     // Best-effort: a failed bind degrades to the relay-socket terminal path.
     #[cfg(unix)]
     if state.managed {
+        runtime.tunnel_authority.clear();
         match crate::tunnel_terminal::start_tunnel_terminal_listener(
             Arc::clone(&runtime.pty),
+            Arc::clone(&runtime.tunnel_authority),
             cancellation.child_token(),
             crate::tunnel_terminal::TUNNEL_TERMINAL_HOST,
             crate::tunnel_terminal::TUNNEL_TERMINAL_PORT,
@@ -439,7 +447,10 @@ pub async fn stay_online(
         if cancellation.is_cancelled() {
             return Ok(());
         }
-        match relay_session(&mut config, config_path, &mut state, &runtime, &cancellation).await {
+        let relay_result = relay_session(&mut config, config_path, &mut state, &runtime, &cancellation).await;
+        #[cfg(unix)]
+        runtime.tunnel_authority.clear();
+        match relay_result {
             Ok(was_connected) => {
                 if was_connected {
                     attempt = 0;
@@ -607,7 +618,12 @@ async fn relay_session(
     // this socket opens carries this connection's identity, so closing or
     // reconnecting the socket cannot detach an independent tunnel attachment.
     #[cfg(unix)]
-    let transport_id = format!("relay-{}", crate::pty::random_hex(16));
+    let transport_id = format!(
+        "relay-{}",
+        crate::pty::random_hex(16).map_err(|_| {
+            RelayError::fatal("Secure randomness is unavailable; refusing a new transport.")
+        })?
+    );
 
     // Ordered PTY frame dispatch on its own task so a slow open (daemon
     // spawn) never stalls heartbeats or other frames.
@@ -814,6 +830,11 @@ async fn relay_session(
                 let Some(frame) = parse_server_frame(&text) else { continue };
                 match frame {
                     ServerFrame::HelloAccepted(hello) => {
+                        let Some(server_trust) = Trust::parse(&hello.trust) else {
+                            break Err(RelayError::fatal(
+                                "The relay returned an invalid trust level; refusing terminal access.",
+                            ));
+                        };
                         connected = true;
                         negotiated_version = hello.relay_protocol_version;
                         clear_invalid_yolo_confirmation(config);
@@ -857,7 +878,7 @@ async fn relay_session(
                             hello.machine_name.clone()
                         };
                         let shown_trust = if state.managed {
-                            hello.trust.clone()
+                            server_trust.as_str().to_owned()
                         } else {
                             local_trust.as_str().to_owned()
                         };
@@ -878,7 +899,7 @@ async fn relay_session(
                             );
                         }
                         if !state.managed
-                            && (local_trust.as_str() != hello.trust
+                            && (local_trust.as_str() != server_trust.as_str()
                                 || local_trust == Trust::Autonomous)
                         {
                             let frame = set_trust_frame(local_trust.as_str()).to_string();
@@ -890,21 +911,29 @@ async fn relay_session(
                             config.pending_trust = None;
                             save(config, config_path);
                         } else {
-                            config.trust = Some(hello.trust.clone());
+                            config.trust = Some(server_trust.as_str().to_owned());
                         }
                         // Publish the reconciled auth for exec/PTY dispatch.
                         {
                             let effective_trust = if state.managed {
-                                hello.trust.clone()
+                                server_trust.as_str().to_owned()
                             } else {
                                 local_trust.as_str().to_owned()
                             };
                             let local_observe = effective_trust == Trust::Observe.as_str();
                             let mut snapshot = auth.lock().expect("auth lock");
-                            snapshot.trust = effective_trust;
+                            snapshot.trust = effective_trust.clone();
                             snapshot.roots = local_roots.clone();
                             snapshot.owner = config.owner_user_id.clone();
                             workspace.set_local_observe(local_observe);
+                            #[cfg(unix)]
+                            if state.managed {
+                                runtime.tunnel_authority.set(
+                                    effective_trust,
+                                    local_roots.clone(),
+                                    config.owner_user_id.clone(),
+                                );
+                            }
                         }
                         let cadence = Duration::from_millis(hello.heartbeat_interval_ms);
                         let mut interval = tokio::time::interval(cadence);

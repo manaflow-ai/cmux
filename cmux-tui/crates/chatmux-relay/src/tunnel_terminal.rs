@@ -38,7 +38,8 @@
 //! already attach terminals through the cmux CLI. Paired human machines
 //! never run this listener: it starts from the managed branch only.
 
-use std::sync::Arc;
+use std::io;
+use std::sync::{Arc, RwLock};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 
@@ -53,6 +54,42 @@ use tokio_util::sync::CancellationToken;
 use crate::pty::{
     FrameContext, PTY_PROTOCOL_VERSION, PtyManager, random_hex, session_name_ok, surface_ref_ok,
 };
+
+/// Authority published by the authenticated managed relay. The loopback
+/// listener is useful only after the relay has accepted `hello`; before that,
+/// a local client must not be able to open a terminal by relying on a
+/// hard-coded trust value.
+#[derive(Clone, Default)]
+pub struct TunnelAuthority {
+    state: Arc<RwLock<Option<TunnelAuth>>>,
+}
+
+#[derive(Clone)]
+struct TunnelAuth {
+    trust: String,
+    local_roots: Option<Vec<String>>,
+    owner_user_id: Option<String>,
+}
+
+impl TunnelAuthority {
+    pub fn set(
+        &self,
+        trust: String,
+        local_roots: Option<Vec<String>>,
+        owner_user_id: Option<String>,
+    ) {
+        let mut state = self.state.write().expect("tunnel authority lock");
+        *state = Some(TunnelAuth { trust, local_roots, owner_user_id });
+    }
+
+    pub fn clear(&self) {
+        self.state.write().expect("tunnel authority lock").take();
+    }
+
+    fn snapshot(&self) -> Option<TunnelAuth> {
+        self.state.read().expect("tunnel authority lock").clone()
+    }
+}
 
 /// Loopback port the gateway's spliced streams dial. The chatmux Worker
 /// mirrors this value in apps/backend/src/tunnel/terminal-ticket-route.ts —
@@ -90,6 +127,22 @@ pub fn wire_error_code(code: &str) -> &'static str {
     }
 }
 
+/// Stable client-safe text for terminal failures. Manager errors can contain
+/// filesystem paths, socket names, or provider details, so they never cross
+/// the tunnel boundary verbatim.
+pub fn wire_error_message(code: &str) -> &'static str {
+    match wire_error_code(code) {
+        "bad_request" => "invalid terminal request",
+        "trust_blocked" => "terminal access denied",
+        "session_limit" => "terminal limit reached",
+        "terminal_gone" => "terminal is no longer available",
+        "overflow" => "terminal output overflowed",
+        "trust_revoked" => "terminal access revoked",
+        "busy" => "terminal is busy",
+        _ => "terminal operation failed",
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Framing codec
 // ---------------------------------------------------------------------------
@@ -100,21 +153,39 @@ pub struct TunnelFrame {
     pub payload: Vec<u8>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TunnelEncodeError {
+    PayloadTooLarge(usize),
+    UnknownKind(u8),
+}
+
 /// Encode one frame: u32be payload length, u8 kind, payload.
-pub fn encode_tunnel_frame(kind: u8, payload: &[u8]) -> Vec<u8> {
-    debug_assert!(payload.len() <= MAX_TUNNEL_FRAME_BYTES);
+pub fn encode_tunnel_frame(
+    kind: u8,
+    payload: &[u8],
+) -> Result<Vec<u8>, TunnelEncodeError> {
+    if payload.len() > MAX_TUNNEL_FRAME_BYTES {
+        return Err(TunnelEncodeError::PayloadTooLarge(payload.len()));
+    }
+    if kind != FRAME_KIND_CONTROL && kind != FRAME_KIND_PTY {
+        return Err(TunnelEncodeError::UnknownKind(kind));
+    }
     let mut frame = Vec::with_capacity(HEADER_BYTES + payload.len());
-    frame.extend_from_slice(&u32::try_from(payload.len()).unwrap_or(0).to_be_bytes());
+    frame.extend_from_slice(
+        &u32::try_from(payload.len())
+            .expect("MAX_TUNNEL_FRAME_BYTES fits in a u32")
+            .to_be_bytes(),
+    );
     frame.push(kind);
     frame.extend_from_slice(payload);
     frame
 }
 
-pub fn encode_control_frame(frame: &Value) -> Vec<u8> {
+pub fn encode_control_frame(frame: &Value) -> Result<Vec<u8>, TunnelEncodeError> {
     encode_tunnel_frame(FRAME_KIND_CONTROL, frame.to_string().as_bytes())
 }
 
-pub fn encode_pty_frame(bytes: &[u8]) -> Vec<u8> {
+pub fn encode_pty_frame(bytes: &[u8]) -> Result<Vec<u8>, TunnelEncodeError> {
     encode_tunnel_frame(FRAME_KIND_PTY, bytes)
 }
 
@@ -142,14 +213,16 @@ impl TunnelFrameDecoder {
         }
         self.buffer.extend_from_slice(chunk);
         let mut frames = Vec::new();
-        while self.buffer.len() >= HEADER_BYTES {
+        let mut consumed = 0usize;
+        while self.buffer.len().saturating_sub(consumed) >= HEADER_BYTES {
+            let start = consumed;
             let length = u32::from_be_bytes([
-                self.buffer[0],
-                self.buffer[1],
-                self.buffer[2],
-                self.buffer[3],
+                self.buffer[start],
+                self.buffer[start + 1],
+                self.buffer[start + 2],
+                self.buffer[start + 3],
             ]) as usize;
-            let kind = self.buffer[4];
+            let kind = self.buffer[start + 4];
             if length > self.max_frame_bytes {
                 self.failed = true;
                 return Err("frame_too_large");
@@ -158,12 +231,19 @@ impl TunnelFrameDecoder {
                 self.failed = true;
                 return Err("unknown_frame_kind");
             }
-            if self.buffer.len() < HEADER_BYTES + length {
+            let frame_bytes = HEADER_BYTES.checked_add(length).ok_or_else(|| {
+                self.failed = true;
+                "frame_too_large"
+            })?;
+            if self.buffer.len().saturating_sub(start) < frame_bytes {
                 break;
             }
-            let payload = self.buffer[HEADER_BYTES..HEADER_BYTES + length].to_vec();
-            self.buffer.drain(..HEADER_BYTES + length);
+            let payload = self.buffer[start + HEADER_BYTES..start + frame_bytes].to_vec();
+            consumed += frame_bytes;
             frames.push(TunnelFrame { kind, payload });
+        }
+        if consumed > 0 {
+            self.buffer.drain(..consumed);
         }
         Ok(frames)
     }
@@ -229,13 +309,14 @@ pub fn parse_tunnel_client_frame(payload: &[u8]) -> Option<ClientFrame> {
 
 /// Server-generated session names: same alphabet and prefix the Worker route
 /// uses, so pickers and process tables read consistently.
-pub fn generate_session_name() -> String {
+pub fn generate_session_name() -> io::Result<String> {
     const ALPHABET: &[u8] = b"abcdefghjkmnpqrstuvwxyz23456789";
     let mut bytes = [0_u8; 4];
-    let _ = getrandom::fill(&mut bytes);
+    getrandom::fill(&mut bytes)
+        .map_err(|_| io::Error::other("secure random source unavailable"))?;
     let suffix: String =
         bytes.iter().map(|byte| ALPHABET[*byte as usize % ALPHABET.len()] as char).collect();
-    format!("web-{suffix}")
+    Ok(format!("web-{suffix}"))
 }
 
 // ---------------------------------------------------------------------------
@@ -265,11 +346,15 @@ struct Connection {
     opened_seen: AtomicBool,
     finished: AtomicBool,
     done: CancellationToken,
+    authority: Arc<TunnelAuthority>,
 }
 
 impl Connection {
     fn send_control(&self, frame: &Value) {
-        self.enqueue(WriterMessage::Frame(encode_control_frame(frame)));
+        match encode_control_frame(frame) {
+            Ok(frame) => self.enqueue(WriterMessage::Frame(frame)),
+            Err(_) => self.finish(),
+        }
     }
 
     fn enqueue(&self, message: WriterMessage) {
@@ -335,7 +420,11 @@ impl Connection {
                 else {
                     return;
                 };
-                self.enqueue(WriterMessage::Frame(encode_pty_frame(&bytes)));
+                let Ok(encoded) = encode_pty_frame(&bytes) else {
+                    self.protocol_error("failed", "terminal output frame too large");
+                    return;
+                };
+                self.enqueue(WriterMessage::Frame(encoded));
                 // Socket-side congestion: pause the source through the
                 // manager's own flow verb; the writer resumes it below the
                 // low-water mark.
@@ -351,12 +440,13 @@ impl Connection {
                 self.finish();
             }
             Some("pty_error") => {
-                let code =
-                    wire_error_code(frame.get("code").and_then(Value::as_str).unwrap_or("failed"));
-                let mut error = json!({ "t": "error", "code": code });
-                if let Some(message) = frame.get("message").and_then(Value::as_str) {
-                    error["message"] = Value::from(message);
-                }
+                let source_code = frame.get("code").and_then(Value::as_str).unwrap_or("failed");
+                let code = wire_error_code(source_code);
+                let error = json!({
+                    "t": "error",
+                    "code": code,
+                    "message": wire_error_message(source_code),
+                });
                 self.send_control(&error);
                 // Non-fatal errors (an oversized input frame) keep the
                 // attachment; a refused open or a dropped attachment ends
@@ -372,12 +462,13 @@ impl Connection {
     fn frame_context(self: &Arc<Self>) -> FrameContext {
         let sink = Arc::clone(self);
         let probe = Arc::clone(self);
+        let authority = self.authority.snapshot();
         FrameContext {
             send: Arc::new(move |frame: Value| sink.on_manager_frame(&frame)),
             buffered_amount: Arc::new(move || probe.pending_out.load(Ordering::SeqCst)),
-            trust: "supervised".to_owned(),
-            local_roots: None,
-            owner_user_id: None,
+            trust: authority.as_ref().map(|auth| auth.trust.clone()).unwrap_or_default(),
+            local_roots: authority.as_ref().and_then(|auth| auth.local_roots.clone()),
+            owner_user_id: authority.as_ref().and_then(|auth| auth.owner_user_id.clone()),
             transport_id: Some(self.pty_id.clone()),
         }
     }
@@ -411,15 +502,29 @@ async fn handle_client_frame(
     };
     match parsed {
         ClientFrame::Open { session, surface, cols, rows } => {
+            if connection.authority.snapshot().is_none() {
+                connection.protocol_error("trust_blocked", "terminal access is not ready");
+                return;
+            }
             if connection.open_sent.swap(true, Ordering::SeqCst) {
                 connection.protocol_error("bad_request", "duplicate open");
                 return;
             }
+            let session = match session {
+                Some(session) => session,
+                None => match generate_session_name() {
+                    Ok(session) => session,
+                    Err(_) => {
+                        connection.protocol_error("failed", "terminal session is unavailable");
+                        return;
+                    }
+                },
+            };
             let mut open = json!({
                 "version": PTY_PROTOCOL_VERSION,
                 "type": "pty_open",
                 "ptyId": connection.pty_id,
-                "session": session.unwrap_or_else(generate_session_name),
+                "session": session,
                 "cols": cols,
                 "rows": rows,
             });
@@ -445,13 +550,25 @@ async fn handle_client_frame(
     }
 }
 
-async fn serve_connection(stream: TcpStream, manager: Arc<PtyManager>, parent: CancellationToken) {
+async fn serve_connection(
+    mut stream: TcpStream,
+    manager: Arc<PtyManager>,
+    authority: Arc<TunnelAuthority>,
+    parent: CancellationToken,
+) {
     let _ = stream.set_nodelay(true);
+    let pty_id = match random_hex(8) {
+        Ok(id) => format!("tunnel-{id}"),
+        Err(_) => {
+            let _ = stream.shutdown().await;
+            return;
+        }
+    };
     let (mut read_half, mut write_half) = stream.into_split();
     let (writer_tx, mut writer_rx) = mpsc::unbounded_channel::<WriterMessage>();
     let (flow_tx, mut flow_rx) = mpsc::unbounded_channel::<bool>();
     let connection = Arc::new(Connection {
-        pty_id: format!("tunnel-{}", random_hex(8)),
+        pty_id,
         manager: Arc::clone(&manager),
         writer_tx,
         flow_tx,
@@ -461,9 +578,8 @@ async fn serve_connection(stream: TcpStream, manager: Arc<PtyManager>, parent: C
         opened_seen: AtomicBool::new(false),
         finished: AtomicBool::new(false),
         done: CancellationToken::new(),
+        authority,
     });
-    let context = connection.frame_context();
-
     // Writer: the only task that touches the write half. Applies the flow
     // water marks as the queue drains.
     let mut writer = {
@@ -498,7 +614,6 @@ async fn serve_connection(stream: TcpStream, manager: Arc<PtyManager>, parent: C
     // slow open never delays a pause.
     let flow = {
         let connection = Arc::clone(&connection);
-        let context = context.clone();
         tokio::spawn(async move {
             while let Some(pause) = flow_rx.recv().await {
                 if connection.finished.load(Ordering::SeqCst) {
@@ -510,6 +625,7 @@ async fn serve_connection(stream: TcpStream, manager: Arc<PtyManager>, parent: C
                     "ptyId": connection.pty_id,
                     "pause": pause,
                 });
+                let context = connection.frame_context();
                 connection.manager.handle_frame(&frame, &context).await;
             }
         })
@@ -520,8 +636,9 @@ async fn serve_connection(stream: TcpStream, manager: Arc<PtyManager>, parent: C
     // ingest backpressure (the socket is simply not read meanwhile).
     let mut buffer = vec![0_u8; 65_536];
     let mut decoder = TunnelFrameDecoder::new(MAX_TUNNEL_FRAME_BYTES);
-    let open_deadline = tokio::time::sleep(OPEN_TIMEOUT);
-    tokio::pin!(open_deadline);
+    let open_deadline = tokio::time::Instant::now() + OPEN_TIMEOUT;
+    let open_timer = tokio::time::sleep_until(open_deadline);
+    tokio::pin!(open_timer);
     loop {
         tokio::select! {
             biased;
@@ -530,7 +647,7 @@ async fn serve_connection(stream: TcpStream, manager: Arc<PtyManager>, parent: C
                 break;
             }
             _ = connection.done.cancelled() => break,
-            _ = &mut open_deadline, if !connection.opened_seen.load(Ordering::SeqCst) => {
+            _ = &mut open_timer, if !connection.opened_seen.load(Ordering::SeqCst) => {
                 connection.protocol_error("bad_request", "no open frame");
                 break;
             }
@@ -547,7 +664,26 @@ async fn serve_connection(stream: TcpStream, manager: Arc<PtyManager>, parent: C
                 match decoder.push(&buffer[..count]) {
                     Ok(frames) => {
                         for frame in frames {
-                            handle_client_frame(&connection, &context, frame).await;
+                            let context = connection.frame_context();
+                            if connection.opened_seen.load(Ordering::SeqCst) {
+                                handle_client_frame(&connection, &context, frame).await;
+                            } else {
+                                match tokio::time::timeout_at(
+                                    open_deadline,
+                                    handle_client_frame(&connection, &context, frame),
+                                )
+                                .await
+                                {
+                                    Ok(()) => {}
+                                    Err(_) => {
+                                        connection.protocol_error("failed", "terminal open timed out");
+                                        break;
+                                    }
+                                }
+                            }
+                            if connection.finished.load(Ordering::SeqCst) {
+                                break;
+                            }
                         }
                     }
                     Err(_) => {
@@ -567,6 +703,7 @@ async fn serve_connection(stream: TcpStream, manager: Arc<PtyManager>, parent: C
             "type": "pty_close",
             "ptyId": connection.pty_id,
         });
+        let context = connection.frame_context();
         manager.handle_frame(&close, &context).await;
     }
     flow.abort();
@@ -584,6 +721,7 @@ async fn serve_connection(stream: TcpStream, manager: Arc<PtyManager>, parent: C
 /// socket path still serves terminals).
 pub async fn start_tunnel_terminal_listener(
     manager: Arc<PtyManager>,
+    authority: Arc<TunnelAuthority>,
     cancellation: CancellationToken,
     host: &str,
     port: u16,
@@ -600,8 +738,9 @@ pub async fn start_tunnel_terminal_listener(
             match accepted {
                 Ok((stream, _)) => {
                     let manager = Arc::clone(&manager);
+                    let authority = Arc::clone(&authority);
                     let child = cancellation.child_token();
-                    tokio::spawn(serve_connection(stream, manager, child));
+                    tokio::spawn(serve_connection(stream, manager, authority, child));
                 }
                 Err(_) => {
                     // Transient accept errors (EMFILE and friends) must not
@@ -747,9 +886,12 @@ mod tests {
             32,
             1_048_576,
         ));
+        let authority = Arc::new(TunnelAuthority::default());
+        authority.set("supervised".to_owned(), None, Some("user_owner".to_owned()));
         let cancel = CancellationToken::new();
         let port = start_tunnel_terminal_listener(
             Arc::clone(&manager),
+            authority,
             cancel.clone(),
             TUNNEL_TERMINAL_HOST,
             0,
@@ -820,8 +962,9 @@ mod tests {
 
     #[test]
     fn codec_round_trips_frames_split_at_every_byte_boundary() {
-        let control = encode_control_frame(&json!({ "t": "open", "cols": 80, "rows": 24 }));
-        let pty = encode_pty_frame(b"echo hi\r");
+        let control = encode_control_frame(&json!({ "t": "open", "cols": 80, "rows": 24 }))
+            .expect("encode control");
+        let pty = encode_pty_frame(b"echo hi\r").expect("encode pty");
         let stream = [control, pty].concat();
         let mut decoder = TunnelFrameDecoder::new(MAX_TUNNEL_FRAME_BYTES);
         let mut frames = Vec::new();
@@ -908,7 +1051,7 @@ mod tests {
     #[test]
     fn generated_session_names_use_the_web_prefix_and_alphabet() {
         for _ in 0..32 {
-            let name = generate_session_name();
+            let name = generate_session_name().expect("secure random source");
             let suffix = name.strip_prefix("web-").expect("web- prefix");
             assert_eq!(suffix.len(), 4);
             assert!(suffix.chars().all(|c| "abcdefghjkmnpqrstuvwxyz23456789".contains(c)));
@@ -926,7 +1069,7 @@ mod tests {
         let mut queue = Vec::new();
 
         write
-            .write_all(&encode_control_frame(&json!({ "t": "open", "cols": 80, "rows": 24 })))
+            .write_all(&encode_control_frame(&json!({ "t": "open", "cols": 80, "rows": 24 })).expect("encode open"))
             .await
             .unwrap();
         let opened = control_json(&next_frame(&mut read, &mut decoder, &mut queue).await);
@@ -943,9 +1086,9 @@ mod tests {
         assert_eq!(output.kind, FRAME_KIND_PTY);
         assert_eq!(output.payload, b"hello from the shell");
 
-        write.write_all(&encode_pty_frame(b"ls\r")).await.unwrap();
+        write.write_all(&encode_pty_frame(b"ls\r").expect("encode input")).await.unwrap();
         write
-            .write_all(&encode_control_frame(&json!({ "t": "resize", "cols": 132, "rows": 43 })))
+            .write_all(&encode_control_frame(&json!({ "t": "resize", "cols": 132, "rows": 43 })).expect("encode resize"))
             .await
             .unwrap();
         for _ in 0..100 {
@@ -979,7 +1122,7 @@ mod tests {
         write
             .write_all(&encode_control_frame(
                 &json!({ "t": "open", "session": session, "cols": 80, "rows": 24 }),
-            ))
+            ).expect("encode reopen"))
             .await
             .unwrap();
         let reopened = control_json(&next_frame(&mut read, &mut decoder, &mut queue).await);
@@ -993,7 +1136,7 @@ mod tests {
         let rig = rig().await;
         let stream = connect(&rig).await;
         let (mut read, mut write) = stream.into_split();
-        write.write_all(&encode_pty_frame(b"sneaky")).await.unwrap();
+        write.write_all(&encode_pty_frame(b"sneaky").expect("encode input")).await.unwrap();
         let mut decoder = TunnelFrameDecoder::new(MAX_TUNNEL_FRAME_BYTES);
         let mut queue = Vec::new();
         let error = control_json(&next_frame(&mut read, &mut decoder, &mut queue).await);
@@ -1008,7 +1151,8 @@ mod tests {
         let rig = rig().await;
         let stream = connect(&rig).await;
         let (mut read, mut write) = stream.into_split();
-        let open = encode_control_frame(&json!({ "t": "open", "cols": 80, "rows": 24 }));
+        let open = encode_control_frame(&json!({ "t": "open", "cols": 80, "rows": 24 }))
+            .expect("encode open");
         write.write_all(&open).await.unwrap();
         write.write_all(&open).await.unwrap();
         let mut decoder = TunnelFrameDecoder::new(MAX_TUNNEL_FRAME_BYTES);
@@ -1030,7 +1174,10 @@ mod tests {
         let rig = rig().await;
         let stream = connect(&rig).await;
         let (mut read, mut write) = stream.into_split();
-        write.write_all(&encode_tunnel_frame(FRAME_KIND_CONTROL, b"{not json")).await.unwrap();
+        write
+            .write_all(&encode_tunnel_frame(FRAME_KIND_CONTROL, b"{not json").expect("encode malformed"))
+            .await
+            .unwrap();
         let mut decoder = TunnelFrameDecoder::new(MAX_TUNNEL_FRAME_BYTES);
         let mut queue = Vec::new();
         let error = control_json(&next_frame(&mut read, &mut decoder, &mut queue).await);
@@ -1046,7 +1193,7 @@ mod tests {
         let stream = connect(&rig).await;
         let (mut read, mut write) = stream.into_split();
         write
-            .write_all(&encode_control_frame(&json!({ "t": "open", "cols": 80, "rows": 24 })))
+            .write_all(&encode_control_frame(&json!({ "t": "open", "cols": 80, "rows": 24 })).expect("encode open"))
             .await
             .unwrap();
         let mut decoder = TunnelFrameDecoder::new(MAX_TUNNEL_FRAME_BYTES);
@@ -1067,7 +1214,7 @@ mod tests {
         let stream = connect(&rig).await;
         let (mut read, mut write) = stream.into_split();
         write
-            .write_all(&encode_control_frame(&json!({ "t": "open", "cols": 80, "rows": 24 })))
+            .write_all(&encode_control_frame(&json!({ "t": "open", "cols": 80, "rows": 24 })).expect("encode open"))
             .await
             .unwrap();
         let mut decoder = TunnelFrameDecoder::new(MAX_TUNNEL_FRAME_BYTES);
