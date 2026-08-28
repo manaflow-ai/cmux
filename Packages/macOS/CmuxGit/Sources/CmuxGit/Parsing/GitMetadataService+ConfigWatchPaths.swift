@@ -249,7 +249,7 @@ extension GitMetadataService {
         let gitmodulesURL = URL(fileURLWithPath: repository.workTreeRoot)
             .appendingPathComponent(".gitmodules")
         let reader = GitConfigFileReader()
-        guard case let .contents(contents, _) = reader.read(
+        guard case .contents(let contents, consumedByteCount: _) = reader.read(
             at: gitmodulesURL,
             maximumByteCount: GitConfigFileReader.defaultMaximumByteCount,
             deadline: deadline
@@ -322,13 +322,13 @@ extension GitMetadataService {
         )
         let cancellationSignal = WorkspaceChangesCancellationSignal(deadline: deadline)
         return await withTaskCancellationHandler {
-            await withCheckedContinuation { (continuation: CheckedContinuation<GitConfigBranchTraversal.WatchPathResult, Never>) in
-                Self.blockingStatusQueue.async {
-                    let result: GitConfigBranchTraversal.WatchPathResult = cancellationSignal.withCurrentBinding {
+            await withCheckedContinuation { continuation in
+                Self.blockingStatusQueue.async(execute: DispatchWorkItem(block: {
+                    let result = cancellationSignal.withCurrentBinding {
                         traversal.watchPathResult()
                     }
                     continuation.resume(returning: result)
-                }
+                }))
             }
         } onCancel: {
             cancellationSignal.cancel()
@@ -344,10 +344,15 @@ extension GitMetadataService {
     ) async -> (header: GitIndexHeaderSummary?, snapshot: GitIndexSnapshot?) {
         let cancellationSignal = WorkspaceChangesCancellationSignal(deadline: deadline)
         return await withTaskCancellationHandler {
-            await withCheckedContinuation { (continuation: CheckedContinuation<(header: GitIndexHeaderSummary?, snapshot: GitIndexSnapshot?), Never>) in
-                Self.blockingStatusQueue.async(execute: DispatchWorkItem {
-                    let result: (header: GitIndexHeaderSummary?, snapshot: GitIndexSnapshot?) = cancellationSignal.withCurrentBinding {
-                        guard deadline > DispatchTime.now() else { return (nil, nil) }
+            await withCheckedContinuation { continuation in
+                Self.blockingStatusQueue.async(execute: DispatchWorkItem(block: {
+                    let result = cancellationSignal.withCurrentBinding {
+                        guard deadline > DispatchTime.now() else {
+                            return (
+                                nil as GitIndexHeaderSummary?,
+                                nil as GitIndexSnapshot?
+                            )
+                        }
                         let readResult = GitIndexDataReader().read(
                             at: URL(fileURLWithPath: indexPath),
                             maximumByteCount: maximumFileByteCount,
@@ -365,7 +370,7 @@ extension GitMetadataService {
                         return (header, snapshot)
                     }
                     continuation.resume(returning: result)
-                })
+                }))
             }
         } onCancel: {
             cancellationSignal.cancel()

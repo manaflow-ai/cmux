@@ -119,12 +119,12 @@ public struct GitMetadataService: Sendable {
             return .notARepository
         }
         async let initialReferencesTask = gitReferenceSnapshot(repository: repository)
-        async let initialTrackedChanges = gitTrackedChangesSnapshot(
+        async let initialTrackedChangesTask = gitTrackedChangesSnapshot(
             repository: repository,
             trackedPathEventGeneration: trackedPathEventGeneration
         )
         let initialReferences = await initialReferencesTask
-        var trackedChanges = await initialTrackedChanges
+        var trackedChanges = await initialTrackedChangesTask
         // HEAD and index updates are separate filesystem operations. Reconcile
         // the reference signature after the index scan for every backend; the
         // files implementation uses a cheap bounded direct revalidation.

@@ -50,12 +50,45 @@ const REMOTE_COMMANDS: &[&str] = &[
     "install-self",
 ];
 
+/// Maps the actions accepted after the `remote` noun to their direct command
+/// aliases. Keeping this mapping with the remote command grammar prevents
+/// startup normalization from drifting from the public CLI parser.
+pub(super) fn remote_action_command(action: &str) -> Option<&'static str> {
+    match action {
+        "connect" => Some("connect"),
+        "ssh" => Some("ssh"),
+        "forward" => Some("forward"),
+        "rpc" => Some("rpc"),
+        "enroll" => Some("enroll"),
+        "known-daemons" => Some("known-daemons"),
+        "stop" => Some("remote-stop"),
+        _ => None,
+    }
+}
+
 /// Returns whether argv selects the remote command family.
 ///
 /// Keeping this classifier next to the public CLI grammar prevents startup
 /// routing and the Unix remote implementation from maintaining separate lists.
 pub(super) fn is_remote_invocation(args: &[String]) -> bool {
-    args.first().is_some_and(|argument| REMOTE_COMMANDS.contains(&argument.as_str()))
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--" => return false,
+            "--socket" | "--session" | "--machine" => index += 2,
+            "--json" | "--jsonl" | "--quiet" => index += 1,
+            value
+                if value.starts_with("--socket=")
+                    || value.starts_with("--session=")
+                    || value.starts_with("--machine=") =>
+            {
+                index += 1
+            }
+            value if value.starts_with('-') => return false,
+            value => return REMOTE_COMMANDS.contains(&value),
+        }
+    }
+    false
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -768,5 +801,27 @@ mod tests {
             parse(&strings(&["help", "start"])).unwrap(),
             ParsedCommand::Help(Some(scope)) if scope == "start"
         ));
+    }
+
+    #[test]
+    fn remote_invocation_allows_leading_global_options() {
+        assert!(is_remote_invocation(&strings(&["remote", "connect"])));
+        assert!(is_remote_invocation(&strings(&["--json", "remote", "connect"])));
+        assert!(is_remote_invocation(&strings(&[
+            "--session",
+            "dev",
+            "--socket",
+            "/tmp/cmux.sock",
+            "remote",
+            "rpc",
+        ])));
+        assert!(!is_remote_invocation(&strings(&["--session", "remote", "workspace", "list"])));
+    }
+
+    #[test]
+    fn remote_invocation_rejects_missing_global_option_values_and_terminator() {
+        assert!(!is_remote_invocation(&strings(&["--session"])));
+        assert!(!is_remote_invocation(&strings(&["--socket"])));
+        assert!(!is_remote_invocation(&strings(&["--", "remote", "connect"])));
     }
 }

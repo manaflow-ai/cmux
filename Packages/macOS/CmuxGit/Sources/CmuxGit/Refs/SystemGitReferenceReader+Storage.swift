@@ -32,7 +32,7 @@ extension SystemGitReferenceReader {
                 continue
             case .oversized, .unavailable:
                 return .incomplete
-            case let .contents(contents, _):
+            case .contents(let contents, consumedByteCount: _):
                 var inExtensionsSection = false
                 var inIncludeSection = false
                 for rawLine in contents.split(whereSeparator: \.isNewline) {
@@ -85,7 +85,7 @@ extension SystemGitReferenceReader {
             return unreadableSnapshot()
         case .oversized, .unavailable:
             return nil
-        case let .contents(contents, _):
+        case .contents(let contents, consumedByteCount: _):
             let head = contents.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !head.isEmpty else { return unreadableSnapshot() }
             if head.hasPrefix("ref: ") {
@@ -101,7 +101,7 @@ extension SystemGitReferenceReader {
                     return nil
                 case .missing:
                     value = nil
-                case let .contents(contents, _):
+                case .contents(let contents, consumedByteCount: _):
                     value = contents.trimmingCharacters(in: .whitespacesAndNewlines)
                 }
                 let branch: GitCheckedOutBranch
@@ -191,7 +191,7 @@ extension SystemGitReferenceReader {
                 maximumByteCount: Self.maximumDirectObjectIDByteCount,
                 deadline: deadline
             ) {
-            case let .contents(contents, byteCount):
+            case .contents(let contents, consumedByteCount: let byteCount):
                 return .contents(contents, consumedByteCount: byteCount)
             case .missing:
                 continue
@@ -213,7 +213,7 @@ extension SystemGitReferenceReader {
             return .missing
         case .oversized, .unavailable:
             return .unavailable(consumedByteCount: 0)
-        case let .contents(contents, byteCount):
+        case .contents(let contents, consumedByteCount: let byteCount):
             for rawLine in contents.split(whereSeparator: \.isNewline) {
                 let line = rawLine.trimmingCharacters(in: .whitespaces)
                 guard !line.isEmpty, !line.hasPrefix("#"), !line.hasPrefix("^") else { continue }
