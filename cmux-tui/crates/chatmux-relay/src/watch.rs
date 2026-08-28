@@ -450,12 +450,7 @@ async fn coordinate_open(
 /// Publish the acknowledgement and active task as one state transition.
 /// `prepared` stays outside the mutex on every rejection path so dropping a
 /// notify watcher cannot run while registry state is locked.
-fn commit_open(
-    watch_id: String,
-    root: PathBuf,
-    prepared: PreparedWatch,
-    context: OpenContext,
-) {
+fn commit_open(watch_id: String, root: PathBuf, prepared: PreparedWatch, context: OpenContext) {
     let OpenContext {
         generation,
         live,
