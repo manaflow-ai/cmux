@@ -544,7 +544,7 @@ describe("recordCheckoutCompletion", () => {
       { id: "other_user", primaryEmail: "buyer@example.com" },
     ]);
     const user = { id: "user_123", primaryEmail: null, clientReadOnlyMetadata: {}, update };
-    selectResults = [[], [], [], [{ id: "claim_1" }]];
+    selectResults = [[], [], [], [], [], [{ id: "claim_1" }]];
 
     await recordCheckoutCompletion(checkoutInput() as never, {
       db: fakeDb() as never,
@@ -570,7 +570,7 @@ describe("recordCheckoutCompletion", () => {
       clientReadOnlyMetadata: { cmuxPlan: "pro" },
       update,
     };
-    selectResults = [[{ id: "cus_old" }]];
+    selectResults = [[], [{ id: "cus_old" }]];
 
     await recordCheckoutCompletion(checkoutInput("cus_new") as never, {
       db: fakeDb() as never,
@@ -583,6 +583,45 @@ describe("recordCheckoutCompletion", () => {
       ),
     ).toBe(true);
     expect(inserts.some((insert) => insert.table === stripeCustomers)).toBe(false);
+  });
+
+  test("does not let a stale checkout replay move a claimed customer back", async () => {
+    const source = {
+      id: "user_123",
+      primaryEmail: null,
+      clientReadOnlyMetadata: { cmuxPlan: "pro" },
+      update: mock(async () => undefined),
+    };
+    const target = {
+      id: "target_user",
+      primaryEmail: "buyer@example.com",
+      primaryEmailVerified: true,
+      isAnonymous: false,
+      isRestricted: false,
+      clientReadOnlyMetadata: { cmuxPlan: "pro" },
+      update: mock(async () => undefined),
+    };
+    const getUser = mock(async (stackUserId: unknown) =>
+      stackUserId === target.id ? target : source,
+    );
+    selectResults = [
+      [{ stackUserId: target.id }],
+      [{ id: "claim_1" }],
+    ];
+
+    const result = await recordCheckoutCompletion(checkoutInput() as never, {
+      db: fakeDb() as never,
+      stackApp: { getUser } as never,
+    });
+
+    expect(result).toEqual({
+      scope: "user",
+      stackUserId: target.id,
+      subscriptionId: "sub_123",
+    });
+    expect(getUser).toHaveBeenCalledWith(target.id);
+    expect(inserts.some((insert) => insert.table === stripeCustomers)).toBe(false);
+    expect(inserts.some((insert) => insert.table === stripeSubscriptions)).toBe(false);
   });
 
   test("updates the existing Stack user customer row when Drizzle wraps a unique violation", async () => {

@@ -297,6 +297,38 @@ export async function recordCheckoutCompletion(
   }
 
   const db = dependencies.db ?? cloudDb();
+  const mappedPersonalOwner = await personalStripeCustomerOwner(db, customerId);
+  if (mappedPersonalOwner && mappedPersonalOwner !== stackUserId) {
+    // A previously claimed checkout can still be replayed from a browser
+    // history entry or a delayed Stripe webhook. Never let its immutable
+    // client_reference_id move the customer back to the anonymous purchaser.
+    // Accept only the exact server-created claim and its verified destination;
+    // all other ownership conflicts fail closed.
+    const checkoutEmailValue = checkoutEmail(input.session, input.customer);
+    const owner = await loadOptionalStackUser(mappedPersonalOwner, dependencies.stackApp);
+    if (
+      !checkoutEmailValue ||
+      !owner ||
+      owner.isAnonymous === true ||
+      owner.isRestricted === true ||
+      owner.primaryEmailVerified !== true ||
+      normalizeBillingEmail(owner.primaryEmail) !== checkoutEmailValue ||
+      !(await hasClaimedBillingOwnership(
+        db,
+        customerId,
+        stackUserId,
+        mappedPersonalOwner,
+      ))
+    ) {
+      throw new Error("Stripe checkout customer ownership conflict");
+    }
+    return {
+      scope: "user",
+      stackUserId: mappedPersonalOwner,
+      subscriptionId: subscription.id,
+    };
+  }
+
   const user = await loadOptionalStackUser(stackUserId, dependencies.stackApp);
   const lockedResult = await withAccountDeletionUserLock(
     db,
@@ -1460,6 +1492,49 @@ async function stackUserIdForStripeCustomer(
   return rows[0]?.stackUserId ?? null;
 }
 
+async function personalStripeCustomerOwner(
+  db: BillingDbClient,
+  customerId: string,
+): Promise<string | null> {
+  const rows = await db
+    .select({ stackUserId: stripeCustomers.stackUserId })
+    .from(stripeCustomers)
+    .where(
+      and(
+        eq(stripeCustomers.id, customerId),
+        isNull(stripeCustomers.stackTeamId),
+      ),
+    )
+    .limit(1);
+  return rows[0]?.stackUserId ?? null;
+}
+
+async function hasClaimedBillingOwnership(
+  db: BillingDbClient,
+  stripeCustomerId: string,
+  sourceStackUserId: string,
+  targetStackUserId: string,
+): Promise<boolean> {
+  const rows = await db
+    .select({ id: billingEmailClaims.id })
+    .from(billingEmailClaims)
+    .where(
+      and(
+        eq(billingEmailClaims.stripeCustomerId, stripeCustomerId),
+        eq(billingEmailClaims.stackUserId, sourceStackUserId),
+        eq(billingEmailClaims.claimedByUserId, targetStackUserId),
+        eq(billingEmailClaims.plan, PRO_PLAN_ID),
+      ),
+    )
+    .limit(1);
+  return rows.length > 0;
+}
+
+function normalizeBillingEmail(value: string | null | undefined): string | null {
+  const normalized = value?.trim().toLowerCase();
+  return normalized && normalized.includes("@") ? normalized : null;
+}
+
 async function stackUserIdForTeamStripeCustomer(
   db: BillingDbClient,
   input: { stackTeamId: string; customerId: string },
@@ -1564,7 +1639,7 @@ function checkoutEmail(
   customer: Stripe.Customer | Stripe.DeletedCustomer | null | undefined,
 ): string | null {
   const email = session.customer_details?.email ?? (customer && !customer.deleted ? customer.email : null);
-  return email ? email.trim().toLowerCase() : null;
+  return normalizeBillingEmail(email);
 }
 
 function subscriptionPriceId(subscription: Stripe.Subscription): string | null {
