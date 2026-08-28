@@ -177,6 +177,38 @@ import Testing
         #expect(startupInput.contains("/bin/sh -c"), "\(startupInput)")
     }
 
+    @Test func repeatedRoutedCodexBindingKeepsTheCapturedRealCodexExecutable() throws {
+        let sessionId = "a22293b7-bcef-4707-8439-2f538c8517a4"
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "'sr' 'codex' 'resume' '\(sessionId)'",
+            checkpointId: sessionId,
+            source: "agent-hook",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "/opt/custom/codex",
+                arguments: ["/opt/custom/codex", "-c", "model_provider=subrouter"],
+                workingDirectory: "/tmp/project",
+                environment: [
+                    "CMUX_CUSTOM_CODEX_PATH": "/opt/custom/codex",
+                    "SUBROUTER_CODEX_BIN": "${CMUX_CODEX_WRAPPER_SHIM:-codex}",
+                    "SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
+                ],
+                capturedAt: 1,
+                source: "environment"
+            ),
+            autoResume: true
+        )
+
+        let startupInput = try #require(binding.inlineStartupInput)
+
+        #expect(startupInput.contains("CMUX_CUSTOM_CODEX_PATH=/opt/custom/codex"), "\(startupInput)")
+        #expect(
+            startupInput.contains("CMUX_CUSTOM_CODEX_PATH=${CMUX_CODEX_WRAPPER_SHIM:-codex}") == false,
+            "\(startupInput)"
+        )
+    }
+
     @Test func restoreBindingAuthorizationRejectsUnownedOrUnboundCommands() throws {
         let sessionId = "a22293b7-bcef-4707-8439-2f538c8517a4"
         let nonHook = SurfaceResumeBindingSnapshot(
