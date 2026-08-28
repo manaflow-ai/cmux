@@ -24577,6 +24577,53 @@ mod tests {
     }
 
     #[test]
+    fn display_name_mutations_reject_controls_line_separators_and_oversized_values() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(Some("safe".into()), None).unwrap();
+        let (workspace, screen, pane) = mux.with_state(|state| {
+            let pane = state.pane_of(surface.id).expect("workspace surface has a pane");
+            let (workspace, screen) = state.screen_of(pane).expect("pane has a screen");
+            (
+                state.workspaces[workspace].id,
+                state.workspaces[workspace].screens[screen].id,
+                pane,
+            )
+        });
+
+        for invalid in [
+            "bad\nname",
+            "bad\u{2028}name",
+            "bad\u{2029}name",
+            "bad\u{1b}]0;title\u{7}name",
+        ] {
+            assert!(!mux.rename_workspace(workspace, invalid.into()));
+            assert!(!mux.rename_screen(screen, invalid.into()));
+            assert!(!mux.rename_pane(pane, invalid.into()));
+            assert!(!mux.rename_surface(surface.id, invalid.into()));
+        }
+
+        let oversized = "x".repeat(WORKSPACE_NAME_MAX_BYTES + 1);
+        assert!(!mux.rename_workspace(workspace, oversized.clone()));
+        assert!(!mux.rename_screen(screen, oversized.clone()));
+        assert!(!mux.rename_pane(pane, oversized.clone()));
+        assert!(!mux.rename_surface(surface.id, oversized));
+
+        mux.with_state(|state| {
+            let workspace_index =
+                state.workspace_index(workspace).expect("workspace remains live");
+            let screen_index = state.workspaces[workspace_index]
+                .screens
+                .iter()
+                .position(|candidate| candidate.id == screen)
+                .expect("screen remains live");
+            assert_eq!(state.workspaces[workspace_index].name, "safe");
+            assert_eq!(state.workspaces[workspace_index].screens[screen_index].name, None);
+            assert_eq!(state.panes[&pane].name, None);
+            assert_eq!(state.surfaces[&surface.id].name(), None);
+        });
+    }
+
+    #[test]
     fn empty_workspace_registry_has_stable_keys_revisions_and_close() {
         let mux = test_mux();
         let events = mux.subscribe();
