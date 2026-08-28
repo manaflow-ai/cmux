@@ -4,6 +4,11 @@ import {
   claimPendingProBilling,
   type BillingOwnershipTransfer,
 } from "../services/billing/purchase";
+import {
+  billingEmailClaims,
+  stripeCustomers,
+  stripeSubscriptions,
+} from "../db/schema";
 
 const targetUser = {
   id: "user-verified",
@@ -134,5 +139,79 @@ describe("verified Pro billing ownership claims", () => {
 
     expect(deps.transferClaim).toHaveBeenCalledTimes(1);
     expect(deps.customerUpdate).not.toHaveBeenCalled();
+  });
+
+  test("transfers the exact customer and subscription rows atomically", async () => {
+    const selectResults: unknown[][] = [
+      [claim], // pending claims
+      [claim], // locked claim re-read
+      [], // source tombstone
+      [], // target tombstone
+      [], // target customer
+      [{ id: claim.stripeCustomerId }], // source customer
+      [{ id: "sub-1", status: "active" }], // source subscription
+      [], // target subscriptions
+    ];
+    const updates: Array<{ table: unknown; values: Record<string, unknown> }> = [];
+    const client = {
+      select: () => ({
+        from: () => ({
+          where: () => {
+            const result = {
+              orderBy: () => result,
+              limit: async () => selectResults.shift() ?? [],
+            };
+            return result;
+          },
+        }),
+      }),
+      update: (table: unknown) => ({
+        set: (values: Record<string, unknown>) => ({
+          where: async () => {
+            updates.push({ table, values });
+          },
+        }),
+      }),
+      execute: async () => undefined,
+    };
+    const db = {
+      ...client,
+      transaction: async <Result>(operation: (tx: typeof client) => Promise<Result>) =>
+        operation(client),
+    };
+    const deps = dependencies();
+    const { ownershipRepository: _ignored, ...productionDeps } = deps.dependencyValue as {
+      ownershipRepository: unknown;
+      [key: string]: unknown;
+    };
+
+    await expect(
+      claimPendingProBilling(targetUser, {
+        ...productionDeps,
+        db: db as never,
+      } as never),
+    ).resolves.toEqual({ claimed: 1 });
+
+    expect(
+      updates.some(
+        (entry) =>
+          entry.table === stripeCustomers &&
+          entry.values.stackUserId === targetUser.id,
+      ),
+    ).toBe(true);
+    expect(
+      updates.some(
+        (entry) =>
+          entry.table === stripeSubscriptions &&
+          entry.values.stackUserId === targetUser.id,
+      ),
+    ).toBe(true);
+    expect(
+      updates.some(
+        (entry) =>
+          entry.table === billingEmailClaims &&
+          entry.values.claimedByUserId === targetUser.id,
+      ),
+    ).toBe(true);
   });
 });
