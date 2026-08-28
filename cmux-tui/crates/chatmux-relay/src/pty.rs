@@ -2547,7 +2547,8 @@ mod tests {
         ) -> FrameContext {
             let mut context = self.context(trust, owner);
             context.transport_id = transport_id.map(str::to_owned);
-            context.transport_kind = transport_id.map_or(TransportKind::Legacy, |_| TransportKind::Relay);
+            context.transport_kind =
+                transport_id.map_or(TransportKind::Legacy, |_| TransportKind::Relay);
             context
         }
 
