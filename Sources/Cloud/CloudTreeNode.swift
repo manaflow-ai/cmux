@@ -445,8 +445,17 @@ enum CloudTreeNodeBuilder {
                         browsersByWorkspace[workspace.id, default: []].append(browser)
                     }
                 }
+                // …and displays: a workspace that points at the machine's screen shows it
+                // and opens/drags it with its terminals.
+                var displaysByWorkspace: [String: [SurfaceResource]] = [:]
+                for display in displays {
+                    for workspace in display.remoteWorkspaces {
+                        displaysByWorkspace[workspace.id, default: []].append(display)
+                    }
+                }
                 let workspaceNodes = workspaces.map { workspace, pointed in
                     let workspaceBrowsers = browsersByWorkspace[workspace.id] ?? []
+                    let workspaceDisplays = displaysByWorkspace[workspace.id] ?? []
                     return CloudTreeNode(
                         id: nodeID(workspace: workspace.id, machine: machine),
                         kind: .workspace(machine: machine, workspace, terminalCount: pointed.count),
@@ -457,10 +466,12 @@ enum CloudTreeNodeBuilder {
                                 id: nodeID(resource: $0.id, inRemoteWorkspace: workspace.id),
                                 kind: .browser(CloudTreeBrowserRow(resource: $0, isOpen: snapshot.isOpen($0.id), workspaceTitle: nil))
                             )
+                        } + workspaceDisplays.map {
+                            CloudTreeNode(id: nodeID(resource: $0.id, inRemoteWorkspace: workspace.id), kind: .display($0))
                         },
                         dragGroup: SurfaceResourceGroup(
                             title: workspace.name,
-                            resources: (pointed + workspaceBrowsers).map(\.id)
+                            resources: (pointed + workspaceBrowsers + workspaceDisplays).map(\.id)
                         )
                     )
                 }

@@ -317,4 +317,27 @@ import Testing
         eof.resolve(nil)
         #expect(await eof.result == nil, "finished without a value reads as nil")
     }
+
+    @Test func displayTabsPointWorkspacesAtTheMachineScreen() throws {
+        var snapshot = Self.sessionSnapshot
+        var tabs = snapshot["tabs"] as! [[String: Any]]
+        tabs.append(["id": "tab_desk", "pane_id": "pane_2", "content_kind": "display", "content_id": "display:1"])
+        snapshot["tabs"] = tabs
+        let resources = CmuxTuiSnapshotParser.terminals(fromSnapshot: snapshot, machine: Self.machine)
+        let display = try #require(resources.first { $0.kind == .display })
+        #expect(display.id.key == "display:1", "the pool's own id, so the pointer and the pool entry are one resource")
+        #expect(display.remoteWorkspaces.map(\.id) == ["ws_api"])
+        #expect(display.remoteViews?.map(\.tabID) == ["tab_desk"])
+        #expect(display.port == CmuxTuiSnapshotParser.desktopPort)
+        // Closing the pointer closes its tab (a display has no process to end).
+        #expect(CmuxTuiSnapshotParser.tabByTerminal(fromSnapshot: snapshot)["display:1"] == "tab_desk")
+        // The pool entry yields to the pointed one; a machine nobody points at keeps the bare entry.
+        let pool = [CmuxTuiSnapshotParser.display(machine: Self.machine)]
+        let merged = CmuxTuiSnapshotParser.mergingDisplays(pool: pool, parsed: resources)
+        #expect(merged.filter { $0.kind == .display }.count == 1)
+        #expect(merged.first { $0.kind == .display }?.remoteViews?.isEmpty == false)
+        let untouched = CmuxTuiSnapshotParser.mergingDisplays(pool: pool, parsed: resources.filter { $0.kind != .display })
+        #expect(untouched.filter { $0.kind == .display }.count == 1)
+        #expect(untouched.first { $0.kind == .display }?.remoteViews == nil)
+    }
 }
