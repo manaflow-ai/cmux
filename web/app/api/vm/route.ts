@@ -67,6 +67,7 @@ import {
   VmTimingRecorder,
 } from "../../../services/vms/timings";
 import { authProviderErrorResponse } from "../../../services/vms/authErrors";
+import { oversizedBodyResponse, readBoundedBodyText } from "../../../services/vms/routeInput";
 
 
 export async function GET(request: Request): Promise<Response> {
@@ -180,15 +181,19 @@ export async function POST(request: Request): Promise<Response> {
         // Allow callers to send no body at all. The handler already falls through to
         // default provider/image, so a bare `curl -X POST /api/vm` should create a default
         // VM. Empty is a default-create; malformed or non-object JSON is rejected below.
-        let parsedBody: { readonly bodyWasEmpty: boolean; readonly raw: unknown };
+        let parsedBody: { readonly bodyWasEmpty: boolean; readonly bodyTooLarge: boolean; readonly raw: unknown };
         try {
           parsedBody = await measureVmAsync(timing, "request_parse", async () => {
-            const rawText = await request.text();
+            const bounded = await readBoundedBodyText(request);
+            if (!bounded.ok) {
+              return { bodyWasEmpty: false, bodyTooLarge: true, raw: undefined as unknown };
+            }
+            const rawText = bounded.text;
             const bodyWasEmpty = rawText.length === 0;
             if (bodyWasEmpty) {
-              return { bodyWasEmpty, raw: undefined as unknown };
+              return { bodyWasEmpty, bodyTooLarge: false, raw: undefined as unknown };
             }
-            return { bodyWasEmpty, raw: JSON.parse(rawText) as unknown };
+            return { bodyWasEmpty, bodyTooLarge: false, raw: JSON.parse(rawText) as unknown };
           });
         } catch (err) {
           if (!(err instanceof SyntaxError)) throw err;
@@ -200,7 +205,13 @@ export async function POST(request: Request): Promise<Response> {
             action: "Send `{}` for the default VM, or include only documented fields such as `image` and `teamId`.",
           });
         }
-        const { bodyWasEmpty, raw } = parsedBody;
+        const { bodyWasEmpty, bodyTooLarge, raw } = parsedBody;
+        if (bodyTooLarge) {
+          return oversizedBodyResponse({
+            operation: "create",
+            action: "Send `{}` for the default VM, or send a smaller JSON object.",
+          });
+        }
         if (!bodyWasEmpty && (raw === null || typeof raw !== "object" || Array.isArray(raw))) {
           recordSpanError(span, new Error("Cloud VM create body was not a JSON object"));
           return vmErrorResponse({

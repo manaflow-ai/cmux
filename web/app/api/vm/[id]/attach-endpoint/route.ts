@@ -24,7 +24,12 @@ export async function POST(
     "/api/vm/[id]/attach-endpoint failed",
     async ({ user, span }) => {
       const { id } = await params;
-      const body = await parseLenientObjectBody(request);
+      const parsedBody = await parseLenientObjectBody(request, {
+        operation: "attach",
+        action: "Send a small JSON object with the documented attach fields.",
+      });
+      if (!parsedBody.ok) return parsedBody.response;
+      const body = parsedBody.body;
       const requireDaemon = body.requireDaemon === true || body.require_daemon === true;
       let sessionId: string | undefined;
       let attachmentId: string | undefined;
