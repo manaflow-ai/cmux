@@ -628,6 +628,7 @@ impl ClientConnection {
         let mut attempt = 0_u32;
         let mut delay = self.config.reconnect.initial_delay;
         let mut group = self.group.read().await.clone();
+        let mut close_state = self.close_state.subscribe();
         loop {
             if self.closed.load(Ordering::Acquire) {
                 return Err(ConnectionError::Closed);
@@ -672,7 +673,11 @@ impl ClientConnection {
                     {
                         group = next;
                     }
-                    tokio::time::sleep(self.config.reconnect.retry_delay(delay)).await;
+                    let retry_delay = self.config.reconnect.retry_delay(delay);
+                    tokio::select! {
+                        _ = tokio::time::sleep(retry_delay) => {}
+                        _ = close_state.changed() => return Err(ConnectionError::Closed),
+                    }
                     delay = (delay * 2).min(self.config.reconnect.maximum_delay);
                 }
                 Err(error) => return Err(error),
@@ -759,8 +764,14 @@ async fn wait_for_close(mut state: watch::Receiver<CloseState>) -> Result<(), Co
 }
 
 async fn run_heartbeat(weak: Weak<ClientConnection>, interval: Duration, timeout: Duration) {
+    let Some(initial) = weak.upgrade() else { return };
+    let mut close_state = initial.close_state.subscribe();
+    drop(initial);
     loop {
-        tokio::time::sleep(interval).await;
+        tokio::select! {
+            _ = tokio::time::sleep(interval) => {}
+            _ = close_state.changed() => return,
+        }
         let Some(connection) = weak.upgrade() else { return };
         if connection.closed.load(Ordering::Acquire) {
             return;
@@ -778,18 +789,18 @@ async fn run_heartbeat(weak: Weak<ClientConnection>, interval: Duration, timeout
         let observed = connection.last_received();
         let generation = connection.session.read().await.generation();
         let deadline = tokio::time::Instant::now() + timeout;
-        match tokio::time::timeout_at(
-            deadline,
-            connection.send_in_generation(
-                Some(generation),
-                Lane::Control,
-                0,
-                Bytes::new(),
-                FrameFlags::HEARTBEAT_REQUEST,
-            ),
-        )
-        .await
-        {
+        let send = connection.send_in_generation(
+            Some(generation),
+            Lane::Control,
+            0,
+            Bytes::new(),
+            FrameFlags::HEARTBEAT_REQUEST,
+        );
+        let send_result = tokio::select! {
+            result = tokio::time::timeout_at(deadline, send) => result,
+            _ = close_state.changed() => return,
+        };
+        match send_result {
             Ok(Ok(_)) => {}
             Ok(Err(_)) => continue,
             Err(_) => {
@@ -797,10 +808,10 @@ async fn run_heartbeat(weak: Weak<ClientConnection>, interval: Duration, timeout
                 continue;
             }
         }
-        let live =
-            tokio::time::timeout_at(deadline, connection.probe_liveness(generation, observed))
-                .await
-                .unwrap_or(false);
+        let live = tokio::select! {
+            result = tokio::time::timeout_at(deadline, connection.probe_liveness(generation, observed)) => result.unwrap_or(false),
+            _ = close_state.changed() => return,
+        };
         if connection.closed.load(Ordering::Acquire)
             || connection.session.read().await.generation() != generation
         {
