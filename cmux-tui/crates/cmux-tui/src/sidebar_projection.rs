@@ -57,6 +57,7 @@ pub(crate) struct ProjectionRow {
     pub name: String,
     pub subtitle: String,
     pub agent_state: Option<String>,
+    pub agent_label: Option<String>,
     pub active: bool,
     pub branch: Option<ProjectionBranch>,
     pub expanded: bool,
@@ -190,6 +191,7 @@ fn append_level(
                     name: workspace.name.clone(),
                     subtitle: workspace.short_id.clone(),
                     agent_state: None,
+                    agent_label: None,
                     active: workspace_index == tree.active_workspace,
                     branch,
                     expanded,
@@ -239,6 +241,7 @@ fn append_level(
                         name: pane.display_name().to_string(),
                         subtitle: pane.short_id.clone(),
                         agent_state: None,
+                        agent_label: None,
                         active: workspace_index == tree.active_workspace
                             && screen_index == workspace.active_screen
                             && pane.id == screen.active_pane,
@@ -318,6 +321,13 @@ fn append_level(
                                 .as_deref()
                                 .filter(|name| !name.is_empty())
                                 .or_else(|| (!tab.title.is_empty()).then_some(tab.title.as_str()))
+                                // An untitled agent tab reads better as its
+                                // agent type than as a short id.
+                                .or_else(|| {
+                                    agent
+                                        .filter(|_| agent_only)
+                                        .and_then(|agent| agent.agent.as_deref())
+                                })
                                 .unwrap_or(tab.short_id.as_str())
                                 .to_string();
                             let subtitle = if let Some(agent) = agent.filter(|_| agent_only) {
@@ -353,6 +363,9 @@ fn append_level(
                                 agent_state: agent
                                     .filter(|_| agent_only)
                                     .map(|agent| agent.state.clone()),
+                                agent_label: agent
+                                    .filter(|_| agent_only)
+                                    .and_then(|agent| agent.agent.clone()),
                                 active: workspace_index == tree.active_workspace
                                     && screen_index == workspace.active_screen
                                     && pane.id == screen.active_pane
@@ -549,6 +562,7 @@ mod tests {
             state: "unknown".into(),
             source: "hook".into(),
             session: None,
+            agent: None,
             updated_at_ms: 1,
         }];
         let rows =
@@ -609,6 +623,7 @@ mod tests {
                 state: "idle".into(),
                 source: "hook".into(),
                 session: Some("older task".into()),
+                agent: None,
                 updated_at_ms: 100,
             },
             AgentInfo {
@@ -616,6 +631,7 @@ mod tests {
                 state: "working".into(),
                 source: "hook".into(),
                 session: None,
+                agent: None,
                 updated_at_ms: 900,
             },
             AgentInfo {
@@ -623,6 +639,7 @@ mod tests {
                 state: "done".into(),
                 source: "hook".into(),
                 session: Some("finished task".into()),
+                agent: None,
                 updated_at_ms: 500,
             },
         ];
@@ -665,6 +682,7 @@ mod tests {
                 state: "working".into(),
                 source: "hook".into(),
                 session: None,
+                agent: None,
                 updated_at_ms: 100,
             },
             AgentInfo {
@@ -672,6 +690,7 @@ mod tests {
                 state: "working".into(),
                 source: "hook".into(),
                 session: None,
+                agent: None,
                 updated_at_ms: 900,
             },
         ];
@@ -731,6 +750,7 @@ mod tests {
                 state: "working".into(),
                 source: "hook".into(),
                 session: None,
+                agent: None,
                 updated_at_ms: 100,
             },
             AgentInfo {
@@ -738,6 +758,7 @@ mod tests {
                 state: "working".into(),
                 source: "hook".into(),
                 session: None,
+                agent: None,
                 updated_at_ms: 900,
             },
         ];
