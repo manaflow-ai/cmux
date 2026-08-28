@@ -226,17 +226,16 @@ impl AgentRoster {
             },
             updated_at_ms,
         };
-        if let Some(existing) = self.entries.get_mut(terminal_id) {
-            if existing.state == entry.state
-                && existing.source == entry.source
-                && existing.session == entry.session
-                && existing.agent == entry.agent
-            {
-                // Keep freshness for source arbitration without emitting a
-                // projection update for a timestamp-only duplicate event.
-                existing.updated_at_ms = existing.updated_at_ms.max(entry.updated_at_ms);
-                return Vec::new();
-            }
+        if let Some(existing) = self.entries.get_mut(terminal_id)
+            && existing.state == entry.state
+            && existing.source == entry.source
+            && existing.session == entry.session
+            && existing.agent == entry.agent
+        {
+            // Keep freshness for source arbitration without emitting a
+            // projection update for a timestamp-only duplicate event.
+            existing.updated_at_ms = existing.updated_at_ms.max(entry.updated_at_ms);
+            return Vec::new();
         }
         self.entries.insert(terminal_id.to_string(), entry.clone());
         vec![RosterDelta::Upsert { terminal_id: terminal_id.to_string(), entry }]

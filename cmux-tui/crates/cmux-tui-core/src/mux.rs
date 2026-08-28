@@ -8970,7 +8970,7 @@ impl Mux {
                 state: agent_state,
                 source,
                 session: source_session.clone(),
-                agent: agent_adapter.clone(),
+                agent: agent_adapter,
                 updated_at_ms: now,
             },
         };
