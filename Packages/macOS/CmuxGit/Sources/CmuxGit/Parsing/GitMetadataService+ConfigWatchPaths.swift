@@ -249,7 +249,7 @@ extension GitMetadataService {
         let gitmodulesURL = URL(fileURLWithPath: repository.workTreeRoot)
             .appendingPathComponent(".gitmodules")
         let reader = GitConfigFileReader()
-        guard case .contents(let contents, consumedByteCount: _) = reader.read(
+        guard case let .contents(contents, _) = reader.read(
             at: gitmodulesURL,
             maximumByteCount: GitConfigFileReader.defaultMaximumByteCount,
             deadline: deadline
