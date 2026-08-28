@@ -4088,3 +4088,380 @@ fn unique_temp_dir(name: &str) -> PathBuf {
 fn bin() -> &'static str {
     env!("CARGO_BIN_EXE_cmux-tui")
 }
+
+// ---------------------------------------------------------------------------
+// `attach --pipe-io`: renderer-less byte relay for embedder-fed surfaces.
+//
+// Contract under test (GUI-frontend migration, manual-IO surface):
+//   stdout  = raw VT bytes (daemon replay first, then live output),
+//   stdin   = JSON lines ({"input":"<b64>"} | {"resize":{"cols":N,"rows":N}}),
+//   stderr  = one final JSON line {"exit":{"reason":...}},
+//   exit 0  = terminal ended (or parent closed stdin) — do not respawn,
+//   exit 2  = daemon connection lost — the embedder may respawn to resync.
+// ---------------------------------------------------------------------------
+
+#[cfg(unix)]
+struct PipeIoRelay {
+    child: Child,
+    stdin: Option<std::process::ChildStdin>,
+    stdout: std::sync::Arc<std::sync::Mutex<Vec<u8>>>,
+    stderr: std::sync::Arc<std::sync::Mutex<Vec<u8>>>,
+}
+
+#[cfg(unix)]
+impl PipeIoRelay {
+    fn start(server: &HeadlessServer, terminal: &str, cols: u16, rows: u16) -> Self {
+        let mut child = Command::new(bin())
+            .args(["attach", "--socket"])
+            .arg(&server.socket)
+            .args([
+                "--terminal",
+                terminal,
+                "--pipe-io",
+                "--cols",
+                &cols.to_string(),
+                "--rows",
+                &rows.to_string(),
+            ])
+            .env_remove("CMUX_TUI_SOCKET")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let stdin = child.stdin.take();
+        let stdout = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let stderr = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let out = child.stdout.take().unwrap();
+        let err = child.stderr.take().unwrap();
+        let stdout_sink = stdout.clone();
+        std::thread::spawn(move || drain_into(out, stdout_sink));
+        let stderr_sink = stderr.clone();
+        std::thread::spawn(move || drain_into(err, stderr_sink));
+        Self { child, stdin, stdout, stderr }
+    }
+
+    fn send_input(&mut self, bytes: &[u8]) {
+        use base64::Engine as _;
+        let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
+        let line = format!("{}\n", serde_json::json!({ "input": encoded }));
+        self.stdin.as_mut().unwrap().write_all(line.as_bytes()).unwrap();
+    }
+
+    fn send_resize(&mut self, cols: u16, rows: u16) {
+        let line = format!("{}\n", serde_json::json!({ "resize": { "cols": cols, "rows": rows } }));
+        self.stdin.as_mut().unwrap().write_all(line.as_bytes()).unwrap();
+    }
+
+    fn send_claim(&mut self) {
+        let line = format!("{}\n", serde_json::json!({ "claim": { "geometry": true } }));
+        self.stdin.as_mut().unwrap().write_all(line.as_bytes()).unwrap();
+    }
+
+    fn stdout_text(&self) -> String {
+        String::from_utf8_lossy(&self.stdout.lock().unwrap()).into_owned()
+    }
+
+    fn stderr_text(&self) -> String {
+        String::from_utf8_lossy(&self.stderr.lock().unwrap()).into_owned()
+    }
+
+    fn wait_for_stdout(&mut self, needle: &str, what: &str) {
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while Instant::now() < deadline {
+            if self.stdout_text().contains(needle) {
+                return;
+            }
+            if let Some(status) = self.child.try_wait().unwrap() {
+                panic!(
+                    "pipe-io relay exited ({status}) before {what}\nstdout:\n{}\nstderr:\n{}",
+                    self.stdout_text(),
+                    String::from_utf8_lossy(&self.stderr.lock().unwrap())
+                );
+            }
+            std::thread::sleep(Duration::from_millis(25));
+        }
+        panic!("timed out waiting for {what}\nstdout:\n{}", self.stdout_text());
+    }
+
+    fn wait_for_exit(&mut self) -> (i32, serde_json::Value) {
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while Instant::now() < deadline {
+            if let Some(status) = self.child.try_wait().unwrap() {
+                // Let the drain threads observe EOF.
+                std::thread::sleep(Duration::from_millis(100));
+                let stderr_text =
+                    String::from_utf8_lossy(&self.stderr.lock().unwrap()).into_owned();
+                let exit_line = stderr_text
+                    .lines()
+                    .rev()
+                    .find(|line| line.trim_start().starts_with('{'))
+                    .unwrap_or_else(|| {
+                        panic!("pipe-io relay printed no JSON exit line\nstderr:\n{stderr_text}")
+                    })
+                    .to_string();
+                let value: serde_json::Value = serde_json::from_str(&exit_line).unwrap();
+                return (status.code().unwrap_or(-1), value);
+            }
+            std::thread::sleep(Duration::from_millis(25));
+        }
+        panic!("pipe-io relay did not exit\nstdout:\n{}", self.stdout_text());
+    }
+}
+
+#[cfg(unix)]
+fn drain_into(mut source: impl Read, sink: std::sync::Arc<std::sync::Mutex<Vec<u8>>>) {
+    let mut buffer = [0u8; 4096];
+    loop {
+        match source.read(&mut buffer) {
+            Ok(0) | Err(_) => return,
+            Ok(count) => sink.lock().unwrap().extend_from_slice(&buffer[..count]),
+        }
+    }
+}
+
+/// Reaps the adoptable terminal hosts a deliberate daemon SIGKILL leaves
+/// behind. The fixture's Drop treats any surviving host as a leak, but this
+/// test kills the daemon on purpose (host adoption after a daemon death is
+/// covered elsewhere); the orphaned hosts are part of the arranged scene.
+#[cfg(unix)]
+fn reap_orphaned_hosts_after_daemon_kill(server: &HeadlessServer) {
+    let host_root = cmux_tui_core::terminal_host_runtime::terminal_host_root(&server.state, "main");
+    for pid in terminal_host_pids(&host_root) {
+        if let Ok(pid) = libc::pid_t::try_from(pid) {
+            // SAFETY: terminating a test-owned child process group member.
+            unsafe {
+                libc::kill(pid, libc::SIGKILL);
+            }
+        }
+    }
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while terminal_host_pids(&host_root).iter().any(|pid| process_exists(*pid)) {
+        assert!(Instant::now() < deadline, "orphaned terminal hosts survived SIGKILL");
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    let _ = fs::remove_dir_all(&host_root);
+}
+
+#[cfg(unix)]
+fn pipe_io_terminal(server: &HeadlessServer) -> String {
+    let created = json_cli(server, &["workspace", "create", "--name", "pipe-io"]);
+    assert_success(&created);
+    json_output(&created)["value"]["terminal_id"].as_str().unwrap().to_string()
+}
+
+/// Count literal `^[[<digits>;<digits>R` runs, the form `cat -v` uses to
+/// render a cursor-position report that reached the inner process.
+#[cfg(unix)]
+fn visible_cursor_position_reports(text: &str) -> usize {
+    let bytes = text.as_bytes();
+    let mut count = 0;
+    let mut index = 0;
+    while let Some(offset) = text[index..].find("^[[") {
+        let mut cursor = index + offset + 3;
+        let mut digits_then_semicolon = false;
+        while cursor < bytes.len() && bytes[cursor].is_ascii_digit() {
+            cursor += 1;
+        }
+        if cursor < bytes.len() && bytes[cursor] == b';' {
+            cursor += 1;
+            let row_end = cursor;
+            while cursor < bytes.len() && bytes[cursor].is_ascii_digit() {
+                cursor += 1;
+            }
+            digits_then_semicolon = cursor > row_end;
+        }
+        if digits_then_semicolon && cursor < bytes.len() && bytes[cursor] == b'R' {
+            count += 1;
+        }
+        index += offset + 3;
+    }
+    count
+}
+
+#[cfg(unix)]
+#[test]
+fn pipe_io_attach_streams_output_and_replays_on_reconnect() {
+    let server = HeadlessServer::start("pipe-io-basic");
+    let terminal = pipe_io_terminal(&server);
+
+    let mut first = PipeIoRelay::start(&server, &terminal, 80, 24);
+    first.send_input(b"printf 'PIPEIO-%s\\n' FIRST\n");
+    first.wait_for_stdout("PIPEIO-FIRST", "live output of the typed marker");
+
+    // Dropping stdin tells the relay its embedder is gone: clean exit 0.
+    first.stdin = None;
+    let (code, exit) = first.wait_for_exit();
+    assert_eq!(code, 0, "stdin EOF must be a clean detach, got {exit}");
+    assert_eq!(exit["exit"]["reason"], "parent-closed");
+
+    // A fresh relay must serve the daemon replay before live bytes: the
+    // marker typed through the first relay is visible without retyping.
+    let mut second = PipeIoRelay::start(&server, &terminal, 80, 24);
+    second.wait_for_stdout("PIPEIO-FIRST", "replayed marker after reconnect");
+}
+
+#[cfg(unix)]
+#[test]
+fn pipe_io_exit_distinguishes_terminal_end_from_daemon_loss() {
+    let mut server = HeadlessServer::start("pipe-io-exits");
+    let terminal = pipe_io_terminal(&server);
+
+    let mut relay = PipeIoRelay::start(&server, &terminal, 80, 24);
+    relay.send_input(b"printf 'PIPEIO-%s\\n' READY\n");
+    relay.wait_for_stdout("PIPEIO-READY", "shell readiness marker");
+    let closed = json_cli(&server, &["terminal", &terminal, "close"]);
+    assert_success(&closed);
+    let (code, exit) = relay.wait_for_exit();
+    assert_eq!(code, 0, "terminal close must exit 0, got {exit}");
+    assert_eq!(exit["exit"]["reason"], "terminal-ended");
+
+    let second_terminal = pipe_io_terminal(&server);
+    let mut survivor = PipeIoRelay::start(&server, &second_terminal, 80, 24);
+    survivor.send_input(b"printf 'PIPEIO-%s\\n' TWO\n");
+    survivor.wait_for_stdout("PIPEIO-TWO", "second shell readiness marker");
+    server.child.kill().unwrap();
+    let (code, exit) = survivor.wait_for_exit();
+    assert_eq!(code, 2, "daemon loss must exit 2, got {exit}");
+    assert_eq!(exit["exit"]["reason"], "daemon-lost");
+    reap_orphaned_hosts_after_daemon_kill(&server);
+}
+
+#[cfg(unix)]
+#[test]
+fn pipe_io_startup_connect_failure_reports_daemon_lost() {
+    // A daemon restart window (dead socket) must read as daemon-lost so
+    // the embedder keeps retrying; only unexplained failures make it stop.
+    let dir = unique_temp_dir("pipe-io-dead-socket");
+    fs::create_dir_all(&dir).unwrap();
+    let dead_socket = dir.join("mux.sock");
+    let output = Command::new(bin())
+        .args(["attach", "--socket"])
+        .arg(&dead_socket)
+        .args(["--terminal", "term_0123456789abcdef0123456789abcdef", "--pipe-io"])
+        .env_remove("CMUX_TUI_SOCKET")
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let exit_line = stderr.lines().rev().find(|line| line.trim_start().starts_with('{')).unwrap();
+    let value: serde_json::Value = serde_json::from_str(exit_line).unwrap();
+    assert_eq!(value["exit"]["reason"], "daemon-lost");
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn pipe_io_resize_reaches_the_daemon_pty() {
+    let server = HeadlessServer::start("pipe-io-resize");
+    let terminal = pipe_io_terminal(&server);
+
+    let mut relay = PipeIoRelay::start(&server, &terminal, 80, 24);
+    relay.send_input(b"printf 'PIPEIO-%s\\n' SIZED\n");
+    relay.wait_for_stdout("PIPEIO-SIZED", "shell readiness marker");
+    relay.send_resize(100, 30);
+    // The daemon acknowledges the resize before the PTY winsize necessarily
+    // lands; poll stty until the new geometry is visible.
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        relay.send_input(b"stty size\n");
+        let poll_deadline = Instant::now() + Duration::from_secs(2);
+        while Instant::now() < poll_deadline {
+            if relay.stdout_text().contains("30 100") {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert!(
+            Instant::now() < deadline,
+            "timed out waiting for stty to report the resized PTY\nstdout:\n{}\nstderr:\n{}",
+            relay.stdout_text(),
+            relay.stderr_text()
+        );
+    }
+}
+
+/// Polls `stty size` through `relay` until `needle` (e.g. "30 100") shows,
+/// panicking with both streams on timeout. The daemon acknowledges resizes
+/// before the PTY winsize necessarily lands, hence the poll.
+#[cfg(unix)]
+fn wait_for_stty(relay: &mut PipeIoRelay, needle: &str, what: &str) {
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        relay.send_input(b"stty size\n");
+        let poll_deadline = Instant::now() + Duration::from_secs(2);
+        while Instant::now() < poll_deadline {
+            if relay.stdout_text().contains(needle) {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert!(
+            Instant::now() < deadline,
+            "timed out waiting for {what}\nstdout:\n{}\nstderr:\n{}",
+            relay.stdout_text(),
+            relay.stderr_text()
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn pipe_io_claim_line_reclaims_geometry_authority() {
+    let server = HeadlessServer::start("pipe-io-claim");
+    let terminal = pipe_io_terminal(&server);
+
+    let mut first = PipeIoRelay::start(&server, &terminal, 80, 24);
+    first.send_input(b"printf 'PIPEIO-%s\\n' CLAIM\n");
+    first.wait_for_stdout("PIPEIO-CLAIM", "shell readiness marker");
+
+    // A later attachment claims geometry authority (last claim wins), so
+    // the PTY follows the second relay's smaller grid.
+    let mut second = PipeIoRelay::start(&server, &terminal, 60, 20);
+    second.wait_for_stdout("PIPEIO-CLAIM", "replay on the second relay");
+    wait_for_stty(&mut first, "20 60", "the second attach claim to resize the PTY");
+
+    // The claim line is how an embedder re-asserts authority when its pane
+    // receives user input; the first relay's sizes apply again.
+    first.send_claim();
+    wait_for_stty(&mut first, "24 80", "the reclaim to restore the first relay's grid");
+    first.send_resize(100, 30);
+    wait_for_stty(&mut first, "30 100", "a post-reclaim resize to apply");
+}
+
+#[cfg(unix)]
+#[test]
+fn pipe_io_inner_query_is_answered_exactly_once() {
+    let server = HeadlessServer::start("pipe-io-reply-authority");
+    let terminal = pipe_io_terminal(&server);
+
+    let mut relay = PipeIoRelay::start(&server, &terminal, 80, 24);
+    // The inner program emits a DSR cursor-position query and then renders
+    // its own stdin visibly. Exactly one authority (the daemon-side
+    // terminal) must answer; the relay and any embedder mirror stay silent.
+    relay.send_input(b"sh -c 'printf \"\\033[6n\"; exec cat -v'\n");
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let mut seen = 0;
+    while Instant::now() < deadline {
+        seen = visible_cursor_position_reports(&relay.stdout_text());
+        if seen >= 1 {
+            // Give a duplicated reply time to surface before asserting.
+            std::thread::sleep(Duration::from_millis(500));
+            seen = visible_cursor_position_reports(&relay.stdout_text());
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    assert_eq!(
+        seen,
+        1,
+        "inner DSR query must be answered exactly once\nstdout:\n{}",
+        relay.stdout_text()
+    );
+}

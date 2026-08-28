@@ -297,8 +297,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         let created: (workspaceID: UUID, panelID: UUID)
         switch resource.kind {
         case .terminal:
-            let command = try await attachCommand(terminalID: resource.id.key)
-            created = try SurfacePaneFactory.makeTerminalPane(initialCommand: command, workingDirectory: nil, at: destination, focus: focus)
+            created = try await openTerminalPane(terminalID: resource.id.key, at: destination, focus: focus)
         case .display, .browser:
             let desktop = resource.kind == .display
             guard let port = resource.port ?? (desktop ? CmuxTuiSnapshotParser.desktopPort : nil) else {
@@ -443,12 +442,36 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         )
     }
 
-    private func attachCommand(terminalID: String) async throws -> String {
+    /// One decision point for how a cloud terminal renders in a pane, shared
+    /// by fresh materialization and restored-pane re-projection. Manual IO
+    /// (the default): a manual-mirror surface fed by `attach --pipe-io`
+    /// against the machine link's socket, with the pump's reconnect state
+    /// machine. Fallback (toggle off, or a bundled client that predates
+    /// `--pipe-io`): the exec attach pane running the full TUI renderer.
+    private func openTerminalPane(
+        terminalID: String,
+        at destination: SurfaceDestination,
+        focus: Bool
+    ) async throws -> (workspaceID: UUID, panelID: UUID) {
         let connected = try await links.connected(machineID: machineID)
         guard let clientURL = CloudTuiClientPaths.clientURL() else {
             throw CloudMachineLinkManager.ManagerError.clientMissing
         }
-        return CloudTuiCommandLine.attachShellCommand(clientPath: clientURL.path, socketPath: connected.socketPath, terminalID: terminalID)
+        if CloudTuiManualIO.isEnabled,
+           await CloudTuiManualIO.clientSupportsPipeIO(clientURL: clientURL) {
+            let attach = CloudTuiManualIOAttach(
+                clientPath: clientURL.path,
+                socketPath: connected.socketPath,
+                terminalID: terminalID
+            )
+            return try SurfacePaneFactory.makeCloudTuiTerminalPane(attach: attach, at: destination, focus: focus)
+        }
+        let command = CloudTuiCommandLine.attachShellCommand(
+            clientPath: clientURL.path,
+            socketPath: connected.socketPath,
+            terminalID: terminalID
+        )
+        return try SurfacePaneFactory.makeTerminalPane(initialCommand: command, workingDirectory: nil, at: destination, focus: focus)
     }
 
     /// The tokened wrapper URL the control plane mints for a port; the desktop adds the
@@ -546,10 +569,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 Task { @MainActor [weak self] in
                     guard let self else { return }
                     do {
-                        let command = try await self.attachCommand(terminalID: terminal.id.key)
-                        let created = try SurfacePaneFactory.makeTerminalPane(
-                            initialCommand: command,
-                            workingDirectory: nil,
+                        let created = try await self.openTerminalPane(
+                            terminalID: terminal.id.key,
                             at: .tab(workspaceID: projection.workspaceID, paneID: paneID, index: nil),
                             focus: false
                         )
