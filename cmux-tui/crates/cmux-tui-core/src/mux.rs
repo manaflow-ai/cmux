@@ -5271,12 +5271,12 @@ impl Mux {
         else {
             return;
         };
+        let Some(surface) = self.resource_surface_for_terminal(&terminal_id) else { return };
         let mut sequences = self.agent_hook_sequences.lock().unwrap();
         if sequences.get(&terminal_id).is_some_and(|latest| sequence <= *latest) {
             return;
         }
         sequences.insert(terminal_id.clone(), sequence);
-        let Some(surface) = self.resource_surface_for_terminal(&terminal_id) else { return };
         // The record's session field is a human-facing label; native agent
         // session ids are opaque, so views fall back to their own context.
         if let Err(error) = self.report_agent(surface, state, AgentSource::Hook, None) {
@@ -8834,6 +8834,7 @@ impl Mux {
 
     fn purge_terminal_side_tables(&self, terminal_id: &TerminalPublicId) {
         self.agent_records.lock().unwrap().remove(terminal_id);
+        self.agent_hook_sequences.lock().unwrap().remove(terminal_id);
         self.terminal_notifications.lock().unwrap().remove(terminal_id);
     }
 
