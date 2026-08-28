@@ -38,15 +38,17 @@ struct CmxConnectivityPeerSessionTests {
         let peerID = try CmxConnectivityPeerID(request: request)
         let log = DiagnosticLog(capacity: 32, role: .mobileClient)
         let admitted = TestConnectivitySession(continuityID: 17)
-        let builder = SequencedConnectivitySessionBuilder(sessions: [admitted])
+        // This fixture returns the admitted session immediately. It is not a
+        // gated builder, so there is no release operation to await.
+        let sequencedBuilder = SequencedConnectivitySessionBuilder(sessions: [admitted])
         let peer = CmxConnectivityPeerSession(
             peerID: peerID,
-            buildSession: { request in try await builder.build(request) },
+            buildSession: { request in try await sequencedBuilder.build(request) },
             diagnosticLog: log
         )
 
         let dial = Task { try await peer.connectedSession(for: request) }
-        try await Self.waitUntil { await builder.callCount() == 1 }
+        try await Self.waitUntil { await sequencedBuilder.callCount() == 1 }
         _ = try await dial.value
         await peer.releaseControl(ownerID: UUID())
         await peer.invalidate()
