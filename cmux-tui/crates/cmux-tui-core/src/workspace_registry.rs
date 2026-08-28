@@ -71,7 +71,8 @@ pub use resource_store::{
 use resource_store::{
     apply_resource_patch, create_resource_schema, initialize_resource_mutation_retention,
     migrate_resource_agent_projections, migrate_resource_browser_metadata,
-    migrate_resource_mutations_to_session_scope, migrate_resource_tabs_to_multiview,
+    migrate_legacy_display_names, migrate_resource_mutations_to_session_scope,
+    migrate_resource_tabs_to_multiview,
     resource_tabs_needs_multiview_normalization, validate_resource_invariants,
 };
 pub use session_journal::{
@@ -133,6 +134,30 @@ pub(crate) fn validate_display_name(label: &str, value: &str) -> anyhow::Result<
         anyhow::bail!("{label} contains a control or line-separator character");
     }
     Ok(())
+}
+
+/// Convert a legacy label into safe, visible text without allowing control
+/// characters to cross a terminal, log, or JSON boundary. Invalid code points
+/// use an explicit notation so the repair does not silently hide their value.
+pub(crate) fn sanitize_display_name(value: &str) -> String {
+    use std::fmt::Write as _;
+
+    let mut output = String::with_capacity(value.len().min(DISPLAY_NAME_MAX_BYTES));
+    for character in value.chars() {
+        let start = output.len();
+        if character.is_control()
+            || matches!(character, '\u{0085}' | '\u{2028}' | '\u{2029}')
+        {
+            let _ = write!(&mut output, "\\u{{{:04X}}}", character as u32);
+        } else {
+            output.push(character);
+        }
+        if output.len() > DISPLAY_NAME_MAX_BYTES {
+            output.truncate(start);
+            break;
+        }
+    }
+    output
 }
 
 const WORKSPACE_REGISTRY_FILE: &str = "workspace-registry.sqlite3";
@@ -2608,6 +2633,17 @@ impl WorkspaceRegistry {
             migrate_resource_tabs_to_multiview(&tx)?;
             tx.commit()?;
         }
+        if migrate_existing_registry
+            && meta_value(&connection, "display_name_boundary_v1")?.is_none()
+        {
+            let tx = connection.unchecked_transaction()?;
+            migrate_legacy_display_names(&tx)?;
+            tx.execute(
+                "INSERT INTO meta(key, value) VALUES('display_name_boundary_v1', '1')",
+                [],
+            )?;
+            tx.commit()?;
+        }
         if terminal_hosts_has_workspace_foreign_key(&connection)? {
             let tx = connection.unchecked_transaction()?;
             migrate_terminal_hosts_to_session_ownership(&tx)?;
@@ -2750,7 +2786,7 @@ impl WorkspaceRegistry {
                     id: u64::try_from(id).context("stored workspace id is negative")?,
                     public_id: WorkspacePublicId::parse(public_id)?,
                     key,
-                    name,
+                    name: sanitize_display_name(&name),
                     group_key,
                 })
             })
@@ -2822,7 +2858,7 @@ impl WorkspaceRegistry {
                         id: u64::try_from(id).context("staged workspace id is negative")?,
                         public_id: WorkspacePublicId::parse(public_id)?,
                         key,
-                        name,
+                        name: sanitize_display_name(&name),
                         group_key,
                     },
                 ))

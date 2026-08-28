@@ -8,6 +8,47 @@ pub(super) const RESOURCE_MUTATION_REPLAY_CAPACITY: usize = 4096;
 pub(super) const RESOURCE_MUTATION_PRUNE_INTERVAL: u64 = 128;
 const RESOURCE_EVENT_PAGE_SIZE: usize = 1024;
 
+/// Repair labels written by versions that did not enforce the display-name
+/// boundary. The repair runs once during registry migration, so ordinary
+/// resource commits do not scan or copy every row.
+pub(super) fn migrate_legacy_display_names(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+    let workspace_names = {
+        let mut statement = transaction.prepare("SELECT workspace_key, name FROM workspaces")?;
+        statement
+            .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
+            .collect::<Result<Vec<_>, _>>()?
+    };
+    for (workspace_key, name) in workspace_names {
+        if validate_display_name("workspace name", &name).is_err() {
+            transaction.execute(
+                "UPDATE workspaces SET name = ?1 WHERE workspace_key = ?2",
+                params![sanitize_display_name(&name), workspace_key],
+            )?;
+        }
+    }
+
+    for (table, id_column) in [
+        ("resource_screens", "public_id"),
+        ("resource_panes", "public_id"),
+        ("resource_tabs", "public_id"),
+    ] {
+        let query = format!("SELECT {id_column}, name FROM {table} WHERE name IS NOT NULL");
+        let rows = {
+            let mut statement = transaction.prepare(&query)?;
+            statement
+                .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
+                .collect::<Result<Vec<_>, _>>()?
+        };
+        let update = format!("UPDATE {table} SET name = ?1 WHERE {id_column} = ?2");
+        for (resource_id, name) in rows {
+            if validate_display_name("resource name", &name).is_err() {
+                transaction.execute(&update, params![sanitize_display_name(&name), resource_id])?;
+            }
+        }
+    }
+    Ok(())
+}
+
 pub(super) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     transaction.execute_batch(
         "CREATE TABLE IF NOT EXISTS resource_identities (
@@ -640,7 +681,7 @@ impl WorkspaceRegistry {
                         workspace_id: WorkspacePublicId::parse(workspace_id)?,
                         position: usize::try_from(position)
                             .context("stored screen position is negative")?,
-                        name,
+                        name: name.map(|value| sanitize_display_name(&value)),
                         layout: serde_json::from_str(&layout)?,
                         active_pane: PanePublicId::parse(active_pane)?,
                         zoomed_pane: zoomed_pane.map(PanePublicId::parse).transpose()?,
@@ -674,7 +715,7 @@ impl WorkspaceRegistry {
                     Ok(RegistryPane {
                         public_id: PanePublicId::parse(public_id)?,
                         screen_id: ScreenPublicId::parse(screen_id)?,
-                        name,
+                        name: name.map(|value| sanitize_display_name(&value)),
                         active_tab: active_tab.map(TabPublicId::parse).transpose()?,
                         creation_ordinal: u64::try_from(creation_ordinal)
                             .context("stored pane creation ordinal is negative")?,
@@ -729,7 +770,7 @@ impl WorkspaceRegistry {
                         position: usize::try_from(position)
                             .context("stored tab position is negative")?,
                         content_id,
-                        name,
+                        name: name.map(|value| sanitize_display_name(&value)),
                         browser_url,
                         terminal_id,
                     })
@@ -1356,6 +1397,31 @@ pub(super) fn collect_screen_split_public_ids(
         if !output.iter().any(|id| id == column.id.as_str()) {
             output.push(column.id.to_string());
         }
+    }
+}
+
+/// Sanitize only user-visible label fields in historical resource events.
+/// Older journal rows can outlive the one-time table migration, and clients
+/// may request those rows from an old cursor.
+fn sanitize_resource_label_values(value: &mut Value) {
+    match value {
+        Value::Array(values) => {
+            for value in values {
+                sanitize_resource_label_values(value);
+            }
+        }
+        Value::Object(object) => {
+            for (key, value) in object.iter_mut() {
+                if matches!(key.as_str(), "name" | "display_name") {
+                    if let Value::String(text) = value {
+                        *text = sanitize_display_name(text);
+                    }
+                } else {
+                    sanitize_resource_label_values(value);
+                }
+            }
+        }
+        Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => {}
     }
 }
 
@@ -3507,44 +3573,6 @@ fn validate_positions_for_parent(
 pub(super) fn validate_resource_invariants(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     ensure_no_foreign_key_violations(transaction)?;
     validate_concrete_identity_lifecycles(transaction)?;
-    let workspace_names = {
-        let mut statement =
-            transaction.prepare("SELECT name FROM workspaces WHERE tombstoned = 0")?;
-        statement.query_map([], |row| row.get::<_, String>(0))?.collect::<Result<Vec<_>, _>>()?
-    };
-    for name in workspace_names {
-        validate_display_name("workspace name", &name)?;
-    }
-    let screen_names = {
-        let mut statement = transaction.prepare(
-            "SELECT name FROM resource_screens
-             WHERE deleted_revision IS NULL AND name IS NOT NULL",
-        )?;
-        statement.query_map([], |row| row.get::<_, String>(0))?.collect::<Result<Vec<_>, _>>()?
-    };
-    for name in screen_names {
-        validate_display_name("screen name", &name)?;
-    }
-    let pane_names = {
-        let mut statement = transaction.prepare(
-            "SELECT name FROM resource_panes
-             WHERE deleted_revision IS NULL AND name IS NOT NULL",
-        )?;
-        statement.query_map([], |row| row.get::<_, String>(0))?.collect::<Result<Vec<_>, _>>()?
-    };
-    for name in pane_names {
-        validate_display_name("pane name", &name)?;
-    }
-    let tab_names = {
-        let mut statement = transaction.prepare(
-            "SELECT name FROM resource_tabs
-             WHERE deleted_revision IS NULL AND name IS NOT NULL",
-        )?;
-        statement.query_map([], |row| row.get::<_, String>(0))?.collect::<Result<Vec<_>, _>>()?
-    };
-    for name in tab_names {
-        validate_display_name("tab name", &name)?;
-    }
     validate_contiguous_positions(
         transaction,
         "SELECT '' AS parent, position FROM workspaces
