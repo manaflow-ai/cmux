@@ -61,6 +61,14 @@ extension CmxIrohTrustBrokerClientTests {
                 #"{"error":"rate_limited","source":"attacker\nforged"}"#,
                 "rate_limited"
             ),
+            (
+                #"{"error":"rate_limited","source":42}"#,
+                "rate_limited"
+            ),
+            (
+                #"{"error":"rate_limited","source":{"layer":"ingress_ip"}}"#,
+                "rate_limited"
+            ),
         ]
 
         for (body, expectedCode) in cases {
