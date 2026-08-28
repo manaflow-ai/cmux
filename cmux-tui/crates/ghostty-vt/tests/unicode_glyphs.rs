@@ -87,7 +87,7 @@ fn unicode_conformance_rows_to_runs_preserve_terminal_columns() {
 
 #[test]
 fn unicode_conformance_utf8_chunking_preserves_rendered_text() {
-    let input = "before λ 🙂 e\u{301} 赤";
+    let input = "\x1b[?2027hbefore λ 🙂 e\u{301} 赤";
     let expected = frame_for(input, 32);
     let mut terminal = Terminal::new(32, 2, 0, Callbacks::default()).unwrap();
     for chunk in input.as_bytes().chunks(1) {
