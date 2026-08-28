@@ -246,4 +246,35 @@ import Testing
         #expect(raw?["vivid-newt"]?["updatedAtUnix"] != nil)
         #expect(CloudTuiClientPaths.deviceName(hostName: "Austin's MacBook.local").hasPrefix("cmux-Austin-s-MacBook"))
     }
+
+    @Test func portEndpointsAreReusedUntilTheyExpire() {
+        var cache = SurfacePortEndpointCache(ttl: 60)
+        let t0 = Date(timeIntervalSince1970: 1_000)
+        #expect(cache.openURL(port: 6901, now: t0) == nil)
+        cache.store(openURL: "https://m-6901.vm.cmux.sh/?bl_preview_token=t1", port: 6901, now: t0)
+        #expect(cache.openURL(port: 6901, now: t0.addingTimeInterval(59)) == "https://m-6901.vm.cmux.sh/?bl_preview_token=t1")
+        #expect(cache.openURL(port: 3000, now: t0) == nil, "one entry per port")
+        #expect(cache.openURL(port: 6901, now: t0.addingTimeInterval(60)) == nil, "gone at ttl")
+        cache.store(openURL: "https://m-6901.vm.cmux.sh/?bl_preview_token=t2", port: 6901, now: t0.addingTimeInterval(60))
+        #expect(cache.openURL(port: 6901, now: t0.addingTimeInterval(61))?.hasSuffix("t2") == true)
+        cache.invalidate(port: 6901)
+        #expect(cache.openURL(port: 6901, now: t0.addingTimeInterval(61)) == nil)
+        #expect(SurfacePortEndpointCache.defaultTTL < 7 * 24 * 60 * 60, "well inside the preview token's 7-day life")
+    }
+
+    @Test @MainActor func optimisticPanePlaceholdersLabelAndEscape() {
+        #expect(CmuxTuiSurfaceProvider.paneLabel(machineID: "vivid-newt", port: 6901, desktop: true) == "vivid-newt · Desktop")
+        #expect(CmuxTuiSurfaceProvider.paneLabel(machineID: "vivid-newt", port: 3000, desktop: false) == "vivid-newt:3000")
+        let connecting = SurfaceBrowserPlaceholder.connecting("vivid-newt · Desktop")
+        #expect(connecting.contains("Connecting to vivid-newt · Desktop…"))
+        #expect(connecting.contains("class=\"spinner\""))
+        #expect(connecting.contains("#1f2430"), "the desktop's own background, not a white tab")
+        let failed = SurfaceBrowserPlaceholder.failed("<m>:3000", error: "HTTP 503 <vm_image_unavailable> & more")
+        #expect(failed.contains("Couldn’t open &lt;m&gt;:3000"))
+        #expect(failed.contains("HTTP 503 &lt;vm_image_unavailable&gt; &amp; more"))
+        #expect(!failed.contains("<vm_image_unavailable>"))
+        #expect(!failed.contains("spinner"))
+        #expect(failed.contains("open it again from the sidebar"))
+        #expect(SurfaceBrowserPlaceholder.escape("a\"b'c") == "a&quot;b&#39;c")
+    }
 }

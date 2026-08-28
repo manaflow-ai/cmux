@@ -59783,6 +59783,57 @@
         }
       }
     },
+    "cloudTree.pane.connecting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connecting to %@…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ に接続しています…"
+          }
+        }
+      }
+    },
+    "cloudTree.pane.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t open %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ を開けませんでした"
+          }
+        }
+      }
+    },
+    "cloudTree.pane.retryHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close this pane and open it again from the sidebar."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このペインを閉じて、サイドバーからもう一度開いてください。"
+          }
+        }
+      }
+    },
     "cloudTree.operation.close": {
       "extractionState": "manual",
       "localizations": {
