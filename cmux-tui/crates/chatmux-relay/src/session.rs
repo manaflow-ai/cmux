@@ -356,6 +356,24 @@ impl Default for SessionRuntime {
     }
 }
 
+#[cfg(unix)]
+fn reconcile_tunnel_authority(runtime: &SessionRuntime, auth: Option<TunnelAuth>) -> u64 {
+    // Publish or revoke the generation while holding the authority lock, then
+    // advance the PTY generation floor and detach old tunnel attachments
+    // before releasing it. Trust changes therefore have the same atomic
+    // boundary as hello reconciliation and disconnect cleanup.
+    let mut authority = runtime.tunnel_auth.write().expect("tunnel auth lock");
+    *authority = match auth {
+        Some(auth) => TunnelAuthority::published(authority.generation, auth),
+        None => TunnelAuthority::revoked(authority.generation),
+    };
+    let generation = authority.generation;
+    runtime.pty.set_tunnel_authority_generation(generation);
+    let _ = runtime.tunnel_generation.send(generation);
+    runtime.pty.detach_tunnel_transports();
+    generation
+}
+
 fn now_ms() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -930,28 +948,14 @@ async fn relay_session(
                             snapshot.roots = local_roots.clone();
                             snapshot.owner = config.owner_user_id.clone();
                             #[cfg(unix)]
-                            if state.managed {
-                                // Publish the new generation while holding the
-                                // authority lock, then detach old attachments
-                                // before releasing it. Existing tunnel
-                                // sockets therefore see one atomic generation
-                                // change and cannot open in an old-authority
-                                // gap.
-                                let mut authority =
-                                    runtime.tunnel_auth.write().expect("tunnel auth lock");
-                                *authority = TunnelAuthority::published(
-                                    authority.generation,
-                                    TunnelAuth {
-                                        trust: snapshot.trust.clone(),
-                                        local_roots: snapshot.roots.clone(),
-                                        owner_user_id: snapshot.owner.clone(),
-                                    },
-                                );
-                                let generation = authority.generation;
-                                runtime.pty.set_tunnel_authority_generation(generation);
-                                let _ = runtime.tunnel_generation.send(generation);
-                                runtime.pty.detach_tunnel_transports();
-                            }
+                            reconcile_tunnel_authority(
+                                runtime,
+                                state.managed.then(|| TunnelAuth {
+                                    trust: snapshot.trust.clone(),
+                                    local_roots: snapshot.roots.clone(),
+                                    owner_user_id: snapshot.owner.clone(),
+                                }),
+                            );
                             workspace.set_local_observe(local_observe);
                         }
                         #[cfg(unix)]
@@ -1020,6 +1024,14 @@ async fn relay_session(
                         #[cfg(unix)]
                         {
                             let snapshot = auth.lock().expect("auth lock").clone();
+                            reconcile_tunnel_authority(
+                                runtime,
+                                state.managed.then(|| TunnelAuth {
+                                    trust: snapshot.trust.clone(),
+                                    local_roots: snapshot.roots.clone(),
+                                    owner_user_id: snapshot.owner.clone(),
+                                }),
+                            );
                             let context = make_context(&out_tx, &pending, &snapshot, &transport_id);
                             runtime.pty.update_transport_auth(&context);
                         }
@@ -1240,14 +1252,7 @@ async fn relay_session(
     // sockets authorized during that interval.
     #[cfg(unix)]
     {
-        {
-            let mut authority = runtime.tunnel_auth.write().expect("tunnel auth lock");
-            *authority = TunnelAuthority::revoked(authority.generation);
-            let generation = authority.generation;
-            runtime.pty.set_tunnel_authority_generation(generation);
-            let _ = runtime.tunnel_generation.send(generation);
-            runtime.pty.detach_tunnel_transports();
-        }
+        reconcile_tunnel_authority(runtime, None);
     }
 
     // Workspace requests own Git children. Give them a cooperative
@@ -1394,6 +1399,31 @@ mod cancellation_tests {
         assert!(shutdown_connection_tasks(&mut tasks, &cancellation).await);
         assert!(cancellation.is_cancelled());
         assert!(tasks.is_empty());
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tunnel_authority_tests {
+    use super::{SessionRuntime, TunnelAuth, reconcile_tunnel_authority};
+
+    #[test]
+    fn trust_downgrade_revokes_old_tunnel_authority() {
+        let runtime = SessionRuntime::new();
+        let published = reconcile_tunnel_authority(
+            &runtime,
+            Some(TunnelAuth {
+                trust: "autonomous".to_owned(),
+                local_roots: None,
+                owner_user_id: None,
+            }),
+        );
+        assert!(runtime.tunnel_auth.read().expect("authority lock").auth.is_some());
+
+        let revoked = reconcile_tunnel_authority(&runtime, None);
+        let authority = runtime.tunnel_auth.read().expect("authority lock");
+        assert_eq!(revoked, published + 1);
+        assert!(authority.auth.is_none(), "a trust downgrade must revoke tunnel access");
+        assert_eq!(authority.generation, revoked);
     }
 }
 
