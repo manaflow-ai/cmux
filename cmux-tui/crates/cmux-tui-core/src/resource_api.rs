@@ -142,7 +142,7 @@ impl ResourceMachineService for LocalResourceMachineService {
             }
             ResourceOperation::SessionOpen => self.open_local_session(request, &context),
             operation => Err(ResourceError::operation_failed(
-                resource_operation_name(operation),
+                operation.wire_name().to_owned(),
                 "operation was routed to the wrong machine service",
                 json!({}),
             )),
@@ -383,14 +383,6 @@ pub(crate) fn operation_failed(error: anyhow::Error) -> ResourceError {
         return resource.clone();
     }
     ResourceError::operation_failed("resource.runtime", error.to_string(), json!({}))
-}
-
-fn resource_operation_name(operation: ResourceOperation) -> String {
-    serde_json::to_value(operation)
-        .expect("resource operation serializes")
-        .as_str()
-        .expect("resource operation serializes as a string")
-        .to_string()
 }
 
 pub(crate) fn terminal_tab_ids_in_canonical_order(
@@ -649,10 +641,17 @@ pub(crate) fn public_session_snapshot_with_journal_head(
             }
         }
         for (host_id, terminal_id) in &terminal_resources_by_host {
-            anyhow::ensure!(
-                terminals_by_id.contains_key(host_id.as_str()),
-                "terminal {terminal_id} references missing {host_id}"
-            );
+            if !terminals_by_id.contains_key(host_id.as_str()) {
+                // A resource row whose durable host vanished (a close that
+                // tombstoned the registry but not the resource row, or a crash
+                // between the two writes) must not fail the whole snapshot:
+                // every client renders a failed snapshot as "machine
+                // unreachable". Skip the dangling row; the close path owns the
+                // repair.
+                eprintln!(
+                    "cmux-tui: snapshot skipping terminal {terminal_id} referencing missing {host_id}"
+                );
+            }
         }
 
         let terminals = terminal_order
@@ -1019,6 +1018,16 @@ mod tests {
         assert_eq!(terminal["cols"], 80);
         assert_eq!(terminal["rows"], 24);
         assert_eq!(terminal["lifecycle"], "running");
+
+        // The daemon owns terminal lifecycle. A renderer snapshot must expose
+        // each durable terminal exactly once even when its runtime is absent.
+        let terminal_ids = snapshot["terminals"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|terminal| terminal["id"].as_str().expect("terminal id"))
+            .collect::<HashSet<_>>();
+        assert_eq!(terminal_ids.len(), snapshot["terminals"].as_array().unwrap().len());
     }
 
     #[test]

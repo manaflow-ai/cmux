@@ -1,4 +1,10 @@
 {
+  "vmDesktop": {
+    "invalidTitle": "このデスクトップリンクは無効です",
+    "invalidBody": "リンクにセッションがないか、cmux が表示できない場所を指しています。cmux のマシンパネルで {machine} を右クリックし、「デスクトップを開く」からもう一度開いてください。",
+    "expiredTitle": "このデスクトップセッションは期限切れです",
+    "expiredBody": "{machine} とその中身は無事です。このリンクのセッションだけが終了しました。cmux でマシンを右クリックし、「デスクトップを開く」から新しく開き直してください。"
+  },
   "ios": {
     "metaTitle": "cmux iOS — iPhone と iPad でターミナルを",
     "metaDescription": "cmux iOS アプリは、Mac のターミナルを自分の Tailscale やローカルネットワーク経由で iPhone・iPad にリアルタイムでミラーリング。どこからでもコーディングエージェントを操作できます。",
@@ -405,6 +411,7 @@
     "community": "コミュニティ",
     "docs": "ドキュメント",
     "changelog": "変更履歴",
+    "support": "サポート",
     "companyInformation": "会社情報",
     "privacy": "プライバシー",
     "terms": "利用規約",
@@ -4817,6 +4824,52 @@
       "submit": "送信",
       "submitting": "送信中...",
       "success": "ありがとうございます。リクエストを受け付けました。founders@manaflow.com から返信します。",
+      "error": "問題が発生しました。もう一度お試しいただくか、founders@manaflow.com にメールしてください。"
+    }
+  },
+  "support": {
+    "metaTitle": "サポート | cmux",
+    "metaDescription": "cmux のサポートを受けられます。メッセージを送信するとメールで返信します。Discord や GitHub でも問い合わせできます。",
+    "section": "サポート",
+    "title": "cmux のサポートを受けられます。",
+    "body": "メッセージを送信すると、メールで返信します。操作内容、期待した結果、実際の結果を書いていただくと、より早く対応できます。",
+    "channels": {
+      "docs": {
+        "label": "ドキュメント",
+        "description": "はじめ方、設定、トラブルシューティングのガイド。"
+      },
+      "discord": {
+        "label": "Discord",
+        "description": "コミュニティとチームにリアルタイムで質問できます。"
+      },
+      "github": {
+        "label": "GitHub Issues",
+        "description": "バグ報告や機能リクエストを公開の場で送れます。"
+      },
+      "email": {
+        "label": "founders@manaflow.com",
+        "description": "メールでの問い合わせはこちらに直接どうぞ。"
+      }
+    },
+    "formAriaLabel": "サポート問い合わせフォーム",
+    "form": {
+      "name": "名前",
+      "email": "メールアドレス",
+      "topic": "トピック",
+      "message": "お困りの内容",
+      "selectPlaceholder": "選択してください",
+      "topicOptions": [
+        "バグ報告",
+        "請求またはサブスクリプション",
+        "アカウントまたはサインイン",
+        "Cloud VM",
+        "機能リクエスト",
+        "その他"
+      ],
+      "privacy": "メールアドレスはサポートへの返信のみに使用します。連絡先情報を販売することはありません。",
+      "submit": "送信",
+      "submitting": "送信中...",
+      "success": "ありがとうございます。メッセージを受け付けました。founders@manaflow.com からメールで返信します。",
       "error": "問題が発生しました。もう一度お試しいただくか、founders@manaflow.com にメールしてください。"
     }
   },

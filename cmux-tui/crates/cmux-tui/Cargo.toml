@@ -25,6 +25,7 @@ cmux-tui-machine-agent-protocol.workspace = true
 cmux-tui-machine-protocol.workspace = true
 ratatui.workspace = true
 crossterm.workspace = true
+crossbeam-channel.workspace = true
 anyhow.workspace = true
 unicode-width.workspace = true
 unicode-segmentation.workspace = true
@@ -43,6 +44,7 @@ parking_lot.workspace = true
 sha2.workspace = true
 uuid.workspace = true
 wait-timeout.workspace = true
+fs4.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 cmux-remote.workspace = true

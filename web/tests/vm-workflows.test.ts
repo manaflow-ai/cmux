@@ -36,6 +36,7 @@ import {
   vmWorkflowErrorCause,
 } from "../services/vms/errors";
 import { accountDeletionUserHash } from "../services/account/deletionLock";
+import { isVmAttachTransportUnsupportedError } from "../services/vms/errors";
 import {
   createVm,
   destroyVm,
@@ -43,6 +44,7 @@ import {
   listUserVms,
   openBaseVm,
   openAttachEndpoint,
+  openVmSession,
   openSshEndpoint,
   revokeExpiredIdentityLeases,
   revokeUserIdentityLeasesForAccountDeletion,
@@ -1088,6 +1090,69 @@ describe("VM Effect workflows", () => {
     expect(usageEvents).toHaveLength(1);
   });
 
+  test("openAttachEndpoint and openVmSession refuse the legacy transport on a cmux-tui-only provider", async () => {
+    // Blaxel machines run only the cmux-tui remote daemon: the legacy websocket/SSH
+    // attach must fail closed before the provider is asked (no wake, no lease, no
+    // identity churn) with a typed error the route maps to 409.
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000115",
+      userId: "user-workflow-attach-unsupported",
+      billingTeamId: "team-workflow-attach-unsupported",
+      provider: "blaxel",
+      providerVmId: "provider-vm-attach-unsupported",
+      status: "running",
+    });
+    const usageEvents: RecordedUsageEvent[] = [];
+    const leases: RecordedLease[] = [];
+    const repo = testWorkflowRepo({ vm, usageEvents, leases });
+    let attachCalls = 0;
+    let statusCalls = 0;
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      attachTransports: () => ["cmux-remote"] as const,
+      openAttach: () =>
+        Effect.suspend(() => {
+          attachCalls += 1;
+          return Effect.succeed(testAttachEndpoint());
+        }),
+      getStatus: () =>
+        Effect.sync(() => {
+          statusCalls += 1;
+          return "running" as const;
+        }),
+    };
+
+    const attachError = await Effect.runPromise(
+      openAttachEndpoint({
+        userId: "user-workflow-attach-unsupported",
+        teamIds: ["team-workflow-attach-unsupported"],
+        providerVmId: "provider-vm-attach-unsupported",
+        options: { requireDaemon: true },
+      }).pipe(Effect.flip, Effect.provide(workflowLayer(repo, provider))),
+    );
+    expect(isVmAttachTransportUnsupportedError(attachError)).toBe(true);
+    expect(attachError).toMatchObject({
+      provider: "blaxel",
+      vmId: "provider-vm-attach-unsupported",
+      requested: "websocket",
+      supported: ["cmux-remote"],
+    });
+
+    const sessionError = await Effect.runPromise(
+      openVmSession({
+        userId: "user-workflow-attach-unsupported",
+        teamIds: ["team-workflow-attach-unsupported"],
+        providerVmId: "provider-vm-attach-unsupported",
+      }).pipe(Effect.flip, Effect.provide(workflowLayer(repo, provider))),
+    );
+    expect(isVmAttachTransportUnsupportedError(sessionError)).toBe(true);
+
+    expect(attachCalls).toBe(0);
+    expect(statusCalls).toBe(0);
+    expect(leases).toHaveLength(0);
+    expect(usageEvents).toHaveLength(0);
+  });
+
   test("openAttachEndpoint preflight-resumes a paused VM before minting", async () => {
     const vm = testCloudVmRow({
       id: "00000000-0000-4000-8000-000000000105",
@@ -1632,6 +1697,7 @@ describe("VM Effect workflows", () => {
       imageVersion: "test-version",
     });
     let providerCreateCalls = 0;
+    let providerMemoryMb: number | undefined;
     let usageEventAttempts = 0;
     const repo: VmRepositoryShape = {
       listUserVms: () => Effect.succeed([]),
@@ -1647,6 +1713,7 @@ describe("VM Effect workflows", () => {
       reservePausedResume: () => Effect.succeed(null),
       reconciliationCandidates: () => Effect.succeed([]),
       markProviderObservedStatus: () => Effect.succeed(false),
+      setDisplayName: () => Effect.succeed(true),
       markCreateRunning: () => Effect.succeed(running),
       markCreateFailed: () => Effect.void,
       hasOwnedSnapshot: () => Effect.succeed(false),
@@ -1668,9 +1735,10 @@ describe("VM Effect workflows", () => {
       },
     };
     const provider: VmProviderGatewayShape = {
-      create: () =>
+      create: (_provider, options) =>
         Effect.sync(() => {
           providerCreateCalls += 1;
+          providerMemoryMb = options.memoryMb;
           return {
             provider: "freestyle" as const,
             providerVmId: "provider-vm-usage-events",
@@ -1701,12 +1769,14 @@ describe("VM Effect workflows", () => {
         provider: "freestyle",
         image: "snapshot-test",
         imageVersion: "test-version",
+        memoryMb: 3072,
         idempotencyKey: "usage-events",
       }).pipe(Effect.provide(layer)),
     );
 
     expect(created.providerVmId).toBe("provider-vm-usage-events");
     expect(providerCreateCalls).toBe(1);
+    expect(providerMemoryMb).toBe(3072);
     expect(usageEventAttempts).toBe(2);
   });
 
@@ -2559,9 +2629,12 @@ describe("VM Effect workflows", () => {
   dbTest("resumes a paused VM before minting SSH credentials", async () => {
     if (!sql) throw new Error("test database not initialized");
     await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+    // A paid plan: the free plan's active-VM limit is 0 since #10948, which
+    // would fail the resume reservation before the SSH mechanics under test
+    // ever run.
     await sql`
       insert into cloud_vms (user_id, billing_team_id, billing_plan_id, provider, provider_vm_id, image_id, status)
-      values ('user-workflow-resume-ssh', 'team-workflow-resume-ssh', 'free', 'freestyle', 'provider-vm-resume-ssh', 'snapshot-test', 'paused')
+      values ('user-workflow-resume-ssh', 'team-workflow-resume-ssh', 'pro', 'freestyle', 'provider-vm-resume-ssh', 'snapshot-test', 'paused')
     `;
 
     let resumeCalls = 0;
@@ -2820,9 +2893,12 @@ describe("VM Effect workflows", () => {
   dbTest("rolls back a paused resume reservation when provider resume fails", async () => {
     if (!sql) throw new Error("test database not initialized");
     await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+    // A paid plan: the free plan's active-VM limit is 0 since #10948, which
+    // would fail the resume reservation before the rollback path under test
+    // ever runs.
     await sql`
       insert into cloud_vms (user_id, billing_team_id, billing_plan_id, provider, provider_vm_id, image_id, status)
-      values ('user-workflow-resume-fail', 'team-workflow-resume-fail', 'free', 'freestyle', 'provider-vm-resume-fail', 'snapshot-test', 'paused')
+      values ('user-workflow-resume-fail', 'team-workflow-resume-fail', 'pro', 'freestyle', 'provider-vm-resume-fail', 'snapshot-test', 'paused')
     `;
 
     const resumeError = new VmProviderOperationError({
@@ -3408,6 +3484,56 @@ describe("VM Effect workflows", () => {
     `;
     expect(oldVm?.status).toBe("destroyed");
     expect(oldVm?.destroyedAt).toBeInstanceOf(Date);
+  });
+
+  dbTest("cron reconcile keeps a volume-backed machine paused, not destroyed, when its compute is gone", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+    await sql`
+      insert into cloud_vms (user_id, billing_team_id, billing_plan_id, provider, provider_vm_id, image_id, status, provider_metadata, updated_at)
+      values
+        ('user-workflow-reconcile-home', 'team-workflow-reconcile-home', 'free', 'blaxel', 'provider-vm-reconcile-home', 'snapshot-test', 'running', '{"homeVolume": "cmux-home-user-reconcile-home", "image": "blaxel/base-image:latest"}'::jsonb, now() - interval '10 minutes'),
+        ('user-workflow-reconcile-nohome', 'team-workflow-reconcile-home', 'free', 'blaxel', 'provider-vm-reconcile-nohome', 'snapshot-test', 'running', '{}'::jsonb, now() - interval '10 minutes')
+    `;
+
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      getStatus: (_provider, vmId) =>
+        Effect.suspend(() => {
+          const gone = new Error(`sandbox ${vmId} -> 404 not found`);
+          (gone as Error & { status?: number }).status = 404;
+          return Effect.fail(new VmProviderOperationError({
+            provider: "blaxel",
+            operation: "getStatus",
+            cause: gone,
+          }));
+        }),
+    };
+
+    const result = await Effect.runPromise(
+      reconcileVmProviderStatuses().pipe(Effect.provide(providerLayer(provider))),
+    );
+
+    expect(result.checked).toBe(2);
+    expect(result.destroyed).toBe(1);
+
+    const rows = await sql<{ providerVmId: string; status: string; destroyedAt: Date | null }[]>`
+      select provider_vm_id as "providerVmId", status, destroyed_at as "destroyedAt" from cloud_vms
+      order by provider_vm_id
+    `;
+    const home = rows.find((r) => r.providerVmId === "provider-vm-reconcile-home");
+    const nohome = rows.find((r) => r.providerVmId === "provider-vm-reconcile-nohome");
+    expect(home?.status).toBe("paused");
+    expect(home?.destroyedAt).toBeNull();
+    expect(nohome?.status).toBe("destroyed");
+    expect(nohome?.destroyedAt).toBeInstanceOf(Date);
+
+    const [{ destroyedUsageCount }] = await sql<{ destroyedUsageCount: string }[]>`
+      select count(*)::text as "destroyedUsageCount"
+      from cloud_vm_usage_events
+      where event_type = 'vm.destroyed'
+    `;
+    expect(destroyedUsageCount).toBe("1");
   });
 
   dbTest("cron reconcile updates drifted rows from provider status", async () => {
@@ -4553,6 +4679,7 @@ function testCloudVmRow(overrides: Partial<CloudVmRow> = {}): CloudVmRow {
     billingPlanId: "free",
     provider: "freestyle",
     providerVmId: null,
+    displayName: null,
     imageId: "snapshot-test",
     imageVersion: null,
     status: "provisioning",
@@ -4589,6 +4716,7 @@ function testWorkflowRepo(input: {
 }): VmRepositoryShape {
   return {
     listUserVms: () => Effect.succeed([]),
+    setDisplayName: () => Effect.succeed(true),
     claimBillingGrant: () => Effect.succeed({ kind: "already_claimed" }),
     markBillingGrantApplied: () => Effect.void,
     deleteBillingGrant: () => Effect.void,

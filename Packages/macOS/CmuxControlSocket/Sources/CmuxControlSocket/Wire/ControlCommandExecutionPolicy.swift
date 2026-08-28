@@ -104,6 +104,10 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // routes it to the main-actor processV2Command switch, which lacks the
         // case, and the control socket returns method_not_found.
         "mobile.terminal.set_font",
+        // Same profile as set_font: UserDefaults reads/writes plus a push
+        // event through thread-safe MobileHostService statics.
+        "mobile.compatible_tags.get",
+        "mobile.compatible_tags.set",
         // Panel artifact reads are mobile data-plane file IO for non-terminal
         // surfaces. Keep them on the worker lane so markdown/file-preview panes
         // reach TerminalController's mobile.panel.artifact.* dispatcher instead
@@ -135,6 +139,12 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // seam restriction, so it stays app-side on the worker lane
         // (`TerminalController.v2SurfaceReadSelection`).
         "surface.read_selection",
+        // The surface catalog verbs await main-actor catalog work that can sit on the
+        // network (a cloud provider materializing a pane); like `vm.*` they park the
+        // worker instead of holding the main actor.
+        "surface.catalog",
+        "surface.project",
+        "surface.new_terminal",
         // SSH-session attach resolves ownership and reads the remote PTY
         // registry before any surface mutation; keep the bounded remote query
         // off the main actor.
@@ -178,6 +188,9 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // connection-owned shutdown path, which awaits asynchronous writers.
         // Keep that wait off the main actor.
         "debug.mobile.transport.disconnect",
+        // Presents the Cloud tree style gallery window: one v2MainSync hop for
+        // the presentation, like debug.window.screenshot's capture wait.
+        "debug.cloudtree.gallery",
         // Browser automation methods that wait on page JavaScript, WebKit
         // cookies, or capture callbacks run on the socket worker: on the main
         // actor they block SwiftUI updates for their full duration, and on a

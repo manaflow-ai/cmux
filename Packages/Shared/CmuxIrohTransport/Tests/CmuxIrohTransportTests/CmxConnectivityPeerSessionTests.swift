@@ -3,6 +3,7 @@ import Foundation
 import Testing
 @testable import CmuxIrohTransport
 
+@Suite(.serialized)
 struct CmxConnectivityPeerSessionTests {
     @Test
     func concurrentCallersShareOneDialAndOneAdmittedSession() async throws {
@@ -37,14 +38,20 @@ struct CmxConnectivityPeerSessionTests {
         let peerID = try CmxConnectivityPeerID(request: request)
         let log = DiagnosticLog(capacity: 32, role: .mobileClient)
         let admitted = TestConnectivitySession(continuityID: 17)
-        let builder = GatedConnectivitySessionBuilder(session: admitted)
+        let builder = SequencedConnectivitySessionBuilder(sessions: [admitted])
         let peer = CmxConnectivityPeerSession(
             peerID: peerID,
             buildSession: { request in try await builder.build(request) },
             diagnosticLog: log
         )
 
-        _ = try await peer.connectedSession(for: request)
+        // The gated builder parks every dial until released. Awaiting the
+        // dial before releasing the gate deadlocked this test (and the
+        // package CI job) permanently.
+        let dial = Task { try await peer.connectedSession(for: request) }
+        try await Self.waitUntil { await builder.callCount() == 1 }
+        await builder.release()
+        _ = try await dial.value
         await peer.releaseControl(ownerID: UUID())
         await peer.invalidate()
         #expect(await waitForDiagnosticProcessedCount(log, atLeast: 3))

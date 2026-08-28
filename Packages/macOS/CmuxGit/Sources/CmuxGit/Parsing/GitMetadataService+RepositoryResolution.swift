@@ -1,6 +1,10 @@
+import Dispatch
 import Foundation
 
 extension GitMetadataService {
+    private static let maximumRepositorySearchDepth = 256
+    private static let maximumRepositoryPointerByteCount = 16 * 1_024
+
     /// Walks upward from `directory` to the nearest enclosing git repository.
     ///
     /// Handles a `.git` directory, a `.git` *file* (`gitdir:` pointer used by
@@ -10,7 +14,10 @@ extension GitMetadataService {
     ///   is treated as its containing directory.
     /// - Returns: The resolved repository, or `nil` if the filesystem root is
     ///   reached without finding one.
-    nonisolated static func resolveGitRepository(containing directory: String) -> ResolvedGitRepository? {
+    nonisolated static func resolveGitRepository(
+        containing directory: String,
+        deadline: DispatchTime? = nil
+    ) -> ResolvedGitRepository? {
         let startURL = URL(fileURLWithPath: directory).standardizedFileURL
         let fileManager = FileManager.default
         var currentURL = startURL
@@ -20,18 +27,26 @@ extension GitMetadataService {
             currentURL.deleteLastPathComponent()
         }
 
-        while true {
+        for _ in 0..<Self.maximumRepositorySearchDepth {
+            guard canContinueRepositoryResolution(deadline: deadline) else { return nil }
             let dotGitURL = currentURL.appendingPathComponent(".git")
             if fileManager.fileExists(atPath: dotGitURL.path, isDirectory: &isDirectory) {
                 let gitDirectory: String?
                 if isDirectory.boolValue {
                     gitDirectory = dotGitURL.standardizedFileURL.path
                 } else {
-                    gitDirectory = gitDirectoryFromDotGitFile(dotGitURL, relativeTo: currentURL)
+                    gitDirectory = gitDirectoryFromDotGitFile(
+                        dotGitURL,
+                        relativeTo: currentURL,
+                        deadline: deadline
+                    )
                 }
 
                 if let gitDirectory {
-                    let commonDirectory = gitCommonDirectory(gitDirectory: gitDirectory)
+                    let commonDirectory = gitCommonDirectory(
+                        gitDirectory: gitDirectory,
+                        deadline: deadline
+                    )
                     return ResolvedGitRepository(
                         workTreeRoot: currentURL.standardizedFileURL.path,
                         gitDirectory: gitDirectory,
@@ -45,6 +60,30 @@ extension GitMetadataService {
                 return nil
             }
             currentURL = parentURL
+        }
+        return nil
+    }
+
+    /// Resolves one nested repository without running filesystem probes on the
+    /// Swift cooperative executor. The shared deadline and cancellation signal
+    /// also bound reads of linked-worktree pointer files.
+    nonisolated func resolveGitRepositoryBlocking(
+        containing directory: String,
+        deadline: DispatchTime
+    ) async -> ResolvedGitRepository? {
+        let cancellationSignal = WorkspaceChangesCancellationSignal(deadline: deadline)
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                Self.blockingStatusQueue.async {
+                    let repository = cancellationSignal.withCurrentBinding {
+                        guard deadline > DispatchTime.now() else { return nil }
+                        return Self.resolveGitRepository(containing: directory, deadline: deadline)
+                    }
+                    continuation.resume(returning: repository)
+                }
+            }
+        } onCancel: {
+            cancellationSignal.cancel()
         }
     }
 
@@ -69,9 +108,10 @@ extension GitMetadataService {
     /// line, relative to the work-tree root when the path is relative.
     nonisolated static func gitDirectoryFromDotGitFile(
         _ dotGitURL: URL,
-        relativeTo workTreeRootURL: URL
+        relativeTo workTreeRootURL: URL,
+        deadline: DispatchTime? = nil
     ) -> String? {
-        guard let contents = try? String(contentsOf: dotGitURL, encoding: .utf8) else {
+        guard let contents = repositoryPointerContents(at: dotGitURL, deadline: deadline) else {
             return nil
         }
         let trimmed = contents.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -93,10 +133,13 @@ extension GitMetadataService {
 
     /// Resolves the shared common directory for `gitDirectory` by reading its
     /// `commondir` file, falling back to `gitDirectory` itself.
-    nonisolated static func gitCommonDirectory(gitDirectory: String) -> String {
+    nonisolated static func gitCommonDirectory(
+        gitDirectory: String,
+        deadline: DispatchTime? = nil
+    ) -> String {
         let gitDirectoryURL = URL(fileURLWithPath: gitDirectory)
         let commonDirURL = gitDirectoryURL.appendingPathComponent("commondir")
-        guard let contents = try? String(contentsOf: commonDirURL, encoding: .utf8) else {
+        guard let contents = repositoryPointerContents(at: commonDirURL, deadline: deadline) else {
             return gitDirectory
         }
 
@@ -109,5 +152,26 @@ extension GitMetadataService {
             .appendingPathComponent(rawPath)
             .standardizedFileURL
             .path
+    }
+
+    private nonisolated static func canContinueRepositoryResolution(
+        deadline: DispatchTime?
+    ) -> Bool {
+        !WorkspaceChangesCancellationSignal.isCurrentCancelled
+            && (deadline.map { $0 > DispatchTime.now() } ?? true)
+    }
+
+    private nonisolated static func repositoryPointerContents(
+        at url: URL,
+        deadline: DispatchTime?
+    ) -> String? {
+        guard case .contents(let contents, consumedByteCount: _) = GitConfigFileReader().read(
+            at: url,
+            maximumByteCount: Self.maximumRepositoryPointerByteCount,
+            deadline: deadline
+        ) else {
+            return nil
+        }
+        return contents
     }
 }
