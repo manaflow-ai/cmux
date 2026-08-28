@@ -31134,9 +31134,8 @@ struct CMUXCLI {
             ?? normalizedHookValue(env["PWD"])
         var environment = selectedAgentLaunchEnvironment(from: env, kind: launcher)
         let subrouterRouting = SubrouterCodexResumeRouting()
-        if fallbackKind == "codex",
-           let marker = subrouterRouting.capturedMarker(in: env) {
-            environment[SubrouterCodexResumeRouting.environmentKey] = marker
+        if fallbackKind == "codex" {
+            environment.merge(subrouterRouting.capturedEnvironment(in: env)) { _, captured in captured }
         }
         // HOME is intentionally not part of the replay environment: changing
         // it for every restored agent can redirect unrelated config and caches.

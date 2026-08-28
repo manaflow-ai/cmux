@@ -47,6 +47,15 @@ public struct SubrouterCodexResumeRouting: Sendable, Equatable {
         return selected
     }
 
+    /// Returns the trusted marker and its bounded routing inputs for durable
+    /// hook capture, or an empty environment when the marker is absent.
+    public func capturedEnvironment(in environment: [String: String]?) -> [String: String] {
+        guard let marker = capturedMarker(in: environment) else { return [:] }
+        var selected = capturedRoutingEnvironment(in: environment)
+        selected[Self.environmentKey] = marker
+        return selected
+    }
+
     /// Builds the captured Subrouter launcher resume argv only when both the
     /// trusted marker and Codex routing config prove the routed invocation.
     public func resumeArguments(
