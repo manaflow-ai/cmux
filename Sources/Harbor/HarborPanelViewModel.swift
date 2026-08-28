@@ -24,16 +24,24 @@ struct HarborSourceSection: Identifiable, Equatable {
 /// Persisted list of user-added SSH destinations Harbor scans.
 enum HarborHostStore {
     static let defaultsKey = "harbor.sshHosts.v1"
+    /// Keep refresh fan-out bounded even when a damaged defaults domain has
+    /// been restored from another machine.
+    static let maxHosts = 32
+    static let maxDestinationBytes = 1024
 
     static func hosts(defaults: UserDefaults = .standard) -> [String] {
-        defaults.stringArray(forKey: defaultsKey) ?? []
+        var seen = Set<String>()
+        return (defaults.stringArray(forKey: defaultsKey) ?? []).filter { destination in
+            isPlausibleDestination(destination)
+                && seen.insert(destination).inserted
+        }.prefix(maxHosts).map { $0 }
     }
 
     static func add(_ rawDestination: String, defaults: UserDefaults = .standard) -> Bool {
         let destination = rawDestination.trimmingCharacters(in: .whitespacesAndNewlines)
         guard isPlausibleDestination(destination) else { return false }
         var hosts = hosts(defaults: defaults)
-        guard !hosts.contains(destination) else { return false }
+        guard hosts.count < maxHosts, !hosts.contains(destination) else { return false }
         hosts.append(destination)
         defaults.set(hosts, forKey: defaultsKey)
         return true
@@ -49,8 +57,10 @@ enum HarborHostStore {
     /// is passed to `ssh` as one argument after `--`.
     static func isPlausibleDestination(_ destination: String) -> Bool {
         guard !destination.isEmpty,
+              destination.utf8.count <= maxDestinationBytes,
               !destination.hasPrefix("-"),
               destination.rangeOfCharacter(from: .whitespacesAndNewlines) == nil,
+              destination.rangeOfCharacter(from: .controlCharacters) == nil,
               destination.rangeOfCharacter(from: CharacterSet(charactersIn: "'\"\\;|&$`")) == nil
         else { return false }
         return true
@@ -65,12 +75,16 @@ final class HarborPanelViewModel: ObservableObject {
     @Published private(set) var isRefreshing = false
 
     private var refreshGeneration = 0
+    private var refreshTask: Task<Void, Never>?
+    private static let maxConcurrentProbes = 4
 
     var sources: [HarborSource] {
         [.local] + HarborHostStore.hosts().map { .ssh(destination: $0) }
     }
 
     func refresh() {
+        refreshTask?.cancel()
+        refreshTask = nil
         refreshGeneration += 1
         let generation = refreshGeneration
         let sources = sources
@@ -85,19 +99,13 @@ final class HarborPanelViewModel: ObservableObject {
                 sessions: previous?.sessions ?? []
             )
         }
-        for source in sources {
-            Task { [weak self] in
-                let outcome: Result<[HarborSession], Error>
-                do {
-                    outcome = .success(try await HarborSessionProbe.discoverSessions(
-                        source: source,
-                        ownSessionName: ownSessionName
-                    ))
-                } catch {
-                    outcome = .failure(error)
-                }
-                self?.applyOutcome(outcome, source: source, generation: generation)
-            }
+        refreshTask = Task { [weak self] in
+            guard let self else { return }
+            await self.runRefresh(
+                sources: sources,
+                ownSessionName: ownSessionName,
+                generation: generation
+            )
         }
         if sources.isEmpty {
             isRefreshing = false
@@ -115,8 +123,70 @@ final class HarborPanelViewModel: ObservableObject {
         refresh()
     }
 
+    private func runRefresh(
+        sources: [HarborSource],
+        ownSessionName: String?,
+        generation: Int
+    ) async {
+        struct ProbeOutcome: Sendable {
+            let source: HarborSource
+            let result: Result<[HarborSession], String>
+        }
+
+        await withTaskGroup(of: ProbeOutcome.self) { group in
+            var pending = sources.makeIterator()
+            for _ in 0..<Self.maxConcurrentProbes {
+                guard let source = pending.next() else { break }
+                group.addTask {
+                    do {
+                        return ProbeOutcome(
+                            source: source,
+                            result: .success(try await HarborSessionProbe.discoverSessions(
+                                source: source,
+                                ownSessionName: ownSessionName
+                            ))
+                        )
+                    } catch {
+                        return ProbeOutcome(
+                            source: source,
+                            result: .failure(Self.shortDescription(for: error))
+                        )
+                    }
+                }
+            }
+            while let outcome = await group.next() {
+                guard !Task.isCancelled else {
+                    group.cancelAll()
+                    return
+                }
+                applyOutcome(outcome.result, source: outcome.source, generation: generation)
+                if let source = pending.next() {
+                    group.addTask {
+                        do {
+                            return ProbeOutcome(
+                                source: source,
+                                result: .success(try await HarborSessionProbe.discoverSessions(
+                                    source: source,
+                                    ownSessionName: ownSessionName
+                                ))
+                            )
+                        } catch {
+                            return ProbeOutcome(
+                                source: source,
+                                result: .failure(Self.shortDescription(for: error))
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        guard !Task.isCancelled, generation == refreshGeneration else { return }
+        isRefreshing = false
+        refreshTask = nil
+    }
+
     private func applyOutcome(
-        _ outcome: Result<[HarborSession], Error>,
+        _ outcome: Result<[HarborSession], String>,
         source: HarborSource,
         generation: Int
     ) {
@@ -126,9 +196,9 @@ final class HarborPanelViewModel: ObservableObject {
         case .success(let sessions):
             sections[index].sessions = sessions
             sections[index].status = .loaded
-        case .failure(let error):
+        case .failure(let description):
             sections[index].sessions = []
-            sections[index].status = .unreachable(Self.shortDescription(for: error))
+            sections[index].status = .unreachable(description)
         }
         if !sections.contains(where: { $0.status == .loading }) {
             isRefreshing = false
@@ -136,14 +206,14 @@ final class HarborPanelViewModel: ObservableObject {
     }
 
     private nonisolated static func shortDescription(for error: Error) -> String {
+        if case HarborSessionProbe.ProbeError.outputTooLarge = error {
+            return String(localized: "harbor.error.probeTooLarge", defaultValue: "probe output was too large")
+        }
         if case HarborSessionProbe.ProbeError.timedOut = error {
             return String(localized: "harbor.error.timeout", defaultValue: "timed out")
         }
-        if case HarborSessionProbe.ProbeError.failed(_, let stderr) = error {
-            let line = stderr.split(separator: "\n").first.map(String.init) ?? ""
-            return line.isEmpty
-                ? String(localized: "harbor.error.probeFailed", defaultValue: "probe failed")
-                : line
+        if case HarborSessionProbe.ProbeError.failed = error {
+            return String(localized: "harbor.error.probeFailed", defaultValue: "probe failed")
         }
         return String(localized: "harbor.error.probeFailed", defaultValue: "probe failed")
     }

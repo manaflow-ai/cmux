@@ -95,26 +95,43 @@ struct HarborSession: Identifiable, Hashable, Sendable {
 /// `HarborSessionProbe.script`. Unknown tools and malformed lines are
 /// skipped so one bad stanza never hides the rest of a host's sessions.
 enum HarborProbeOutputParser {
+    /// A single hostile or corrupted probe line must not create an enormous
+    /// row model or terminal command. The probe output itself is bounded too,
+    /// but this per-field limit keeps one row cheap to render and quote.
+    static let maxSessionNameBytes = 1024
+    static let maxDetailCharacters = 512
+    static let maxSessions = 4096
+
     static func sessions(fromProbeOutput output: String, source: HarborSource, ownSessionName: String? = nil) -> [HarborSession] {
         var seen = Set<String>()
         var sessions: [HarborSession] = []
         for line in output.split(separator: "\n", omittingEmptySubsequences: true) {
+            guard sessions.count < maxSessions else { break }
             let fields = line.split(separator: "\t", maxSplits: 3, omittingEmptySubsequences: false)
             guard fields.count >= 3,
                   let tool = HarborTool(rawValue: String(fields[0])) else { continue }
             let name = String(fields[1])
-            guard !name.isEmpty else { continue }
+            guard !name.isEmpty,
+                  name.utf8.count <= maxSessionNameBytes,
+                  name.rangeOfCharacter(from: .controlCharacters) == nil else { continue }
             if tool == .cmuxTui,
                HarborSession.isCmuxInfrastructureSession(name: name, ownSessionName: ownSessionName) {
                 continue
             }
             let state = HarborSessionState(rawValue: String(fields[2])) ?? .unknown
+            let detail: String
+            if fields.count > 3 {
+                let bounded = String(fields[3].prefix(maxDetailCharacters))
+                detail = bounded.components(separatedBy: .controlCharacters).joined()
+            } else {
+                detail = ""
+            }
             let session = HarborSession(
                 source: source,
                 tool: tool,
                 name: name,
                 state: state,
-                detail: fields.count > 3 ? String(fields[3]) : ""
+                detail: detail
             )
             // The probe can report one session from two socket directories.
             guard seen.insert(session.id).inserted else { continue }
@@ -145,7 +162,8 @@ enum HarborAttachCommand {
 
     /// A short daemon-side terminal name so `terminal list` stays readable.
     static func terminalName(for session: HarborSession) -> String {
-        "harbor:\(session.tool.rawValue):\(session.name)"
+        let boundedName = String(session.name.prefix(HarborProbeOutputParser.maxDetailCharacters))
+        return "harbor:\(session.tool.rawValue):\(boundedName)"
     }
 
     private static func localAttachCommand(tool: HarborTool, name: String, state: HarborSessionState) -> String {

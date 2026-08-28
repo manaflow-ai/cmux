@@ -123998,6 +123998,23 @@
         }
       }
     },
+    "harbor.error.probeTooLarge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "probe output was too large"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "検出結果が大きすぎます"
+          }
+        }
+      }
+    },
     "harbor.error.timeout": {
       "extractionState": "manual",
       "localizations": {

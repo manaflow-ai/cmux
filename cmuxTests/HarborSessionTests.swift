@@ -68,6 +68,25 @@ struct HarborProbeOutputParserTests {
         )
         #expect(sessions[0].state == .unknown)
     }
+
+    @Test func rejectsUnboundedOrControlCharacterSessionNames() {
+        let oversized = String(repeating: "x", count: HarborProbeOutputParser.maxSessionNameBytes + 1)
+        let output = "tmux\t\(oversized)\tdetached\t\n"
+            + "tmux\tgood\u{0}name\tdetached\t\n"
+            + "tmux\tok\tdetached\t\(String(repeating: "d", count: HarborProbeOutputParser.maxDetailCharacters + 40))\n"
+        let sessions = HarborProbeOutputParser.sessions(fromProbeOutput: output, source: .local)
+        #expect(sessions.map(\.name) == ["ok"])
+        #expect(sessions[0].detail.count == HarborProbeOutputParser.maxDetailCharacters)
+    }
+
+    @Test func capsSessionCountAndSanitizesDetails() {
+        let rows = (0..<HarborProbeOutputParser.maxSessions + 20)
+            .map { "tmux\tname\($0)\tdetached\tdetail\u{1b}[31m" }
+            .joined(separator: "\n")
+        let sessions = HarborProbeOutputParser.sessions(fromProbeOutput: rows, source: .local)
+        #expect(sessions.count == HarborProbeOutputParser.maxSessions)
+        #expect(sessions[0].detail == "detail[31m")
+    }
 }
 
 @Suite("Harbor attach command construction")
@@ -121,16 +140,30 @@ struct HarborHostStoreTests {
         #expect(!HarborHostStore.isPlausibleDestination("host extra"))
         #expect(!HarborHostStore.isPlausibleDestination("host;rm"))
         #expect(!HarborHostStore.isPlausibleDestination("host`x`"))
+        #expect(!HarborHostStore.isPlausibleDestination("host\u{0}"))
+        #expect(!HarborHostStore.isPlausibleDestination(
+            String(repeating: "h", count: HarborHostStore.maxDestinationBytes + 1)
+        ))
     }
 
     @Test func addAndRemoveRoundTrip() {
-        let defaults = UserDefaults(suiteName: "HarborHostStoreTests.\(UUID().uuidString)")!
-        defer { defaults.removePersistentDomain(forName: "HarborHostStoreTests") }
+        let suiteName = "HarborHostStoreTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
         #expect(HarborHostStore.add("devbox", defaults: defaults))
         #expect(!HarborHostStore.add("devbox", defaults: defaults))
         #expect(HarborHostStore.hosts(defaults: defaults) == ["devbox"])
         HarborHostStore.remove("devbox", defaults: defaults)
         #expect(HarborHostStore.hosts(defaults: defaults).isEmpty)
+    }
+
+    @Test func hostStoreCapsPersistedDestinationsAndRefreshFanout() {
+        let suiteName = "HarborHostStoreTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set((0..<HarborHostStore.maxHosts + 4).map { "host\($0)" }, forKey: HarborHostStore.defaultsKey)
+        #expect(HarborHostStore.hosts(defaults: defaults).count == HarborHostStore.maxHosts)
+        #expect(!HarborHostStore.add("new-host", defaults: defaults))
     }
 }
 
