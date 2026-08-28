@@ -80,8 +80,12 @@ pub(super) fn restore_public_projections(
             let marker = source_session.strip_prefix("cmux-hook-sequence:");
             let ended = source_session.strip_prefix("cmux-hook-ended:");
             if let Some(value) = marker.or(ended).and_then(|value| value.parse::<u64>().ok()) {
+                // Marker-only projections predate durable hook state. Use the
+                // marker sequence as their legacy generation token so a
+                // session-less event continues the same lifecycle after a
+                // restart without reusing a terminal-wide identity.
                 agent_hook_fences.entry(agent.terminal_id.clone()).or_insert(super::HookFence {
-                    session_id: format!("legacy:{}", agent.terminal_id),
+                    session_id: super::legacy_hook_session_id(&agent.terminal_id, value),
                     sequence: value,
                     ended: ended.is_some(),
                 });
@@ -90,9 +94,11 @@ pub(super) fn restore_public_projections(
         if state == AgentState::Done && agent.source == "hook" {
             // Older projections predate the internal ended marker. Keep
             // their terminal fenced after restart so a late socket report
-            // cannot resurrect the completed session.
+            // cannot resurrect the completed session. Sequence zero is the
+            // one-release compatibility generation for records without a
+            // marker.
             agent_hook_fences.entry(agent.terminal_id.clone()).or_insert(super::HookFence {
-                session_id: format!("legacy:{}", agent.terminal_id),
+                session_id: super::legacy_hook_session_id(&agent.terminal_id, 0),
                 sequence: 0,
                 ended: true,
             });

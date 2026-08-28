@@ -1121,6 +1121,15 @@ struct HookFence {
     ended: bool,
 }
 
+/// Session-less adapters get a local generation token. The journal sequence
+/// is durable and strictly increasing, so a new legacy lifecycle cannot reuse
+/// the previous fence identity after restart.
+pub(super) fn legacy_hook_session_id(terminal_id: &TerminalPublicId, sequence: u64) -> String {
+    format!("legacy:{terminal_id}:{sequence}")
+}
+
+const AGENT_HOOK_RETRY_ERROR: &str = "agent hook projection retry deferred";
+
 #[derive(Debug, Clone)]
 struct TerminalAgentRecord {
     state: AgentState,
@@ -2539,7 +2548,7 @@ impl Mux {
                         eprintln!("cmux-tui: agent hook retry cleanup deferred");
                     }
                 }
-                Err(error) => {
+                Err(_error) => {
                     if self
                         .workspace_registry
                         .lock()
@@ -2550,7 +2559,7 @@ impl Mux {
                             &key,
                             sequence,
                             &ingress,
-                            &error.to_string(),
+                            AGENT_HOOK_RETRY_ERROR,
                         )
                         .is_err()
                     {
@@ -5348,7 +5357,7 @@ impl Mux {
         // process can crash after the durable journal commit and before the
         // in-memory/resource projection update. The sequence guard makes this
         // a no-op for already-applied events while allowing restart repair.
-        if let Err(error) = self.apply_agent_hook_record(ingress, commit.sequence) {
+        if let Err(_error) = self.apply_agent_hook_record(ingress, commit.sequence) {
             if let Err(_bookkeeping_error) =
                 self.workspace_registry.lock().unwrap().enqueue_agent_hook_pending(
                     &ingress.producer_id,
@@ -5356,7 +5365,7 @@ impl Mux {
                     idempotency_key,
                     commit.sequence,
                     ingress,
-                    &error.to_string(),
+                    AGENT_HOOK_RETRY_ERROR,
                 )
             {
                 eprintln!(
@@ -5407,29 +5416,43 @@ impl Mux {
         // then agent-record locks, so teardown acquires sequence before those
         // locks as well.
         let mut fences = self.agent_hook_fences.lock().unwrap();
-        let agent_session_id = ingress
+        let explicit_session_id = ingress
             .payload
             .get("normalized")
             .and_then(|value| value.get("agent_session_id"))
             .and_then(Value::as_str)
-            .map(str::to_owned)
+            .filter(|session_id| !session_id.is_empty())
+            .map(str::to_owned);
+        let is_session_start = ingress.kind == "agent.session.started";
+        let previous_fence = fences.get(&terminal_id).cloned();
+        // A non-start event without an adapter identity belongs to the live
+        // legacy generation. A start event must carry a new identity, or it
+        // receives a fresh local generation token below. Reusing the active
+        // fence for a start would let a delayed, session-less start mutate a
+        // newer lifecycle.
+        let agent_session_id = explicit_session_id
+            .clone()
             .or_else(|| {
-                fences
-                    .get(&terminal_id)
-                    .filter(|fence| !fence.ended)
+                (!is_session_start)
+                    .then(|| previous_fence.as_ref().filter(|fence| !fence.ended))
+                    .flatten()
                     .map(|fence| fence.session_id.clone())
             })
-            .unwrap_or_else(|| format!("legacy:{terminal_id}:{sequence}"));
-        if let Some(fence) = fences.get(&terminal_id) {
+            .unwrap_or_else(|| legacy_hook_session_id(&terminal_id, sequence));
+        if let Some(fence) = previous_fence.as_ref() {
             if fence.session_id == agent_session_id {
                 if fence.ended || sequence <= fence.sequence {
                     return Ok(());
                 }
-            } else if ingress.kind != "agent.session.started" || !fence.ended {
+            } else if !is_session_start || !fence.ended || sequence <= fence.sequence {
+                // A mismatched event cannot cross an active lifecycle fence.
+                // A start may replace an ended fence only as a new lifecycle:
+                // an explicit adapter id must differ from the ended id, while
+                // a legacy adapter receives the sequence-scoped token above.
                 return Ok(());
             }
         }
-        if fences.get(&terminal_id).is_some_and(|fence| sequence <= fence.sequence) {
+        if previous_fence.as_ref().is_some_and(|fence| sequence <= fence.sequence) {
             return Ok(());
         }
         // The record's session field is a human-facing label; native agent
@@ -22307,8 +22330,57 @@ mod tests {
     }
 
     #[test]
-    fn sessionless_legacy_hook_identity_survives_restart_marker_projection() {
+    fn permanently_failed_hook_projection_is_quarantined() {
         let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+        let ingress = crate::agent_hooks::agent_hook_journal_ingress(
+            "claude",
+            "UserPromptSubmit",
+            Some(&terminal_id.to_string()),
+            serde_json::json!({}),
+        )
+        .unwrap();
+        mux.workspace_registry.lock().unwrap().set_resource_patch_failure(true).unwrap();
+        let receipt = mux.append_journal_ingress(&ingress, "test", "dead-letter").unwrap();
+        assert!(receipt.sequence > 0);
+        for _ in 0..crate::workspace_registry::AGENT_HOOK_MAX_RETRY_PAGES_PER_WAKE {
+            mux.retry_pending_agent_hooks_for_terminal(&terminal_id).unwrap();
+        }
+        mux.workspace_registry.lock().unwrap().set_resource_patch_failure(false).unwrap();
+
+        let retry_state = mux
+            .workspace_registry
+            .lock()
+            .unwrap()
+            .agent_hook_pending_retry_state_for_test(
+                crate::agent_hooks::AGENT_HOOK_PRODUCER_ID,
+                "test",
+                "dead-letter",
+            )
+            .unwrap()
+            .expect("failed hook remains durable");
+        assert_eq!(retry_state.0, crate::workspace_registry::AGENT_HOOK_MAX_ATTEMPTS);
+        assert_eq!(retry_state.1, "agent hook retry limit reached");
+        assert!(
+            mux.workspace_registry
+                .lock()
+                .unwrap()
+                .pending_agent_hook_projections_for_terminal(&terminal_id)
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(
+            mux.workspace_registry.lock().unwrap().pending_agent_hook_projections().unwrap().len(),
+            1
+        );
+    }
+
+    #[test]
+    fn sessionless_legacy_hook_identity_survives_restart_marker_projection() {
+        let root = std::env::temp_dir()
+            .join(format!("cmux-agent-legacy-marker-{}", crate::workspace_registry::new_uuid_v4()));
+        let mux = Mux::open_persistent("legacy-marker", SurfaceOptions::default(), &root).unwrap();
         let surface = mux.new_workspace(None, None).unwrap();
         let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
         let ingress = |event: &str| {
@@ -22322,14 +22394,36 @@ mod tests {
         };
 
         mux.apply_agent_hook_record(&ingress("SessionStart"), 1).unwrap();
-        // Simulate the canonical fence restored by a newer process after the
-        // marker projection was persisted.
-        mux.agent_hook_fences.lock().unwrap().get_mut(&terminal_id).unwrap().session_id =
-            format!("legacy:{terminal_id}");
+        let first_session_id =
+            mux.agent_hook_fences.lock().unwrap()[&terminal_id].session_id.clone();
+        assert_eq!(first_session_id, format!("legacy:{terminal_id}:1"));
+        // Simulate a pre-watermark database that only has the marker
+        // projection. Restoration must derive the same legacy generation
+        // token instead of falling back to a terminal-wide identity.
+        mux.workspace_registry
+            .lock()
+            .unwrap()
+            .delete_agent_hook_state_for_test(&terminal_id)
+            .unwrap();
+        mux.shutdown();
+        drop(mux);
+
+        let mux = Mux::open_persistent("legacy-marker", SurfaceOptions::default(), &root).unwrap();
+        assert_eq!(
+            mux.agent_hook_fences.lock().unwrap()[&terminal_id].session_id,
+            first_session_id
+        );
+        let reopened_surface = mux.resource_surface_for_terminal(&terminal_id).unwrap();
         let next = ingress("UserPromptSubmit");
         assert_eq!(next.kind, "agent.turn.started");
         mux.apply_agent_hook_record(&next, 2).unwrap();
-        assert_eq!(mux.list_agents(Some(surface.id), None)[0].state, AgentState::Working);
+        assert_eq!(
+            mux.list_agents(Some(reopened_surface), None)[0].state,
+            AgentState::Working
+        );
+        mux.shutdown();
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -22464,8 +22558,13 @@ mod tests {
         };
         mux.apply_agent_hook_record(&ingress("SessionStart", "old"), 1).unwrap();
         mux.apply_agent_hook_record(&ingress("SessionEnd", "old"), 2).unwrap();
-        mux.apply_agent_hook_record(&ingress("SessionStart", "new"), 3).unwrap();
-        mux.apply_agent_hook_record(&ingress("SessionStart", "old"), 4).unwrap();
+        // The old session can arrive after its end marker. Matching the ended
+        // identity is still a stale event, not permission to reopen it.
+        mux.apply_agent_hook_record(&ingress("SessionStart", "old"), 3).unwrap();
+        assert!(mux.list_agents(Some(surface.id), None).is_empty());
+        assert!(mux.agent_hook_fences.lock().unwrap()[&terminal_id].ended);
+        mux.apply_agent_hook_record(&ingress("SessionStart", "new"), 4).unwrap();
+        mux.apply_agent_hook_record(&ingress("SessionStart", "old"), 5).unwrap();
         assert_eq!(mux.list_agents(Some(surface.id), None)[0].state, AgentState::Idle);
         assert_eq!(mux.agent_hook_fences.lock().unwrap()[&terminal_id].session_id, "new");
     }
@@ -22486,6 +22585,9 @@ mod tests {
         };
         mux.apply_agent_hook_record(&ingress("SessionStart"), 1).unwrap();
         let first = mux.agent_hook_fences.lock().unwrap()[&terminal_id].session_id.clone();
+        // A session-less start cannot silently reuse the active generation.
+        mux.apply_agent_hook_record(&ingress("SessionStart"), 2).unwrap();
+        assert_eq!(mux.agent_hook_fences.lock().unwrap()[&terminal_id].session_id, first);
         mux.apply_agent_hook_record(&ingress("SessionEnd"), 2).unwrap();
         mux.apply_agent_hook_record(&ingress("SessionStart"), 3).unwrap();
         let second = mux.agent_hook_fences.lock().unwrap()[&terminal_id].session_id.clone();

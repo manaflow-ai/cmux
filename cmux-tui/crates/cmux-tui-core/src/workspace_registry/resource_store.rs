@@ -8,6 +8,8 @@ pub(super) const RESOURCE_MUTATION_REPLAY_CAPACITY: usize = 4096;
 pub(super) const RESOURCE_MUTATION_PRUNE_INTERVAL: u64 = 128;
 const RESOURCE_EVENT_PAGE_SIZE: usize = 1024;
 pub(super) const AGENT_HOOK_RETRY_PAGE_SIZE: i64 = 64;
+// Rows that reach this cap stay durable as dead-letter records. Selectors
+// exclude them, so a permanent projection failure cannot spin forever.
 pub(super) const AGENT_HOOK_MAX_ATTEMPTS: i64 = 8;
 pub(crate) const AGENT_HOOK_MAX_RETRY_PAGES_PER_WAKE: usize = 16;
 
@@ -545,9 +547,13 @@ impl WorkspaceRegistry {
                terminal_id = excluded.terminal_id,
                event_sequence = excluded.event_sequence,
                ingress_json = excluded.ingress_json,
-               error = excluded.error,
+               error = CASE
+                 WHEN resource_agent_hook_pending.attempt + 1 >= ?8
+                 THEN 'agent hook retry limit reached'
+                 ELSE excluded.error
+               END,
                attempt = CASE
-                 WHEN resource_agent_hook_pending.attempt < 9223372036854775807
+                 WHEN resource_agent_hook_pending.attempt < ?8
                  THEN resource_agent_hook_pending.attempt + 1
                  ELSE resource_agent_hook_pending.attempt
                END",
@@ -558,7 +564,8 @@ impl WorkspaceRegistry {
                 terminal_id,
                 i64::try_from(sequence)?,
                 ingress_json,
-                bounded_error
+                bounded_error,
+                AGENT_HOOK_MAX_ATTEMPTS
             ],
         )?;
         Ok(())
@@ -586,13 +593,16 @@ impl WorkspaceRegistry {
     ) -> anyhow::Result<()> {
         self.connection.execute(
             "UPDATE resource_agent_hook_pending
-             SET error = 'invalid pending agent hook payload',
+             SET error = CASE
+                   WHEN attempt + 1 >= ?4 THEN 'agent hook retry limit reached'
+                   ELSE 'invalid pending agent hook payload'
+                 END,
                  attempt = CASE
-                   WHEN attempt < 9223372036854775807 THEN attempt + 1
+                   WHEN attempt < ?4 THEN attempt + 1
                    ELSE attempt
                  END
              WHERE producer_id = ?1 AND origin = ?2 AND idempotency_key = ?3",
-            params![producer_id, origin, idempotency_key],
+            params![producer_id, origin, idempotency_key, AGENT_HOOK_MAX_ATTEMPTS],
         )?;
         Ok(())
     }
@@ -675,19 +685,21 @@ impl WorkspaceRegistry {
 
     pub fn pending_agent_hook_projections_page(
         &self,
-        after: Option<(u64, String)>,
+        after: Option<(u64, String, i64)>,
     ) -> anyhow::Result<(
         Vec<(String, String, String, u64, crate::JournalIngress)>,
-        Option<(u64, String)>,
+        Option<(u64, String, i64)>,
     )> {
-        let (after_sequence, after_key) = after.unwrap_or((0, String::new()));
+        let (after_sequence, after_key, after_rowid) = after.unwrap_or((0, String::new(), 0));
         let mut statement = self.connection.prepare(
-            "SELECT producer_id, origin, idempotency_key, event_sequence, ingress_json
+            "SELECT rowid, producer_id, origin, idempotency_key, event_sequence, ingress_json
              FROM resource_agent_hook_pending
              WHERE attempt < ?1
-               AND (event_sequence > ?2 OR (event_sequence = ?2 AND idempotency_key > ?3))
-             ORDER BY event_sequence ASC, idempotency_key ASC
-             LIMIT ?4",
+               AND (event_sequence > ?2
+                    OR (event_sequence = ?2 AND idempotency_key > ?3)
+                    OR (event_sequence = ?2 AND idempotency_key = ?3 AND rowid > ?4))
+             ORDER BY event_sequence ASC, idempotency_key ASC, rowid ASC
+             LIMIT ?5",
         )?;
         let rows = statement
             .query_map(
@@ -695,15 +707,17 @@ impl WorkspaceRegistry {
                     AGENT_HOOK_MAX_ATTEMPTS,
                     i64::try_from(after_sequence)?,
                     after_key,
+                    after_rowid,
                     AGENT_HOOK_RETRY_PAGE_SIZE
                 ],
                 |row| {
                     Ok((
-                        row.get::<_, String>(0)?,
+                        row.get::<_, i64>(0)?,
                         row.get::<_, String>(1)?,
                         row.get::<_, String>(2)?,
-                        row.get::<_, i64>(3)?,
-                        row.get::<_, String>(4)?,
+                        row.get::<_, String>(3)?,
+                        row.get::<_, i64>(4)?,
+                        row.get::<_, String>(5)?,
                     ))
                 },
             )?
@@ -711,9 +725,9 @@ impl WorkspaceRegistry {
         drop(statement);
         let mut pending = Vec::with_capacity(rows.len());
         let mut next_cursor = None;
-        for (producer_id, origin, key, sequence, ingress_json) in rows {
+        for (rowid, producer_id, origin, key, sequence, ingress_json) in rows {
             let sequence = u64::try_from(sequence).context("pending hook sequence is negative")?;
-            next_cursor = Some((sequence, key.clone()));
+            next_cursor = Some((sequence, key.clone(), rowid));
             let ingress = match serde_json::from_str(&ingress_json) {
                 Ok(ingress) => ingress,
                 Err(_) => {
@@ -1438,6 +1452,37 @@ impl WorkspaceRegistry {
             |row| row.get::<_, i64>(0),
         )?;
         u64::try_from(count).context("resource agent projection count is negative")
+    }
+
+    #[cfg(test)]
+    pub(crate) fn delete_agent_hook_state_for_test(
+        &mut self,
+        terminal_id: &crate::resource::TerminalPublicId,
+    ) -> anyhow::Result<()> {
+        self.connection.execute(
+            "DELETE FROM resource_agent_hook_state WHERE terminal_id = ?1",
+            [terminal_id.as_str()],
+        )?;
+        Ok(())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn agent_hook_pending_retry_state_for_test(
+        &self,
+        producer_id: &str,
+        origin: &str,
+        idempotency_key: &str,
+    ) -> anyhow::Result<Option<(i64, String)>> {
+        self.connection
+            .query_row(
+                "SELECT attempt, error
+                 FROM resource_agent_hook_pending
+                 WHERE producer_id = ?1 AND origin = ?2 AND idempotency_key = ?3",
+                params![producer_id, origin, idempotency_key],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()
+            .map_err(Into::into)
     }
 }
 
