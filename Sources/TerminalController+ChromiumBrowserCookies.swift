@@ -25,16 +25,16 @@ extension TerminalController {
                   case .array(let rawCookies)? = payload["cookies"] else {
                 return .failure(CDPError.protocolError(ChromiumBrowserDiagnostic.malformedCookies.message))
             }
+            let domainFilters = domain.map { BrowserDataImporter.parseDomainFilters($0) } ?? []
             let cookies = rawCookies.compactMap(Self.v2ChromiumCookieDictionary)
                 .filter { cookie in
                     if let name, cookie["name"] as? String != name { return false }
-                    if let domain {
+                    if domain != nil {
                         guard let cookieDomain = cookie["domain"] as? String else { return false }
-                        let filters = BrowserDataImporter.parseDomainFilters(domain)
-                        guard !filters.isEmpty,
+                        guard !domainFilters.isEmpty,
                               BrowserDataImporter.domainMatches(
                                 host: cookieDomain,
-                                filters: filters
+                                filters: domainFilters
                               ) else { return false }
                     }
                     if let path, cookie["path"] as? String != path { return false }

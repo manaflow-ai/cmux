@@ -29,13 +29,13 @@ struct ChromiumRuntimeManifest: Sendable {
             "arm64": ChromiumRuntimeArtifact(
                 version: productionVersion,
                 platform: "mac-arm64",
-                downloadURL: URL(string: "https://storage.googleapis.com/chrome-for-testing-public/152.0.7977.42/mac-arm64/chrome-mac-arm64.zip")!,
+                downloadURL: URL(string: "https://storage.googleapis.com/chrome-for-testing-public/\(productionVersion)/mac-arm64/chrome-mac-arm64.zip")!,
                 sha256: "c9a7b6bfb57731944990ffb7cafc17ae2f2a2e25ad1f145f45584d7b799d3ce8"
             ),
             "x86_64": ChromiumRuntimeArtifact(
                 version: productionVersion,
                 platform: "mac-x64",
-                downloadURL: URL(string: "https://storage.googleapis.com/chrome-for-testing-public/152.0.7977.42/mac-x64/chrome-mac-x64.zip")!,
+                downloadURL: URL(string: "https://storage.googleapis.com/chrome-for-testing-public/\(productionVersion)/mac-x64/chrome-mac-x64.zip")!,
                 sha256: "3bd9d6b077d67466ffff1b65e4292a255b953587dc6f4b72dfbd88df2cfd99e7"
             ),
         ]

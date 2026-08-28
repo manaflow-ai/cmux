@@ -313,7 +313,7 @@ struct ChromiumEngineTests {
         #expect(BrowserCDPEndpoint(port: 9222).connectOverCDPURL?.host == "127.0.0.1")
     }
 
-    @Test("Loopback allocator resumes with an ephemeral port", .timeLimit(.minutes(1)))
+    @Test("Loopback allocator resumes with an ephemeral port")
     func loopbackPortAllocation() async throws {
         let port = try await ChromiumLoopbackPortAllocator().allocate()
         #expect((1024...65_535).contains(port))

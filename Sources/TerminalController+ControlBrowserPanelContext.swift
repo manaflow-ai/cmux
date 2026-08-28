@@ -107,7 +107,9 @@ extension TerminalController: ControlBrowserPanelContext {
         panel.suppressOmnibarAutofocus(for: 1.5)
 
         if panel.isChromiumBacked {
-            return panel.requestExplicitWebViewFocus() ? .focused : .webViewNotInWindow
+            if panel.requestExplicitWebViewFocus() { return .focused }
+            guard panel.chromiumContentView?.window != nil else { return .webViewNotInWindow }
+            return .focusDidNotMove
         }
 
         let webView = panel.webView

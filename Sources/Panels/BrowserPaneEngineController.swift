@@ -118,32 +118,19 @@ final class BrowserPaneEngineController {
             adapter = replacement
             return true
         }
-        if let oldChromium = adapter as? ChromiumBrowserPaneEngineAdapter {
-            // Detach the callback before stopping so a queued stopped snapshot
-            // from the old profile cannot overwrite the replacement.
-            oldChromium.onSnapshot = nil
-            let stopTask = oldChromium.beginStop()
-            let replacement = ChromiumBrowserPaneEngineAdapter(
-                profileID: profileID,
-                storageID: storageID,
-                remoteDebuggingPort: remoteDebuggingPort,
-                environment: chromiumRuntimeEnvironment,
-                documentScripts: documentScripts,
-                startPrerequisite: stopTask,
-                navigationPolicyHandler: chromiumNavigationPolicy
-            )
-            replacement.onSnapshot = chromiumSnapshotHandler
-            replacement.onContentFocused = chromiumFocusHandler
-            adapter = replacement
-            return true
-        }
-        adapter.stop()
+        guard let oldChromium = adapter as? ChromiumBrowserPaneEngineAdapter else { return false }
+        // Detach the callbacks before stopping so a queued stopped snapshot
+        // from the old profile cannot overwrite the replacement.
+        oldChromium.onSnapshot = nil
+        oldChromium.onContentFocused = nil
+        let stopTask = oldChromium.beginStop()
         let replacement = ChromiumBrowserPaneEngineAdapter(
             profileID: profileID,
             storageID: storageID,
             remoteDebuggingPort: remoteDebuggingPort,
             environment: chromiumRuntimeEnvironment,
             documentScripts: documentScripts,
+            startPrerequisite: stopTask,
             navigationPolicyHandler: chromiumNavigationPolicy
         )
         replacement.onSnapshot = chromiumSnapshotHandler

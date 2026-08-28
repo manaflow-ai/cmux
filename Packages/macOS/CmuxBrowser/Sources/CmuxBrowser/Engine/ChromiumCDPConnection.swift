@@ -55,6 +55,8 @@ actor ChromiumCDPConnection {
     ]
 
     private let transport: any ChromiumCDPTransport
+    private let encoder = JSONEncoder()
+    private let decoder = JSONDecoder()
     private var receiverTask: Task<Void, Never>?
     private var nextCommandID = 1
     private var pending: [Int: CheckedContinuation<CDPValue, any Error>] = [:]
@@ -197,7 +199,7 @@ actor ChromiumCDPConnection {
         }
         let data: Data
         do {
-            data = try JSONEncoder().encode(CDPValue.object(object))
+            data = try encoder.encode(CDPValue.object(object))
         } catch {
             activeCommandIDs.remove(id)
             throw error
@@ -527,7 +529,7 @@ actor ChromiumCDPConnection {
         if data.range(of: Self.screencastFrameToken) != nil, handleScreencastFrame(data) {
             return
         }
-        let value = try JSONDecoder().decode(CDPValue.self, from: data)
+        let value = try decoder.decode(CDPValue.self, from: data)
         guard case .object(let object) = value else { throw CDPError.malformedMessage }
         if let rawID = object["id"]?.doubleValue, let id = Int(exactly: rawID) {
             timeoutTasks.removeValue(forKey: id)?.cancel()
@@ -584,7 +586,7 @@ actor ChromiumCDPConnection {
         if let activeTargetSessionID {
             object["sessionId"] = .string(activeTargetSessionID)
         }
-        let data = try JSONEncoder().encode(CDPValue.object(object))
+        let data = try encoder.encode(CDPValue.object(object))
         try await transport.send(data)
     }
 

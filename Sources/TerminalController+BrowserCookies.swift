@@ -119,7 +119,12 @@ extension TerminalController {
                 cookies = cookies.filter { $0.name == name }
             }
             if let domain = v2String(params, "domain") {
-                cookies = cookies.filter { $0.domain.contains(domain) }
+                let filters = BrowserDataImporter.parseDomainFilters(domain)
+                cookies = filters.isEmpty
+                    ? []
+                    : cookies.filter {
+                        BrowserDataImporter.domainMatches(host: $0.domain, filters: filters)
+                    }
             }
             if let path = v2String(params, "path") {
                 cookies = cookies.filter { $0.path == path }

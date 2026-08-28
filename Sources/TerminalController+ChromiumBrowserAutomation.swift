@@ -150,10 +150,24 @@ extension TerminalController {
         isStyle: Bool,
         timeout: TimeInterval = 10.0
     ) -> Result<Int, any Error> {
+        var isChromium = false
+        var startupReadinessTask: Task<Void, Never>?
+        v2MainSync {
+            guard browserPanel.isChromiumBacked,
+                  !browserPanel.isChromiumIsolationPendingForAutomation else { return }
+            isChromium = true
+            browserPanel.startChromiumIfNeeded(initialURL: browserPanel.currentURL)
+            startupReadinessTask = browserPanel.chromiumStartupReadinessTaskForAutomation
+        }
+        guard isChromium, let startupReadinessTask else {
+            return .failure(CDPError.notConnected)
+        }
         var registrationTask: Task<Void, Never>?
         let result: Result<Int, any Error>? = socketAwaitCallback(timeout: max(0.01, timeout)) { finish in
             registrationTask = Task { @MainActor in
-                guard browserPanel.isChromiumBacked,
+                await startupReadinessTask.value
+                guard !Task.isCancelled,
+                      browserPanel.isChromiumBacked,
                       !browserPanel.isChromiumIsolationPendingForAutomation,
                       let chromium = browserPanel.browserEngineController.adapter as? (any ChromiumEngineAdapting) else {
                     finish(.failure(CDPError.notConnected))

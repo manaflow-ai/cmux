@@ -7144,6 +7144,26 @@ class TerminalController {
         return resolveBrowserNavigableURL(trimmed) ?? URL(string: trimmed)
     }
 
+    /// Parses the optional browser-engine selector shared by browser creation
+    /// entrypoints, preserving one validation and error contract.
+    private nonisolated func v2RequestedBrowserEngine(
+        params: [String: Any]
+    ) -> (engine: BrowserEngineKind?, error: V2CallResult?) {
+        guard v2HasNonNullParam(params, "engine") else { return (nil, nil) }
+        guard let rawEngine = v2String(params, "engine"),
+              let parsedEngine = BrowserEngineKind.parse(rawEngine) else {
+            return (
+                nil,
+                .err(
+                    code: "invalid_params",
+                    message: BrowserEngineKind.invalidOptionMessage,
+                    data: ["engine": params["engine"] ?? NSNull()]
+                )
+            )
+        }
+        return (parsedEngine, nil)
+    }
+
     // Internal (not private): `CloudTreeService.openDesktop/openPort` open the same browser
     // split the socket verb does, so the sidebar, `cmux vm desktop`, and `cmux vm open` share
     // one path.
@@ -7161,20 +7181,9 @@ class TerminalController {
             return error
         }
         let urlStr = v2String(params, "url")
-        let requestedEngine: BrowserEngineKind?
-        if v2HasNonNullParam(params, "engine") {
-            guard let rawEngine = v2String(params, "engine"),
-                  let parsedEngine = BrowserEngineKind.parse(rawEngine) else {
-                return .err(
-                    code: "invalid_params",
-                    message: BrowserEngineKind.invalidOptionMessage,
-                    data: ["engine": params["engine"] ?? NSNull()]
-                )
-            }
-            requestedEngine = parsedEngine
-        } else {
-            requestedEngine = nil
-        }
+        let requestedEngineResult = v2RequestedBrowserEngine(params: params)
+        if let error = requestedEngineResult.error { return error }
+        let requestedEngine = requestedEngineResult.engine
         // Resolve with the same smart logic as browser.navigate (URL, then search fallback)
         // so an unparseable raw string fails loudly instead of silently opening about:blank.
         let url: URL?
@@ -9893,23 +9902,40 @@ class TerminalController {
         }
     }
 
+    /// Installs a page hook in both the current document and Chromium's
+    /// document-start registry when the panel uses the Chromium engine.
+    private nonisolated func v2InstallChromiumBrowserHook(
+        browserPanel: BrowserPanel,
+        surfaceId: UUID,
+        webView: WKWebView,
+        source: String
+    ) -> Bool {
+        guard v2MainSync({ browserPanel.isChromiumBacked }) else { return false }
+        _ = v2RegisterChromiumDocumentScript(
+            browserPanel: browserPanel,
+            source: source,
+            isStyle: false
+        )
+        _ = v2RunBrowserJavaScript(
+            webView,
+            browserPanel: browserPanel,
+            surfaceId: surfaceId,
+            script: source,
+            timeout: 5.0,
+            useEval: false,
+            requiresPageWorld: true
+        )
+        return true
+    }
+
     private nonisolated func v2BrowserEnsureTelemetryHooks(browserPanel: BrowserPanel, surfaceId: UUID, webView: WKWebView) {
         let source = v2MainSync { BrowserPanel.telemetryHookBootstrapScriptSource }
-        if v2MainSync({ browserPanel.isChromiumBacked }) {
-            _ = v2RegisterChromiumDocumentScript(
-                browserPanel: browserPanel,
-                source: source,
-                isStyle: false
-            )
-            _ = v2RunBrowserJavaScript(
-                webView,
-                browserPanel: browserPanel,
-                surfaceId: surfaceId,
-                script: source,
-                timeout: 5.0,
-                useEval: false,
-                requiresPageWorld: true
-            )
+        if v2InstallChromiumBrowserHook(
+            browserPanel: browserPanel,
+            surfaceId: surfaceId,
+            webView: webView,
+            source: source
+        ) {
             return
         }
         _ = v2RunBrowserJavaScript(
@@ -9925,21 +9951,12 @@ class TerminalController {
 
     private nonisolated func v2BrowserEnsureDialogHooks(browserPanel: BrowserPanel, surfaceId: UUID, webView: WKWebView) {
         let source = v2MainSync { BrowserPanel.dialogTelemetryHookBootstrapScriptSource }
-        if v2MainSync({ browserPanel.isChromiumBacked }) {
-            _ = v2RegisterChromiumDocumentScript(
-                browserPanel: browserPanel,
-                source: source,
-                isStyle: false
-            )
-            _ = v2RunBrowserJavaScript(
-                webView,
-                browserPanel: browserPanel,
-                surfaceId: surfaceId,
-                script: source,
-                timeout: 5.0,
-                useEval: false,
-                requiresPageWorld: true
-            )
+        if v2InstallChromiumBrowserHook(
+            browserPanel: browserPanel,
+            surfaceId: surfaceId,
+            webView: webView,
+            source: source
+        ) {
             return
         }
         _ = v2RunBrowserJavaScript(
@@ -10600,20 +10617,9 @@ class TerminalController {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
 
-        let requestedEngine: BrowserEngineKind?
-        if v2HasNonNullParam(params, "engine") {
-            guard let rawEngine = v2String(params, "engine"),
-                  let parsedEngine = BrowserEngineKind.parse(rawEngine) else {
-                return .err(
-                    code: "invalid_params",
-                    message: BrowserEngineKind.invalidOptionMessage,
-                    data: ["engine": params["engine"] ?? NSNull()]
-                )
-            }
-            requestedEngine = parsedEngine
-        } else {
-            requestedEngine = nil
-        }
+        let requestedEngineResult = v2RequestedBrowserEngine(params: params)
+        if let error = requestedEngineResult.error { return error }
+        let requestedEngine = requestedEngineResult.engine
 
         let urlStr = v2String(params, "url")
         let url = urlStr.flatMap(Self.browserAutomationURL(from:))

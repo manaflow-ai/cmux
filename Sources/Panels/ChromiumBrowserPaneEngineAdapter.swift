@@ -201,8 +201,9 @@ final class ChromiumBrowserPaneEngineAdapter: BrowserPaneEngineAdapter {
     /// page is navigated. The caller is responsible for evaluating style/code
     /// once in the current document when immediate application is required.
     func registerDocumentScript(_ source: String, isStyle: Bool) async throws -> Int {
+        guard hasStarted else { throw CDPError.notConnected }
         await startupTask?.value
-        try await session.start()
+        guard hasStarted else { throw CDPError.notConnected }
         if isStyle, let existing = styleScriptSources.firstIndex(of: source) {
             return existing + 1
         }
