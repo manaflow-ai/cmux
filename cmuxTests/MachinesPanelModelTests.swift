@@ -516,6 +516,12 @@ final class MachinesPanelModelTests: XCTestCase {
         XCTAssertEqual(decoded.resourceIDs, [term, port], "open order is preserved")
         XCTAssertEqual(decoded.title, "main")
         XCTAssertEqual(CloudTreeTerminalRowContent.abbreviated("/root/app"), "~/app")
+        // A cloud machine's user home reads as `~` too (`/home/cua` on the devbox image).
+        XCTAssertEqual(CloudTreeTerminalRowContent.abbreviated("/home/cua"), "~")
+        XCTAssertEqual(CloudTreeTerminalRowContent.abbreviated("/home/cua/work/app"), "~/work/app")
+        XCTAssertEqual(CloudTreeTerminalRowContent.abbreviated("/home"), "/home")
+        XCTAssertEqual(CloudTreeTerminalRowContent.abbreviated("/homer/cua"), "/homer/cua")
+        XCTAssertEqual(CloudTreeTerminalRowContent.abbreviated("/var/home/cua"), "/var/home/cua")
     }
 
     func testWorkspaceRowsDragTheirWholeCollectionTerminalsThenBrowsers() {

@@ -420,6 +420,13 @@ struct CloudTreeTerminalRowContent: View {
     static func abbreviated(_ path: String) -> String {
         if path == "/root" { return "~" }
         if path.hasPrefix("/root/") { return "~" + path.dropFirst("/root".count) }
+        // A cloud machine's user home (`/home/cua` on the devbox image) reads as `~`,
+        // the way this Mac's rows do — the account name is noise in a cwd column.
+        if let range = path.range(of: "^/home/[^/]+", options: .regularExpression) {
+            let home = String(path[range])
+            if path == home { return "~" }
+            if path.hasPrefix(home + "/") { return "~" + path.dropFirst(home.count) }
+        }
         if let home = ProcessInfo.processInfo.environment["HOME"], !home.isEmpty {
             if path == home { return "~" }
             if path.hasPrefix(home + "/") { return "~" + path.dropFirst(home.count) }
