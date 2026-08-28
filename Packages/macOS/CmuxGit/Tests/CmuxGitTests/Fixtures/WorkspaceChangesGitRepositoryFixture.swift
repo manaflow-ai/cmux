@@ -3,13 +3,19 @@ import Foundation
 final class WorkspaceChangesGitRepositoryFixture {
     let root: URL
     let home: URL
+    private(set) var gitExecutableURL: URL
+    private let gitExecutableURLs: [URL]
 
-    init(initializeRepository: Bool = true) throws {
-        root = FileManager.default.temporaryDirectory
+    init(initializeRepository: Bool = true, gitExecutableURL: URL? = nil) throws {
+        let rootURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-workspace-changes-\(UUID().uuidString)", isDirectory: true)
-        home = root.appendingPathComponent("home", isDirectory: true)
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        self.root = rootURL
+        self.home = rootURL.appendingPathComponent("home", isDirectory: true)
+        self.gitExecutableURLs = gitExecutableURL.map { [$0] }
+            ?? SystemGitExecutableResolver().referenceExecutableURLs()
+        self.gitExecutableURL = self.gitExecutableURLs[0]
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: self.home, withIntermediateDirectories: true)
         if initializeRepository {
             try git(["init", "-b", "main"])
         }
@@ -49,32 +55,46 @@ final class WorkspaceChangesGitRepositoryFixture {
 
     @discardableResult
     func git(_ arguments: [String], acceptedExitCodes: Set<Int32> = [0]) throws -> Data {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-        process.arguments = arguments
-        process.currentDirectoryURL = root
-        var environment = ProcessInfo.processInfo.environment
-        environment["GIT_CONFIG_NOSYSTEM"] = "1"
-        environment["GIT_CONFIG_GLOBAL"] = "/dev/null"
-        environment["GIT_OPTIONAL_LOCKS"] = "0"
-        environment["HOME"] = home.path
-        process.environment = environment
-        let output = Pipe()
-        let error = Pipe()
-        process.standardOutput = output
-        process.standardError = error
-        try process.run()
-        let outputData = output.fileHandleForReading.readDataToEndOfFile()
-        let errorData = error.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        guard acceptedExitCodes.contains(process.terminationStatus) else {
-            throw FixtureError.gitFailed(
+        var lastFailure: FixtureError?
+        for executableURL in gitExecutableURLs {
+            let process = Process()
+            process.executableURL = executableURL
+            process.arguments = arguments
+            process.currentDirectoryURL = root
+            var environment = ProcessInfo.processInfo.environment
+            environment["GIT_CONFIG_NOSYSTEM"] = "1"
+            environment["GIT_CONFIG_GLOBAL"] = "/dev/null"
+            environment["GIT_OPTIONAL_LOCKS"] = "0"
+            environment["HOME"] = home.path
+            process.environment = environment
+            let output = Pipe()
+            let error = Pipe()
+            process.standardOutput = output
+            process.standardError = error
+            do {
+                try process.run()
+            } catch {
+                lastFailure = .gitFailed(
+                    arguments: arguments,
+                    exitCode: -1,
+                    message: String(describing: error)
+                )
+                continue
+            }
+            let outputData = output.fileHandleForReading.readDataToEndOfFile()
+            let errorData = error.fileHandleForReading.readDataToEndOfFile()
+            process.waitUntilExit()
+            if acceptedExitCodes.contains(process.terminationStatus) {
+                gitExecutableURL = executableURL
+                return outputData
+            }
+            lastFailure = .gitFailed(
                 arguments: arguments,
                 exitCode: process.terminationStatus,
                 message: String(decoding: errorData, as: UTF8.self)
             )
         }
-        return outputData
+        throw lastFailure ?? .gitFailed(arguments: arguments, exitCode: -1, message: "Git unavailable")
     }
 
     enum FixtureError: Error {

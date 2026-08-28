@@ -7106,7 +7106,49 @@ extension BrowserPanel {
 
     // MARK: - Find in Page
 
+    /// Whether the current page is a ready diff viewer app. The diff viewer
+    /// virtualizes rows, so the generic in-page find script cannot see most
+    /// of the diff; find-family shortcuts are forwarded to the app instead.
+    var isDiffViewerFindOwner: Bool {
+        (webView as? CmuxWebView)?.isDiffViewerFindOwner == true
+    }
+
+    private func performDiffViewerFindActionOrFallback(
+        _ action: CmuxWebView.DiffViewerFindAction,
+        fallback: @escaping @MainActor () -> Void
+    ) {
+        guard let cmuxWebView = webView as? CmuxWebView else {
+            fallback()
+            return
+        }
+        cmuxWebView.performDiffViewerFindAction(action, fallback: fallback)
+    }
+
     func startFind() {
+        performDiffViewerFindActionOrFallback(.open) { [weak self] in
+            self?.presentNativeFindBar()
+        }
+    }
+
+    func findNext() {
+        performDiffViewerFindActionOrFallback(.next) { [weak self] in
+            self?.performNativeFindNext()
+        }
+    }
+
+    func findPrevious() {
+        performDiffViewerFindActionOrFallback(.previous) { [weak self] in
+            self?.performNativeFindPrevious()
+        }
+    }
+
+    func hideFind() {
+        performDiffViewerFindActionOrFallback(.close) { [weak self] in
+            self?.hideNativeFind()
+        }
+    }
+
+    private func presentNativeFindBar() {
         clearBrowserFocusMode(reason: "startFind")
         preferredFocusIntent = .findField
         let created = searchState == nil
@@ -7149,21 +7191,21 @@ extension BrowserPanel {
         NotificationCenter.default.post(name: .browserSearchFocus, object: id, userInfo: [FindFocusNotificationKey.selectAll: selectAll])
     }
 
-    func findNext() {
+    private func performNativeFindNext() {
         Task { @MainActor [weak self] in
             guard let self else { return }
             self.applyFindMatchCount(await self.findService.next())
         }
     }
 
-    func findPrevious() {
+    private func performNativeFindPrevious() {
         Task { @MainActor [weak self] in
             guard let self else { return }
             self.applyFindMatchCount(await self.findService.previous())
         }
     }
 
-    func hideFind() {
+    private func hideNativeFind() {
         let shouldRestoreWebViewFocus = searchState != nil && preferredFocusIntent == .findField
         invalidateSearchFocusRequests(reason: "hideFind")
         searchState = nil
