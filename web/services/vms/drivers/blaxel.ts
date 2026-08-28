@@ -557,7 +557,7 @@ export class BlaxelProvider implements VMProvider {
                   runtime: {
                     image,
                     memory: memoryMb,
-                    envs: [{ name: "LANG", value: "C.UTF-8" }],
+                    envs: sandboxEnvs(options.envs),
                     ports: sandboxPorts(),
                   },
                   ...(homeVolume ? { volumes: [{ name: homeVolume, mountPath: HOME_VOLUME_MOUNT_PATH }] } : {}),
@@ -1136,7 +1136,9 @@ export class BlaxelProvider implements VMProvider {
         runtime: {
           image,
           memory: memoryMb,
-          envs: [{ name: "LANG", value: "C.UTF-8" }],
+          // Create-time model-plane envs are gone here by design; the machine
+          // re-sources them from the home volume (see sandboxEnvs).
+          envs: sandboxEnvs(),
           ports: sandboxPorts(),
         },
         volumes: [{ name: homeVolume, mountPath: HOME_VOLUME_MOUNT_PATH }],
@@ -1484,6 +1486,23 @@ const NAME_ANIMALS = [
 
 export function sandboxPorts(): Array<{ name: string; protocol: "HTTP"; target: number }> {
   return [{ name: CMUX_TUI_PREVIEW_NAME, protocol: "HTTP", target: CMUX_TUI_PORT }];
+}
+
+/**
+ * Machine-level env for the sandbox create payload: LANG always (PTYs from
+ * the sandbox API do not inherit image ENV), plus caller-supplied env such
+ * as the coderouter model-plane vars. Create-time only: Blaxel envs are
+ * immutable after create and are NOT replayed on resurrect, so anything a
+ * machine must keep across a resurrect is persisted onto the home volume by
+ * /etc/cmux/agent-config.sh at first shell. LANG wins on name collision.
+ */
+export function sandboxEnvs(
+  extra?: Readonly<Record<string, string>>,
+): Array<{ name: string; value: string }> {
+  const envs = Object.entries(extra ?? {})
+    .filter(([name]) => name !== "LANG")
+    .map(([name, value]) => ({ name, value }));
+  return [{ name: "LANG", value: "C.UTF-8" }, ...envs];
 }
 
 export function friendlyVmName(withSuffix = false): string {
