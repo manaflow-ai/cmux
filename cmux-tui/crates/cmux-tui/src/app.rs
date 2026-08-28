@@ -7848,6 +7848,7 @@ fn sidebar_layout_for_state(
         desired: u16,
         max_width: u16,
         priority: u16,
+        collapsed: bool,
     }
 
     let mut specs = config
@@ -7897,60 +7898,73 @@ fn sidebar_layout_for_state(
                     RailKind::Tabs | RailKind::Projection(_) => view.max_width,
                 }
             };
-            Some(Spec { kind, view_index, desired, max_width, priority: view.collapse_priority })
+            Some(Spec {
+                kind,
+                view_index,
+                desired,
+                max_width,
+                priority: view.collapse_priority,
+                collapsed: false,
+            })
         })
         .collect::<Vec<_>>();
 
-    // Mark collapsed entries first, then retain once. Repeated `remove(index)`
-    // calls shift every later entry and make narrow layouts unnecessarily
-    // quadratic. `min_by_key` still chooses the first entry on equal priority,
-    // so the configured order remains the tie breaker.
-    let mut retained = vec![true; specs.len()];
+    // Sort only when a collapse decision is needed. The configured index is a
+    // deterministic tie breaker for equal priorities, then a final in-place
+    // sort restores configured order before the layout is built. This keeps
+    // the normal frame path allocation-free beyond the specs vector itself and
+    // bounds collapse selection to O(n log n).
+    let needs_width_collapse =
+        width < MIN_CONTENT_WIDTH.saturating_add(MIN_RAIL_WIDTH.saturating_mul(specs.len() as u16));
+    let needs_hysteresis_collapse = previous.is_some()
+        && width
+            < MIN_CONTENT_WIDTH
+                .saturating_add(MIN_RAIL_WIDTH.saturating_mul(specs.len() as u16))
+                .saturating_add(RAIL_REVEAL_HYSTERESIS)
+        && previous
+            .is_some_and(|previous| specs.iter().any(|spec| previous.rail(spec.kind).is_none()));
+    let mut collapsed_count = 0;
     let mut retained_count = specs.len();
-    while width
-        < MIN_CONTENT_WIDTH.saturating_add(MIN_RAIL_WIDTH.saturating_mul(retained_count as u16))
-    {
-        let Some((index, _)) = specs
-            .iter()
-            .enumerate()
-            .filter(|(index, _)| retained[*index])
-            .min_by_key(|(_, spec)| spec.priority)
-        else {
-            break;
-        };
-        retained[index] = false;
-        retained_count -= 1;
-    }
+    if needs_width_collapse || needs_hysteresis_collapse {
+        specs.sort_unstable_by_key(|spec| (spec.priority, spec.view_index));
 
-    if let Some(previous) = previous {
-        while specs
-            .iter()
-            .enumerate()
-            .any(|(index, spec)| retained[index] && previous.rail(spec.kind).is_none())
+        while retained_count > 0
             && width
                 < MIN_CONTENT_WIDTH
                     .saturating_add(MIN_RAIL_WIDTH.saturating_mul(retained_count as u16))
-                    .saturating_add(RAIL_REVEAL_HYSTERESIS)
         {
-            let Some((index, _)) = specs
-                .iter()
-                .enumerate()
-                .filter(|(index, spec)| retained[*index] && previous.rail(spec.kind).is_none())
-                .min_by_key(|(_, spec)| spec.priority)
-            else {
-                break;
-            };
-            retained[index] = false;
+            specs[collapsed_count].collapsed = true;
+            collapsed_count += 1;
             retained_count -= 1;
         }
     }
 
-    let mut index = 0;
-    specs.retain(|_| {
-        let keep = retained[index];
-        index += 1;
-        keep
-    });
+    if let Some(previous) = previous {
+        let mut candidate_index = collapsed_count;
+        while width
+            < MIN_CONTENT_WIDTH
+                .saturating_add(MIN_RAIL_WIDTH.saturating_mul(retained_count as u16))
+                .saturating_add(RAIL_REVEAL_HYSTERESIS)
+        {
+            while candidate_index < specs.len()
+                && (specs[candidate_index].collapsed
+                    || previous.rail(specs[candidate_index].kind).is_some())
+            {
+                candidate_index += 1;
+            }
+            if candidate_index == specs.len() {
+                break;
+            }
+            specs[candidate_index].collapsed = true;
+            candidate_index += 1;
+            retained_count -= 1;
+        }
+    }
+
+    if collapsed_count > 0 || needs_hysteresis_collapse {
+        specs.sort_unstable_by_key(|spec| spec.view_index);
+        specs.retain(|spec| !spec.collapsed);
+    }
 
     let mut layout = SidebarLayout::default();
     let mut x = 0u16;
