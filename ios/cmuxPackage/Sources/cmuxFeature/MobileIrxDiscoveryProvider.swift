@@ -76,11 +76,11 @@ public final class MobileIrxDiscoveryProvider: MobileIrohMacDiscovering,
     public func discoverLiveMacs() async -> [MobileDiscoveredIrohMac] {
         scope &+= 1
         let currentScope = scope
-        routeCatalog.activate(scope: currentScope)
+        await routeCatalog.activate(scope: currentScope)
         guard let discovery = await discover() else { return [] }
         guard scope == currentScope else { return [] }
-        routeCatalog.replace(with: discovery, scope: currentScope)
-        return routeCatalog.liveMacCandidates(
+        await routeCatalog.replace(with: discovery, scope: currentScope)
+        return await routeCatalog.liveMacCandidates(
             preferredTag: preferredTag,
             compatibleWith: compatibilityPolicy,
             limit: 4
