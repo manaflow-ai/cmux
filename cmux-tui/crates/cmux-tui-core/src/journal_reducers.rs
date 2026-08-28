@@ -174,39 +174,39 @@ impl AgentRoster {
             return Vec::new();
         }
         let Some(terminal_id) = event.terminal_id() else { return Vec::new() };
-        let (state, source, session, agent, updated_at_ms) =
-            if event.adapter_id() == Some(SOCKET_REPORT_ADAPTER) {
-                // Socket echo: explicit state and timestamp carried in the
-                // payload, so the roster mirrors the direct projection
-                // commit exactly. The reporter does not know the agent type.
-                let Some(state) = event.normalized("state").and_then(agent_state_from_str) else {
-                    return Vec::new();
-                };
-                let source = event
-                    .normalized("source")
-                    .and_then(agent_source_from_str)
-                    .unwrap_or(AgentSource::Socket);
-                let updated_at_ms = event
-                    .normalized("updated_at_ms")
-                    .and_then(|value| value.parse::<u64>().ok())
-                    .unwrap_or(event.committed_at_ms);
-                let session = event.normalized("source_session").map(str::to_string);
-                (state, source, session, None, updated_at_ms)
-            } else if event.native_event() == Some(crate::screen_detect::SCREEN_DETECT_NATIVE_EVENT)
-            {
-                // Screen detection: the daemon parsed the terminal tail.
-                // Explicit state like the socket echo, but the adapter is
-                // the detected agent and the source is `detected`.
-                let Some(state) = event.normalized("state").and_then(agent_state_from_str) else {
-                    return Vec::new();
-                };
-                let agent = event.adapter_id().map(str::to_string);
-                (state, AgentSource::Detected, None, agent, event.committed_at_ms)
-            } else {
-                let Some(state) = state_for_hook_kind(event.kind) else { return Vec::new() };
-                let agent = event.adapter_id().map(str::to_string);
-                (state, AgentSource::Hook, None, agent, event.committed_at_ms)
+        let (state, source, session, agent, updated_at_ms) = if event.adapter_id()
+            == Some(SOCKET_REPORT_ADAPTER)
+        {
+            // Socket echo: explicit state and timestamp carried in the
+            // payload, so the roster mirrors the direct projection
+            // commit exactly. The reporter does not know the agent type.
+            let Some(state) = event.normalized("state").and_then(agent_state_from_str) else {
+                return Vec::new();
             };
+            let source = event
+                .normalized("source")
+                .and_then(agent_source_from_str)
+                .unwrap_or(AgentSource::Socket);
+            let updated_at_ms = event
+                .normalized("updated_at_ms")
+                .and_then(|value| value.parse::<u64>().ok())
+                .unwrap_or(event.committed_at_ms);
+            let session = event.normalized("source_session").map(str::to_string);
+            (state, source, session, None, updated_at_ms)
+        } else if event.native_event() == Some(crate::screen_detect::SCREEN_DETECT_NATIVE_EVENT) {
+            // Screen detection: the daemon parsed the terminal tail.
+            // Explicit state like the socket echo, but the adapter is
+            // the detected agent and the source is `detected`.
+            let Some(state) = event.normalized("state").and_then(agent_state_from_str) else {
+                return Vec::new();
+            };
+            let agent = event.adapter_id().map(str::to_string);
+            (state, AgentSource::Detected, None, agent, event.committed_at_ms)
+        } else {
+            let Some(state) = state_for_hook_kind(event.kind) else { return Vec::new() };
+            let agent = event.adapter_id().map(str::to_string);
+            (state, AgentSource::Hook, None, agent, event.committed_at_ms)
+        };
         // Source arbitration: hook > screen > socket per terminal. Hook
         // events always win. Screen detection may not overwrite an entry a
         // live hook owns (fresher than STALE_HOOK_MS), and its exit removal
@@ -418,7 +418,8 @@ mod tests {
         let payload = screen_payload("codex", "working");
         let mut roster = AgentRoster::default();
 
-        let deltas = roster.apply(&stamped_event(5_000, "agent.state.changed", &subjects, &payload));
+        let deltas =
+            roster.apply(&stamped_event(5_000, "agent.state.changed", &subjects, &payload));
         assert_eq!(deltas.len(), 1);
         let entry = &roster.entries["term_a"];
         assert_eq!(entry.state, "working");
@@ -436,12 +437,14 @@ mod tests {
 
         roster.apply(&stamped_event(10_000, "agent.turn.started", &subjects, &hook_payload));
         // A fresh hook entry (29s old) is live agent truth.
-        let deltas = roster.apply(&stamped_event(39_000, "agent.state.changed", &subjects, &screen));
+        let deltas =
+            roster.apply(&stamped_event(39_000, "agent.state.changed", &subjects, &screen));
         assert!(deltas.is_empty());
         assert_eq!(roster.entries["term_a"].source, "hook");
 
         // At 30s the hook is stale and screen detection takes over.
-        let deltas = roster.apply(&stamped_event(40_000, "agent.state.changed", &subjects, &screen));
+        let deltas =
+            roster.apply(&stamped_event(40_000, "agent.state.changed", &subjects, &screen));
         assert_eq!(deltas.len(), 1);
         assert_eq!(roster.entries["term_a"].source, "detected");
         assert_eq!(roster.entries["term_a"].state, "blocked");

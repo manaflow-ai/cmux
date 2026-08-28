@@ -650,7 +650,8 @@ fn current_prompt_block_marker(content: &str) -> Option<&str> {
 fn after_current_prompt_block_marker(content: &str) -> Option<&str> {
     let lines: Vec<&str> = content.lines().collect();
     let prompt_index = current_codex_prompt_index(&lines)?;
-    let block_index = lines[..prompt_index].iter().rposition(|line| codex_block_marker_line(line))?;
+    let block_index =
+        lines[..prompt_index].iter().rposition(|line| codex_block_marker_line(line))?;
     Some(slice_from_line_index(content, &lines, block_index))
 }
 
@@ -783,9 +784,9 @@ mod tests {
         let ids: Vec<&str> = set.manifests().map(CompiledManifest::id).collect();
         assert_eq!(ids.len(), 21, "all vendored manifests load: {ids:?}");
         for expected in [
-            "amp", "agy", "claude", "cline", "codex", "cursor", "devin", "droid", "gemini",
-            "grok", "hermes", "kilo", "kimi", "kiro", "maki", "muse", "opencode", "pi",
-            "qodercli", "qwen", "copilot",
+            "amp", "agy", "claude", "cline", "codex", "cursor", "devin", "droid", "gemini", "grok",
+            "hermes", "kilo", "kimi", "kiro", "maki", "muse", "opencode", "pi", "qodercli", "qwen",
+            "copilot",
         ] {
             assert_eq!(
                 set.identify(expected).map(CompiledManifest::id),
@@ -901,8 +902,7 @@ contains = ["action required"]
         let set = ManifestSet::bundled();
         let codex = set.identify("codex").unwrap();
 
-        let working =
-            codex.detect(input("context\n\n• Working (esc to interrupt)\n› \n"));
+        let working = codex.detect(input("context\n\n• Working (esc to interrupt)\n› \n"));
         assert_eq!(working.state, ScreenState::Working);
 
         let blocked = codex.detect(input("$ rm -rf build\nAllow command?\n"));

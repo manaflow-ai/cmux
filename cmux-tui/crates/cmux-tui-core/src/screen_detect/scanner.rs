@@ -9,8 +9,8 @@
 use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant};
 
-use super::manifest::{DetectionInput, ManifestSet};
 use super::ScreenDetectTracker;
+use super::manifest::{DetectionInput, ManifestSet};
 use crate::mux::Mux;
 use crate::surface::Surface;
 
@@ -72,9 +72,8 @@ pub(crate) fn scan(
     resolver: &ProcessNameResolver,
 ) {
     let terminals = mux.screen_detect_terminals();
-    tracker.retain_terminals(|terminal_id| {
-        terminals.iter().any(|(id, _)| id.as_str() == terminal_id)
-    });
+    tracker
+        .retain_terminals(|terminal_id| terminals.iter().any(|(id, _)| id.as_str() == terminal_id));
     for (terminal_id, surface) in terminals {
         let Ok(revision) = surface.terminal_stream_revision() else { continue };
         let terminal_id = terminal_id.as_str();
