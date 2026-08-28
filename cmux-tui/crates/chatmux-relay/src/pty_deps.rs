@@ -255,6 +255,62 @@ impl PtyOutput for ThreadOutput {
     }
 }
 
+/// Orders the process exit notification after every reader has reached EOF.
+/// A child can exit while bytes remain buffered in a pipe or PTY master. The
+/// wait thread records the exit code, and the final reader publishes it only
+/// after its last `push_data` call. The output callback runs outside this
+/// coordinator's mutex.
+struct ProcessOutputCompletion {
+    state: Mutex<ProcessOutputCompletionState>,
+    output: Arc<ThreadOutput>,
+}
+
+struct ProcessOutputCompletionState {
+    readers_remaining: usize,
+    child_exit: Option<i64>,
+}
+
+impl ProcessOutputCompletion {
+    fn new(readers_remaining: usize, output: Arc<ThreadOutput>) -> Arc<Self> {
+        Arc::new(Self {
+            state: Mutex::new(ProcessOutputCompletionState { readers_remaining, child_exit: None }),
+            output,
+        })
+    }
+
+    fn child_exited(&self, code: i64) {
+        {
+            let mut state = self.state.lock().expect("process output completion lock");
+            if state.child_exit.is_some() {
+                return;
+            }
+            state.child_exit = Some(code);
+        }
+        self.emit_if_ready();
+    }
+
+    fn reader_finished(&self) {
+        {
+            let mut state = self.state.lock().expect("process output completion lock");
+            if state.readers_remaining == 0 {
+                return;
+            }
+            state.readers_remaining -= 1;
+        }
+        self.emit_if_ready();
+    }
+
+    fn emit_if_ready(&self) {
+        let code = {
+            let mut state = self.state.lock().expect("process output completion lock");
+            (state.readers_remaining == 0).then(|| state.child_exit.take()).flatten()
+        };
+        if let Some(code) = code {
+            self.output.push_exit(code);
+        }
+    }
+}
+
 pub struct RealPtyDeps {
     env: HashMap<String, String>,
     uid: u32,
@@ -350,9 +406,11 @@ fn spawn_real_pty(spec: &SpawnSpec) -> anyhow::Result<PtyHandle> {
         killer: Mutex::new(killer),
     });
     output.set_overflow_control(&control);
+    let completion = ProcessOutputCompletion::new(1, Arc::clone(&output));
 
     // Blocking reader thread -> output sink.
     let data_output = Arc::clone(&output);
+    let data_completion = Arc::clone(&completion);
     std::thread::spawn(move || {
         let mut reader = reader;
         let mut buffer = [0_u8; 32_768];
@@ -362,13 +420,14 @@ fn spawn_real_pty(spec: &SpawnSpec) -> anyhow::Result<PtyHandle> {
                 Ok(count) => data_output.push_data(Bytes::copy_from_slice(&buffer[..count])),
             }
         }
+        data_completion.reader_finished();
     });
     // Blocking wait thread -> exit.
     let mut child = spawned.child;
-    let exit_output = Arc::clone(&output);
+    let exit_completion = Arc::clone(&completion);
     std::thread::spawn(move || {
         let code = child.wait().map(|status| i64::from(status.exit_code() as i32)).unwrap_or(0);
-        exit_output.push_exit(code);
+        exit_completion.child_exited(code);
     });
 
     Ok(PtyHandle { control, output, banner: None })
@@ -398,22 +457,26 @@ fn spawn_pipe_mode(spec: &SpawnSpec, reason: &str) -> PtyHandle {
             let pid = child.id() as i32;
             let control = Arc::new(PipeControl { stdin: Mutex::new(stdin), pid });
             output.set_overflow_control(&control);
+            let reader_count = child.stdout.is_some() as usize + child.stderr.is_some() as usize;
+            let completion = ProcessOutputCompletion::new(reader_count, Arc::clone(&output));
             if let Some(stdout) = child.stdout.take() {
                 let out = Arc::clone(&output);
-                std::thread::spawn(move || pump_pipe(stdout, out));
+                let done = Arc::clone(&completion);
+                std::thread::spawn(move || pump_pipe(stdout, out, done));
             }
             if let Some(stderr) = child.stderr.take() {
                 let out = Arc::clone(&output);
-                std::thread::spawn(move || pump_pipe(stderr, out));
+                let done = Arc::clone(&completion);
+                std::thread::spawn(move || pump_pipe(stderr, out, done));
             }
             // The wait would need its own thread; the shell exits when its
             // pipes close, and the manager treats a data EOF plus process
             // teardown as the end. Report exit when both pipes close.
-            let wait_output = Arc::clone(&output);
+            let wait_completion = Arc::clone(&completion);
             std::thread::spawn(move || {
                 let code =
                     child.wait().map(|status| status.code().unwrap_or(0) as i64).unwrap_or(0);
-                wait_output.push_exit(code);
+                wait_completion.child_exited(code);
             });
             PtyHandle { control, output, banner: Some(banner.into_bytes()) }
         }
@@ -434,7 +497,11 @@ impl PtyControl for DeadControl {
     fn kill(&self) {}
 }
 
-fn pump_pipe(mut stream: impl Read, output: Arc<ThreadOutput>) {
+fn pump_pipe(
+    mut stream: impl Read,
+    output: Arc<ThreadOutput>,
+    completion: Arc<ProcessOutputCompletion>,
+) {
     let mut buffer = [0_u8; 32_768];
     loop {
         match stream.read(&mut buffer) {
@@ -442,6 +509,7 @@ fn pump_pipe(mut stream: impl Read, output: Arc<ThreadOutput>) {
             Ok(count) => output.push_data(Bytes::copy_from_slice(&buffer[..count])),
         }
     }
+    completion.reader_finished();
 }
 
 async fn socket_exists(path: &Path) -> bool {
@@ -800,7 +868,7 @@ mod tests {
     #[test]
     fn pipe_exit_waits_for_reader_eof_before_delivering_late_bytes() {
         let output = ThreadOutput::new();
-        let completion = PipeExitCoordinator::new(1, TestArc::clone(&output));
+        let completion = ProcessOutputCompletion::new(1, TestArc::clone(&output));
         completion.child_exited(23);
         output.push_data(Bytes::from_static(b"tail"));
         completion.reader_finished();
