@@ -21,7 +21,7 @@ extension GitMetadataService {
         let output = await withTaskCancellationHandler {
             await withCheckedContinuation { (continuation: CheckedContinuation<String?, Never>) in
                 Self.blockingStatusQueue.async {
-                    let output = cancellationSignal.withCurrentBinding {
+                    let output: String? = cancellationSignal.withCurrentBinding {
                         let selector = GitReferenceRunnerSelector(wallTimeLimit: wallTimeLimit)
                         let deadline = effectiveDeadline
                         for runner in selector.candidateRunners {
