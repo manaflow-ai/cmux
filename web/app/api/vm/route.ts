@@ -10,6 +10,7 @@ import {
   defaultProviderId,
   isProviderId,
   type ProviderId,
+  vmCapabilitiesFor,
 } from "../../../services/vms/drivers";
 import { assertVmCreateEnabled } from "../../../services/vms/config";
 import { mintVmModelPlaneEnvBestEffort } from "../../../services/coderouter/vmModelPlane";
@@ -126,6 +127,9 @@ export async function GET(request: Request): Promise<Response> {
         image: entry.image,
         imageVersion: entry.imageVersion,
         kind: vmImageKindFor(entry.provider, entry.image),
+        // Verbs this machine's provider can honor (Checkpoint/Fork are hidden in
+        // the app when false; the CLI errors before calling).
+        capabilities: vmCapabilitiesFor(entry.provider),
         createdAt: entry.createdAt,
         displayName: entry.displayName,
         // Server-authoritative expiry of the free access window for this machine

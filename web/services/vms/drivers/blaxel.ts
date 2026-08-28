@@ -414,6 +414,9 @@ function parseJsonArray(text: string): Array<Record<string, unknown>> {
 }
 
 export class BlaxelProvider implements VMProvider {
+  // Snapshot/fork are a workspace-tier feature Blaxel has not enabled (see `snapshot`);
+  // declared so the app hides Checkpoint/Fork instead of offering verbs that 502.
+  readonly capabilities = { snapshot: false, restore: false, fork: false } as const;
   readonly id = "blaxel" as const;
 
   async create(options: CreateOptions): Promise<VMHandle> {
