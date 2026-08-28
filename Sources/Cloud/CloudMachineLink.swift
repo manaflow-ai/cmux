@@ -602,6 +602,7 @@ private final class FirstMatchingLineReader: @unchecked Sendable {
     private let matching: @Sendable (String) -> String?
     private let value = CloudLinkFirstValue<String>()
     private let lock = NSLock()
+    private let bufferLock = NSLock()
     private var matched = false
     private var finished = false
     private var cancelled = false
@@ -623,7 +624,10 @@ private final class FirstMatchingLineReader: @unchecked Sendable {
                 finish()
                 return
             }
-            for line in buffer.append(data) {
+            bufferLock.lock()
+            let lines = buffer.append(data)
+            bufferLock.unlock()
+            for line in lines {
                 lock.lock()
                 let shouldMatch = !cancelled && !matched
                 lock.unlock()
@@ -667,7 +671,22 @@ private final class FirstMatchingLineReader: @unchecked Sendable {
         let hadMatch = matched
         lock.unlock()
         handle.readabilityHandler = nil
-        if !hadMatch { value.resolve(nil) }
+        if !hadMatch {
+            bufferLock.lock()
+            let tail = buffer.flush()
+            bufferLock.unlock()
+            if let tail, let result = matching(tail) {
+                lock.lock()
+                if !cancelled && !matched {
+                    matched = true
+                    lock.unlock()
+                    value.resolve(result)
+                    return
+                }
+                lock.unlock()
+            }
+            value.resolve(nil)
+        }
     }
 }
 
