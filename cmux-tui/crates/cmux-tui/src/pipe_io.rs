@@ -30,8 +30,8 @@ use cmux_tui_core::SurfaceId;
 use cmux_tui_core::resource::TerminalPublicId;
 
 use crate::session::{
-    PipeIoEvent, PipeIoQueue, PipeIoQueuePushError, RemoteSession, Session, SurfaceAttach,
-    SurfaceHandle,
+    is_remote_surface_unavailable, is_remote_transport_failure, PipeIoEvent, PipeIoQueue,
+    PipeIoQueuePushError, RemoteSession, Session, SurfaceAttach, SurfaceHandle,
 };
 
 /// The terminal ended, or the embedder walked away: respawning is wrong.
@@ -171,12 +171,19 @@ pub fn run(
     // Install before attach so the initial replay cannot be missed.
     let tap_id = remote.install_pipe_io_tap(surface, queue.clone());
     let tap_guard = PipeIoTapGuard { remote, id: tap_id };
-    let handle = match session.try_surface_sized(surface, Some((cols.max(1), rows.max(1))))? {
-        SurfaceAttach::Attached(handle) => handle,
-        SurfaceAttach::Retired | SurfaceAttach::Missing => {
+    let handle = match session.try_surface_sized(surface, Some((cols.max(1), rows.max(1)))) {
+        Ok(SurfaceAttach::Attached(handle)) => handle,
+        Ok(SurfaceAttach::Retired | SurfaceAttach::Missing) => {
             return Ok(PipeIoExitReason::TerminalEnded);
         }
-        SurfaceAttach::Deferred => anyhow::bail!("terminal attach was deferred by the server"),
+        Ok(SurfaceAttach::Deferred) => anyhow::bail!("terminal attach was deferred by the server"),
+        Err(error) if is_remote_transport_failure(&error) => {
+            return Ok(PipeIoExitReason::DaemonLost);
+        }
+        Err(error) if is_remote_surface_unavailable(&error, surface) => {
+            return Ok(PipeIoExitReason::TerminalEnded);
+        }
+        Err(error) => return Err(error),
     };
     // The daemon resizes a terminal's PTY only for its geometry-authority
     // client (the full TUI client claims this for its active surface). The
@@ -234,6 +241,7 @@ fn spawn_stdin_pump(handle: SurfaceHandle, queue: Arc<PipeIoQueue>) {
             let stdin = std::io::stdin();
             let mut reader = stdin.lock();
             let mut line = String::new();
+            let mut transport_lost = false;
             loop {
                 let Ok(has_line) = read_request_line(&mut reader, &mut line) else { break };
                 if !has_line {
@@ -245,8 +253,11 @@ fn spawn_stdin_pump(handle: SurfaceHandle, queue: Arc<PipeIoQueue>) {
                 match parse_request(&line) {
                     Ok(PipeIoRequest::Input(bytes)) => {
                         if handle.write_bytes(&bytes).is_err() {
-                            // The transport owns loss reporting; input can
-                            // only stop early.
+                            // A failed input write is a transport failure, not
+                            // a clean parent close. Signal it out of band so
+                            // it cannot race a queued StdinClosed event.
+                            queue.signal_transport_lost();
+                            transport_lost = true;
                             break;
                         }
                     }
@@ -293,7 +304,9 @@ fn spawn_stdin_pump(handle: SurfaceHandle, queue: Arc<PipeIoQueue>) {
             }
             // Blocking send: the queue is drained until the main loop
             // returns, and a dropped receiver just ends this thread.
-            let _ = queue.push(PipeIoEvent::StdinClosed);
+            if !transport_lost {
+                let _ = queue.push(PipeIoEvent::StdinClosed);
+            }
         })
         .expect("spawn pipe-io stdin pump");
 }
@@ -436,5 +449,15 @@ mod tests {
         );
         queue.push(PipeIoEvent::TransportLost).unwrap();
         assert_eq!(queue.recv(), Some(PipeIoEvent::TransportLost));
+    }
+
+    #[test]
+    fn direct_transport_loss_signal_wakes_a_full_queue() {
+        let queue = PipeIoQueue::new();
+        assert!(queue.push(PipeIoEvent::Output(vec![0; 8 * 1024 * 1024])).is_ok());
+        queue.signal_transport_lost();
+        queue.close();
+        assert_eq!(queue.recv(), Some(PipeIoEvent::TransportLost));
+        assert!(queue.recv().is_none());
     }
 }

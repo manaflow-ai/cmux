@@ -1577,18 +1577,19 @@ impl PipeIoQueue {
             PipeIoEvent::SurfaceExited | PipeIoEvent::TransportLost | PipeIoEvent::StdinClosed
         );
         let mut state = self.state.lock().unwrap();
+        if matches!(&event, PipeIoEvent::TransportLost) {
+            // Transport loss is an out-of-band wakeup. It is delivered
+            // before queued bytes, so a stalled consumer cannot hide the
+            // reconnect signal behind a large replay. This path remains valid
+            // after close, because shutdown must always wake the relay.
+            Self::mark_transport_lost(&mut state);
+            self.changed.notify_all();
+            return Ok(());
+        }
         if state.closed {
             return Err(PipeIoQueuePushError::Closed);
         }
         if is_control {
-            if matches!(&event, PipeIoEvent::TransportLost) {
-                // Transport loss is an out-of-band wakeup. It is delivered
-                // before queued bytes, so a stalled consumer cannot hide the
-                // reconnect signal behind a large replay.
-                state.transport_lost = true;
-                self.changed.notify_one();
-                return Ok(());
-            }
             // Each other lifecycle signal is idempotent and remains in the
             // same FIFO as data, preserving the server's event order.
             let already_present = state
@@ -1616,6 +1617,22 @@ impl PipeIoQueue {
         state.events.push_back(event);
         self.changed.notify_one();
         Ok(())
+    }
+
+    /// Wake a relay with a transport-loss signal even when its data queue is
+    /// full or it has already begun closing. The signal is intentionally not
+    /// represented as a bounded FIFO item.
+    pub(crate) fn signal_transport_lost(&self) {
+        let mut state = self.state.lock().unwrap();
+        Self::mark_transport_lost(&mut state);
+        self.changed.notify_all();
+    }
+
+    fn mark_transport_lost(state: &mut PipeIoQueueState) {
+        state.transport_lost = true;
+        state.events.clear();
+        state.data_events = 0;
+        state.data_bytes = 0;
     }
 
     pub(crate) fn recv(&self) -> Option<PipeIoEvent> {
@@ -1655,10 +1672,7 @@ impl PipeIoQueue {
             return;
         }
         state.closed = true;
-        state.events.clear();
-        state.data_events = 0;
-        state.data_bytes = 0;
-        state.transport_lost = true;
+        Self::mark_transport_lost(&mut state);
         self.changed.notify_all();
     }
 }
@@ -3071,7 +3085,7 @@ impl RemoteSession {
         // to learn that it should reconnect.
         let queue = self.pipe_io_tap.lock().unwrap().as_ref().map(|tap| tap.queue.clone());
         if let Some(queue) = queue {
-            let _ = queue.push(PipeIoEvent::TransportLost);
+            queue.signal_transport_lost();
         }
         self.begin_shutdown();
         self.interactive_writer.close();
@@ -3101,18 +3115,23 @@ impl RemoteSession {
     /// would corrupt the embedder's terminal state (bounded-backpressure
     /// policy; never wedge the session reader thread).
     fn pipe_io_forward(&self, surface: SurfaceId, event: impl FnOnce() -> PipeIoEvent) {
-        let stalled = {
+        let stalled_queue = {
             let tap = self.pipe_io_tap.lock().unwrap();
             let Some(tap) = tap.as_ref() else { return };
             if tap.surface != surface {
                 return;
             }
-            matches!(
-                tap.queue.push(event()),
-                Err(PipeIoQueuePushError::Full | PipeIoQueuePushError::Closed)
-            )
+            match tap.queue.push(event()) {
+                Ok(()) => None,
+                Err(PipeIoQueuePushError::Full | PipeIoQueuePushError::Closed) => {
+                    Some(tap.queue.clone())
+                }
+            }
         };
-        if stalled {
+        if let Some(queue) = stalled_queue {
+            // Mark the queue before beginning transport shutdown. This is a
+            // direct wakeup and cannot be lost to a full bounded data queue.
+            queue.signal_transport_lost();
             self.disconnect_transport();
         }
     }
