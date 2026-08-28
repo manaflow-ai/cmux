@@ -2,6 +2,15 @@ import CmuxFoundation
 import CmuxSwiftRender
 import SwiftUI
 
+private let contextMenuModifierPathMarker = -2
+
+/// Appends a context-menu modifier component to a logical render path.
+/// Negative components are reserved for modifier scopes, so this cannot be
+/// confused with an ordinary child index.
+func appendingContextMenuModifierPath(_ path: [Int], modifierIndex: Int) -> [Int] {
+    path + [contextMenuModifierPathMarker, modifierIndex]
+}
+
 /// Renders the Swift interpreter's ``RenderNode`` IR as native SwiftUI.
 ///
 /// Modifier arguments arrive as source strings (e.g. `.title`, `.blue`, `8`)
@@ -86,9 +95,9 @@ struct RenderNodeView: View {
         case .viewThatFits:
             ViewThatFits { children }
         case .hsplit:
-            ResizableHSplit(columns: node.children, contextMenuPath: contextMenuPath)
+            ResizableHSplit(columns: node.children, contextMenuPath: descendantContextMenuPath)
         case .reorderable:
-            ReorderableList(rows: node.children, spec: node.reorder, contextMenuPath: contextMenuPath)
+            ReorderableList(rows: node.children, spec: node.reorder, contextMenuPath: descendantContextMenuPath)
         case .text:
             Text(node.text ?? "")
         case .label:
@@ -161,19 +170,44 @@ struct RenderNodeView: View {
     @ViewBuilder
     private var children: some View {
         ForEach(Array(node.children.enumerated()), id: \.offset) { index, child in
-            RenderNodeView(node: child, contextMenuPath: contextMenuPath + [index])
+            RenderNodeView(node: child, contextMenuPath: descendantContextMenuPath + [index])
         }
+    }
+
+    /// The path shared by all content nested inside this node. Every
+    /// presentable context-menu modifier is a logical ancestor of that
+    /// content, even when SwiftUI flattens the platform views.
+    private var descendantContextMenuPath: [Int] {
+        var path = contextMenuPath
+        for (index, modifier) in node.modifiers.enumerated()
+        where isContextMenuOverlay(modifier) {
+            path = appendingContextMenuModifierPath(path, modifierIndex: index)
+        }
+        return path
+    }
+
+    private func isContextMenuOverlay(_ modifier: RenderModifier) -> Bool {
+        modifier.name == "contextMenu" && !modifier.children.isEmpty
     }
 
     private func applyModifiers(_ view: some View, _ modifiers: [RenderModifier]) -> AnyView {
         var result = AnyView(view)
+        var overlayPath = contextMenuPath
         for (index, modifier) in modifiers.enumerated() {
-            result = apply(modifier, index: index, to: result)
+            result = apply(modifier, index: index, overlayPath: overlayPath, to: result)
+            if isContextMenuOverlay(modifier) {
+                overlayPath = appendingContextMenuModifierPath(overlayPath, modifierIndex: index)
+            }
         }
         return result
     }
 
-    private func apply(_ modifier: RenderModifier, index: Int, to view: AnyView) -> AnyView {
+    private func apply(
+        _ modifier: RenderModifier,
+        index: Int,
+        overlayPath: [Int],
+        to view: AnyView
+    ) -> AnyView {
         let token = clean(modifier.firstValue)
         switch modifier.name {
         case "font":
@@ -303,7 +337,7 @@ struct RenderNodeView: View {
                             RenderNodeContextMenuOverlay(
                                 nodes: modifier.children,
                                 dispatch: dispatch,
-                                contextMenuPath: contextMenuPath,
+                                contextMenuPath: overlayPath,
                                 handle: handle
                             )
                             .accessibilityHidden(true)
@@ -401,7 +435,7 @@ struct RenderNodeView: View {
     private func modifierChildren(_ modifier: RenderModifier, index: Int) -> some View {
         // Ordinary child components are non-negative indexes. A negative
         // component keeps modifier subtrees distinct from node children.
-        let modifierPath = contextMenuPath + [-1, index]
+        let modifierPath = descendantContextMenuPath + [-1, index]
         if modifier.children.count == 1 {
             RenderNodeView(node: modifier.children[0], contextMenuPath: modifierPath + [0])
         } else {
