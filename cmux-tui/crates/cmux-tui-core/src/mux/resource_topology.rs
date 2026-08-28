@@ -4598,6 +4598,16 @@ fn validate_effect_fields(
     operation: ResourceOperation,
     fields: &Map<String, Value>,
 ) -> anyhow::Result<()> {
+    for field in ["name", "terminal_name"] {
+        if let Some(value) = fields.get(field) {
+            if value.is_null() {
+                continue;
+            }
+            let value =
+                value.as_str().with_context(|| format!("field {field:?} must be a string"))?;
+            crate::workspace_registry::validate_display_name(field, value)?;
+        }
+    }
     match operation {
         ResourceOperation::WorkspaceCreate => {
             anyhow::ensure!(
@@ -5116,7 +5126,10 @@ fn layout_resize_coalesce(
 fn nullable_name(fields: &Map<String, Value>) -> anyhow::Result<Option<String>> {
     match fields.get("name") {
         Some(Value::Null) => Ok(None),
-        Some(Value::String(name)) => Ok(Some(name.clone())),
+        Some(Value::String(name)) => {
+            crate::workspace_registry::validate_display_name("name", name)?;
+            Ok(Some(name.clone()))
+        }
         _ => anyhow::bail!("field \"name\" must be a string or null"),
     }
 }

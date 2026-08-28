@@ -7,6 +7,72 @@ use super::*;
 pub(super) const RESOURCE_MUTATION_REPLAY_CAPACITY: usize = 4096;
 pub(super) const RESOURCE_MUTATION_PRUNE_INTERVAL: u64 = 128;
 const RESOURCE_EVENT_PAGE_SIZE: usize = 1024;
+const DISPLAY_NAME_MIGRATION_PAGE_SIZE: usize = 256;
+
+/// Repair labels written by versions that did not enforce the display-name
+/// boundary. The repair runs once during registry migration, so ordinary
+/// resource commits do not scan or copy every row.
+pub(super) fn migrate_legacy_display_names(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+    migrate_legacy_display_name_table(transaction, "workspaces", "workspace_key")?;
+    for (table, id_column) in [
+        ("resource_screens", "public_id"),
+        ("resource_panes", "public_id"),
+        ("resource_tabs", "public_id"),
+    ] {
+        migrate_legacy_display_name_table(transaction, table, id_column)?;
+    }
+    Ok(())
+}
+
+/// Repair one table in bounded keyset pages. A single `query_map` over a
+/// growing registry would retain every legacy label at startup. The table and
+/// key names are fixed constants at each call site, never user input.
+fn migrate_legacy_display_name_table(
+    transaction: &Transaction<'_>,
+    table: &str,
+    id_column: &str,
+) -> anyhow::Result<()> {
+    let update = format!("UPDATE {table} SET name = ?1 WHERE {id_column} = ?2");
+    let mut last_id: Option<String> = None;
+    loop {
+        let rows = if let Some(last_id) = last_id.as_deref() {
+            let query = format!(
+                "SELECT {id_column}, name FROM {table} \
+                 WHERE name IS NOT NULL AND {id_column} > ?1 \
+                 ORDER BY {id_column} LIMIT ?2"
+            );
+            let mut statement = transaction.prepare(&query)?;
+            let rows = statement
+                .query_map(params![last_id, DISPLAY_NAME_MIGRATION_PAGE_SIZE as i64], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            rows
+        } else {
+            let query = format!(
+                "SELECT {id_column}, name FROM {table} \
+                 WHERE name IS NOT NULL ORDER BY {id_column} LIMIT ?1"
+            );
+            let mut statement = transaction.prepare(&query)?;
+            let rows = statement
+                .query_map([DISPLAY_NAME_MIGRATION_PAGE_SIZE as i64], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            rows
+        };
+        let Some(next_last_id) = rows.last().map(|(id, _)| id.clone()) else {
+            break;
+        };
+        for (resource_id, name) in rows {
+            if validate_display_name("resource name", &name).is_err() {
+                transaction.execute(&update, params![sanitize_display_name(&name), resource_id])?;
+            }
+        }
+        last_id = Some(next_last_id);
+    }
+    Ok(())
+}
 
 pub(super) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     transaction.execute_batch(
@@ -640,7 +706,7 @@ impl WorkspaceRegistry {
                         workspace_id: WorkspacePublicId::parse(workspace_id)?,
                         position: usize::try_from(position)
                             .context("stored screen position is negative")?,
-                        name,
+                        name: name.map(|value| sanitize_display_name(&value)),
                         layout: serde_json::from_str(&layout)?,
                         active_pane: PanePublicId::parse(active_pane)?,
                         zoomed_pane: zoomed_pane.map(PanePublicId::parse).transpose()?,
@@ -674,7 +740,7 @@ impl WorkspaceRegistry {
                     Ok(RegistryPane {
                         public_id: PanePublicId::parse(public_id)?,
                         screen_id: ScreenPublicId::parse(screen_id)?,
-                        name,
+                        name: name.map(|value| sanitize_display_name(&value)),
                         active_tab: active_tab.map(TabPublicId::parse).transpose()?,
                         creation_ordinal: u64::try_from(creation_ordinal)
                             .context("stored pane creation ordinal is negative")?,
@@ -729,7 +795,7 @@ impl WorkspaceRegistry {
                         position: usize::try_from(position)
                             .context("stored tab position is negative")?,
                         content_id,
-                        name,
+                        name: name.map(|value| sanitize_display_name(&value)),
                         browser_url,
                         terminal_id,
                     })
@@ -1315,14 +1381,20 @@ impl WorkspaceRegistry {
                     && record.previous_resource_revision == Some(indexed_revision - 1),
                 "indexed resource event revision does not match its journal record"
             );
+            let mut changes = record
+                .payload
+                .get("changes")
+                .cloned()
+                .context("resource journal record omitted changes")?;
+            // The table migration only repairs current resource rows. Older
+            // journal payloads remain client-visible when a consumer replays
+            // from an old cursor, so apply the same boundary to the decoded
+            // historical event before returning it.
+            sanitize_resource_label_values(&mut changes);
             batches.push(ResourceEventBatch {
                 previous_revision: indexed_revision - 1,
                 revision: indexed_revision,
-                changes: record
-                    .payload
-                    .get("changes")
-                    .cloned()
-                    .context("resource journal record omitted changes")?,
+                changes,
             });
             expected_revision = expected_revision.saturating_add(1);
         }
@@ -1356,6 +1428,31 @@ pub(super) fn collect_screen_split_public_ids(
         if !output.iter().any(|id| id == column.id.as_str()) {
             output.push(column.id.to_string());
         }
+    }
+}
+
+/// Sanitize only user-visible label fields in historical resource events.
+/// Older journal rows can outlive the one-time table migration, and clients
+/// may request those rows from an old cursor.
+fn sanitize_resource_label_values(value: &mut Value) {
+    match value {
+        Value::Array(values) => {
+            for value in values {
+                sanitize_resource_label_values(value);
+            }
+        }
+        Value::Object(object) => {
+            for (key, value) in object.iter_mut() {
+                if matches!(key.as_str(), "name" | "display_name") {
+                    if let Value::String(text) = value {
+                        *text = sanitize_display_name(text);
+                    }
+                } else {
+                    sanitize_resource_label_values(value);
+                }
+            }
+        }
+        Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => {}
     }
 }
 
@@ -1405,6 +1502,10 @@ pub(super) fn validate_resource_patch(patch: &ResourcePatch) -> anyhow::Result<(
     for change in &patch.changes {
         let target = match change {
             ResourceChange::UpsertWorkspace { workspace, .. } => {
+                // Keep the resource-patch boundary explicit. `validate_registry`
+                // also checks this field for legacy callers, but every direct
+                // patch must enforce the same terminal-safe label contract.
+                validate_display_name("workspace name", &workspace.name)?;
                 validate_registry(std::slice::from_ref(workspace))?;
                 format!("workspace:{}", workspace.public_id)
             }
@@ -1417,6 +1518,9 @@ pub(super) fn validate_resource_patch(patch: &ResourcePatch) -> anyhow::Result<(
             }
             ResourceChange::SetActiveWorkspace { .. } => "singleton:active-workspace".to_string(),
             ResourceChange::UpsertScreen(screen) => {
+                if let Some(name) = screen.name.as_deref() {
+                    validate_display_name("screen name", name)?;
+                }
                 let mut panes = HashSet::new();
                 let mut splits = HashSet::new();
                 validate_layout_node(&screen.layout, &mut panes, &mut splits)?;
@@ -1433,9 +1537,17 @@ pub(super) fn validate_resource_patch(patch: &ResourcePatch) -> anyhow::Result<(
                 validate_order_ids("screen", screen_ids.iter().map(|id| id.as_str()))?;
                 format!("screen-order:{workspace_id}")
             }
-            ResourceChange::UpsertPane(pane) => format!("pane:{}", pane.public_id),
+            ResourceChange::UpsertPane(pane) => {
+                if let Some(name) = pane.name.as_deref() {
+                    validate_display_name("pane name", name)?;
+                }
+                format!("pane:{}", pane.public_id)
+            }
             ResourceChange::TombstonePane { pane_id } => format!("pane:{pane_id}"),
             ResourceChange::UpsertTab(tab) => {
+                if let Some(name) = tab.name.as_deref() {
+                    validate_display_name("tab name", name)?;
+                }
                 match (&tab.content_id, &tab.browser_url, &tab.terminal_id) {
                     (ContentPublicId::Terminal(_), None, Some(terminal_id)) => {
                         validate_terminal_identity("terminal id", terminal_id)?;
@@ -1636,6 +1748,9 @@ pub(crate) fn validate_registry_screen_projection(
     screen: &RegistryScreen,
     expected_panes: &HashSet<PanePublicId>,
 ) -> anyhow::Result<()> {
+    if let Some(name) = screen.name.as_deref() {
+        validate_display_name("screen name", name)?;
+    }
     let mut layout_panes = HashSet::new();
     let mut layout_splits = HashSet::new();
     validate_layout_node(&screen.layout, &mut layout_panes, &mut layout_splits)?;

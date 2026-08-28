@@ -208,7 +208,7 @@ type RestoredViewport = (std::collections::BTreeMap<SplitId, f32>, Option<f32>, 
 const TERMINAL_DIMENSION_MAX: u16 = 10_000;
 const WORKSPACE_REGISTRY_LIMIT: usize = 4_096;
 const WORKSPACE_KEY_MAX_BYTES: usize = 256;
-const WORKSPACE_NAME_MAX_BYTES: usize = 1_024;
+const WORKSPACE_NAME_MAX_BYTES: usize = crate::workspace_registry::DISPLAY_NAME_MAX_BYTES;
 const PROVIDER_WORKSPACE_AUTHORITY_MIN_BYTES: usize = 32;
 const PROVIDER_WORKSPACE_AUTHORITY_MAX_BYTES: usize = 512;
 const CELL_PIXEL_FANOUT_MAX_WORKERS: usize = 32;
@@ -3374,10 +3374,7 @@ impl Mux {
     }
 
     fn validate_workspace_name(name: &str) -> anyhow::Result<()> {
-        if name.len() > WORKSPACE_NAME_MAX_BYTES {
-            anyhow::bail!("workspace name exceeds {WORKSPACE_NAME_MAX_BYTES} bytes");
-        }
-        Ok(())
+        crate::workspace_registry::validate_display_name("workspace name", name)
     }
 
     fn workspace_lifecycle(&self, workspace: WorkspaceId) -> Arc<Mutex<()>> {
@@ -24574,6 +24571,45 @@ mod tests {
             assert_eq!(s.active_workspace, 0);
         });
         assert!(events.try_iter().count() > 0);
+    }
+
+    #[test]
+    fn display_name_mutations_reject_controls_line_separators_and_oversized_values() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(Some("safe".into()), None).unwrap();
+        let (workspace, screen, pane) = mux.with_state(|state| {
+            let pane = state.pane_of(surface.id).expect("workspace surface has a pane");
+            let (workspace, screen) = state.screen_of(pane).expect("pane has a screen");
+            (state.workspaces[workspace].id, state.workspaces[workspace].screens[screen].id, pane)
+        });
+
+        for invalid in
+            ["bad\nname", "bad\u{2028}name", "bad\u{2029}name", "bad\u{1b}]0;title\u{7}name"]
+        {
+            assert!(!mux.rename_workspace(workspace, invalid.into()));
+            assert!(!mux.rename_screen(screen, invalid.into()));
+            assert!(!mux.rename_pane(pane, invalid.into()));
+            assert!(!mux.rename_surface(surface.id, invalid.into()));
+        }
+
+        let oversized = "x".repeat(WORKSPACE_NAME_MAX_BYTES + 1);
+        assert!(!mux.rename_workspace(workspace, oversized.clone()));
+        assert!(!mux.rename_screen(screen, oversized.clone()));
+        assert!(!mux.rename_pane(pane, oversized.clone()));
+        assert!(!mux.rename_surface(surface.id, oversized));
+
+        mux.with_state(|state| {
+            let workspace_index = state.workspace_index(workspace).expect("workspace remains live");
+            let screen_index = state.workspaces[workspace_index]
+                .screens
+                .iter()
+                .position(|candidate| candidate.id == screen)
+                .expect("screen remains live");
+            assert_eq!(state.workspaces[workspace_index].name, "safe");
+            assert_eq!(state.workspaces[workspace_index].screens[screen_index].name, None);
+            assert_eq!(state.panes[&pane].name, None);
+            assert_eq!(state.surfaces[&surface.id].name(), None);
+        });
     }
 
     #[test]
