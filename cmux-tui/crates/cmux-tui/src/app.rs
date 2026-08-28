@@ -26404,6 +26404,21 @@ mod tests {
         );
         assert!(collapsed.machine.is_none());
 
+        let without_previous = sidebar_layout_for_state(
+            &config,
+            true,
+            false,
+            true,
+            (70, 30),
+            None,
+            None,
+            None,
+            &overrides,
+            &HashSet::new(),
+            None,
+        );
+        assert!(without_previous.machine.is_some());
+
         let at_boundary = sidebar_layout_for_state(
             &config,
             true,
@@ -26418,6 +26433,10 @@ mod tests {
             Some(&collapsed),
         );
         assert!(at_boundary.machine.is_none());
+        assert_eq!(
+            at_boundary.ordered.iter().map(|placement| placement.kind).collect::<Vec<_>>(),
+            vec![RailKind::Workspace, RailKind::Tabs]
+        );
         let revealed = sidebar_layout_for_state(
             &config,
             true,
