@@ -166,7 +166,11 @@ def run_codex_start_stop_capture(
         "cwd": str(state_dir.parent),
     }
 
-    with FakeCmuxSocket(socket_path, None) as fake:
+    with FakeCmuxSocket(
+        socket_path,
+        None,
+        surface_delivery_target=(FAKE_WORKSPACE_ID, FAKE_SURFACE_ID),
+    ) as fake:
         for subcommand in ("session-start", "stop"):
             result = subprocess.run(
                 [

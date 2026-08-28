@@ -32804,7 +32804,7 @@ export default CMUXSessionRestore;
             hooksFilePath: hooksFilePath,
             def: def
         ).filter {
-            $0.key.contains(":pre_tool_use:") || $0.key.contains(":post_tool_use:")
+            $0.eventLabel == "pre_tool_use" || $0.eventLabel == "post_tool_use"
         }.map(\.trustEntry)
         return CmuxCodexConfigEditor().hookStateOverrideDisabling(entries)
     }
