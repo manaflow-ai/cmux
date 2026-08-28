@@ -300,17 +300,11 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
         init(from decoder: any Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             error = try container.decode(String.self, forKey: .error)
-            if let rawSource = try container.decodeIfPresent(
-                String.self,
-                forKey: .source
-            ) {
-                // Keep the coarse error code when an untrusted or newer
-                // server sends an unknown source. Do not interpolate that
-                // value into the journal.
-                source = BrokerErrorSource(rawValue: rawSource)
-            } else {
-                source = nil
-            }
+            // Keep the coarse error code when an untrusted or newer server
+            // sends an unknown or malformed source. Do not interpolate that
+            // value into the journal.
+            source = (try? container.decode(String.self, forKey: .source))
+                .flatMap(BrokerErrorSource.init(rawValue:))
         }
     }
 
