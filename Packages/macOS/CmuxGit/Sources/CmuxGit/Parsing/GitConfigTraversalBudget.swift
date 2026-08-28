@@ -27,7 +27,7 @@ nonisolated struct GitConfigTraversalBudget: Sendable {
     var didExhaustBudget = false
     let reader: GitConfigFileReader
     let maximumFileByteCount: Int
-    let deadline: DispatchTime? = nil
+    let deadline: DispatchTime?
 
     var isExpired: Bool {
         if WorkspaceChangesCancellationSignal.isCurrentCancelled {
