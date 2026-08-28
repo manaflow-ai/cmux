@@ -48,7 +48,7 @@ use base64::engine::general_purpose::STANDARD as BASE64;
 use serde_json::{Value, json};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch, Semaphore};
 use tokio_util::sync::CancellationToken;
 
 use crate::pty::{
@@ -82,6 +82,10 @@ const TUNNEL_WRITER_QUEUE_ITEMS: usize = 256;
 /// Keep queue slots available for `opened`, `error`, and `exit` control
 /// frames. PTY output is rejected before it consumes the reserve.
 const TUNNEL_CONTROL_QUEUE_RESERVE_ITEMS: usize = 8;
+/// Bound pre-open sockets as well as live PTY attachments. A gateway retry
+/// storm must not allocate one reader, writer, and 64 KiB read buffer per
+/// unbounded connection.
+const TUNNEL_MAX_CONNECTIONS: usize = 64;
 
 /// Authority published by the authenticated relay session for local tunnel
 /// connections. `None` means the relay is disconnected or has not completed
@@ -108,10 +112,7 @@ impl TunnelAuthority {
     }
 
     pub fn published(previous_generation: u64, auth: TunnelAuth) -> Self {
-        Self {
-            generation: previous_generation.saturating_add(1),
-            auth: Some(auth),
-        }
+        Self { generation: previous_generation.saturating_add(1), auth: Some(auth) }
     }
 }
 
@@ -315,7 +316,7 @@ struct Connection {
     /// non-blocking channel operation.
     queue_gate: std::sync::Mutex<()>,
     /// pty_flow requests from the writer's water marks (true = pause).
-    flow_tx: mpsc::UnboundedSender<bool>,
+    flow_tx: watch::Sender<bool>,
     auth_state: TunnelAuthState,
     /// Authority generation captured when this socket was accepted.
     auth_generation: u64,
@@ -367,8 +368,8 @@ impl Connection {
         let mut reserved = 0_u64;
         {
             let _queue_gate = self.queue_gate.lock().expect("tunnel queue lock");
-            let queue_has_room = control
-                || self.writer_tx.capacity() > TUNNEL_CONTROL_QUEUE_RESERVE_ITEMS;
+            let queue_has_room =
+                control || self.writer_tx.capacity() > TUNNEL_CONTROL_QUEUE_RESERVE_ITEMS;
             if !self.finished.load(Ordering::SeqCst)
                 && queue_has_room
                 && self.reserve_bytes(frame.len())
@@ -503,12 +504,9 @@ impl Connection {
     }
 
     fn authority_current(&self) -> bool {
-        self.auth_state
-            .read()
-            .ok()
-            .is_some_and(|authority| {
-                authority.generation == self.auth_generation && authority.auth.is_some()
-            })
+        self.auth_state.read().ok().is_some_and(|authority| {
+            authority.generation == self.auth_generation && authority.auth.is_some()
+        })
     }
 }
 
@@ -601,11 +599,12 @@ async fn serve_connection(
     manager: Arc<PtyManager>,
     parent: CancellationToken,
     auth_state: TunnelAuthState,
+    _connection_permit: tokio::sync::OwnedSemaphorePermit,
 ) {
     let _ = stream.set_nodelay(true);
     let (mut read_half, mut write_half) = stream.into_split();
     let (writer_tx, mut writer_rx) = mpsc::channel::<WriterMessage>(TUNNEL_WRITER_QUEUE_ITEMS);
-    let (flow_tx, mut flow_rx) = mpsc::unbounded_channel::<bool>();
+    let (flow_tx, mut flow_rx) = watch::channel(false);
     let pty_id = match random_hex(8) {
         Ok(id) => format!("tunnel-{id}"),
         Err(_) => {
@@ -613,10 +612,8 @@ async fn serve_connection(
             return;
         }
     };
-    let auth_generation = auth_state
-        .read()
-        .map(|authority| authority.generation)
-        .unwrap_or_default();
+    let auth_generation =
+        auth_state.read().map(|authority| authority.generation).unwrap_or_default();
     let connection = Arc::new(Connection {
         pty_id,
         manager: Arc::clone(&manager),
@@ -667,7 +664,8 @@ async fn serve_connection(
     let flow = {
         let connection = Arc::clone(&connection);
         tokio::spawn(async move {
-            while let Some(pause) = flow_rx.recv().await {
+            while flow_rx.changed().await.is_ok() {
+                let pause = *flow_rx.borrow_and_update();
                 if connection.finished.load(Ordering::SeqCst) {
                     break;
                 }
@@ -767,6 +765,7 @@ pub async fn start_tunnel_terminal_listener(
 ) -> std::io::Result<u16> {
     let listener = TcpListener::bind((host, port)).await?;
     let bound = listener.local_addr()?.port();
+    let connection_slots = Arc::new(Semaphore::new(TUNNEL_MAX_CONNECTIONS));
     tokio::spawn(async move {
         loop {
             let accepted = tokio::select! {
@@ -776,9 +775,23 @@ pub async fn start_tunnel_terminal_listener(
             };
             match accepted {
                 Ok((stream, _)) => {
+                    let permit = match connection_slots.clone().try_acquire_owned() {
+                        Ok(permit) => permit,
+                        Err(_) => {
+                            let mut stream = stream;
+                            let _ = stream.shutdown().await;
+                            continue;
+                        }
+                    };
                     let manager = Arc::clone(&manager);
                     let child = cancellation.child_token();
-                    tokio::spawn(serve_connection(stream, manager, child, Arc::clone(&auth_state)));
+                    tokio::spawn(serve_connection(
+                        stream,
+                        manager,
+                        child,
+                        Arc::clone(&auth_state),
+                        permit,
+                    ));
                 }
                 Err(_) => {
                     // Transient accept errors (EMFILE and friends) must not
