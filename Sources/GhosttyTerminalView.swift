@@ -8136,17 +8136,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return
         }
         let mouseCaptured = ghostty_surface_mouse_captured(surface)
-        if mouseCaptured || ghosttyPressedMouseButtons.contains(.right) {
-            let generation = ghosttyPressedMouseButtonGenerations[.right]
+        if let generation = ghosttyPressedMouseButtonGenerations[.right] {
             _ = sendGhosttyMouseButton(
                 surface,
                 state: GHOSTTY_MOUSE_RELEASE,
                 button: GHOSTTY_MOUSE_RIGHT,
                 mods: mouseState.mods
             )
-            if let generation {
-                markGhosttyMouseButtonReleased(.right, expectedGeneration: generation)
-            }
+            markGhosttyMouseButtonReleased(.right, expectedGeneration: generation)
         }
         if !mouseCaptured {
             super.rightMouseUp(with: event)
@@ -8193,14 +8190,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             }
             return
         }
-        let generation = ghosttyPressedMouseButtonGenerations[.middle]
-        _ = sendGhosttyMouseButton(
-            surface,
-            state: GHOSTTY_MOUSE_RELEASE,
-            button: GHOSTTY_MOUSE_MIDDLE,
-            mods: mouseState.mods
-        )
-        if let generation {
+        if let generation = ghosttyPressedMouseButtonGenerations[.middle] {
+            _ = sendGhosttyMouseButton(
+                surface,
+                state: GHOSTTY_MOUSE_RELEASE,
+                button: GHOSTTY_MOUSE_MIDDLE,
+                mods: mouseState.mods
+            )
             markGhosttyMouseButtonReleased(.middle, expectedGeneration: generation)
         }
     }
