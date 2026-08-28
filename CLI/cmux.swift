@@ -9152,7 +9152,11 @@ struct CMUXCLI {
             } else if let binding = payload["resume_binding"] as? [String: Any],
                       let command = binding["command"] as? String,
                       !command.isEmpty {
-                print(command)
+                if let publicCommand = publicSurfaceResumePayload(command) as? String {
+                    print(publicCommand)
+                } else {
+                    print("null")
+                }
             } else {
                 print("No resume binding")
             }
