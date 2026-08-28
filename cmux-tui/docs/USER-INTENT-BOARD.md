@@ -1,5 +1,30 @@
 # cmux-tui user-intent board
 
+## Post-snapshot intent refresh: main `2c6fd70ecceeed63fdb549882737c6563fb3f52d`
+
+These six rows come from direct Codex and Claude asks after the prior audit.
+They record intent and required proof. Strict session count remains `unknown`.
+
+Current TUI merge refs include [#11045](https://github.com/manaflow-ai/cmux/pull/11045)
+(`8d71d72e6de027074828d7d81443b1f8ec825283`), [#11044](https://github.com/manaflow-ai/cmux/pull/11044)
+(`c33d38ab80166e7ca525d197faf93d1f918f55f2`), [#11012](https://github.com/manaflow-ai/cmux/pull/11012)
+(`d0b3b737a26f6afa6565b6c0160a31700abe6e21`), and [#11022](https://github.com/manaflow-ai/cmux/pull/11022)
+(`2c6fd70ecceeed63fdb549882737c6563fb3f52d`).
+
+Receipt paths: Codex `~/.codex/sessions/2026/08/27/` JSONL receipts; Claude
+`~/.claude/history.jsonl` with session metadata under `~/.claude/sessions/`.
+
+| Intent | Source receipt | Current status and acceptance proof |
+| --- | --- | --- |
+| Mobile key-to-pixel latency attribution | Codex session `01a04503-e63d-7691-837d-374c1b3956ff`, messages `msg_01a0450d-9045-7f41-ae21-d654c0f83bf1` and `msg_01a04511-6393-7122-8574-8b0aaa634851` | [#11005](https://github.com/manaflow-ai/cmux/pull/11005), Lawrence Chen, head `8c3bb260504f50b622158b5ce884f573ddf1c6f5`, splits iOS queue and actor-hop time. Add Mac/DO receive, PTY write, and pixel-present stamps before claiming end-to-end attribution. |
+| Direct Durable Object authentication | Codex message `msg_01a0450b-46a2-7730-bace-69d26779b735` | [#10963](https://github.com/manaflow-ai/cmux/pull/10963), Lawrence Chen, head `ba65199cf505729eddc27373b9497b9573bc9f97`, uses a Stack header and first-frame admission, with no ticket endpoint. Prove token scope, expiry, endpoint policy, and cleanup on the deployed worker. |
+| Live topology authority | Codex session `01a0469f-ab5e-7d70-9e3d-ecc866f7ebcb`, messages `msg_01a046a0-8791-7121-bc05-6441203c0a69` and `msg_01a046a8-c55e-7a41-8a8f-76080aa7acbc` | The local daemon and journal should own live PTY/workspace state. Cloud storage should provide registry and presence only. Prove revisioned deltas, gap refetch, and one owner for each live fact. |
+| Unified external-session catalog | Claude session `9a24a8c7-e7e4-4385-9742-aa20f8475b66`, history timestamp `1787889382854` | The requested right sidebar covers cmux TUI, tmux, zellij, zmx, Herdr, and manually added SSH remotes, with drag-to-attach through manual I/O. Prove stable IDs, capabilities, attach/detach, and stale-entry removal. |
+| Agent-roster follow-up | Claude session `e5f4a11b-ca0c-4d74-8520-debf0fe5671b`, history timestamps `1787870057639`, `1787887503164`, `1787888225974`, and `1787892110942` | [#10966](https://github.com/manaflow-ai/cmux/pull/10966), Lawrence Chen, head `3885306fb27853a60732dbbbf79fe44d172f2949`, is conflicting. Cover Claude, Codex, and Herdr lifecycle events, exit removal, names, and unread ordering; Codex follow-up is [#11040](https://github.com/manaflow-ai/cmux/issues/11040). |
+| Cloud manual-I/O policy | Claude session `ef53c5e7-cb83-48ba-9e50-0e918307c79e`, history timestamps `1787891295602` and `1787892694385` | [#10321](https://github.com/manaflow-ai/cmux/pull/10321), Lawrence Chen, head `c0501c00a3462ac48ce01ead37ff019628e23617`, is conflicting. Use manual I/O for cloud cmux TUI attachments, keep local creation unchanged, and prove reconnect and user-visible error states. |
+
+Primary pattern references: Tokio [`watch`](https://docs.rs/tokio/latest/tokio/sync/watch/) for latest-state projections, [`broadcast`](https://docs.rs/tokio/latest/tokio/sync/broadcast/) for lifecycle deltas, Ratatui [`Terminal`](https://docs.rs/ratatui/latest/ratatui/struct.Terminal.html) for a single render owner, and SQLite [`WAL`](https://www.sqlite.org/wal.html) for same-host reader/writer constraints.
+
 ## Current reconciliation: main `e27710a23149d9412665ef786b688797006b2730`
 
 Main includes merged #10995 (source `a156463ea61f00bc9e67e16e27ed3f38d3329417`, merge `e27710a23149d9412665ef786b688797006b2730`). Live direct-TUI open rows: #10990, #11000, #11013, #11024, #11025, and #11026. Issue #11027 remains open. Strict confirmed turns: `0`; total: `unknown`.

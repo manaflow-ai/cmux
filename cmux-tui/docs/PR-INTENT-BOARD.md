@@ -1,5 +1,38 @@
 # cmux TUI PR intent and merge board
 
+## Current reconciliation: main `2c6fd70ecceeed63fdb549882737c6563fb3f52d`
+
+Snapshot: 2026-08-28T05:18:38Z. Current main includes these recent merges,
+with exact source and merge SHAs. Authors are included for each PR.
+
+| Merged PR | Author | Source head | Merge SHA |
+| --- | --- | --- | --- |
+| [#11022](https://github.com/manaflow-ai/cmux/pull/11022) | Abdulaziz Albahar | `eaf542ca7b34607d621a48367dbd2958915b0296` | `2c6fd70ecceeed63fdb549882737c6563fb3f52d` |
+| [#11045](https://github.com/manaflow-ai/cmux/pull/11045) | Lawrence Chen | `118ae063aba8736d7c16d9b3a3cd5c6ee5dfcb2c` | `8d71d72e6de027074828d7d81443b1f8ec825283` |
+| [#11039](https://github.com/manaflow-ai/cmux/pull/11039) | Lawrence Chen | `d3f97bfcd8e848abf3c527b1683f5eed8c719fea` | `c1151eaf7addbb49bdcf40c053abe059fcef2db5` |
+| [#11044](https://github.com/manaflow-ai/cmux/pull/11044) | Lawrence Chen | `a2df7e8a629c20b583d04812e070356fdcd2c562` | `c33d38ab80166e7ca525d197faf93d1f918f55f2` |
+| [#11012](https://github.com/manaflow-ai/cmux/pull/11012) | Lawrence Chen | `8d118f410fa32fbff94b34e3317719015c56d3b4` | `d0b3b737a26f6afa6565b6c0160a31700abe6e21` |
+| [#11047](https://github.com/manaflow-ai/cmux/pull/11047) | Abdulaziz Albahar | `73199b36436843c7a420cf86027cf363ee9e36db` | `aa7c9221ac576d01e033a23f9f3f46b9afec22cb` |
+| [#11021](https://github.com/manaflow-ai/cmux/pull/11021) | Lawrence Chen | `f59f21a7f34992d481667ffb87cbcc9dbfc0e8fa` | `2c6035573e5edab568da035e99c713acecfc1d70` |
+| [#11026](https://github.com/manaflow-ai/cmux/pull/11026) | Lawrence Chen | `cd55ac6e3cda48f0660d1c3a93923b551341464f` | `c582b8d74ab82e404f18b14ad4e97f2d4cc04fa9` |
+
+New intent-to-PR mapping and blockers:
+
+| Intent | PR and author | Exact head and state | Required next action |
+| --- | --- | --- | --- |
+| Mobile key-to-pixel latency attribution | [#11005](https://github.com/manaflow-ai/cmux/pull/11005), Lawrence Chen | `8c3bb260504f50b622158b5ce884f573ddf1c6f5`, open and mergeable | Add Mac/DO, PTY-write, and pixel-present stamps. |
+| Direct Durable Object authentication | [#10963](https://github.com/manaflow-ai/cmux/pull/10963), Lawrence Chen | `ba65199cf505729eddc27373b9497b9573bc9f97`, open and mergeable | Resolve auth-policy, keepalive cancellation, singleton, and cleanup findings before merge. |
+| Live topology authority | [#10999](https://github.com/manaflow-ai/cmux/pull/10999), Abdulaziz Albahar | `20fef437ec377559c7669d257d999bb48228150e`, open and conflicting | Rebase, then reconcile DO facts with the local daemon/journal owner. |
+| Unified external-session catalog | [#10828](https://github.com/manaflow-ai/cmux/pull/10828), Lawrence Chen | `a5d3ff37abe933373237813325c84870df7242cd`, open and conflicting | Define stable local/SSH source IDs and manual-I/O attach lifecycle. |
+| Agent-roster follow-up | [#10966](https://github.com/manaflow-ai/cmux/pull/10966), Lawrence Chen | `3885306fb27853a60732dbbbf79fe44d172f2949`, open and conflicting | Rebase and cover Claude, Codex, and Herdr exit and attention events. |
+| Cloud manual-I/O policy | [#10321](https://github.com/manaflow-ai/cmux/pull/10321), Lawrence Chen | `c0501c00a3462ac48ce01ead37ff019628e23617`, open and conflicting | Keep manual I/O cloud-only, add reconnect/error states, and leave local creation unchanged. |
+
+Design references: Tokio [`watch`](https://docs.rs/tokio/latest/tokio/sync/watch/)
+retains only the newest value, Tokio [`broadcast`](https://docs.rs/tokio/latest/tokio/sync/broadcast/)
+delivers each value to receivers, and Ratatui [`Terminal`](https://docs.rs/ratatui/latest/ratatui/struct.Terminal.html)
+owns draw and buffer-diff passes. SQLite [`WAL`](https://www.sqlite.org/wal.html)
+requires same-host shared memory and still permits one writer at a time.
+
 ## Current reconciliation: main `6964584c030eec3e46c81545ff9e3c49ff1730ca`
 
 Snapshot: 2026-08-28T04:10:00Z. Recent merged intent is recorded with author,

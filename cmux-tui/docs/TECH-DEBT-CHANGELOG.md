@@ -1,5 +1,42 @@
 # cmux-tui aggregate change log
 
+## Wave 82, exact state at main `2c6fd70ecceeed63fdb549882737c6563fb3f52d`
+
+Receipt paths: Codex `~/.codex/sessions/2026/08/27/` JSONL receipts; Claude
+`~/.claude/history.jsonl` with session metadata under `~/.claude/sessions/`.
+
+| Merged PR | Author | Source head | Merge SHA | Debt disposition |
+| --- | --- | --- | --- | --- |
+| [#11022](https://github.com/manaflow-ai/cmux/pull/11022) | Abdulaziz Albahar | `eaf542ca7b34607d621a48367dbd2958915b0296` | `2c6fd70ecceeed63fdb549882737c6563fb3f52d` | iOS Computer-sheet visibility fix; unrelated to the six open TUI intents. |
+| [#11045](https://github.com/manaflow-ai/cmux/pull/11045) | Lawrence Chen | `118ae063aba8736d7c16d9b3a3cd5c6ee5dfcb2c` | `8d71d72e6de027074828d7d81443b1f8ec825283` | Remote transport loss now surfaces instead of an empty-session fallback. |
+| [#11039](https://github.com/manaflow-ai/cmux/pull/11039) | Lawrence Chen | `d3f97bfcd8e848abf3c527b1683f5eed8c719fea` | `c1151eaf7addbb49bdcf40c053abe059fcef2db5` | Markdown and diff viewer find action merged. |
+| [#11044](https://github.com/manaflow-ai/cmux/pull/11044) | Lawrence Chen | `a2df7e8a629c20b583d04812e070356fdcd2c562` | `c33d38ab80166e7ca525d197faf93d1f918f55f2` | Resource-operation wire names centralized. |
+| [#11012](https://github.com/manaflow-ai/cmux/pull/11012) | Lawrence Chen | `8d118f410fa32fbff94b34e3317719015c56d3b4` | `d0b3b737a26f6afa6565b6c0160a31700abe6e21` | Unchanged projection subtitles avoid cloning. |
+| [#11047](https://github.com/manaflow-ai/cmux/pull/11047) | Abdulaziz Albahar | `73199b36436843c7a420cf86027cf363ee9e36db` | `aa7c9221ac576d01e033a23f9f3f46b9afec22cb` | Namespaced relay transport state and cache permissions. |
+| [#11021](https://github.com/manaflow-ai/cmux/pull/11021) | Lawrence Chen | `f59f21a7f34992d481667ffb87cbcc9dbfc0e8fa` | `2c6035573e5edab568da035e99c713acecfc1d70` | Machines panel cloud-agent launcher merged. |
+
+Six intent deltas remain open. [#11005](https://github.com/manaflow-ai/cmux/pull/11005),
+Lawrence Chen, head `8c3bb260504f50b622158b5ce884f573ddf1c6f5`, only splits iOS
+queue and actor-hop time. [#10963](https://github.com/manaflow-ai/cmux/pull/10963),
+Lawrence Chen, head `ba65199cf505729eddc27373b9497b9573bc9f97`, selects direct
+Stack-header and first-frame admission but still needs auth and cleanup proof.
+[#10999](https://github.com/manaflow-ai/cmux/pull/10999), Abdulaziz Albahar,
+head `20fef437ec377559c7669d257d999bb48228150e`, is conflicting while topology
+ownership is unresolved. [#10828](https://github.com/manaflow-ai/cmux/pull/10828),
+Lawrence Chen, head `a5d3ff37abe933373237813325c84870df7242cd`, is conflicting
+while the external-session catalog contract is undefined. [#10966](https://github.com/manaflow-ai/cmux/pull/10966),
+Lawrence Chen, head `3885306fb27853a60732dbbbf79fe44d172f2949`, is conflicting
+for the agent-roster follow-up. [#10321](https://github.com/manaflow-ai/cmux/pull/10321),
+Lawrence Chen, head `c0501c00a3462ac48ce01ead37ff019628e23617`, is conflicting
+for cloud-only manual I/O and reconnect behavior.
+
+The strict session count is `unknown`. The retained 258 named-turn figure is an
+older lower bound, and the new Codex/Claude receipts do not provide a complete
+session denominator. Tokio [`watch`](https://docs.rs/tokio/latest/tokio/sync/watch/),
+Tokio [`broadcast`](https://docs.rs/tokio/latest/tokio/sync/broadcast/), Ratatui
+[`Terminal`](https://docs.rs/ratatui/latest/ratatui/struct.Terminal.html), and
+SQLite [`WAL`](https://www.sqlite.org/wal.html) remain the primary design references.
+
 ## Wave 81, exact state at main `6964584c030eec3e46c81545ff9e3c49ff1730ca`
 
 | Change | Evidence | Exact revert |

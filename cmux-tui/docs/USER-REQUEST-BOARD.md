@@ -1,5 +1,31 @@
 # cmux-tui user request board
 
+## Current reconciliation: main `2c6fd70ecceeed63fdb549882737c6563fb3f52d`
+
+Post-snapshot intent rows (2026-08-28) are evidence-linked below. Main now also
+contains [#11022](https://github.com/manaflow-ai/cmux/pull/11022), merge
+`2c6fd70ecceeed63fdb549882737c6563fb3f52d`. Strict session count remains
+`unknown`; the retained ledger is a lower bound, not a turn count.
+
+Current TUI merge refs also include [#11045](https://github.com/manaflow-ai/cmux/pull/11045)
+(`8d71d72e6de027074828d7d81443b1f8ec825283`), [#11044](https://github.com/manaflow-ai/cmux/pull/11044)
+(`c33d38ab80166e7ca525d197faf93d1f918f55f2`), [#11012](https://github.com/manaflow-ai/cmux/pull/11012)
+(`d0b3b737a26f6afa6565b6c0160a31700abe6e21`), and [#11039](https://github.com/manaflow-ai/cmux/pull/11039)
+(`c1151eaf7addbb49bdcf40c053abe059fcef2db5`).
+
+Receipt paths: Codex `~/.codex/sessions/2026/08/27/rollout-2026-08-27T13-57-58-01a04503-e63d-7691-837d-374c1b3956ff.jsonl` and `~/.codex/sessions/2026/08/27/rollout-2026-08-27T21-27-44-01a0469f-ab5e-7d70-9e3d-ecc866f7ebcb.jsonl`; Claude `~/.claude/history.jsonl` with session metadata under `~/.claude/sessions/`.
+
+| Intent | Evidence and status | Next proof |
+| --- | --- | --- |
+| Attribute iOS key-to-pixel latency. | Codex session `01a04503-e63d-7691-837d-374c1b3956ff`, user messages `msg_01a0450d-9045-7f41-ae21-d654c0f83bf1` and `msg_01a04511-6393-7122-8574-8b0aaa634851`; measured send-to-echo is materially above RPC settlement. [#11005](https://github.com/manaflow-ai/cmux/pull/11005), Lawrence Chen, head `8c3bb260504f50b622158b5ce884f573ddf1c6f5`, adds iOS queue/actor stamps only. | Add Mac/DO receive, PTY-write, and pixel-present stamps, then rerun a fixed sample set. |
+| Decide direct Durable Object authentication. | Codex message `msg_01a0450b-46a2-7730-bace-69d26779b735` asked whether the ticket route can be removed securely. [#10963](https://github.com/manaflow-ai/cmux/pull/10963), Lawrence Chen, head `ba65199cf505729eddc27373b9497b9573bc9f97`, chooses direct Stack header plus first-frame session admission and deletes `/api/mobile-relay/ticket`; it remains open. | Verify endpoint auth, first-frame admission, token scope, expiry, and disconnect cleanup on the deployed worker. |
+| Make one live topology authority. | Codex session `01a0469f-ab5e-7d70-9e3d-ecc866f7ebcb`, messages `msg_01a046a0-8791-7121-bc05-6441203c0a69` and `msg_01a046a8-c55e-7a41-8a8f-76080aa7acbc`, asks which workspaces and terminals belong to each machine and how state is read today. | Keep the local daemon/journal authoritative for live PTY state; use cloud data for registry and presence, with revisioned deltas and gap refetch. |
+| Provide one external-session catalog. | Claude history session `9a24a8c7-e7e4-4385-9742-aa20f8475b66`, history timestamp `1787889382854`, requests a right sidebar catalog for cmux TUI, tmux, zellij, zmx, Herdr, and manually added SSH remotes, with drag-to-attach through manual I/O. | Define stable source IDs and capability states, then prove local and SSH discovery, attach, detach, and stale-entry removal. |
+| Complete the agent roster projection. | Claude history session `e5f4a11b-ca0c-4d74-8520-debf0fe5671b`, timestamps `1787870057639`, `1787887503164`, `1787888225974`, and `1787892110942`, requests Claude/Codex/Herdr coverage, exit removal, names, lifecycle events, and unread ordering. [#10966](https://github.com/manaflow-ai/cmux/pull/10966), Lawrence Chen, head `3885306fb27853a60732dbbbf79fe44d172f2949`, is conflicting; Codex coverage also tracks [#11040](https://github.com/manaflow-ai/cmux/issues/11040). | Rebase and test one journal-derived reducer for all supported agents, including exit, reconnect, and attention ordering. |
+| Scope cloud manual I/O explicitly. | Claude history session `ef53c5e7-cb83-48ba-9e50-0e918307c79e`, timestamps `1787891295602` and `1787892694385`, asks for manual I/O with reconnect/error handling and says it should apply only to cloud cmux TUI attachments. [#10321](https://github.com/manaflow-ai/cmux/pull/10321), Lawrence Chen, head `c0501c00a3462ac48ce01ead37ff019628e23617`, is conflicting. | Route every cloud attachment through manual I/O, leave local creation unchanged, and add bounded reconnect/error states before merge. |
+
+Pattern references: Tokio [`watch`](https://docs.rs/tokio/latest/tokio/sync/watch/) keeps the latest state, [`broadcast`](https://docs.rs/tokio/latest/tokio/sync/broadcast/) distributes lifecycle deltas, and Ratatui [`Terminal`](https://docs.rs/ratatui/latest/ratatui/struct.Terminal.html) owns a render pass. SQLite WAL requires one host and one writer, see [`wal.html`](https://www.sqlite.org/wal.html).
+
 ## Current reconciliation: main `e27710a23149d9412665ef786b688797006b2730`
 
 Main includes merged #10995 (source `a156463ea61f00bc9e67e16e27ed3f38d3329417`, merge `e27710a23149d9412665ef786b688797006b2730`). Live direct-TUI open rows: #10990, #11000, #11013, #11024, #11025, and #11026. Issue #11027 remains open. Strict confirmed turns: `0`; total: `unknown`.

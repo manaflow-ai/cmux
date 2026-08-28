@@ -1,5 +1,49 @@
 # cmux-tui technical-debt board
 
+## Current reconciliation: main `2c6fd70ecceeed63fdb549882737c6563fb3f52d`
+
+Snapshot: 2026-08-28T05:18:39Z. Recent merged SHAs are recorded with authors:
+
+Receipt paths: Codex `~/.codex/sessions/2026/08/27/` JSONL receipts; Claude
+`~/.claude/history.jsonl` with session metadata under `~/.claude/sessions/`.
+
+| PR | Author | Merge SHA |
+| --- | --- | --- |
+| [#11022](https://github.com/manaflow-ai/cmux/pull/11022) | Abdulaziz Albahar | `2c6fd70ecceeed63fdb549882737c6563fb3f52d` |
+| [#11045](https://github.com/manaflow-ai/cmux/pull/11045) | Lawrence Chen | `8d71d72e6de027074828d7d81443b1f8ec825283` |
+| [#11039](https://github.com/manaflow-ai/cmux/pull/11039) | Lawrence Chen | `c1151eaf7addbb49bdcf40c053abe059fcef2db5` |
+| [#11044](https://github.com/manaflow-ai/cmux/pull/11044) | Lawrence Chen | `c33d38ab80166e7ca525d197faf93d1f918f55f2` |
+| [#11012](https://github.com/manaflow-ai/cmux/pull/11012) | Lawrence Chen | `d0b3b737a26f6afa6565b6c0160a31700abe6e21` |
+| [#11047](https://github.com/manaflow-ai/cmux/pull/11047) | Abdulaziz Albahar | `aa7c9221ac576d01e033a23f9f3f46b9afec22cb` |
+| [#11021](https://github.com/manaflow-ai/cmux/pull/11021) | Lawrence Chen | `2c6035573e5edab568da035e99c713acecfc1d70` |
+| [#11026](https://github.com/manaflow-ai/cmux/pull/11026) | Lawrence Chen | `c582b8d74ab82e404f18b14ad4e97f2d4cc04fa9` |
+| [#11019](https://github.com/manaflow-ai/cmux/pull/11019) | Lawrence Chen | `cc47a9152ba7366e84a614d41904c0a69ec422e9` |
+| [#11036](https://github.com/manaflow-ai/cmux/pull/11036) | Lawrence Chen | `05544d5cd878d78b924fb87a83af74e23e4c76b8` |
+| [#11030](https://github.com/manaflow-ai/cmux/pull/11030) | Lawrence Chen | `0ba31a2883577f1dea06957627c0c753955d0e8d` |
+| [#10948](https://github.com/manaflow-ai/cmux/pull/10948) | Austin Wang | `ae9e41d6339db9b521973887e881542f945c814b` |
+| [#11034](https://github.com/manaflow-ai/cmux/pull/11034) | Lawrence Chen | `12d33df5165cad1be5c1c4439f4f38b3bbe44c71` |
+
+New debt rows from post-snapshot session evidence:
+
+| Debt | Evidence | Owner and exit condition |
+| --- | --- | --- |
+| iOS key-to-pixel attribution is incomplete. | Codex `01a04503-e63d-7691-837d-374c1b3956ff`, messages `msg_01a0450d-9045-7f41-ae21-d654c0f83bf1` and `msg_01a04511-6393-7122-8574-8b0aaa634851`; [#11005](https://github.com/manaflow-ai/cmux/pull/11005), Lawrence Chen, head `8c3bb260504f50b622158b5ce884f573ddf1c6f5`. | Add Mac/DO, PTY-write, and pixel-present stamps, then publish p50/p95/max. |
+| Direct-DO auth policy needs deployment proof. | Codex message `msg_01a0450b-46a2-7730-bace-69d26779b735`; [#10963](https://github.com/manaflow-ai/cmux/pull/10963), Lawrence Chen, head `ba65199cf505729eddc27373b9497b9573bc9f97`. | Resolve auth-policy, keepalive cancellation, singleton, and cleanup findings; prove scope and expiry. |
+| Live topology has competing projections. | Codex `01a0469f-ab5e-7d70-9e3d-ecc866f7ebcb`, messages `msg_01a046a0-8791-7121-bc05-6441203c0a69` and `msg_01a046a8-c55e-7a41-8a8f-76080aa7acbc`; [#10999](https://github.com/manaflow-ai/cmux/pull/10999), Abdulaziz Albahar, head `20fef437ec377559c7669d257d999bb48228150e`. | Make the local daemon/journal authoritative for live PTY state, and use cloud data for registry/presence only. |
+| External sessions lack one catalog contract. | Claude `9a24a8c7-e7e4-4385-9742-aa20f8475b66`, history timestamp `1787889382854`; [#10828](https://github.com/manaflow-ai/cmux/pull/10828), Lawrence Chen, head `a5d3ff37abe933373237813325c84870df7242cd`. | Define stable local/SSH source IDs and bounded attach/detach cleanup for each supported tool. |
+| Agent roster coverage is partial. | Claude `e5f4a11b-ca0c-4d74-8520-0e918307c79e1`, history timestamps `1787870057639`, `1787887503164`, `1787888225974`, `1787892110942`; [#10966](https://github.com/manaflow-ai/cmux/pull/10966), Lawrence Chen, head `3885306fb27853a60732dbbbf79fe44d172f2949`, conflicts. | Rebase and cover Claude, Codex, and Herdr lifecycle, exit, naming, and attention events; track [#11040](https://github.com/manaflow-ai/cmux/issues/11040). |
+| Cloud manual-I/O scope is not enforced end to end. | Claude `ef53c5e7-cb83-48ba-9e50-0e918307c79e`, history timestamps `1787891295602` and `1787892694385`; [#10321](https://github.com/manaflow-ai/cmux/pull/10321), Lawrence Chen, head `c0501c00a3462ac48ce01ead37ff019628e23617`, conflicts. | Keep manual I/O cloud-only, leave local creation unchanged, and add bounded reconnect/error states. |
+
+Session accounting remains honest: strict auditable turns are `unknown`. The
+retained 258 named-turn figure is a lower bound from an older receipt, and the
+new session IDs above do not establish a total.
+
+Pattern references: Tokio [`watch`](https://docs.rs/tokio/latest/tokio/sync/watch/)
+for latest-state snapshots, [`broadcast`](https://docs.rs/tokio/latest/tokio/sync/broadcast/)
+for lifecycle deltas, Ratatui [`Terminal`](https://docs.rs/ratatui/latest/ratatui/struct.Terminal.html)
+for render ownership, and SQLite [`WAL`](https://www.sqlite.org/wal.html) for
+same-host shared-memory and one-writer constraints.
+
 ## Current reconciliation: main `6964584c030eec3e46c81545ff9e3c49ff1730ca`
 
 Snapshot: 2026-08-28T04:10:00Z. Merged TUI work since the prior snapshot:
