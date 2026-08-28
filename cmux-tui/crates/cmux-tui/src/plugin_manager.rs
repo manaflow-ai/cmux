@@ -229,7 +229,10 @@ pub(crate) fn execute(positionals: &[String], options: CliOptions) -> Result<Val
 }
 
 fn command_requires_operation_lock(positionals: &[String]) -> bool {
-    matches!(positionals.first().map(String::as_str), Some("install" | "use" | "update" | "remove"))
+    matches!(
+        positionals.first().map(String::as_str),
+        Some("install" | "list" | "use" | "update" | "remove")
+    )
 }
 
 fn with_optional_operation_lock<T>(
@@ -285,15 +288,20 @@ fn install_command(positionals: &[String], options: &CliOptions) -> Result<Value
         let id = metadata.id;
         let selected = selected_plugin_cwd()?.is_some_and(|cwd| same_path(&cwd, &target));
         let config_snapshot = selected.then(capture_config_snapshot).transpose()?;
-        // Compute the exact JSON value that the config writer will install. Recovery
-        // uses it as a compare-and-swap guard, so a newer selection is never lost.
-        let expected_sidebar_plugin = if selected {
-            let command = resolved_run_command(&manifest, &target)?;
-            let cwd = canonical_path(&target)?;
-            Some(json!({"command": command, "cwd": cwd.display().to_string()}))
+        // Compute the exact JSON value that the config writer will install. Resolve
+        // the command from the staged tree, then map it to the final target so a
+        // forced replacement with a new executable path does not inspect the old
+        // installation.
+        let selected_plugin = if selected {
+            let command = resolved_run_command_for_target(&manifest, &temp_dir, &target)?;
+            let cwd = canonical_path(&target)?.display().to_string();
+            Some((command, cwd))
         } else {
             None
         };
+        let expected_sidebar_plugin = selected_plugin
+            .as_ref()
+            .map(|(command, cwd)| json!({"command": command, "cwd": cwd}));
         replace_installed_plugin_with_config(
             &root,
             &name,
@@ -302,12 +310,10 @@ fn install_command(positionals: &[String], options: &CliOptions) -> Result<Value
             config_snapshot,
             expected_sidebar_plugin,
             || {
-                if selected {
-                    let command = resolved_run_command(&manifest, &target)?;
-                    let cwd = canonical_path(&target)?;
+                if let Some((command, cwd)) = selected_plugin.as_ref() {
                     let outcome = config::write_sidebar_plugin(Some(&SidebarPluginConfig {
-                        command,
-                        cwd: Some(cwd.display().to_string()),
+                        command: command.clone(),
+                        cwd: Some(cwd.clone()),
                     }))?;
                     if let Some(error) = outcome.into_unsynced_error() {
                         return Err(error);
@@ -340,7 +346,7 @@ fn list_command(positionals: &[String], options: &CliOptions) -> Result<Value, M
     if positionals.len() != 1 {
         return Err(ManagerError::Usage("usage: cmux sidebar plugin list".to_string()));
     }
-    let plugins = installed_plugins(false)?;
+    let plugins = installed_plugins()?;
     Ok(Value::Array(plugins.iter().map(plugin_json).collect()))
 }
 
@@ -417,7 +423,7 @@ fn write_builtin_config(_options: &CliOptions) -> Result<Value, ManagerError> {
     let root = install_root()?;
     reconcile_install_transactions(&root)?;
     persist_sidebar_plugin(None)?;
-    let plugins = installed_plugins(false)?;
+    let plugins = installed_plugins()?;
     Ok(json!({"plugins": plugins.iter().map(plugin_json).collect::<Vec<_>>()}))
 }
 
@@ -450,15 +456,9 @@ fn reject_plugin_flags(
     Ok(())
 }
 
-fn installed_plugins(reconcile: bool) -> anyhow::Result<Vec<InstalledPlugin>> {
+fn installed_plugins() -> anyhow::Result<Vec<InstalledPlugin>> {
     let root = install_root()?;
-    // Read-only listing skips recovery so a read-only install root does not
-    // need a lock file. Mutating callers hold the operation lock and reconcile.
-    if reconcile {
-        reconcile_install_transactions(&root)?;
-    } else {
-        reject_listing_with_pending_transaction(&root)?;
-    }
+    reconcile_install_transactions(&root)?;
     let selected = selected_plugin_cwd()?;
     let mut plugins = Vec::new();
     let entries = match fs::read_dir(&root) {
@@ -496,22 +496,6 @@ fn installed_plugins(reconcile: bool) -> anyhow::Result<Vec<InstalledPlugin>> {
     Ok(plugins)
 }
 
-fn reject_listing_with_pending_transaction(install_root: &Path) -> anyhow::Result<()> {
-    let entries = match fs::read_dir(install_root) {
-        Ok(entries) => entries,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-        Err(error) => return Err(error.into()),
-    };
-    for entry in entries {
-        let entry = entry?;
-        let Some(name) = entry.file_name().to_str().map(str::to_owned) else { continue };
-        if name.starts_with('.') && name.ends_with(".install-journal.json") {
-            anyhow::bail!("plugin installation recovery is pending");
-        }
-    }
-    Ok(())
-}
-
 fn resolve_installed_plugin(selector: &str) -> Result<InstalledPlugin, ManagerError> {
     let forced_name = selector.strip_prefix("name:");
     let selector = forced_name.unwrap_or(selector);
@@ -523,7 +507,7 @@ fn resolve_installed_plugin(selector: &str) -> Result<InstalledPlugin, ManagerEr
         validate_plugin_name(selector)
             .map_err(|error| ManagerError::validation(Some("sidebar_plugin"), error.to_string()))?;
     }
-    installed_plugins(true)?
+    installed_plugins()?
         .into_iter()
         .find(|plugin| if by_id { plugin.id == selector } else { plugin.name == selector })
         .ok_or_else(|| {
@@ -607,6 +591,20 @@ fn resolved_run_command(manifest: &PluginManifest, dir: &Path) -> anyhow::Result
     let first = Path::new(&command[0]);
     if first.is_relative() {
         command[0] = canonical_path(&dir.join(first))?.display().to_string();
+    }
+    Ok(command)
+}
+
+fn resolved_run_command_for_target(
+    manifest: &PluginManifest,
+    staged_dir: &Path,
+    target_dir: &Path,
+) -> anyhow::Result<Vec<String>> {
+    let mut command = resolved_run_command(manifest, staged_dir)?;
+    let staged_root = canonical_path(staged_dir)?;
+    let target_root = canonical_path(target_dir)?;
+    if let Ok(relative) = Path::new(&command[0]).strip_prefix(&staged_root) {
+        command[0] = target_root.join(relative).display().to_string();
     }
     Ok(command)
 }
@@ -1599,6 +1597,17 @@ fn replace_installed_plugin_with_fs<F: InstallFilesystem, C: FnOnce() -> anyhow:
                 restore_config_snapshot(snapshot, journal.expected_sidebar_plugin.as_ref())
             {
                 rollback_errors.push(format!("config restore: {rollback_error}"));
+            }
+        }
+        if rollback_errors.is_empty() {
+            if let Err(sync_error) = sync_directory(install_root) {
+                rollback_errors.push(format!("install root sync: {sync_error}"));
+            }
+            if rollback_errors.is_empty() {
+                let registry = install_root.join(".registry");
+                if let Err(sync_error) = sync_directory(&registry) {
+                    rollback_errors.push(format!("registry sync: {sync_error}"));
+                }
             }
         }
         if rollback_errors.is_empty() {
