@@ -691,10 +691,8 @@ fn spawn_real_pty(spec: &SpawnSpec, handoff: &SpawnHandoff) -> anyhow::Result<Pt
                             signal_process_group(wait_guard.pid);
                         }
                         let status = wait_guard.child_mut().wait();
-                        let code = status
-                            .as_ref()
-                            .map(|status| status.exit_code() as i64)
-                            .unwrap_or(0);
+                        let code =
+                            status.as_ref().map(|status| status.exit_code() as i64).unwrap_or(0);
                         if status.is_ok() {
                             ChildLifecycle::mark_exited(&wait_lifecycle);
                             wait_guard.disarm();
@@ -1028,9 +1026,8 @@ async fn acquire_daemon_start_lock(
     let file = options
         .open(&lock_path)
         .map_err(|error| format!("daemon start lock open failed: {error}"))?;
-    let metadata = file
-        .metadata()
-        .map_err(|error| format!("daemon start lock stat failed: {error}"))?;
+    let metadata =
+        file.metadata().map_err(|error| format!("daemon start lock stat failed: {error}"))?;
     if !metadata.is_file() || metadata.uid() != uid || metadata.permissions().mode() & 0o022 != 0 {
         return Err("daemon start lock is not a private regular file".to_owned());
     }
