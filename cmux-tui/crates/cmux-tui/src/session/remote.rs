@@ -1517,6 +1517,7 @@ pub struct RemoteSession {
     provider_workspace_authority: Option<BearerToken>,
     provider_workspaces_guarded: AtomicBool,
     pipe_io_tap: Mutex<Option<PipeIoTap>>,
+    next_pipe_io_tap_id: AtomicU64,
 }
 
 /// One event on the raw byte stream a `--pipe-io` relay serves to its
@@ -1533,6 +1534,7 @@ pub enum PipeIoEvent {
 }
 
 struct PipeIoTap {
+    id: u64,
     surface: SurfaceId,
     sender: std::sync::mpsc::SyncSender<PipeIoEvent>,
 }
@@ -1892,6 +1894,7 @@ impl RemoteSession {
             provider_workspace_authority,
             provider_workspaces_guarded: AtomicBool::new(false),
             pipe_io_tap: Mutex::new(None),
+            next_pipe_io_tap_id: AtomicU64::new(1),
         });
 
         let reader_session = Arc::downgrade(&session);
@@ -2936,8 +2939,21 @@ impl RemoteSession {
         &self,
         surface: SurfaceId,
         sender: std::sync::mpsc::SyncSender<PipeIoEvent>,
-    ) {
-        *self.pipe_io_tap.lock().unwrap() = Some(PipeIoTap { surface, sender });
+    ) -> u64 {
+        let id = self.next_pipe_io_tap_id.fetch_add(1, Ordering::Relaxed);
+        *self.pipe_io_tap.lock().unwrap() = Some(PipeIoTap { id, surface, sender });
+        id
+    }
+
+    /// Remove a tap only when it is still the one installed by the caller.
+    /// A reconnect can install a newer tap while an older attach is unwinding;
+    /// an unconditional clear would then disconnect the live relay from its
+    /// event stream.
+    pub fn clear_pipe_io_tap(&self, id: u64) {
+        let mut tap = self.pipe_io_tap.lock().unwrap();
+        if tap.as_ref().is_some_and(|tap| tap.id == id) {
+            *tap = None;
+        }
     }
 
     /// Forwards one tap event, treating a full or dropped queue as a lost
@@ -3893,6 +3909,7 @@ fn test_session_with_writer(
         provider_workspace_authority,
         provider_workspaces_guarded: AtomicBool::new(false),
         pipe_io_tap: Mutex::new(None),
+        next_pipe_io_tap_id: AtomicU64::new(1),
     })
 }
 
@@ -5135,6 +5152,7 @@ mod tests {
             provider_workspace_authority,
             provider_workspaces_guarded: AtomicBool::new(false),
             pipe_io_tap: Mutex::new(None),
+            next_pipe_io_tap_id: AtomicU64::new(1),
         })
     }
 

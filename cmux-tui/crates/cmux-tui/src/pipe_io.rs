@@ -21,7 +21,7 @@
 //!   not respawn), 2 when the daemon connection was lost (respawning
 //!   reattaches and resyncs from a fresh replay).
 
-use std::io::{BufRead, Write};
+use std::io::{self, BufRead, Read, Write};
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, SyncSender};
@@ -41,6 +41,16 @@ pub const EXIT_DAEMON_LOST: i32 = 2;
 /// pump. A full queue means the embedder stopped reading; the session
 /// treats that as a lost transport rather than wedging its reader thread.
 const EVENT_QUEUE_CAPACITY: usize = 4096;
+
+/// Bound one stdin frame before JSON parsing and base64 decoding. The
+/// embedder sends keyboard and paste chunks, so a one-megabyte decoded limit
+/// is large enough for normal input while keeping a hostile parent from
+/// turning one line into an unbounded allocation.
+const MAX_PIPE_IO_INPUT_BYTES: usize = 1024 * 1024;
+/// The line bound includes the JSON bytes and its newline. It leaves room for
+/// base64 expansion and the small JSON envelope around one input chunk.
+const MAX_PIPE_IO_REQUEST_LINE_BYTES: usize = 2 * 1024 * 1024;
+const MAX_PIPE_IO_INPUT_BASE64_BYTES: usize = MAX_PIPE_IO_INPUT_BYTES.div_ceil(3) * 4;
 
 /// Emitted before any replay that is not the relay's first output: full
 /// reset plus erase-scrollback, so the replacement replay does not stack on
@@ -93,7 +103,15 @@ pub enum PipeIoRequest {
 pub fn parse_request(line: &str) -> anyhow::Result<PipeIoRequest> {
     let value: serde_json::Value = serde_json::from_str(line)?;
     if let Some(encoded) = value.get("input").and_then(serde_json::Value::as_str) {
+        anyhow::ensure!(
+            encoded.len() <= MAX_PIPE_IO_INPUT_BASE64_BYTES,
+            "input exceeds the {MAX_PIPE_IO_INPUT_BYTES}-byte limit"
+        );
         let bytes = base64::engine::general_purpose::STANDARD.decode(encoded)?;
+        anyhow::ensure!(
+            bytes.len() <= MAX_PIPE_IO_INPUT_BYTES,
+            "input exceeds the {MAX_PIPE_IO_INPUT_BYTES}-byte limit"
+        );
         return Ok(PipeIoRequest::Input(bytes));
     }
     if let Some(resize) = value.get("resize") {
@@ -111,6 +129,38 @@ pub fn parse_request(line: &str) -> anyhow::Result<PipeIoRequest> {
     Ok(PipeIoRequest::Unknown)
 }
 
+/// Read one complete JSON line without allowing `BufRead::lines` to allocate
+/// an attacker-controlled amount of memory. A final, shorter line at EOF is
+/// accepted, matching the standard `lines` behavior.
+fn read_request_line(reader: &mut impl BufRead, line: &mut String) -> io::Result<bool> {
+    line.clear();
+    let mut limited = reader.take((MAX_PIPE_IO_REQUEST_LINE_BYTES + 1) as u64);
+    let bytes_read = limited.read_line(line)?;
+    if bytes_read == 0 {
+        return Ok(false);
+    }
+    if bytes_read > MAX_PIPE_IO_REQUEST_LINE_BYTES
+        || (bytes_read == MAX_PIPE_IO_REQUEST_LINE_BYTES && !line.ends_with('\n'))
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "pipe-io request line exceeds its byte limit",
+        ));
+    }
+    Ok(true)
+}
+
+struct PipeIoTapGuard<'a> {
+    remote: &'a RemoteSession,
+    id: u64,
+}
+
+impl Drop for PipeIoTapGuard<'_> {
+    fn drop(&mut self) {
+        self.remote.clear_pipe_io_tap(self.id);
+    }
+}
+
 pub fn run(
     session: &Session,
     remote: &Arc<RemoteSession>,
@@ -122,7 +172,8 @@ pub fn run(
 ) -> anyhow::Result<PipeIoExitReason> {
     let (sender, receiver) = std::sync::mpsc::sync_channel(EVENT_QUEUE_CAPACITY);
     // Install before attach so the initial replay cannot be missed.
-    remote.install_pipe_io_tap(surface, sender.clone());
+    let tap_id = remote.install_pipe_io_tap(surface, sender.clone());
+    let tap_guard = PipeIoTapGuard { remote, id: tap_id };
     let handle = match session.try_surface_sized(surface, Some((cols.max(1), rows.max(1))))? {
         SurfaceAttach::Attached(handle) => handle,
         SurfaceAttach::Retired | SurfaceAttach::Missing => {
@@ -142,6 +193,9 @@ pub fn run(
     }
     spawn_stdin_pump(handle, sender, session.clone(), surface);
     let reason = pump_events_to_stdout(&receiver, &mut std::io::stdout().lock())?;
+    // Stop forwarding while the daemon probe runs. Otherwise events can fill
+    // the abandoned queue and falsely disconnect the session during probing.
+    drop(tap_guard);
     if reason == PipeIoExitReason::DaemonLost {
         return Ok(classify_daemon_loss(remote, socket_path, terminal));
     }
@@ -186,8 +240,13 @@ fn spawn_stdin_pump(
         .name("pipe-io-stdin".into())
         .spawn(move || {
             let stdin = std::io::stdin();
-            for line in stdin.lock().lines() {
-                let Ok(line) = line else { break };
+            let mut reader = stdin.lock();
+            let mut line = String::new();
+            loop {
+                let Ok(has_line) = read_request_line(&mut reader, &mut line) else { break };
+                if !has_line {
+                    break;
+                }
                 if line.trim().is_empty() {
                     continue;
                 }
@@ -302,6 +361,30 @@ mod tests {
         assert!(parse_request("not json").is_err());
         assert!(parse_request(r#"{"input":"@@not-base64@@"}"#).is_err());
         assert!(parse_request(r#"{"resize":{"cols":100}}"#).is_err());
+    }
+
+    #[test]
+    fn parse_request_rejects_oversized_input_before_decoding() {
+        let encoded = base64::engine::general_purpose::STANDARD
+            .encode(vec![b'x'; MAX_PIPE_IO_INPUT_BYTES + 1]);
+        let line = serde_json::json!({"input": encoded}).to_string();
+        assert!(parse_request(&line).is_err());
+    }
+
+    #[test]
+    fn request_line_reader_rejects_unterminated_and_oversized_lines() {
+        let mut exact = std::io::Cursor::new(format!(
+            "{}\n",
+            "x".repeat(MAX_PIPE_IO_REQUEST_LINE_BYTES - 1)
+        ));
+        let mut line = String::new();
+        assert!(read_request_line(&mut exact, &mut line).unwrap());
+
+        let mut oversized = std::io::Cursor::new("x".repeat(MAX_PIPE_IO_REQUEST_LINE_BYTES + 1));
+        assert_eq!(
+            read_request_line(&mut oversized, &mut line).unwrap_err().kind(),
+            std::io::ErrorKind::InvalidData
+        );
     }
 
     #[test]
