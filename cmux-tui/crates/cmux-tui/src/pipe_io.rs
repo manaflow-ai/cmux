@@ -30,7 +30,8 @@ use cmux_tui_core::SurfaceId;
 use cmux_tui_core::resource::TerminalPublicId;
 
 use crate::session::{
-    PipeIoEvent, PipeIoQueue, RemoteSession, Session, SurfaceAttach, SurfaceHandle,
+    PipeIoEvent, PipeIoQueue, PipeIoQueuePushError, RemoteSession, Session, SurfaceAttach,
+    SurfaceHandle,
     is_remote_surface_unavailable, is_remote_transport_failure,
 };
 
