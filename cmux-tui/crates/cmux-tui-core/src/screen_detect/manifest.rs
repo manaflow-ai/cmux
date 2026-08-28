@@ -768,3 +768,186 @@ fn compile_gate(gate: &ManifestGate) -> Result<CompiledGate, String> {
             .collect::<Result<_, _>>()?,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn input(screen: &str) -> DetectionInput<'_> {
+        DetectionInput { screen, osc_title: "", osc_progress: "" }
+    }
+
+    #[test]
+    fn screen_detect_bundled_manifests_all_parse_and_identify() {
+        let set = ManifestSet::bundled();
+        let ids: Vec<&str> = set.manifests().map(CompiledManifest::id).collect();
+        assert_eq!(ids.len(), 21, "all vendored manifests load: {ids:?}");
+        for expected in [
+            "amp", "agy", "claude", "cline", "codex", "cursor", "devin", "droid", "gemini",
+            "grok", "hermes", "kilo", "kimi", "kiro", "maki", "muse", "opencode", "pi",
+            "qodercli", "qwen", "copilot",
+        ] {
+            assert_eq!(
+                set.identify(expected).map(CompiledManifest::id),
+                Some(expected),
+                "{expected} identifies itself"
+            );
+        }
+    }
+
+    #[test]
+    fn screen_detect_identify_normalizes_paths_aliases_and_case() {
+        let set = ManifestSet::bundled();
+        for (name, id) in [
+            ("/opt/homebrew/bin/codex", "codex"),
+            ("claude-code", "claude"),
+            ("CLAUDE", "claude"),
+            ("cursor-agent", "cursor"),
+            ("opencode.exe", "opencode"),
+            ("github-copilot", "copilot"),
+            (r"C:\Users\dev\kiro-cli.exe", "kiro"),
+        ] {
+            assert_eq!(set.identify(name).map(CompiledManifest::id), Some(id), "{name}");
+        }
+        for shell in ["bash", "zsh", "vim", "node", "muse-helper", "codex-helper", ""] {
+            assert!(set.identify(shell).is_none(), "{shell} is not an agent");
+        }
+    }
+
+    #[test]
+    fn screen_detect_rule_priority_and_gates_pick_the_strongest_match() {
+        let manifest = compile_manifest_source(
+            r#"
+id = "codex"
+
+[[rules]]
+id = "low"
+state = "idle"
+priority = 1
+contains = ["match"]
+
+[[rules]]
+id = "high"
+state = "working"
+priority = 10
+contains = ["match"]
+all = [{ any = [{ regex = ["w[io]n"] }, { contains = ["fallback"] }] }]
+not = [{ contains = ["suppressed"] }]
+
+[[rules]]
+id = "line"
+state = "blocked"
+priority = 5
+line_regex = ["^prompt: .*\\?$"]
+"#,
+        )
+        .unwrap();
+
+        let matched = manifest.detect(input("a match that won"));
+        assert_eq!(matched.state, ScreenState::Working);
+        assert_eq!(matched.matched_rule.as_deref(), Some("high"));
+
+        // The not gate suppresses the strong rule; the weak one remains.
+        let suppressed = manifest.detect(input("a match that won but suppressed"));
+        assert_eq!(suppressed.state, ScreenState::Idle);
+        assert_eq!(suppressed.matched_rule.as_deref(), Some("low"));
+
+        // line_regex must match one whole line, not the flattened text.
+        let lined = manifest.detect(input("noise\nprompt: continue?\ntail"));
+        assert_eq!(lined.state, ScreenState::Blocked);
+        let unlined = manifest.detect(input("prompt: continue? trailing"));
+        assert_eq!(unlined.state, ScreenState::Idle);
+        assert_eq!(unlined.matched_rule, None, "known-agent idle fallback");
+    }
+
+    #[test]
+    fn screen_detect_regions_scope_matching_to_screen_slices() {
+        let manifest = compile_manifest_source(
+            r#"
+id = "codex"
+
+[[rules]]
+id = "tail"
+state = "working"
+priority = 10
+region = "bottom_non_empty_lines(2)"
+contains = ["spinner"]
+
+[[rules]]
+id = "title"
+state = "blocked"
+priority = 20
+region = "osc_title"
+contains = ["action required"]
+"#,
+        )
+        .unwrap();
+
+        let tail = manifest.detect(input("spinner far above\nline\nlast\nend"));
+        assert_eq!(tail.state, ScreenState::Idle, "match above the bottom slice is out of scope");
+        let hit = manifest.detect(input("above\nline\nspinner here\nend"));
+        assert_eq!(hit.state, ScreenState::Working);
+
+        let titled = manifest.detect(DetectionInput {
+            screen: "plain",
+            osc_title: "⚠ Action Required",
+            osc_progress: "",
+        });
+        assert_eq!(titled.state, ScreenState::Blocked);
+    }
+
+    #[test]
+    fn screen_detect_codex_manifest_classifies_live_screens() {
+        let set = ManifestSet::bundled();
+        let codex = set.identify("codex").unwrap();
+
+        let working =
+            codex.detect(input("context\n\n• Working (esc to interrupt)\n› \n"));
+        assert_eq!(working.state, ScreenState::Working);
+
+        let blocked = codex.detect(input("$ rm -rf build\nAllow command?\n"));
+        assert_eq!(blocked.state, ScreenState::Blocked);
+
+        let idle = codex.detect(input("ordinary prompt text"));
+        assert_eq!(idle.state, ScreenState::Idle);
+        assert!(idle.matched_rule.is_none());
+
+        let viewer = codex.detect(input(
+            "› old prompt\ntranscript\n↑/↓ to scroll  pgup/pgdn to page\nhome/end to jump  q to quit  esc to edit prev\n",
+        ));
+        assert!(viewer.skip_state_update, "transcript viewer keeps the prior state");
+    }
+
+    #[test]
+    fn screen_detect_manifest_validation_rejects_malformed_sources() {
+        for (source, why) in [
+            ("id = \"x\"\n", "no rules"),
+            (
+                "id = \"x\"\n[[rules]]\nid = \"r\"\nstate = \"idle\"\nregion = \"nope\"\ncontains = [\"a\"]\n",
+                "unknown region",
+            ),
+            (
+                "id = \"x\"\n[[rules]]\nid = \"r\"\nstate = \"working\"\nskip_state_update = true\ncontains = [\"a\"]\n",
+                "skip_state_update requires unknown state",
+            ),
+            (
+                "id = \"x\"\n[[rules]]\nid = \"r\"\nstate = \"idle\"\nregex = [\"(\"]\n",
+                "invalid regex",
+            ),
+            (
+                "id = \"x\"\n[[rules]]\nid = \"r\"\nstate = \"idle\"\nsurprise = true\ncontains = [\"a\"]\n",
+                "unknown field",
+            ),
+            (
+                "id = \"x\"\nmin_engine_version = 99\n[[rules]]\nid = \"r\"\nstate = \"idle\"\ncontains = [\"a\"]\n",
+                "future engine version",
+            ),
+            (
+                "id = \"x\"\n[[rules]]\nid = \"r\"\nstate = \"idle\"\nnot = [{ contains = [\"a\"] }]\n",
+                "not-only rule has no positive matcher",
+            ),
+        ] {
+            assert!(compile_manifest_source(source).is_err(), "{why}");
+        }
+    }
+}
