@@ -499,9 +499,11 @@ extension TerminalController {
     ) -> ControlAgentLaunchCommand {
         let environment = kind.flatMap { kind in
             command.environment.map {
-                AgentLaunchEnvironmentPolicy().selectedRestoreEnvironment(
+                AgentLaunchEnvironmentPolicy().selectedRestoreRecordEnvironment(
                     from: $0,
-                    kind: kind
+                    kind: kind,
+                    launcher: command.launcher,
+                    arguments: command.arguments
                 )
             }
         } ?? command.environment

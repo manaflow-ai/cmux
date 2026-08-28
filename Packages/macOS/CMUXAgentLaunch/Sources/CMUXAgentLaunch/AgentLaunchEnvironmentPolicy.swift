@@ -174,6 +174,36 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
         return selected
     }
 
+    /// Returns the bounded environment metadata that may cross the structured
+    /// restore-record boundary. Subrouter's Codex resume marker is retained
+    /// only when the captured argv independently proves routed execution; the
+    /// ordinary restore policy still removes it before process replay.
+    public func selectedRestoreRecordEnvironment(
+        from env: [String: String],
+        kind: String?,
+        launcher: String?,
+        arguments: [String]
+    ) -> [String: String] {
+        var selected = selectedRestoreEnvironment(from: env, kind: kind)
+        let normalizedKind = kind?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        guard normalizedKind == "codex" else { return selected }
+
+        let router = SubrouterCodexResumeRouting()
+        guard router.resumeArguments(
+            launcher: launcher,
+            sessionID: "restore-record-validation",
+            launchArguments: arguments,
+            environment: env
+        ) != nil,
+        let marker = router.capturedMarker(in: env) else {
+            return selected
+        }
+        selected[SubrouterCodexResumeRouting.environmentKey] = marker
+        return selected
+    }
+
     /// Returns a replay-safe value for a single environment variable, or `nil` when it should drop.
     public func sanitizedValue(key: String, value: String?) -> String? {
         guard Self.safeEnvironmentKeys.contains(key) else { return nil }
