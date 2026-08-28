@@ -11,6 +11,7 @@ import {
   nextAlarmTime,
   OFFLINE_TIMEOUT_MS,
   PRUNE_AFTER_MS,
+  removalOfflineEvents,
   resolveSubscribeDeadline,
   routesEqual,
   shouldPrune,
@@ -158,6 +159,38 @@ describe("expireInstances", () => {
     const fresh = onlineInstance({ tag: "fresh", lastSeenAt: T0 + OFFLINE_TIMEOUT_MS - 1 });
     const { expired } = expireInstances([stale, fresh], T0 + OFFLINE_TIMEOUT_MS);
     expect(expired.map((i) => i.tag)).toEqual(["stale"]);
+  });
+});
+
+describe("removalOfflineEvents", () => {
+  it("emits a goodbye-reason offline event only for instances that were online", () => {
+    const online = onlineInstance({ tag: "a" });
+    const offline = onlineInstance({ tag: "b", online: false, onlineSince: undefined, offlineAt: T0 });
+    const events = removalOfflineEvents([online, offline], T0 + 1_000);
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      type: "offline",
+      reason: "goodbye",
+      instance: { tag: "a", online: false, offlineAt: T0 + 1_000 },
+    });
+  });
+
+  it("scrubs private Iroh hints from the emitted instance", () => {
+    const events = removalOfflineEvents([
+      onlineInstance({
+        routes: [{
+          id: "iroh",
+          kind: "iroh",
+          endpoint: {
+            type: "peer",
+            id: "a".repeat(64),
+            relay_url: "https://use4.relay.cmux.dev/",
+            direct_addrs: ["192.168.1.20:49152"],
+          },
+        }],
+      }),
+    ], T0 + 1_000);
+    expect(JSON.stringify(events)).not.toContain("192.168.1.20");
   });
 });
 

@@ -11,12 +11,16 @@
 //   POST /v1/replies                      park one phone inline-notification reply
 //   GET  /v1/replies?macDeviceId=…        pending replies for one Mac
 //   POST /v1/replies/ack                  remove processed replies
+//   POST /v1/admin/purge-user             backend-only: remove a deleted
+//                                         account's devices from one team
 //
 // Auth on every /v1 route: `Authorization: Bearer <Stack access token>` plus
 // optional `X-Cmux-Team-Id` / `?teamId=` team scoping, verified in auth.ts the
 // same way web/app/api verifies native callers. The worker resolves the team,
 // derives the per-team Durable Object from the VERIFIED team id, and forwards;
-// the DO never sees unauthenticated input.
+// the DO never sees unauthenticated input. The one exception is the admin
+// purge route, whose bearer is the server-only ADMIN_PURGE_SECRET instead of a
+// Stack token: it runs after account deletion, when no user token exists.
 
 import {
   bearerToken,
@@ -30,9 +34,11 @@ import {
 } from "./auth";
 import { MAX_SUBSCRIBE_AGE_MS, TeamPresence } from "./do";
 import {
+  isAdminPurgeAuthorized,
   isConnectivityPublisherAuthorized,
   parseConnectivityInvalidation,
   parseHeartbeat,
+  parsePurgeUser,
   readBoundedJson,
 } from "./validate";
 import { MAX_PAIRED_MAC_BACKUP_BYTES, normalizeClientScope, parsePairedMacBackup } from "./syncPairedMacs";
@@ -48,6 +54,10 @@ export { TeamPresence };
 export interface Env extends AuthEnv {
   TEAM_PRESENCE: DurableObjectNamespace<TeamPresence>;
   CONNECTIVITY_INVALIDATION_SECRET?: string;
+  /** Worker secret (like CONNECTIVITY_INVALIDATION_SECRET, provisioned via
+   * `wrangler secret put`, never in [vars]) shared with the web backend's
+   * PRESENCE_ADMIN_PURGE_SECRET. Unset disables /v1/admin/purge-user (503). */
+  ADMIN_PURGE_SECRET?: string;
 }
 
 function json(body: unknown, status = 200): Response {
@@ -165,6 +175,31 @@ export default {
       if (!parsed.ok) return json({ error: parsed.error }, 400);
       const stub = connectivityStub(env, user.id);
       return json(await stub.ackPhoneReplies(parsed.replyIds));
+    }
+
+    if (url.pathname === "/v1/admin/purge-user") {
+      // Account-deletion purge (called by the web backend AFTER the account is
+      // gone, so a Stack token cannot exist). The bearer is the server-only
+      // ADMIN_PURGE_SECRET, mirroring CONNECTIVITY_INVALIDATION_SECRET: an
+      // unset secret disables the route (503, so the best-effort caller can
+      // tell "not configured" from "bad credential"), and the compare is the
+      // same constant-work HMAC as the connectivity publisher check.
+      if (request.method !== "POST") return json({ error: "method_not_allowed" }, 405);
+      if (!env.ADMIN_PURGE_SECRET?.trim()) {
+        return json({ error: "purge_not_configured" }, 503);
+      }
+      if (!(await isAdminPurgeAuthorized(bearerToken(request), env.ADMIN_PURGE_SECRET))) {
+        return unauthorized();
+      }
+      const body = await readBoundedJson(request, 1_024);
+      if (!body.ok) return json({ error: "invalid_request" }, body.status);
+      const parsed = parsePurgeUser(body.value);
+      if (!parsed.ok) return json({ error: parsed.error }, 400);
+      // The team id names the DO directly: there is no verified user to
+      // resolve membership against, and the secret IS the authority. An
+      // unknown team simply reaches an empty object and purges nothing.
+      const stub = env.TEAM_PRESENCE.get(env.TEAM_PRESENCE.idFromName(parsed.purge.teamId));
+      return json(await stub.purgeUser(parsed.purge.userId));
     }
 
     if (url.pathname === "/v1/presence/heartbeat") {

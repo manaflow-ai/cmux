@@ -1878,6 +1878,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connectionRecoveryAttemptDeadlineTask?.cancel()
         automaticReconnectRetryTask?.cancel()
         presenceTask?.cancel()
+        presenceRegistryRefreshTask?.cancel()
         networkPathObservationTask?.cancel()
         connectionMethodObservationTask?.cancel()
         terminalEventListenerTask?.cancel()
@@ -2023,8 +2024,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         hasHiddenComputers = false
         resetTerminalThemes()
         // Likewise drop the registry-backed device tree so a shared device never
-        // shows the previous user's team devices after sign-out.
+        // shows the previous user's team devices after sign-out. Authority
+        // resets with it: the next account's tree falls back to its paired
+        // Macs until its own first fetch succeeds.
         registryDevices = []
+        registryDevicesAreAuthoritative = false
         // Reset the in-memory restoring flags; hasKnownPairedMac stays driven by
         // the hide path. On a real account switch the next reconnect's no-mac
         // branch clears the hint. Bump the reconnect generation so any in-flight
@@ -2109,6 +2113,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         presenceTask?.cancel()
         presenceTask = nil
         presenceMap = PresenceMap()
+        // A presence-triggered registry refresh armed under the old team must
+        // not fire (or hold its throttle window) into the new one.
+        cancelPresenceTriggeredRegistryRefresh()
         evaluatePresenceSubscription()
         // Secondary aggregation: tear down the OTHER Macs' read-only subscriptions
         // and drop their aggregated rows so the old team's Macs stop showing. Keep
@@ -2145,6 +2152,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         hiddenComputers = []
         hasHiddenComputers = false
         registryDevices = []
+        registryDevicesAreAuthoritative = false
         teamScopeCleanupTask?.cancel()
         teamScopeCleanupTask = Task {
             if let refresher {
@@ -3287,6 +3295,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// shows rather than going blank.
     public internal(set) var registryDevices: [RegistryDevice] = []
 
+    /// Whether ``registryDevices`` reflects a SUCCESSFUL registry fetch for
+    /// the current account/team scope. A successful `GET /api/devices`
+    /// response is the membership authority: a paired Mac absent from it
+    /// signed out (it deregisters on the way out) and must leave the tree, so
+    /// ``deviceTreeDevices`` stops synthesizing rows from the local paired
+    /// store even when the response is empty. The local pairing data itself
+    /// is never deleted (the Mac may sign back in later). False until the
+    /// first fetch completes and after an auth-rejected fetch or a scope
+    /// reset, where the paired-store fallback remains the
+    /// registry-unreachable degradation path.
+    public internal(set) var registryDevicesAreAuthoritative = false
+
     /// The cmux device id of the Mac the live connection currently targets, or
     /// `nil` when not connected. Used by the device tree to mark which device row
     /// is live.
@@ -3340,6 +3360,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard let deviceRegistry,
               let scope = await currentScopeSnapshot() else {
             registryDevices = []
+            registryDevicesAreAuthoritative = false
             recordAppEvent(
                 .deviceRegistryLoadFailed,
                 startedAt: startedAt,
@@ -3362,6 +3383,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // different user signed in must not blank the new user's tree.
             if await isScopeCurrent(scope) {
                 registryDevices = []
+                registryDevicesAreAuthoritative = false
             }
             recordAppEvent(
                 .deviceRegistryLoadFailed,
@@ -3405,6 +3427,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             if lhsConnected != rhsConnected { return lhsConnected }
             return lhs.lastSeenAt > rhs.lastSeenAt
         }
+        // The response was decoded for this scope: from here membership is
+        // authoritative and an empty list means "no signed-in Macs", not "the
+        // registry is down", so the paired-store fallback stays off.
+        registryDevicesAreAuthoritative = true
         recordAppEvent(
             .deviceRegistryLoadSucceeded,
             startedAt: startedAt,
@@ -3413,17 +3439,23 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     /// The device-tree data source, honoring the registry's best-effort/fallback
-    /// contract: the registry list when it loaded, otherwise the locally paired
-    /// Macs synthesized into the same two-level shape.
+    /// contract: the registry list once a fetch succeeded, otherwise the locally
+    /// paired Macs synthesized into the same two-level shape.
     ///
-    /// When `/api/devices` is unreachable, unauthorized, or malformed,
-    /// ``registryDevices`` stays empty; the tree must not collapse to "no devices"
-    /// while the phone still has usable paired Macs. Each paired Mac becomes a
-    /// device with a single `default` instance carrying its routes, so the tree
-    /// (and its connect-on-tap) keeps working with the cloud down. The connected
-    /// device sorts first, then most-recently-seen.
+    /// Before the first fetch completes, or when `/api/devices` is unreachable,
+    /// unauthorized, or malformed, ``registryDevices`` is non-authoritative; the
+    /// tree must not collapse to "no devices" while the phone still has usable
+    /// paired Macs. Each paired Mac becomes a device with a single `default`
+    /// instance carrying its routes, so the tree (and its connect-on-tap) keeps
+    /// working with the cloud down. After a SUCCESSFUL fetch the registry is the
+    /// membership authority (``registryDevicesAreAuthoritative``): a paired Mac
+    /// absent from the response signed out and must not be synthesized back in,
+    /// even when the response is empty. The connected device sorts first, then
+    /// most-recently-seen.
     public var deviceTreeDevices: [RegistryDevice] {
-        if !registryDevices.isEmpty { return registryDevices }
+        if registryDevicesAreAuthoritative || !registryDevices.isEmpty {
+            return registryDevices
+        }
         let connectedID = connectedMacDeviceID
         return pairedMacs
             .map { mac in
@@ -3457,6 +3489,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// registry rows instead of registry "last seen" staleness guesses.
     public private(set) var presenceMap = PresenceMap()
     private var presenceTask: Task<Void, Never>?
+    /// Single-flight presence-triggered registry refresh (see
+    /// ``schedulePresenceTriggeredRegistryRefresh(scope:)``). The pending flag
+    /// is the trailing-edge coalescer: every trigger landing while a pass
+    /// waits or fetches folds into exactly one follow-up fetch. The generation
+    /// token keeps a cancelled task's deferred cleanup from clobbering a newer
+    /// task's slot (same ownership pattern as the pushed-route sync task).
+    @ObservationIgnored var presenceRegistryRefreshTask: Task<Void, Never>?
+    @ObservationIgnored private var presenceRegistryRefreshTaskGeneration: UUID?
+    @ObservationIgnored private var presenceRegistryRefreshPending = false
+    @ObservationIgnored private var presenceRegistryRefreshThrottle =
+        MobilePresenceRegistryRefreshThrottle()
 
     /// Start or stop the presence subscription to match the session: running
     /// while signed in (and a client is injected), torn down with a blanked map
@@ -3469,6 +3512,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             presenceTask?.cancel()
             presenceTask = nil
             presenceMap = PresenceMap()
+            // No live stream means no membership evidence: drop any armed
+            // refresh so a stale-scope fetch cannot fire after sign-out.
+            cancelPresenceTriggeredRegistryRefresh()
         }
     }
 
@@ -3567,6 +3613,92 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 )
             }
         }
+        // Membership evidence: a clean `goodbye` is how a signing-out Mac
+        // leaves the registry (it deletes its instance row on the way out),
+        // and an online host the registry list does not carry is a Mac that
+        // just signed (back) in and re-registered. Refresh the durable list so
+        // tree membership tracks sign-out/sign-in live, throttled because
+        // goodbyes also fire on plain quits and a reconnect burst must not
+        // stampede `/api/devices`. iOS instances never render in the device
+        // tree, so their transitions cannot change its membership. Without a
+        // registry client there is nothing to refetch (and the load's guard
+        // path would blank a directly-seeded list), so skip entirely.
+        guard deviceRegistry != nil else { return }
+        switch update {
+        case .offline(let instance, reason: .goodbye)
+            where instance.platform.lowercased() != "ios":
+            schedulePresenceTriggeredRegistryRefresh(scope: scope)
+        case .online(let instance)
+            where instance.platform.lowercased() != "ios"
+                && !registryDevices.contains(where: {
+                    $0.deviceId == instance.deviceId
+                }):
+            schedulePresenceTriggeredRegistryRefresh(scope: scope)
+        default:
+            break
+        }
+    }
+
+    /// Schedules a throttled ``loadRegistryDevices()`` for presence evidence
+    /// that team membership changed (see ``applyPresenceUpdate``).
+    ///
+    /// Single-flight with a trailing edge: the first trigger fetches after
+    /// whatever delay ``MobilePresenceRegistryRefreshThrottle`` imposes, and a
+    /// trigger arriving while a pass waits or fetches re-arms exactly one
+    /// follow-up pass: a goodbye landing mid-fetch is never dropped, because
+    /// that fetch may have read the registry before the departing Mac's
+    /// deregistration committed. Scope-guarded like every registry load, and
+    /// torn down at team/sign-out boundaries via
+    /// ``cancelPresenceTriggeredRegistryRefresh()``.
+    func schedulePresenceTriggeredRegistryRefresh(
+        scope: MobileShellScopeSnapshot
+    ) {
+        presenceRegistryRefreshPending = true
+        guard presenceRegistryRefreshTask == nil else { return }
+        let clock = controlPlaneSchedulingClock
+        let taskGeneration = UUID()
+        presenceRegistryRefreshTaskGeneration = taskGeneration
+        presenceRegistryRefreshTask = Task { @MainActor [weak self] in
+            defer {
+                if let self,
+                   self.presenceRegistryRefreshTaskGeneration == taskGeneration {
+                    self.presenceRegistryRefreshTask = nil
+                    self.presenceRegistryRefreshTaskGeneration = nil
+                }
+            }
+            while !Task.isCancelled {
+                guard let self, self.presenceRegistryRefreshPending else {
+                    return
+                }
+                self.presenceRegistryRefreshPending = false
+                let delay = self.presenceRegistryRefreshThrottle
+                    .delayBeforeNextFetch(now: self.runtime?.now() ?? Date())
+                if delay > 0 {
+                    guard (try? await clock.sleep(for: .seconds(delay))) != nil
+                    else { return }
+                }
+                guard !Task.isCancelled,
+                      await self.isScopeCurrent(scope) else { return }
+                // Stamp the start BEFORE awaiting the fetch so a trigger that
+                // lands mid-fetch schedules its follow-up a full window out.
+                self.presenceRegistryRefreshThrottle.noteFetchStarted(
+                    now: self.runtime?.now() ?? Date()
+                )
+                await self.loadRegistryDevices()
+            }
+        }
+    }
+
+    /// Tears down the presence-triggered registry refresh at a session or
+    /// team boundary: a pending fetch must not fire under the next scope, and
+    /// the throttle resets so the next scope's first trigger fetches
+    /// immediately.
+    private func cancelPresenceTriggeredRegistryRefresh() {
+        presenceRegistryRefreshTask?.cancel()
+        presenceRegistryRefreshTask = nil
+        presenceRegistryRefreshTaskGeneration = nil
+        presenceRegistryRefreshPending = false
+        presenceRegistryRefreshThrottle.reset()
     }
 
     private func scheduleSecondaryAggregationAfterPushedRoutes(

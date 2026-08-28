@@ -69,6 +69,7 @@ import {
 } from "../../../services/vms/errors";
 import type { ProviderId } from "../../../services/vms/drivers";
 import { jsonResponse } from "../../../services/vms/routeHelpers";
+import { schedulePresenceAccountPurge } from "../../../services/presence/adminPurge";
 import { createHostedSubrouterClient } from "../../../services/subrouter/hostedClient";
 import {
   createLegacySubrouterRetirementClient,
@@ -350,6 +351,11 @@ export async function DELETE(request: Request): Promise<Response> {
     // final Stack deletion when the distinct response below is returned.
     await deleteCmuxOwnedAccountRows(userId, accountScope.teamIds);
     cmuxOwnedRowsDeleted = true;
+    // The registry rows are gone; now sweep the presence worker's live state
+    // for the same deletion teams so co-members stop seeing the deleted Mac
+    // as online. Best-effort by design: presence self-heals (45s offline, 24h
+    // prune), so this must never fail, block, or delay the Stack deletion.
+    schedulePresenceAccountPurge({ userId, teamIds: accountScope.teamIds });
     try {
       await markAccountDeletionTombstoneStackDeletePending(userId);
       await stackUser.delete();

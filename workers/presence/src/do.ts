@@ -71,6 +71,15 @@ import {
   type PairedMacBackupOp,
   type PairedMacBackupRecord,
 } from "./syncPairedMacs";
+import {
+  INSTANCE_PREFIX,
+  instanceKey,
+  OWNER_PREFIX,
+  ownerKey,
+  purgeUserDevices,
+  removeInstanceForSignout,
+  sweepOrphanedOwnerPins,
+} from "./presenceStorage";
 import { sanitizePublishedRoutes } from "./routePrivacy";
 import {
   ackPhoneReplies,
@@ -81,12 +90,8 @@ import {
   type StoredPhoneReply,
 } from "./replies";
 
-const INSTANCE_PREFIX = "inst:";
-/** `owner:<deviceId>` -> Stack user id pinned on first heartbeat. Durable:
- * never pruned with the presence tail (see checkDeviceOwner in core.ts), so
- * an idle device cannot be re-claimed by a co-member. Bounded by
- * MAX_DEVICES_PER_TEAM (owner pins are the DO's device records). */
-const OWNER_PREFIX = "owner:";
+// Instance/owner key space (`inst:`/`owner:`) lives in presenceStorage.ts,
+// with the signout/prune/purge removal lifecycle that operates on it.
 const TEAM_ID_KEY = "meta:teamId";
 /** Max bytes of an inbound WS message the DO will parse (the `sync.hello`).
  * Client-controlled input on a live DO, so it is bounded before JSON.parse to
@@ -185,16 +190,6 @@ export interface HeartbeatError {
   status: number;
 }
 
-function instanceKey(deviceId: string, tag: string): string {
-  // deviceId is a validated fixed-format UUID, so the composite key is
-  // unambiguous even though tags may contain ":".
-  return `${INSTANCE_PREFIX}${deviceId}:${tag}`;
-}
-
-function ownerKey(deviceId: string): string {
-  return `${OWNER_PREFIX}${deviceId}`;
-}
-
 export class TeamPresence extends DurableObject {
   /** Live SSE subscribers; in-memory only. An evicted DO drops the streams and
    * clients reconnect, which re-delivers a fresh snapshot. */
@@ -234,6 +229,22 @@ export class TeamPresence extends DurableObject {
         lastSeenAt: now,
         offlineAt: now,
       });
+    }
+
+    if (existing !== undefined && beat.stopping && beat.signout) {
+      // Signout goodbye: the instance signed out of its account, so it leaves
+      // the list entirely instead of lingering as an offline record. Removal,
+      // pin release, and the sync tombstone live in presenceStorage.ts; the
+      // owner guard above already ensured only the pinned owner gets here.
+      const removal = await removeInstanceForSignout(this.syncStorage(), existing, beat, now);
+      this.broadcast(removal.events);
+      for (const delta of removal.deltas) this.broadcastSync(delta);
+      // A signout tombstone may be this team's last activity (no instances
+      // left to schedule a heartbeat-driven alarm), so schedule its GC now,
+      // like backupPairedMacs does for its collection.
+      const gcTime = await nextTombstoneGcTime(this.syncStorage(), DEVICES_COLLECTION);
+      if (gcTime !== null) await this.ensureAlarmAt(gcTime);
+      return this.heartbeatOk(teamId, removal.instance);
     }
 
     // Registry-mirrored caps (see checkPresenceCaps in core.ts): 200 devices
@@ -348,6 +359,26 @@ export class TeamPresence extends DurableObject {
   async snapshot(teamId: string): Promise<string> {
     await this.rememberTeamId(teamId);
     return JSON.stringify(buildSnapshot(teamId, await this.allInstances(), Date.now()));
+  }
+
+  /** Account-deletion purge: remove every device `userId` owns from this
+   * team's presence map (their `inst:` records, their `owner:` pins, and
+   * their synced device records, tombstoned), and broadcast the resulting
+   * offline events and deltas. Authorization (the server-only admin purge
+   * secret) happened in the worker; the DO trusts its caller, exactly like
+   * `heartbeat`. */
+  async purgeUser(userId: string): Promise<{ ok: true; devicesPurged: number }> {
+    const now = Date.now();
+    const result = await purgeUserDevices(this.syncStorage(), userId, now);
+    this.broadcast(result.events);
+    for (const delta of result.deltas) this.broadcastSync(delta);
+    if (result.deltas.length > 0) {
+      // The purged team may go quiet with no instances left to schedule an
+      // alarm; make sure the tombstones still get GC'd (see the signout path).
+      const gcTime = await nextTombstoneGcTime(this.syncStorage(), DEVICES_COLLECTION);
+      if (gcTime !== null) await this.ensureAlarmAt(gcTime);
+    }
+    return { ok: true, devicesPurged: result.devicesPurged };
   }
 
   /** Back up a user's saved-host (paired-Mac) list. Called only by the worker
@@ -847,6 +878,14 @@ export class TeamPresence extends DurableObject {
         all.delete(key);
       }
     }
+    // Release owner pins for devices with no instance left (see OWNER_PREFIX
+    // in presenceStorage.ts): after the prune above, a device absent from the
+    // map has been fully offline for the 24h retention (or was removed by a
+    // signout/purge whose own release was interrupted), so its claim lapses.
+    await sweepOrphanedOwnerPins(
+      this.syncStorage(),
+      new Set([...all.values()].map((instance) => instance.deviceId)),
+    );
     this.broadcast(events);
     // Project the (possibly mutated) presence state onto the synced device-list
     // collection: a prune that removed a device's last instance tombstones it

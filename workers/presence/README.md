@@ -16,11 +16,12 @@ solo-account user id).
 | Route | Method | Purpose |
 | --- | --- | --- |
 | `/healthz` | GET | liveness (no auth) |
-| `/v1/presence/heartbeat` | POST | announce an app instance; `{deviceId, platform, tag?, displayName?, capabilities?, stopping?}`; `stopping: true` is a clean-shutdown goodbye |
+| `/v1/presence/heartbeat` | POST | announce an app instance; `{deviceId, platform, tag?, displayName?, capabilities?, stopping?, signout?}`; `stopping: true` is a clean-shutdown goodbye; adding `signout: true` means the instance signed out of its account and is removed from the list entirely (its device's owner pin is released with its last instance) |
 | `/v1/presence/snapshot` | GET | one-shot presence map |
 | `/v1/presence/subscribe` | GET | WebSocket upgrade or SSE stream: `snapshot` first, then `online` / `offline` / `seen` events |
 | `/v1/connectivity/subscribe` | GET | quiet WebSocket isolated by the verified Stack user; carries only route-revision invalidations |
 | `/v1/connectivity/invalidate` | POST | backend-only publication of `{revision}` to every connected Mac and iPhone for the verified Stack user |
+| `/v1/admin/purge-user` | POST | backend-only account-deletion purge of `{teamId, userId}`: removes every device the user owns from that team's presence (instances, owner pins, synced records); auth is `Authorization: Bearer <ADMIN_PURGE_SECRET>`, not a Stack token (the account is already gone); 503 when the secret is unset |
 
 The heartbeat response returns `heartbeatIntervalMs` (15s) and
 `offlineTimeoutMs` (45s); hosts should follow the returned cadence rather than
@@ -88,7 +89,9 @@ Required GitHub repository secrets:
 
 The Worker secret `CONNECTIVITY_INVALIDATION_SECRET` and web server secret
 `CMUX_CONNECTIVITY_INVALIDATION_SECRET` must contain the same random value of
-at least 32 characters.
+at least 32 characters. Likewise the Worker secret `ADMIN_PURGE_SECRET` and
+web server secret `PRESENCE_ADMIN_PURGE_SECRET` (the account-deletion purge);
+leaving it unset disables `/v1/admin/purge-user` with a 503.
 
 One-time Worker secrets (survive deploys; production Stack project values):
 

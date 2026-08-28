@@ -62,6 +62,8 @@ const realDeleteObject = storageModule.deleteObject;
 const vaultUsageModule = await import("../services/vault/usage");
 const realWithVaultUserQuotaLock = vaultUsageModule.withVaultUserQuotaLock;
 const vmErrorsModule = await import("../services/vms/errors");
+const presencePurgeModule = await import("../services/presence/adminPurge");
+const realSchedulePresenceAccountPurge = presencePurgeModule.schedulePresenceAccountPurge;
 const workflowsModule = await import("../services/vms/workflows");
 const realDestroyVm = workflowsModule.destroyVm;
 const realListUserVms = workflowsModule.listUserVms;
@@ -332,6 +334,7 @@ let tombstoneCompleteError: unknown = null;
 let tombstoneCleanupIncompleteError: unknown = null;
 let routeEvents: string[] = [];
 let accountLifecycleEvents: string[] = [];
+let presencePurgeCalls: Array<{ readonly userId: string; readonly teamIds: readonly string[] }> = [];
 let stackDeleteError: unknown = null;
 let stackUserIds: Array<string | undefined> = [];
 let selectResults: unknown[][] = [];
@@ -613,6 +616,15 @@ mock.module("../services/vms/workflows", () => ({
   }) as typeof workflowsModule.runVmWorkflow,
 }));
 
+mock.module("../services/presence/adminPurge", () => ({
+  ...presencePurgeModule,
+  schedulePresenceAccountPurge: ((input: { userId: string; teamIds: readonly string[] }) => {
+    if (!useAccountRouteStubs) return realSchedulePresenceAccountPurge(input);
+    routeEvents.push("presence-purge");
+    presencePurgeCalls.push({ userId: input.userId, teamIds: [...input.teamIds] });
+  }) as typeof realSchedulePresenceAccountPurge,
+}));
+
 const { DELETE } = await import("../app/api/account/route");
 
 beforeAll(() => {
@@ -665,6 +677,7 @@ beforeEach(() => {
   tombstoneCleanupIncompleteError = null;
   routeEvents = [];
   accountLifecycleEvents = [];
+  presencePurgeCalls = [];
   stackDeleteError = null;
   stackUserIds = [];
   authoritativeAccessToken = "access-token";
@@ -892,9 +905,15 @@ describe("account deletion route", () => {
       "vault-delete",
       "transaction",
       "transaction-lock",
+      "presence-purge",
       "stack-delete",
       "transaction",
       "transaction-lock",
+    ]);
+    // The presence sweep is scheduled once, after the cmux-owned row delete
+    // commits, covering every deletion team id (solo account: just the user).
+    expect(presencePurgeCalls).toEqual([
+      { userId: "account-user-1", teamIds: ["account-user-1"] },
     ]);
   });
 
@@ -2346,6 +2365,7 @@ describe("account deletion route", () => {
       "destroy-vm",
       "transaction",
       "transaction-lock",
+      "presence-purge",
       "stack-delete",
     ]);
     expect(consoleError).toHaveBeenCalledWith(

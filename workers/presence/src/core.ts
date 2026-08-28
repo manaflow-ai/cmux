@@ -67,6 +67,13 @@ export interface HeartbeatInput {
   /** True when the host is shutting down cleanly and wants an immediate
    * offline transition instead of waiting out the timeout. */
   stopping?: boolean;
+  /** With `stopping: true`: the app instance signed out of its account, so it
+   * must be REMOVED from the team's list, not just flipped offline. The DO
+   * deletes the `inst:` record, tombstones the synced device record when this
+   * was the device's last instance, and releases the `owner:` pin (see
+   * checkDeviceOwner). The offline event keeps reason "goodbye" so old client
+   * decoders don't break. Meaningless without `stopping`. */
+  signout?: boolean;
   /** Current attach routes. Absent means "unchanged" (the previous set is
    * kept); an empty array means "no routes" (e.g. pairing turned off). */
   routes?: PresenceRoute[];
@@ -258,8 +265,14 @@ export type OwnerCheck =
  * forge a co-member's device online or force it offline with a goodbye, since
  * device ids are visible to the whole team.
  *
- * The pin lives in DO storage and is durable: it is never pruned with the
- * 24h presence tail, so an idle device cannot be re-claimed by a co-member.
+ * The pin lives in DO storage and is released only when its device has zero
+ * `inst:` records left: a signout goodbye removed the last instance, the
+ * alarm's prune pass removed it after the 24h retention, or an account
+ * purge did. Until then an idle device cannot be re-claimed by a co-member.
+ * Tradeoff of releasing at all: a co-member CAN claim a device once it has
+ * been fully offline for 24h or explicitly signed out; route authority still
+ * lives in the userId-guarded Aurora registry, so the blast radius of a
+ * hostile re-claim stays presence display.
  * Known residual (accepted until the registry's planned per-device
  * key-pinning phase, see the `devices` schema note): the very first claim of
  * a deviceId is first-authenticated-writer-wins, because the presence
@@ -326,6 +339,35 @@ export function expireInstances(
     events.push({ type: "offline", instance: updated, reason: "timeout" });
   }
   return { expired, events };
+}
+
+/** Offline events for instances being REMOVED outright (an account purge):
+ * every still-online instance yields an offline event with reason "goodbye",
+ * so old client decoders (which know only "timeout" | "goodbye") keep
+ * working. Already-offline instances yield nothing (subscribers were told
+ * once). The removal itself is a storage concern; this only derives the
+ * events. Pure for tests. */
+export function removalOfflineEvents(
+  instances: readonly PresenceInstance[],
+  nowMs: number,
+): PresenceEvent[] {
+  const events: PresenceEvent[] = [];
+  for (const instance of instances) {
+    if (!instance.online) continue;
+    const routes = sanitizePublishedRoutes(instance.routes);
+    events.push({
+      type: "offline",
+      instance: {
+        ...instance,
+        online: false,
+        onlineSince: undefined,
+        offlineAt: nowMs,
+        ...(routes !== undefined ? { routes } : {}),
+      },
+      reason: "goodbye",
+    });
+  }
+  return events;
 }
 
 /** Whether an offline record is old enough to delete entirely. */
