@@ -178,7 +178,14 @@ describe("devbox image template", () => {
     // two can never drift apart.
     expect(CMUX_TUI_PORT).toBe(1337);
     expect(CMUX_TUI_SESSION).toBe("cloud");
-    expect(devboxBoot).toContain(cmuxTuiDaemonCommand().replace("cd /root && ", ""));
+    // The boot script parameterizes only the listener bind (the env Freestyle
+    // beta's systemd unit sets); everything else must match the drivers'
+    // command byte for byte, so passing the shell expansion as the bind
+    // reconstructs the script's exact line.
+    expect(devboxBoot).toContain(
+      cmuxTuiDaemonCommand('"${CMUX_TUI_REMOTE_WS_BIND:-0.0.0.0:1337}"').replace("cd /root && ", ""),
+    );
+    expect(cmuxTuiDaemonCommand()).toContain("--remote-ws 0.0.0.0:1337");
     expect(devboxBoot).toContain("if [ -x /root/.cmux/bin/cmux-tui ]");
     expect(dockerfile).toContain("COPY cmux-devbox-boot /usr/local/bin/cmux-devbox-boot");
     // No binary is baked and the old cmuxd stack is gone everywhere.
@@ -214,15 +221,28 @@ describe("devbox image template", () => {
     expect(freestyleScript).toContain("Restart=always");
   });
 
-  test("freestyle bake and verify ride the beta SDK; the legacy driver stays on 0.1.51", () => {
+  test("the beta SDK serves the bake, verify, and beta driver arm; the legacy arm stays on 0.1.51", () => {
     expect(readScript("build-devbox-freestyle.ts")).toContain('from "freestyle-beta"');
     expect(readScript("verify-devbox-image.ts")).toContain('from "freestyle-beta"');
+    // The freestyle bake's systemd unit binds the daemon dual-stack: the beta
+    // driver's route is the VM's public IPv6 straight to port 1337.
+    expect(readScript("build-devbox-freestyle.ts")).toContain(
+      "Environment=CMUX_TUI_REMOTE_WS_BIND=[::]:1337",
+    );
+    // The freestyle driver spans both platforms: the legacy arm (existing
+    // production machines) keeps the 0.1.51 SDK, the beta arm rides the alias.
     const driver = readFileSync(
       path.join(import.meta.dirname, "../services/vms/drivers/freestyle.ts"),
       "utf8",
     );
     expect(driver).toContain('from "freestyle"');
-    expect(driver).not.toContain("freestyle-beta");
+    expect(driver).toContain('from "./freestyleBeta"');
+    const betaArm = readFileSync(
+      path.join(import.meta.dirname, "../services/vms/drivers/freestyleBeta.ts"),
+      "utf8",
+    );
+    expect(betaArm).toContain('from "freestyle-beta"');
+    expect(betaArm).not.toContain('from "freestyle";');
     const packageJson = JSON.parse(
       readFileSync(path.join(import.meta.dirname, "../package.json"), "utf8"),
     ) as { dependencies: Record<string, string> };
