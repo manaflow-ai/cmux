@@ -40,6 +40,7 @@ extension AppDelegate.MainWindowContext {
         workspaceTerminalFontSizeCoordinator.attachWindowDock(dock)
     }
 
+    /// Restores the Dock belonging to this window from the session snapshot.
     func restoreWindowDockSessionSnapshot(
         _ snapshot: SessionWindowSnapshot?,
         notificationStore: TerminalNotificationStore?,
@@ -100,6 +101,7 @@ extension AppDelegate.MainWindowContext {
 /// (`workspace_id`) self-describing: they name the window whose Dock they hit.
 
 extension AppDelegate {
+    /// Routes a window Dock restore to the context that owns `windowId`.
     func restoreWindowDockSessionSnapshot(
         forWindowId windowId: UUID,
         from snapshot: SessionWindowSnapshot?,

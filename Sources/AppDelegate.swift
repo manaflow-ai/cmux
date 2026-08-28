@@ -9983,10 +9983,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
         // cmux owns pane focus/selection; AppKit's automatic key-view walk is
-        // both unused and recursively traverses every nested Bonsplit hosting
-        // view while a restored topology is being mounted. Keep that traversal
-        // out of the restore/layout transaction (notably on macOS 15).
-        window.autorecalculatesKeyViewLoop = false
+        // recursively traversed while a restored Bonsplit topology is mounted.
+        // Suppress that walk only for the restore transaction; ordinary windows
+        // retain AppKit's default key-view behavior.
+        if isRestoringSessionWindowSnapshot {
+            window.autorecalculatesKeyViewLoop = false
+        }
         window.contentView = MainWindowHostingView(rootView: root)
 
         // Apply shared window styling.
@@ -10030,6 +10032,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             excludingStableIdentities: excludingStableIdentitiesFromSessionSnapshot,
             deferBrowserPanels: isRestoringSessionWindowSnapshot
         )
+        if isRestoringSessionWindowSnapshot {
+            window.autorecalculatesKeyViewLoop = true
+            window.recalculateKeyViewLoop()
+        }
         publishCmuxWindowLifecycle(name: "window.created", windowId: windowId, origin: "create")
         installFileDropOverlay(on: window, tabManager: tabManager)
         if !shouldActivate || TerminalController.shouldSuppressSocketCommandActivation() {

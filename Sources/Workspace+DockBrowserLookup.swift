@@ -142,6 +142,9 @@ extension DockSplitStore {
     }
 
     /// Builds a Dock browser panel with the workspace's remote-browser settings.
+    ///
+    /// - Parameter renderInitialNavigation: When false, the caller can restore
+    ///   navigation metadata before making the WebKit view visible.
     func makeBrowserPanel(
         id: UUID = UUID(),
         url: URL?,

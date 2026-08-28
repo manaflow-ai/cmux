@@ -216,6 +216,7 @@ extension Workspace {
             if sessionRestoreLayoutSuppressionDepth == 0,
                sessionRestoreLayoutFollowUpRequested {
                 sessionRestoreLayoutFollowUpRequested = false
+                scheduleFocusReconcile()
                 beginEventDrivenLayoutFollowUp(
                     reason: "workspace.sessionRestore.complete",
                     includeGeometry: true
@@ -2081,10 +2082,6 @@ extension Workspace {
                     workspaceId: id,
                     snapshot: snapshot
                 )
-                deferredPanel.onMaterialize = { [weak self, weak deferredPanel] in
-                    guard let self, let deferredPanel else { return }
-                    _ = self.materializeDeferredBrowserPanel(deferredPanel)
-                }
                 panels[restoredPanelId] = deferredPanel
                 guard let tabId = bonsplitController.createTab(
                     title: snapshot.customTitle ?? snapshot.title ?? deferredPanel.displayTitle,
@@ -4986,6 +4983,33 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 
     func browserPanel(for panelId: UUID) -> BrowserPanel? {
         panels[panelId] as? BrowserPanel
+    }
+
+    /// Requests browser materialization from the owning workspace.
+    ///
+    /// The caller supplies the host's visibility snapshot; the workspace remains
+    /// the only owner allowed to replace a deferred panel in its Bonsplit registry.
+    @discardableResult
+    func requestDeferredBrowserMaterialization(
+        panelId: UUID,
+        isVisibleInUI: Bool,
+        reason: String = "browser.deferred.request"
+    ) -> Bool {
+        guard let deferredPanel = panels[panelId] as? DeferredBrowserPanel else {
+            return panels[panelId] is BrowserPanel
+        }
+        guard isVisibleInUI else { return false }
+        guard sessionRestoreLayoutSuppressionDepth == 0 else {
+            sessionRestoreLayoutFollowUpRequested = true
+            return false
+        }
+#if DEBUG
+        cmuxDebugLog(
+            "session.restore.browser.materialize.request workspace=\(id.uuidString.prefix(8)) " +
+                "panel=\(panelId.uuidString.prefix(8)) reason=\(reason)"
+        )
+#endif
+        return materializeDeferredBrowserPanel(deferredPanel) != nil
     }
 
     /// Replaces a restore placeholder with its WebKit-backed browser on first use.
@@ -10846,10 +10870,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             configureBrowserPanel(browserPanel)
             installBrowserPanelSubscription(browserPanel)
         } else if let deferredBrowserPanel = detached.panel as? DeferredBrowserPanel {
-            deferredBrowserPanel.reattach(to: id) { [weak self, weak deferredBrowserPanel] in
-                guard let self, let deferredBrowserPanel else { return }
-                _ = self.materializeDeferredBrowserPanel(deferredBrowserPanel)
-            }
+            deferredBrowserPanel.updateWorkspaceId(id)
         } else if let filePreviewPanel = detached.panel as? FilePreviewPanel {
             filePreviewPanel.updateWorkspaceId(id)
         } else if let rightSidebarToolPanel = detached.panel as? RightSidebarToolPanel {
@@ -11116,9 +11137,12 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         // A browser restored lazily has the same Bonsplit tab identity as its
         // eventual live panel. Materialize it before focus routing asks AppKit
         // for a WebView/first-responder target.
-        if let deferredPanel = panels[panelId] as? DeferredBrowserPanel,
-           sessionRestoreLayoutSuppressionDepth == 0 {
-            _ = materializeDeferredBrowserPanel(deferredPanel)
+        if panels[panelId] is DeferredBrowserPanel {
+            _ = requestDeferredBrowserMaterialization(
+                panelId: panelId,
+                isVisibleInUI: true,
+                reason: "workspace.focusPanel"
+            )
         }
         // In canvas mode, focusing a panel also brings it forward as its
         // pane's selected tab so focus and visibility never diverge.
@@ -11514,7 +11538,13 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             panel.unfocus()
         }
 
-        if !(targetPanel is DeferredBrowserPanel && sessionRestoreLayoutSuppressionDepth > 0) {
+        if targetPanel is DeferredBrowserPanel {
+            _ = requestDeferredBrowserMaterialization(
+                panelId: targetPanelId,
+                isVisibleInUI: true,
+                reason: "workspace.reconcileFocus"
+            )
+        } else {
             targetPanel.focus()
         }
         if let terminalPanel = targetPanel as? TerminalPanel {
@@ -13229,7 +13259,13 @@ extension Workspace: BonsplitDelegate {
             }
         }
 
-        if shouldRestoreFocusIntentAfterActivation(activationIntent) {
+        if activationPanel is DeferredBrowserPanel {
+            _ = requestDeferredBrowserMaterialization(
+                panelId: activationPanel.id,
+                isVisibleInUI: true,
+                reason: "workspace.restoreFocusIntent"
+            )
+        } else if shouldRestoreFocusIntentAfterActivation(activationIntent) {
             _ = activationPanel.restoreFocusIntent(activationIntent)
         }
 
@@ -13278,10 +13314,18 @@ extension Workspace: BonsplitDelegate {
     ) {
         // Bonsplit invokes selection callbacks synchronously while a session
         // topology is being rebuilt. A deferred browser must remain a cheap
-        // placeholder through that callback burst; its visible view will
-        // materialize it after the restore transaction has unwound.
-        if panel is DeferredBrowserPanel,
-           sessionRestoreLayoutSuppressionDepth > 0 {
+        // placeholder through that callback burst; its owner request is drained
+        // after the restore transaction has unwound.
+        if let deferredPanel = panel as? DeferredBrowserPanel {
+            guard sessionRestoreLayoutSuppressionDepth == 0 else {
+                sessionRestoreLayoutFollowUpRequested = true
+                return
+            }
+            _ = requestDeferredBrowserMaterialization(
+                panelId: deferredPanel.id,
+                isVisibleInUI: true,
+                reason: "workspace.activatePanel"
+            )
             return
         }
         if let terminalPanel = panel as? TerminalPanel {

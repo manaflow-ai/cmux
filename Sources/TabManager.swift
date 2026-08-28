@@ -6456,6 +6456,10 @@ extension TabManager {
         return (filtered, remappedSelection)
     }
 
+    /// Restores all workspaces, panels, groups, and Dock state from a session snapshot.
+    ///
+    /// - Parameter deferBrowserPanels: Keeps restored browser tabs lightweight until
+    ///   their panes are visible, avoiding a launch-time WebKit construction burst.
     @discardableResult
     func restoreSessionSnapshot(
         _ snapshot: SessionTabManagerSnapshot,

@@ -5,6 +5,10 @@ import CmuxWorkspaces
 import Foundation
 
 extension DockSplitStore {
+    /// Restores Dock topology and panel state from a persisted split snapshot.
+    ///
+    /// Browser panels can remain lightweight until their host reports visibility;
+    /// terminal restore ownership is still validated through the supplied agent index.
     @discardableResult
     func restoreSessionSnapshot(
         _ snapshot: SessionSplitContainerSnapshot,
@@ -14,7 +18,20 @@ extension DockSplitStore {
     ) -> [UUID: UUID] {
         guard !isRetired else { return [:] }
         sessionRestoreDepth += 1
-        defer { sessionRestoreDepth = max(sessionRestoreDepth - 1, 0) }
+        defer {
+            sessionRestoreDepth = max(sessionRestoreDepth - 1, 0)
+            if sessionRestoreDepth == 0 {
+                let pendingPanelIds = pendingDeferredBrowserMaterializationPanelIds
+                pendingDeferredBrowserMaterializationPanelIds.removeAll()
+                for panelId in pendingPanelIds {
+                    _ = requestDeferredBrowserMaterialization(
+                        panelId: panelId,
+                        isVisibleInUI: panelIsSelectedInVisibleDockPane(panelId),
+                        reason: "dock.sessionRestore.complete"
+                    )
+                }
+            }
+        }
         cancelConfigurationTasks()
         removeAllPanels()
         hasLoadedConfiguration = true
@@ -176,10 +193,6 @@ extension DockSplitStore {
                     workspaceId: workspaceId,
                     snapshot: snapshot
                 )
-                deferredPanel.reattach(to: workspaceId) { [weak self, weak deferredPanel] in
-                    guard let self, let deferredPanel else { return }
-                    _ = self.materializeDeferredBrowserPanel(deferredPanel)
-                }
                 guard attachSessionRestoredPanel(
                     deferredPanel,
                     snapshot: snapshot,
@@ -626,9 +639,7 @@ extension DockSplitStore {
         }
         panels[panel.id] = panel
         let title = snapshot.customTitle ?? snapshot.title ?? panel.displayTitle
-        let isAudioMuted = (panel as? BrowserPanel)?.isMuted
-            ?? (panel as? DeferredBrowserPanel)?.sessionPanelSnapshot.browser?.isMuted
-            ?? false
+        let isAudioMuted = resolvedAudioMuted(for: panel)
         guard let tabId = bonsplitController.createTab(
             title: title,
             hasCustomTitle: snapshot.customTitle != nil,

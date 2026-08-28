@@ -102,7 +102,15 @@ extension DockSplitStore {
         guard let tabId = bonsplitController.selectedTab(inPane: paneId)?.id,
               let panelId = surfaceIdToPanelId[tabId],
               let panel = panels[panelId] else { return false }
-        panel.focus()
+        if panel is DeferredBrowserPanel {
+            _ = requestDeferredBrowserMaterialization(
+                panelId: panelId,
+                isVisibleInUI: true,
+                reason: "dock.focusFirstControl"
+            )
+        } else {
+            panel.focus()
+        }
         return true
     }
 
@@ -244,7 +252,12 @@ extension DockSplitStore {
                 panel.unfocus()
             }
         }
-        if selectedPanel is DeferredBrowserPanel, sessionRestoreDepth > 0 {
+        if selectedPanel is DeferredBrowserPanel {
+            _ = requestDeferredBrowserMaterialization(
+                panelId: selectedPanel.id,
+                isVisibleInUI: true,
+                reason: "dock.selection"
+            )
             return
         }
         selectedPanel.focus()
@@ -333,7 +346,13 @@ extension DockSplitStore {
         applyDockSelection(tabId: tab.id, inPane: destination)
         let movedPanel = panel(for: tab.id)
         (movedPanel as? TerminalPanel)?.recordPortalHostOwnershipChange()
-        if !(movedPanel is DeferredBrowserPanel && sessionRestoreDepth > 0) {
+        if let deferredPanel = movedPanel as? DeferredBrowserPanel {
+            _ = requestDeferredBrowserMaterialization(
+                panelId: deferredPanel.id,
+                isVisibleInUI: true,
+                reason: "dock.moveTab"
+            )
+        } else {
             movedPanel?.focus()
         }
         scheduleDockPortalReconcile(reason: "dock.moveTab")

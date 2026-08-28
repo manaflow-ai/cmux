@@ -40,6 +40,8 @@ struct PanelContentView: View {
     let onResumeAgentHibernation: () -> Void
     let onAutoResumeAgentHibernation: () -> Void
     let onTriggerFlash: () -> Void
+    /// Owner action used to materialize a deferred browser after its host reports visibility.
+    let onRequestDeferredBrowserMaterialization: () -> Void
 
     var body: some View {
         renderedPanel
@@ -89,10 +91,10 @@ struct PanelContentView: View {
                 // structural slot when a pane selects another browser, so bind its lifetime
                 // to the panel instead of carrying the prior panel's omnibar draft forward.
                 .id(browserPanel.id)
-            } else if let deferredBrowserPanel = panel as? DeferredBrowserPanel {
+            } else if panel is DeferredBrowserPanel {
                 DeferredBrowserPanelView(
-                    panel: deferredBrowserPanel,
                     isVisibleInUI: isVisibleInUI,
+                    onRequestMaterialization: onRequestDeferredBrowserMaterialization,
                     onRequestPanelFocus: onRequestPanelFocus
                 )
             }
@@ -252,10 +254,10 @@ struct PanelContentView: View {
     }
 }
 
-/// Keeps a lazily restored browser tab's pane occupied until its first reveal.
+/// Keeps a lazily restored browser tab's pane occupied until its host reports a reveal.
 private struct DeferredBrowserPanelView: View {
-    let panel: DeferredBrowserPanel
     let isVisibleInUI: Bool
+    let onRequestMaterialization: () -> Void
     let onRequestPanelFocus: () -> Void
 
     var body: some View {
@@ -264,18 +266,15 @@ private struct DeferredBrowserPanelView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .contentShape(Rectangle())
-        // Materialization is deliberately outside the body projection.  A panel
-        // can be mounted while hidden; only the visibility transition is allowed
-        // to start WebKit work.
-        .task(id: isVisibleInUI) {
+        .onAppear {
             guard isVisibleInUI else { return }
-            // Let the Bonsplit/AppKit placement transaction unwind before
-            // replacing the panel object and constructing WebKit.
-            await Task.yield()
-            panel.materializeIfNeeded()
+            onRequestMaterialization()
+        }
+        .onChange(of: isVisibleInUI) { _, visible in
+            guard visible else { return }
+            onRequestMaterialization()
         }
         .onTapGesture {
-            panel.materializeIfNeeded()
             onRequestPanelFocus()
         }
     }

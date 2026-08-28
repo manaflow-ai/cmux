@@ -136,7 +136,9 @@ struct BrowserPanelSessionRestoreTests {
         let sourcePane = try #require(source.bonsplitController.focusedPaneId)
         let sourceBrowser = try #require(source.newBrowserSurface(
             inPane: sourcePane,
-            url: URL(string: "https://example.com/deferred-restore"),
+            // Keep this fixture offline: the test only needs browser identity
+            // and persisted metadata, not a network navigation.
+            url: URL(string: "about:blank"),
             focus: false
         ))
         let snapshot = source.sessionSnapshot(includeScrollback: false)
@@ -154,6 +156,23 @@ struct BrowserPanelSessionRestoreTests {
         #expect(roundTripped.panels.contains { panel in
             panel.id == restoredPanelID && panel.type == .browser && panel.browser != nil
         })
+
+        #expect(!restored.requestDeferredBrowserMaterialization(
+            panelId: restoredPanelID,
+            isVisibleInUI: false
+        ))
+        #expect(restored.panels[restoredPanelID] is DeferredBrowserPanel)
+        #expect(restored.requestDeferredBrowserMaterialization(
+            panelId: restoredPanelID,
+            isVisibleInUI: true,
+            reason: "test.visible"
+        ))
+        #expect(restored.panels[restoredPanelID] is BrowserPanel)
+        #expect(restored.requestDeferredBrowserMaterialization(
+            panelId: restoredPanelID,
+            isVisibleInUI: true,
+            reason: "test.idempotent"
+        ))
     }
 
     @Test

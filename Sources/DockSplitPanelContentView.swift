@@ -120,7 +120,13 @@ struct DockSplitPanelContentView: View, Equatable {
             onAutoResumeAgentHibernation: {
                 _ = store.resumeAgentHibernation(panelId: panel.id, focus: false)
             },
-            onTriggerFlash: {}
+            onTriggerFlash: {},
+            onRequestDeferredBrowserMaterialization: {
+                store.requestDeferredBrowserMaterialization(
+                    panelId: panel.id,
+                    isVisibleInUI: isVisibleInUI
+                )
+            }
         )
     }
 }
