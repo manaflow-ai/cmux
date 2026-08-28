@@ -8773,6 +8773,11 @@ impl Mux {
         let persisted_source_session = if source == AgentSource::Hook {
             source_session.clone()
         } else {
+            if source_session.as_deref().is_some_and(|value| {
+                value.starts_with("cmux-hook-sequence:") || value.starts_with("cmux-hook-ended:")
+            }) {
+                anyhow::bail!("reserved hook marker is invalid for non-hook agent source");
+            }
             self.agent_hook_sequences
                 .lock()
                 .unwrap()
@@ -8818,7 +8823,12 @@ impl Mux {
             .as_deref()
             .is_some_and(|value| value.starts_with("cmux-hook-ended:"))
         {
-            serde_json::json!([])
+            serde_json::json!([{
+                "kind":"delete",
+                "sequence":0,
+                "resource":"agent",
+                "id":agent_id,
+            }])
         } else {
             serde_json::json!([{
                 "kind":"upsert",
@@ -21848,6 +21858,7 @@ mod tests {
     fn late_socket_report_cannot_resurrect_hook_ended_agent() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, None).unwrap();
+        let initial_revision = mux.with_state(|state| state.resource_revision);
         let terminal_id = mux.with_state(|state| {
             match state.resource_indexes.content_ids.get(&surface.id).unwrap() {
                 ContentPublicId::Terminal(id) => id.clone(),
@@ -21862,6 +21873,12 @@ mod tests {
         )
         .unwrap();
         mux.apply_agent_hook_record(&ended, 9);
+        let ended_events = mux.resource_events_after(initial_revision).unwrap();
+        assert_eq!(ended_events.batches.len(), 1);
+        let ended_change = &ended_events.batches[0].changes[0];
+        assert_eq!(ended_change["kind"], "delete");
+        assert_eq!(ended_change["resource"], "agent");
+        assert!(ended_change.get("value").is_none());
         let delayed = crate::agent_hooks::agent_hook_journal_ingress(
             "claude",
             "UserPromptSubmit",
@@ -21871,6 +21888,8 @@ mod tests {
         .unwrap();
         mux.apply_agent_hook_record(&delayed, 10);
         assert!(mux.list_agents(Some(surface.id), None).is_empty());
+        let snapshot = crate::resource_api::public_session_snapshot(&mux).unwrap();
+        assert!(snapshot["agents"].as_array().unwrap().is_empty());
         assert!(
             mux.report_agent(surface.id, AgentState::Working, AgentSource::Socket, None).is_err()
         );
@@ -21929,6 +21948,22 @@ mod tests {
                 .iter()
                 .all(|batch| { batch.changes[0]["value"]["source_session"].is_null() })
         );
+    }
+
+    #[test]
+    fn non_hook_reports_reject_reserved_hook_markers() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let error = mux
+            .report_agent(
+                surface.id,
+                AgentState::Working,
+                AgentSource::Socket,
+                Some("cmux-hook-sequence:9".into()),
+            )
+            .unwrap_err();
+        assert!(error.to_string().contains("reserved hook marker"));
+        assert!(mux.list_agents(Some(surface.id), None).is_empty());
     }
 
     #[test]
