@@ -18,7 +18,8 @@ final class RenderNodeContextMenuView: NSView {
     var isMenuEnabled = true
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        guard isMenuEnabled else { return nil }
+        let builder = RenderNodeContextMenuBuilder(dispatch: dispatch)
+        guard isMenuEnabled, builder.hasPresentableItems(nodes: nodes) else { return nil }
         // AppKit gives NSView.hitTest(_:) a point in this view's local
         // coordinate system. Use bounds for the local containment test.
         guard bounds.contains(point), let event = NSApp.currentEvent else { return nil }
@@ -67,9 +68,9 @@ final class RenderNodeContextMenuView: NSView {
     /// The on-demand menu, or nil when the row is disabled or the IR yields
     /// nothing presentable (no nodes, or separators only).
     func menuForPresentation() -> NSMenu? {
-        guard isMenuEnabled,
-              RenderNodeContextMenuBuilder.hasPresentableItems(nodes: nodes) else { return nil }
-        return RenderNodeContextMenuBuilder(dispatch: dispatch).makeMenu(nodes: nodes)
+        let builder = RenderNodeContextMenuBuilder(dispatch: dispatch)
+        guard isMenuEnabled, builder.hasPresentableItems(nodes: nodes) else { return nil }
+        return builder.makeMenu(nodes: nodes)
     }
 
     /// Whether a descendant menu overlay also contains `point` (in the
@@ -107,7 +108,8 @@ private func subtreeContainsClaimingOverlay(
             if isStrictDescendant,
                overlay.bounds.contains(local),
                overlay.isMenuEnabled,
-               RenderNodeContextMenuBuilder.hasPresentableItems(nodes: overlay.nodes) {
+               RenderNodeContextMenuBuilder(dispatch: overlay.dispatch)
+                .hasPresentableItems(nodes: overlay.nodes) {
                 return true
             }
             // An unrelated overlay can itself contain platform descendants;
