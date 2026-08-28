@@ -582,7 +582,7 @@ async fn finish_open_failure(
             false
         };
         if remove_slot {
-        state.remove(&watch_id);
+            state.remove(&watch_id);
         }
         remove_slot
     } else {
