@@ -13,7 +13,8 @@ The fix records a stable parent identity at spawn (PID plus a provider-marked
 epoch-microsecond token) in `_cmux_watcher_parent_start_time`, and the
 per-iteration guard `_cmux_watcher_parent_alive` treats a start-time mismatch
 or a failed provider lookup as parent-dead. The kernel provider keeps
-microseconds; the ps provider is explicitly coarse and uses zero microseconds.
+microseconds. The ps provider is explicitly coarse, uses zero microseconds,
+and is rejected by the liveness guard, so it cannot authorize cleanup.
 
 This test never touches a running cmux instance or /tmp/cmux-debug.sock:
 it builds its own scratch HOME, its own unix socket, and unique panel ids.
@@ -35,9 +36,11 @@ ROOT = Path(__file__).resolve().parents[1]
 ZSH_INTEGRATION = ROOT / "Resources" / "shell-integration" / "cmux-zsh-integration.zsh"
 BASH_INTEGRATION = ROOT / "Resources" / "shell-integration" / "cmux-bash-integration.bash"
 
-# Kernel identities use a `k` marker and ps identities use `p`, followed by
-# 16 decimal digits of epoch microseconds.
+# Kernel identities use a `k` marker and diagnostic ps identities use `p`,
+# followed by 16 decimal digits of epoch microseconds.
 FAKE_START_TIME = "k1000000000000000"
+SYNTHETIC_KERNEL_FIELDS = "1700000000 0 123456"
+SYNTHETIC_KERNEL_TOKEN = "k1700000000123456"
 
 FAILURES: list[str] = []
 
@@ -118,64 +121,88 @@ def shell_start_time(
     env: dict[str, str],
     pid: int,
     provider: str | None = None,
+    kernel_fields: str | None = None,
 ) -> str:
     """Read a provider-pinned identity token through the shipped helper."""
     provider_arg = ' "$3"' if provider is not None else ""
+    provider_stub = ""
+    if kernel_fields is not None:
+        provider_stub = (
+            "_cmux_watcher_parent_kernel_raw() { "
+            f"printf '%s\\n' '{kernel_fields}'; "
+            "}; "
+        )
     proc = run_shell(
         shell_argv,
-        f'source "$1"; _cmux_watcher_parent_start_time "$2"{provider_arg}',
+        f'source "$1"; {provider_stub}_cmux_watcher_parent_start_time "$2"{provider_arg}',
         [str(integration), str(pid), *([provider] if provider is not None else [])],
         env,
     )
     return proc.stdout.strip() if proc.returncode == 0 else ""
 
 
+def kernel_stub() -> str:
+    """Return a shell prefix that supplies a deterministic Darwin timeval."""
+    return (
+        "_cmux_watcher_parent_kernel_raw() { "
+        f"printf '%s\\n' '{SYNTHETIC_KERNEL_FIELDS}'; "
+        "}; "
+    )
+
+
 def check_identity_provider_contract(
     name: str, shell_argv: list[str], integration: Path, env: dict[str, str]
 ) -> None:
-    """Verify precision, fallback normalization, and provider pinning."""
+    """Verify fixed timeval offsets, precision, and fail-closed providers."""
     decoy = subprocess.Popen(["/bin/sleep", "60"])
     try:
-        kernel_is_synthetic = False
-        kernel = shell_start_time(shell_argv, integration, env, decoy.pid, "kernel")
+        real_kernel = shell_start_time(shell_argv, integration, env, decoy.pid, "kernel")
         ps = shell_start_time(shell_argv, integration, env, decoy.pid, "ps")
-        if not kernel:
-            # Some restricted Darwin environments do not expose the
-            # kern.proc.pid sysctl to unprivileged shells. Exercise the same
-            # normalization path with deterministic values, and require the
-            # live provider call to fail closed.
-            synthetic_script = (
-                'source "$1"; '
-                'a="$(_cmux_watcher_parent_kernel_token "$$" 1700000000 1)"; '
-                'b="$(_cmux_watcher_parent_kernel_token "$$" 1700000000 2)"; '
-                'printf "SYNTHETIC:%s:%s\\n" "$a" "$b"'
-            )
-            synthetic = run_shell(shell_argv, synthetic_script, [str(integration)], env)
-            fields = synthetic.stdout.strip().split(":", 2)
-            if len(fields) == 3:
-                kernel = fields[1]
-                kernel_is_synthetic = True
-                if fields[1] == fields[2]:
-                    fail(f"[{name}] kernel normalization dropped same-second microseconds")
-            else:
-                fail(f"[{name}] kernel normalization test did not run (stdout={synthetic.stdout!r})")
+
+        # Exercise the actual Darwin layout parser with a deterministic raw
+        # timeval. The second 32-bit word is tv_sec's high half, and the third
+        # is tv_usec. A caller-specific IFS must not change those positions.
+        layout_script = (
+            f'source "$1"; {kernel_stub()} IFS=:; '
+            'token="$(_cmux_watcher_parent_start_time "$$" kernel)"; '
+            'printf "LAYOUT:%s\\n" "$token"; '
+            '_cmux_watcher_parent_kernel_raw() { printf "%s\\n" "1700000000 1 123456"; }; '
+            'bad="$(_cmux_watcher_parent_start_time "$$" kernel)"; '
+            'printf "BAD_LAYOUT:%s:%s\\n" "$bad" "$?"'
+        )
+        layout = run_shell(shell_argv, layout_script, [str(integration)], env)
+        if f"LAYOUT:{SYNTHETIC_KERNEL_TOKEN}" not in layout.stdout:
+            fail(f"[{name}] Darwin timeval offsets or caller IFS broke kernel parsing: {layout.stdout!r}")
+        if "BAD_LAYOUT::1" not in layout.stdout:
+            fail(f"[{name}] nonzero timeval high half did not fail closed: {layout.stdout!r}")
+
+        kernel = real_kernel or SYNTHETIC_KERNEL_TOKEN
+        if real_kernel and (len(real_kernel) != 17 or not real_kernel.startswith("k") or not real_kernel[1:].isdigit()):
+            fail(f"[{name}] kernel identity is not a marked 16-digit epoch-microsecond token: {real_kernel!r}")
+        if not real_kernel:
+            # Restricted macOS environments can hide kern.proc.pid. In that
+            # case both explicit kernel and auto capture must fail closed.
             kernel_failure = run_shell(
                 shell_argv,
                 'source "$1"; _cmux_watcher_parent_start_time "$$" kernel; printf "KERNEL_STATUS:%s\\n" "$?"',
                 [str(integration)],
                 env,
             )
-            if "KERNEL_STATUS:" not in kernel_failure.stdout or "KERNEL_STATUS:0" in kernel_failure.stdout:
-                fail(f"[{name}] unavailable kernel provider did not fail closed")
-        if len(kernel) != 17 or not kernel.startswith("k") or not kernel[1:].isdigit():
-            fail(f"[{name}] kernel identity is not a marked 16-digit epoch-microsecond token: {kernel!r}")
+            auto_failure = run_shell(
+                shell_argv,
+                'source "$1"; _cmux_watcher_parent_start_time "$$"; printf "AUTO_STATUS:%s\\n" "$?"',
+                [str(integration)],
+                env,
+            )
+            if "KERNEL_STATUS:0" in kernel_failure.stdout or "KERNEL_STATUS:" not in kernel_failure.stdout:
+                fail(f"[{name}] unavailable kernel provider did not fail closed: {kernel_failure.stdout!r}")
+            if "AUTO_STATUS:0" in auto_failure.stdout or "AUTO_STATUS:" not in auto_failure.stdout:
+                fail(f"[{name}] auto provider fell through to coarse ps: {auto_failure.stdout!r}")
+
         if len(ps) != 17 or not ps.startswith("p") or not ps[1:].isdigit():
             fail(f"[{name}] ps fallback identity is not a marked 16-digit token: {ps!r}")
-        if ps and (
-            not ps.endswith("000000")
-            or (kernel and not kernel_is_synthetic and ps[1:11] != kernel[1:11])
-        ):
-            fail(f"[{name}] ps fallback does not normalize to the kernel epoch second: kernel={kernel!r} ps={ps!r}")
+        if ps and not ps.endswith("000000"):
+            fail(f"[{name}] ps diagnostic token does not mark coarse microseconds: {ps!r}")
 
         if ps:
             fallback_guard = run_shell(
@@ -184,8 +211,8 @@ def check_identity_provider_contract(
                 [str(integration), str(decoy.pid), ps],
                 env,
             )
-            if "FALLBACK_GUARD:0" not in fallback_guard.stdout:
-                fail(f"[{name}] provider-pinned ps fallback rejected its live process: {fallback_guard.stdout!r}")
+            if "FALLBACK_GUARD:0" in fallback_guard.stdout or "FALLBACK_GUARD:" not in fallback_guard.stdout:
+                fail(f"[{name}] coarse ps identity was accepted for cleanup: {fallback_guard.stdout!r}")
 
         # Same-second reuse: changing only the kernel microseconds must fail,
         # even when the PID remains live.
@@ -193,7 +220,7 @@ def check_identity_provider_contract(
             usec = (int(kernel[11:]) + 1) % 1_000_000
             same_second_replacement = f"k{kernel[1:11]}{usec:06d}"
             guard_script = (
-                'source "$1"; _cmux_watcher_parent_alive "$2" "$3"; '
+                f'source "$1"; {kernel_stub()} _cmux_watcher_parent_alive "$2" "$3"; '
                 'printf "SAME_SECOND:%s\\n" "$?"'
             )
             proc = run_shell(
@@ -256,7 +283,7 @@ def check_guard_semantics(name: str, shell_argv: list[str], integration: Path, e
         'printf \'GUARD:%s\\n\' "$?"'
     )
     self_script = (
-        'source "$1"; IFS=:; '
+        f'source "$1"; {kernel_stub()} IFS=:; '
         'start="$(_cmux_watcher_parent_start_time $$)" || { printf "NOSTART\\n"; exit 1; }; '
         'repeat="$(_cmux_watcher_parent_start_time $$)" || { printf "NOREPEAT\\n"; exit 1; }; '
         '_cmux_watcher_parent_identity_valid $$ "$start" || { printf "NONNUMERIC\\n"; exit 1; }; '
@@ -300,7 +327,7 @@ def check_guard_semantics(name: str, shell_argv: list[str], integration: Path, e
         )
 
     # Identity lookup failure must also fail closed. Override the helper only
-    # in this throwaway shell to model a /bin/ps failure without touching the
+    # in this throwaway shell to model a kernel-provider failure without touching the
     # host process table.
     ps_failure_script = (
         'source "$1"; '
@@ -346,14 +373,14 @@ def check_guard_semantics(name: str, shell_argv: list[str], integration: Path, e
 
 
 def check_tiered_cadence(name: str, shell_argv: list[str], integration: Path, env: dict[str, str]) -> None:
-    """The guard tick must run the ps identity comparison only every Nth call.
+    """The guard tick must run the kernel identity comparison only every Nth call.
 
     With interval 3: call 1 does the full check (passes, matching identity),
     calls 2 and 3 take the cheap kill -0 path even though the recorded
     identity is now wrong, call 4 does the full check again and fails.
     """
     script = (
-        'source "$1"; '
+        f'source "$1"; {kernel_stub()} '
         "_CMUX_WATCHER_IDENTITY_INTERVAL=3; "
         'start="$(_cmux_watcher_parent_start_time $$)" || exit 9; '
         "_cmux_watcher_guard_tick $$ \"$start\"; printf 'T1:%s\\n' \"$?\"; "
@@ -373,7 +400,7 @@ def check_tiered_cadence(name: str, shell_argv: list[str], integration: Path, en
 
 def check_injected_watcher_loop(name: str, shell_argv: list[str], integration: Path, env: dict[str, str]) -> None:
     # Pin the identity-check cadence to every iteration: the shipped default
-    # runs the ps comparison only every Nth iteration to avoid steady-state
+    # runs the kernel comparison only every Nth iteration to avoid steady-state
     # forks, which would push the reuse-detection bound past this test's.
     env = dict(env)
     env["_CMUX_WATCHER_IDENTITY_INTERVAL"] = "1"
@@ -386,7 +413,7 @@ def check_injected_watcher_loop(name: str, shell_argv: list[str], integration: P
             )
             launch_suffix = "&!;" if name == "zsh" else "& disown;"
             loop_script = (
-                'source "$1"; '
+                f'source "$1"; {kernel_stub()} '
                 f"{{ _cmux_watcher_guard_tick \"$2\" \"$3\" || exit 0; {ready_command}; "
                 "while true; do sleep 0.2; _cmux_watcher_guard_tick \"$2\" \"$3\" || exit 0; done; } >/dev/null 2>&1 "
                 f"{launch_suffix} "
@@ -414,7 +441,13 @@ def check_injected_watcher_loop(name: str, shell_argv: list[str], integration: P
     decoy = subprocess.Popen(["/bin/sleep", "120"])
     try:
         # Normal path: recorded identity matches the live decoy. Watcher keeps running.
-        true_start = shell_start_time(shell_argv, integration, env, decoy.pid)
+        true_start = shell_start_time(
+            shell_argv,
+            integration,
+            env,
+            decoy.pid,
+            kernel_fields=SYNTHETIC_KERNEL_FIELDS,
+        )
         loop_pid, ready_fd, ready = spawn_loop(decoy.pid, true_start)
         if loop_pid is None:
             fail(f"[{name}] injected watcher loop did not report a PID")
@@ -476,6 +509,7 @@ def check_real_loops(name: str, shell_argv: list[str], integration: Path, tmp: P
     if name == "zsh":
         parent_script = f"""
 source "$1"
+{kernel_stub()}
 functions[_cmux_test_guard_tick_impl]="${{functions[_cmux_watcher_guard_tick]}}"
 typeset -g _CMUX_TEST_READY_SENT=0
 _cmux_watcher_guard_tick() {{
@@ -501,6 +535,7 @@ exec sleep 300
     else:
         parent_script = f"""
 source "$1"
+{kernel_stub()}
 eval "$(declare -f _cmux_watcher_guard_tick | sed 's/_cmux_watcher_guard_tick/_cmux_test_guard_tick_impl/g')"
 _CMUX_TEST_READY_SENT=0
 _cmux_watcher_guard_tick() {{

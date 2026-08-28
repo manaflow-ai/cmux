@@ -1424,11 +1424,13 @@ _cmux_run_pr_probe_with_timeout() {
 # days on a busy machine, so once the recorded shell PID is reassigned to any
 # live process the guard returns true forever and the watcher never exits.
 # Pair the PID with Darwin's process start time so a recycled PID no longer
-# counts as the parent. The identity is a provider marker (`k` for
-# kern.proc.pid and `p` for ps) followed by a fixed 16-digit epoch-microsecond
-# value. The marker pins a watcher to the provider used at spawn, so a coarse
-# ps fallback cannot compare equal to a precise kernel value or cause a false
-# recycle.
+# counts as the parent. The identity is a provider marker (`k` for the kernel
+# provider and `p` for the diagnostic ps formatter) followed by a fixed
+# 16-digit epoch-microsecond value. The kernel provider is the only source
+# accepted by the liveness guard. Darwin's ps `lstart` has one-second
+# precision, so using it for cleanup could accept same-second PID reuse; it is
+# retained only as a coarse diagnostic normalizer. If the kernel provider is
+# unavailable, watcher startup fails closed instead of using ps.
 _cmux_watcher_parent_start_time() {
     local pid="${1:-}" provider="${2:-auto}" raw month day clock year token
     case "$pid" in ''|*[!0-9]*) return 1 ;; esac
@@ -1439,16 +1441,23 @@ _cmux_watcher_parent_start_time() {
     esac
 
     if [[ "$provider" != ps ]]; then
-        local kernel sec usec
-        kernel="$(/usr/sbin/sysctl -n "kern.proc.pid.$pid" 2>/dev/null | /usr/bin/od -An -tu4 2>/dev/null)"
-        while read -r sec usec; do
-            if [[ "$sec" =~ ^[0-9]+$ && "$usec" =~ ^[0-9]+$ && "$sec" -ge 1000000000 && "$sec" -le 3000000000 && "$usec" -lt 1000000 ]]; then
-                _cmux_watcher_parent_kernel_token "$pid" "$sec" "$usec"
+        local kernel kernel_fields sec_low sec_high usec
+        kernel="$(_cmux_watcher_parent_kernel_raw "$pid")" || return 1
+        kernel_fields="$(printf '%s\n' "$kernel" | _cmux_watcher_parent_kernel_fields)"
+        while IFS=' ' read -r sec_low sec_high usec; do
+            if [[ "$sec_low" =~ ^[0-9]+$ && "$sec_high" =~ ^0+$ && "$usec" =~ ^[0-9]+$ && "$sec_low" -ge 1000000000 && "$sec_low" -le 3000000000 && "$usec" -lt 1000000 ]]; then
+                _cmux_watcher_parent_kernel_token "$pid" "$sec_low" "$usec"
                 return $?
             fi
-        done < <(printf '%s\n' "$kernel" | awk '{ for (i=1;i<NF;i++) print $i, $(i+1) }')
-        [[ "$provider" == kernel ]] && return 1
+        done <<< "$kernel_fields"
+        # `auto` and explicit `kernel` both fail closed. They must never fall
+        # through to the coarse ps formatter.
+        return 1
     fi
+
+    # `ps` is intentionally explicit. It is useful for diagnostics and keeps
+    # the token format stable, but `_cmux_watcher_parent_alive` rejects `p`
+    # identities because lstart cannot distinguish same-second PID reuse.
 
     # Darwin's ps exposes process start time through `lstart`, which is a
     # locale-formatted string. Force the stable C locale and UTC timezone,
@@ -1484,6 +1493,28 @@ _cmux_watcher_parent_start_time() {
     _cmux_watcher_parent_ps_token "$pid" "$epoch"
 }
 
+_cmux_watcher_parent_kernel_raw() {
+    # `kern.proc.pid` begins with `kinfo_proc.kp_proc.p_starttime`. On Darwin,
+    # timeval is 16 bytes here: a 64-bit tv_sec (two 32-bit words), a 32-bit
+    # tv_usec, and padding. Keep exactly those first 12 bytes; callers parse
+    # the fixed [sec_low, sec_high, usec] positions below.
+    local pid="${1:-}"
+    /usr/sbin/sysctl -n "kern.proc.pid.$pid" 2>/dev/null | /usr/bin/od -An -tu4 -N 12 2>/dev/null
+}
+
+_cmux_watcher_parent_kernel_fields() {
+    # Flatten od output without consulting the caller's IFS, then preserve the
+    # architecture-defined field positions for the caller to validate.
+    /usr/bin/awk '
+        {
+            for (i = 1; i <= NF; i++) values[++count] = $i
+        }
+        END {
+            if (count == 3) print values[1], values[2], values[3]
+        }
+    '
+}
+
 _cmux_watcher_parent_kernel_token() {
     # Normalize Darwin's kern.proc.pid timeval to the canonical marked token.
     # Keep all six microsecond digits; they distinguish processes started in
@@ -1501,7 +1532,7 @@ _cmux_watcher_parent_kernel_token() {
 _cmux_watcher_parent_ps_token() {
     # Normalize ps's second-resolution timestamp to the same epoch-
     # microsecond shape. The zero component records that this provider is
-    # intentionally coarse, and the `p` marker keeps comparisons pinned.
+    # intentionally coarse, and the `p` marker keeps diagnostics distinct.
     local pid="${1:-}" epoch="${2:-}" token
     case "$pid" in ''|*[!0-9]*) return 1 ;; esac
     case "$pid" in *[1-9]*) ;; *) return 1 ;; esac
@@ -1538,7 +1569,9 @@ _cmux_watcher_parent_alive() {
     kill -0 "$pid" >/dev/null 2>&1 || return 1
     case "$expected" in
         k*) provider=kernel ;;
-        p*) provider="ps" ;;
+        # A ps token is deliberately never accepted for cleanup. Its
+        # second-resolution timestamp can match two processes in one second.
+        p*) return 1 ;;
         *) return 1 ;;
     esac
     actual="$(_cmux_watcher_parent_start_time "$pid" "$provider")" || return 1
