@@ -125,11 +125,14 @@ describe("VM image resolver: request by kind", () => {
       allowedKinds: ["desktop"],
     });
     expect(JSON.stringify(report.details)).not.toMatch(/BLAXEL_|manifest\.json|cmux-devbox/);
-    // The operator log carries what the response may not.
+    // The operator summary carries classification only. Raw env and image values
+    // stay out of the returned object and the log.
     expect(report.operator).toMatchObject({
       provider: "blaxel",
-      envVar: "BLAXEL_SANDBOX_IMAGE",
-      allowedImages: ["sandbox/cmux-devbox:latest", "blaxel/xfce-vnc:latest", "blaxel/base-image:latest"],
+      source: "default",
+      imageRequested: false,
+      allowedImageCount: 3,
+      reasonCode: "image_not_configured",
     });
   });
 
@@ -142,7 +145,31 @@ describe("VM image resolver: request by kind", () => {
     expect(report.details).toEqual({ imageRequested: true, kind: undefined, source: "request", allowedKinds: ["desktop"] });
     expect(report.message).toBe("The requested Cloud VM image is not available in this environment.");
     expect(report.action).toContain("`kind`: desktop");
-    expect(report.operator).toMatchObject({ image: "blaxel/unlisted:latest", allowedImages: ["sandbox/cmux-devbox:latest", "blaxel/xfce-vnc:latest", "blaxel/base-image:latest"] });
+    expect(report.operator).toMatchObject({ imageRequested: true, allowedImageCount: 3 });
+  });
+
+  test("operator image diagnostics do not log untrusted image or reason text", () => {
+    const err = new VmImageConfigError({
+      provider: "blaxel",
+      image: "https://attacker.example/image?token=secret",
+      envVar: "BLAXEL_SANDBOX_IMAGE",
+      kind: "base",
+      source: "request",
+      allowedImages: ["sandbox/cmux-devbox:latest"],
+      reason: "provider said \u001b[31msecret\u001b[0m",
+    });
+    const originalError = console.error;
+    const calls: unknown[][] = [];
+    console.error = ((...args: unknown[]) => calls.push(args)) as typeof console.error;
+    try {
+      reportVmImageConfigError(err, { VERCEL: "1", VERCEL_ENV: "production" });
+    } finally {
+      console.error = originalError;
+    }
+    expect(JSON.stringify(calls)).not.toContain("attacker.example");
+    expect(JSON.stringify(calls)).not.toContain("token=secret");
+    expect(JSON.stringify(calls)).not.toContain("provider said");
+    expect(JSON.stringify(calls)).not.toContain("\\u001b");
   });
 
   test("local dev serves a kind from the local default only when the kinds agree", () => {
