@@ -32,6 +32,10 @@ export const englishFallbackContentLocales = [
 
 const fallbackContentRoutes = [
   { path: "/jobs", locales: fallbackContentLocales },
+  {
+    path: "/jobs/founding-designer",
+    locales: fallbackContentLocales,
+  },
   { path: "/pricing", locales: fallbackContentLocales },
   { path: "/tui", locales: fallbackContentLocales },
   { path: "/docs/tui", locales: fallbackContentLocales },

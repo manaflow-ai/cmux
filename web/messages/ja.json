@@ -441,7 +441,7 @@
     "hiring": "AI とコーディングの未来をつくる、才能ある Founding Engineer を募集しています。",
     "whatYoullDo": "仕事内容",
     "whatYoullDoItems": [
-      "cmux macOS（Swift/AppKit）、cmux Windows/Linux（C++/Chromium）、cmux iOS、cmux Cloud、sub-router（Go）、chatmux など、スタック全体にわたる最先端の開発者ツールをつくる。",
+      "cmux macOS（Swift/AppKit）、cmux Windows/Linux（C++/Chromium）、cmux iOS、cmux Cloud、sub-router (Go)、chatmux など、スタック全体にわたる最先端の開発者ツールをつくる。",
       "開発者が AI と仕事をするために最も役立つプロダクトを一緒に生み出す。",
       "ユーザーフィードバックのループも含め、プロダクトと機能を最初から最後まで担当する。",
       "常に cmux を実際に使い、テストと検証を重ねながら cmux をつくる。"
@@ -472,7 +472,56 @@
     "applyCta": "founders@manaflow.com にメールする",
     "applyEyebrow": "興味がありますか？",
     "applyTitle": "一緒につくりませんか。",
-    "applyBody": "ファウンダーにメッセージを送り、まずはお話ししましょう。"
+    "applyBody": "ファウンダーにメッセージを送り、まずはお話ししましょう。",
+    "backToAllRoles": "すべての募集職種に戻る",
+    "otherRoleEyebrow": "こちらも募集中",
+    "otherRoleTitle": "Founding Designer",
+    "foundingDesigner": {
+      "metaTitle": "Founding Designer の採用情報 — cmux",
+      "metaDescription": "cmux の Founding Designer として、macOS、TUI、Windows、Linux、iOS、Cloud、cmux.com、chatmux にわたる AI とコーディングの未来をデザインしませんか。",
+      "section": "採用情報",
+      "eyebrow": "役割について",
+      "title": "Founding Designer",
+      "tagline": "AI とコーディングの未来をデザインする。",
+      "intro": "cmux は Ghostty を基盤にしたネイティブ macOS ターミナルです。複数の AI コーディングエージェントを並列で動かすために設計され、数十万人の開発者がエージェントによるコーディングワークフローに cmux を活用しています。",
+      "hiring": "AI とコーディングの未来をデザインする、才能ある Founding Designer を募集しています。",
+      "whatYoullDo": "仕事内容",
+      "whatYoullDoItems": [
+        "cmux macOS、cmux TUI、cmux Windows/Linux、cmux iOS、cmux Cloud、cmux.com、chatmux など、スタック全体にわたる最先端の開発者ツールをデザインする。",
+        "開発者が AI と仕事をするために最も役立つプロダクトをデザインする。",
+        "ユーザーフィードバックのループも含め、ルック、フィール、インタラクションモデルを最初から最後まで担当する。",
+        "常に cmux を実際に使い、プロトタイプを作り、出荷する。"
+      ],
+      "whoWereLookingFor": "求める人物像",
+      "whoIntro": "必須条件はありません。バックグラウンドを問わず、才能あるデザイナーを求めています。",
+      "excitedLead": "次のような経験や姿勢があると、特にうれしいです：",
+      "whoWereLookingForItems": [
+        "さまざまなアプリのデザインコンポーネントを知り尽くしている。",
+        "デザインの参考例を、いつも周りの人から尋ねられる。",
+        "ネイティブ macOS アプリと開発者ツールに対する、強いこだわりと優れた感覚がある。",
+        "コードでプロトタイプを作り、実際の UI を出荷する。",
+        "タイポグラフィ、モーション、システム思考に精通し、1px の細部や余白にもこだわる。"
+      ],
+      "details": "詳細",
+      "roleTitle": "Founding Designer",
+      "compensationLabel": "報酬",
+      "compensation": "$130k〜$170k + 株式 0.5%〜1.5%",
+      "benefitsLabel": "福利厚生",
+      "benefits": "医療・歯科・眼科保険",
+      "locationLabel": "勤務地",
+      "location": "サンフランシスコ",
+      "aboutTitle": "cmux について",
+      "aboutBody": "cmux は Ghostty を基盤にしたオープンソースのネイティブ macOS ターミナルです。垂直タブ、エージェントが対応を必要とするときの通知リング、分割ペイン、プログラマビリティのための CLI を備えています。",
+      "applyAriaLabel": "メールで Founding Designer に応募する",
+      "applyEmailSubject": "cmux Founding Designer への応募",
+      "applyCta": "founders@manaflow.com にメールする",
+      "applyEyebrow": "興味がありますか？",
+      "applyTitle": "一緒につくりませんか。",
+      "applyBody": "ファウンダーにメッセージを送り、まずはお話ししましょう。",
+      "backToAllRoles": "すべての募集職種に戻る",
+      "otherRoleEyebrow": "こちらも募集中",
+      "otherRoleTitle": "Founding Engineer"
+    }
   },
   "pricing": {
     "metaTitle": "料金 — cmux",

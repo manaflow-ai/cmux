@@ -45,6 +45,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { path: "/enterprise", lastModified: "2026-07-04", changeFrequency: "monthly" as const, priority: 0.8 },
     { path: "/support", lastModified: "2026-08-27", changeFrequency: "monthly" as const, priority: 0.7 },
     { path: "/jobs", lastModified: "2026-08-27", changeFrequency: "monthly" as const, priority: 0.7, locales: fallbackContentLocales },
+    { path: "/jobs/founding-designer", lastModified: "2026-08-28", changeFrequency: "monthly" as const, priority: 0.7, locales: fallbackContentLocales },
     { path: "/blog", lastModified: "2026-07-29", changeFrequency: "weekly" as const, priority: 0.8 },
     { path: "/blog/367-billion-tokens", lastModified: "2026-07-29", changeFrequency: "monthly" as const, priority: 0.7, locales: fallbackContentLocales },
     { path: "/blog/claude-code-best-worktree-manager", lastModified: "2026-07-23", changeFrequency: "monthly" as const, priority: 0.7, locales: fallbackContentLocales },

@@ -136,6 +136,11 @@ export const agentReadablePages = [
     title: "Founding Engineer jobs at cmux",
     locales: fallbackContentLocales,
   },
+  {
+    path: "/jobs/founding-designer",
+    title: "Founding Designer jobs at cmux",
+    locales: fallbackContentLocales,
+  },
   { path: "/pricing", title: "Pricing", locales: fallbackContentLocales },
   { path: "/enterprise", title: "Enterprise" },
   { path: "/blog", title: "Blog" },
