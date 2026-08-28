@@ -441,7 +441,7 @@
     "hiring": "AI とコーディングの未来をつくる、才能ある Founding Engineer を募集しています。",
     "whatYoullDo": "仕事内容",
     "whatYoullDoItems": [
-      "cmux macOS（Swift/AppKit）、cmux Windows/Linux（C++/Chromium）、cmux iOS、cmux Cloud、sub-router (Go)、chatmux など、スタック全体にわたる最先端の開発者ツールをつくる。",
+      "cmux macOS（Swift/AppKit）、cmux Windows/Linux（C++/Chromium）、cmux iOS、cmux Cloud、subrouter (Go)、chatmux など、スタック全体にわたる最先端の開発者ツールをつくる。",
       "開発者が AI と仕事をするために最も役立つプロダクトを一緒に生み出す。",
       "ユーザーフィードバックのループも含め、プロダクトと機能を最初から最後まで担当する。",
       "常に cmux を実際に使い、テストと検証を重ねながら cmux をつくる。"

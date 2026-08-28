@@ -441,7 +441,7 @@
     "hiring": "We're hiring talented founding engineers to help us build the future of coding with AI.",
     "whatYoullDo": "What you'll do",
     "whatYoullDoItems": [
-      "Build frontier devtools across the stack: cmux macOS (Swift/AppKit), cmux Windows/Linux (C++/Chromium), cmux iOS, cmux Cloud, sub-router (Go), chatmux, and more.",
+      "Build frontier devtools across the stack: cmux macOS (Swift/AppKit), cmux Windows/Linux (C++/Chromium), cmux iOS, cmux Cloud, subrouter (Go), chatmux, and more.",
       "Help invent the most useful product for developers to do work with AI.",
       "Own products and features end to end, including user feedback loops.",
       "Dogfood, test, and verify constantly; use cmux to build cmux."
