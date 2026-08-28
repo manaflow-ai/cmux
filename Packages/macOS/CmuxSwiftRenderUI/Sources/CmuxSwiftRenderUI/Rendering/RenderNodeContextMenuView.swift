@@ -19,12 +19,9 @@ final class RenderNodeContextMenuView: NSView {
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard isMenuEnabled else { return nil }
-        // AppKit's NSView.hitTest(_:) receives `point` in the SUPERVIEW's
-        // coordinate system ("a point that is in the coordinate system of
-        // the receiver's superview" — unlike UIKit's local-space
-        // point(inside:)). `frame` lives in that same space, so this is the
-        // containment test with no conversion.
-        guard frame.contains(point), let event = NSApp.currentEvent else { return nil }
+        // AppKit gives NSView.hitTest(_:) a point in this view's local
+        // coordinate system. Use bounds for the local containment test.
+        guard bounds.contains(point), let event = NSApp.currentEvent else { return nil }
         switch event.type {
         case .rightMouseDown:
             break
@@ -37,7 +34,9 @@ final class RenderNodeContextMenuView: NSView {
         // so a nested `.contextMenu` inside this row must win over this
         // (topmost) overlay. Deferring lets AppKit's hit-test recursion
         // continue into the content subtree and reach the deeper overlay.
-        if deeperOverlayClaims(point) { return nil }
+        // The descendant walk is expressed in the superview's coordinates.
+        let pointInSuperview = superview.map { convert(point, to: $0) } ?? point
+        if deeperOverlayClaims(pointInSuperview) { return nil }
         return self
     }
 
