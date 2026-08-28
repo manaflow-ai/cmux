@@ -33247,6 +33247,34 @@ mod tests {
     }
 
     #[test]
+    fn stale_surface_exit_index_falls_back_to_tree_scan_and_rebuilds_locations() {
+        let mux = Mux::new("stale-surface-exit-index-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let mut tree = notify_tree(41, false);
+        let pane = &mut tree.workspaces[0].screens[0].panes[0];
+        let mut second = pane.tabs[0].clone();
+        second.surface = 41;
+        let mut third = pane.tabs[0].clone();
+        third.surface = 43;
+        pane.tabs[0].surface = 40;
+        pane.tabs.push(second);
+        pane.tabs.push(third);
+        pane.active_tab = 2;
+        app.replace_tree(tree);
+
+        // Force the defensive dispatch path by making the cached location stale.
+        app.tab_locations.insert(40, [0, 0, 0, 1]);
+        app.remove_surface_from_cached_tree(40);
+
+        let pane = &app.tree.workspaces[0].screens[0].panes[0];
+        assert_eq!(pane.tabs.iter().map(|tab| tab.surface).collect::<Vec<_>>(), vec![41, 43]);
+        assert_eq!(pane.active_tab, 1);
+        assert_eq!(app.tab_locations.get(&41), Some(&[0, 0, 0, 0]));
+        assert_eq!(app.tab_locations.get(&43), Some(&[0, 0, 0, 1]));
+        assert!(!app.tab_locations.contains_key(&40));
+    }
+
+    #[test]
     fn resize_claims_skip_identical_work_and_replace_a_b_a_reversions() {
         let mux = Mux::new("resize-claim-test", SurfaceOptions::default());
         let app = test_app(Session::Local(mux));
