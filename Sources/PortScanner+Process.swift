@@ -536,6 +536,22 @@ extension PortScanner {
     }
 
     func runLsof(pidsCsv: String) async -> PortLsofScanResult {
+        let pids = pidsCsv.split(separator: ",").compactMap { Int($0) }
+        guard pids.count > 256 else { return await runLsofChunk(pidsCsv: pidsCsv) }
+        var values: [Int: Set<Int>] = [:]
+        var incomplete: Set<Int> = []
+        var complete = true
+        for start in stride(from: 0, to: pids.count, by: 256) {
+            let chunk = pids[start..<min(start + 256, pids.count)]
+            let result = await runLsofChunk(pidsCsv: chunk.map(String.init).joined(separator: ","))
+            for (pid, ports) in result.values { values[pid, default: []].formUnion(ports) }
+            incomplete.formUnion(result.incompletePIDs)
+            complete = complete && result.globallyComplete
+        }
+        return PortLsofScanResult(values: values, globallyComplete: complete, incompletePIDs: incomplete)
+    }
+
+    private func runLsofChunk(pidsCsv: String) async -> PortLsofScanResult {
         let result = await commandRunner.run(
             directory: "/",
             executable: "/usr/sbin/lsof",
