@@ -553,7 +553,8 @@ impl ProviderClientInner {
         }
         events.acknowledged_sequence = sequence;
         events.durable_subscription = DurableSubscriptionState::Active;
-        for event in events.retained_durable.iter().cloned().collect::<Vec<_>>() {
+        for index in 0..events.retained_durable.len() {
+            let event = events.retained_durable[index].clone();
             Self::publish_to_event_subscribers(&mut events, event)?;
         }
         Ok(())
