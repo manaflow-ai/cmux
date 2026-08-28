@@ -980,6 +980,12 @@ impl Inner {
         opening.remove(&pty_id);
         drop(opening);
         reservation.active = false;
+
+        // The attachment is installed. Release the lifecycle guard before
+        // callbacks: `start` can synchronously emit output, which takes this
+        // guard again.
+        drop(_lifecycle);
+
         let mut opened_frame = serde_json::Map::new();
         opened_frame.insert("version".to_owned(), Value::from(PTY_PROTOCOL_VERSION));
         opened_frame.insert("type".to_owned(), Value::from("pty_opened"));
