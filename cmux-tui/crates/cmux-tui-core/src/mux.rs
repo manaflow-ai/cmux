@@ -5340,13 +5340,14 @@ impl Mux {
                 // repairing an earlier out-of-order record.
                 return;
             }
-            let page = match self.workspace_registry.lock().unwrap().session_journal_after(cursor, 512) {
-                Ok(page) => page,
-                Err(error) => {
-                    eprintln!("cmux-tui: reading committed agent events back failed: {error}");
-                    return;
-                }
-            };
+            let page =
+                match self.workspace_registry.lock().unwrap().session_journal_after(cursor, 512) {
+                    Ok(page) => page,
+                    Err(error) => {
+                        eprintln!("cmux-tui: reading committed agent events back failed: {error}");
+                        return;
+                    }
+                };
             if page.records.is_empty() {
                 return;
             }
@@ -22001,9 +22002,8 @@ mod tests {
         assert_eq!(mux.list_agents(Some(surface_id), None)[0].state, AgentState::Idle);
 
         // A socket report cannot downgrade a hook-owned record.
-        let socket = mux
-            .report_agent(surface_id, AgentState::Working, AgentSource::Socket, None)
-            .unwrap();
+        let socket =
+            mux.report_agent(surface_id, AgentState::Working, AgentSource::Socket, None).unwrap();
         assert_eq!(socket.agent.as_deref(), Some("claude"));
         assert_eq!(mux.list_agents(Some(surface_id), None)[0].state, AgentState::Idle);
 

@@ -888,9 +888,7 @@ mod tests {
         for _ in 0..64 {
             deeply_nested = json!({"nested": deeply_nested});
         }
-        let wide = (0..8_192)
-            .map(|_| json!({"value":"secret"}))
-            .collect::<Vec<_>>();
+        let wide = (0..8_192).map(|_| json!({"value":"secret"})).collect::<Vec<_>>();
         let ingress = agent_hook_journal_ingress(
             "codex",
             "Stop",
