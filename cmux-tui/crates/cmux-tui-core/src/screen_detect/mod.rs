@@ -86,8 +86,7 @@ impl ScreenDetectTracker {
             return false;
         }
         let quiet_since = entry.quiet_since.expect("anchored above");
-        let quiesced =
-            now.duration_since(quiet_since).as_millis() as u64 >= QUIESCENCE_DEBOUNCE_MS;
+        let quiesced = now.duration_since(quiet_since).as_millis() as u64 >= QUIESCENCE_DEBOUNCE_MS;
         let overdue = entry.last_evaluated_at.is_none_or(|evaluated_at| {
             now.duration_since(evaluated_at).as_millis() as u64 >= MAX_EVAL_INTERVAL_MS
         });
@@ -222,10 +221,8 @@ mod tests {
         for tick in 1..=25u64 {
             if tracker.observe_revision("term_a", 1 + tick, at(tick * 100)) {
                 evaluations += 1;
-                tracker.record_detection(
-                    "term_a",
-                    Some(("codex", detection(ScreenState::Working))),
-                );
+                tracker
+                    .record_detection("term_a", Some(("codex", detection(ScreenState::Working))));
             }
         }
         assert_eq!(evaluations, 2, "1Hz pacer under 2.5s of continuous output");
