@@ -1277,6 +1277,7 @@ impl SidebarViewSpec {
         };
         let levels = vec![level];
         let actions = default_sidebar_actions(&levels);
+        let row_lines = default_sidebar_row_lines(&levels);
         Self {
             id: id.to_string(),
             levels,
@@ -1286,7 +1287,7 @@ impl SidebarViewSpec {
             max_width,
             collapse_priority,
             scope: SidebarViewScope::Workspace,
-            row_lines: default_sidebar_row_lines(&levels),
+            row_lines,
         }
     }
 
@@ -1877,6 +1878,17 @@ fn resolve_sidebar_leaf_view(
     } else {
         default_sidebar_actions(&levels)
     };
+    let row_lines = match view.row_lines {
+        None => default_sidebar_row_lines(&levels),
+        Some(lines @ 1..=2) => lines,
+        Some(lines) => {
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: ignoring row_lines {lines} in {owner} view {id:?}; expected 1 or 2"
+            );
+            default_sidebar_row_lines(&levels)
+        }
+    };
     state.views.push(SidebarViewSpec {
         id: id.to_string(),
         collapse_priority: view
@@ -1888,17 +1900,7 @@ fn resolve_sidebar_leaf_view(
         width: view.width.unwrap_or(default_width).clamp(10, 60),
         max_width: view.max_width.unwrap_or(default_max_width),
         scope,
-        row_lines: match view.row_lines {
-            None => default_sidebar_row_lines(&levels),
-            Some(lines @ 1..=2) => lines,
-            Some(lines) => {
-                crate::client_log::stderr_log!(
-                    "config",
-                    "cmux-tui: ignoring row_lines {lines} in {owner} view {id:?}; expected 1 or 2"
-                );
-                default_sidebar_row_lines(&levels)
-            }
-        },
+        row_lines,
     });
     Some(state.views.len() - 1)
 }

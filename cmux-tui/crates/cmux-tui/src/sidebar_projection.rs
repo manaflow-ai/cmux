@@ -796,6 +796,7 @@ mod tests {
                 state: "working".into(),
                 source: "hook".into(),
                 session: None,
+                agent: None,
                 updated_at_ms: 900,
             },
             AgentInfo {
@@ -803,6 +804,7 @@ mod tests {
                 state: "working".into(),
                 source: "hook".into(),
                 session: None,
+                agent: None,
                 updated_at_ms: 100,
             },
         ];
