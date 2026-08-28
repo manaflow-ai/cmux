@@ -7,6 +7,6 @@ There is no `cmux browser proxy ...` command for per-surface routing: WKWebView 
 Verify egress:
 
 ```bash
-cmux browser open https://httpbin.org/ip --json
-cmux browser surface:7 get text body
+cmux --json browser open https://httpbin.org/ip --focus false
+cmux browser --surface "$SURFACE" get text body
 ```
