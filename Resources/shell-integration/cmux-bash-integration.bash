@@ -1441,11 +1441,11 @@ _cmux_watcher_parent_start_time() {
     esac
 
     if [[ "$provider" != ps ]]; then
-        local kernel kernel_fields sec_low sec_high usec
+        local kernel kernel_fields sec_low sec_high usec timeval_pad
         kernel="$(_cmux_watcher_parent_kernel_raw "$pid")" || return 1
-        kernel_fields="$(printf '%s\n' "$kernel" | _cmux_watcher_parent_kernel_fields)"
-        while IFS=' ' read -r sec_low sec_high usec; do
-            if [[ "$sec_low" =~ ^[0-9]+$ && "$sec_high" =~ ^0+$ && "$usec" =~ ^[0-9]+$ && "$sec_low" -ge 1000000000 && "$sec_low" -le 3000000000 && "$usec" -lt 1000000 ]]; then
+        kernel_fields="$(printf '%s\n' "$kernel" | _cmux_watcher_parent_kernel_fields "$pid")"
+        while IFS=' ' read -r sec_low sec_high usec timeval_pad; do
+            if [[ "$sec_low" =~ ^[0-9]+$ && "$sec_high" =~ ^0+$ && "$usec" =~ ^[0-9]+$ && "$timeval_pad" =~ ^0+$ && "$sec_low" -ge 1000000000 && "$sec_low" -le 3000000000 && "$usec" -lt 1000000 ]]; then
                 _cmux_watcher_parent_kernel_token "$pid" "$sec_low" "$usec"
                 return $?
             fi
@@ -1494,23 +1494,41 @@ _cmux_watcher_parent_start_time() {
 }
 
 _cmux_watcher_parent_kernel_raw() {
-    # `kern.proc.pid` begins with `kinfo_proc.kp_proc.p_starttime`. On Darwin,
-    # timeval is 16 bytes here: a 64-bit tv_sec (two 32-bit words), a 32-bit
-    # tv_usec, and padding. Keep exactly those first 12 bytes; callers parse
-    # the fixed [sec_low, sec_high, usec] positions below.
+    # Request the complete binary `kern.proc.pid` record. `sysctl -n` formats
+    # opaque records as text, so it cannot be parsed as a byte layout. `-b`
+    # preserves the Darwin ABI bytes and `od -v` prevents repeated-zero
+    # compression from hiding fields.
     local pid="${1:-}"
-    /usr/sbin/sysctl -n "kern.proc.pid.$pid" 2>/dev/null | /usr/bin/od -An -tu4 -N 12 2>/dev/null
+    /usr/sbin/sysctl -b "kern.proc.pid.$pid" 2>/dev/null | /usr/bin/od -An -v -tu4 2>/dev/null
 }
 
 _cmux_watcher_parent_kernel_fields() {
-    # Flatten od output without consulting the caller's IFS, then preserve the
-    # architecture-defined field positions for the caller to validate.
-    /usr/bin/awk '
+    # Flatten od output without consulting the caller's IFS, validate one
+    # complete LP64 `kinfo_proc` record, and return only its timestamp fields.
+    # Apple exports `kp_proc.p_starttime` as a 16-byte timeval at byte 0 and
+    # `kp_proc.p_pid` at byte 40 on both arm64 and x86_64. Requiring the full
+    # 648-byte record (162 uint32 words), the PID anchor, and timeval padding
+    # prevents a short or unrelated prefix from being accepted as identity.
+    local pid="${1:-}"
+    /usr/bin/awk -v expected_pid="$pid" '
         {
-            for (i = 1; i <= NF; i++) values[++count] = $i
+            for (i = 1; i <= NF; i++) {
+                if ($i !~ /^[0-9]+$/) malformed = 1
+                else values[++count] = $i
+            }
         }
         END {
-            if (count == 3) print values[1], values[2], values[3]
+            # KERN_PROC_PID returns one user64_kinfo_proc. Keep this minimum
+            # rather than trusting a partial stream, since identity is safety
+            # critical and newer kernels may append fields to the record.
+            if (malformed || count < 162) exit 1
+            # p_starttime is timeval words 1..4; p_pid is word 11.
+            if (values[11] != expected_pid || values[4] != 0) exit 1
+            if (values[1] !~ /^[0-9]+$/ || values[2] !~ /^[0-9]+$/ ||
+                values[3] !~ /^[0-9]+$/ || values[2] != 0 ||
+                values[1] < 1000000000 || values[1] > 3000000000 ||
+                values[3] >= 1000000) exit 1
+            print values[1], values[2], values[3], values[4]
         }
     '
 }

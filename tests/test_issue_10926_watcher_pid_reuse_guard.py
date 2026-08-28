@@ -37,10 +37,38 @@ ZSH_INTEGRATION = ROOT / "Resources" / "shell-integration" / "cmux-zsh-integrati
 BASH_INTEGRATION = ROOT / "Resources" / "shell-integration" / "cmux-bash-integration.bash"
 
 # Kernel identities use a `k` marker and diagnostic ps identities use `p`,
-# followed by 16 decimal digits of epoch microseconds.
+# followed by 16 decimal digits of epoch microseconds. The synthetic kernel
+# fixture models one complete 648-byte LP64 `kinfo_proc` record as uint32
+# words. Its timeval occupies bytes 0..15 and its PID occupies byte 40.
 FAKE_START_TIME = "k1000000000000000"
-SYNTHETIC_KERNEL_FIELDS = "1700000000 0 123456"
+KINFO_PROC_WORD_COUNT = 162
+SYNTHETIC_KERNEL_SEC = 1700000000
+SYNTHETIC_KERNEL_USEC = 123456
 SYNTHETIC_KERNEL_TOKEN = "k1700000000123456"
+
+
+def synthetic_kernel_record(
+    pid: int | str,
+    *,
+    sec: int = SYNTHETIC_KERNEL_SEC,
+    sec_high: int = 0,
+    usec: int = SYNTHETIC_KERNEL_USEC,
+    word_count: int = KINFO_PROC_WORD_COUNT,
+    malformed_word: int | None = None,
+) -> str:
+    """Build a complete Darwin LP64 kinfo_proc word stream for shell tests."""
+    words: list[str] = ["0"] * word_count
+    if word_count > 0:
+        words[0] = str(sec)
+    if word_count > 1:
+        words[1] = str(sec_high)
+    if word_count > 2:
+        words[2] = str(usec)
+    if word_count > 10:
+        words[10] = str(pid)
+    if malformed_word is not None and 0 <= malformed_word < word_count:
+        words[malformed_word] = "malformed"
+    return " ".join(words)
 
 FAILURES: list[str] = []
 
@@ -127,6 +155,9 @@ def shell_start_time(
     provider_arg = ' "$3"' if provider is not None else ""
     provider_stub = ""
     if kernel_fields is not None:
+        # A fixture may use `$1` as a dynamic PID marker. Resolve it before
+        # embedding the stream in a single-quoted shell command.
+        kernel_fields = kernel_fields.replace("$1", str(pid))
         provider_stub = (
             "_cmux_watcher_parent_kernel_raw() { "
             f"printf '%s\\n' '{kernel_fields}'; "
@@ -141,11 +172,36 @@ def shell_start_time(
     return proc.stdout.strip() if proc.returncode == 0 else ""
 
 
-def kernel_stub() -> str:
-    """Return a shell prefix that supplies a deterministic Darwin timeval."""
+def kernel_stub(
+    *,
+    sec_high: int = 0,
+    word_count: int = KINFO_PROC_WORD_COUNT,
+    malformed_word: int | None = None,
+) -> str:
+    """Return a shell prefix that supplies a complete Darwin record."""
+    # Keep `$1` in the function body so each caller's target PID is anchored
+    # at the documented kp_proc.p_pid word without relying on the host table.
+    record = synthetic_kernel_record(
+        "$1",
+        sec_high=sec_high,
+        word_count=word_count,
+        malformed_word=malformed_word,
+    )
+    # Pass each uint32 as a printf argument. Keep the PID marker quoted so
+    # the shell expands it when the stub is called with a target PID. Quote
+    # malformed fixture words as shell data instead of treating them as code.
+    words = record.split()
+    printf_args = []
+    for word in words:
+        if word == "$1":
+            printf_args.append('"$1"')
+        elif word.isdigit():
+            printf_args.append(word)
+        else:
+            printf_args.append(f"'{word}'")
     return (
         "_cmux_watcher_parent_kernel_raw() { "
-        f"printf '%s\\n' '{SYNTHETIC_KERNEL_FIELDS}'; "
+        f"printf '%s\\n' {' '.join(printf_args)}; "
         "}; "
     )
 
@@ -166,15 +222,25 @@ def check_identity_provider_contract(
             f'source "$1"; {kernel_stub()} IFS=:; '
             'token="$(_cmux_watcher_parent_start_time "$$" kernel)"; '
             'printf "LAYOUT:%s\\n" "$token"; '
-            '_cmux_watcher_parent_kernel_raw() { printf "%s\\n" "1700000000 1 123456"; }; '
+            f'{kernel_stub(sec_high=1)}'
             'bad="$(_cmux_watcher_parent_start_time "$$" kernel)"; '
-            'printf "BAD_LAYOUT:%s:%s\\n" "$bad" "$?"'
+            'printf "BAD_LAYOUT:%s:%s\\n" "$bad" "$?"; '
+            f'{kernel_stub(word_count=12)}'
+            'truncated="$(_cmux_watcher_parent_start_time "$$" kernel)"; '
+            'printf "TRUNCATED:%s:%s\\n" "$truncated" "$?"; '
+            f'{kernel_stub(malformed_word=20)}'
+            'malformed="$(_cmux_watcher_parent_start_time "$$" kernel)"; '
+            'printf "MALFORMED_RECORD:%s:%s\\n" "$malformed" "$?"'
         )
         layout = run_shell(shell_argv, layout_script, [str(integration)], env)
         if f"LAYOUT:{SYNTHETIC_KERNEL_TOKEN}" not in layout.stdout:
             fail(f"[{name}] Darwin timeval offsets or caller IFS broke kernel parsing: {layout.stdout!r}")
         if "BAD_LAYOUT::1" not in layout.stdout:
             fail(f"[{name}] nonzero timeval high half did not fail closed: {layout.stdout!r}")
+        if "TRUNCATED::1" not in layout.stdout:
+            fail(f"[{name}] truncated kern.proc.pid record did not fail closed: {layout.stdout!r}")
+        if "MALFORMED_RECORD::1" not in layout.stdout:
+            fail(f"[{name}] malformed kern.proc.pid record did not fail closed: {layout.stdout!r}")
 
         kernel = real_kernel or SYNTHETIC_KERNEL_TOKEN
         if real_kernel and (len(real_kernel) != 17 or not real_kernel.startswith("k") or not real_kernel[1:].isdigit()):
@@ -446,7 +512,7 @@ def check_injected_watcher_loop(name: str, shell_argv: list[str], integration: P
             integration,
             env,
             decoy.pid,
-            kernel_fields=SYNTHETIC_KERNEL_FIELDS,
+            kernel_fields=synthetic_kernel_record(decoy.pid),
         )
         loop_pid, ready_fd, ready = spawn_loop(decoy.pid, true_start)
         if loop_pid is None:
