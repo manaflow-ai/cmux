@@ -3764,13 +3764,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "For Iroh to find a Mac, run cmux 0.64.20 or later on the Mac, sign in to cmux on both devices with the same account, and keep cmux running on the Mac while both devices are online. If any requirement is missing, the Mac will not appear automatically. To use Tailscale instead, open Settings, tap Connection Method, and choose Tailscale Only."
+            "value": "To see a Mac here, run cmux on it, sign in to cmux on both devices with the same account, and keep cmux running on the Mac while both devices are online. To use Tailscale instead, open the computer's page and set Connection Method to Tailscale Only."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "IrohでMacを見つけるには、Macでcmux 0.64.20以降を起動し、両方のデバイスでcmuxに同じアカウントでサインインし、cmuxを起動したまま両方のデバイスをオンラインにしてください。いずれかの条件を満たしていない場合、Macは自動的には表示されません。代わりにTailscaleを使うには、「設定」を開き、「接続方法」をタップして「Tailscaleのみ」を選択してください。"
+            "value": "Macをここに表示するには、Macでcmuxを起動し、両方のデバイスで同じアカウントにサインインして、両方がオンラインの間cmuxを起動したままにしてください。Tailscaleを使う場合は、コンピュータのページでConnection MethodをTailscale Onlyに設定してください。"
           }
         }
       }
@@ -6416,13 +6416,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Iroh reconnects automatically. For a saved private-network fallback, connect both devices to that network, wake the Mac, and open cmux."
+            "value": "cmux reconnects automatically over the relay. Wake the Mac, keep cmux open on it, and check that it is online."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Irohは自動的に再接続します。保存済みのプライベートネットワークをフォールバックに使う場合は、両方の端末をそのネットワークに接続し、Macを起こしてcmuxを開いてください。"
+            "value": "cmuxはリレー経由で自動的に再接続します。Macをスリープ解除してcmuxを開いたままにし、オンラインであることを確認してください。"
           }
         }
       }
@@ -8830,13 +8830,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux connects through Iroh, which links this phone to your computer directly when possible and through an encrypted cmux relay when not. Both devices verify your account, and the relay cannot read your terminals. No network setup is required."
+            "value": "cmux connects through the cmux relay: one encrypted connection from each device, joined at the relay. Both devices verify your account, and the relay cannot read your terminals. No network setup is required."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmuxはIrohで接続します。可能な場合はこの端末とコンピュータを直接つなぎ、できない場合は暗号化されたcmuxリレーを経由します。両方の端末でアカウントを検証するため、リレーがターミナルの内容を読むことはできません。ネットワークの設定は不要です。"
+            "value": "cmuxはcmuxリレー経由で接続します。各デバイスからの暗号化された接続をリレーが中継します。両方のデバイスがアカウントを検証し、リレーはターミナルの内容を読めません。ネットワーク設定は不要です。"
           }
         }
       }
@@ -20951,13 +20951,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No computers yet. Iroh finds Macs running cmux 0.64.20 or later. Both devices must be signed in to the same cmux account, and the Mac must keep cmux running while both devices are online. If any requirement is missing, the Mac will not appear automatically. To use Tailscale instead, choose Tailscale in the computer's configuration."
+            "value": "No computers yet. Sign in to cmux on your Mac with the same account and keep it running; it appears here automatically. To use Tailscale instead, open the computer's page and set Connection Method to Tailscale Only."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "コンピュータがありません。Irohで表示されるのは、Mac版cmux 0.64.20以降を実行しているMacです。両方のデバイスで同じcmuxアカウントにサインインし、cmuxを起動したまま両方のデバイスをオンラインにしてください。いずれかの条件を満たしていない場合、Macは自動的には表示されません。代わりにTailscaleを使うには、コンピュータの設定でTailscaleを選択してください。"
+            "value": "まだコンピュータがありません。Macで同じアカウントにサインインしてcmuxを起動したままにすると、自動的にここに表示されます。Tailscaleを使う場合は、コンピュータのページでConnection MethodをTailscale Onlyに設定してください。"
           }
         }
       }
@@ -23484,13 +23484,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Each computer now picks how this iPhone reaches it: Iroh, Tailscale Only, or Direct. Set it in Computers → your computer → Connection Method."
+            "value": "Each computer now picks how this iPhone reaches it: Relay or Tailscale Only. Set it in Computers → your computer → Connection Method."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "各コンピュータごとに、このiPhoneからの接続方法（Iroh・Tailscaleのみ・ダイレクト）を選べるようになりました。「コンピュータ」→ コンピュータを選択 →「接続方法」で設定できます。"
+            "value": "コンピュータごとにこのiPhoneからの接続方法を選べます: リレーまたはTailscale Only。Computers → コンピュータ → Connection Methodで設定します。"
           }
         }
       }
@@ -23763,6 +23763,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "このコンピュータの接続状態とアプリのデバッグログをトラブルシューティング用にコピーします。バグ報告やチャットに貼り付けてください。"
+          }
+        }
+      }
+    },
+    "mobile.onboarding.connect.method.relayDetail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Works from any network. No setup required."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "どのネットワークからでも接続できます。設定は不要です。"
+          }
+        }
+      }
+    },
+    "mobile.connectionsUpdate.relay.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New: Relay connections"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新機能: リレー接続"
+          }
+        }
+      }
+    },
+    "mobile.connectionsUpdate.relay.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your phone now reaches your Mac through the cmux relay from any network. No VPN and no setup; both devices verify your account, and the relay cannot read your terminals."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhoneはどのネットワークからでもcmuxリレー経由でMacに接続できるようになりました。VPNも設定も不要です。両方のデバイスがアカウントを検証し、リレーはターミナルの内容を読めません。"
           }
         }
       }

@@ -1788,9 +1788,9 @@ final class TerminalOutputCollector {
 @MainActor
 @Test func scannedLoopbackPairingCodeIsRejectedWithGuidance() async throws {
     // "QR shouldn't work for localhost": a scanned/pasted v2 code whose
-    // routes point at the phone itself fails closed with copy that names the
-    // actual fix (Iroh), instead of dialing 127.0.0.1 and burning the
-    // whole request timeout before a generic connect error.
+    // routes point at the phone itself fails closed with the loopback copy,
+    // instead of dialing 127.0.0.1 and burning the whole request timeout
+    // before a generic connect error.
     let store = CMUXMobileShellStore.preview()
 
     store.signIn()
@@ -1799,10 +1799,9 @@ final class TerminalOutputCollector {
     #expect(result == .failed)
     #expect(store.connectionState == .disconnected)
     #expect(store.activeTicket == nil)
-    #expect(store.connectionError?.contains("Iroh") == true)
-    // The loopback failure must name the fix (Iroh), not fall through to
-    // the generic invalid-code copy.
-    #expect(store.connectionError != MobilePairingFailureCategory.invalidCode.message)
+    // The loopback failure must use its own copy, not fall through to the
+    // generic invalid-code copy.
+    #expect(store.connectionError == MobilePairingFailureCategory.loopbackRejected.message)
 }
 
 @MainActor
