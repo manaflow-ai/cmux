@@ -5882,8 +5882,7 @@ impl Mux {
             causation_id: None,
             correlation_id: None,
         };
-        let idempotency_key =
-            format!("screen-detect-{}", crate::workspace_registry::new_uuid_v4());
+        let idempotency_key = format!("screen-detect-{}", crate::workspace_registry::new_uuid_v4());
         if let Err(error) = self.append_journal_ingress(&ingress, "screen-detect", &idempotency_key)
         {
             eprintln!(
@@ -23615,7 +23614,13 @@ mod tests {
 
         // Steady state re-scans journal nothing (edge-triggered).
         let journal_len = |mux: &Mux| {
-            mux.workspace_registry.lock().unwrap().session_journal_after(0, 512).unwrap().records.len()
+            mux.workspace_registry
+                .lock()
+                .unwrap()
+                .session_journal_after(0, 512)
+                .unwrap()
+                .records
+                .len()
         };
         let before = journal_len(&mux);
         scanner::scan(&mux, &mut tracker, manifests, step(1_100), &codex);

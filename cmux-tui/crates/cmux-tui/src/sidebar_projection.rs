@@ -484,23 +484,15 @@ mod tests {
             agent(6, "blocked", 10),
             agent(7, "working", 40),
         ];
-        let rows = rows(
-            &spec(vec![SidebarResourceKind::Agents]),
-            &tree,
-            &agents,
-            0,
-            &HashSet::new(),
-        );
+        let rows =
+            rows(&spec(vec![SidebarResourceKind::Agents]), &tree, &agents, 0, &HashSet::new());
 
         let order: Vec<&str> = rows.iter().map(|row| row.name.as_str()).collect();
         assert_eq!(order, vec!["blocked-old", "working-new", "working-old", "idle-late"]);
 
         // Tab views keep tree order even when agents are present.
         let tabs = rows_tab_order(&tree, &agents);
-        assert_eq!(
-            tabs,
-            vec!["idle-late", "working-old", "blocked-old", "working-new", "shell"]
-        );
+        assert_eq!(tabs, vec!["idle-late", "working-old", "blocked-old", "working-new", "shell"]);
     }
 
     fn rows_tab_order(tree: &TreeView, agents: &[AgentInfo]) -> Vec<String> {
