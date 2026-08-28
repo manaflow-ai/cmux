@@ -3082,5 +3082,30 @@ mod tests {
         let frame = harness.sent().pop().unwrap();
         assert_eq!(frame["type"], "pty_error");
         assert_eq!(frame["code"], "overflow");
+        assert_eq!(frame["message"], "terminal output overflowed; reattach to continue");
+    }
+
+    #[test]
+    fn pty_errors_never_echo_remote_diagnostics() {
+        let sent = Arc::new(StdMutex::new(Vec::<Value>::new()));
+        let sink = Arc::clone(&sent);
+        let context = FrameContext {
+            send: Arc::new(move |frame| sink.lock().unwrap().push(frame)),
+            buffered_amount: Arc::new(|| 0),
+            trust: "supervised".to_owned(),
+            local_roots: None,
+            owner_user_id: None,
+            transport_id: None,
+        };
+        super::send_pty_error(
+            &context,
+            "pty-1",
+            "failed",
+            "attach-surface failed for terminal \"s:1\": /home/alice/.ssh/id_ed25519",
+        );
+        let frame = sent.lock().unwrap().pop().expect("error frame");
+        assert_eq!(frame["code"], "failed");
+        assert_eq!(frame["message"], "terminal operation failed");
+        assert!(!frame.to_string().contains("id_ed25519"));
     }
 }
