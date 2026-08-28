@@ -1516,6 +1516,25 @@ pub struct RemoteSession {
     capabilities: Mutex<HashSet<String>>,
     provider_workspace_authority: Option<BearerToken>,
     provider_workspaces_guarded: AtomicBool,
+    pipe_io_tap: Mutex<Option<PipeIoTap>>,
+}
+
+/// One event on the raw byte stream a `--pipe-io` relay serves to its
+/// embedder. `Replay` REPLACES all prior terminal state (the relay must
+/// emit a full reset before any replay that is not its first output);
+/// `Output` appends live PTY bytes.
+#[derive(Debug, PartialEq, Eq)]
+pub enum PipeIoEvent {
+    Replay { bytes: Vec<u8> },
+    Output(Vec<u8>),
+    SurfaceExited,
+    TransportLost,
+    StdinClosed,
+}
+
+struct PipeIoTap {
+    surface: SurfaceId,
+    sender: std::sync::mpsc::SyncSender<PipeIoEvent>,
 }
 
 pub(super) enum RemoteSurfaceAttach {
@@ -1872,6 +1891,7 @@ impl RemoteSession {
             capabilities: Mutex::new(HashSet::new()),
             provider_workspace_authority,
             provider_workspaces_guarded: AtomicBool::new(false),
+            pipe_io_tap: Mutex::new(None),
         });
 
         let reader_session = Arc::downgrade(&session);
@@ -2126,6 +2146,7 @@ impl RemoteSession {
                     id,
                     format_args!("vt-state cols={cols} rows={rows} bytes={}", replay.len()),
                 );
+                self.pipe_io_forward(id, || PipeIoEvent::Replay { bytes: replay.clone() });
                 let Ok(kitty_image_aliases) = parse_kitty_image_aliases(&value) else {
                     self.disconnect_transport();
                     return;
@@ -2190,6 +2211,7 @@ impl RemoteSession {
                 };
                 let colors = value.get("colors").and_then(parse_terminal_colors);
                 self.log_frame(id, format_args!("output bytes={}", bytes.len()));
+                self.pipe_io_forward(id, || PipeIoEvent::Output(bytes.clone()));
                 if let Some(surface) = self.surfaces.lock().unwrap().get(&id).cloned() {
                     surface.scan_cursor_provenance(&bytes);
                     let mut term = surface.term.lock().unwrap();
@@ -2239,6 +2261,9 @@ impl RemoteSession {
                         replay.as_ref().map(|bytes| bytes.len()).unwrap_or(0)
                     ),
                 );
+                if let Some(replay) = replay.as_ref() {
+                    self.pipe_io_forward(id, || PipeIoEvent::Replay { bytes: replay.clone() });
+                }
                 if let Some(surface) = self.surfaces.lock().unwrap().get(&id).cloned() {
                     if surface
                         .apply_stream_resize_with_colors(
@@ -2308,6 +2333,11 @@ impl RemoteSession {
             }
             Some("detached") => {
                 if let Some(id) = surface_id() {
+                    // A server-side stream detach (e.g. backpressure
+                    // overflow) ends the byte feed without ending the
+                    // terminal. The relay reports a lost connection so its
+                    // embedder respawns and resyncs from a fresh replay.
+                    self.pipe_io_forward(id, || PipeIoEvent::TransportLost);
                     self.surfaces.lock().unwrap().remove(&id);
                     self.emit(MuxEvent::SurfaceOutput(id));
                 }
@@ -2351,6 +2381,7 @@ impl RemoteSession {
             }
             Some("surface-exited") => {
                 if let Some(id) = surface_id() {
+                    self.pipe_io_forward(id, || PipeIoEvent::SurfaceExited);
                     // Retire the mirror immediately. The authoritative tree
                     // refresh may lag this event, but input and reattach must
                     // already fail closed for a known-exited surface.
@@ -2892,6 +2923,43 @@ impl RemoteSession {
         drop(state);
         self.begin_shutdown();
         self.interactive_writer.close();
+        // A pipe-io relay learns about every terminal-connection loss here
+        // (reader-thread EOF and every protocol-error disconnect path).
+        if let Some(tap) = self.pipe_io_tap.lock().unwrap().as_ref() {
+            let _ = tap.sender.try_send(PipeIoEvent::TransportLost);
+        }
+    }
+
+    /// Routes one scoped surface's raw byte stream to a `--pipe-io` relay.
+    /// Install before `attach-surface` so the initial replay is not missed.
+    pub fn install_pipe_io_tap(
+        &self,
+        surface: SurfaceId,
+        sender: std::sync::mpsc::SyncSender<PipeIoEvent>,
+    ) {
+        *self.pipe_io_tap.lock().unwrap() = Some(PipeIoTap { surface, sender });
+    }
+
+    /// Forwards one tap event, treating a full or dropped queue as a lost
+    /// transport: the relay's reader stalled, and silently dropping bytes
+    /// would corrupt the embedder's terminal state (bounded-backpressure
+    /// policy; never wedge the session reader thread).
+    fn pipe_io_forward(&self, surface: SurfaceId, event: impl FnOnce() -> PipeIoEvent) {
+        use std::sync::mpsc::TrySendError;
+        let stalled = {
+            let tap = self.pipe_io_tap.lock().unwrap();
+            let Some(tap) = tap.as_ref() else { return };
+            if tap.surface != surface {
+                return;
+            }
+            match tap.sender.try_send(event()) {
+                Ok(()) => false,
+                Err(TrySendError::Full(_) | TrySendError::Disconnected(_)) => true,
+            }
+        };
+        if stalled {
+            self.disconnect_transport();
+        }
     }
 
     /// Returns the first reason recorded when the remote reader stopped.
@@ -3824,6 +3892,7 @@ fn test_session_with_writer(
         capabilities: Mutex::new(capabilities),
         provider_workspace_authority,
         provider_workspaces_guarded: AtomicBool::new(false),
+        pipe_io_tap: Mutex::new(None),
     })
 }
 
@@ -5065,6 +5134,7 @@ mod tests {
             capabilities: Mutex::new(capabilities),
             provider_workspace_authority,
             provider_workspaces_guarded: AtomicBool::new(false),
+            pipe_io_tap: Mutex::new(None),
         })
     }
 
