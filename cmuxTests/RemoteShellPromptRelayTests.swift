@@ -24,7 +24,7 @@ struct RemoteShellPromptRelayTests {
         )
 
         #expect(script.contains(
-            "export CMUX_CODEX_WRAPPER_SHIM=\"$HOME/.cmux/bin/cmux-codex-wrapper\""
+            "unset CMUX_CODEX_WRAPPER_SHIM; if [ -x \"$HOME/.cmux/bin/cmux-codex-wrapper\" ]"
         ))
         #expect(script.contains("command -v bash"))
     }

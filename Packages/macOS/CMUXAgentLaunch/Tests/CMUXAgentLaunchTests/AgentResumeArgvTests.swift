@@ -455,6 +455,15 @@ struct AgentResumeArgvTests {
         ])
     }
 
+    @Test("Captured executable fallback outranks a stale Subrouter child path")
+    func capturedExecutableFallbackOutranksStaleSubrouterPath() {
+        #expect(SubrouterCodexResumeRouting().preferredCustomCodexExecutable(
+            in: ["SUBROUTER_CODEX_BIN": "/stale/cmux-codex-wrapper"],
+            fallbackExecutable: "/opt/bin/codex",
+            wrapperShim: "/managed/cmux-codex-wrapper"
+        ) == "/opt/bin/codex")
+    }
+
     @Test("Subrouter routing proof survives prompt sanitization")
     func subrouterRoutingProofSurvivesPromptSanitization() {
         let router = SubrouterCodexResumeRouting()

@@ -206,7 +206,7 @@ import Testing
 
         #expect(startupInput.contains("CMUX_CUSTOM_CODEX_PATH=/opt/custom/codex"), "\(startupInput)")
         #expect(
-            startupInput.contains("CMUX_CUSTOM_CODEX_PATH=${CMUX_CODEX_WRAPPER_SHIM:-codex}") == false,
+            !startupInput.contains("${CMUX_CODEX_WRAPPER_SHIM:-codex}"),
             "\(startupInput)"
         )
     }

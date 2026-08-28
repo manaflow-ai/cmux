@@ -50,4 +50,46 @@ struct RemoteCodexWrapperProvisioningTests {
         #expect(String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
             == "remote-codex-wrapper\n")
     }
+
+    @Test("relay metadata fails and removes the temporary Codex wrapper when chmod fails")
+    func codexWrapperInstallFailureIsAtomic() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-remote-codex-wrapper-failure-\(UUID().uuidString)", isDirectory: true)
+        let fakeBin = root.appendingPathComponent("fake-bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: fakeBin, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let chmod = fakeBin.appendingPathComponent("chmod")
+        try """
+        #!/bin/sh
+        count_file="$HOME/chmod-count"
+        count=0
+        [ ! -r "$count_file" ] || count="$(cat "$count_file")"
+        count=$((count + 1))
+        printf '%s' "$count" > "$count_file"
+        [ "$count" -ne 2 ] || exit 23
+        exec /bin/chmod "$@"
+        """.write(to: chmod, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: chmod.path)
+
+        let script = RemoteSessionCoordinator.remoteRelayMetadataInstallScript(
+            daemonRemotePath: "/bin/true",
+            relayPort: 64_044,
+            relayID: "relay-test",
+            relayToken: String(repeating: "a", count: 64),
+            codexWrapperScript: "#!/bin/sh\nexit 0"
+        )
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", script]
+        process.environment = ["HOME": root.path, "PATH": fakeBin.path + ":/usr/bin:/bin"]
+        try process.run()
+        process.waitUntilExit()
+
+        #expect(process.terminationStatus != 0)
+        let bin = root.appendingPathComponent(".cmux/bin")
+        let remaining = try FileManager.default.contentsOfDirectory(atPath: bin.path)
+        #expect(!remaining.contains(where: { $0.hasPrefix(".codex-wrapper.tmp.") }))
+        #expect(!remaining.contains("cmux-codex-wrapper"))
+    }
 }
