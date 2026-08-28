@@ -18,8 +18,22 @@ nonisolated struct GitReferenceSnapshot: Equatable, Sendable {
     }
 
     /// Additional bounded storage paths Git reports for watcher invalidation.
-    let storageWatchPaths: [String] = []
+    let storageWatchPaths: [String]
 
     /// Whether this snapshot used storage-independent Git plumbing.
-    let usesGitPlumbing: Bool = false
+    let usesGitPlumbing: Bool
+
+    init(
+        checkedOutBranch: GitCheckedOutBranch,
+        headSignature: String?,
+        currentCommit: String?,
+        storageWatchPaths: [String] = [],
+        usesGitPlumbing: Bool = false
+    ) {
+        self.checkedOutBranch = checkedOutBranch
+        self.headSignature = headSignature
+        self.currentCommit = currentCommit
+        self.storageWatchPaths = storageWatchPaths
+        self.usesGitPlumbing = usesGitPlumbing
+    }
 }

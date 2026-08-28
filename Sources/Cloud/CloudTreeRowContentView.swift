@@ -9,7 +9,7 @@ import SwiftUI
 enum CloudTreeRowGrid {
     /// Width of the outline's disclosure slot; content starts `disclosureGap` after it.
     static let disclosureSlot: CGFloat = 16
-    static let disclosureGap: CGFloat = 6
+    static let disclosureGap: CGFloat = 10
     /// Machine rows: the status dot has its own slot, never adjacent to the chevron.
     static let dotSlot: CGFloat = 10
     static let dotGap: CGFloat = 8
@@ -111,8 +111,7 @@ struct CloudTreeRowContentView: View {
                 icon: "globe",
                 tint: CloudTreeIconPalette.browser,
                 title: row.resource.title.isEmpty ? String(localized: "cloudTree.browser.untitled", defaultValue: "browser") : row.resource.title,
-                detail: CloudTreeBrowserDetail.text(for: row),
-                showsOpenMark: row.isOpen
+                detail: CloudTreeBrowserDetail.text(for: row)
             )
         case .portsGroup:
             groupRow(title: String(localized: "cloudTree.group.ports", defaultValue: "Ports"))
@@ -125,7 +124,7 @@ struct CloudTreeRowContentView: View {
                 detail: resource.detail?.isEmpty == false ? resource.detail : nil
             )
         case .placeholder(_, let placeholder):
-            HStack(alignment: .firstTextBaseline, spacing: style.iconGap) {
+            HStack(alignment: .center, spacing: style.iconGap) {
                 Group {
                     switch placeholder.style {
                     case .connecting:
@@ -157,7 +156,7 @@ struct CloudTreeRowContentView: View {
     /// stays narrow; child titles indent past it naturally. `.uppercased`
     /// styles speak in tracked mini-caps.
     private func groupRow(title: String, count: Int? = nil) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: style.iconGap) {
+        HStack(alignment: .center, spacing: style.iconGap) {
             HStack(alignment: .firstTextBaseline, spacing: CloudTreeRowGrid.detailGap) {
                 Text(style.groupLabelStyle == .uppercased ? title.uppercased() : title)
                     .tracking(style.groupLabelStyle == .uppercased ? 0.8 : 0)
@@ -228,7 +227,6 @@ struct CloudTreeLeafRow<Accessories: View>: View {
     var titleWeight: Font.Weight = .regular
     var titleDimmed: Bool = false
     var detail: String?
-    var showsOpenMark: Bool = false
     @ViewBuilder var accessories: () -> Accessories
 
     init(
@@ -239,7 +237,6 @@ struct CloudTreeLeafRow<Accessories: View>: View {
         titleWeight: Font.Weight = .regular,
         titleDimmed: Bool = false,
         detail: String? = nil,
-        showsOpenMark: Bool = false,
         @ViewBuilder accessories: @escaping () -> Accessories
     ) {
         self.style = style
@@ -249,12 +246,11 @@ struct CloudTreeLeafRow<Accessories: View>: View {
         self.titleWeight = titleWeight
         self.titleDimmed = titleDimmed
         self.detail = detail
-        self.showsOpenMark = showsOpenMark
         self.accessories = accessories
     }
 
     var body: some View {
-        HStack(alignment: style.leafLayout == .twoLine ? .center : .firstTextBaseline, spacing: style.iconGap) {
+        HStack(alignment: .center, spacing: style.iconGap) {
             if style.iconSlot > 0 {
                 CloudTreeRowIcon(style: style, systemName: icon, tint: tint, dimmed: titleDimmed)
             }
@@ -287,15 +283,6 @@ struct CloudTreeLeafRow<Accessories: View>: View {
                 }
             }
             accessories()
-            if showsOpenMark {
-                // "eye": a pane on this Mac is showing it. (Not
-                // rectangle.on.rectangle, which reads as a copy button.)
-                Image(systemName: "eye")
-                    .font(.system(size: 9.5, weight: .regular))
-                    .foregroundStyle(.tertiary)
-                    .frame(width: CloudTreeRowGrid.trailingSlot, alignment: .center)
-                    .help(String(localized: "cloudTree.terminal.open", defaultValue: "Open in a pane"))
-            }
         }
         .padding(.trailing, CloudTreeRowGrid.trailingPadding)
     }
@@ -325,8 +312,7 @@ extension CloudTreeLeafRow where Accessories == EmptyView {
         title: String,
         titleWeight: Font.Weight = .regular,
         titleDimmed: Bool = false,
-        detail: String? = nil,
-        showsOpenMark: Bool = false
+        detail: String? = nil
     ) {
         self.init(
             style: style,
@@ -336,7 +322,6 @@ extension CloudTreeLeafRow where Accessories == EmptyView {
             titleWeight: titleWeight,
             titleDimmed: titleDimmed,
             detail: detail,
-            showsOpenMark: showsOpenMark,
             accessories: { EmptyView() }
         )
     }
@@ -358,8 +343,7 @@ struct CloudTreeTerminalRowContent: View {
             tint: CloudTreeIconPalette.terminal,
             title: terminal.title.isEmpty ? String(localized: "cloudTree.terminal.untitled", defaultValue: "terminal") : terminal.title,
             titleDimmed: terminal.lifecycle == .exited,
-            detail: terminal.detail.flatMap { $0.isEmpty ? nil : Self.abbreviated($0) },
-            showsOpenMark: row.isOpen
+            detail: terminal.detail.flatMap { $0.isEmpty ? nil : Self.abbreviated($0) }
         ) {
             if let agent = agentLabel {
                 Image(systemName: "sparkle")
@@ -453,7 +437,7 @@ struct CloudTreeLocalMachineRowContent: View {
         switch style.machineRowLayout {
         case .singleLine:
             CloudTreeMachineBand(style: style) {
-                HStack(alignment: .firstTextBaseline, spacing: CloudTreeRowGrid.dotGap) {
+                HStack(alignment: .center, spacing: CloudTreeRowGrid.dotGap) {
                     Image(systemName: "laptopcomputer")
                         .font(.system(size: max(style.iconSize, 9), weight: .regular))
                         .foregroundStyle(style.iconTreatment == .monochrome ? AnyShapeStyle(.secondary) : AnyShapeStyle(CloudTreeIconPalette.machine))
@@ -547,9 +531,16 @@ struct CloudTreeMachineRowContent: View {
             // Finder-like: dot, name, one dim inline fact. Everything else is
             // in the tooltip and the context menu.
             CloudTreeMachineBand(style: style) {
-                HStack(alignment: .firstTextBaseline, spacing: CloudTreeRowGrid.dotGap) {
-                    activityDot
-                        .frame(width: CloudTreeRowGrid.dotSlot, alignment: .center)
+                // No status dot (lawrence, 2026-08-27): the name starts right after
+                // the chevron. A locked (free-window-expired) machine keeps a lock
+                // glyph — that one changes what a click does.
+                HStack(alignment: .center, spacing: CloudTreeRowGrid.dotGap) {
+                    if machine.freeAccess == .expired {
+                        Image(systemName: "lock.fill")
+                            .font(.system(size: 8, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                            .frame(width: CloudTreeRowGrid.dotSlot, alignment: .center)
+                    }
                     Text(machine.displayName)
                         .cmuxFont(size: style.machineNameSize, weight: style.machineBand ? .semibold : .medium, design: style.fontDesign)
                         .foregroundStyle(.primary)
@@ -568,11 +559,16 @@ struct CloudTreeMachineRowContent: View {
             .accessibilityElement(children: .combine)
             .accessibilityLabel("\(machine.displayName), \(machine.activityLabel)")
         case .twoLine:
-            // Top-aligned: the dot and the outline's chevron both sit on the name line
-            // (see `CloudTreeNSOutlineView.frameOfOutlineCell`), not on the row's middle.
+            // Top-aligned: the chevron sits on the name line (see
+            // `CloudTreeNSOutlineView.frameOfOutlineCell`), not on the row's middle.
+            // No status dot; only the expired lock earns the leading slot.
             HStack(alignment: .top, spacing: CloudTreeRowGrid.dotGap) {
-                activityDot
-                    .frame(width: CloudTreeRowGrid.dotSlot, height: style.machineNameLineHeight, alignment: .center)
+                if machine.freeAccess == .expired {
+                    Image(systemName: "lock.fill")
+                        .font(.system(size: 8, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: CloudTreeRowGrid.dotSlot, height: style.machineNameLineHeight, alignment: .center)
+                }
                 VStack(alignment: .leading, spacing: CloudTreeRowGrid.machineLineSpacing) {
                     Text(machine.displayName)
                         .cmuxFont(size: style.machineNameSize, weight: .medium, design: style.fontDesign)
@@ -603,30 +599,6 @@ struct CloudTreeMachineRowContent: View {
             .padding(.trailing, CloudTreeRowGrid.trailingPadding)
             .accessibilityElement(children: .combine)
             .accessibilityLabel("\(machine.displayName), \(machine.activityLabel)")
-        }
-    }
-
-    @ViewBuilder
-    private var activityDot: some View {
-        if machine.freeAccess == .expired {
-            Image(systemName: "lock.fill")
-                .font(.system(size: 8, weight: .semibold))
-                .foregroundStyle(.secondary)
-        } else {
-            Circle()
-                .fill(dotColor)
-                .frame(width: 7, height: 7)
-        }
-    }
-
-    /// The one colored element in the monochrome trees: the sidebar's semantic
-    /// status colors (running, pending, needs attention), so a glance still
-    /// answers "is it up".
-    private var dotColor: Color {
-        switch machine.activity {
-        case .ready: return Color.green.opacity(0.85)
-        case .pending: return Color.orange.opacity(0.9)
-        case .attention: return Color.red.opacity(0.85)
         }
     }
 
@@ -742,7 +714,7 @@ struct CloudTreeRowHoverButtons: View {
             }
         case .terminal(let row):
             if !row.resource.machine.isLocal {
-                xmark(String(localized: "cloudTree.row.closeTerminal", defaultValue: "Close Terminal")) {
+                xmark(String(localized: "cloudTree.menu.killTerminal", defaultValue: "Kill Terminal\u{2026}")) {
                     nodeActions.closeTerminal(row.resource.id)
                 }
             }

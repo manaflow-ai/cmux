@@ -94,11 +94,22 @@ impl TreeView {
         for workspace in &mut self.workspaces {
             for screen in &mut workspace.screens {
                 for pane in &mut screen.panes {
-                    let active_surface = pane.tabs.get(pane.active_tab).map(|tab| tab.surface);
-                    pane.tabs.retain(|tab| !retired.contains(&tab.surface));
-                    pane.active_tab = active_surface
-                        .and_then(|surface| pane.tabs.iter().position(|tab| tab.surface == surface))
-                        .unwrap_or_else(|| pane.active_tab.min(pane.tabs.len().saturating_sub(1)));
+                    let old_active_tab = pane.active_tab;
+                    let active_surface = pane.tabs.get(old_active_tab).map(|tab| tab.surface);
+                    let mut retained_index = 0;
+                    let mut active_index = None;
+                    pane.tabs.retain(|tab| {
+                        if retired.contains(&tab.surface) {
+                            return false;
+                        }
+                        if active_index.is_none() && active_surface == Some(tab.surface) {
+                            active_index = Some(retained_index);
+                        }
+                        retained_index += 1;
+                        true
+                    });
+                    pane.active_tab = active_index
+                        .unwrap_or_else(|| old_active_tab.min(pane.tabs.len().saturating_sub(1)));
                 }
             }
         }
@@ -671,6 +682,63 @@ mod tests {
         let pane = &tree.workspaces[0].screens[0].panes[0];
         assert_eq!(pane.tabs.len(), 2);
         assert_eq!(pane.active_tab, 1);
+    }
+
+    fn tree_with_tabs(active_tab: usize, surfaces: &[SurfaceId]) -> TreeView {
+        let tabs = surfaces
+            .iter()
+            .map(|surface| json!({"surface": surface, "title": "tab"}))
+            .collect::<Vec<_>>();
+        parse_tree(&json!({
+            "workspaces": [{
+                "id": 1, "active": true,
+                "screens": [{
+                    "id": 2, "active": true, "active_pane": 3,
+                    "layout": {"type": "leaf", "pane": 3},
+                    "panes": [{"id": 3, "active_tab": active_tab, "tabs": tabs}]
+                }]
+            }]
+        }))
+    }
+
+    #[test]
+    fn retain_not_retired_reindexes_active_tab_after_leading_retire() {
+        let mut tree = tree_with_tabs(2, &[7, 8, 9]);
+        tree.retain_not_retired(&HashSet::from([7]));
+
+        let pane = &tree.workspaces[0].screens[0].panes[0];
+        assert_eq!(pane.tabs.iter().map(|tab| tab.surface).collect::<Vec<_>>(), vec![8, 9]);
+        assert_eq!(pane.active_tab, 1);
+    }
+
+    #[test]
+    fn retain_not_retired_clamps_when_active_tab_is_retired() {
+        let mut tree = tree_with_tabs(1, &[7, 8]);
+        tree.retain_not_retired(&HashSet::from([8]));
+
+        let pane = &tree.workspaces[0].screens[0].panes[0];
+        assert_eq!(pane.tabs.iter().map(|tab| tab.surface).collect::<Vec<_>>(), vec![7]);
+        assert_eq!(pane.active_tab, 0);
+    }
+
+    #[test]
+    fn retain_not_retired_clamps_out_of_range_active_tab() {
+        let mut tree = tree_with_tabs(9, &[7, 8]);
+        tree.retain_not_retired(&HashSet::new());
+
+        let pane = &tree.workspaces[0].screens[0].panes[0];
+        assert_eq!(pane.tabs.iter().map(|tab| tab.surface).collect::<Vec<_>>(), vec![7, 8]);
+        assert_eq!(pane.active_tab, 1);
+    }
+
+    #[test]
+    fn retain_not_retired_uses_first_duplicate_surface_match() {
+        let mut tree = tree_with_tabs(1, &[7, 7, 8]);
+        tree.retain_not_retired(&HashSet::new());
+
+        let pane = &tree.workspaces[0].screens[0].panes[0];
+        assert_eq!(pane.tabs.iter().map(|tab| tab.surface).collect::<Vec<_>>(), vec![7, 7, 8]);
+        assert_eq!(pane.active_tab, 0);
     }
 
     #[test]

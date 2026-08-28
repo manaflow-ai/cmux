@@ -700,6 +700,7 @@ pub(crate) struct ConfigMessages {
     invalid_section: &'static str,
     unknown_field: &'static str,
     invalid_root: &'static str,
+    write_durability_warning: &'static str,
 }
 
 impl ConfigMessages {
@@ -714,6 +715,9 @@ impl ConfigMessages {
     }
     pub(crate) fn invalid_root(&self) -> &'static str {
         self.invalid_root
+    }
+    pub(crate) fn write_durability_warning(&self, error: &str) -> String {
+        self.write_durability_warning.replace("{error}", error)
     }
 }
 
@@ -1615,6 +1619,7 @@ OPTIONS:
         invalid_section: "cmux-tui: ignoring invalid config section {section}",
         unknown_field: "cmux-tui: ignoring unknown config field {field}",
         invalid_root: "cmux-tui: ignoring config because the root value is not an object",
+        write_durability_warning: "cmux-tui: config write committed, but parent directory durability is unconfirmed: {error}",
     },
     attach: AttachMessages {
         filtered_subscription_unavailable: "single-terminal attach requires a newer cmux-tui server; restart the session",
@@ -2257,6 +2262,7 @@ ID とセッション:
         invalid_section: "cmux-tui: 無効な設定セクション {section} を無視します",
         unknown_field: "cmux-tui: 不明な設定フィールド {field} を無視します",
         invalid_root: "cmux-tui: ルート値がオブジェクトではないため設定を無視します",
+        write_durability_warning: "cmux-tui: 設定の書き込みは完了しましたが、親ディレクトリの永続性を確認できません: {error}",
     },
     attach: AttachMessages {
         filtered_subscription_unavailable: "単一ターミナルへの接続には新しい cmux-tui サーバーが必要です。セッションを再起動してください",
