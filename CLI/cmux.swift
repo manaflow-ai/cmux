@@ -32799,7 +32799,7 @@ export default CMUXSessionRestore;
               let hooks = root["hooks"] as? [String: Any] else {
             return nil
         }
-        let entries = codexHookTrustEntries(
+        let entries = codexLabeledHookTrustEntries(
             hooks: hooks,
             hooksFilePath: hooksFilePath,
             def: def
@@ -33029,17 +33029,38 @@ export default CMUXSessionRestore;
 
     typealias CodexHookTrustEntry = CmuxCodexConfigEditor.HookTrustEntry
 
+    private struct LabeledCodexHookTrustEntry {
+        let trustEntry: CodexHookTrustEntry
+        let eventLabel: String
+
+        var key: String { trustEntry.key }
+    }
+
     static func codexHookTrustEntries(
         hooks: [String: Any],
         hooksFilePath: String,
         def: AgentHookDef,
         includeLegacyOwnedCommands: Bool = false
     ) -> [CodexHookTrustEntry] {
+        codexLabeledHookTrustEntries(
+            hooks: hooks,
+            hooksFilePath: hooksFilePath,
+            def: def,
+            includeLegacyOwnedCommands: includeLegacyOwnedCommands
+        ).map(\.trustEntry)
+    }
+
+    private static func codexLabeledHookTrustEntries(
+        hooks: [String: Any],
+        hooksFilePath: String,
+        def: AgentHookDef,
+        includeLegacyOwnedCommands: Bool = false
+    ) -> [LabeledCodexHookTrustEntry] {
         guard def.name == "codex" else { return [] }
         let isOwnedCommand: (String) -> Bool = { command in
             isCmuxOwnedHookCommand(command, for: def, includeLegacy: includeLegacyOwnedCommands)
         }
-        var entries: [CodexHookTrustEntry] = []
+        var entries: [LabeledCodexHookTrustEntry] = []
         let keySource = codexNormalizedHookSourcePath(hooksFilePath)
 
         for eventName in codexHookEventNames {
@@ -33065,7 +33086,10 @@ export default CMUXSessionRestore;
                         timeoutMs: timeoutMs,
                         statusMessage: statusMessage
                     )
-                    entries.append(CodexHookTrustEntry(key: key, trustedHash: trustedHash))
+                    entries.append(LabeledCodexHookTrustEntry(
+                        trustEntry: CodexHookTrustEntry(key: key, trustedHash: trustedHash),
+                        eventLabel: eventLabel
+                    ))
                 }
             }
         }
