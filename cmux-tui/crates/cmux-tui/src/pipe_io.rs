@@ -11,8 +11,11 @@
 //!   terminal state while a byte stream can only append.
 //! - stdin: JSON lines — `{"input":"<base64>"}` forwards raw bytes to the
 //!   daemon terminal's PTY; `{"resize":{"cols":N,"rows":N}}` drives the
-//!   daemon-side viewer size. Unknown keys are ignored (forward compat);
-//!   stdin EOF means the embedder is gone and ends the relay cleanly.
+//!   daemon-side viewer size; `{"claim":{"geometry":true}}` re-asserts this
+//!   relay's geometry authority (last claim wins across attachments; the
+//!   embedder sends it when its pane receives user input). Unknown keys are
+//!   ignored (forward compat); stdin EOF means the embedder is gone and
+//!   ends the relay cleanly.
 //! - stderr: one final JSON line `{"exit":{"reason":...}}`.
 //! - exit code: 0 when the terminal ended or the embedder closed stdin (do
 //!   not respawn), 2 when the daemon connection was lost (respawning
@@ -76,6 +79,12 @@ pub enum PipeIoRequest {
         cols: u16,
         rows: u16,
     },
+    /// Re-assert this relay's geometry authority over the terminal. Sent by
+    /// the embedder when its pane receives user input: authority is
+    /// last-claim-wins across attachments, so with several panes (or stale
+    /// restored panes) viewing one terminal, the pane the user actually
+    /// types in must own the PTY size.
+    ClaimGeometry,
     /// A well-formed line carrying no verb this relay knows: ignored, so a
     /// newer embedder can talk to an older relay.
     Unknown,
@@ -95,6 +104,9 @@ pub fn parse_request(line: &str) -> anyhow::Result<PipeIoRequest> {
         };
         let (cols, rows) = (u16::try_from(cols)?, u16::try_from(rows)?);
         return Ok(PipeIoRequest::Resize { cols: cols.max(1), rows: rows.max(1) });
+    }
+    if value.get("claim").is_some() {
+        return Ok(PipeIoRequest::ClaimGeometry);
     }
     Ok(PipeIoRequest::Unknown)
 }
@@ -128,7 +140,7 @@ pub fn run(
             serde_json::json!({"diag": {"claim-terminal-geometry": {"error": error.to_string()}}})
         );
     }
-    spawn_stdin_pump(handle, sender);
+    spawn_stdin_pump(handle, sender, session.clone(), surface);
     let reason = pump_events_to_stdout(&receiver, &mut std::io::stdout().lock())?;
     if reason == PipeIoExitReason::DaemonLost {
         return Ok(classify_daemon_loss(remote, socket_path, terminal));
@@ -164,7 +176,12 @@ fn classify_daemon_loss(
 
 /// Forwards embedder requests from stdin until EOF, then reports the closed
 /// parent through the shared event queue.
-fn spawn_stdin_pump(handle: SurfaceHandle, sender: SyncSender<PipeIoEvent>) {
+fn spawn_stdin_pump(
+    handle: SurfaceHandle,
+    sender: SyncSender<PipeIoEvent>,
+    session: Session,
+    surface: SurfaceId,
+) {
     std::thread::Builder::new()
         .name("pipe-io-stdin".into())
         .spawn(move || {
@@ -197,6 +214,22 @@ fn spawn_stdin_pump(handle: SurfaceHandle, sender: SyncSender<PipeIoEvent>) {
                                 "{}",
                                 serde_json::json!({
                                     "diag": {"resize": {"cols": cols, "rows": rows, "error": error.to_string()}}
+                                })
+                            ),
+                        }
+                    }
+                    Ok(PipeIoRequest::ClaimGeometry) => {
+                        // Same diag discipline as resize: diagnostics only,
+                        // the exit JSON stays the final stderr line.
+                        match session.claim_terminal_geometry(surface) {
+                            Ok(()) => eprintln!(
+                                "{}",
+                                serde_json::json!({"diag": {"claim": {"accepted": true}}})
+                            ),
+                            Err(error) => eprintln!(
+                                "{}",
+                                serde_json::json!({
+                                    "diag": {"claim": {"error": error.to_string()}}
                                 })
                             ),
                         }

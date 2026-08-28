@@ -32,7 +32,12 @@ raw bytes: the daemon replay first, then live output, with a full reset
 first output, because a replay replaces state while a byte stream appends.
 stdin takes one JSON object per line: `{"input":"<base64>"}` forwards bytes to
 the terminal, `{"resize":{"cols":N,"rows":N}}` drives the attached viewer
-size; unknown keys are ignored. stderr ends with one JSON line
+size, and `{"claim":{"geometry":true}}` re-asserts this relay's geometry
+authority (authority is last-claim-wins across a terminal's attachments; an
+embedder sends it when its pane receives user input, so the typed-in pane
+owns the PTY size). Each applied resize and claim is reported as one
+`{"diag":...}` stderr line; unknown keys are ignored. stderr ends with one
+JSON line
 `{"exit":{"reason":"terminal-ended"|"daemon-lost"|"parent-closed"}}`. Exit
 code 0 means the terminal ended or the embedder closed stdin (do not
 respawn); exit code 2 means the daemon connection was lost and a respawn
