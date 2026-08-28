@@ -3966,7 +3966,7 @@ impl Mux {
                     id: workspace.id,
                     public_id: public_id.clone(),
                     key: key.clone(),
-                    name: name.clone(),
+                    name,
                     group_key: self.session.clone(),
                 };
                 let mut desired = self.registry_projection(state);
