@@ -104,7 +104,7 @@ afterAll(async () => {
   await sql?.end();
 });
 
-describe("VM Effect workflows", () => {
+describe.serial("VM Effect workflows", () => {
   test("exec resumes a paused VM, retries once, and records one usage event", async () => {
     const vm = testCloudVmRow({
       id: "00000000-0000-4000-8000-000000000101",
