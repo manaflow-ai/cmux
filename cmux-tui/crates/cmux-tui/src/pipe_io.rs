@@ -30,7 +30,7 @@ use cmux_tui_core::SurfaceId;
 use cmux_tui_core::resource::TerminalPublicId;
 
 use crate::session::{
-    PipeIoEvent, PipeIoQueue, PipeIoQueuePushError, RemoteSession, Session, SurfaceAttach,
+    PipeIoEvent, PipeIoQueue, RemoteSession, Session, SurfaceAttach,
     SurfaceHandle, is_remote_surface_unavailable, is_remote_transport_failure,
 };
 
@@ -195,7 +195,7 @@ pub fn run(
             serde_json::json!({"diag": {"claim-terminal-geometry": {"code": "claim_failed"}}})
         );
     }
-    spawn_stdin_pump(handle, queue.clone());
+    spawn_stdin_pump(handle, session.clone(), surface, queue.clone());
     let reason = pump_events_to_stdout(&queue, &mut std::io::stdout().lock())?;
     // Stop forwarding while the daemon probe runs. Otherwise events can fill
     // the abandoned queue and falsely disconnect the session during probing.
@@ -234,7 +234,12 @@ fn classify_daemon_loss(
 
 /// Forwards embedder requests from stdin until EOF, then reports the closed
 /// parent through the shared event queue.
-fn spawn_stdin_pump(handle: SurfaceHandle, queue: Arc<PipeIoQueue>) {
+fn spawn_stdin_pump(
+    handle: SurfaceHandle,
+    session: Session,
+    surface: SurfaceId,
+    queue: Arc<PipeIoQueue>,
+) {
     std::thread::Builder::new()
         .name("pipe-io-stdin".into())
         .spawn(move || {
@@ -288,10 +293,10 @@ fn spawn_stdin_pump(handle: SurfaceHandle, queue: Arc<PipeIoQueue>) {
                                 "{}",
                                 serde_json::json!({"diag": {"claim": {"accepted": true}}})
                             ),
-                            Err(error) => eprintln!(
+                            Err(_error) => eprintln!(
                                 "{}",
                                 serde_json::json!({
-                                    "diag": {"claim": {"error": error.to_string()}}
+                                    "diag": {"claim": {"code": "claim_failed"}}
                                 })
                             ),
                         }
