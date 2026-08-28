@@ -539,7 +539,11 @@ fn queue_limit(control: bool) -> u64 {
     }
 }
 
-async fn handle_client_frame(connection: &Arc<Connection>, frame: TunnelFrame) {
+async fn handle_client_frame(
+    connection: &Arc<Connection>,
+    frame: TunnelFrame,
+    authority_changes: &mut watch::Receiver<u64>,
+) {
     if connection.finished.load(Ordering::SeqCst) {
         return;
     }
@@ -795,7 +799,7 @@ async fn serve_connection(
                 match decoder.push(&buffer[..count]) {
                     Ok(frames) => {
                         for frame in frames {
-                            handle_client_frame(&connection, frame).await;
+                            handle_client_frame(&connection, frame, &mut authority_changes).await;
                         }
                     }
                     Err(_) => {
