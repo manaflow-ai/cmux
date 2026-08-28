@@ -1502,16 +1502,27 @@ fn reader_loop(
     }
 }
 
-fn drain_outbound(
+trait OutboundWriter {
+    fn send_text(&mut self, text: String) -> anyhow::Result<()>;
+}
+
+impl OutboundWriter for WebSocket<TcpStream> {
+    fn send_text(&mut self, text: String) -> anyhow::Result<()> {
+        self.send(Message::Text(text.into()))?;
+        Ok(())
+    }
+}
+
+fn drain_outbound<W: OutboundWriter>(
     inner: &Arc<Inner>,
-    ws: &mut WebSocket<TcpStream>,
+    ws: &mut W,
     outbound: &Receiver<Outbound>,
 ) -> anyhow::Result<()> {
     loop {
         match outbound.try_recv() {
             Ok(Outbound::Message(text)) => {
                 outbound_bytes_sub(inner, text.len());
-                ws.send(Message::Text(text.into()))?
+                ws.send_text(text)?;
             }
             Ok(Outbound::Flush(done)) => {
                 let _ = done.send(());
@@ -2150,6 +2161,43 @@ mod tests {
 
         let error = client.send_value(&json!({"payload": "0123456789"})).unwrap_err();
         assert!(error.to_string().contains("outbound queue byte budget"));
+    }
+
+    struct BlockingOutboundWriter {
+        started: Arc<Barrier>,
+        release: Arc<Barrier>,
+    }
+
+    impl OutboundWriter for BlockingOutboundWriter {
+        fn send_text(&mut self, _text: String) -> anyhow::Result<()> {
+            self.started.wait();
+            self.release.wait();
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn outbound_bytes_remain_reserved_while_write_is_in_flight() {
+        let value = json!({"payload": "0123456789"});
+        let message_bytes = serde_json::to_string(&value).unwrap().len();
+        let (inner, outbound_rx) = test_inner_with_limits(2, message_bytes);
+        let client = CdpClient { inner: inner.clone() };
+        client.send_value(&value).unwrap();
+
+        let started = Arc::new(Barrier::new(2));
+        let release = Arc::new(Barrier::new(2));
+        let writer = BlockingOutboundWriter { started: started.clone(), release: release.clone() };
+        let drain_inner = inner.clone();
+        let drain = thread::spawn(move || {
+            let mut writer = writer;
+            drain_outbound(&drain_inner, &mut writer, &outbound_rx).unwrap();
+        });
+
+        started.wait();
+        let error = client.send_value(&value).unwrap_err();
+        assert!(error.to_string().contains("outbound queue byte budget"));
+        release.wait();
+        drain.join().unwrap();
     }
 
     #[test]
