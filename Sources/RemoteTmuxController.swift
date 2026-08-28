@@ -353,18 +353,28 @@ final class RemoteTmuxController {
     ) throws -> Bool {
         let key = Self.connectionKey(host: host, sessionName: sessionName)
         guard sessionMirrors[key] == nil else { return false }
-        // Attach (and start the ssh process) BEFORE creating the workspace, so a
-        // failed connection doesn't leave an orphaned empty mirror workspace in
-        // the sidebar.
-        let connection = try attach(host: host, sessionName: sessionName)
-        _ = createMirrorWorkspace(
-            host: host,
-            sessionName: sessionName,
-            sessionId: sessionId,
-            connection: connection,
-            into: tabManager,
-            select: select
-        )
+        // Admit the connection and workspace as one active-manager acquisition:
+        // a finalized window must start neither the ssh process nor a workspace.
+        // Within the acquisition, attach (and start the ssh process) BEFORE
+        // creating the workspace, so a failed connection doesn't leave an
+        // orphaned empty mirror workspace in the sidebar.
+        guard try tabManager.acquireOptionalWorkspaceIfActive({ () throws -> RemoteTmuxSessionMirror? in
+            let connection = try attach(host: host, sessionName: sessionName)
+            guard let mirror = createMirrorWorkspace(
+                host: host,
+                sessionName: sessionName,
+                sessionId: sessionId,
+                connection: connection,
+                into: tabManager,
+                select: select
+            ) else {
+                connection.stop()
+                return nil
+            }
+            return mirror
+        }) != nil else {
+            return false
+        }
         return true
     }
 
@@ -379,14 +389,17 @@ final class RemoteTmuxController {
         connection: any RemoteTmuxSessionSource,
         into tabManager: TabManager,
         select: Bool
-    ) -> RemoteTmuxSessionMirror {
+    ) -> RemoteTmuxSessionMirror? {
         let key = Self.connectionKey(host: host, sessionName: sessionName)
-        let workspace = tabManager.addWorkspace(
+        // Gated creation: a finalized window manager admits no new workspace,
+        // and a mirror without a workspace is unrepresentable, so the caller
+        // gets nil and owns the connection's cleanup.
+        guard let workspace = tabManager.addWorkspaceIfActive(
             title: sessionName, titleSource: .auto,
             select: select,
             autoWelcomeIfNeeded: false,
             applyCreationTitleAsCustomTitle: false
-        )
+        ) else { return nil }
         workspace.isRemoteTmuxMirror = true
         // Identity pairs the connection pushes into the remote SESSION
         // environment on attach and every reconnect (issue #833). Workspace id
