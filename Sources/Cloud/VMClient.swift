@@ -260,6 +260,9 @@ struct VMSummary {
     /// The backend's `kind` (desktop/base) when it reports one; older control
     /// planes omit it and ``resolvedKind`` infers it from the image id.
     var kind: VMMachineKind? = nil
+    /// Verbs the machine's provider can honor (`GET /api/vm` → `capabilities`); an older
+    /// control plane that sends none is treated as supporting everything.
+    var capabilities: VMCapabilities = .all
     /// User-chosen label; the id stays the machine's address.
     var displayName: String?
     /// When the free plan's access window closes for this machine (epoch ms);
@@ -325,6 +328,34 @@ struct VMExecResult {
     let exitCode: Int
     let stdout: String
     let stderr: String
+}
+
+/// What a machine's provider can do; the app offers only verbs that can succeed
+/// (Checkpoint/Fork disappear from menus when false — a verb that answers 502
+/// "not implemented" is not a verb).
+struct VMCapabilities: Equatable, Sendable {
+    var snapshot: Bool
+    var restore: Bool
+    var fork: Bool
+
+    static let all = VMCapabilities(snapshot: true, restore: true, fork: true)
+
+    init(snapshot: Bool, restore: Bool, fork: Bool) {
+        self.snapshot = snapshot
+        self.restore = restore
+        self.fork = fork
+    }
+
+    /// `{snapshot, restore, fork}`; a missing object or flag reads as supported.
+    init(json: Any?) {
+        let dict = json as? [String: Any]
+        func flag(_ key: String) -> Bool {
+            if let value = dict?[key] as? Bool { return value }
+            if let number = dict?[key] as? NSNumber { return number.boolValue }
+            return true
+        }
+        self.init(snapshot: flag("snapshot"), restore: flag("restore"), fork: flag("fork"))
+    }
 }
 
 struct VMOpenPortEndpoint {
@@ -520,6 +551,7 @@ actor VMClient {
                 ?? Int64((dict["createdAt"] as? Double) ?? 0)
             var summary = VMSummary(id: id, provider: provider, status: displayStatus, image: image, createdAt: createdAt, base: decodeBaseSummary(dict["base"]))
             summary.kind = Self.decodeKind(dict["kind"])
+            summary.capabilities = VMCapabilities(json: dict["capabilities"])
             if let label = dict["displayName"] as? String, !label.isEmpty {
                 summary.displayName = label
             }
