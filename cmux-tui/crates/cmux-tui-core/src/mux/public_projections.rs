@@ -295,7 +295,7 @@ mod tests {
             notifications: Vec::new(),
             agents: vec![RegistryAgentProjection {
                 id: AgentPublicId::parse("agent_00000000000000000000000000000009").unwrap(),
-                terminal_id: terminal,
+                terminal_id: terminal.clone(),
                 state: "done".into(),
                 source: "hook".into(),
                 updated_at_ms: 1,
