@@ -4880,6 +4880,23 @@
         }
       }
     },
+    "mobile.notificationFeed.row.source": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "From"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "送信元"
+          }
+        }
+      }
+    },
     "mobile.notificationFeed.row.unknownWorkspace": {
       "extractionState": "manual",
       "localizations": {
@@ -4893,23 +4910,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "不明なワークスペース"
-          }
-        }
-      }
-    },
-    "mobile.notificationFeed.row.workspace": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Workspace"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ワークスペース"
           }
         }
       }

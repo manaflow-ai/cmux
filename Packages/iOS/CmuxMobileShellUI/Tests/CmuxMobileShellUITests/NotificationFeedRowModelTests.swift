@@ -3,18 +3,31 @@ import Foundation
 import Testing
 @testable import CmuxMobileShellUI
 
-/// Behavior coverage for the presentation strings the projection now builds
-/// off the main actor. These rules used to live inside the row body; they must
-/// survive the move byte-for-byte.
+/// Behavior coverage for the presentation strings the projection builds off
+/// the main actor. The workspace title is the row headline; the notification
+/// title ("Claude Code") is secondary provenance and disappears when it
+/// repeats the headline.
 @Suite struct NotificationFeedRowModelTests {
-    @Test func workspaceMatchingIsCaseWhitespaceAndDiacriticInsensitive() {
+    @Test func workspaceTitleIsTheHeadlineAndTitleBecomesTheSource() {
+        let model = NotificationFeedRowModel(item: item(
+            title: "Claude Code",
+            workspaceTitle: "Fix login flake"
+        ))
+
+        #expect(model.presentation.headline == "Fix login flake")
+        #expect(model.presentation.headlineIsWorkspace)
+        #expect(model.presentation.sourceName == "Claude Code")
+    }
+
+    @Test func titleMatchingIsCaseWhitespaceAndDiacriticInsensitive() {
         let model = NotificationFeedRowModel(item: item(
             title: "  Résumé   Review ",
             workspaceTitle: "resume review"
         ))
 
-        #expect(model.presentation.workspaceMatchesTitle)
-        #expect(model.presentation.workspaceName == "resume review")
+        #expect(model.presentation.headline == "resume review")
+        #expect(model.presentation.headlineIsWorkspace)
+        #expect(model.presentation.sourceName == nil)
     }
 
     @Test func redundantBodyFallsBackToSubtitleThenNil() {
@@ -39,14 +52,27 @@ import Testing
         #expect(distinctBody.presentation.contentPreview == "Artifacts uploaded to the release bucket.")
     }
 
-    @Test func missingWorkspaceUsesFallbackAndBlankComputerUsesDeviceID() {
+    @Test func missingWorkspaceFallsBackToTitleHeadlineAndBlankComputerUsesDeviceID() {
         let model = NotificationFeedRowModel(item: item(
             workspaceTitle: "   ",
             macDisplayName: " "
         ))
 
-        #expect(model.presentation.workspaceName == "Unknown workspace")
+        #expect(model.presentation.headline == "Title")
+        #expect(!model.presentation.headlineIsWorkspace)
+        #expect(model.presentation.sourceName == nil)
         #expect(model.presentation.computerName == "mac-a")
+    }
+
+    @Test func blankTitleAndWorkspaceUseTheUnknownWorkspaceHeadline() {
+        let model = NotificationFeedRowModel(item: item(
+            title: " ",
+            workspaceTitle: ""
+        ))
+
+        #expect(model.presentation.headline == "Unknown workspace")
+        #expect(!model.presentation.headlineIsWorkspace)
+        #expect(model.presentation.sourceName == nil)
     }
 
     @Test func computerStatusTextReflectsConnectionState() {
@@ -64,7 +90,7 @@ import Testing
         )
     }
 
-    @Test func accessibilityDetailsCarryReadStateWorkspacePreviewAndComputer() {
+    @Test func accessibilityDetailsCarryReadStateSourcePreviewAndComputer() {
         let unread = NotificationFeedRowModel(item: item(
             isRead: false,
             body: "Choose a builder to continue.",
@@ -73,13 +99,21 @@ import Testing
 
         #expect(unread.presentation.accessibilityDetails == [
             "Unread",
-            "Workspace: Workspace",
+            "From: Title",
             "Choose a builder to continue.",
-            "Computer: Mac · Unavailable",
+            "Connection: Mac · Unavailable",
         ])
 
         let read = NotificationFeedRowModel(item: item(isRead: true))
         #expect(read.presentation.accessibilityDetails.first == "Read")
+
+        // A title that repeats the workspace adds nothing, so it is not spoken.
+        let redundantTitle = NotificationFeedRowModel(item: item(
+            title: "Workspace",
+            workspaceTitle: "Workspace"
+        ))
+        #expect(!redundantTitle.presentation.accessibilityDetails
+            .contains { $0.hasPrefix("From:") })
     }
 
     @Test func equalityComparesTheItemAlone() {

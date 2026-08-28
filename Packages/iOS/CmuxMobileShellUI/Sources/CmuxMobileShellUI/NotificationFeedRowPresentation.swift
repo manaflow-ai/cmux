@@ -6,31 +6,49 @@ import Foundation
 /// opening, plus the row's precomputed accessibility details. Built once per
 /// item on the projection's background rebuild so row bodies do no string
 /// work during scroll.
+///
+/// The workspace title is the row's headline: agents reuse one generic
+/// notification title ("Claude Code") across every workspace, so the workspace
+/// is what distinguishes rows at a glance. The notification title demotes to
+/// the provenance line and is dropped entirely when it repeats the headline.
 struct NotificationFeedRowPresentation: Equatable, Sendable {
-    let workspaceName: String
-    let workspaceMatchesTitle: Bool
+    /// The workspace title, falling back to the notification title when the
+    /// item carries no workspace, then to the localized unknown label.
+    let headline: String
+    /// Whether `headline` is a workspace title (drives the workspace marker).
+    let headlineIsWorkspace: Bool
+    /// The notifying agent or app ("Claude Code"), shown only when it says
+    /// something the headline does not.
+    let sourceName: String?
     let contentPreview: String?
     let computerName: String
     let connectionStatus: MobileMacConnectionStatus
-    /// The spoken details (read state, workspace, preview, computer) minus the
+    /// The spoken details (read state, source, preview, computer) minus the
     /// relative time, which the row formats at render so VoiceOver never reads
     /// a timestamp frozen at whatever moment this model was built.
     let accessibilityDetails: [String]
 
     init(item: MobileNotificationFeedItem) {
-        let normalizedTitle = notificationFeedRowNormalized(item.title) ?? item.title
-        let normalizedWorkspace = notificationFeedRowNormalized(item.workspaceTitle) ?? L10n.string(
+        let normalizedTitle = notificationFeedRowNormalized(item.title)
+        let normalizedWorkspace = notificationFeedRowNormalized(item.workspaceTitle)
+        let normalizedComputer = notificationFeedRowNormalized(item.macDisplayName) ?? item.macDeviceID
+
+        let headline = normalizedWorkspace ?? normalizedTitle ?? L10n.string(
             "mobile.notificationFeed.row.unknownWorkspace",
             defaultValue: "Unknown workspace"
         )
-        let normalizedComputer = notificationFeedRowNormalized(item.macDisplayName) ?? item.macDeviceID
-
-        workspaceName = normalizedWorkspace
-        workspaceMatchesTitle = notificationFeedRowMatches(normalizedWorkspace, normalizedTitle)
+        self.headline = headline
+        headlineIsWorkspace = normalizedWorkspace != nil
+        if let normalizedTitle, !notificationFeedRowMatches(normalizedTitle, headline) {
+            sourceName = normalizedTitle
+        } else {
+            sourceName = nil
+        }
         computerName = normalizedComputer
         connectionStatus = item.connectionStatus
 
         let redundantContent = [normalizedTitle, normalizedWorkspace, normalizedComputer]
+            .compactMap { $0 }
         let contentPreview: String?
         if let body = notificationFeedRowNormalized(item.body),
            !notificationFeedRowMatchesAny(body, redundantContent) {
@@ -47,7 +65,7 @@ struct NotificationFeedRowPresentation: Equatable, Sendable {
 
         accessibilityDetails = notificationFeedRowAccessibilityDetails(
             item: item,
-            workspaceName: normalizedWorkspace,
+            sourceName: sourceName,
             contentPreview: contentPreview,
             computerStatusText: notificationFeedRowApplyingConnectionStatus(
                 item.connectionStatus,
@@ -63,7 +81,7 @@ struct NotificationFeedRowPresentation: Equatable, Sendable {
 
 private func notificationFeedRowAccessibilityDetails(
     item: MobileNotificationFeedItem,
-    workspaceName: String,
+    sourceName: String?,
     contentPreview: String?,
     computerStatusText: String
 ) -> [String] {
@@ -72,10 +90,12 @@ private func notificationFeedRowAccessibilityDetails(
             ? L10n.string("mobile.notificationFeed.read", defaultValue: "Read")
             : L10n.string("mobile.notificationFeed.unread", defaultValue: "Unread"),
     ]
-    details.append(notificationFeedRowAccessibilityField(
-        label: L10n.string("mobile.notificationFeed.row.workspace", defaultValue: "Workspace"),
-        value: workspaceName
-    ))
+    if let sourceName {
+        details.append(notificationFeedRowAccessibilityField(
+            label: L10n.string("mobile.notificationFeed.row.source", defaultValue: "From"),
+            value: sourceName
+        ))
+    }
     if let contentPreview {
         details.append(contentPreview)
     }

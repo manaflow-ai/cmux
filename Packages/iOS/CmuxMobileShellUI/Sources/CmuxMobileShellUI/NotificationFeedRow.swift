@@ -18,7 +18,6 @@ struct NotificationFeedRow: View, Equatable {
             open()
         } label: {
             NotificationFeedRowLabel(
-                title: item.title,
                 createdAt: item.createdAt,
                 isRead: item.isRead,
                 presentation: model.presentation
@@ -85,7 +84,7 @@ struct NotificationFeedRow: View, Equatable {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityAddTraits(.isButton)
-        .accessibilityLabel(item.title)
+        .accessibilityLabel(model.presentation.headline)
         .accessibilityValue(accessibilityValue)
         .accessibilityHint(L10n.string(
             "mobile.notificationFeed.openHint",
@@ -126,7 +125,6 @@ struct NotificationFeedRow: View, Equatable {
 }
 
 private struct NotificationFeedRowLabel: View {
-    let title: String
     let createdAt: Date
     let isRead: Bool
     let presentation: NotificationFeedRowPresentation
@@ -137,15 +135,14 @@ private struct NotificationFeedRowLabel: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 NotificationFeedHeadline(
-                    title: title,
+                    title: presentation.headline,
                     createdAt: createdAt,
                     isRead: isRead,
-                    representsWorkspace: presentation.workspaceMatchesTitle
+                    representsWorkspace: presentation.headlineIsWorkspace
                 )
 
                 NotificationFeedProvenance(
-                    workspaceName: presentation.workspaceName,
-                    workspaceMatchesTitle: presentation.workspaceMatchesTitle,
+                    sourceName: presentation.sourceName,
                     computerName: presentation.computerName,
                     computerIsReachable: presentation.connectionStatus == .connected
                 )
@@ -218,23 +215,15 @@ private struct NotificationFeedHeadline: View {
 }
 
 private struct NotificationFeedProvenance: View {
-    let workspaceName: String
-    let workspaceMatchesTitle: Bool
+    let sourceName: String?
     let computerName: String
     let computerIsReachable: Bool
 
     var body: some View {
-        if workspaceMatchesTitle {
-            NotificationFeedComputer(
-                name: computerName,
-                isReachable: computerIsReachable,
-                allowsWrapping: false
-            )
-            .frame(maxWidth: .infinity, alignment: .trailing)
-        } else {
+        if let sourceName {
             ViewThatFits(in: .horizontal) {
                 HStack(alignment: .firstTextBaseline, spacing: 10) {
-                    NotificationFeedWorkspace(name: workspaceName, allowsWrapping: false)
+                    NotificationFeedSource(name: sourceName, allowsWrapping: false)
                         .fixedSize(horizontal: true, vertical: false)
                     Spacer(minLength: 8)
                     NotificationFeedComputer(
@@ -246,7 +235,7 @@ private struct NotificationFeedProvenance: View {
                 }
 
                 VStack(alignment: .leading, spacing: 3) {
-                    NotificationFeedWorkspace(name: workspaceName, allowsWrapping: true)
+                    NotificationFeedSource(name: sourceName, allowsWrapping: true)
                     NotificationFeedComputer(
                         name: computerName,
                         isReachable: computerIsReachable,
@@ -254,17 +243,24 @@ private struct NotificationFeedProvenance: View {
                     )
                 }
             }
+        } else {
+            NotificationFeedComputer(
+                name: computerName,
+                isReachable: computerIsReachable,
+                allowsWrapping: false
+            )
+            .frame(maxWidth: .infinity, alignment: .trailing)
         }
     }
 }
 
-private struct NotificationFeedWorkspace: View {
+private struct NotificationFeedSource: View {
     let name: String
     let allowsWrapping: Bool
 
     var body: some View {
-        (Text(Image(systemName: "rectangle.stack")) + Text(" ") + Text(name))
-            .font(.footnote.weight(.semibold))
+        (Text(Image(systemName: "bell")) + Text(" ") + Text(name))
+            .font(.footnote)
             .foregroundStyle(.secondary)
             .lineLimit(allowsWrapping ? 2 : 1)
     }
