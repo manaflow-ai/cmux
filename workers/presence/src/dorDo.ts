@@ -36,6 +36,7 @@ import {
   MAX_CONTROL_BYTES,
   MAX_HOST_LEGS,
   MAX_PHONE_LEGS,
+  isAuthorizedPhoneLeg,
   ReplayRing,
   decodeControl,
   decodeDataHeader,
@@ -56,6 +57,9 @@ export const RESUME_TTL_MS = 10 * 60 * 1000;
 /** DO storage values cap at 128 KiB; larger frames cannot spill. Clients keep
  * chunks ≤ 96 KiB so this limit is never hit in practice. */
 const MAX_SPILL_FRAME_BYTES = 120 * 1024;
+const STORAGE_BATCH_SIZE = 128;
+const MAX_LEG_ID = 0xffff_ffff;
+const MAX_RETAINED_LEGS = MAX_HOST_LEGS + MAX_PHONE_LEGS;
 
 type Role = "host" | "phone";
 
@@ -123,7 +127,7 @@ export class AccountRelay extends DurableObject<RelayEnv> {
     const device = request.headers.get("x-dor-device")?.trim();
     const mac = request.headers.get("x-dor-mac")?.trim();
     if ((role !== "host" && role !== "phone") || !userId || !device || !mac) {
-      return new Response(JSON.stringify({ error: "bad_gateway_headers" }), { status: 500 });
+      return new Response(JSON.stringify({ error: "service_unavailable" }), { status: 503 });
     }
     const now = Date.now();
     const expiresAt = resolveDeadline(request.headers.get("x-dor-expires-at"), now);
@@ -169,7 +173,7 @@ export class AccountRelay extends DurableObject<RelayEnv> {
       await this.handleControl(ws, att, message);
       return;
     }
-    this.handleData(ws, att, message);
+    await this.handleData(ws, att, message);
   }
 
   override async webSocketClose(ws: WebSocket): Promise<void> {
@@ -183,7 +187,7 @@ export class AccountRelay extends DurableObject<RelayEnv> {
   // ---- control frames ----
 
   private async handleControl(ws: WebSocket, att: WsAttachment, text: string): Promise<void> {
-    if (text.length > MAX_CONTROL_BYTES) {
+    if (text.length > MAX_CONTROL_BYTES || new TextEncoder().encode(text).byteLength > MAX_CONTROL_BYTES) {
       ws.close(CLOSE_PROTOCOL_ERROR, "control too large");
       return;
     }
@@ -252,6 +256,12 @@ export class AccountRelay extends DurableObject<RelayEnv> {
         await this.dropLegState(otherAtt.legId, otherAtt);
         other.close(CLOSE_SUPERSEDED, "superseded by a new session");
       }
+      legId = await this.allocateFreshLeg(att);
+      if (legId === null) {
+        this.send(ws, { t: "error", code: "capacity", message: "too many legs" });
+        ws.close(CLOSE_CAPACITY, "too many legs");
+        return;
+      }
       if (att.role === "host") {
         // A fresh host process cannot decrypt frames phones buffered for the
         // previous one: clear every stream destined to this Mac so stale
@@ -261,9 +271,8 @@ export class AccountRelay extends DurableObject<RelayEnv> {
           if (id.startsWith(`${dst}<`)) this.rings.delete(id);
         }
         const staleSpill = await this.ctx.storage.list({ prefix: `spill:${dst}:` });
-        if (staleSpill.size > 0) await this.ctx.storage.delete([...staleSpill.keys()]);
+        if (staleSpill.size > 0) await this.deleteStorageKeys(staleSpill.keys());
       }
-      legId = await this.nextLegId();
     }
 
     const resumeKey = mintResumeKey();
@@ -403,7 +412,7 @@ export class AccountRelay extends DurableObject<RelayEnv> {
     delete meta.lastEnqueuedBySrc;
     await this.ctx.storage.put(legStorageKey(legId), meta);
     const spilled = await this.ctx.storage.list({ prefix: `spill:${dst}:` });
-    if (spilled.size > 0) await this.ctx.storage.delete([...spilled.keys()]);
+    if (spilled.size > 0) await this.deleteStorageKeys(spilled.keys());
     return { legId, replayed };
   }
 
@@ -440,10 +449,11 @@ export class AccountRelay extends DurableObject<RelayEnv> {
     }
     if (expected !== persisted + 1) return null;
     // Rebuild the ring so post-resume acks prune correctly.
-    const rebuilt = this.ring(dst, src);
+    const rebuilt = new ReplayRing(ack);
+    this.rings.set(streamId(dst, src), rebuilt);
     let seq = ack + 1;
     for (const data of frames) {
-      rebuilt.push(seq, data);
+      if (!rebuilt.push(seq, data)) return null;
       seq += 1;
     }
     return frames;
@@ -475,7 +485,7 @@ export class AccountRelay extends DurableObject<RelayEnv> {
 
   // ---- data frames ----
 
-  private handleData(ws: WebSocket, att: WsAttachment, frame: ArrayBuffer): void {
+  private async handleData(ws: WebSocket, att: WsAttachment, frame: ArrayBuffer): Promise<void> {
     if (att.legId === undefined) {
       ws.close(CLOSE_PROTOCOL_ERROR, "data before hello");
       return;
@@ -491,9 +501,13 @@ export class AccountRelay extends DurableObject<RelayEnv> {
       // buffer for its resume instead of dropping.
       rewriteLegId(frame, att.legId);
       const ring = this.ring(hostKey(att.mac), phoneKey(att.legId));
-      ring.push(header.seq, frame);
+      const isNew = header.seq > ring.lastEnqueued;
+      if (!ring.push(header.seq, frame)) {
+        ws.close(CLOSE_PROTOCOL_ERROR, "sequence gap");
+        return;
+      }
       const host = this.hostSocket(att.mac);
-      if (host) this.forward(host, frame);
+      if (host && isNew) this.forward(host, frame);
       this.send(ws, { t: "ackup", seq: ring.lastEnqueued });
       return;
     }
@@ -502,13 +516,20 @@ export class AccountRelay extends DurableObject<RelayEnv> {
     // other's phone streams).
     const dest = this.socketFor(header.legId);
     const destAtt = dest ? attachment(dest) : null;
-    if (destAtt && (destAtt.role !== "phone" || destAtt.mac !== att.mac)) {
+    const destMeta = isAuthorizedPhoneLeg(destAtt, att.mac)
+      ? destAtt
+      : await this.ctx.storage.get<LegMeta>(legStorageKey(header.legId));
+    if (!isAuthorizedPhoneLeg(destMeta, att.mac)) {
       ws.close(CLOSE_PROTOCOL_ERROR, "destination not bound to this mac");
       return;
     }
     const ring = this.ring(phoneKey(header.legId), hostKey(att.mac));
-    ring.push(header.seq, frame);
-    if (dest && destAtt) this.forward(dest, frame);
+    const isNew = header.seq > ring.lastEnqueued;
+    if (!ring.push(header.seq, frame)) {
+      ws.close(CLOSE_PROTOCOL_ERROR, "sequence gap");
+      return;
+    }
+    if (dest && isAuthorizedPhoneLeg(destAtt, att.mac) && isNew) this.forward(dest, frame);
     this.send(ws, { t: "ackup", seq: ring.lastEnqueued, leg: header.legId });
   }
 
@@ -559,7 +580,7 @@ export class AccountRelay extends DurableObject<RelayEnv> {
       meta.detachedAt = Date.now();
       await this.ctx.storage.put(legStorageKey(legId), meta);
       if (Object.keys(spillWrites).length > 0) {
-        await this.ctx.storage.put(spillWrites);
+        await this.putStorageEntries(spillWrites);
       }
       await this.ensureAlarmAt(meta.detachedAt + RESUME_TTL_MS);
     }
@@ -601,7 +622,7 @@ export class AccountRelay extends DurableObject<RelayEnv> {
         : [`spill:${dst}:`];
     for (const prefix of prefixes) {
       const spilled = await this.ctx.storage.list({ prefix });
-      if (spilled.size > 0) await this.ctx.storage.delete([...spilled.keys()]);
+      if (spilled.size > 0) await this.deleteStorageKeys(spilled.keys());
     }
   }
 
@@ -663,6 +684,52 @@ export class AccountRelay extends DurableObject<RelayEnv> {
     }
   }
 
+  /** Durable Object batch APIs accept at most 128 keys per call. */
+  private async deleteStorageKeys(keys: Iterable<string>): Promise<void> {
+    const pending = [...keys];
+    for (let offset = 0; offset < pending.length; offset += STORAGE_BATCH_SIZE) {
+      await this.ctx.storage.delete(pending.slice(offset, offset + STORAGE_BATCH_SIZE));
+    }
+  }
+
+  /** Durable Object batch APIs accept at most 128 keys per call. */
+  private async putStorageEntries(entries: Record<string, ArrayBuffer>): Promise<void> {
+    const keys = Object.keys(entries);
+    for (let offset = 0; offset < keys.length; offset += STORAGE_BATCH_SIZE) {
+      const batch: Record<string, ArrayBuffer> = {};
+      for (const key of keys.slice(offset, offset + STORAGE_BATCH_SIZE)) batch[key] = entries[key]!;
+      await this.ctx.storage.put(batch);
+    }
+  }
+
+  /**
+   * Reserve a fresh leg while counting detached resume state against the same
+   * role capacity as live sockets. A fresh session for one endpoint replaces
+   * its old state instead of accumulating an unbounded trail of leg records.
+   */
+  private async allocateFreshLeg(att: WsAttachment): Promise<number | null> {
+    const now = Date.now();
+    const metas = await this.ctx.storage.list<LegMeta>({ prefix: "leg:" });
+    let retained = 0;
+    for (const [key, meta] of metas) {
+      const legId = Number(key.slice("leg:".length));
+      if (!Number.isSafeInteger(legId) || legId < 1) continue;
+      const expired = meta.detachedAt !== undefined && meta.detachedAt + RESUME_TTL_MS <= now;
+      const sameEndpoint =
+        meta.role === att.role &&
+        meta.mac === att.mac &&
+        (att.role === "host" || meta.device === att.device);
+      if (expired || sameEndpoint) {
+        await this.dropLegState(legId, { role: meta.role, mac: meta.mac });
+        continue;
+      }
+      if (meta.role === att.role) retained += 1;
+    }
+    const cap = att.role === "phone" ? MAX_PHONE_LEGS : MAX_HOST_LEGS;
+    if (retained >= cap) return null;
+    return this.nextLegId();
+  }
+
   // ---- helpers ----
 
   private ring(dst: string, src: string): ReplayRing {
@@ -711,9 +778,21 @@ export class AccountRelay extends DurableObject<RelayEnv> {
 
   private async nextLegId(): Promise<number> {
     const current = (await this.ctx.storage.get<number>("nextLegId")) ?? 0;
-    const next = current + 1;
-    await this.ctx.storage.put("nextLegId", next);
-    return next;
+    const metas = await this.ctx.storage.list<LegMeta>({ prefix: "leg:" });
+    const used = new Set<number>();
+    for (const key of metas.keys()) {
+      const id = Number(key.slice("leg:".length));
+      if (Number.isSafeInteger(id) && id >= 1 && id <= MAX_LEG_ID) used.add(id);
+    }
+    let candidate = Number.isSafeInteger(current) && current >= 0 && current < MAX_LEG_ID ? current + 1 : 1;
+    for (let attempt = 0; attempt < MAX_RETAINED_LEGS + 1; attempt += 1) {
+      if (!used.has(candidate)) {
+        await this.ctx.storage.put("nextLegId", candidate);
+        return candidate;
+      }
+      candidate = candidate >= MAX_LEG_ID ? 1 : candidate + 1;
+    }
+    throw new Error("relay leg capacity exhausted");
   }
 
   private async epoch(): Promise<string> {
