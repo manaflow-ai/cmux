@@ -36,6 +36,8 @@ import {
   readBoundedJson,
 } from "./validate";
 import { MAX_PAIRED_MAC_BACKUP_BYTES, normalizeClientScope, parsePairedMacBackup } from "./syncPairedMacs";
+import { AccountRelay } from "./dorDo";
+import { DOR_MAX_SUBSCRIBE_AGE_MS, validOpaqueId } from "./dorProtocol";
 import {
   MAX_PHONE_REPLY_BODY_BYTES,
   MAX_PHONE_REPLY_TARGET_ID_CHARS,
@@ -44,9 +46,11 @@ import {
 } from "./replies";
 
 export { TeamPresence };
+export { AccountRelay };
 
 export interface Env extends AuthEnv {
   TEAM_PRESENCE: DurableObjectNamespace<TeamPresence>;
+  ACCOUNT_RELAY: DurableObjectNamespace<AccountRelay>;
   CONNECTIVITY_INVALIDATION_SECRET?: string;
 }
 
@@ -89,6 +93,43 @@ export default {
 
     if (url.pathname === "/healthz") {
       return json({ ok: true, service: "cmux-presence" });
+    }
+
+    // dor/1 data-plane relay: every Mac of the account parks a standing
+    // "host" leg on the ACCOUNT's relay DO; phones open legs to the same
+    // object bound to one Mac. Auth happens HERE, at the edge; the object id
+    // derives from the VERIFIED user, so an unauthenticated caller can never
+    // materialize (or even address) a relay.
+    if (url.pathname === "/v1/dor/host" || url.pathname === "/v1/dor/connect") {
+      if (request.method !== "GET") return json({ error: "method_not_allowed" }, 405);
+      if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
+        return json({ error: "websocket_required" }, 426);
+      }
+      const user = await verifyRequest(request, env);
+      if (!user) return unauthorized();
+      const role = url.pathname.endsWith("/host") ? "host" : "phone";
+      const device = url.searchParams.get("device")?.trim() ?? "";
+      if (!validOpaqueId(device)) return json({ error: "invalid_device" }, 400);
+      // The host leg's own device IS the Mac it serves; a phone leg names its
+      // target Mac explicitly.
+      const mac = role === "host" ? device : (url.searchParams.get("mac")?.trim() ?? "");
+      if (!validOpaqueId(mac)) return json({ error: "invalid_mac" }, 400);
+      const token = bearerToken(request);
+      const expiresAt = cacheDeadline(
+        Date.now(),
+        token ? tokenExpiryMs(token) : null,
+        DOR_MAX_SUBSCRIBE_AGE_MS,
+      );
+      const headers = new Headers(request.headers);
+      headers.set("x-dor-role", role);
+      headers.set("x-dor-user-id", user.id);
+      headers.set("x-dor-device", device);
+      headers.set("x-dor-mac", mac);
+      headers.set("x-dor-expires-at", String(Math.floor(expiresAt)));
+      const stub = env.ACCOUNT_RELAY.get(
+        env.ACCOUNT_RELAY.idFromName(`dor:user:${user.id}`),
+      );
+      return stub.fetch(new Request(request.url, { method: "GET", headers }));
     }
 
     if (url.pathname === "/v1/connectivity/subscribe") {
