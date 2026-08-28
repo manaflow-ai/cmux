@@ -5078,11 +5078,7 @@ fn parse_direction(value: &str) -> anyhow::Result<Direction> {
 }
 
 fn operation_name(operation: ResourceOperation) -> String {
-    serde_json::to_value(operation)
-        .expect("resource operations serialize")
-        .as_str()
-        .expect("resource operations serialize as strings")
-        .to_string()
+    operation.wire_name().to_owned()
 }
 
 fn required_str<'a>(fields: &'a Map<String, Value>, name: &str) -> anyhow::Result<&'a str> {
