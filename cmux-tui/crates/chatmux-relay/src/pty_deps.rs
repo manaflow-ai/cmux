@@ -796,4 +796,33 @@ mod tests {
         assert!(state.backlog.is_empty());
         assert_eq!(state.backlog_bytes, 0);
     }
+
+    #[test]
+    fn pipe_exit_waits_for_reader_eof_before_delivering_late_bytes() {
+        let output = ThreadOutput::new();
+        let completion = PipeExitCoordinator::new(1, TestArc::clone(&output));
+        completion.child_exited(23);
+        output.push_data(Bytes::from_static(b"tail"));
+        completion.reader_finished();
+
+        let seen = TestArc::new(TestMutex::new(Vec::<String>::new()));
+        let data_seen = TestArc::clone(&seen);
+        let exit_seen = TestArc::clone(&seen);
+        output.subscribe(
+            TestArc::new(move |chunk| {
+                data_seen
+                    .lock()
+                    .expect("seen lock")
+                    .push(String::from_utf8_lossy(&chunk).into_owned())
+            }),
+            TestArc::new(move |code| {
+                exit_seen.lock().expect("seen lock").push(format!("exit:{code}"))
+            }),
+        );
+
+        assert_eq!(
+            *seen.lock().expect("seen lock"),
+            vec!["tail".to_owned(), "exit:23".to_owned()]
+        );
+    }
 }
