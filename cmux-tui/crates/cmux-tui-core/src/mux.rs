@@ -854,6 +854,7 @@ pub enum MuxEvent {
         state: Arc<str>,
         source: Arc<str>,
         session: Option<Arc<str>>,
+        agent: Option<Arc<str>>,
         updated_at_ms: u64,
     },
     Bell(SurfaceId),
@@ -1154,6 +1155,9 @@ pub struct AgentRecord {
     pub state: AgentState,
     pub source: AgentSource,
     pub session: Option<String>,
+    /// The reporting adapter id (`claude`, `codex`, ...) when a hook has
+    /// claimed the terminal; absent for socket-only reports.
+    pub agent: Option<String>,
     pub updated_at_ms: u64,
 }
 
@@ -5382,12 +5386,16 @@ impl Mux {
     /// already dropped the live entry).
     fn apply_roster_delta(&self, delta: crate::journal_reducers::RosterDelta, kind: &str) {
         use crate::journal_reducers::RosterDelta;
-        let (terminal_id, state, source, session) = match delta {
-            RosterDelta::Upsert { terminal_id, entry } => {
-                (terminal_id, entry.agent_state(), entry.agent_source(), entry.session)
-            }
+        let (terminal_id, state, source, session, agent_adapter) = match delta {
+            RosterDelta::Upsert { terminal_id, entry } => (
+                terminal_id,
+                entry.agent_state(),
+                entry.agent_source(),
+                entry.session.clone(),
+                entry.agent,
+            ),
             RosterDelta::Remove { terminal_id } => {
-                (terminal_id, AgentState::Done, AgentSource::Hook, None)
+                (terminal_id, AgentState::Done, AgentSource::Hook, None, None)
             }
         };
         let Ok(terminal_id) = TerminalPublicId::parse(&terminal_id) else { return };
@@ -5415,6 +5423,7 @@ impl Mux {
             &mutation,
             &fingerprint,
             AgentReportOrigin::RosterFold,
+            agent_adapter,
         ) {
             eprintln!(
                 "cmux-tui: agent projection update for {terminal_id} ({kind}) failed: {error}"
@@ -8832,6 +8841,7 @@ impl Mux {
             &mutation,
             &fingerprint,
             AgentReportOrigin::Direct,
+            None,
         )?;
         record.context("fresh raw agent report unexpectedly replayed")
     }
@@ -8864,6 +8874,7 @@ impl Mux {
             mutation,
             &fingerprint,
             AgentReportOrigin::Direct,
+            None,
         )
         .map(|(commit, _)| commit)
     }
@@ -8879,6 +8890,7 @@ impl Mux {
         mutation: &WorkspaceMutation,
         fingerprint: &Value,
         origin: AgentReportOrigin,
+        agent_adapter: Option<String>,
     ) -> anyhow::Result<(ResourcePatchCommit, Option<AgentRecord>)> {
         let mut registry = self.workspace_registry.lock().unwrap();
         if let Some(replay) =
@@ -8985,6 +8997,7 @@ impl Mux {
             state: record.state,
             source: record.source,
             session: record.session,
+            agent: agent_adapter,
             updated_at_ms: record.updated_at_ms,
         };
         if !commit.replayed {
@@ -8994,6 +9007,7 @@ impl Mux {
                 state: Arc::from(agent.state.as_str()),
                 source: Arc::from(agent.source.as_str()),
                 session: agent.session.as_deref().map(Arc::from),
+                agent: agent.agent.as_deref().map(Arc::from),
                 updated_at_ms: agent.updated_at_ms,
             });
             if origin == AgentReportOrigin::Direct {
@@ -9102,6 +9116,7 @@ impl Mux {
                     state: entry.agent_state(),
                     source: entry.agent_source(),
                     session: entry.session,
+                    agent: entry.agent,
                     updated_at_ms: entry.updated_at_ms,
                 })
             })
