@@ -1799,41 +1799,34 @@ mod tests {
     }
 
     #[test]
-    fn only_mutating_plugin_commands_require_operation_lock() {
-        assert!(!command_requires_operation_lock(&["list".to_string()]));
-        for command in ["install", "use", "update", "remove"] {
+    fn every_plugin_listing_and_mutation_requires_operation_lock() {
+        for command in ["install", "list", "use", "update", "remove"] {
             assert!(command_requires_operation_lock(&[command.to_string()]));
         }
         assert!(!command_requires_operation_lock(&[]));
     }
 
     #[test]
-    fn read_only_listing_allows_a_clean_root_without_creating_a_lock() {
+    fn staged_command_is_mapped_to_the_final_plugin_root() {
         let root = std::env::temp_dir().join(format!(
-            "cmux-plugin-read-only-list-{}-{}",
+            "cmux-plugin-command-map-{}-{}",
             std::process::id(),
             now_nanos()
         ));
-        fs::create_dir_all(&root).unwrap();
-        assert!(reject_listing_with_pending_transaction(&root).is_ok());
-        assert!(!root.join(".install.lock").exists());
-        fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    fn read_only_listing_rejects_pending_journal_without_mutating_root() {
-        let root = std::env::temp_dir().join(format!(
-            "cmux-plugin-read-only-pending-{}-{}",
-            std::process::id(),
-            now_nanos()
-        ));
-        fs::create_dir_all(&root).unwrap();
-        let journal = root.join(".demo.install-journal.json");
-        fs::write(&journal, b"pending").unwrap();
-        let error = reject_listing_with_pending_transaction(&root).unwrap_err();
-        assert_eq!(error.to_string(), "plugin installation recovery is pending");
-        assert!(journal.exists());
-        assert!(!root.join(".install.lock").exists());
+        let staged = root.join(".install");
+        let target = root.join("demo");
+        fs::create_dir_all(staged.join("bin")).unwrap();
+        fs::create_dir_all(&target).unwrap();
+        let executable = staged.join("bin/sidebar");
+        fs::write(&executable, "#!/bin/sh\nexit 0\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&executable, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let manifest = parse_manifest(&manifest_text("demo")).unwrap();
+        let command = resolved_run_command_for_target(&manifest, &staged, &target).unwrap();
+        assert_eq!(command, vec![target.join("bin/sidebar").display().to_string()]);
         fs::remove_dir_all(root).unwrap();
     }
 
