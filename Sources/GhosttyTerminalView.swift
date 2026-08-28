@@ -3933,6 +3933,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// mouse-up monitor demand-driven avoids fan-out across every terminal
     /// view for ordinary clicks elsewhere in the window.
     private var mouseUpEventMonitor: Any?
+    private var contextMenuEndObserver: NSObjectProtocol?
     nonisolated let terminalClipboardInputSequencer =
         TerminalClipboardInputSequencer<ClipboardDeferredInput, UInt>(
             maximumBufferedEvents: 256,
@@ -4197,6 +4198,54 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         self.mouseUpEventMonitor = nil
     }
 
+    private func removeContextMenuEndObserver() {
+        guard let contextMenuEndObserver else { return }
+        NotificationCenter.default.removeObserver(contextMenuEndObserver)
+        self.contextMenuEndObserver = nil
+    }
+
+    private func observeContextMenuEnd(
+        _ menu: NSMenu,
+        session: GhosttyMouseSessionLedger.Session
+    ) {
+        removeContextMenuEndObserver()
+        contextMenuEndObserver = NotificationCenter.default.addObserver(
+            forName: NSMenu.didEndTrackingNotification,
+            object: menu,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            self.removeContextMenuEndObserver()
+            self.releaseContextMenuMouseSession(session)
+        }
+    }
+
+    private func releaseContextMenuMouseSession(
+        _ session: GhosttyMouseSessionLedger.Session
+    ) {
+        guard session.button == .right else { return }
+        guard let surfaceIdentity = currentGhosttyMouseSurfaceIdentity else {
+            resetGhosttyMouseButtonTracking()
+            return
+        }
+        guard ghosttyMouseSessionLedger.session(
+            for: .right,
+            on: surfaceIdentity
+        ) == session else { return }
+        guard let surface = self.surface else {
+            _ = finishGhosttyMouseSession(session)
+            return
+        }
+        let mods = ghosttyMouseSessionLedger.pointerState?.mods ?? GHOSTTY_MODS_NONE
+        _ = sendGhosttyMouseButton(
+            surface,
+            state: GHOSTTY_MOUSE_RELEASE,
+            button: GHOSTTY_MOUSE_RIGHT,
+            mods: mods
+        )
+        _ = finishGhosttyMouseSession(session)
+    }
+
     private func localEventHandler(_ event: NSEvent) -> NSEvent? {
         switch event.type {
         case .scrollWheel:
@@ -4285,6 +4334,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     ) -> Bool {
         let finished = ghosttyMouseSessionLedger.finish(session)
         removeMouseUpEventMonitorIfUnused()
+        if session.button == .right {
+            removeContextMenuEndObserver()
+        }
         return finished
     }
 
@@ -4293,6 +4345,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             NSEvent.removeMonitor(mouseUpEventMonitor)
             self.mouseUpEventMonitor = nil
         }
+        removeContextMenuEndObserver()
         ghosttyMouseSessionLedger.invalidate()
     }
 
@@ -8360,17 +8413,24 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         for event: NSEvent,
         sendsTerminalPointerEvent: Bool
     ) -> NSMenu? {
+        removeContextMenuEndObserver()
         reconcileGhosttyMouseButtons(
             reason: "menu.preflight",
             forceButtons: Set([.right])
         )
+        guard surface != nil else { return nil }
+        if sendsTerminalPointerEvent, let surface,
+           ghostty_surface_mouse_captured(surface) {
+            return nil
+        }
+
+        window?.makeFirstResponder(self)
         guard let surface = surface else { return nil }
         if sendsTerminalPointerEvent, ghostty_surface_mouse_captured(surface) {
             return nil
         }
-
         let mouseState = rememberGhosttyMouseState(from: event)
-        window?.makeFirstResponder(self)
+        var contextMenuSession: GhosttyMouseSessionLedger.Session?
         if sendsTerminalPointerEvent {
             ghostty_surface_mouse_pos(surface, mouseState.surfacePoint.x, mouseState.surfacePoint.y, mouseState.mods)
             _ = sendGhosttyMouseButton(
@@ -8380,6 +8440,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 mods: mouseState.mods
             )
             _ = markGhosttyMouseButtonPressed(.right)
+            contextMenuSession = ghosttyMouseSessionLedger.session(
+                for: .right,
+                on: currentGhosttyMouseSurfaceIdentity
+            )
         }
 
         let menu = NSMenu()
@@ -8457,6 +8521,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 keyEquivalent: ""
             )
             linkItem.target = self
+        }
+        if let contextMenuSession {
+            observeContextMenuEnd(menu, session: contextMenuSession)
         }
         return menu
     }
@@ -8752,6 +8819,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         deferredGhosttyMouseRepairTask?.cancel()
         if let mouseUpEventMonitor {
             NSEvent.removeMonitor(mouseUpEventMonitor)
+        }
+        if let contextMenuEndObserver {
+            NotificationCenter.default.removeObserver(contextMenuEndObserver)
         }
         // A view can be torn down before a portal handoff callback runs. End
         // any still-owned native sessions while the surface identity is still
