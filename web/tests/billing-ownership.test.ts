@@ -25,6 +25,9 @@ const claim = {
   stackUserId: "anonymous-1",
   claimedByUserId: null,
 };
+type TestClaim = Omit<typeof claim, "claimedByUserId"> & {
+  claimedByUserId: string | null;
+};
 
 const transfer: BillingOwnershipTransfer = {
   kind: "claimed",
@@ -37,7 +40,7 @@ const transfer: BillingOwnershipTransfer = {
 };
 
 function dependencies(options: {
-  claims?: readonly typeof claim[];
+  claims?: readonly TestClaim[];
   transfer?: BillingOwnershipTransfer | null;
   source?: unknown;
 } = {}) {
@@ -138,6 +141,19 @@ describe("verified Pro billing ownership claims", () => {
     ).resolves.toEqual({ claimed: 0 });
 
     expect(deps.transferClaim).toHaveBeenCalledTimes(1);
+    expect(deps.customerUpdate).not.toHaveBeenCalled();
+  });
+
+  test("does not replay an already-claimed billing row", async () => {
+    const deps = dependencies({
+      claims: [{ ...claim, claimedByUserId: targetUser.id }],
+    });
+
+    await expect(
+      claimPendingProBilling(targetUser, deps.dependencyValue),
+    ).resolves.toEqual({ claimed: 0 });
+
+    expect(deps.transferClaim).not.toHaveBeenCalled();
     expect(deps.customerUpdate).not.toHaveBeenCalled();
   });
 

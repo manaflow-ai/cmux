@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, isNull, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 import type Stripe from "stripe";
 
 import { stackServerApp } from "../../app/lib/stack";
@@ -178,20 +178,20 @@ export async function claimPendingProBilling(
   let claimed = 0;
 
   for (const claim of claims) {
-    if (claim.claimedByUserId && claim.claimedByUserId !== user.id) continue;
+    // Claimed rows are audit records, not pending work. Metadata repair is
+    // intentionally separate so normal billing reads stay read-mostly.
+    if (claim.claimedByUserId) continue;
 
     // A fresh claim must originate from the anonymous purchaser created by
     // checkout. Never transfer a claim from an ordinary account, even when its
     // billing email happens to match.
-    if (!claim.claimedByUserId) {
-      const source = await app.getUser(claim.stackUserId);
-      if (
-        !source ||
-        source.id === user.id ||
-        source.isAnonymous !== true
-      ) {
-        continue;
-      }
+    const source = await app.getUser(claim.stackUserId);
+    if (
+      !source ||
+      source.id === user.id ||
+      source.isAnonymous !== true
+    ) {
+      continue;
     }
 
     const transfer = await repository.transferClaim(claim, user.id);
@@ -1217,7 +1217,7 @@ function verifiedClaimEmail(user: ProBillingClaimUser): string | null {
 
 function makeBillingOwnershipRepository(db: BillingDb): BillingOwnershipRepository {
   return {
-    findClaims: async (email, targetStackUserId) => {
+    findClaims: async (email) => {
       const rows = await db
         .select({
           id: billingEmailClaims.id,
@@ -1231,10 +1231,7 @@ function makeBillingOwnershipRepository(db: BillingDb): BillingOwnershipReposito
           and(
             eq(billingEmailClaims.email, email),
             eq(billingEmailClaims.plan, PRO_PLAN_ID),
-            or(
-              isNull(billingEmailClaims.claimedByUserId),
-              eq(billingEmailClaims.claimedByUserId, targetStackUserId),
-            ),
+            isNull(billingEmailClaims.claimedByUserId),
           ),
         )
         .orderBy(asc(billingEmailClaims.createdAt))
