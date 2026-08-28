@@ -500,7 +500,7 @@ extension CMUXCLI {
     }
 
     private static func isCmuxOwnedCodexHookScriptCommand(_ command: String) -> Bool {
-        guard let hooksDirectory = codexHookScriptsDirectory() else { return false }
+        let hooksDirectory = codexHookScriptsURL()
         let url = URL(fileURLWithPath: command, isDirectory: false)
         let name = url.lastPathComponent
         return CodexHookScriptName(filename: name) != nil

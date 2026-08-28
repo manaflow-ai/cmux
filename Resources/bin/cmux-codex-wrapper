@@ -2,9 +2,9 @@
 # cmux codex wrapper - per-invocation Codex hook injection + launch detection.
 #
 # When running inside a cmux terminal (CMUX_SURFACE_ID is set), this wrapper
-# makes `codex` carry exactly one cmux hook channel. If ~/.codex/hooks.json has
-# a cmux-owned persistent channel, the emitter reconciles it and emits no
-# overlapping overrides; otherwise it injects hooks for THIS invocation only.
+# makes `codex` carry exactly one cmux producer per event. The emitter reads
+# ~/.codex/hooks.json without changing it, then injects only missing cmux hooks
+# for THIS invocation. It never rewrites the user's Codex settings.
 # Codex's own SessionStart/UserPromptSubmit/Stop/PreToolUse/PostToolUse/
 # PermissionRequest then fire back into cmux with Codex's real session_id.
 # Those hook payloads are the source of truth for session identity; the wrapper
@@ -267,9 +267,9 @@ export CMUX_AGENT_LAUNCH_CWD="$PWD"
     [[ -n "$cmux_codex_argv_b64" ]] && export CMUX_AGENT_LAUNCH_ARGV_B64="$cmux_codex_argv_b64"
 }
 
-# Select the launch's cmux hook channel. The cmux CLI first reconciles an
-# installed cmux-owned persistent channel, when present; otherwise it emits the
-# exact arg list (NUL-separated) that enables hooks and injects cmux commands.
+# Select the launch's cmux hook channel. The cmux CLI inventories installed
+# cmux-owned events read-only, then emits the exact NUL-separated arguments that
+# enable hooks for this run and inject only the missing cmux commands.
 # Turn/status hooks remain FIRE-AND-FORGET: codex runs hooks synchronously and
 # would block on a full socket round trip. Native child lifecycle hooks are the
 # exception; they synchronously commit the tiny cmux-owned ledger event before
@@ -307,7 +307,6 @@ if cmux_codex_read_inject_args; then
     exec "$REAL_CODEX" "${cmux_codex_injected_args[@]}" "$@"
 fi
 
-# A reconciled persistent channel intentionally emits no overrides; an emitter
-# failure also returns nothing. In both cases preserve the cmux surface context
-# so persistent, native, or future hooks can still bind this session.
+# An emitter failure returns nothing. Preserve the cmux surface context so
+# persistent, native, or future hooks can still bind this session.
 exec "$REAL_CODEX" "$@"

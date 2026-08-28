@@ -3,24 +3,29 @@ import Foundation
 
 extension CMUXCLI {
     /// Emit, NUL-separated to stdout, the exact codex arg list the wrapper must
-    /// splice ahead of the user's args to enable + inject cmux's fire-and-forget
-    /// hooks for one codex invocation when no persistent cmux channel is
-    /// installed. Returns the arg list:
+    /// splice ahead of the user's args to enable cmux hooks for one Codex
+    /// invocation without rewriting the user's Codex configuration. Returns
+    /// activation flags followed by one `-c` pair for every event that is not
+    /// already supplied by a cmux-owned persistent hook:
     ///   --enable\0hooks\0--dangerously-bypass-hook-trust\0
     ///   -c\0hooks.SessionStart=[{hooks=[{type="command",command='''<hook>''',timeout=10000}]}]\0
     ///   -c\0hooks.UserPromptSubmit=...\0 ... (one `-c` pair per event)
     /// Turn/status hooks use `codexFireAndForgetAgentHookShellCommand(...)`;
     /// native child lifecycle hooks synchronously commit their ledger event and
     /// then return. All larger socket delivery remains non-blocking.
-    /// Before emission, an existing cmux-owned persistent hook channel is
-    /// reconciled in place and supersedes wrapper injection for this launch.
+    /// Persistent hooks are inventoried read-only so the wrapper does not add a
+    /// duplicate cmux producer. Codex combines hook sources, so user-owned hooks
+    /// continue to run alongside these process-local entries. Only explicit
+    /// `cmux hooks codex install` or `uninstall` commands mutate `CODEX_HOME`.
     /// No live socket is required.
     func emitCodexWrapperInjectArgs() throws {
         guard let codexDef = Self.agentDef(named: "codex") else {
             throw CLIError(message: "Codex hook integration is unavailable.")
         }
-        let usesPersistentChannel = reconcileCodexPersistentHooksForWrapper()
-        let eventsToInject = usesPersistentChannel ? [] : CodexHookInjectionSchema.current.events
+        let persistentEvents = codexPersistentHookEventNamesForWrapper()
+        let eventsToInject = CodexHookInjectionSchema.current.events.filter {
+            !persistentEvents.contains($0.agentEvent)
+        }
         // Prefer a #!/bin/sh SCRIPT FILE as the hook command over an inline shell
         // snippet. Some codex-compatible runtimes (subrouters, proxies) exec the
         // `command` string directly as a program instead of via a shell, so an
@@ -31,14 +36,7 @@ extension CMUXCLI {
         // invocations, so they are written once into a cmux-owned dir (~/.cmux/
         // hooks), not the user's ~/.codex. Any write failure falls back to the
         // inline snippet so the working path can never regress.
-        let hooksDir = Self.codexHookScriptsDirectory()
-        defer {
-            Self.garbageCollectCodexHookScripts(
-                retaining: Self.currentCodexWrapperHookScriptFilenames(for: codexDef)
-                    .union(Self.installedCodexHookScriptFilenames(for: codexDef))
-            )
-        }
-        guard !eventsToInject.isEmpty else { return }
+        let hooksDir = eventsToInject.isEmpty ? nil : Self.codexHookScriptsDirectory()
         var args: [String] = ["--enable", "hooks", "--dangerously-bypass-hook-trust"]
         for event in eventsToInject {
             let hookBody = Self.codexWrapperHookBody(event: event, for: codexDef)
@@ -78,16 +76,20 @@ extension CMUXCLI {
     /// `~/.cmux/hooks` (NOT the user's `~/.codex`), created on demand. Returns
     /// nil if it cannot be created, so the caller falls back to inline commands.
     static func codexHookScriptsDirectory() -> URL? {
-        let home = FileManager.default.homeDirectoryForCurrentUser
-        let dir = home
-            .appendingPathComponent(".cmux", isDirectory: true)
-            .appendingPathComponent("hooks", isDirectory: true)
+        let dir = codexHookScriptsURL()
         do {
             try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
             return dir
         } catch {
             return nil
         }
+    }
+
+    /// The hook-script directory path without creating it.
+    static func codexHookScriptsURL() -> URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".cmux", isDirectory: true)
+            .appendingPathComponent("hooks", isDirectory: true)
     }
 
     /// Writes (idempotently) a `#!/bin/sh` hook script for one event into `dir`
@@ -153,10 +155,10 @@ extension CMUXCLI {
             .appendingPathComponent(def.configFile, isDirectory: false)
         guard let data = try? Data(contentsOf: fileURL),
               let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let hooks = root["hooks"] as? [String: Any],
-              let hooksDirectory = codexHookScriptsDirectory()?.standardizedFileURL else {
+              let hooks = root["hooks"] as? [String: Any] else {
             return []
         }
+        let hooksDirectory = codexHookScriptsURL().standardizedFileURL
 
         var filenames = Set<String>()
         for value in hooks.values {
