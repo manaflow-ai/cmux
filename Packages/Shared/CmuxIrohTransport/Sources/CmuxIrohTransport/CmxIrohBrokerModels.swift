@@ -352,9 +352,9 @@ public struct CmxIrohRegistrationResponse: Decodable, Equatable, Sendable {
     }
 }
 
-/// Result of the registration route's best-effort initial relay mint.
+/// Wire-compatibility status field of the registration response. Clients hold
+/// no relay credentials; relay admission is the relay's server-side allow hook.
 public enum CmxIrohRegistrationRelay: Decodable, Equatable, Sendable {
-    case issued(CmxIrohRelayTokenResponse)
     case unavailable
     case notRequested
 
@@ -364,9 +364,7 @@ public enum CmxIrohRegistrationRelay: Decodable, Equatable, Sendable {
         let status = try decoder.container(keyedBy: CodingKeys.self)
             .decode(String.self, forKey: .status)
         switch status {
-        case "issued":
-            self = try .issued(CmxIrohRelayTokenResponse(from: decoder))
-        case "unavailable":
+        case "unavailable", "issued":
             self = .unavailable
         case "not_requested":
             self = .notRequested

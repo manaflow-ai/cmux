@@ -19,8 +19,7 @@ extension CmxIrohClientRuntimeTests {
         )
         let broker = TestIrohClientBroker(
             binding: fixture.binding,
-            discovery: fixture.discovery,
-            relay: fixture.relayResponse()
+            discovery: fixture.discovery
         )
         let configuration = CmxIrohClientRuntimeConfiguration(
             accountID: fixture.configuration.accountID,
@@ -77,8 +76,7 @@ extension CmxIrohClientRuntimeTests {
             factory: TestIrohEndpointFactory(endpoints: [endpoint]),
             broker: TestIrohClientBroker(
                 binding: fixture.binding,
-                discovery: fixture.discovery,
-                relay: fixture.relayResponse()
+                discovery: fixture.discovery
             ),
             configuration: fixture.configuration,
             pendingRevocations: fixture.pendingRevocations(),
@@ -113,8 +111,7 @@ extension CmxIrohClientRuntimeTests {
             factory: TestIrohEndpointFactory(endpoints: [endpoint]),
             broker: TestIrohClientBroker(
                 binding: fixture.binding,
-                discovery: fixture.discovery,
-                relay: fixture.relayResponse()
+                discovery: fixture.discovery
             ),
             configuration: fixture.configuration,
             pendingRevocations: fixture.pendingRevocations(),
@@ -146,7 +143,6 @@ extension CmxIrohClientRuntimeTests {
         let broker = TestIrohClientBroker(
             binding: fixture.binding,
             discovery: fixture.discovery,
-            relay: fixture.relayResponse(),
             discoveryErrorsByCount: [
                 2: CmxIrohTrustBrokerClientError.connectivity,
             ],
@@ -188,7 +184,6 @@ extension CmxIrohClientRuntimeTests {
         let broker = TestIrohClientBroker(
             binding: fixture.binding,
             discovery: fixture.discovery,
-            relay: fixture.relayResponse(),
             registrationHook: { count in
                 if count == 1 { await endpoint.emit(.networkChanged) }
             }
@@ -215,8 +210,7 @@ extension CmxIrohClientRuntimeTests {
         let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
         let broker = TestIrohClientBroker(
             binding: fixture.binding,
-            discovery: fixture.discovery,
-            relay: fixture.relayResponse()
+            discovery: fixture.discovery
         )
         let runtime = try CmxIrohClientRuntime(
             factory: TestIrohEndpointFactory(endpoints: [endpoint]),
@@ -250,8 +244,7 @@ extension CmxIrohClientRuntimeTests {
         let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
         let broker = TestIrohClientBroker(
             binding: fixture.binding,
-            discovery: fixture.discovery,
-            relay: fixture.relayResponse()
+            discovery: fixture.discovery
         )
         let runtime = try CmxIrohClientRuntime(
             factory: TestIrohEndpointFactory(endpoints: [endpoint]),
@@ -277,7 +270,6 @@ extension CmxIrohClientRuntimeTests {
         let broker = TestIrohClientBroker(
             binding: fixture.binding,
             discovery: fixture.discovery,
-            relay: fixture.relayResponse(),
             discoveryHook: { count in
                 if count == 2 { await gate.waitOnce() }
             }
@@ -311,7 +303,6 @@ extension CmxIrohClientRuntimeTests {
         let broker = TestIrohClientBroker(
             binding: fixture.binding,
             discovery: fixture.discovery,
-            relay: fixture.relayResponse(),
             discoveryHook: { count in
                 if count == 2 { await gate.waitOnce() }
             }
@@ -343,7 +334,6 @@ extension CmxIrohClientRuntimeTests {
         let broker = TestIrohClientBroker(
             binding: fixture.binding,
             discovery: fixture.discovery,
-            relay: fixture.relayResponse(),
             discoveryHook: { count in
                 if count == 2 { await gate.waitOnce() }
             }
@@ -374,8 +364,7 @@ extension CmxIrohClientRuntimeTests {
         let endpoint = TestIrohEndpoint(identity: fixture.endpointID)
         let broker = TestIrohClientBroker(
             binding: fixture.binding,
-            discovery: fixture.discovery,
-            relay: fixture.relayResponse()
+            discovery: fixture.discovery
         )
         let runtime = try CmxIrohClientRuntime(
             factory: TestIrohEndpointFactory(endpoints: [endpoint]),
@@ -462,8 +451,6 @@ private actor ClientRuntimeBlockingCloseEndpoint: CmxIrohEndpoint {
     }
 
     func accept() async throws -> (any CmxIrohConnection)? { nil }
-
-    func replaceRelays(_: [CmxIrohRelayConfiguration]) {}
 
     func healthEvents() -> AsyncStream<CmxIrohEndpointHealthEvent> { healthStream }
 

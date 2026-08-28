@@ -68,17 +68,6 @@ struct RelayPolicyServiceTestFixture {
         return "\(input).\(Self.base64URL(signature))"
     }
 
-    func relayCredential() -> CmxIrohRelayTokenResponse {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return CmxIrohRelayTokenResponse(
-            token: "aaaa",
-            expiresAt: formatter.string(from: now.addingTimeInterval(3_600)),
-            refreshAfter: formatter.string(from: now.addingTimeInterval(1_800)),
-            relayFleet: relayURLs
-        )
-    }
-
     private func trustRoot(
         includeFirst: Bool,
         includeSecond: Bool

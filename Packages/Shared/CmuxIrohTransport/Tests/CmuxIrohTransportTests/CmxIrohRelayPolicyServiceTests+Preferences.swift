@@ -85,14 +85,12 @@ extension CmxIrohRelayPolicyServiceTests {
             ),
             accountID: "account-a",
             trustRoot: fixture.firstTrustRoot,
-            relayCredential: fixture.relayCredential(),
             now: fixture.now
         )
 
         #expect(effective.source == .customUnavailable)
         #expect(effective.endpointRelayProfile.allowedRelayURLs.isEmpty)
         #expect(effective.endpointRelayProfile.activeRelays.isEmpty)
-        #expect(effective.relayBootstrap == nil)
         #expect(effective.missingCredentialRelayIDs == [authenticatedRelay.id])
         #expect(await stores.service.diagnosticsSnapshot().failure == .missingCustomCredential)
     }
@@ -122,7 +120,6 @@ extension CmxIrohRelayPolicyServiceTests {
             ),
             accountID: "account-a",
             trustRoot: fixture.firstTrustRoot,
-            relayCredential: fixture.relayCredential(),
             now: fixture.now
         )
 
@@ -173,7 +170,6 @@ extension CmxIrohRelayPolicyServiceTests {
             ),
             accountID: "account-a",
             trustRoot: fixture.firstTrustRoot,
-            relayCredential: fixture.relayCredential(),
             now: fixture.now
         )
         #expect(
@@ -192,7 +188,6 @@ extension CmxIrohRelayPolicyServiceTests {
             ),
             accountID: "account-a",
             trustRoot: fixture.firstTrustRoot,
-            relayCredential: fixture.relayCredential(),
             now: fixture.now
         )
 
@@ -280,7 +275,6 @@ extension CmxIrohRelayPolicyServiceTests {
             ),
             accountID: "account-a",
             trustRoot: fixture.firstTrustRoot,
-            relayCredential: fixture.relayCredential(),
             now: fixture.now
         )
         await preferenceSecureStore.setUnavailable(true)
@@ -289,7 +283,6 @@ extension CmxIrohRelayPolicyServiceTests {
             updated,
             accountID: "account-a",
             trustRoot: fixture.firstTrustRoot,
-            relayCredential: fixture.relayCredential(),
             now: fixture.now
         )
 
@@ -342,7 +335,6 @@ extension CmxIrohRelayPolicyServiceTests {
             ),
             accountID: "account-a",
             trustRoot: fixture.firstTrustRoot,
-            relayCredential: fixture.relayCredential(),
             now: fixture.now
         )
         let oldActive = try await service.setStaticCredential(

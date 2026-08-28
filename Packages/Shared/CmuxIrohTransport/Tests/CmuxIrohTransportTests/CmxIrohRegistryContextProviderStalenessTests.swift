@@ -384,6 +384,40 @@ struct CmxIrohRegistryContextProviderStalenessTests {
     }
 
     @Test
+    func refreshFailureAfterStalenessFallsBackToLastVerifiedSnapshot() async throws {
+        let fixture = try RegistryFixture()
+        let relay = try managedRelayHint(fixture)
+        let broker = ConfigurableRegistryBroker(
+            discovery: try fixture.discovery(targetHints: [relay]),
+            pairGrantResponses: [try fixture.pairGrantResponse(
+                issuedAt: fixture.nowSeconds,
+                expiresAt: fixture.nowSeconds + 7 * 24 * 60 * 60
+            )]
+        )
+        let provider = try await makeProvider(
+            fixture: fixture,
+            broker: broker,
+            verifiedDiscovery: try fixture.discovery(targetHints: [relay])
+        )
+        // A timed-out dial marked the peer stale, so the next attempt must
+        // try one fresh fetch first.
+        await provider.noteDialFailure(
+            for: try fixture.request(hints: []),
+            dialPlan: try nonEmptyPlan(fixture, hints: [relay]),
+            failure: .timedOut
+        )
+        await broker.setDiscoverError(CmxIrohTrustBrokerClientError.connectivity)
+
+        // The forced refresh failed. Dialing with the last verified snapshot
+        // beats not dialing at all (cmux#9724): the staleness mark survives,
+        // so a later attempt still refetches once the broker recovers.
+        let context = try await provider.context(for: fixture.request(hints: []))
+
+        #expect(await broker.discoveryRequestCount() == 1)
+        #expect(context.dialPlan.publicPaths == [relay])
+    }
+
+    @Test
     func cooldownDuringEmptyPlanRefetchKeepsResolvedContextInsteadOfSpinning() async throws {
         let fixture = try RegistryFixture()
         let broker = ConfigurableRegistryBroker(

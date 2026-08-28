@@ -6,16 +6,12 @@ import Testing
 @Suite(.serialized)
 struct CmxIrohRelayPolicyBrokerTests {
     @Test
-    func bootstrapAcceptsRevisionZeroAndNullableToken() async throws {
+    func policyFetchUsesTheCredentialFreePolicyRoute() async throws {
         let transport = RecordingBrokerTransport(responses: [
             .json(
                 status: 200,
                 body: """
                 {
-                  "token": null,
-                  "expiresAt": 1782000300,
-                  "ttlSeconds": 300,
-                  "relays": ["https://usc1.relay.cmux.dev"],
                   "policy": "aaa.bbb.ccc",
                   "preference": {"mode":"automatic"},
                   "preferenceRevision": 0
@@ -25,16 +21,16 @@ struct CmxIrohRelayPolicyBrokerTests {
         ])
         let client = try makeClient(transport: transport)
 
-        let response = try await client.issueRelayBootstrap(
-            endpointID: CmxIrohPeerIdentity(endpointID: Self.endpointID)
-        )
+        let response = try await client.fetchRelayPolicy()
 
-        #expect(response.relayToken == nil)
-        #expect(response.relayPolicy.preference == .automatic)
-        #expect(response.relayPolicy.preferenceRevision == 0)
+        #expect(response.preference == .automatic)
+        #expect(response.preferenceRevision == 0)
         let request = try #require(await transport.requests().first)
-        #expect(request.url?.path == "/api/relay/token")
-        #expect(request.httpMethod == "POST")
+        #expect(request.url?.path == "/api/relay/policy")
+        #expect(request.httpMethod == "GET")
+        // Tokenless transport: the policy fetch carries no endpoint binding
+        // payload and mints nothing.
+        #expect(request.httpBody == nil)
     }
 
     @Test

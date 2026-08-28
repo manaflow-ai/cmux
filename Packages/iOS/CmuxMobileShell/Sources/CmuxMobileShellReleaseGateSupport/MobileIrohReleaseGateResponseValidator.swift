@@ -89,43 +89,5 @@ enum MobileIrohReleaseGateResponseValidator {
         return response.sessionArtifactTotal.map { $0 >= 0 } ?? true
     }
 
-    static func artifactPath(
-        _ data: Data,
-        expectedPath: String
-    ) -> Bool {
-        guard let response = try? ChatWireCoding().decode(
-            TerminalArtifactScanResponse.self,
-            from: data
-        ) else {
-            return false
-        }
-        let expectedIdentity = releaseGateArtifactPathIdentity(expectedPath)
-        return response.artifacts.contains {
-            releaseGateArtifactPathIdentity($0.path) == expectedIdentity
-        }
-    }
-
-    private static func releaseGateArtifactPathIdentity(_ path: String) -> String {
-        let standardized = (path as NSString).standardizingPath
-        let canonicalMacOSTemporaryPrefix = "/private/tmp/"
-        guard standardized.hasPrefix(canonicalMacOSTemporaryPrefix) else {
-            return standardized
-        }
-        return "/tmp/" + standardized.dropFirst(canonicalMacOSTemporaryPrefix.count)
-    }
-
-    static func artifactLaneDescriptor(_ data: Data) -> ChatArtifactLaneDescriptor? {
-        try? ChatWireCoding().decode(ChatArtifactLaneDescriptor.self, from: data)
-    }
-
-    static func artifactStat(
-        _ data: Data,
-        expectedSize: Int64
-    ) -> Bool {
-        guard let stat = try? ChatWireCoding().decode(ChatArtifactStat.self, from: data) else {
-            return false
-        }
-        return stat.exists && !stat.isDirectory && stat.size == expectedSize
-    }
 }
 #endif

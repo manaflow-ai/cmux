@@ -54,7 +54,6 @@ actor TestDialingIrohEndpoint: CmxIrohEndpoint {
         nil
     }
 
-    func replaceRelays(_: [CmxIrohRelayConfiguration]) {}
 
     func healthEvents() -> AsyncStream<CmxIrohEndpointHealthEvent> {
         healthStream
