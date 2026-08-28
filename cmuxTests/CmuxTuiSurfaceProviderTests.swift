@@ -215,10 +215,10 @@ import Testing
     }
 
     @Test func clientArgvIsExact() {
-        #expect(CloudTuiCommandLine.linkArguments(route: "wss://m.vm.cmux.sh/v1/link?t=1", deviceName: "cmux-mac", stateDir: "/s", inviteFilePath: "/i") ==
-            ["remote", "connect", "wss://m.vm.cmux.sh/v1/link?t=1", "--device-name", "cmux-mac", "--state-dir", "/s", "--headless", "--json", "--invite-file", "/i"])
-        #expect(CloudTuiCommandLine.linkArguments(route: "r", deviceName: "d", stateDir: "/s", inviteFilePath: nil) ==
-            ["remote", "connect", "r", "--device-name", "d", "--state-dir", "/s", "--headless", "--json"])
+        #expect(CloudTuiCommandLine.linkArguments(route: "wss://m.vm.cmux.sh/v1/link?t=1", deviceName: "cmux-mac", stateDir: "/s", localSocketPath: "/s/connections/link.sock", inviteFilePath: "/i") ==
+            ["remote", "connect", "wss://m.vm.cmux.sh/v1/link?t=1", "--device-name", "cmux-mac", "--state-dir", "/s", "--local-socket", "/s/connections/link.sock", "--headless", "--json", "--invite-file", "/i"])
+        #expect(CloudTuiCommandLine.linkArguments(route: "r", deviceName: "d", stateDir: "/s", localSocketPath: "/s/connections/link.sock", inviteFilePath: nil) ==
+            ["remote", "connect", "r", "--device-name", "d", "--state-dir", "/s", "--local-socket", "/s/connections/link.sock", "--headless", "--json"])
         #expect(CloudTuiCommandLine.snapshotArguments(socketPath: "/k.sock") == ["--socket", "/k.sock", "--json", "session", "current", "snapshot"])
         #expect(CloudTuiCommandLine.eventsArguments(socketPath: "/k.sock") == ["--socket", "/k.sock", "--jsonl", "session", "current", "events"])
         #expect(CloudTuiCommandLine.runArguments(socketPath: "/k.sock", workspaceID: "ws_main", command: ["claude", "-p", "fix it"]) ==
@@ -249,6 +249,8 @@ import Testing
         defer { try? FileManager.default.removeItem(at: home) }
         let paths = CloudTuiClientPaths(home: home)
         #expect(paths.stateDir.path == home.appendingPathComponent(".cmuxterm/cmux-tui-client").path)
+        #expect(paths.linkSocketPath().hasPrefix(paths.stateDir.path + "/connections/cmux-link-"))
+        #expect(paths.linkSocketPath().hasSuffix(".sock"))
         #expect(paths.devicesStoreURL.path == home.appendingPathComponent(".cmuxterm/vm-tui-devices.json").path)
         #expect(paths.deviceFingerprint(for: "vivid-newt") == nil)
         paths.saveDeviceFingerprint("fp-1", for: "vivid-newt")
@@ -355,6 +357,8 @@ import Testing
         let text = CloudMachineLink.errorText(error)
         #expect(!text.contains(secret))
         #expect(!text.contains("TOKEN=not-for-ui"))
+        #expect(!CloudMachineLink.errorText(CmuxTuiSurfaceProvider.ProviderError.terminalNotCreated).contains("/remote/private/path"))
+        #expect(!CloudMachineLink.errorText(CmuxTuiSurfaceProvider.ProviderError.badURL).contains("https://"))
     }
 
     @Test func linkFirstValueResolvesOnce() async {

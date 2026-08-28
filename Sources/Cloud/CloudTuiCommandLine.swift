@@ -6,11 +6,24 @@ import Foundation
 /// `--socket`/`--json`/`--jsonl` as global options, and `attach --terminal <id>` as the
 /// single-terminal renderer (`spec/cli.md` §"attach").
 struct CloudTuiCommandLine: Sendable {
-    /// `remote connect <route> --device-name … --state-dir … --headless --json [--invite-file …]`:
-    /// a headless link whose stdout carries `connection-snapshot` JSON lines with the
-    /// local mux socket path (`remote_cli.rs` `connect_with_flags`).
-    static func linkArguments(route: String, deviceName: String, stateDir: String, inviteFilePath: String?) -> [String] {
-        var arguments = ["remote", "connect", route, "--device-name", deviceName, "--state-dir", stateDir, "--headless", "--json"]
+    /// `remote connect <route> --device-name … --state-dir … --local-socket …
+    /// --headless --json [--invite-file …]`: a headless link whose stdout carries
+    /// `connection-snapshot` JSON lines. The app chooses the socket path so child output
+    /// cannot redirect later control operations to another local mux socket.
+    static func linkArguments(
+        route: String,
+        deviceName: String,
+        stateDir: String,
+        localSocketPath: String,
+        inviteFilePath: String?
+    ) -> [String] {
+        var arguments = [
+            "remote", "connect", route,
+            "--device-name", deviceName,
+            "--state-dir", stateDir,
+            "--local-socket", localSocketPath,
+            "--headless", "--json",
+        ]
         if let inviteFilePath, !inviteFilePath.isEmpty {
             arguments += ["--invite-file", inviteFilePath]
         }

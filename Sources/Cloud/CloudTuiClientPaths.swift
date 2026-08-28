@@ -25,6 +25,17 @@ struct CloudTuiClientPaths: Sendable {
             .appendingPathComponent("cmux-tui-client", isDirectory: true)
     }
 
+    /// A fresh, private socket name for one headless link. The path is created below
+    /// `stateDir`, whose ownership and mode are checked by the Rust client before bind.
+    /// Keeping the name local to this owner prevents child output from selecting an
+    /// unrelated cmux control socket.
+    func linkSocketPath() -> String {
+        stateDir
+            .appendingPathComponent("connections", isDirectory: true)
+            .appendingPathComponent("cmux-link-(UUID().uuidString.lowercased()).sock", isDirectory: false)
+            .path
+    }
+
     var devicesStoreURL: URL {
         home.appendingPathComponent(".cmuxterm", isDirectory: true)
             .appendingPathComponent("vm-tui-devices.json", isDirectory: false)

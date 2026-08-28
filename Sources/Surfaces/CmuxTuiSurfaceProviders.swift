@@ -139,8 +139,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         case notSignedIn
         case machineAsleep(String)
         case noWorkspaceOnMachine(String)
-        case terminalNotCreated(String)
-        case badURL(String)
+        case terminalNotCreated
+        case badURL
 
         var errorDescription: String? {
             switch self {
@@ -150,10 +150,10 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 return "\(id) is asleep; open it (`cmux vm shell \(id)`) to wake it before listing its terminals."
             case .noWorkspaceOnMachine(let id):
                 return "\(id) has no cmux-tui workspace yet."
-            case .terminalNotCreated(let detail):
-                return "cmux-tui did not report the new terminal: \(detail)"
-            case .badURL(let url):
-                return "The control plane returned an unusable URL: \(url)"
+            case .terminalNotCreated, .badURL:
+                // Remote command output and URLs can contain secrets or control data.
+                // Use the same localized, stable message as the link boundary.
+                return String(localized: "cloud.link.operationFailed", defaultValue: "The cloud terminal operation failed. Try again.")
             }
         }
     }
@@ -368,7 +368,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         let data = try await link.run(arguments: CloudTuiCommandLine.runArguments(socketPath: connected.socketPath, workspaceID: workspaceID, command: argv))
         guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let created = CmuxTuiSnapshotParser.createdTerminal(fromRunResult: object) else {
-            throw ProviderError.terminalNotCreated(String(data: data, encoding: .utf8) ?? "")
+            throw ProviderError.terminalNotCreated
         }
         let resource = SurfaceResource(
             id: SurfaceResourceID(machine: machine, kind: .terminal, key: created.terminalID),
@@ -483,7 +483,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         guard let client = VMClient.shared else { throw ProviderError.notSignedIn }
         let minted = try await client.openPort(id: machineID, port: port)
         let raw = desktop ? CmuxTuiSnapshotParser.desktopURL(openURL: minted.openUrl) : minted.openUrl
-        guard let url = URL(string: raw) else { throw ProviderError.badURL(raw) }
+        guard let url = URL(string: raw) else { throw ProviderError.badURL }
         endpoints.store(openURL: minted.openUrl, port: port)
         return url
     }

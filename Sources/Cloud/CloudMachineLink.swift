@@ -25,6 +25,7 @@ actor CloudMachineLink {
         case spawnFailed
         case exited(status: Int32, code: RemoteFailureCode)
         case outputLimitExceeded
+        case invalidSocket
         case timedOut
 
         var errorDescription: String? {
@@ -33,7 +34,7 @@ actor CloudMachineLink {
                 return String(localized: "cloud.link.clientMissing", defaultValue: "The cloud terminal client is not available. Reinstall cmux and try again.")
             case .alreadyConnecting:
                 return String(localized: "cloud.link.alreadyConnecting", defaultValue: "The cloud terminal is already connecting. Try again.")
-            case .spawnFailed, .outputLimitExceeded:
+            case .spawnFailed, .outputLimitExceeded, .invalidSocket:
                 return String(localized: "cloud.link.operationFailed", defaultValue: "The cloud terminal operation failed. Try again.")
             case .exited:
                 return String(localized: "cloud.link.exited", defaultValue: "The cloud terminal client stopped unexpectedly. Try again.")
@@ -111,11 +112,13 @@ actor CloudMachineLink {
             inviteFilePath = url.path
         }
         let process = Process()
+        let localSocketPath = paths.linkSocketPath()
         process.executableURL = clientURL
         process.arguments = CloudTuiCommandLine.linkArguments(
             route: route,
             deviceName: CloudTuiClientPaths.deviceName(),
             stateDir: paths.stateDir.path,
+            localSocketPath: localSocketPath,
             inviteFilePath: inviteFilePath
         )
         var environment = ProcessInfo.processInfo.environment
@@ -220,7 +223,17 @@ actor CloudMachineLink {
             }
             throw failure
         }
-        let connected = Connected(socketPath: socketPath, session: session)
+        guard socketPath == localSocketPath else {
+            stopper.stop()
+            self.process = nil
+            self.processStopper = nil
+            self.processGeneration = nil
+            removeInviteFile()
+            state = .error
+            lastError = Self.errorText(LinkError.invalidSocket)
+            throw LinkError.invalidSocket
+        }
+        let connected = Connected(socketPath: localSocketPath, session: session)
         self.connected = connected
         state = .connected
         startEventsSubscription(socketPath: socketPath)
