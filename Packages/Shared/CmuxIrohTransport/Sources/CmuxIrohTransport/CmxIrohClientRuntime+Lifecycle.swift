@@ -72,8 +72,6 @@ extension CmxIrohClientRuntime {
         registrationRefreshEnabled = false
         supervisorEventTask?.cancel()
         supervisorEventTask = nil
-        await relayCoordinator?.deactivate()
-        relayCoordinator = nil
         await contextRouter.clear()
         authoritativeDiscovery = nil
         if !preserveBinding {
@@ -99,18 +97,6 @@ extension CmxIrohClientRuntime {
               lifecycleRevision == revision else {
             throw CmxIrohClientRuntimeError.superseded
         }
-    }
-
-    static func cachedRelayConfigurations(
-        configuration: CmxIrohClientRuntimeConfiguration,
-        now: Date
-    ) -> [CmxIrohRelayConfiguration] {
-        guard let cached = configuration.cachedRelayCredential,
-              cached.relayFleet.count == configuration.managedRelayURLs.count,
-              Set(cached.relayFleet) == configuration.managedRelayURLs else {
-            return []
-        }
-        return (try? cached.relayConfigurations(now: now)) ?? []
     }
 
     static func isConnectivity(_ error: any Error) -> Bool {

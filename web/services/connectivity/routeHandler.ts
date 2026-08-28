@@ -148,21 +148,8 @@ function connectivityExpectedErrorResponse(
       return connectivityJsonResponse({ error: `${error.resource}_not_found` }, 404);
     case "IrohConflictError":
       return connectivityJsonResponse({ error: error.code }, 409);
-    case "IrohQuotaExceededError":
-      return new Response(JSON.stringify({
-        error: error.code,
-        retry_after_seconds: error.retryAfterSeconds,
-      }), {
-        status: 429,
-        headers: {
-          "content-type": "application/json",
-          "cache-control": "no-store",
-          "retry-after": String(error.retryAfterSeconds),
-        },
-      });
     case "IrohConfigurationError":
     case "IrohDatabaseError":
-    case "IrohRelayMintError":
       return connectivityJsonResponse({ error: "connectivity_service_unavailable" }, 503);
   }
 }

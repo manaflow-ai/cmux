@@ -13,7 +13,6 @@ enum CmxIrohRelayPolicyResolution {
         configuration: CmxIrohAccountRelayConfiguration,
         revision: Int64,
         policy: CmxIrohManagedRelayPolicy?,
-        relayCredential: CmxIrohRelayTokenResponse?,
         accountID: String,
         credentialStore: CmxIrohCustomRelayCredentialStore,
         usedCachedPolicy: Bool,
@@ -35,11 +34,9 @@ enum CmxIrohRelayPolicyResolution {
                 requestedConfiguration: configuration,
                 effectivePreference: .automatic,
                 policy: policy,
-                credential: relayCredential,
                 staleRelayIDs: [],
                 revision: revision,
-                usedCachedPolicy: usedCachedPolicy,
-                now: now
+                usedCachedPolicy: usedCachedPolicy
             )
         case let .managed(requestedIDs):
             guard let policy else {
@@ -69,11 +66,9 @@ enum CmxIrohRelayPolicyResolution {
                 requestedConfiguration: configuration,
                 effectivePreference: .managed(surviving),
                 policy: policy,
-                credential: relayCredential,
                 staleRelayIDs: stale,
                 revision: revision,
-                usedCachedPolicy: usedCachedPolicy,
-                now: now
+                usedCachedPolicy: usedCachedPolicy
             )
         case let .custom(definitions):
             let tokens: [String: String]
@@ -154,30 +149,13 @@ enum CmxIrohRelayPolicyResolution {
         requestedConfiguration: CmxIrohAccountRelayConfiguration,
         effectivePreference: CmxIrohAccountRelayPreference,
         policy: CmxIrohManagedRelayPolicy,
-        credential: CmxIrohRelayTokenResponse?,
         staleRelayIDs: Set<String>,
         revision: Int64,
-        usedCachedPolicy: Bool,
-        now: Date
+        usedCachedPolicy: Bool
     ) -> Resolution {
         do {
             let snapshot = try CmxIrohRelayPolicySnapshot(policy: policy, selection: selection)
-            var selectedCredentials: [CmxIrohRelayConfiguration] = []
-            var failure: CmxIrohRelayPolicyFailure?
-            var relayBootstrap: CmxIrohRelayTokenResponse?
-            if let credential,
-               Set(credential.relayFleet) == Set(policy.relays.map(\.url)),
-               credential.relayFleet.count == policy.relays.count,
-               let configurations = try? credential.relayConfigurations(now: now) {
-                selectedCredentials = configurations.filter { snapshot.relayURLs.contains($0.url) }
-                relayBootstrap = credential
-            } else {
-                failure = .managedCredentialUnavailable
-            }
-            let profile = try CmxIrohEndpointRelayProfile(
-                managedRelayURLs: snapshot.relayURLs,
-                relays: selectedCredentials
-            )
+            let profile = try CmxIrohEndpointRelayProfile(snapshot: snapshot)
             return Resolution(
                 effective: CmxIrohEffectiveRelayPolicy(
                     endpointRelayProfile: profile,
@@ -188,10 +166,9 @@ enum CmxIrohRelayPolicyResolution {
                     staleRelayIDs: staleRelayIDs,
                     source: .managed,
                     usedCachedPolicy: usedCachedPolicy,
-                    preferenceRevision: revision,
-                    relayBootstrap: relayBootstrap
+                    preferenceRevision: revision
                 ),
-                failure: failure
+                failure: nil
             )
         } catch {
             return unavailableResolution(

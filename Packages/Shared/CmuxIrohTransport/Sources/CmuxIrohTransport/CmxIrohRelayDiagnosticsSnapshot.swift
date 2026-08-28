@@ -32,6 +32,66 @@ public struct CmxIrohRelayDiagnosticsSnapshot: Equatable, Sendable {
     /// Last non-secret policy resolution failure.
     public let failure: CmxIrohRelayPolicyFailure?
 
+    /// Start of the current run of consecutive policy refresh failures, `nil`
+    /// while the last refresh succeeded. A host whose refresh keeps failing
+    /// must be visibly degraded instead of silently unreachable
+    /// (cmux#10873); consumers treat the state as persistent once
+    /// ``consecutiveRefreshFailures`` reaches
+    /// ``CmxIrohRelayPolicyService/persistentRefreshFailureThreshold``.
+    public let refreshFailingSince: Date?
+
+    /// Length of the current run of consecutive policy refresh failures.
+    public let consecutiveRefreshFailures: Int
+
+    init(
+        source: CmxIrohRelayPolicySource,
+        policyID: String?,
+        policySequence: Int64?,
+        policyExpiresAt: Date?,
+        preferenceRevision: Int64?,
+        selectedRelayIDs: [String],
+        selectedRelayCount: Int,
+        staleRelayIDs: [String],
+        missingCredentialRelayIDs: [String],
+        failure: CmxIrohRelayPolicyFailure?,
+        refreshFailingSince: Date? = nil,
+        consecutiveRefreshFailures: Int = 0
+    ) {
+        self.source = source
+        self.policyID = policyID
+        self.policySequence = policySequence
+        self.policyExpiresAt = policyExpiresAt
+        self.preferenceRevision = preferenceRevision
+        self.selectedRelayIDs = selectedRelayIDs
+        self.selectedRelayCount = selectedRelayCount
+        self.staleRelayIDs = staleRelayIDs
+        self.missingCredentialRelayIDs = missingCredentialRelayIDs
+        self.failure = failure
+        self.refreshFailingSince = refreshFailingSince
+        self.consecutiveRefreshFailures = consecutiveRefreshFailures
+    }
+
+    /// The same snapshot restamped with the current refresh failure streak.
+    func withRefreshFailureStreak(
+        since: Date?,
+        count: Int
+    ) -> CmxIrohRelayDiagnosticsSnapshot {
+        CmxIrohRelayDiagnosticsSnapshot(
+            source: source,
+            policyID: policyID,
+            policySequence: policySequence,
+            policyExpiresAt: policyExpiresAt,
+            preferenceRevision: preferenceRevision,
+            selectedRelayIDs: selectedRelayIDs,
+            selectedRelayCount: selectedRelayCount,
+            staleRelayIDs: staleRelayIDs,
+            missingCredentialRelayIDs: missingCredentialRelayIDs,
+            failure: failure,
+            refreshFailingSince: since,
+            consecutiveRefreshFailures: count
+        )
+    }
+
     static let inactive = CmxIrohRelayDiagnosticsSnapshot(
         source: .inactive,
         policyID: nil,

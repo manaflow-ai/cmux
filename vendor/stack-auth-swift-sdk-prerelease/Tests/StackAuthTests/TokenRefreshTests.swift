@@ -191,7 +191,79 @@ struct TokenRefreshAlgorithmTests {
     func invalidTokenIsNotFresh() {
         #expect(isTokenFreshEnough("not-a-jwt") == false)
     }
-    
+
+    // MARK: - Expiry-Scheduled Freshness (cmux#10897)
+
+    private func jwt(iat: Int?, exp: Int?) -> String {
+        var claims: [String] = ["\"sub\":\"test\""]
+        if let iat { claims.append("\"iat\":\(iat)") }
+        if let exp { claims.append("\"exp\":\(exp)") }
+        let payloadJson = "{\(claims.joined(separator: ","))}"
+        let payloadBase64 = Data(payloadJson.utf8).base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+        return "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.\(payloadBase64).signature"
+    }
+
+    /// Regression for the ~78s steady-state refresh loop: a 1h token whose
+    /// issued-age exceeded the old 75s heuristic must stay fresh while it is
+    /// still far from its real expiry. All times are fixed and the clock is
+    /// injected, so the test is deterministic.
+    @Test("1h token older than 75s stays fresh until near real expiry")
+    func hourTokenOlderThan75sStaysFresh() {
+        let epoch = 1_800_000_000
+        let now = Date(timeIntervalSince1970: TimeInterval(epoch))
+        // Issued 100s ago (>75s), expires in 3500s: fresh under expiry
+        // scheduling, stale under the removed issued-age heuristic.
+        let token = jwt(iat: epoch - 100, exp: epoch + 3500)
+        #expect(isTokenFreshEnough(token, now: now) == true)
+    }
+
+    @Test("1h token refreshes inside the pre-expiry margin")
+    func hourTokenRefreshesInsideMargin() {
+        let epoch = 1_800_000_000
+        let now = Date(timeIntervalSince1970: TimeInterval(epoch))
+        // 299s remain on a 3600s-lifetime token: inside the 300s margin.
+        let token = jwt(iat: epoch - 3301, exp: epoch + 299)
+        #expect(isTokenFreshEnough(token, now: now) == false)
+        // 301s remain: just outside the margin.
+        let fresh = jwt(iat: epoch - 3299, exp: epoch + 301)
+        #expect(isTokenFreshEnough(fresh, now: now) == true)
+    }
+
+    @Test("Short-lived token margin clamps to half its lifetime")
+    func shortLivedTokenMarginClampsToHalfLifetime() {
+        let epoch = 1_800_000_000
+        let now = Date(timeIntervalSince1970: TimeInterval(epoch))
+        // 90s lifetime clamps the margin to 45s: 50s remaining is fresh,
+        // 40s remaining is not. A fixed 300s margin would refresh a 90s
+        // token on every request.
+        let fresh = jwt(iat: epoch - 40, exp: epoch + 50)
+        #expect(isTokenFreshEnough(fresh, now: now) == true)
+        let stale = jwt(iat: epoch - 50, exp: epoch + 40)
+        #expect(isTokenFreshEnough(stale, now: now) == false)
+    }
+
+    @Test("Margin floors at 20s for very short lifetimes")
+    func marginFloorsAt20Seconds() {
+        let epoch = 1_800_000_000
+        let now = Date(timeIntervalSince1970: TimeInterval(epoch))
+        // 30s lifetime: half-lifetime would be 15s, floor keeps it at 20s.
+        let stale = jwt(iat: epoch - 12, exp: epoch + 18)
+        #expect(isTokenFreshEnough(stale, now: now) == false)
+        let fresh = jwt(iat: epoch - 9, exp: epoch + 21)
+        #expect(isTokenFreshEnough(fresh, now: now) == true)
+    }
+
+    @Test("Token without exp claim never triggers a refresh")
+    func tokenWithoutExpIsAlwaysFresh() {
+        let epoch = 1_800_000_000
+        let now = Date(timeIntervalSince1970: TimeInterval(epoch))
+        let token = jwt(iat: epoch - 100_000, exp: nil)
+        #expect(isTokenFreshEnough(token, now: now) == true)
+    }
+
     // MARK: - Compare And Set Tests
     
     @Test("Should update tokens when refresh token matches")

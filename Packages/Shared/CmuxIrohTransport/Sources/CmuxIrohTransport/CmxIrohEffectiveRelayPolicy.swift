@@ -35,11 +35,6 @@ public struct CmxIrohEffectiveRelayPolicy: Equatable, Sendable {
     /// Monotonic broker preference revision, when one was restored.
     public let preferenceRevision: Int64?
 
-    /// The endpoint-scoped credential returned with this exact broker policy.
-    ///
-    /// Kept internal so tokens cannot cross the transport/settings boundary.
-    let relayBootstrap: CmxIrohRelayTokenResponse?
-
     init(
         endpointRelayProfile: CmxIrohEndpointRelayProfile,
         managedSnapshot: CmxIrohRelayPolicySnapshot?,
@@ -50,8 +45,7 @@ public struct CmxIrohEffectiveRelayPolicy: Equatable, Sendable {
         missingCredentialRelayIDs: Set<String> = [],
         source: CmxIrohRelayPolicySource,
         usedCachedPolicy: Bool,
-        preferenceRevision: Int64?,
-        relayBootstrap: CmxIrohRelayTokenResponse? = nil
+        preferenceRevision: Int64?
     ) {
         self.endpointRelayProfile = endpointRelayProfile
         self.managedSnapshot = managedSnapshot
@@ -63,6 +57,5 @@ public struct CmxIrohEffectiveRelayPolicy: Equatable, Sendable {
         self.source = source
         self.usedCachedPolicy = usedCachedPolicy
         self.preferenceRevision = preferenceRevision
-        self.relayBootstrap = relayBootstrap
     }
 }

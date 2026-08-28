@@ -45,8 +45,7 @@ struct CmxIrohCustomRelayProbeTests {
             endpoints: [TestIrohEndpoint(identity: fixture.endpointID)]
         )
         let profile = try CmxIrohEndpointRelayProfile(
-            managedRelayURLs: fixture.configuration.managedRelayURLs,
-            relays: []
+            managedRelayURLs: fixture.configuration.managedRelayURLs
         )
 
         let result = await CmxIrohCustomRelayProbe(factory: factory).probe(
