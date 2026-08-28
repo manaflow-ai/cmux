@@ -279,35 +279,6 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
             case lanRendezvousRotated = "lan_rendezvous_rotated"
         }
     }
-    private enum BrokerErrorSource: String, Decodable {
-        case ingressIP = "ingress_ip"
-        case deviceBudget = "device_budget"
-        case authProvider = "auth_provider"
-    }
-
-    private struct BrokerError: Decodable {
-        let error: String
-        /// Which enforcement layer produced a 429 (ingress_ip,
-        /// device_budget, auth_provider); diagnosing rate limits without it
-        /// takes hours of elimination.
-        let source: BrokerErrorSource?
-
-        private enum CodingKeys: String, CodingKey {
-            case error
-            case source
-        }
-
-        init(from decoder: any Decoder) throws {
-            let container = try decoder.container(keyedBy: CodingKeys.self)
-            error = try container.decode(String.self, forKey: .error)
-            // Keep the coarse error code when an untrusted or newer server
-            // sends an unknown or malformed source. Do not interpolate that
-            // value into the journal.
-            source = (try? container.decode(String.self, forKey: .source))
-                .flatMap(BrokerErrorSource.init(rawValue:))
-        }
-    }
-
     private let baseURL: URL
     private let tokenSource: CmxIrohBrokerTokenSource
     private let transport: any CmxIrohHTTPTransport
@@ -961,7 +932,7 @@ public actor CmxIrohTrustBrokerClient: CmxIrohRelayPolicyServing {
             throw CmxIrohTrustBrokerClientError.invalidResponse
         }
         guard (200 ... 299).contains(http.statusCode) else {
-            let body = try? JSONDecoder().decode(BrokerError.self, from: data)
+            let body = try? JSONDecoder().decode(CmxIrohTrustBrokerError.self, from: data)
             let code = body.map { payload in
                 payload.source.map { "\(payload.error):\($0.rawValue)" } ?? payload.error
             }
