@@ -1220,6 +1220,75 @@ def test_codex_tool_hook_opt_out_reconciles_persistent_hooks(
             )
 
 
+def test_codex_tool_hook_opt_out_covers_nonreconcilable_legacy_hooks(
+    cli_path: str, root: Path
+) -> None:
+    codex_home = root / "codex-legacy-opt-out" / ".codex"
+    codex_home.mkdir(parents=True)
+    hooks_path = codex_home / "hooks.json"
+    hooks = {
+        "hooks": {
+            "PreToolUse": [
+                {
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": "cmux feed-hook --source codex --event PreToolUse",
+                        },
+                        {"type": "command", "command": "printf third-party-pre"},
+                    ]
+                }
+            ],
+            "PostToolUse": [
+                {
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": "cmux feed-hook --source codex --event PostToolUse",
+                        },
+                        {"type": "command", "command": "printf third-party-post"},
+                    ]
+                }
+            ],
+            "Stop": [
+                {
+                    "hooks": [
+                        {"type": "command", "command": "cmux codex-hook stop"}
+                    ]
+                }
+            ],
+        }
+    }
+    hooks_path.write_text(json.dumps(hooks, indent=2), encoding="utf-8")
+    original = hooks_path.read_bytes()
+
+    codex_home.chmod(0o555)
+    try:
+        arguments = codex_injected_hook_arguments(
+            cli_path,
+            codex_home,
+            tool_hooks_disabled_value="1",
+        )
+    finally:
+        codex_home.chmod(0o755)
+
+    disabled_state = codex_disabled_hook_state(arguments)
+    key_source = hooks_path.resolve()
+    expected_keys = {
+        f"{key_source}:pre_tool_use:0:0",
+        f"{key_source}:post_tool_use:0:0",
+    }
+    if set(disabled_state) != expected_keys:
+        raise AssertionError(
+            "legacy opt-out targeted the wrong hooks after reconciliation failed: "
+            f"expected={expected_keys!r} actual={disabled_state!r}"
+        )
+    if any(value != {"enabled": False} for value in disabled_state.values()):
+        raise AssertionError(f"invalid legacy disabled hook state: {disabled_state!r}")
+    if hooks_path.read_bytes() != original:
+        raise AssertionError("failed reconciliation changed the persistent hooks file")
+
+
 def test_codex_tool_hook_opt_out_isolates_mixed_concurrent_inject_args(
     cli_path: str, root: Path
 ) -> None:
@@ -4534,6 +4603,7 @@ def main() -> int:
             test_codex_monitor_survives_transient_owner_rpc_timeout(cli_path, root)
             test_codex_tool_hook_opt_out_filters_real_injected_args(cli_path, root)
             test_codex_tool_hook_opt_out_reconciles_persistent_hooks(cli_path, root)
+            test_codex_tool_hook_opt_out_covers_nonreconcilable_legacy_hooks(cli_path, root)
             test_codex_tool_hook_opt_out_isolates_mixed_concurrent_inject_args(cli_path, root)
             test_codex_tool_hook_opt_out_retains_aged_wrapper_scripts(cli_path, root)
             test_install_adds_codex_permission_request_hook(cli_path, root)
