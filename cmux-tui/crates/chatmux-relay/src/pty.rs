@@ -1062,8 +1062,16 @@ impl Inner {
         // frame exactly at the cap, but must reject one that would push the
         // buffered amount over the cap.
         if buffered.saturating_add(chunk.len() as u64) > self.output_cap {
+            // `retire_if_current` takes the write side of this barrier. Drop
+            // the read guard first, while keeping the attachment operation
+            // gate held so another operation cannot reuse this attachment in
+            // the small removal window.
+            drop(_state);
+            let removed = self.remove_if_current(pty_id, &attachment);
             drop(_operation);
-            self.retire_if_current(pty_id, &attachment);
+            if let Some(removed) = removed {
+                self.retire_attachment(removed);
+            }
             send_pty_error(
                 context,
                 pty_id,
@@ -1282,16 +1290,19 @@ impl Inner {
     }
 
     fn retire_if_current(&self, pty_id: &str, attachment: &Attachment) {
-        let removed = {
+        if let Some(removed) = self.remove_if_current(pty_id, attachment) {
+            self.retire_attachment(removed);
+        }
+    }
+
+    fn remove_if_current(&self, pty_id: &str, attachment: &Attachment) -> Option<Attachment> {
+        {
             let _state = self.tunnel_state.write().expect("tunnel state lock");
             let mut attachments = self.attachments.lock().expect("attach lock");
             let same = attachments.get(pty_id).is_some_and(|current| {
                 Arc::ptr_eq(&current.operation_gate, &attachment.operation_gate)
             });
             if same { attachments.remove(pty_id) } else { None }
-        };
-        if let Some(removed) = removed {
-            self.retire_attachment(removed);
         }
     }
 
@@ -1372,7 +1383,10 @@ impl Inner {
 
     fn tunnel_authority_generation_current(&self, context: &FrameContext) -> bool {
         context.auth_generation.is_none_or(|generation| {
-            generation >= self.tunnel_authority_generation.load(Ordering::Acquire)
+            // A future generation is not valid until the corresponding
+            // authority snapshot has been published. Equality makes the
+            // transition fail closed in both directions.
+            generation == self.tunnel_authority_generation.load(Ordering::Acquire)
         })
     }
 

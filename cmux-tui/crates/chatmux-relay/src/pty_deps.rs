@@ -367,6 +367,19 @@ impl ChildLifecycle {
         true
     }
 
+    /// Reserve termination from the wait owner. The caller must perform the
+    /// kill after this returns. Setting the flag first prevents a concurrent
+    /// control drop from sending a second signal while the wait owner is
+    /// converting an unexpected poll error into a bounded reap.
+    fn begin_termination(lifecycle: &ChildLifecycleHandle) -> bool {
+        let mut state = lifecycle.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        if state.exited || state.termination_started {
+            return false;
+        }
+        state.termination_started = true;
+        true
+    }
+
     /// Mark the child terminal immediately after `wait` has returned. A
     /// successful wait has reaped the PID; an error still leaves the guard in
     /// charge of the child, and its bounded Drop cleanup remains responsible
@@ -637,15 +650,58 @@ fn spawn_real_pty(spec: &SpawnSpec, handoff: &SpawnHandoff) -> anyhow::Result<Pt
     if let Err(error) =
         std::thread::Builder::new().name("cmux-relay-pty-wait".to_owned()).spawn(move || {
             let mut wait_guard = wait_guard;
-            let status = wait_guard.child_mut().wait();
-            let code = status.as_ref().map(|status| status.exit_code() as i64).unwrap_or(0);
-            if status.is_ok() {
-                // The child has been reaped. Do not let the guard's Drop
-                // signal a PID that the kernel may already have reused.
-                ChildLifecycle::mark_exited(&wait_lifecycle);
-                wait_guard.disarm();
+            loop {
+                enum Poll {
+                    Running,
+                    Exited(i64),
+                    Failed,
+                }
+                let poll = {
+                    let mut lifecycle =
+                        wait_lifecycle.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+                    match wait_guard.child_mut().try_wait() {
+                        Ok(Some(status)) => {
+                            // `try_wait` reaps the child on success. Mark it
+                            // while the lifecycle lock is held, before a
+                            // control drop can attempt a late PID signal.
+                            lifecycle.exited = true;
+                            Poll::Exited(status.exit_code() as i64)
+                        }
+                        Ok(None) => Poll::Running,
+                        Err(_) => Poll::Failed,
+                    }
+                };
+                match poll {
+                    Poll::Exited(code) => {
+                        wait_guard.disarm();
+                        exit_output.push_exit(code);
+                        return;
+                    }
+                    Poll::Running => std::thread::sleep(CHILD_REAP_POLL),
+                    Poll::Failed => {
+                        // An unexpected poll error must not leave the child
+                        // owner ambiguous. Reserve termination before the
+                        // fallback blocking wait, so a late control drop can
+                        // never signal a recycled PID after this wait owner
+                        // has finished reaping.
+                        if ChildLifecycle::begin_termination(&wait_lifecycle) {
+                            let _ = wait_guard.child_mut().kill();
+                            signal_process_group(wait_guard.pid);
+                        }
+                        let status = wait_guard.child_mut().wait();
+                        let code = status
+                            .as_ref()
+                            .map(|status| status.exit_code() as i64)
+                            .unwrap_or(0);
+                        if status.is_ok() {
+                            ChildLifecycle::mark_exited(&wait_lifecycle);
+                            wait_guard.disarm();
+                        }
+                        exit_output.push_exit(code);
+                        return;
+                    }
+                }
             }
-            exit_output.push_exit(code);
         })
     {
         handoff.disarm();
@@ -686,13 +742,10 @@ fn spawn_pipe_mode(spec: &SpawnSpec, _reason: &str, handoff: &SpawnHandoff) -> P
     // The allocation error can contain local paths, usernames, or provider
     // response text. This banner crosses the relay boundary, so keep it
     // stable and do not disclose the internal reason.
-    let banner = format!(
-        "[cmux-relay] PTY allocation failed; running {} without a TTY.\r\n",
-        Path::new(&spec.file)
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_else(|| spec.file.clone()),
-    );
+    // Do not put the remotely supplied executable path on the terminal. It
+    // can contain control characters or local path details, and this banner
+    // crosses the relay boundary.
+    let banner = b"[cmux-relay] PTY allocation failed; running without a TTY.\r\n".to_vec();
     match command.spawn() {
         Ok(child) => {
             let mut child_guard = PipeChildGuard::new(child);
@@ -742,16 +795,51 @@ fn spawn_pipe_mode(spec: &SpawnSpec, _reason: &str, handoff: &SpawnHandoff) -> P
                 .name("cmux-relay-pipe-wait".to_owned())
                 .spawn(move || {
                     let mut wait_guard = wait_guard;
-                    let status = wait_guard.child_mut().wait();
-                    let code = status
-                        .as_ref()
-                        .map(|status| status.code().unwrap_or(0) as i64)
-                        .unwrap_or(0);
-                    if status.is_ok() {
-                        ChildLifecycle::mark_exited(&wait_lifecycle);
-                        wait_guard.disarm();
+                    loop {
+                        enum Poll {
+                            Running,
+                            Exited(i64),
+                            Failed,
+                        }
+                        let poll = {
+                            let mut lifecycle = wait_lifecycle
+                                .lock()
+                                .unwrap_or_else(|poisoned| poisoned.into_inner());
+                            match wait_guard.child_mut().try_wait() {
+                                Ok(Some(status)) => {
+                                    lifecycle.exited = true;
+                                    Poll::Exited(status.code().unwrap_or(0) as i64)
+                                }
+                                Ok(None) => Poll::Running,
+                                Err(_) => Poll::Failed,
+                            }
+                        };
+                        match poll {
+                            Poll::Exited(code) => {
+                                wait_guard.disarm();
+                                wait_output.push_exit(code);
+                                return;
+                            }
+                            Poll::Running => std::thread::sleep(CHILD_REAP_POLL),
+                            Poll::Failed => {
+                                if ChildLifecycle::begin_termination(&wait_lifecycle) {
+                                    let _ = wait_guard.child_mut().kill();
+                                    signal_process_group(wait_guard.pid);
+                                }
+                                let status = wait_guard.child_mut().wait();
+                                let code = status
+                                    .as_ref()
+                                    .map(|status| status.code().unwrap_or(0) as i64)
+                                    .unwrap_or(0);
+                                if status.is_ok() {
+                                    ChildLifecycle::mark_exited(&wait_lifecycle);
+                                    wait_guard.disarm();
+                                }
+                                wait_output.push_exit(code);
+                                return;
+                            }
+                        }
                     }
-                    wait_output.push_exit(code);
                 })
             {
                 let _ = error;
@@ -762,11 +850,11 @@ fn spawn_pipe_mode(spec: &SpawnSpec, _reason: &str, handoff: &SpawnHandoff) -> P
                 handoff.disarm();
                 return dead_handle(output, None);
             }
-            PtyHandle { control, output, banner: Some(banner.into_bytes()) }
+            PtyHandle { control, output, banner: Some(banner) }
         }
         Err(error) => {
             let _ = error;
-            dead_handle(output, Some(banner.into_bytes()))
+            dead_handle(output, Some(banner))
         }
     }
 }
@@ -791,7 +879,17 @@ fn pump_pipe(mut stream: impl Read, output: Arc<ThreadOutput>) {
 }
 
 async fn socket_exists(path: &Path) -> bool {
-    tokio::fs::metadata(path).await.is_ok()
+    let Ok(metadata) = tokio::fs::symlink_metadata(path).await else { return false };
+    if metadata.file_type().is_symlink() {
+        return false;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::FileTypeExt as _;
+        return metadata.file_type().is_socket();
+    }
+    #[allow(unreachable_code)]
+    true
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -832,7 +930,7 @@ async fn acquire_daemon_start_lock(
     deadline: Instant,
 ) -> Result<DaemonStartLock, String> {
     use std::os::fd::AsRawFd;
-    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 
     let mut name = path.file_name().unwrap_or_default().to_os_string();
     name.push(".spawn-lock");
@@ -841,10 +939,10 @@ async fn acquire_daemon_start_lock(
         tokio::fs::create_dir_all(parent)
             .await
             .map_err(|error| format!("daemon start lock directory create failed: {error}"))?;
-        let metadata = tokio::fs::metadata(parent)
+        let metadata = tokio::fs::symlink_metadata(parent)
             .await
             .map_err(|error| format!("daemon start lock directory stat failed: {error}"))?;
-        if !metadata.is_dir() || metadata.uid() != uid {
+        if metadata.file_type().is_symlink() || !metadata.is_dir() || metadata.uid() != uid {
             return Err(format!("daemon start lock directory is not owned by uid {uid}"));
         }
         let mut permissions = metadata.permissions();
@@ -853,11 +951,18 @@ async fn acquire_daemon_start_lock(
             .await
             .map_err(|error| format!("daemon start lock directory permissions failed: {error}"))?;
     }
-    let file = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
+    let mut options = std::fs::OpenOptions::new();
+    options.create(true).append(true).read(true);
+    options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC).mode(0o600);
+    let file = options
         .open(&lock_path)
         .map_err(|error| format!("daemon start lock open failed: {error}"))?;
+    let metadata = file
+        .metadata()
+        .map_err(|error| format!("daemon start lock stat failed: {error}"))?;
+    if !metadata.is_file() || metadata.uid() != uid || metadata.permissions().mode() & 0o022 != 0 {
+        return Err("daemon start lock is not a private regular file".to_owned());
+    }
     loop {
         // SAFETY: `file` remains open for the lifetime of the lock. `flock`
         // is the Unix primitive used by cmux-tui-core's fs4 lock.
@@ -1086,14 +1191,13 @@ impl PtyDeps for RealPtyDeps {
         tokio::fs::create_dir_all(socket_dir)
             .await
             .map_err(|error| format!("control socket directory create failed: {error}"))?;
-        let metadata = tokio::fs::metadata(socket_dir)
+        let metadata = tokio::fs::symlink_metadata(socket_dir)
             .await
             .map_err(|error| format!("control socket directory stat failed: {error}"))?;
-        if !metadata.is_dir() || metadata.uid() != self.uid {
+        if metadata.file_type().is_symlink() || !metadata.is_dir() || metadata.uid() != self.uid {
             return Err(format!("control socket directory is not owned by uid {}", self.uid));
         }
-        let mut permissions = metadata.permissions();
-        permissions.set_mode(0o700);
+        let permissions = std::fs::Permissions::from_mode(0o700);
         tokio::fs::set_permissions(socket_dir, permissions)
             .await
             .map_err(|error| format!("control socket directory permissions failed: {error}"))?;
