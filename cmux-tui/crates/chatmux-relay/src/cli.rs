@@ -234,6 +234,7 @@ mod tests {
             &["--backend", "--code"][..],
             &["--backend", "--"][..],
             &["--allow-root", "--status"][..],
+            &["--config", ""][..],
         ] {
             let error = parse(args).expect_err("missing value refused");
             assert!(error.message.contains("requires a value"), "{args:?}: {}", error.message);
