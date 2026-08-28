@@ -310,7 +310,7 @@ def _substitution_bodies(text: str) -> Iterator[str]:
                 character = text[cursor]
                 if escaped:
                     escaped = False
-                elif character == "\\":
+                elif character == "\\" and nested_quote != "'":
                     escaped = True
                 elif nested_quote:
                     if character == nested_quote:
