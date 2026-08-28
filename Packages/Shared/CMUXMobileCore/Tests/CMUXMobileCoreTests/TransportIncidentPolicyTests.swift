@@ -259,4 +259,163 @@ import Testing
         #expect(incident?.reachable == true)
         #expect(incident?.appPhase == .active)
     }
+
+    // MARK: Peer-unreachable demotion
+
+    @Test func peerUnreachableFailuresAreBreadcrumbOnly() {
+        var policy = TransportIncidentPolicy(locale: englishLocale)
+        _ = policy.decide(DiagnosticEvent(code: .reachabilityChanged, tNanos: 1, a: 1))
+        #expect(policy.decide(dialFailed(at: 10, failure: .timedOut)) == nil)
+        #expect(policy.decide(dialFailed(at: 20, failure: .noRoute)) == nil)
+        #expect(policy.decide(dialFailed(at: 30, failure: .hostUnreachable)) == nil)
+        #expect(policy.decide(dialFailed(at: 40, failure: .connectionRefused)) == nil)
+    }
+
+    @Test func peerUnreachableDemotedAtUnknownReachability() {
+        var policy = TransportIncidentPolicy(locale: englishLocale)
+        #expect(policy.decide(dialFailed(at: 10, failure: .timedOut)) == nil)
+        #expect(policy.decide(dialFailed(at: 20, failure: .noRoute)) == nil)
+    }
+
+    @Test func peerUnreachableStillCapturesWhileDeviceOffline() {
+        // While the device itself reports no network path the pre-demotion
+        // capture behavior is preserved: offline-state suppression has its
+        // own owner (the offline relay/transport quieting work).
+        var policy = TransportIncidentPolicy(locale: englishLocale)
+        _ = policy.decide(DiagnosticEvent(code: .reachabilityChanged, tNanos: 1, a: 0))
+        #expect(policy.decide(dialFailed(at: 10, failure: .timedOut)) != nil)
+    }
+
+    @Test func demotedPeerUnreachableStreakStillEscalatesToOutage() {
+        var policy = TransportIncidentPolicy(locale: englishLocale)
+        #expect(policy.decide(dialFailed(at: 10, failure: .noRoute)) == nil)
+        #expect(policy.decide(dialFailed(at: 20, failure: .noRoute)) == nil)
+        #expect(policy.decide(dialFailed(at: 30, failure: .timedOut)) == nil)
+        #expect(policy.decide(dialFailed(at: 40, failure: .noRoute)) == nil)
+        // 5th consecutive demoted failure, 60s after the first: the outage
+        // escalator still fires even though every precursor was
+        // breadcrumb-only.
+        let outage = policy.decide(dialFailed(at: 70, failure: .noRoute))
+        #expect(outage?.kind == .outage)
+        #expect(outage?.severity == .error)
+        #expect(outage?.consecutiveFailures == 5)
+    }
+
+    @Test func successResetsDemotedStreak() {
+        var policy = TransportIncidentPolicy(locale: englishLocale)
+        for t in [10, 20, 30, 40] as [UInt64] {
+            #expect(policy.decide(dialFailed(at: t, failure: .noRoute)) == nil)
+        }
+        _ = policy.decide(connected(at: 50))
+        // The success reset the streak: the next demoted failures need a
+        // fresh threshold and 60s window before an outage can fire.
+        for t in [60, 70, 80, 90, 100] as [UInt64] {
+            #expect(policy.decide(dialFailed(at: t, failure: .noRoute)) == nil)
+        }
+        let outage = policy.decide(dialFailed(at: 120, failure: .noRoute))
+        #expect(outage?.kind == .outage)
+    }
+
+    @Test func demotedFailuresDoNotConsumeCaptureBudget() {
+        var policy = TransportIncidentPolicy(
+            configuration: .init(
+                signatureCooldown: 0,
+                hourlyCaptureLimit: 1,
+                outageFailureThreshold: 100,
+                outageMinimumDuration: 10_000
+            ),
+            locale: englishLocale
+        )
+        #expect(policy.decide(dialFailed(at: 10, failure: .timedOut)) == nil)
+        #expect(policy.decide(dialFailed(at: 20, failure: .noRoute)) == nil)
+        // The whole budget is still available for the first diagnosable defect.
+        #expect(policy.decide(dialFailed(at: 30, failure: .policyUnavailable)) != nil)
+    }
+
+    // MARK: Route-gated suppression
+
+    @Test func routeGatedIsFullySuppressed() {
+        var policy = TransportIncidentPolicy(locale: englishLocale)
+        #expect(policy.decide(dialFailed(at: 10, failure: .routeGated)) == nil)
+    }
+
+    @Test func routeGatedDoesNotFeedTheOutageStreak() {
+        var policy = TransportIncidentPolicy(locale: englishLocale)
+        for t in [10, 20, 30, 40] as [UInt64] {
+            #expect(policy.decide(dialFailed(at: t, failure: .routeGated)) == nil)
+        }
+        // A gated dial never reached the network: after four of them this
+        // demoted failure is a streak of one, so no outage fires.
+        #expect(policy.decide(dialFailed(at: 70, failure: .noRoute)) == nil)
+        let capture = policy.decide(dialFailed(at: 80, failure: .policyUnavailable))
+        #expect(capture?.kind == .failure)
+        #expect(capture?.consecutiveFailures == 2)
+    }
+
+    // MARK: Connect-phase connection closes
+
+    @Test func connectionClosedDuringConnectIsBreadcrumbOnly() {
+        var policy = TransportIncidentPolicy(locale: englishLocale)
+        let pairClose = DiagnosticEvent(
+            code: .pairFail,
+            tNanos: 10 * Self.second,
+            a: DiagnosticTransportKind.iroh.rawValue,
+            b: DiagnosticFailureKind.connectionClosed.rawValue
+        )
+        #expect(policy.decide(pairClose) == nil)
+        let legClose = DiagnosticEvent(
+            code: .transportDialLegFailed,
+            tNanos: 20 * Self.second,
+            a: DiagnosticDirectDialLeg.publicPaths.rawValue,
+            b: DiagnosticFailureKind.connectionClosed.rawValue
+        )
+        #expect(policy.decide(legClose) == nil)
+        #expect(policy.decide(dialFailed(at: 30, failure: .connectionClosed)) == nil)
+    }
+
+    @Test func connectionClosedOnEstablishedSessionStillCaptures() {
+        var policy = TransportIncidentPolicy(locale: englishLocale)
+        let rpcClose = DiagnosticEvent(
+            code: .rpcFailed,
+            tNanos: 10 * Self.second,
+            a: DiagnosticTransportKind.iroh.rawValue,
+            b: DiagnosticFailureKind.connectionClosed.rawValue
+        )
+        let incident = policy.decide(rpcClose)
+        #expect(incident?.kind == .failure)
+        #expect(incident?.signature == "rpcFailed/connectionClosed/iroh")
+    }
+
+    // MARK: Coded generic errors
+
+    @Test func codedSubscriptionStreamCloseIsBreadcrumbOnly() {
+        var policy = TransportIncidentPolicy(locale: englishLocale)
+        let streamEndedBeforeAck = DiagnosticEvent(
+            code: .error,
+            tNanos: 10 * Self.second,
+            b: DiagnosticFailureKind.connectionClosed.rawValue
+        )
+        #expect(policy.decide(streamEndedBeforeAck) == nil)
+    }
+
+    @Test func codedSubscriptionNackCapturesWithItsKind() {
+        var policy = TransportIncidentPolicy(locale: englishLocale)
+        let nack = DiagnosticEvent(
+            code: .error,
+            tNanos: 10 * Self.second,
+            b: DiagnosticFailureKind.protocolViolation.rawValue
+        )
+        let incident = policy.decide(nack)
+        #expect(incident?.kind == .failure)
+        #expect(incident?.failure == .protocolViolation)
+        #expect(incident?.signature == "error/protocolViolation")
+    }
+
+    @Test func bareErrorRemainsCapturable() {
+        // Writers from older builds still record `.error` with no kind; those
+        // must stay visible rather than silently vanishing.
+        var policy = TransportIncidentPolicy(locale: englishLocale)
+        let incident = policy.decide(DiagnosticEvent(code: .error, tNanos: Self.second))
+        #expect(incident?.signature == "error")
+    }
 }
