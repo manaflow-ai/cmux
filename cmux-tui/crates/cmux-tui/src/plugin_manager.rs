@@ -176,16 +176,32 @@ fn acquire_plugin_operation_lock() -> anyhow::Result<PluginOperationLock> {
 }
 
 pub(crate) fn execute(positionals: &[String], options: CliOptions) -> Result<Value, ManagerError> {
-    let _lock = acquire_plugin_operation_lock().map_err(ManagerError::Failure)?;
-    match positionals.first().map(String::as_str) {
-        Some("install") => install_command(positionals, &options),
-        Some("list") => list_command(positionals, &options),
-        Some("use") => use_command(positionals, &options),
-        Some("update") => update_command(positionals, &options),
-        Some("remove") => remove_command(positionals, &options),
-        Some(other) => Err(ManagerError::Usage(format!("unknown plugin subcommand {other:?}"))),
-        None => Err(ManagerError::Usage("plugin subcommand is required".to_string())),
-    }
+    with_optional_operation_lock(
+        command_requires_operation_lock(positionals),
+        || acquire_plugin_operation_lock().map_err(ManagerError::Failure),
+        || match positionals.first().map(String::as_str) {
+            Some("install") => install_command(positionals, &options),
+            Some("list") => list_command(positionals, &options),
+            Some("use") => use_command(positionals, &options),
+            Some("update") => update_command(positionals, &options),
+            Some("remove") => remove_command(positionals, &options),
+            Some(other) => Err(ManagerError::Usage(format!("unknown plugin subcommand {other:?}"))),
+            None => Err(ManagerError::Usage("plugin subcommand is required".to_string())),
+        },
+    )
+}
+
+fn command_requires_operation_lock(positionals: &[String]) -> bool {
+    matches!(positionals.first().map(String::as_str), Some("install" | "use" | "update" | "remove"))
+}
+
+fn with_optional_operation_lock<T>(
+    requires_lock: bool,
+    acquire: impl FnOnce() -> Result<PluginOperationLock, ManagerError>,
+    operation: impl FnOnce() -> Result<T, ManagerError>,
+) -> Result<T, ManagerError> {
+    let _lock = requires_lock.then(acquire).transpose()?;
+    operation()
 }
 
 fn install_command(positionals: &[String], options: &CliOptions) -> Result<Value, ManagerError> {
@@ -274,7 +290,7 @@ fn list_command(positionals: &[String], options: &CliOptions) -> Result<Value, M
     if positionals.len() != 1 {
         return Err(ManagerError::Usage("usage: cmux sidebar plugin list".to_string()));
     }
-    let plugins = installed_plugins()?;
+    let plugins = installed_plugins(false)?;
     Ok(Value::Array(plugins.iter().map(plugin_json).collect()))
 }
 
@@ -346,7 +362,7 @@ fn remove_command(positionals: &[String], options: &CliOptions) -> Result<Value,
 
 fn write_builtin_config(_options: &CliOptions) -> Result<Value, ManagerError> {
     persist_sidebar_plugin(None)?;
-    let plugins = installed_plugins()?;
+    let plugins = installed_plugins(true)?;
     Ok(json!({"plugins": plugins.iter().map(plugin_json).collect::<Vec<_>>()}))
 }
 
@@ -379,9 +395,13 @@ fn reject_plugin_flags(
     Ok(())
 }
 
-fn installed_plugins() -> anyhow::Result<Vec<InstalledPlugin>> {
+fn installed_plugins(reconcile: bool) -> anyhow::Result<Vec<InstalledPlugin>> {
     let root = install_root()?;
-    reconcile_install_transactions(&root)?;
+    // Read-only listing skips recovery so a read-only install root does not
+    // need a lock file. Mutating callers hold the operation lock and reconcile.
+    if reconcile {
+        reconcile_install_transactions(&root)?;
+    }
     let selected = selected_plugin_cwd()?;
     let mut plugins = Vec::new();
     let entries = match fs::read_dir(&root) {
@@ -430,7 +450,7 @@ fn resolve_installed_plugin(selector: &str) -> Result<InstalledPlugin, ManagerEr
         validate_plugin_name(selector)
             .map_err(|error| ManagerError::validation(Some("sidebar_plugin"), error.to_string()))?;
     }
-    installed_plugins()?
+    installed_plugins(true)?
         .into_iter()
         .find(|plugin| if by_id { plugin.id == selector } else { plugin.name == selector })
         .ok_or_else(|| {
@@ -1305,6 +1325,7 @@ fn now_nanos() -> u128 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::Cell;
 
     #[test]
     fn manager_failure_response_redacts_internal_error_details() {
@@ -1318,7 +1339,50 @@ mod tests {
         assert!(!details.contains("/private/plugin-state/secret.toml"));
         assert!(!details.contains("injected detail"));
     }
-    use std::cell::Cell;
+
+    #[test]
+    fn read_only_plugin_command_skips_operation_lock() {
+        let operation_ran = Cell::new(false);
+        let result = with_optional_operation_lock(
+            false,
+            || panic!("read-only plugin command must not acquire the operation lock"),
+            || {
+                operation_ran.set(true);
+                Ok::<_, ManagerError>(())
+            },
+        );
+        assert!(result.is_ok());
+        assert!(operation_ran.get());
+    }
+
+    #[test]
+    fn mutating_plugin_command_acquires_operation_lock_before_running() {
+        let lock_acquired = Cell::new(false);
+        let operation_ran = Cell::new(false);
+        let result = with_optional_operation_lock(
+            true,
+            || {
+                lock_acquired.set(true);
+                Err(ManagerError::Usage("lock probe".to_string()))
+            },
+            || {
+                operation_ran.set(true);
+                Ok::<_, ManagerError>(())
+            },
+        );
+        assert!(result.is_err());
+        assert!(lock_acquired.get());
+        assert!(!operation_ran.get());
+    }
+
+    #[test]
+    fn only_mutating_plugin_commands_require_operation_lock() {
+        assert!(!command_requires_operation_lock(&["list".to_string()]));
+        for command in ["install", "use", "update", "remove"] {
+            assert!(command_requires_operation_lock(&[command.to_string()]));
+        }
+        assert!(!command_requires_operation_lock(&[]));
+    }
 
     fn manifest_text(name: &str) -> String {
         format!(
