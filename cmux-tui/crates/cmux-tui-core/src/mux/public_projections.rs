@@ -78,13 +78,11 @@ pub(super) fn restore_public_projections(
                 }
             }
         }
-        if state == AgentState::Done {
-            if agent.source == "hook" {
-                // Older projections predate the internal ended marker. Keep
-                // their terminal fenced after restart so a late socket report
-                // cannot resurrect the completed session.
-                agent_hook_tombstones.insert(agent.terminal_id.clone());
-            }
+        if state == AgentState::Done && agent.source == "hook" {
+            // Older projections predate the internal ended marker. Keep
+            // their terminal fenced after restart so a late socket report
+            // cannot resurrect the completed session.
+            agent_hook_tombstones.insert(agent.terminal_id.clone());
             continue;
         }
         let previous = agent_records.insert(
@@ -308,5 +306,29 @@ mod tests {
         let restored = restore_public_projections(&empty_state(), projections).unwrap();
         assert_eq!(restored.agent_hook_sequences.get(&terminal), Some(&12));
         assert_eq!(restored.agent_records[&terminal].session, None);
+    }
+
+    #[test]
+    fn socket_done_agent_restores_into_live_record_map() {
+        let terminal = terminal_id(11);
+        let projections = RegistryPublicProjections {
+            notifications: Vec::new(),
+            agents: vec![RegistryAgentProjection {
+                id: AgentPublicId::parse("agent_00000000000000000000000000000011").unwrap(),
+                terminal_id: terminal.clone(),
+                state: "done".into(),
+                source: "socket".into(),
+                updated_at_ms: 3,
+                source_session: Some("socket-session".into()),
+            }],
+            terminal_defaults: None,
+            frontend_projections: Vec::new(),
+        };
+        let restored = restore_public_projections(&empty_state(), projections).unwrap();
+        let record = &restored.agent_records[&terminal];
+        assert_eq!(record.state, AgentState::Done);
+        assert_eq!(record.source, AgentSource::Socket);
+        assert_eq!(record.session.as_deref(), Some("socket-session"));
+        assert!(!restored.agent_hook_tombstones.contains(&terminal));
     }
 }
