@@ -155,9 +155,23 @@ describe("Blaxel baked image template", () => {
     expect(agentConfig).toContain('env_key = \\"OPENAI_API_KEY\\"');
     // Write-if-missing keeps the user in control of their harness config.
     expect(agentConfig).toContain('[ ! -e "$HOME/.codex/config.toml" ]');
+    // pi overrides the built-in openai-codex provider (its codex Responses
+    // dialect is what the plane proxies); the route token rides the
+    // x-coderouter-route-token header as a request-time env reference, so
+    // the file carries no secret and survives token rotation.
+    expect(agentConfig).toContain('"openai-codex"');
+    expect(agentConfig).toContain('"x-coderouter-route-token": "$OPENAI_API_KEY"');
+    expect(agentConfig).toContain('[ ! -e "$HOME/.pi/agent/models.json" ]');
+    // opencode fetches the live rewritten catalog from the coderouter config
+    // endpoint and de-tokenizes it to a runtime env reference.
+    expect(agentConfig).toContain("/api/coderouter/opencode/config");
+    expect(agentConfig).toContain("{env:OPENAI_API_KEY}");
+    expect(agentConfig).toContain('[ ! -e "$HOME/.config/opencode/opencode.json" ]');
     // The Dockerfile proves generation under a throwaway HOME and proves the
     // image ships no generated config for /root.
     expect(dockerfile).toContain("test ! -e /root/.codex/config.toml");
+    expect(dockerfile).toContain("test ! -e /root/.pi/agent/models.json");
+    expect(dockerfile).toContain("test ! -e /root/.config/opencode/opencode.json");
     expect(dockerfile).toContain("test ! -e /root/.config/cmux/model-plane.env");
   });
 
