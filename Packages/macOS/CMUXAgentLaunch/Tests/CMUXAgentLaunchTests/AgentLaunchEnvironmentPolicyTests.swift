@@ -94,6 +94,25 @@ struct AgentLaunchEnvironmentPolicyTests {
         ])
     }
 
+    @Test("Hook capture retains safe Subrouter routing metadata with its marker")
+    func hookCaptureRetainsSafeSubrouterRoutingMetadataWithMarker() {
+        let captured = SubrouterCodexResumeRouting().capturedEnvironment(in: [
+            "SUBROUTER_CODEX_ACCOUNT_ID": "team-codex-1",
+            "SUBROUTER_CODEX_BASE_URL": "https://router.example.test/v1",
+            "SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
+            "SUBROUTER_CODEX_SERVER": "team",
+            "SUBROUTER_CODEX_USER_EMAIL": "operator@example.test",
+        ])
+
+        #expect(captured == [
+            "SUBROUTER_CODEX_ACCOUNT_ID": "team-codex-1",
+            "SUBROUTER_CODEX_BASE_URL": "https://router.example.test/v1",
+            "SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
+            "SUBROUTER_CODEX_SERVER": "team",
+            "SUBROUTER_CODEX_USER_EMAIL": "operator@example.test",
+        ])
+    }
+
     @Test("Restore records reject unproved or noncanonical Subrouter metadata")
     func restoreRecordsRejectUntrustedSubrouterMetadata() {
         let policy = AgentLaunchEnvironmentPolicy()
