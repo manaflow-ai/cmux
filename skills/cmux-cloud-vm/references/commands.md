@@ -11,7 +11,10 @@ cmux vm ls --json                      # {vms: [{id, status, image, createdAt, f
 cmux vm tree                           # the surface catalog: This Mac (terminals by workspace, browsers), then every machine → workspaces/ → terminals, desktop, ports/
 cmux vm tree <id> --refresh            # one machine (`local` for This Mac), re-synced first
 cmux vm workspace new <id> [--name n]  # a new cmux-tui workspace on the machine (⌘N there), opened as a new local workspace
-cmux vm workspace open <id> <ws-id>    # open a machine workspace here: one pane per terminal (same as clicking its sidebar row)
+cmux vm workspace open <id> <ws-id>    # open a machine workspace as a NEW local workspace: one pane per terminal/browser (clicking its row)
+cmux vm workspace open <id> <ws-id> --here [--workspace <local>]      # into the current local workspace: one pane + the rest as tabs ("Open All Here")
+cmux vm workspace open <id> <ws-id> --tabs [--pane <p>]                # all as tabs of the focused/--pane pane ("Open All in New Tabs")
+cmux vm workspace open <id> <ws-id> --pane <p> --left|--right|--up|--down   # what dropping the row on that pane edge does
 cmux vm workspace close <id> <ws-id>   # close that workspace and its terminals on the machine
 cmux vm terminal close <id> <term-id>  # end one terminal on the machine (the sidebar's ×)
 cmux vm tree --json                    # {machines: [{id, local, name, status, link_state, …}], resources: [{id, machine, kind, key, title, detail, lifecycle, agent, remote_workspace, port, url, open, open_surface_ids}], projections: […]}
@@ -27,21 +30,22 @@ Tree line shapes:
 
 ```
 vivid-newt  running  · 24 GB · 16 GB disk · link connected
-  workspaces/
+  workspaces/                                  ← workspaces lead (what you open and drag)
     main  ws_3c1…  *  (cmux vm open vivid-newt/ws_3c1…)
-      ● term_2f9…  bun test  /root/work/app  [agent claude running]  (open: surface:4)
+      ● term_2f9…  bun test  ~/work/app  [agent claude running]  (open: surface:4)
       ○ term_88a…  bash                                  ← exited
-  desktop  (cmux vm open vivid-newt:desktop)
-  ports/
-    3000  http  (cmux vm open vivid-newt:port/3000)
+  terminals/                                   ← the pool: every terminal the machine owns
+  desktop  (cmux vm open vivid-newt:desktop)   ← the display pool
 ```
+
+The sidebar shows the same tree in the same order (Workspaces, Terminals, Displays); every sidebar verb has a CLI verb — see [sidebar-parity.md](sidebar-parity.md).
 
 ## Surfaces: one open path for terminals, screens and browsers
 
 ```bash
 cmux surface open vivid-newt/terminal/term_2f9c…                 # reuse the pane showing it, else open beside you
 cmux surface open vivid-newt/terminal/term_2f9c… --new           # a second pane on the same terminal
-cmux surface open vivid-newt/screen/display:1 --pane pane:3 --left   # the VNC screen, split left of pane 3
+cmux surface open vivid-newt/display/display:1 --pane pane:3 --left   # the VNC screen, split left of pane 3
 cmux surface open local/terminal/<uuid> --workspace workspace:2  # move a local terminal into another workspace
 cmux surface new-terminal --machine vivid-newt --remote-workspace ws_3c1… --name "tests" -- bun test
 cmux surface new-terminal --machine local --cwd ~/src/app        # a new local shell
