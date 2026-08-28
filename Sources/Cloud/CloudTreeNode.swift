@@ -401,13 +401,8 @@ enum CloudTreeNodeBuilder {
             children.append(placeholder(machine, text: String(localized: "cloudTree.placeholder.unavailable", defaultValue: "Sessions unavailable on this machine"), style: .dimmed))
             if let displaysNode { children.append(displaysNode) }
         case .connected, .notApplicable:
-            // The pool: one row per terminal identity the machine owns, badge = views.
-            children.append(CloudTreeNode(
-                id: nodeID(terminalsPool: machine),
-                kind: .terminalsPool(machine: machine, count: terminals.count),
-                children: terminals.map { terminalNode($0, snapshot: snapshot, viewBadge: $0.remoteViews?.count) }
-            ))
-            if let displaysNode { children.append(displaysNode) }
+            // Workspaces lead: they are what a person opens and drags. Then the pools
+            // the workspaces point into (terminals, displays).
             // Workspaces are pointer lists: a terminal shows under every workspace that
             // has a view of it; a zero-view terminal shows only in the pool. Empty
             // workspaces come from the machine info, so they still get a row.
@@ -460,6 +455,13 @@ enum CloudTreeNodeBuilder {
                     children: workspaceNodes
                 ))
             }
+            // The pool: one row per terminal identity the machine owns, badge = views.
+            children.append(CloudTreeNode(
+                id: nodeID(terminalsPool: machine),
+                kind: .terminalsPool(machine: machine, count: terminals.count),
+                children: terminals.map { terminalNode($0, snapshot: snapshot, viewBadge: $0.remoteViews?.count) }
+            ))
+            if let displaysNode { children.append(displaysNode) }
         }
         // Ports are out of the tree for now (still in the catalog: the CLI and
         // `cmux vm open <id>:port/<n>` keep working); the rows return with the

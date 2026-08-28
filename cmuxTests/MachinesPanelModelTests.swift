@@ -450,10 +450,21 @@ final class MachinesPanelModelTests: XCTestCase {
         if case .localWorkspace(let row) = flattened[1].kind { XCTAssertEqual(row.title, "cmux90"); XCTAssertTrue(row.isSelected) } else { XCTFail("expected local workspace") }
         XCTAssertEqual(flattened.compactMap { $0.dragResource?.id.rawValue }, [
             "local/terminal/AAA",
+            "vivid-newt/terminal/term_1", "vivid-newt/terminal/term_1",
             "vivid-newt/terminal/term_1", "vivid-newt/terminal/term_2",
             "vivid-newt/display/display:1",
-            "vivid-newt/terminal/term_1", "vivid-newt/terminal/term_1",
-        ], "pool rows, then one drag resource per pointer row")
+        ], "one drag resource per pointer row first (workspaces lead), then the pools")
+        // Section order under a connected machine: Workspaces, then the Terminals pool, then Displays.
+        let machineIndex = flattened.firstIndex { $0.id == "machine:vivid-newt" }!
+        let sections = flattened[(machineIndex + 1)...].compactMap { node -> String? in
+            switch node.kind {
+            case .workspacesGroup: return "workspaces"
+            case .terminalsPool: return "terminals"
+            case .displaysPool: return "displays"
+            default: return nil
+            }
+        }
+        XCTAssertEqual(sections, ["workspaces", "terminals", "displays"])
         XCTAssertTrue(flattened[0].isMachineRow)
         XCTAssertTrue(flattened[3].isMachineRow)
         XCTAssertEqual(flattened[3].machine, .cloud("vivid-newt"))
