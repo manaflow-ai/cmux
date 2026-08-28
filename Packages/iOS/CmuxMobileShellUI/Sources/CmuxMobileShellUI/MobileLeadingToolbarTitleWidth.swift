@@ -62,7 +62,14 @@ struct MobileLeadingToolbarTitleWidth {
     /// dynamic reserves below still shrink the cap for safety at narrow
     /// widths, but they can no longer stretch it), so the pill is fixed-max
     /// and leftover bar width deliberately stays empty.
-    static let maximumMeasuredCap: CGFloat = unmeasuredFallback
+    ///
+    /// 180 never touches the smallest supported iPhones: the dynamic
+    /// first-pass reserve is `width - 252`, so a 320pt zoomed SE caps at
+    /// 68pt and the 375pt iOS-18 floor (XS/SE/mini) at 123pt, well under
+    /// the ceiling. It binds only at roughly 400pt-and-wider bars, where
+    /// the reserve math (dogfood-proven at 402pt and 440pt) still guards
+    /// over-commit independently.
+    static let maximumMeasuredCap: CGFloat = 180
     static let floor: CGFloat = 96
 
     init(
