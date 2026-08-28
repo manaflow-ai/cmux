@@ -212,11 +212,19 @@ impl AgentRoster {
             session,
             // A socket entry keeps any agent identity a hook already
             // established for this terminal.
-            agent: agent
-                .or_else(|| self.entries.get(terminal_id).and_then(|entry| entry.agent.clone())),
+            agent: if source == AgentSource::Socket {
+                agent.or_else(|| self.entries.get(terminal_id).and_then(|entry| entry.agent.clone()))
+            } else {
+                agent
+            },
             updated_at_ms,
         };
-        if self.entries.get(terminal_id) == Some(&entry) {
+        if self.entries.get(terminal_id).is_some_and(|existing| {
+            existing.state == entry.state
+                && existing.source == entry.source
+                && existing.session == entry.session
+                && existing.agent == entry.agent
+        }) {
             return Vec::new();
         }
         self.entries.insert(terminal_id.to_string(), entry.clone());
