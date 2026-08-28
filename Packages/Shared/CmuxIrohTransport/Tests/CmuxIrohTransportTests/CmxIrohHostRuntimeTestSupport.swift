@@ -97,6 +97,34 @@ struct HostRuntimeFixture {
         )
     }
 
+    /// A public relay hint usable on the supervisor's wall clock for one hour.
+    /// An endpoint born with it reports a usable home relay immediately, so
+    /// activation publishes the binding inline instead of waiting on the ready
+    /// gate. Fixtures that pin `now` far in the future exclude it from
+    /// registration payloads automatically, keeping those payloads unchanged.
+    static func usableRelayHint() throws -> CmxIrohPathHint {
+        let observed = Date()
+        return try CmxIrohPathHint(
+            kind: .relayURL,
+            value: relayURLs[2],
+            source: .native,
+            privacyScope: .publicInternet,
+            observedAt: observed,
+            expiresAt: observed.addingTimeInterval(60 * 60)
+        )
+    }
+
+    /// An endpoint whose home relay is usable from birth.
+    func relayReadyEndpoint(
+        directAddresses: [String] = []
+    ) throws -> TestIrohEndpoint {
+        TestIrohEndpoint(
+            identity: endpointID,
+            directAddresses: directAddresses,
+            pathHints: [try Self.usableRelayHint()]
+        )
+    }
+
     static let relayURLs = [
         "https://aps1-1.relay.lawrence.cmux.iroh.link/",
         "https://euc1-1.relay.lawrence.cmux.iroh.link/",

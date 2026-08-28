@@ -26,7 +26,4 @@ public enum CmxIrohRelayPolicyFailure: String, Codable, Equatable, Sendable {
 
     /// The server committed an account change that this device could not cache.
     case preferencePersistenceUnavailable
-
-    /// The signed managed allowlist is active without a usable current token.
-    case managedCredentialUnavailable
 }

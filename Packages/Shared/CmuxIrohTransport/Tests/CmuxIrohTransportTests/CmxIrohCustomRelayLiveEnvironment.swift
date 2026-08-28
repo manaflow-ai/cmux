@@ -35,6 +35,7 @@ enum CmxIrohCustomRelayLiveEnvironment {
     static var hasBrokerCredentials: Bool {
         [
             "CMUX_IROH_CUSTOM_RELAY_BROKER_URL",
+            "CMUX_IROH_CUSTOM_RELAY_BROKER_RELAY_URL",
             "CMUX_IROH_CUSTOM_RELAY_ACCESS_TOKEN",
             "CMUX_IROH_CUSTOM_RELAY_REFRESH_TOKEN",
         ].allSatisfy { environment[$0]?.isEmpty == false }

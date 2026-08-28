@@ -86,8 +86,10 @@ extension CmxIrohHostRuntime {
         registrationRefreshPendingForcesPublication = false
         registrationRefreshEnabled = false
         registrationRefreshFailureCount = 0
-        relayActivationTask?.cancel()
-        relayActivationTask = nil
+        initialPublicationTask?.cancel()
+        initialPublicationTask = nil
+        initialPublicationPending = false
+        allowsReplacedBindingAdoption = false
         lanPublicationGeneration &+= 1
         lanPublicationTask?.cancel()
         lanPublicationTask = nil
@@ -98,8 +100,6 @@ extension CmxIrohHostRuntime {
         for task in activePathObservationTasks.values { task.cancel() }
         activePathObservationTasks.removeAll(keepingCapacity: false)
         publishSelectedPathChange()
-        await relayCoordinator?.deactivate()
-        relayCoordinator = nil
         await offlineSessions?.invalidate()
         offlineSessions = nil
         await onlineAdmissionRegistry?.stop()

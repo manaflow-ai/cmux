@@ -17,18 +17,12 @@ export class IrohConflictError extends Data.TaggedError("IrohConflictError")<{
   readonly code: string;
 }> {}
 
-export class IrohQuotaExceededError extends Data.TaggedError("IrohQuotaExceededError")<{
-  readonly code: string;
-  readonly retryAfterSeconds: number;
-}> {}
-
 export class IrohConfigurationError extends Data.TaggedError("IrohConfigurationError")<{
   readonly component:
     | "grant_signing"
     | "grant_verification"
     | "account_subject"
-    | "lan_discovery"
-    | "relay_minter";
+    | "lan_discovery";
 }> {}
 
 export class IrohDatabaseError extends Data.TaggedError("IrohDatabaseError")<{
@@ -36,20 +30,13 @@ export class IrohDatabaseError extends Data.TaggedError("IrohDatabaseError")<{
   readonly cause: unknown;
 }> {}
 
-export class IrohRelayMintError extends Data.TaggedError("IrohRelayMintError")<{
-  readonly code: string;
-  readonly cause?: unknown;
-}> {}
-
 export type IrohExpectedError =
   | IrohInvalidInputError
   | IrohNotFoundError
   | IrohForbiddenError
   | IrohConflictError
-  | IrohQuotaExceededError
   | IrohConfigurationError
-  | IrohDatabaseError
-  | IrohRelayMintError;
+  | IrohDatabaseError;
 
 export function irohExpectedError(error: unknown): IrohExpectedError | null {
   if (!error || typeof error !== "object") return null;
@@ -85,8 +72,6 @@ const IROH_ERROR_TAGS = new Set([
   "IrohNotFoundError",
   "IrohForbiddenError",
   "IrohConflictError",
-  "IrohQuotaExceededError",
   "IrohConfigurationError",
   "IrohDatabaseError",
-  "IrohRelayMintError",
 ]);
