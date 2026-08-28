@@ -268,8 +268,12 @@ extension TerminalController {
         }
     }
 
-    /// `vm.workspace_open {id, workspace_id}` → the remote workspace's terminals and browsers
-    /// as a new local workspace, every one its own pane (what clicking the row does).
+    /// `vm.workspace_open {id, workspace_id, here?, …dest}` → the remote workspace's terminals
+    /// and browsers. Default: a new local workspace, every one its own pane (what clicking
+    /// the row does). `here: true`: into an existing local workspace the way "Open All Here"
+    /// / "Open All in New Tabs" / a drop onto a pane edge do — one pane at the destination
+    /// (`target_workspace_id`, `pane_id` + `direction`, `placement: split|tab`), the rest as
+    /// tabs in it.
     nonisolated func socketWorkerVMWorkspaceOpenResponse(id: Any?, params: [String: Any]) -> String {
         guard let vmId = Self.surfaceString(params["id"]), !vmId.isEmpty else {
             return v2Error(id: id, code: "invalid_params", message: "vm.workspace_open requires `id`.")
@@ -277,6 +281,15 @@ extension TerminalController {
         guard let remoteWorkspaceID = Self.surfaceString(params["workspace_id"]), !remoteWorkspaceID.isEmpty else {
             return v2Error(id: id, code: "invalid_params", message: "vm.workspace_open requires `workspace_id` (a cmux-tui workspace id from `cmux vm tree`).")
         }
+        let here = Self.surfaceBool(params["here"]) ?? false
+        // `workspace_id` is the REMOTE workspace here; the local target rides as `target_workspace_id`.
+        var destinationParams = params
+        destinationParams["workspace_id"] = params["target_workspace_id"]
+        let localWorkspaceID: UUID? = here ? surfaceTargetWorkspaceID(destinationParams) : nil
+        if here, localWorkspaceID == nil {
+            return v2Error(id: id, code: "invalid_params", message: "vm.workspace_open: no target workspace for `here` (pass `target_workspace_id`, or select one).")
+        }
+        let destination = localWorkspaceID.map { Self.surfaceDestination(surfaceResolvedParams(destinationParams), workspaceID: $0) }
         return v2VmCall(id: id, timeoutSeconds: 240) {
             let machine = SurfaceMachineID.cloud(vmId)
             let catalog = await SurfaceCatalog.shared
@@ -285,18 +298,29 @@ extension TerminalController {
                 throw SurfaceCatalogError.destinationNotFound("workspace \(remoteWorkspaceID) on \(vmId)")
             }
             let group = SurfaceResourceGroup(title: workspace.name, resources: resources.map(\.id))
-            let opened = try await catalog.projectGroupAsNewLocalWorkspace(
-                group.resources,
-                title: CloudTreeNodeActions.localWorkspaceTitle(machine: machine, group: group),
-                focus: Self.surfaceBool(params["focus"]) ?? true,
-                host: .app
-            )
+            let focus = Self.surfaceBool(params["focus"]) ?? true
+            let workspaceID: UUID
+            let projections: [SurfaceProjection]
+            if let destination {
+                projections = try await catalog.projectGroup(group.resources, into: destination, focus: focus)
+                workspaceID = destination.workspaceID
+            } else {
+                let opened = try await catalog.projectGroupAsNewLocalWorkspace(
+                    group.resources,
+                    title: CloudTreeNodeActions.localWorkspaceTitle(machine: machine, group: group),
+                    focus: focus,
+                    host: .app
+                )
+                workspaceID = opened.workspaceID
+                projections = opened.projections
+            }
             return [
                 "machine": machine.rawValue,
                 "remote_workspace_id": remoteWorkspaceID,
-                "workspace_id": opened.workspaceID.uuidString,
-                "surface_ids": opened.projections.map { $0.panelID.uuidString },
-                "opened": opened.projections.count,
+                "workspace_id": workspaceID.uuidString,
+                "surface_ids": projections.map { $0.panelID.uuidString },
+                "opened": projections.count,
+                "here": destination != nil,
             ]
         }
     }
