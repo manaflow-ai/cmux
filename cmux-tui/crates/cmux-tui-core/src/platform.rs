@@ -748,13 +748,11 @@ pub fn foreground_process_name(pid: u32) -> Option<String> {
 fn process_name(pid: u32) -> Option<String> {
     // argv[0]'s basename beats /proc/<pid>/comm: comm truncates to 15
     // bytes and wrapper launchers exec with a meaningful argv[0].
-    let argv0 = std::fs::read(format!("/proc/{pid}/cmdline"))
-        .ok()
-        .and_then(|cmdline| {
-            let argv0 = cmdline.split(|byte| *byte == 0).next()?;
-            let argv0 = std::str::from_utf8(argv0).ok()?.trim();
-            (!argv0.is_empty()).then(|| argv0.to_string())
-        });
+    let argv0 = std::fs::read(format!("/proc/{pid}/cmdline")).ok().and_then(|cmdline| {
+        let argv0 = cmdline.split(|byte| *byte == 0).next()?;
+        let argv0 = std::str::from_utf8(argv0).ok()?.trim();
+        (!argv0.is_empty()).then(|| argv0.to_string())
+    });
     argv0.or_else(|| {
         let comm = std::fs::read_to_string(format!("/proc/{pid}/comm")).ok()?;
         let comm = comm.trim();
@@ -768,9 +766,7 @@ fn process_name(pid: u32) -> Option<String> {
     let mut path = [0u8; libc::PROC_PIDPATHINFO_MAXSIZE as usize];
     // SAFETY: proc_pidpath writes at most `path.len()` bytes and returns
     // the written byte count (0 on failure).
-    let written = unsafe {
-        libc::proc_pidpath(pid, path.as_mut_ptr().cast(), path.len() as u32)
-    };
+    let written = unsafe { libc::proc_pidpath(pid, path.as_mut_ptr().cast(), path.len() as u32) };
     if written <= 0 {
         return None;
     }
