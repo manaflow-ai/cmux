@@ -1457,7 +1457,10 @@ fn normalize_remote_resource_args(raw_args: &mut Vec<String>) -> Result<(), Stri
                 .iter()
                 .any(|argument| matches!(argument.as_str(), "-h" | "--help")) => {}
         Some(action) => {
-            return Err(localization::catalog().remote_client.unknown_action("remote", action));
+            // Action text can come from an untrusted command line and may
+            // contain a credential or other private value. Keep diagnostics
+            // stable and localized instead of echoing it to the terminal.
+            return Err(localization::catalog().remote_client.unknown_action_generic("remote"));
         }
     }
     Ok(())
@@ -2938,10 +2941,8 @@ mod tests {
 
         let mut unknown = ["--json", "remote", "frobnicate"].map(str::to_string).to_vec();
         let error = normalize_remote_resource_args(&mut unknown).unwrap_err();
-        assert_eq!(
-            error,
-            localization::catalog().remote_client.unknown_action("remote", "frobnicate")
-        );
+        assert!(error.contains("unknown remote action"));
+        assert!(!error.contains("frobnicate"));
     }
 
     #[test]

@@ -700,7 +700,8 @@ fn local_and_authenticated_remote_namespaces_do_not_cross_target() {
     let unknown_remote_action = lifecycle_cli(&["remote", "frobnicate"]);
     assert_eq!(unknown_remote_action.status.code(), Some(1));
     let error = String::from_utf8(unknown_remote_action.stderr).unwrap();
-    assert!(error.contains("unknown remote action \"frobnicate\""), "{error}");
+    assert!(error.contains("unknown remote action"), "{error}");
+    assert!(!error.contains("frobnicate"), "{error}");
 
     let local_only_option = lifecycle_cli(&[
         "server",
