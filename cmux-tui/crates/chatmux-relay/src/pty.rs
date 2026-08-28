@@ -22,7 +22,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use tokio::sync::Notify;
 
 use async_trait::async_trait;
@@ -421,9 +421,11 @@ struct Inner {
     /// one global snapshot would let the last frame on either transport
     /// authorize asynchronous output for every other attachment.
     transport_auth: Mutex<HashMap<TransportOwner, AuthSnapshot>>,
-    /// Serializes short authority and attachment state transitions. It is
-    /// never held while a PTY control method, callback, or provider await runs.
-    tunnel_state: Mutex<()>,
+    /// A read/write authority barrier. Normal attachment operations hold a
+    /// shared read guard while they validate and act. Authority transitions
+    /// take the exclusive guard before removing the authorization snapshot,
+    /// so no operation can cross a revocation boundary after validation.
+    tunnel_state: RwLock<()>,
     /// Monotonic floor for managed tunnel authority generations. It remains
     /// effective while a stale open is still unwinding after revocation.
     tunnel_authority_generation: AtomicU64,
@@ -484,7 +486,7 @@ impl PtyManager {
                 shell_sessions: Mutex::new(HashMap::new()),
                 shell_starting: Mutex::new(HashMap::new()),
                 transport_auth: Mutex::new(HashMap::new()),
-                tunnel_state: Mutex::new(()),
+                tunnel_state: RwLock::new(()),
                 tunnel_authority_generation: AtomicU64::new(0),
             }),
         }
@@ -511,7 +513,7 @@ impl PtyManager {
                 shell_sessions: Mutex::new(HashMap::new()),
                 shell_starting: Mutex::new(HashMap::new()),
                 transport_auth: Mutex::new(HashMap::new()),
-                tunnel_state: Mutex::new(()),
+                tunnel_state: RwLock::new(()),
                 tunnel_authority_generation: AtomicU64::new(0),
             }),
         }
@@ -599,7 +601,7 @@ impl PtyManager {
     /// Network frames never get to replace an existing snapshot implicitly.
     pub fn update_transport_auth(&self, context: &FrameContext) {
         debug_assert!(context.transport_id.is_some(), "transport refresh needs an id");
-        let _state = self.inner.tunnel_state.lock().expect("tunnel state lock");
+        let _state = self.inner.tunnel_state.write().expect("tunnel state lock");
         if !self.inner.tunnel_authority_generation_current(context) {
             return;
         }
@@ -614,7 +616,7 @@ impl PtyManager {
     /// matching snapshot. A stale in-flight frame cannot recreate a removed
     /// transport entry after this point.
     pub fn set_tunnel_authority_generation(&self, generation: u64) {
-        let _state = self.inner.tunnel_state.lock().expect("tunnel state lock");
+        let _state = self.inner.tunnel_state.write().expect("tunnel state lock");
         let mut current = self.inner.tunnel_authority_generation.load(Ordering::Acquire);
         while generation > current {
             match self.inner.tunnel_authority_generation.compare_exchange_weak(
@@ -674,7 +676,7 @@ impl PtyManager {
         // The state lock couples authority transitions with the final open
         // install. PTY kill calls happen after it is released, so one slow
         // attachment cannot block unrelated tunnel operations.
-        let _state = self.inner.tunnel_state.lock().expect("tunnel state lock");
+        let _state = self.inner.tunnel_state.write().expect("tunnel state lock");
         self.inner
             .transport_auth
             .lock()
@@ -771,7 +773,7 @@ impl Inner {
         let fail = |code: &str, message: &str| send_pty_error(context, &pty_id, code, message);
         let reservation_owner = OpeningOwner { owner: TransportOwner::from_context(context) };
         let reservation_result = {
-            let _state = self.tunnel_state.lock().expect("tunnel state lock");
+            let _state = self.tunnel_state.write().expect("tunnel state lock");
             let mut opening = self.opening_state.lock().expect("opening state lock");
             let attachments = self.attachments.lock().expect("attach lock");
             if attachments.contains_key(&pty_id) || opening.reservations.contains_key(&pty_id) {
@@ -942,7 +944,7 @@ impl Inner {
         // The short state lock couples this transition with revocation, while
         // no PTY operation runs under it.
         let (surface, start, previous) = {
-            let _state = self.tunnel_state.lock().expect("tunnel state lock");
+            let _state = self.tunnel_state.write().expect("tunnel state lock");
             let auth_changed = self
                 .transport_auth
                 .lock()
@@ -1033,17 +1035,19 @@ impl Inner {
     }
 
     fn emit_output(&self, pty_id: &str, chunk: &Bytes, context: &FrameContext) {
-        if !self.tunnel_authority_generation_current(context) {
-            return;
-        }
-        let Some(auth) = self.auth_for_transport(context) else {
-            return;
-        };
         let Some(attachment) = self.attachment(pty_id) else {
             return;
         };
         let _operation = attachment.operation_gate.lock().expect("attachment operation lock");
+        // Keep the shared authority read guard through validation and the
+        // send. A revocation takes the write guard, so it cannot remove the
+        // snapshot between this check and the visible output frame.
+        let _state = self.tunnel_state.read().expect("tunnel state lock");
+        let Some(auth) = self.auth_for_transport(context) else {
+            return;
+        };
         if !self.attachment_is_authorized(pty_id, &attachment, &auth, context) {
+            drop(_state);
             drop(_operation);
             self.handle_authorization_failure(pty_id, &attachment, &auth, context, "output");
             return;
@@ -1080,34 +1084,33 @@ impl Inner {
     }
 
     fn emit_exit(&self, pty_id: &str, code: i64, context: &FrameContext) {
-        if !self.tunnel_authority_generation_current(context) {
-            return;
-        }
-        let Some(auth) = self.auth_for_transport(context) else {
-            return;
-        };
         let Some(attachment) = self.attachment(pty_id) else {
             return;
         };
         let _operation = attachment.operation_gate.lock().expect("attachment operation lock");
+        // Exit publication is also an authorized operation. Keep the
+        // exclusive transition from racing the validation and removal, or a
+        // revoked transport could receive one last terminal result.
+        let _state = self.tunnel_state.write().expect("tunnel state lock");
+        let Some(auth) = self.auth_for_transport(context) else {
+            return;
+        };
         if !self.attachment_is_authorized(pty_id, &attachment, &auth, context) {
+            drop(_state);
             drop(_operation);
             self.handle_authorization_failure(pty_id, &attachment, &auth, context, "exit");
             return;
         }
-        let removed = {
-            let _state = self.tunnel_state.lock().expect("tunnel state lock");
-            let mut attachments = self.attachments.lock().expect("attach lock");
-            let same = attachments.get(pty_id).is_some_and(|current| {
-                Arc::ptr_eq(&current.operation_gate, &attachment.operation_gate)
-            });
-            if same { attachments.remove(pty_id).is_some() } else { false }
-        };
+        let mut attachments = self.attachments.lock().expect("attach lock");
+        let same = attachments
+            .get(pty_id)
+            .is_some_and(|current| Arc::ptr_eq(&current.operation_gate, &attachment.operation_gate));
+        let removed = if same { attachments.remove(pty_id).is_some() } else { false };
+        drop(attachments);
         if !removed {
             return;
         }
         attachment.closing.store(true, Ordering::SeqCst);
-        drop(_operation);
         (auth.send)(json!({
             "version": PTY_PROTOCOL_VERSION,
             "type": "pty_exit",
@@ -1121,7 +1124,7 @@ impl Inner {
         // Match `open`'s lock order. If opening still owns the reservation,
         // record an owner-specific cancellation and let it dispose the PTY.
         let attachment = {
-            let _state = self.tunnel_state.lock().expect("tunnel state lock");
+            let _state = self.tunnel_state.write().expect("tunnel state lock");
             let mut opening = self.opening_state.lock().expect("opening state lock");
             if let Some(owner) = opening.reservations.get(pty_id).cloned() {
                 opening.cancelled.insert(pty_id.to_owned(), owner);
@@ -1156,11 +1159,16 @@ impl Inner {
     where
         F: FnOnce(&Attachment),
     {
-        let Some(auth) = self.auth_for_transport(context) else { return };
         let Some(attachment) = self.attachment(pty_id) else { return };
         let operation_gate = Arc::clone(&attachment.operation_gate);
         let _operation = operation_gate.lock().expect("attachment operation lock");
+        // Shared readers keep independent attachments concurrent. The
+        // exclusive authority transition waits for every validated operation
+        // to finish before it removes the transport snapshot.
+        let _state = self.tunnel_state.read().expect("tunnel state lock");
+        let Some(auth) = self.auth_for_transport(context) else { return };
         if !self.attachment_is_authorized(pty_id, &attachment, &auth, context) {
+            drop(_state);
             drop(_operation);
             self.handle_authorization_failure(pty_id, &attachment, &auth, context, action);
             return;
@@ -1199,22 +1207,25 @@ impl Inner {
     }
 
     fn close_authorized(&self, pty_id: &str, context: &FrameContext) {
-        let Some(auth) = self.auth_for_transport(context) else { return };
         let Some(attachment) = self.attachment(pty_id) else { return };
         let _operation = attachment.operation_gate.lock().expect("attachment operation lock");
+        // Use the exclusive barrier for the check and removal. A close from a
+        // transport that lost authority must never win a race with the
+        // revocation transition.
+        let _state = self.tunnel_state.write().expect("tunnel state lock");
+        let Some(auth) = self.auth_for_transport(context) else { return };
         if !self.attachment_is_authorized(pty_id, &attachment, &auth, context) {
+            drop(_state);
             drop(_operation);
             self.handle_authorization_failure(pty_id, &attachment, &auth, context, "close");
             return;
         }
-        let removed = {
-            let _state = self.tunnel_state.lock().expect("tunnel state lock");
-            let mut attachments = self.attachments.lock().expect("attach lock");
-            let same = attachments.get(pty_id).is_some_and(|current| {
-                Arc::ptr_eq(&current.operation_gate, &attachment.operation_gate)
-            });
-            if same { attachments.remove(pty_id).is_some() } else { false }
-        };
+        let mut attachments = self.attachments.lock().expect("attach lock");
+        let same = attachments
+            .get(pty_id)
+            .is_some_and(|current| Arc::ptr_eq(&current.operation_gate, &attachment.operation_gate));
+        let removed = if same { attachments.remove(pty_id).is_some() } else { false };
+        drop(attachments);
         if removed {
             attachment.closing.store(true, Ordering::SeqCst);
             attachment.control.kill();
@@ -1272,7 +1283,7 @@ impl Inner {
 
     fn retire_if_current(&self, pty_id: &str, attachment: &Attachment) {
         let removed = {
-            let _state = self.tunnel_state.lock().expect("tunnel state lock");
+            let _state = self.tunnel_state.write().expect("tunnel state lock");
             let mut attachments = self.attachments.lock().expect("attach lock");
             let same = attachments.get(pty_id).is_some_and(|current| {
                 Arc::ptr_eq(&current.operation_gate, &attachment.operation_gate)
@@ -1337,7 +1348,7 @@ fn drive_handle(
 
 impl Inner {
     fn cache_transport_auth(&self, context: &FrameContext) -> bool {
-        let _state = self.tunnel_state.lock().expect("tunnel state lock");
+        let _state = self.tunnel_state.write().expect("tunnel state lock");
         if !self.tunnel_authority_generation_current(context) {
             return false;
         }
@@ -3341,6 +3352,60 @@ mod tests {
         release.wait();
         slow_thread.join().unwrap();
         fast_thread.join().unwrap();
+    }
+
+    #[test]
+    fn authority_revocation_waits_for_a_validated_operation() {
+        let h = harness(None, None);
+        let inner = Arc::clone(&h.manager.inner);
+        let entered = Arc::new(Barrier::new(2));
+        let release = Arc::new(Barrier::new(2));
+        let control: Arc<dyn PtyControl> = Arc::new(BlockingControl {
+            entered: Arc::clone(&entered),
+            release: Arc::clone(&release),
+        });
+        let owner = TransportOwner {
+            id: Some("tunnel-a".to_owned()),
+            kind: TransportKind::Tunnel,
+        };
+        {
+            inner.attachments.lock().unwrap().insert(
+                "p1".to_owned(),
+                Attachment {
+                    closing: Arc::new(AtomicBool::new(false)),
+                    operation_gate: Arc::new(Mutex::new(())),
+                    control,
+                    actor_id: "user_owner".to_owned(),
+                    owner,
+                },
+            );
+        }
+        let context = h.context_with_transport("supervised", h.owner.clone(), Some("tunnel-a"));
+        inner.cache_transport_auth(&context);
+
+        let operation_inner = Arc::clone(&inner);
+        let operation_context = context.clone();
+        let operation = thread::spawn(move || {
+            operation_inner.with_authorized("p1", &operation_context, "input", |attachment| {
+                attachment.control.write(b"held until revocation boundary");
+            });
+        });
+        entered.wait();
+
+        let revoke_inner = Arc::clone(&inner);
+        let (done_tx, done_rx) = sync_channel(1);
+        let revoke = thread::spawn(move || {
+            revoke_inner.set_tunnel_authority_generation(1);
+            done_tx.send(()).unwrap();
+        });
+        assert!(
+            done_rx.recv_timeout(Duration::from_millis(50)).is_err(),
+            "revocation must not pass a validated operation still in progress"
+        );
+        release.wait();
+        operation.join().unwrap();
+        assert!(done_rx.recv_timeout(Duration::from_secs(1)).is_ok());
+        revoke.join().unwrap();
     }
 
     #[test]

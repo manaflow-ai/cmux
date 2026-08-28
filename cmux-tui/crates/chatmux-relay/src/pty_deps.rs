@@ -668,7 +668,7 @@ fn dead_handle(output: Arc<ThreadOutput>, banner: Option<Vec<u8>>) -> PtyHandle 
     PtyHandle { control: Arc::new(DeadControl), output, banner }
 }
 
-fn spawn_pipe_mode(spec: &SpawnSpec, reason: &str, handoff: &SpawnHandoff) -> PtyHandle {
+fn spawn_pipe_mode(spec: &SpawnSpec, _reason: &str, handoff: &SpawnHandoff) -> PtyHandle {
     let output = ThreadOutput::new();
     let mut command = std::process::Command::new(&spec.file);
     command.args(&spec.args).current_dir(&spec.cwd).env_clear();
@@ -683,8 +683,11 @@ fn spawn_pipe_mode(spec: &SpawnSpec, reason: &str, handoff: &SpawnHandoff) -> Pt
     // a cancelled handoff cannot leave a helper process behind.
     use std::os::unix::process::CommandExt as _;
     command.process_group(0);
+    // The allocation error can contain local paths, usernames, or provider
+    // response text. This banner crosses the relay boundary, so keep it
+    // stable and do not disclose the internal reason.
     let banner = format!(
-        "[cmux-relay] PTY allocation failed ({reason}); running {} without a TTY.\r\n",
+        "[cmux-relay] PTY allocation failed; running {} without a TTY.\r\n",
         Path::new(&spec.file)
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
