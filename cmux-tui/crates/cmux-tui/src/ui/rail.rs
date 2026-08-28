@@ -347,13 +347,12 @@ pub fn tree_row(
     if y >= area.y.saturating_add(area.height) || area.width < 3 {
         return None;
     }
-    let rows = if row.second_line.is_some()
-        && y.saturating_add(1) < area.y.saturating_add(area.height)
-    {
-        2u16
-    } else {
-        1u16
-    };
+    let rows =
+        if row.second_line.is_some() && y.saturating_add(1) < area.y.saturating_add(area.height) {
+            2u16
+        } else {
+            1u16
+        };
     let content_width = area.width.saturating_sub(1);
     let style = if row.highlighted { palette.active } else { palette.base };
     let detail_style =
@@ -366,7 +365,9 @@ pub fn tree_row(
             }
         }
     }
-    if row.active && let Some(glyph) = palette.rail_glyph {
+    if row.active
+        && let Some(glyph) = palette.rail_glyph
+    {
         let mut encoded = [0u8; 4];
         let symbol: &str = glyph.encode_utf8(&mut encoded);
         for line in 0..rows {
@@ -405,7 +406,9 @@ pub fn tree_row(
             format!("{}  {}", row.name, row.detail)
         };
         buf.set_stringn(name_x, y, truncate(&label, available), available, style);
-        if rows == 2 && let Some(second_line) = row.second_line {
+        if rows == 2
+            && let Some(second_line) = row.second_line
+        {
             buf.set_stringn(
                 name_x,
                 y + 1,
