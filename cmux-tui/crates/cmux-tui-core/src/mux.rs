@@ -5808,6 +5808,9 @@ impl Mux {
         }
         let state = self.state.lock().unwrap();
         if state.workspaces.is_empty() && state.workspace_revision == workspace_revision {
+            crate::surface::input_audit_note(&format!(
+                "mux emitting Empty at workspace_revision={workspace_revision}"
+            ));
             self.emit(MuxEvent::Empty);
         }
     }
@@ -12999,6 +13002,7 @@ impl Mux {
     /// terminals preserve a durable exit receipt while all views detach;
     /// local surfaces are removed immediately.
     pub fn surface_exited(self: &Arc<Self>, id: SurfaceId) {
+        crate::surface::input_audit_note(&format!("mux surface_exited id={id}"));
         if self.sidebar_surface_exited(id) {
             self.emit(MuxEvent::SurfaceExited(id));
             return;

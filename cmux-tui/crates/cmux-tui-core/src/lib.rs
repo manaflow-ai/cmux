@@ -12,6 +12,7 @@ mod agent_hooks;
 mod browser;
 mod browser_provider;
 mod event_bus;
+pub mod input_audit;
 mod journal_checkpoint;
 mod journal_hooks;
 mod journal_ingress;

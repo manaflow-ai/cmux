@@ -1030,8 +1030,31 @@ fn process_event(
     } else if let Some(operation) = event.mutation.take() {
         operation()
     } else {
-        event.surface.write_bytes(&event.bytes)
+        let write_result = event.surface.write_bytes(&event.bytes);
+        if crate::input_audit::enabled() {
+            crate::input_audit::record(
+                "t3-write",
+                &format!(
+                    "surface={} kind={:?} result={}",
+                    event.surface_id,
+                    event.kind,
+                    match &write_result {
+                        Ok(()) => "ok".to_string(),
+                        Err(error) => format!("err:{error}"),
+                    }
+                ),
+                &event.bytes,
+            );
+        }
+        write_result
     };
+    if reject_known_exit && crate::input_audit::enabled() {
+        crate::input_audit::record(
+            "t3-rejected-exited",
+            &format!("surface={} kind={:?}", event.surface_id, event.kind),
+            &event.bytes,
+        );
+    }
     #[cfg(test)]
     if is_write && result.is_ok() {
         let observer = queue.delivered_write_observer.lock().unwrap().clone();
@@ -1192,6 +1215,17 @@ fn process_event(
     }
 }
 
+/// Byte-accounting tap (issue 10431): queued bytes canceled before delivery.
+fn audit_canceled_event(event: &PtyInputEvent, reason: &str) {
+    if !event.bytes.is_empty() {
+        crate::input_audit::record(
+            "t3-canceled",
+            &format!("surface={} kind={:?} reason={reason}", event.surface_id, event.kind),
+            &event.bytes,
+        );
+    }
+}
+
 fn requeue_ambiguous_release(state: &mut QueueState, event: PtyInputEvent) {
     debug_assert_eq!(event.kind, PtyInputKind::Release);
     state.queued_bytes += event.queued_byte_len();
@@ -1210,6 +1244,7 @@ fn prune_failed_generation(
             retained.push_back(event);
             continue;
         }
+        audit_canceled_event(&event, error);
         canceled.push(PtyOperationFailure {
             session_generation: event.session_generation,
             surface_id: (event.kind != PtyInputKind::Mutation)
@@ -1263,6 +1298,7 @@ fn prune_to_recovery_releases(
         {
             state.release_reservations.outstanding.remove(&reservation_id);
         }
+        audit_canceled_event(&event, error);
         canceled.push(PtyOperationFailure {
             session_generation: event.session_generation,
             surface_id: (event.kind != PtyInputKind::Mutation)
@@ -1301,6 +1337,7 @@ fn prune_failed_lane(
             retained.push_back(event);
             continue;
         }
+        audit_canceled_event(&event, error);
         canceled.push(PtyOperationFailure {
             session_generation: event.session_generation,
             surface_id: Some(lane.surface_id),
@@ -1349,6 +1386,7 @@ fn prune_lane_to_recovery_releases(
         {
             state.release_reservations.outstanding.remove(&reservation_id);
         }
+        audit_canceled_event(&event, error);
         canceled.push(PtyOperationFailure {
             session_generation: event.session_generation,
             surface_id: Some(lane.surface_id),

@@ -100,6 +100,40 @@ use crate::ui::{
 
 const DEFERRED_INPUT_CAPACITY: usize = 512;
 
+/// Byte-accounting tap T1 (issue 10431): what crossterm handed the app.
+///
+/// Bytes are attributed only to plain key presses whose terminal translation
+/// is the literal character (no modifiers beyond SHIFT, which the char
+/// already carries). Modified, repeated, or released keys get an empty
+/// payload with the full event in the detail field, so T1 never claims bytes
+/// the pipeline may not send (Ctrl/Alt rewrites, ignored releases).
+fn audit_host_event(event: &Event) {
+    match event {
+        Event::Key(key) => {
+            let shifted_char =
+                key.modifiers == KeyModifiers::SHIFT && matches!(key.code, KeyCode::Char(_));
+            let plain_press =
+                key.kind == KeyEventKind::Press && (key.modifiers.is_empty() || shifted_char);
+            let mut bytes = [0u8; 4];
+            let payload: &[u8] = match key.code {
+                _ if !plain_press => &[],
+                KeyCode::Char(c) => c.encode_utf8(&mut bytes).as_bytes(),
+                KeyCode::Enter => b"\r",
+                KeyCode::Tab => b"\t",
+                KeyCode::Esc => b"\x1b",
+                _ => &[],
+            };
+            crate::input_audit::record(
+                "t1-key",
+                &format!("{:?}:{:?}:{:?}", key.code, key.modifiers, key.kind),
+                payload,
+            );
+        }
+        Event::Paste(text) => crate::input_audit::record("t1-paste", "-", text.as_bytes()),
+        other => crate::input_audit::note("t1-event", &format!("{other:?}")),
+    }
+}
+
 fn read_crossterm_event(
     timeout: Option<Duration>,
     mut poll: impl FnMut(Duration) -> std::io::Result<bool>,
@@ -8904,6 +8938,9 @@ fn run_with_machine_updates_inner(
                 }
             };
             for event in events {
+                if crate::input_audit::enabled() {
+                    audit_host_event(&event);
+                }
                 if !input.send(event) {
                     break 'input;
                 }
@@ -10416,6 +10453,18 @@ impl App {
                 replay_ready = self.replay_can_continue_immediately(replay.disposition);
             }
         }
+        if crate::input_audit::enabled() {
+            crate::input_audit::note(
+                "event-loop-exit",
+                &format!(
+                    "quit={} shutdown_requested={} daemon_shutdown={} owner_shutdown={}",
+                    self.quit,
+                    crate::shutdown_requested(),
+                    self.session.daemon_shutdown_requested(),
+                    self.owner_shutdown_requested()
+                ),
+            );
+        }
         Ok(())
     }
 
@@ -10506,6 +10555,7 @@ impl App {
             if let Some(ui) = self.machine_ui.as_mut() {
                 ui.request = Some(request);
             }
+            crate::input_audit::note("quit", &format!("app.rs quit at line {}", line!()));
             self.quit = true;
             return RenderAction::None;
         };
@@ -10545,6 +10595,7 @@ impl App {
                 if let Some(ui) = self.machine_ui.as_mut() {
                     ui.request = Some(request);
                 }
+                crate::input_audit::note("quit", &format!("app.rs quit at line {}", line!()));
                 self.quit = true;
             }
         }
@@ -12260,6 +12311,7 @@ impl App {
                 }
                 Some(SemanticDestinationOutcome::Failed) => {
                     let input = self.deferred_input.pop_front().unwrap();
+                    crate::input_audit::note("t2-dropped", "replay-semantic-failed");
                     self.retire_deferred_semantic_result(&input);
                     self.status_message = Some(
                         localization::catalog()
@@ -12295,6 +12347,7 @@ impl App {
                 .as_ref()
                 .is_some_and(|pointer| pointer.focus_generation != self.pointer_focus_generation)
             {
+                crate::input_audit::note("t2-dropped", "replay-stale-focus-generation");
                 self.deferred_input.pop_front();
                 replayed += 1;
                 continue;
@@ -12706,6 +12759,7 @@ impl App {
             && !tree.select_surface(surface)
         {
             tree = TreeView::default();
+            crate::input_audit::note("quit", &format!("app.rs quit at line {}", line!()));
             self.quit = true;
         }
         let live_browsers = tree
@@ -14412,6 +14466,7 @@ impl App {
                 // Pairing approval is a trusted action. Input captured before
                 // the current pairing identity was visible must never approve
                 // it or reach UI covered by a replacement dialog.
+                crate::input_audit::note("t2-dropped", "pairing-identity-gate");
                 return Ok(RenderAction::None);
             }
         }
@@ -14621,6 +14676,7 @@ impl App {
                     && self.input_destination(input) != admission.destination
                 {
                     if !matches!(input, TerminalInput::Mouse(_)) {
+                        crate::input_audit::note("t2-dropped", "replay-destination-changed");
                         self.status_message = Some(
                             localization::catalog()
                                 .terminal
@@ -14721,6 +14777,10 @@ impl App {
                             if self.request_current_machine_session() {
                                 return Ok(RenderAction::Draw);
                             }
+                            crate::input_audit::note(
+                                "quit",
+                                &format!("app.rs quit at line {}", line!()),
+                            );
                             self.quit = true;
                             return Ok(RenderAction::None);
                         }
@@ -14794,6 +14854,7 @@ impl App {
                 if self.request_current_machine_session() {
                     return Ok(RenderAction::Draw);
                 }
+                crate::input_audit::note("quit", &format!("app.rs quit at line {}", line!()));
                 self.quit = true;
                 Ok(RenderAction::None)
             }
@@ -14801,6 +14862,7 @@ impl App {
                 self.retire_surface_state(id);
                 self.remove_surface_from_cached_tree(id);
                 if self.surface_only == Some(id) {
+                    crate::input_audit::note("quit", &format!("app.rs quit at line {}", line!()));
                     self.quit = true;
                     return Ok(RenderAction::None);
                 }
@@ -15761,12 +15823,30 @@ impl App {
             > MAX_DEFERRED_INPUT_BYTES
         {
             if !prioritize_release {
+                crate::input_audit::note("t2-dropped", "deferred-queue-full");
                 self.status_message =
                     Some(localization::catalog().terminal.deferred_input_queue_full.to_string());
                 return RenderAction::Draw;
             }
             let Some(removed) = self.deferred_input.pop_front() else { break };
             self.retire_deferred_semantic_result(&removed);
+        }
+        if crate::input_audit::enabled() {
+            crate::input_audit::note(
+                "t2-deferred",
+                &format!(
+                    "sequence={sequence} replay={} event={}",
+                    replay_sequence.is_some(),
+                    match &input {
+                        TerminalInput::Keyboard(_) => "keyboard",
+                        TerminalInput::FrontendAction { .. } => "frontend-action",
+                        TerminalInput::ClearHistoryKey(_) => "clear-history-key",
+                        TerminalInput::Mouse(_) => "mouse",
+                        TerminalInput::Paste(_) => "paste",
+                        _ => "other",
+                    }
+                ),
+            );
         }
         let input = DeferredInput { event: input, admission, pointer, sequence };
         if replay_sequence.is_some() {
@@ -18979,6 +19059,7 @@ impl App {
                 // Only a session hosted inside this process ends with the
                 // TUI; a session owned elsewhere (detached local owner or
                 // remote daemon) keeps running after this client leaves.
+                crate::input_audit::note("quit", &format!("app.rs quit at line {}", line!()));
                 self.quit = true;
                 return Ok(RenderAction::None);
             }
@@ -20917,18 +20998,33 @@ impl App {
         kind: PtyInputKind,
     ) -> PtyInputForwardResult {
         if !self.session_available() {
+            crate::input_audit::note("t2-dropped", "no-active-session");
             self.status_message =
                 Some(localization::catalog().sidebar.no_active_session.to_string());
             return PtyInputForwardResult { owned: true, accepted: false, reservation_id: None };
         }
         if surface.is_dead() {
+            crate::input_audit::note("t2-dropped", &format!("surface-dead surface={surface_id}"));
             self.status_message =
                 Some(localization::catalog().terminal.pty_input_exited.to_string());
             return PtyInputForwardResult { owned: true, accepted: false, reservation_id: None };
         }
+        if crate::input_audit::enabled() {
+            crate::input_audit::record(
+                "t2-enqueue",
+                &format!("surface={surface_id} kind={kind:?}"),
+                &bytes,
+            );
+        }
         let (result, reservation_id) = self
             .pty_input
             .enqueue_with_reservation(PtyInputEvent::input(surface_id, surface, bytes, kind));
+        if result != PtyInputEnqueueResult::Accepted {
+            crate::input_audit::note(
+                "t2-rejected",
+                &format!("surface={surface_id} kind={kind:?} result={result:?}"),
+            );
+        }
         self.rollback_mouse_motion_for_enqueue_failure(surface_id, kind, result);
         PtyInputForwardResult {
             owned: true,

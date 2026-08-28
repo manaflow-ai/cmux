@@ -1898,6 +1898,10 @@ impl RemoteSession {
             };
             // Connection lost: retain the reason before telling the app to quit.
             if let Some(session) = reader_session.upgrade() {
+                crate::input_audit::note(
+                    "remote-transport-lost",
+                    reason.as_deref().unwrap_or("no reason recorded"),
+                );
                 session.disconnect_transport_with_reason(reason);
                 session.emit(MuxEvent::Empty);
             }

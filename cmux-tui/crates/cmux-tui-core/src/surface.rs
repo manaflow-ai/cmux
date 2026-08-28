@@ -1604,6 +1604,15 @@ fn clear_history_write_failure(error: std::io::Error, delivered: usize) -> Clear
     }
 }
 
+/// Input-audit note for rare surface lifecycle events (reader EOF, child
+/// exit, workspace-emptying paths). Routed through the shared non-blocking
+/// audit writer in [`crate::input_audit`]; never touches the filesystem on
+/// the calling thread. Added for the byte-accounting investigation in issue
+/// 10431.
+pub(crate) fn input_audit_note(detail: &str) {
+    crate::input_audit::note("surface-lifecycle", detail);
+}
+
 pub(crate) fn write_clear_history_fallback(
     master: &dyn MasterPty,
     writer: &mut dyn Write,
@@ -2452,7 +2461,12 @@ impl Surface {
                             break;
                         }
                         let n = match reader.read(&mut buf) {
-                            Ok(0) => break,
+                            Ok(0) => {
+                                input_audit_note(&format!(
+                                    "surface={id} local reader EOF (read returned 0)"
+                                ));
+                                break;
+                            }
                             Ok(n) => n,
                             Err(error)
                                 if matches!(
@@ -2464,7 +2478,12 @@ impl Surface {
                                 std::thread::sleep(Duration::from_millis(1));
                                 continue;
                             }
-                            Err(_) => break,
+                            Err(error) => {
+                                input_audit_note(&format!(
+                                    "surface={id} local reader error: {error}"
+                                ));
+                                break;
+                            }
                         };
                         let mut scroll_changed = None;
                         let generation = {
@@ -2562,6 +2581,7 @@ impl Surface {
             let surface = surface.clone();
             move || {
                 let exit = wait_for_native_child_status(child.as_mut());
+                input_audit_note(&format!("surface={id} child exit: {exit:?}"));
                 if let Some(pty) = surface.as_pty() {
                     *pty.exit.lock().unwrap() = Some(exit);
                 }
