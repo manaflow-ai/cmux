@@ -710,8 +710,9 @@ pub fn valid_session(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::os::unix::net::UnixStream;
     use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
-    use std::sync::{Arc as TestArc, Barrier, Mutex as TestMutex};
+    use std::sync::{Arc as TestArc, Barrier, Mutex as TestMutex, mpsc};
     use std::thread;
 
     struct TestControl {
@@ -889,5 +890,36 @@ mod tests {
         );
 
         assert_eq!(*seen.lock().expect("seen lock"), vec!["tail".to_owned(), "exit:23".to_owned()]);
+    }
+
+    #[test]
+    fn inherited_pipe_descriptor_cannot_hold_exit_forever() {
+        let output = ThreadOutput::new();
+        let completion = ProcessOutputCompletion::new(1, TestArc::clone(&output));
+        let (reader, _writer) = UnixStream::pair().expect("pipe pair");
+        let (exit_tx, exit_rx) = mpsc::channel();
+        let (reader_done_tx, reader_done_rx) = mpsc::channel();
+        let pump_output = TestArc::clone(&output);
+        let pump_completion = TestArc::clone(&completion);
+        thread::spawn(move || {
+            pump_pipe(reader, pump_output, pump_completion);
+            reader_done_tx.send(()).expect("reader completion");
+        });
+        output.subscribe(
+            TestArc::new(|_| {}),
+            TestArc::new(move |code| exit_tx.send(code).expect("exit delivery")),
+        );
+
+        completion.child_exited(41);
+
+        assert_eq!(
+            exit_rx
+                .recv_timeout(Duration::from_secs(1))
+                .expect("inherited descriptors must not suppress exit"),
+            41
+        );
+        reader_done_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("reader must stop after bounded post-exit recovery");
     }
 }
