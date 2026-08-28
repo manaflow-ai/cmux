@@ -25,6 +25,7 @@ export default function (amp: PluginAPI) {
   type AmpThreadLifecycle = {
     authoritativeState: string;
     observationVersion: number;
+    stateReadVersion: number;
     turnStateStartVersion: number;
     inFlightTools: number;
     presentation: AmpStatusPresentation;
@@ -158,6 +159,7 @@ export default function (amp: PluginAPI) {
     const created: AmpThreadLifecycle = {
       authoritativeState: "idle",
       observationVersion: 0,
+      stateReadVersion: 0,
       turnStateStartVersion: 0,
       inFlightTools: 0,
       presentation: PRESENTATION.idle,
@@ -421,7 +423,7 @@ export default function (amp: PluginAPI) {
     if (!observable?.get) return;
     const lifecycle = lifecycleFor(threadId);
     if (!lifecycle) return;
-    const version = lifecycle.observationVersion;
+    const version = ++lifecycle.stateReadVersion;
     let lookup: Promise<unknown> | unknown;
     try {
       lookup = observable.get();
@@ -431,7 +433,7 @@ export default function (amp: PluginAPI) {
     void Promise.resolve(lookup)
       .then((value) => {
         const current = lifecycleByThread.get(threadId);
-        if (current === lifecycle && version === current.observationVersion) {
+        if (current === lifecycle && version === current.stateReadVersion) {
           reconcileThreadState(threadId, value);
         }
       })
@@ -449,6 +451,7 @@ export default function (amp: PluginAPI) {
           const lifecycle = lifecycleByThread.get(threadId) || lifecycleFor(threadId);
           if (!lifecycle) return;
           restoreResumableSubscription(threadId);
+          lifecycle.stateReadVersion += 1;
           lifecycle.observationVersion += 1;
           reconcileThreadState(threadId, value);
         });
@@ -503,6 +506,9 @@ export default function (amp: PluginAPI) {
     projectThreadPresentation(threadId);
   }
   const activeThreadSubscription = (() => {
+    if (activeThread) {
+      try { reconcileActiveThread(activeThread.current); } catch (_) {}
+    }
     if (!activeThread?.subscribe) return null;
     try {
       return activeThread.subscribe(reconcileActiveThread);
