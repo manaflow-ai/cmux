@@ -6,14 +6,14 @@ Sidebar (human) | CLI (agent) | Socket method | Verified
 --- | --- | --- | ---
 **Machines panel ＋ / palette "New Cloud Machine…"** (name, Desktop/Base, size) | `cmux vm new [--desktop\|--base] [--size 8g] [--name <label>] [--detach] [--json]` | `vm.create` | ✅
 **Open Base / Set Up Base** | `cmux vm base open [--desktop\|--base]` | `vm.base_open` | ✅
-Machine row › **Open Shell** / click | `cmux vm open <m>` (= `cmux vm shell <m>`) | `vm.terminal_new` (open) | ✅
+Machine row › **Open Shell** / click | `cmux surface new-terminal --machine <m>` (into the current workspace, like the row) · `cmux vm open <m> [--workspace <ref>]` (a shell, its own workspace by default) | `vm.terminal_new` / `workspace.cloud_vm_terminal_ready` | ✅
 Machine row › **New Workspace**, Workspaces ＋ | `cmux vm workspace new <m> [--name n]` | `vm.workspace_new` | ✅
 Machine row › **Open Desktop**, Displays › Open Desktop, Desktop row click | `cmux vm open <m>:desktop` / `cmux surface open <m>/display/display:1` | `vm.desktop_open` / `surface.project` | ✅
 Machine row › **Open Full cmux-tui Client** | `cmux vm tui <m>` | (pane command) | ✅
 Machine row › **Refresh**, any group › Refresh | `cmux vm tree --refresh` / `cmux surface ls --refresh` | `vm.tree {refresh}` | ✅
 Machine row › **Rename…** | `cmux vm rename <m> <label>` | `vm.rename` | ✅
 Machine row › **Status** | `cmux vm status <m>` (+ `vm stats`) | `vm.status` / `vm.stats` | ✅
-Machine row › **Checkpoint** | `cmux vm snapshot <m> [--name n]` | `vm.snapshot` | ✅
+Machine row › **Checkpoint** | `cmux vm snapshot <m> [--name n]` | `vm.snapshot` | ✅ same path; on Blaxel both answer 502 "snapshot: not implemented yet"
 Machine row › **Fork** | `cmux vm fork <m> [--name n]` | `vm.fork` | ✅
 Machine row › **Delete…** | `cmux vm rm <m>` | `vm.destroy` | ✅
 Terminals / Workspaces group › **New Terminal** | `cmux surface new-terminal --machine <m> [-- <cmd>]` | `vm.terminal_new` | ✅
