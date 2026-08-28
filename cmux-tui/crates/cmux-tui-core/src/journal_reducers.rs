@@ -214,7 +214,8 @@ impl AgentRoster {
             // established for this terminal. A hook event without an adapter
             // must be allowed to clear stale identity from an older session.
             agent: if socket_echo {
-                agent.or_else(|| self.entries.get(terminal_id).and_then(|entry| entry.agent.clone()))
+                agent
+                    .or_else(|| self.entries.get(terminal_id).and_then(|entry| entry.agent.clone()))
             } else {
                 agent
             },

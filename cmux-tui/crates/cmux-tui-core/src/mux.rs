@@ -5343,9 +5343,7 @@ impl Mux {
                     == Some(SOCKET_REPORT_ADAPTER);
                 if !echo {
                     deltas.extend(
-                        record_deltas
-                            .into_iter()
-                            .map(|delta| (delta, record.kind.clone())),
+                        record_deltas.into_iter().map(|delta| (delta, record.kind.clone())),
                     );
                 }
                 host.cursor = record.sequence;
@@ -21895,9 +21893,11 @@ mod tests {
         let first_surface = mux.new_workspace(None, None).unwrap();
         let second_surface = mux.new_workspace(None, None).unwrap();
         let terminal_id = |surface_id| {
-            mux.with_state(|state| match state.resource_indexes.content_ids.get(&surface_id).unwrap() {
-                ContentPublicId::Terminal(terminal_id) => terminal_id.clone(),
-                ContentPublicId::Browser(_) => panic!("workspace opened a browser"),
+            mux.with_state(|state| {
+                match state.resource_indexes.content_ids.get(&surface_id).unwrap() {
+                    ContentPublicId::Terminal(terminal_id) => terminal_id.clone(),
+                    ContentPublicId::Browser(_) => panic!("workspace opened a browser"),
+                }
             })
         };
         let first_terminal = terminal_id(first_surface.id);
