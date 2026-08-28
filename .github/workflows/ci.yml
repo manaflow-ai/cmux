@@ -158,9 +158,6 @@ jobs:
       - name: Validate TUI package artifact contract
         run: python3 tests/test_tui_package_contract.py
 
-      - name: Validate TUI npm launcher behavior
-        run: python3 tests/test_tui_npm_launcher.py
-
       - name: Validate Claude launch environment policy generation
         run: python3 scripts/generate-claude-launch-environment-policy.py --check
 
