@@ -128,7 +128,7 @@ def check_guard_semantics(name: str, shell_argv: list[str], integration: Path, e
         'printf \'GUARD:%s\\n\' "$?"'
     )
     self_script = (
-        'source "$1"; '
+        'source "$1"; IFS=:; '
         'start="$(_cmux_watcher_parent_start_time $$)" || { printf "NOSTART\\n"; exit 1; }; '
         'repeat="$(_cmux_watcher_parent_start_time $$)" || { printf "NOREPEAT\\n"; exit 1; }; '
         '_cmux_watcher_parent_identity_valid $$ "$start" || { printf "NONNUMERIC\\n"; exit 1; }; '
