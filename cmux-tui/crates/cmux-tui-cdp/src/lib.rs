@@ -9,8 +9,8 @@ mod client;
 
 pub use chrome::{BrowserMode, Chrome, ChromeLaunchOptions};
 pub use client::{
-    CDP_EVENT_QUEUE_CAPACITY, CDP_EVENT_QUEUE_MAX_BYTES, CapturedFrame, CdpClient, CdpEvent,
-    CdpCloseReason, CdpKeyEvent, FrameEpoch, NavigationEntry, NavigationHistory, ScreencastFrame,
+    CDP_EVENT_QUEUE_CAPACITY, CDP_EVENT_QUEUE_MAX_BYTES, CapturedFrame, CdpClient, CdpCloseReason,
+    CdpEvent, CdpKeyEvent, FrameEpoch, NavigationEntry, NavigationHistory, ScreencastFrame,
     TargetCreated, TargetInfo, discover_browser_ws_url, event_retained_bytes,
     is_connection_unavailable, resolve_browser_ws_url,
 };
