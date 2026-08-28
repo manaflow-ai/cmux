@@ -715,6 +715,14 @@ impl InstallFilesystem for StandardInstallFilesystem {
     }
 }
 
+fn remove_entry_with_filesystem<F: InstallFilesystem>(
+    filesystem: &F,
+    path: &Path,
+) -> std::io::Result<()> {
+    let metadata = fs::symlink_metadata(path)?;
+    if metadata.is_dir() { filesystem.remove_dir_all(path) } else { filesystem.remove_file(path) }
+}
+
 fn unique_backup_path(parent: &Path, name: &str, suffix: &str) -> anyhow::Result<PathBuf> {
     loop {
         let path = parent.join(format!(".{name}.{}-{}{suffix}", std::process::id(), now_nanos()));
@@ -1205,7 +1213,7 @@ fn replace_installed_plugin_with_fs<F: InstallFilesystem, C: FnOnce() -> anyhow:
         if target_installed {
             if let Err(rollback_error) = filesystem.rename(&target, temp_dir) {
                 rollback_errors.push(format!("plugin staging: {rollback_error}"));
-                match filesystem.remove_dir_all(&target) {
+                match remove_entry_with_filesystem(filesystem, &target) {
                     Ok(()) => {}
                     Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
                     Err(error) => rollback_errors.push(format!("plugin removal: {error}")),
@@ -1238,7 +1246,7 @@ fn replace_installed_plugin_with_fs<F: InstallFilesystem, C: FnOnce() -> anyhow:
     // The replacement is committed once both new paths are in place. Keep the
     // committed journal until all cleanup succeeds, so a later invocation can
     // retry cleanup if access is temporarily unavailable.
-    let backup_dir_clean = match filesystem.remove_dir_all(&target_backup) {
+    let backup_dir_clean = match remove_entry_with_filesystem(filesystem, &target_backup) {
         Ok(()) => true,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => true,
         Err(_) => false,
@@ -1667,6 +1675,28 @@ mod tests {
             .filter(|entry| !entry.file_name().to_string_lossy().starts_with('.'))
             .count();
         assert_eq!(visible_entries, 1);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn replacement_cleans_up_a_regular_file_target_backup() {
+        let (root, target, temp_dir, metadata_temp) = replacement_fixture("file-target");
+        fs::remove_dir_all(&target).unwrap();
+        fs::write(&target, b"old file").unwrap();
+
+        replace_installed_plugin(&root, "demo", &temp_dir, &metadata_temp).unwrap();
+        assert_eq!(fs::read_to_string(target.join("marker")).unwrap(), "new");
+        assert_eq!(
+            read_registry_metadata(&root, "demo").unwrap().id,
+            "sidebar_plugin_22222222222222222222222222222222"
+        );
+        assert!(!install_journal_path(&root, "demo").exists());
+        assert!(
+            fs::read_dir(&root)
+                .unwrap()
+                .filter_map(Result::ok)
+                .all(|entry| !entry.file_name().to_string_lossy().contains("plugin-backup"))
+        );
         fs::remove_dir_all(root).unwrap();
     }
 
