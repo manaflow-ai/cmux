@@ -1588,7 +1588,7 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
-    func testIOSCanToggleMacKeepAwakeFromSettings() async throws {
+    func testIOSControlsMacKeepAwakePerComputer() async throws {
         let server = try MobileSyncMockHostServer(advertisesCaffeineControl: true)
         let port = try await server.start()
         defer { server.stop() }
@@ -1600,19 +1600,25 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(backButton.waitForExistence(timeout: 4))
         tap(backButton, in: app)
 
-        let settings = app.buttons["MobileWorkspaceSettingsMenu"]
-        XCTAssertTrue(settings.waitForExistence(timeout: 4))
-        tap(settings, in: app)
+        // Keep-awake is per computer: the toggle lives in the computer's own
+        // detail view, not in app-wide Settings.
+        let devices = app.buttons["MobileWorkspaceDevicesButton"]
+        XCTAssertTrue(devices.waitForExistence(timeout: 4))
+        tap(devices, in: app)
+        let deviceTree = app.descendants(matching: .any)["MobileDeviceTree"]
+        XCTAssertTrue(deviceTree.waitForExistence(timeout: 4))
+
+        let row = app.descendants(matching: .any).matching(
+            NSPredicate(format: "identifier BEGINSWITH 'MobileComputerRow-'")
+        ).firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 6))
+        tap(row, in: app)
 
         let toggle = app.switches["MobileSettingsKeepMacAwakeToggle"]
-        for _ in 0..<8 where !toggle.exists || !toggle.isHittable {
-            app.swipeUp(velocity: .slow)
-        }
         XCTAssertTrue(toggle.waitForExistence(timeout: 4))
-        XCTAssertTrue(toggle.isHittable)
-        XCTAssertEqual(toggle.value as? String, "0")
         let didRequestInitialStatus = await server.waitForRequest(method: "caffeine.status")
         XCTAssertTrue(didRequestInitialStatus)
+        XCTAssertEqual(toggle.value as? String, "0")
 
         toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
         let enabled = XCTNSPredicateExpectation(
@@ -1623,17 +1629,40 @@ final class cmuxUITests: XCTestCase {
         let didEnableCaffeine = await server.waitForRequest(method: "caffeine.set")
         XCTAssertTrue(didEnableCaffeine)
 
-        let attachment = XCTAttachment(screenshot: app.screenshot())
-        attachment.name = "ios-keep-mac-awake-enabled"
-        attachment.lifetime = .keepAlways
-        add(attachment)
+        let detailAttachment = XCTAttachment(screenshot: app.screenshot())
+        detailAttachment.name = "ios-keep-mac-awake-detail-enabled"
+        detailAttachment.lifetime = .keepAlways
+        add(detailAttachment)
 
-        toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
-        let disabled = XCTNSPredicateExpectation(
-            predicate: NSPredicate(format: "value == %@", "0"),
-            object: toggle
-        )
-        XCTAssertEqual(XCTWaiter.wait(for: [disabled], timeout: 4), .completed)
+        // Back on the Computers list, the caffeinated Mac's row shows the cup
+        // indicator, and the leading swipe action turns keep-awake back off.
+        let detailBack = app.navigationBars.buttons.firstMatch
+        XCTAssertTrue(detailBack.waitForExistence(timeout: 4))
+        tap(detailBack, in: app)
+
+        let indicator = app.images.matching(
+            NSPredicate(format: "identifier BEGINSWITH 'MobileComputerCaffeine-'")
+        ).firstMatch
+        XCTAssertTrue(indicator.waitForExistence(timeout: 4))
+
+        let listAttachment = XCTAttachment(screenshot: app.screenshot())
+        listAttachment.name = "ios-keep-mac-awake-row-indicator"
+        listAttachment.lifetime = .keepAlways
+        add(listAttachment)
+
+        XCTAssertTrue(row.waitForExistence(timeout: 4))
+        row.swipeRight()
+        let swipeButton = app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH 'MobileComputerCaffeineSwipe-'")
+        ).firstMatch
+        XCTAssertTrue(swipeButton.waitForExistence(timeout: 3))
+
+        let swipeAttachment = XCTAttachment(screenshot: app.screenshot())
+        swipeAttachment.name = "ios-keep-mac-awake-swipe-action"
+        swipeAttachment.lifetime = .keepAlways
+        add(swipeAttachment)
+
+        tap(swipeButton, in: app)
         let didDisableCaffeine = await server.waitForRequest(
             method: "caffeine.set",
             minimumCount: 2
@@ -1641,6 +1670,8 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(didDisableCaffeine)
         let caffeineSetValues = await server.caffeineSetValues()
         XCTAssertEqual(caffeineSetValues, [true, false])
+        // The cup disappears once the Mac confirms keep-awake is off.
+        XCTAssertTrue(indicator.waitForNonExistence(timeout: 4))
     }
 
     @MainActor

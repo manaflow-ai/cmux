@@ -533,6 +533,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Monotonic fence for authoritative caffeine snapshots. It survives
     /// connection resets so an older reconciliation cannot match newer state.
     @ObservationIgnored var caffeineStatusRevision: UInt64 = 0
+    /// Keep-awake state for live CONTROL (secondary) connections, keyed by
+    /// pairing id. The foreground Mac's state stays in ``caffeineStatus``; the
+    /// per-Mac reads funnel through ``caffeineStatus(macDeviceID:instanceTag:)``.
+    public internal(set) var secondaryCaffeineStatusesByPairingID:
+        [String: MobileCaffeineStatus] = [:]
+    /// Pairing ids with a caffeine mutation awaiting a secondary Mac.
+    public internal(set) var secondaryCaffeineMutationPairingIDs: Set<String> = []
 
     /// Whether the authenticated Mac supports changing its independent phone
     /// forwarding privacy gates from iOS.
@@ -6349,6 +6356,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             client: subscription.client,
             displayName: displayName
         )
+        seedSecondaryCaffeineStatus(subscription)
         if subscription.supportedHostCapabilities.contains("events.v1") {
             startSecondaryEventConsumer(
                 subscription,
@@ -6455,6 +6463,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     fallback: displayName
                 )
             )
+        } else if event.topic == "caffeine.status.changed" {
+            handleSecondaryCaffeineStatusEvent(event, ownerKey: ownerKey)
         }
         return true
     }
@@ -7399,6 +7409,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
         }
         secondaryMacSubscriptions.removeAll()
+        secondaryCaffeineStatusesByPairingID.removeAll()
+        secondaryCaffeineMutationPairingIDs.removeAll()
         let drainReservations = Array(
             secondaryMacDrainReservations.values
         )
@@ -12191,6 +12203,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             supportedHostCapabilities = Set(payload.capabilities)
             phonePushMacStatus = payload.phonePush
+            seedForegroundCaffeineStatusIfSupported()
             restartActiveMobileBrowserStreams()
             restartActiveMobileSimulatorStreams()
             refreshVisibleMobileBrowserPanels()
@@ -14147,6 +14160,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// start a duplicate foreground fetch.
     public func refreshComputersScreen() async {
         await loadPairedMacs()
+        // Row indicators need every live connection's keep-awake state, and a
+        // promotion/demotion can leave a live connection without one.
+        backfillMissingCaffeineStatuses()
         guard connectionState == .connected, remoteClient != nil else { return }
         if let inFlight = pullToRefreshTask {
             await inFlight.value

@@ -108,10 +108,30 @@ struct MacComputerRow: View {
                     .lineLimit(1)
             }
             Spacer(minLength: 8)
+            caffeineIndicator
             badge
         }
         .padding(.vertical, 4)
         .contentShape(Rectangle())
+    }
+
+    /// Small cup marking a Mac that cmux is keeping awake. The snapshot only
+    /// carries the state over a live connection, so a stale cup can't linger
+    /// on an unreachable Mac.
+    @ViewBuilder
+    private var caffeineIndicator: some View {
+        if computer.caffeineEnabled == true {
+            Image(systemName: "cup.and.saucer.fill")
+                .font(.caption)
+                .foregroundStyle(.orange)
+                .accessibilityLabel(L10n.string(
+                    "mobile.computers.keepAwake.active",
+                    defaultValue: "Keeping Mac awake"
+                ))
+                .accessibilityIdentifier(
+                    "MobileComputerCaffeine-\(computer.connectionRef.automationID)"
+                )
+        }
     }
 
     /// The connection dot: green only when the PHONE is actually connected to this

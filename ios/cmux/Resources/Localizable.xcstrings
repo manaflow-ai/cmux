@@ -23681,6 +23681,74 @@
           }
         }
       }
+    },
+    "mobile.computers.keepAwake.active": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keeping Mac awake"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macをスリープさせない設定が有効"
+          }
+        }
+      }
+    },
+    "mobile.computers.keepAwake.keepAwake": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep Awake"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スリープさせない"
+          }
+        }
+      }
+    },
+    "mobile.computers.keepAwake.letSleep": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Let Sleep"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スリープを許可"
+          }
+        }
+      }
+    },
+    "mobile.settings.keepMacAwake.notConnected": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect to this Mac to control Keep Mac Awake."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「Macをスリープさせない」を操作するには、このMacに接続してください。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

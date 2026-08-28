@@ -58,6 +58,9 @@ struct MacComputerDetailView: View {
     @State private var showsForgetComputer = false
     /// Presents the revoke-failure alert so a failed Forget is never silent.
     @State private var forgetComputerFailed = false
+    /// Keep-awake status read failed for THIS Mac; drives the inline Retry.
+    @State private var caffeineStatusLoadFailed = false
+    @State private var caffeineStatusRetryID = 0
 
     /// Curated icon choices: a few computer/utility SF Symbols + emojis.
     private static let symbolChoices = [
@@ -113,6 +116,7 @@ struct MacComputerDetailView: View {
             connectionMethodSection
             appearanceSection
             connectionSection
+            macPowerSection
             presenceSection
             routesSection
             identitySection
@@ -767,6 +771,73 @@ struct MacComputerDetailView: View {
             }
             LabeledContent(L10n.string("mobile.computers.field.workspaces", defaultValue: "Workspaces"),
                            value: "\(workspaceCount)")
+        }
+    }
+
+    // MARK: - Mac Power (keep-awake)
+
+    private var isConnectedToThisComputer: Bool {
+        connectionStatus == .connected
+    }
+
+    private var supportsCaffeineControl: Bool {
+        store.supportsCaffeineControl(macDeviceID: macDeviceID, instanceTag: instanceTag)
+    }
+
+    /// Restarts the status load whenever the identity, connection, or
+    /// capability underneath it changes, so a reconnect never shows the
+    /// previous connection's stale failure state.
+    private var caffeineLoadID: String {
+        [
+            macDeviceID,
+            instanceTag ?? "",
+            String(supportsCaffeineControl),
+            String(describing: connectionStatus),
+        ].joined(separator: ":")
+    }
+
+    /// This Mac's own keep-awake control. Keep-awake is per device: the
+    /// section reads and mutates exactly the pairing this detail shows,
+    /// whether it is the active Mac or a live secondary connection.
+    @ViewBuilder
+    private var macPowerSection: some View {
+        MobileCaffeineSettingsContent(
+            isEnabled: store.caffeineStatus(
+                macDeviceID: macDeviceID,
+                instanceTag: instanceTag
+            )?.enabled,
+            isSupported: supportsCaffeineControl,
+            isConnected: isConnectedToThisComputer,
+            isBusy: store.isCaffeineMutationInFlight(
+                macDeviceID: macDeviceID,
+                instanceTag: instanceTag
+            ),
+            statusLoadFailed: caffeineStatusLoadFailed,
+            onRetryStatus: {
+                caffeineStatusLoadFailed = false
+                caffeineStatusRetryID &+= 1
+            },
+            onSet: { enabled in
+                await store.setCaffeineEnabled(
+                    enabled,
+                    macDeviceID: macDeviceID,
+                    instanceTag: instanceTag
+                )
+            }
+        )
+        .task(id: "\(caffeineLoadID):\(caffeineStatusRetryID)") {
+            let loadID = caffeineLoadID
+            guard isConnectedToThisComputer, supportsCaffeineControl else {
+                caffeineStatusLoadFailed = false
+                return
+            }
+            caffeineStatusLoadFailed = false
+            let didLoad = await store.refreshCaffeineStatus(
+                macDeviceID: macDeviceID,
+                instanceTag: instanceTag
+            )
+            guard !Task.isCancelled, caffeineLoadID == loadID else { return }
+            caffeineStatusLoadFailed = !didLoad
         }
     }
 
