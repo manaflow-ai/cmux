@@ -5278,16 +5278,13 @@ impl Mux {
         if sequences.get(&terminal_id).is_some_and(|latest| sequence <= *latest) {
             return;
         }
-        sequences.insert(terminal_id.clone(), sequence);
         // The record's session field is a human-facing label; native agent
         // session ids are opaque, so views fall back to their own context.
-        if let Err(error) = self.report_agent(surface, state, AgentSource::Hook, None) {
-            eprintln!(
-                "cmux-tui: agent record update for {} ({}) failed: {error}",
-                terminal_id, ingress.kind
-            );
+        if self.report_agent(surface, state, AgentSource::Hook, None).is_err() {
+            eprintln!("cmux-tui: agent record update failed");
             return;
         }
+        sequences.insert(terminal_id.clone(), sequence);
         // An ended session leaves the roster entirely: the done state was
         // committed and broadcast above (so remote caches converge), and the
         // live record is dropped so agents views stop listing the terminal
@@ -21743,6 +21740,31 @@ mod tests {
         let record = &mux.list_agents(Some(surface_id), None)[0];
         assert_eq!(record.state, AgentState::Working);
         assert_eq!(record.updated_at_ms, working_at);
+    }
+
+    #[test]
+    fn failed_agent_hook_projection_does_not_consume_sequence() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = mux.with_state(|state| {
+            match state.resource_indexes.content_ids.get(&surface.id).unwrap() {
+                ContentPublicId::Terminal(id) => id.clone(),
+                ContentPublicId::Browser(_) => panic!("workspace opened a browser"),
+            }
+        });
+        let ingress = crate::agent_hooks::agent_hook_journal_ingress(
+            "claude",
+            "UserPromptSubmit",
+            Some(&terminal_id.to_string()),
+            serde_json::json!({}),
+        )
+        .unwrap();
+        mux.workspace_registry.lock().unwrap().set_resource_patch_failure(true).unwrap();
+        mux.apply_agent_hook_record(&ingress, 7);
+        assert!(mux.list_agents(Some(surface.id), None).is_empty());
+        mux.workspace_registry.lock().unwrap().set_resource_patch_failure(false).unwrap();
+        mux.apply_agent_hook_record(&ingress, 7);
+        assert_eq!(mux.list_agents(Some(surface.id), None)[0].state, AgentState::Working);
     }
 
     #[test]
