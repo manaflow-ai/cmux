@@ -59744,23 +59744,6 @@
         }
       }
     },
-    "cloudTree.menu.closeWorkspace": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Close Workspace"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ワークスペースを閉じる"
-          }
-        }
-      }
-    },
     "cloudTree.menu.copyPort": {
       "extractionState": "manual",
       "localizations": {
