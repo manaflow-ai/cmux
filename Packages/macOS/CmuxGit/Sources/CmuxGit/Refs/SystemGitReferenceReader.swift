@@ -112,14 +112,6 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
                     deadline: deadline
                 )
                 if let storage, storage != "files" {
-                    // An incomplete include graph is represented as
-                    // "unknown". Watch planning still needs the direct branch
-                    // context to retain exact include sentinels; the resulting
-                    // conservative forced-root plan will retry when metadata
-                    // changes. Known non-files backends remain on plumbing.
-                    if includeStorageWatchPaths, storage == "unknown" {
-                        return directSnapshot
-                    }
                     return plumbingSnapshot(
                         repository: repository,
                         deadline: deadline,
