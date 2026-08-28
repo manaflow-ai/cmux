@@ -1076,6 +1076,27 @@ private actor ScriptedCommandRunner: CommandRunning {
     }
 }
 
+@Suite("Port scanner lifecycle")
+struct PortScannerLifecycleTests {
+    @Test("Unregister cancels a pending coalesce and burst generation")
+    func unregisterCancelsPendingBurst() async {
+        let runner = ScriptedCommandRunner(results: [])
+        let scanner = PortScanner(commandRunner: runner)
+        let workspaceID = UUID()
+        let panelID = UUID()
+        await MainActor.run {
+            scanner.registerTTY(workspaceId: workspaceID, panelId: panelID, ttyName: "ttys999")
+        }
+        scanner.kick(workspaceId: workspaceID, panelId: panelID)
+        await MainActor.run {
+            scanner.unregisterPanel(workspaceId: workspaceID, panelId: panelID)
+        }
+        try? await Task.sleep(for: .milliseconds(800))
+        let calls = await runner.recordedArguments
+        #expect(calls.isEmpty)
+    }
+}
+
 @Suite("Port scanner retirement end to end")
 struct PortScannerPortRetirementTests {
     /// Drives the whole scanner — TTY registration, kick, coalesce, burst,
