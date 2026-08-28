@@ -5448,8 +5448,9 @@ impl Mux {
         let terminal_id = TerminalPublicId::parse(&terminal_subject.id)
             .with_context(|| format!("invalid terminal subject {:?}", terminal_subject.id))?;
         let Some(surface) = self.resource_surface_for_terminal(&terminal_id) else {
-            return Err(anyhow::Error::new(AgentHookTerminalUnavailable)
-                .context(format!("terminal {terminal_id} is not available for agent hook projection")));
+            return Err(anyhow::Error::new(AgentHookTerminalUnavailable).context(format!(
+                "terminal {terminal_id} is not available for agent hook projection"
+            )));
         };
         // Serialize the sequence check, projection commit, and sequence
         // update as one operation. The projection path takes registry, state,
@@ -5469,9 +5470,7 @@ impl Mux {
         // session-less event is ambiguous. Do not assign delayed events from
         // that generation to the currently active session.
         if explicit_session_id.is_none()
-            && previous_fence
-                .as_ref()
-                .is_some_and(|fence| !fence.session_id.starts_with("legacy:"))
+            && previous_fence.as_ref().is_some_and(|fence| !fence.session_id.starts_with("legacy:"))
         {
             return Ok(());
         }
