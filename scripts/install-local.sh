@@ -14,7 +14,7 @@ DERIVED_DATA="${CMUX_LOCAL_INSTALL_DERIVED_DATA:-$HOME/Library/Developer/Xcode/D
 DEST_DIR="${CMUX_LOCAL_INSTALL_DEST_DIR:-$HOME/Applications}"
 DEST_APP="$DEST_DIR/cmux.app"
 DEST_TMP="$DEST_DIR/.cmux.app.installing.$$"
-PROJECT_PATH="GhosttyTabs.xcodeproj"
+PROJECT_PATH="cmux.xcodeproj"
 PROJECT_TMP=""
 APP_RELEASE_CONFIG_ID="A5001083"
 DEFAULT_DEVELOPMENT_TEAM="WNF89D7V44"
@@ -73,7 +73,7 @@ if [[ "$SIGNING_MODE" != "project" ]]; then
   PROJECT_TMP="$REPO_ROOT/.cmux-local-install.$$.xcodeproj"
   rm -rf "$PROJECT_TMP"
   ditto "$PROJECT_PATH" "$PROJECT_TMP"
-  perl -0pi -e 's/container:GhosttyTabs\.xcodeproj/container:'"$(basename "$PROJECT_TMP")"'/g' \
+  perl -0pi -e 's/container:cmux\.xcodeproj/container:'"$(basename "$PROJECT_TMP")"'/g' \
     "$PROJECT_TMP/xcshareddata/xcschemes/cmux.xcscheme"
 
   if [[ "$SIGNING_MODE" == "local" ]]; then

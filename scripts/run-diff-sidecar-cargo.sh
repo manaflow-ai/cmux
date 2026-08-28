@@ -14,4 +14,8 @@ if ! command -v rustup >/dev/null 2>&1; then
   exit 1
 fi
 
-exec rustup run "$TOOLCHAIN" cargo "$@"
+PINNED_CARGO="$(rustup which --toolchain "$TOOLCHAIN" cargo)"
+PINNED_BIN_DIR="${PINNED_CARGO%/*}"
+export PATH="${PINNED_BIN_DIR}:${PATH}"
+
+exec "$PINNED_CARGO" "$@"
