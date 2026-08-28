@@ -3974,6 +3974,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// AppKit forwarding and clipboard sequencing feed this ledger rather than
     /// maintaining independent pressed-button mirrors.
     private let ghosttyMouseSessionLedger = GhosttyMouseSessionLedger()
+    /// Compatibility projection for the find overlay; ownership remains in
+    /// the surface ledger rather than a second mutable flag.
+    private var hasPendingLeftMouseRelease: Bool {
+        ghosttyMouseSessionLedger.hasSession(
+            for: .left,
+            on: currentGhosttyMouseSurfaceIdentity
+        )
+    }
     /// Lifecycle cleanup runs after the current AppKit/SwiftUI callback so a
     /// potentially blocking Ghostty release never stalls portal reconciliation.
     /// The captured session tokens keep the task safe across a new press or
@@ -3981,8 +3989,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var deferredGhosttyMouseRepairTask: Task<Void, Never>?
     /// Set while a lifecycle repair closes a native gesture. Ghostty's normal
     /// left release can copy selections or invoke link/prompt actions; those
-    /// side effects do not belong to a focus/portal cancellation.
-    fileprivate var suppressingSyntheticMouseReleaseSideEffects = false
+    /// side effects do not belong to a focus/portal cancellation. The atomic
+    /// gate is also read by Ghostty's clipboard callback on its I/O thread.
+    private let syntheticMouseReleaseSideEffectsGate = AtomicBooleanGate(false)
+    fileprivate var suppressingSyntheticMouseReleaseSideEffects: Bool {
+        get { syntheticMouseReleaseSideEffectsGate.loadAcquire() }
+        set { syntheticMouseReleaseSideEffectsGate.storeRelease(newValue) }
+    }
     let imageTransferPreparation: TerminalImageTransferPreparationService?
 #if DEBUG
     private var lastSizeSkipSignature: String?
@@ -4279,7 +4292,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         _ session: GhosttyMouseSessionLedger.Session
     ) {
         guard session.button == .right else { return }
-        guard let surfaceIdentity = currentGhosttyMouseSurfaceIdentity else {
+        guard let terminalSurface,
+              let surfaceIdentity = currentGhosttyMouseSurfaceIdentity else {
             resetGhosttyMouseButtonTracking()
             return
         }
@@ -4287,8 +4301,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             for: .right,
             on: surfaceIdentity
         ) == session else { return }
-        guard let surface = self.surface else {
-            _ = finishGhosttyMouseSession(session)
+        guard let surface = terminalSurface.liveSurfaceForGhosttyAccess(
+            reason: "contextMenuMouseRelease"
+        ),
+        UInt(bitPattern: surface) == session.surface.nativeAddress,
+        currentGhosttyMouseSurfaceIdentity == surfaceIdentity else {
+            resetGhosttyMouseButtonTracking()
             return
         }
         let mods = ghosttyMouseSessionLedger.pointerState?.mods ?? GHOSTTY_MODS_NONE
@@ -7198,7 +7216,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let pointer = ghosttyMouseSessionLedger.pointerState
         if let surfacePoint = pointer?.surfacePoint {
             ghostty_surface_mouse_pos(
-                surface,
+                validatedSurface,
                 surfacePoint.x,
                 surfacePoint.y,
                 pointer?.mods ?? GHOSTTY_MODS_NONE
@@ -7220,13 +7238,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             ) == session else { continue }
             if suppressSideEffects {
                 _ = sendSyntheticGhosttyMouseRelease(
-                    surface,
+                    validatedSurface,
                     button: session.button.ghosttyButton,
                     mods: pointer?.mods ?? GHOSTTY_MODS_NONE
                 )
             } else {
                 _ = sendGhosttyMouseButton(
-                    surface,
+                    validatedSurface,
                     state: GHOSTTY_MOUSE_RELEASE,
                     button: session.button.ghosttyButton,
                     mods: pointer?.mods ?? GHOSTTY_MODS_NONE
@@ -8801,10 +8819,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
 #if DEBUG
     func debugHasPendingLeftMouseReleaseForTesting() -> Bool {
-        ghosttyMouseSessionLedger.hasSession(
-            for: .left,
-            on: currentGhosttyMouseSurfaceIdentity
-        )
+        hasPendingLeftMouseRelease
     }
 #endif
 
