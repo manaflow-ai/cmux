@@ -97,6 +97,7 @@ pub(crate) const RESOURCE_API_FRONTEND_PROJECTION_SCHEMA_VERSION: u32 = 2;
 const RESOURCE_EFFECT_PEPPER_SCHEMA_VERSION: i64 = 7;
 const MAX_ID_LEN: usize = 128;
 const MAX_WORKSPACE_KEY_LEN: usize = 256;
+pub(crate) const DISPLAY_NAME_MAX_BYTES: usize = 1_024;
 const MAX_PROJECTION_BYTES: usize = 1024 * 1024;
 const MAX_LAUNCH_SPEC_BYTES: usize = 1024 * 1024;
 #[cfg(not(test))]
@@ -118,6 +119,22 @@ const RESOURCE_EFFECT_PEPPER_META_KEY: &str = "resource_effect_pepper_id";
 const RESOURCE_EFFECT_PEPPER_CLEANUP_META_KEY: &str = "resource_effect_pepper_cleanup_pending";
 const RESOURCE_EFFECT_PEPPER_ID_DOMAIN: &[u8] = b"cmux.resource-effect-pepper-id.v1";
 const RESOURCE_INPUT_RECEIPT_DOMAIN: &[u8] = b"cmux.resource-input-receipt.v2";
+
+/// Validate text that is persisted as a user-visible workspace, screen, pane,
+/// or tab label. Labels cross terminal, log, and JSON boundaries, so control
+/// and line-separator characters must never enter the durable projection.
+pub(crate) fn validate_display_name(label: &str, value: &str) -> anyhow::Result<()> {
+    if value.len() > DISPLAY_NAME_MAX_BYTES {
+        anyhow::bail!("{label} exceeds {DISPLAY_NAME_MAX_BYTES} bytes");
+    }
+    if value.chars().any(|character| {
+        character.is_control() || matches!(character, '\u{0085}' | '\u{2028}' | '\u{2029}')
+    }) {
+        anyhow::bail!("{label} contains a control or line-separator character");
+    }
+    Ok(())
+}
+
 const WORKSPACE_REGISTRY_FILE: &str = "workspace-registry.sqlite3";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -4660,6 +4677,7 @@ fn validate_registry(workspaces: &[RegistryWorkspace]) -> anyhow::Result<()> {
     let mut public_ids = HashSet::new();
     for workspace in workspaces {
         validate_workspace_key(&workspace.key)?;
+        validate_display_name("workspace name", &workspace.name)?;
         validate_identifier("workspace group key", &workspace.group_key)?;
         if workspace.id == 0 {
             anyhow::bail!("workspace id cannot be zero");

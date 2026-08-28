@@ -1417,6 +1417,9 @@ pub(super) fn validate_resource_patch(patch: &ResourcePatch) -> anyhow::Result<(
             }
             ResourceChange::SetActiveWorkspace { .. } => "singleton:active-workspace".to_string(),
             ResourceChange::UpsertScreen(screen) => {
+                if let Some(name) = screen.name.as_deref() {
+                    validate_display_name("screen name", name)?;
+                }
                 let mut panes = HashSet::new();
                 let mut splits = HashSet::new();
                 validate_layout_node(&screen.layout, &mut panes, &mut splits)?;
@@ -1433,9 +1436,17 @@ pub(super) fn validate_resource_patch(patch: &ResourcePatch) -> anyhow::Result<(
                 validate_order_ids("screen", screen_ids.iter().map(|id| id.as_str()))?;
                 format!("screen-order:{workspace_id}")
             }
-            ResourceChange::UpsertPane(pane) => format!("pane:{}", pane.public_id),
+            ResourceChange::UpsertPane(pane) => {
+                if let Some(name) = pane.name.as_deref() {
+                    validate_display_name("pane name", name)?;
+                }
+                format!("pane:{}", pane.public_id)
+            }
             ResourceChange::TombstonePane { pane_id } => format!("pane:{pane_id}"),
             ResourceChange::UpsertTab(tab) => {
+                if let Some(name) = tab.name.as_deref() {
+                    validate_display_name("tab name", name)?;
+                }
                 match (&tab.content_id, &tab.browser_url, &tab.terminal_id) {
                     (ContentPublicId::Terminal(_), None, Some(terminal_id)) => {
                         validate_terminal_identity("terminal id", terminal_id)?;
@@ -1636,6 +1647,9 @@ pub(crate) fn validate_registry_screen_projection(
     screen: &RegistryScreen,
     expected_panes: &HashSet<PanePublicId>,
 ) -> anyhow::Result<()> {
+    if let Some(name) = screen.name.as_deref() {
+        validate_display_name("screen name", name)?;
+    }
     let mut layout_panes = HashSet::new();
     let mut layout_splits = HashSet::new();
     validate_layout_node(&screen.layout, &mut layout_panes, &mut layout_splits)?;
@@ -3493,6 +3507,53 @@ fn validate_positions_for_parent(
 pub(super) fn validate_resource_invariants(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     ensure_no_foreign_key_violations(transaction)?;
     validate_concrete_identity_lifecycles(transaction)?;
+    let workspace_names = {
+        let mut statement = transaction.prepare(
+            "SELECT name FROM workspaces WHERE tombstoned = 0",
+        )?;
+        statement
+            .query_map([], |row| row.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()?
+    };
+    for name in workspace_names {
+        validate_display_name("workspace name", &name)?;
+    }
+    let screen_names = {
+        let mut statement = transaction.prepare(
+            "SELECT name FROM resource_screens
+             WHERE deleted_revision IS NULL AND name IS NOT NULL",
+        )?;
+        statement
+            .query_map([], |row| row.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()?
+    };
+    for name in screen_names {
+        validate_display_name("screen name", &name)?;
+    }
+    let pane_names = {
+        let mut statement = transaction.prepare(
+            "SELECT name FROM resource_panes
+             WHERE deleted_revision IS NULL AND name IS NOT NULL",
+        )?;
+        statement
+            .query_map([], |row| row.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()?
+    };
+    for name in pane_names {
+        validate_display_name("pane name", &name)?;
+    }
+    let tab_names = {
+        let mut statement = transaction.prepare(
+            "SELECT name FROM resource_tabs
+             WHERE deleted_revision IS NULL AND name IS NOT NULL",
+        )?;
+        statement
+            .query_map([], |row| row.get::<_, String>(0))?
+            .collect::<Result<Vec<_>, _>>()?
+    };
+    for name in tab_names {
+        validate_display_name("tab name", &name)?;
+    }
     validate_contiguous_positions(
         transaction,
         "SELECT '' AS parent, position FROM workspaces

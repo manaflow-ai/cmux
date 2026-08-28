@@ -208,7 +208,7 @@ type RestoredViewport = (std::collections::BTreeMap<SplitId, f32>, Option<f32>, 
 const TERMINAL_DIMENSION_MAX: u16 = 10_000;
 const WORKSPACE_REGISTRY_LIMIT: usize = 4_096;
 const WORKSPACE_KEY_MAX_BYTES: usize = 256;
-const WORKSPACE_NAME_MAX_BYTES: usize = 1_024;
+const WORKSPACE_NAME_MAX_BYTES: usize = crate::workspace_registry::DISPLAY_NAME_MAX_BYTES;
 const PROVIDER_WORKSPACE_AUTHORITY_MIN_BYTES: usize = 32;
 const PROVIDER_WORKSPACE_AUTHORITY_MAX_BYTES: usize = 512;
 const CELL_PIXEL_FANOUT_MAX_WORKERS: usize = 32;
@@ -3374,10 +3374,7 @@ impl Mux {
     }
 
     fn validate_workspace_name(name: &str) -> anyhow::Result<()> {
-        if name.len() > WORKSPACE_NAME_MAX_BYTES {
-            anyhow::bail!("workspace name exceeds {WORKSPACE_NAME_MAX_BYTES} bytes");
-        }
-        Ok(())
+        crate::workspace_registry::validate_display_name("workspace name", name)
     }
 
     fn workspace_lifecycle(&self, workspace: WorkspaceId) -> Arc<Mutex<()>> {
