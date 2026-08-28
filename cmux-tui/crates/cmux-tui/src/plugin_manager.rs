@@ -1,5 +1,5 @@
 use std::fs;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -127,6 +127,7 @@ struct PluginRegistryMetadata {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 #[serde(rename_all = "snake_case")]
 enum InstallJournalPhase {
     Prepared,
@@ -134,6 +135,7 @@ enum InstallJournalPhase {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct InstallJournal {
     name: String,
     target_backup: PathBuf,
@@ -147,16 +149,22 @@ struct InstallJournal {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct ConfigSnapshot {
     path: PathBuf,
     sidebar_plugin: Option<Value>,
 }
+
+const INVALID_INSTALL_JOURNAL_DIR: &str = ".invalid-install-journals";
+const MAX_INSTALL_JOURNAL_BYTES: usize = 1024 * 1024;
+const JOURNAL_QUARANTINE_ATTEMPTS: usize = 16;
 
 struct PluginOperationLock(fs::File);
 
 fn acquire_plugin_operation_lock() -> anyhow::Result<PluginOperationLock> {
     let root = install_root()?;
     fs::create_dir_all(&root)?;
+    ensure_real_directory(&root)?;
     let path = root.join(".install.lock");
     let file = fs::OpenOptions::new().create(true).read(true).write(true).open(path)?;
     file.lock()?;
@@ -684,7 +692,14 @@ fn write_install_journal(path: &Path, journal: &InstallJournal) -> anyhow::Resul
     ));
     let encoded = serde_json::to_vec(journal)?;
     let result = (|| -> anyhow::Result<()> {
-        let mut file = fs::OpenOptions::new().create_new(true).write(true).open(&temp)?;
+        let mut options = fs::OpenOptions::new();
+        options.create_new(true).write(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt as _;
+            options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC).mode(0o600);
+        }
+        let mut file = options.open(&temp)?;
         file.write_all(&encoded)?;
         file.write_all(b"\n")?;
         file.sync_all()?;
@@ -697,6 +712,38 @@ fn write_install_journal(path: &Path, journal: &InstallJournal) -> anyhow::Resul
         let _ = fs::remove_file(&temp);
     }
     result
+}
+
+/// Read a recovery journal without following a final-component symlink or
+/// accepting an unbounded file. Journals control cleanup after a crash, so a
+/// malformed or attacker-written file must never become an arbitrary file
+/// operation.
+fn read_install_journal(path: &Path) -> anyhow::Result<Vec<u8>> {
+    let mut options = fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
+    }
+    let mut file = options.open(path)?;
+    let metadata = file.metadata()?;
+    anyhow::ensure!(metadata.is_file(), "install journal is not a regular file");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        anyhow::ensure!(
+            metadata.permissions().mode() & 0o7777 == 0o600,
+            "install journal permissions are not private"
+        );
+    }
+    let mut bytes = Vec::new();
+    file.take((MAX_INSTALL_JOURNAL_BYTES + 1) as u64).read_to_end(&mut bytes)?;
+    anyhow::ensure!(
+        bytes.len() <= MAX_INSTALL_JOURNAL_BYTES,
+        "install journal exceeds {MAX_INSTALL_JOURNAL_BYTES} bytes"
+    );
+    Ok(bytes)
 }
 
 #[cfg(unix)]
@@ -724,7 +771,118 @@ fn remove_path_if_present(path: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn ensure_real_directory(path: &Path) -> anyhow::Result<()> {
+    let metadata = fs::symlink_metadata(path)?;
+    anyhow::ensure!(
+        metadata.is_dir() && !metadata.file_type().is_symlink(),
+        "plugin state directory is not a real directory"
+    );
+    Ok(())
+}
+
+fn direct_child_named(parent: &Path, path: &Path, predicate: impl FnOnce(&str) -> bool) -> bool {
+    path.parent() == Some(parent)
+        && path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(predicate)
+}
+
+fn validate_install_journal_paths(
+    install_root: &Path,
+    journal_path: &Path,
+    journal: &InstallJournal,
+) -> anyhow::Result<()> {
+    validate_plugin_name(&journal.name)?;
+    anyhow::ensure!(
+        journal_path == install_journal_path(install_root, &journal.name),
+        "install journal name does not match its path"
+    );
+    anyhow::ensure!(
+        direct_child_named(install_root, &journal.target_backup, |name| {
+            name.starts_with(&format!(".{}.", journal.name)) && name.ends_with(".plugin-backup")
+        }),
+        "install journal target backup is outside the install root"
+    );
+    anyhow::ensure!(
+        direct_child_named(install_root, &journal.temp_dir, |name| {
+            name.starts_with(".install-")
+        }),
+        "install journal temporary directory is outside the install root"
+    );
+    let registry = install_root.join(".registry");
+    if fs::symlink_metadata(&registry).is_ok() {
+        ensure_real_directory(&registry)?;
+    }
+    anyhow::ensure!(
+        direct_child_named(&registry, &journal.metadata_backup, |name| {
+            name.starts_with(&format!(".{}.", journal.name)) && name.ends_with(".metadata-backup.json")
+        }),
+        "install journal metadata backup is outside the registry"
+    );
+    anyhow::ensure!(
+        direct_child_named(&registry, &journal.metadata_temp, |name| {
+            name.starts_with(&format!(".{}.", journal.name)) && name.ends_with(".tmp")
+        }),
+        "install journal metadata staging path is outside the registry"
+    );
+    if let Some(snapshot) = &journal.config_snapshot {
+        anyhow::ensure!(
+            snapshot.path == config::config_path()?,
+            "install journal config snapshot path is not the active config"
+        );
+    }
+    Ok(())
+}
+
+fn quarantine_install_journal(install_root: &Path, path: &Path) -> anyhow::Result<()> {
+    let quarantine = install_root.join(INVALID_INSTALL_JOURNAL_DIR);
+    match fs::symlink_metadata(&quarantine) {
+        Ok(metadata) => anyhow::ensure!(metadata.is_dir(), "invalid journal quarantine is not a directory"),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            match fs::create_dir(&quarantine) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                    ensure_real_directory(&quarantine)?;
+                }
+                Err(error) => return Err(error.into()),
+            }
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt as _;
+                fs::set_permissions(&quarantine, fs::Permissions::from_mode(0o700))?;
+            }
+        }
+        Err(error) => return Err(error.into()),
+    }
+    let basename = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("invalid-install-journal");
+    for attempt in 0..JOURNAL_QUARANTINE_ATTEMPTS {
+        let destination = quarantine.join(format!(
+            "{basename}.{}-{attempt}.quarantined",
+            std::process::id()
+        ));
+        if fs::symlink_metadata(&destination).is_ok() {
+            continue;
+        }
+        match fs::rename(path, &destination) {
+            Ok(()) => return Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(error) => return Err(error.into()),
+        }
+    }
+    anyhow::bail!("could not quarantine invalid install journal")
+}
+
 fn reconcile_install_transactions(install_root: &Path) -> anyhow::Result<()> {
+    if let Ok(metadata) = fs::symlink_metadata(install_root) {
+        anyhow::ensure!(
+            metadata.is_dir() && !metadata.file_type().is_symlink(),
+            "plugin install root is not a real directory"
+        );
+    }
     let entries = match fs::read_dir(install_root) {
         Ok(entries) => entries,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
@@ -737,10 +895,24 @@ fn reconcile_install_transactions(install_root: &Path) -> anyhow::Result<()> {
         if !name.starts_with('.') || !name.ends_with(".install-journal.json") {
             continue;
         }
-        let journal: InstallJournal =
-            serde_json::from_slice(&fs::read(&path)?).map_err(|error| {
-                anyhow::anyhow!("invalid install journal {}: {error}", path.display())
-            })?;
+        let journal_bytes = match read_install_journal(&path) {
+            Ok(bytes) => bytes,
+            Err(_) => {
+                quarantine_install_journal(install_root, &path)?;
+                continue;
+            }
+        };
+        let journal: InstallJournal = match serde_json::from_slice(&journal_bytes) {
+            Ok(journal) => journal,
+            Err(_) => {
+                quarantine_install_journal(install_root, &path)?;
+                continue;
+            }
+        };
+        if validate_install_journal_paths(install_root, &path, &journal).is_err() {
+            quarantine_install_journal(install_root, &path)?;
+            continue;
+        }
         match journal.phase {
             InstallJournalPhase::Committed => {
                 remove_path_if_present(&journal.target_backup)?;
@@ -817,7 +989,14 @@ fn write_config_value_atomic_local(path: &Path, value: &Value) -> anyhow::Result
     let temp =
         parent.join(format!(".{file_name}.{}.{}-restore.tmp", std::process::id(), now_nanos()));
     let result = (|| -> anyhow::Result<()> {
-        let mut file = fs::OpenOptions::new().create_new(true).write(true).open(&temp)?;
+        let mut options = fs::OpenOptions::new();
+        options.create_new(true).write(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt as _;
+            options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC).mode(0o600);
+        }
+        let mut file = options.open(&temp)?;
         serde_json::to_writer_pretty(&mut file, value)?;
         file.write_all(b"\n")?;
         file.sync_all()?;
@@ -891,6 +1070,11 @@ fn replace_installed_plugin_with_fs<F: InstallFilesystem, C: FnOnce() -> anyhow:
     config_snapshot: Option<ConfigSnapshot>,
     after_install: C,
 ) -> anyhow::Result<()> {
+    ensure_real_directory(install_root)?;
+    let registry = install_root.join(".registry");
+    if fs::symlink_metadata(&registry).is_ok() {
+        ensure_real_directory(&registry)?;
+    }
     let target = install_root.join(name);
     let target_exists = target.exists();
     let metadata_path = registry_metadata_path(install_root, name);
@@ -1024,6 +1208,7 @@ fn write_registry_metadata_temp(
     validate_plugin_id(&metadata.id)?;
     let registry = install_root.join(".registry");
     fs::create_dir_all(&registry)?;
+    ensure_real_directory(&registry)?;
     let temp = registry.join(format!(".{name}.{}-{}.tmp", std::process::id(), now_nanos()));
     let encoded = serde_json::to_vec(metadata)?;
     let mut file = fs::OpenOptions::new().create_new(true).write(true).open(&temp)?;
@@ -1344,6 +1529,43 @@ mod tests {
         assert!(!target_backup.exists());
         assert!(!metadata_backup.exists());
         assert!(!metadata_temp.exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn invalid_journal_paths_are_quarantined_without_touching_outside_files() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-plugin-journal-boundary-{}-{}",
+            std::process::id(),
+            now_nanos()
+        ));
+        let registry = root.join(".registry");
+        let outside = root.with_file_name(format!("{}-outside", root.file_name().unwrap().to_string_lossy()));
+        fs::create_dir_all(&registry).unwrap();
+        fs::write(&outside, b"keep").unwrap();
+        let journal_path = install_journal_path(&root, "demo");
+        write_install_journal(
+            &journal_path,
+            &InstallJournal {
+                name: "demo".into(),
+                target_backup: outside.clone(),
+                metadata_backup: registry.join(".demo.recovery.metadata-backup.json"),
+                temp_dir: root.join(".install-1-2"),
+                metadata_temp: registry.join(".demo.1-2.tmp"),
+                target_existed: false,
+                metadata_existed: false,
+                config_snapshot: None,
+                phase: InstallJournalPhase::Committed,
+            },
+        )
+        .unwrap();
+
+        reconcile_install_transactions(&root).unwrap();
+        assert_eq!(fs::read(&outside).unwrap(), b"keep");
+        assert!(!journal_path.exists());
+        let quarantined = root.join(INVALID_INSTALL_JOURNAL_DIR);
+        assert_eq!(fs::read_dir(quarantined).unwrap().count(), 1);
+        fs::remove_file(outside).unwrap();
         fs::remove_dir_all(root).unwrap();
     }
 
