@@ -1615,7 +1615,11 @@ final class cmuxUITests: XCTestCase {
         tap(row, in: app)
 
         let toggle = app.switches["MobileSettingsKeepMacAwakeToggle"]
+        for _ in 0..<8 where !toggle.exists || !toggle.isHittable {
+            app.swipeUp(velocity: .slow)
+        }
         XCTAssertTrue(toggle.waitForExistence(timeout: 4))
+        XCTAssertTrue(toggle.isHittable)
         let didRequestInitialStatus = await server.waitForRequest(method: "caffeine.status")
         XCTAssertTrue(didRequestInitialStatus)
         XCTAssertEqual(toggle.value as? String, "0")
@@ -1640,8 +1644,10 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(detailBack.waitForExistence(timeout: 4))
         tap(detailBack, in: app)
 
-        let indicator = app.images.matching(
-            NSPredicate(format: "identifier BEGINSWITH 'MobileComputerCaffeine-'")
+        // The cup indicator lives inside the row's combined accessibility
+        // element, so its label is asserted through the merged row label.
+        let indicator = app.descendants(matching: .any).matching(
+            NSPredicate(format: "label CONTAINS 'Keeping Mac awake'")
         ).firstMatch
         XCTAssertTrue(indicator.waitForExistence(timeout: 4))
 
