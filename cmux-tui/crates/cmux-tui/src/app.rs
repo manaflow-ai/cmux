@@ -1021,6 +1021,10 @@ impl HostInputIngress {
         self.space_available.notify_all();
     }
 
+    fn is_closed(&self) -> bool {
+        self.state.lock().unwrap().closed
+    }
+
     #[cfg(test)]
     fn len(&self) -> usize {
         self.state.lock().unwrap().events.len()
@@ -8754,8 +8758,15 @@ fn run_with_machine_updates_inner(
         }
         let mut graphics_responses = GraphicsResponseFilter::new(graphics_fence_notifier);
         'input: loop {
+            // Keep the blocking crossterm reader interruptible. HostInputRuntime
+            // closes its ingress during teardown; a bounded poll lets this
+            // detached reader observe that closure instead of lingering in
+            // read() until another terminal event arrives.
+            if input.ingress.is_closed() {
+                break 'input;
+            }
             let events = if let Some(timeout) = graphics_responses.time_until_expiry() {
-                match crossterm::event::poll(timeout) {
+                match crossterm::event::poll(timeout.min(Duration::from_millis(100))) {
                     Ok(true) => match crossterm::event::read() {
                         Ok(event) => graphics_responses.filter(event),
                         Err(error) => {
@@ -8770,8 +8781,15 @@ fn run_with_machine_updates_inner(
                     }
                 }
             } else {
-                match crossterm::event::read() {
-                    Ok(event) => graphics_responses.filter(event),
+                match crossterm::event::poll(Duration::from_millis(100)) {
+                    Ok(true) => match crossterm::event::read() {
+                        Ok(event) => graphics_responses.filter(event),
+                        Err(error) => {
+                            input.fail(error.to_string());
+                            break 'input;
+                        }
+                    },
+                    Ok(false) => continue,
                     Err(error) => {
                         input.fail(error.to_string());
                         break 'input;

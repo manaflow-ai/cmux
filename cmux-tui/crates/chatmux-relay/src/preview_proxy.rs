@@ -556,7 +556,10 @@ async fn run_peer<S>(
         // frontend connects; responses to these ids are swallowed.
         for method in ["Runtime.enable", "Network.enable", "Page.enable"] {
             let id = shared.next_cdp_id.fetch_add(1, Ordering::Relaxed);
-            if tx.try_send(Message::text(format!("{{\"id\":{id},\"method\":\"{method}\"}}"))).is_err() {
+            if tx
+                .try_send(Message::text(format!("{{\"id\":{id},\"method\":\"{method}\"}}")))
+                .is_err()
+            {
                 return;
             }
         }
