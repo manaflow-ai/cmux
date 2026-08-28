@@ -190,8 +190,11 @@ extension AgentRestoreLaunch {
 
         let executableStart = words[executableIndex].range.lowerBound
         var assignments: [String] = []
-        if let capturedExecutable = SubrouterCodexResumeRouting()
-            .capturedRoutingEnvironment(in: launchCommand.environment)["SUBROUTER_CODEX_BIN"] {
+        if let capturedExecutable = SubrouterCodexResumeRouting().preferredCustomCodexExecutable(
+            in: launchCommand.environment,
+            fallbackExecutable: launchCommand.executablePath,
+            wrapperShim: wrapperShellExecutableToken
+        ) {
             assignments.append(
                 TerminalStartupShellQuoting.singleQuoted("CMUX_CUSTOM_CODEX_PATH=\(capturedExecutable)")
             )

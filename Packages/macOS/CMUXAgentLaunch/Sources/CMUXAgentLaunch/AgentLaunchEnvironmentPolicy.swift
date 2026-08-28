@@ -72,6 +72,7 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
         // so restoring it keeps a restored agent on the account it launched with.
         "CLAUDE_SECURESTORAGE_CONFIG_DIR",
         "CMUX_CUSTOM_CLAUDE_PATH",
+        "CMUX_CUSTOM_CODEX_PATH",
         "CMUX_ROVODEV_SESSIONS_DIR",
         "CODEX_HOME",
         "CODEBUDDY_BASE_URL",

@@ -271,8 +271,11 @@ public struct AgentRestorePlanner: Sendable {
            arguments.starts(with: routedPrefix),
            let wrapperShim = normalized(environment[restoreLaunch.wrapperShimEnvironmentKey]),
            isExecutableFile(wrapperShim) {
-            if let capturedExecutable = normalized(environment["SUBROUTER_CODEX_BIN"]),
-               capturedExecutable != wrapperShim {
+            if let capturedExecutable = SubrouterCodexResumeRouting().preferredCustomCodexExecutable(
+                in: request.launchCommand?.environment,
+                fallbackExecutable: request.launchCommand?.executablePath,
+                wrapperShim: wrapperShim
+            ) {
                 environment[restoreLaunch.customExecutablePathEnvironmentKey] = capturedExecutable
             }
             environment["SUBROUTER_CODEX_BIN"] = wrapperShim

@@ -51,6 +51,22 @@ public struct SubrouterCodexResumeRouting: Sendable, Equatable {
         return selected
     }
 
+    /// Returns the real Codex executable retained behind the managed wrapper.
+    /// An already captured custom path takes precedence over Subrouter's child
+    /// binary, which may itself be the wrapper after an earlier restore.
+    public func preferredCustomCodexExecutable(
+        in environment: [String: String]?,
+        fallbackExecutable: String?,
+        wrapperShim: String
+    ) -> String? {
+        let candidates = [
+            sanitizedPathValue(environment?["CMUX_CUSTOM_CODEX_PATH"]),
+            sanitizedPathValue(environment?["SUBROUTER_CODEX_BIN"]),
+            sanitizedPathValue(fallbackExecutable),
+        ]
+        return candidates.compactMap { $0 }.first { $0 != wrapperShim }
+    }
+
     /// Returns the trusted marker and its bounded routing inputs for durable
     /// hook capture, or an empty environment when the marker is absent.
     public func capturedEnvironment(in environment: [String: String]?) -> [String: String] {
@@ -205,6 +221,17 @@ public struct SubrouterCodexResumeRouting: Sendable, Equatable {
               components.fragment == nil,
               !components.path.lowercased().hasPrefix("/t/"),
               !components.percentEncodedPath.lowercased().hasPrefix("/t/") else {
+            return nil
+        }
+        return trimmed
+    }
+
+    private func sanitizedPathValue(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              trimmed.utf8.count <= 4096,
+              !trimmed.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains) else {
             return nil
         }
         return trimmed
