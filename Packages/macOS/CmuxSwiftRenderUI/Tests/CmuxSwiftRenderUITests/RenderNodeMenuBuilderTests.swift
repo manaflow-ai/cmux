@@ -178,6 +178,39 @@ struct RenderNodeMenuBuilderTests {
         #expect(menu.items[1].keyEquivalentModifierMask == [.command, .shift])
     }
 
+    @Test("overlay presents only when the IR yields actual items")
+    func overlayPresentationGate() {
+        let view = RenderNodeContextMenuView()
+        view.dispatch = .noop
+
+        view.nodes = []
+        #expect(view.menuForPresentation() == nil)
+
+        view.nodes = [RenderNode(kind: .divider), RenderNode(kind: .spacer)]
+        #expect(view.menuForPresentation() == nil)
+
+        view.nodes = [RenderNode(kind: .button, text: "Focus",
+                                 action: ButtonAction(commands: [.log("focus")]))]
+        let menu = try! #require(view.menuForPresentation())
+        #expect(menu.items.map(\.title) == ["Focus"])
+    }
+
+    @Test("accessibility handle presents through the mounted view and drops it weakly")
+    func accessibilityHandleWiring() {
+        let handle = RenderNodeContextMenuHandle()
+        // No mounted view: presenting is a safe no-op.
+        handle.presentMenu()
+        #expect(handle.view == nil)
+
+        var view: RenderNodeContextMenuView? = RenderNodeContextMenuView()
+        handle.view = view
+        #expect(handle.view === view)
+
+        // The handle must not extend the platform view's lifetime.
+        view = nil
+        #expect(handle.view == nil)
+    }
+
     @Test("interpreter .contextMenu IR round-trips into the expected NSMenu")
     func interpreterEndToEnd() {
         let interp = SwiftViewInterpreter()

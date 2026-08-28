@@ -282,11 +282,24 @@ struct RenderNodeView: View {
             // Never SwiftUI `.contextMenu`: on macOS it eagerly rebuilds menu
             // content on every update and leaks ObservationTracking without
             // bound (issue #7345). A native NSMenu is instead built from the
-            // pure-data IR at right-click time by the overlay.
+            // pure-data IR at right-click time by the overlay. The row keeps
+            // VoiceOver menu parity through `.accessibilityAction(.showMenu)`
+            // on its own element; the overlay itself is accessibility-hidden
+            // so it never appears as a spurious element in row navigation.
             if !modifier.children.isEmpty {
-                return AnyView(view.overlay {
-                    RenderNodeContextMenuOverlay(nodes: modifier.children, dispatch: dispatch)
-                })
+                let handle = RenderNodeContextMenuHandle()
+                return AnyView(
+                    view
+                        .overlay {
+                            RenderNodeContextMenuOverlay(
+                                nodes: modifier.children,
+                                dispatch: dispatch,
+                                handle: handle
+                            )
+                            .accessibilityHidden(true)
+                        }
+                        .accessibilityAction(.showMenu) { handle.presentMenu() }
+                )
             }
             return view
         case "help":
