@@ -31135,7 +31135,10 @@ struct CMUXCLI {
         var environment = selectedAgentLaunchEnvironment(from: env, kind: launcher)
         let subrouterRouting = SubrouterCodexResumeRouting()
         if fallbackKind == "codex" {
-            environment.merge(subrouterRouting.capturedEnvironment(in: env)) { _, captured in captured }
+            var launchBoundEnvironment = env
+            launchBoundEnvironment[SubrouterCodexResumeRouting.environmentKey] =
+                env[SubrouterCodexResumeRouting.launchBoundEnvironmentKey]
+            environment.merge(subrouterRouting.capturedEnvironment(in: launchBoundEnvironment)) { _, captured in captured }
         }
         // HOME is intentionally not part of the replay environment: changing
         // it for every restored agent can redirect unrelated config and caches.
@@ -31191,7 +31194,7 @@ struct CMUXCLI {
                 in: sanitizedArguments,
                 from: arguments,
                 launcher: launcher,
-                environment: env
+                environment: environment
             )
             : sanitizedArguments
         let source = envArguments == nil ? "process" : "environment"

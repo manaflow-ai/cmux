@@ -6,6 +6,9 @@ public struct SubrouterCodexResumeRouting: Sendable, Equatable {
     /// The metadata marker emitted by Subrouter for routed Codex children.
     public static let environmentKey = "SUBROUTER_CODEX_RESUME_COMMAND"
 
+    /// Wrapper-attested copy of the marker bound to the current Codex argv.
+    public static let launchBoundEnvironmentKey = "CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND"
+
     private static let expectedMarkerTokens = [
         ["sr", "codex", "resume"],
         ["subrouter", "codex", "resume"],
