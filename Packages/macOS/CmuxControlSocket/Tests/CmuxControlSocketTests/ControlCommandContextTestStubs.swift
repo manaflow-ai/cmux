@@ -489,7 +489,8 @@ extension ControlSurfaceContext {
     func controlSurfaceResumeStrings() -> ControlSurfaceResumeStrings {
         ControlSurfaceResumeStrings(
             agentSessionEndedMustBeBoolean: "",
-            launchCommandMustBeValid: ""
+            launchCommandMustBeValid: "",
+            restoreClaimMustBeValid: ""
         )
     }
 
@@ -517,7 +518,10 @@ extension ControlSurfaceContext {
     func controlSurfaceResumeGet(
         routing: ControlRoutingSelectors,
         explicitTargetID: UUID?,
-        hasResolvedWindowID: Bool
+        hasResolvedWindowID: Bool,
+        claimCheckpointID: String?,
+        claimSource: String?,
+        claimUpdatedAt: Double?
     ) -> ControlSurfaceResumeResolution { .surfaceNotFound }
 
     func controlSurfaceResumeClear(
@@ -526,6 +530,7 @@ extension ControlSurfaceContext {
         hasResolvedWindowID: Bool,
         expectedCheckpointID: String?,
         expectedSource: String?,
+        expectedUpdatedAt: Double?,
         agentSessionEnded: Bool
     ) -> ControlSurfaceResumeResolution { .surfaceNotFound }
 

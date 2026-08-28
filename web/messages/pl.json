@@ -54,6 +54,7 @@
     "community": "Społeczność",
     "docs": "Dokumentacja",
     "changelog": "Dziennik zmian",
+    "support": "Pomoc",
     "privacy": "Prywatność",
     "terms": "Regulamin",
     "eula": "EULA",
@@ -3673,6 +3674,52 @@
       "secondaryCta": "Pakiet Debiana (.deb)",
       "requirements": "Linux · x64",
       "installBody": "Uruchom raz instalator dla bieżącego użytkownika. Zainstaluje cmux w ~/.local bez uprawnień roota i włączy podpisane aktualizacje w aplikacji. Jeśli chcesz, aby aktualizacjami zarządzał menedżer pakietów, wybierz zamiast niego pakiet Debiana."
+    }
+  },
+  "support": {
+    "metaTitle": "Pomoc | cmux",
+    "metaDescription": "Uzyskaj pomoc z cmux. Wyślij nam wiadomość, a odpowiemy e-mailem, albo skontaktuj się z nami przez Discord i GitHub.",
+    "section": "Pomoc",
+    "title": "Uzyskaj pomoc z cmux.",
+    "body": "Wyślij nam wiadomość, a odpowiemy e-mailem. Opisz, co robiłeś, czego oczekiwałeś i co wydarzyło się zamiast tego — dzięki temu pomożemy szybciej.",
+    "channels": {
+      "docs": {
+        "label": "Dokumentacja",
+        "description": "Przewodniki dotyczące szybkiego startu, konfiguracji i rozwiązywania problemów."
+      },
+      "discord": {
+        "label": "Discord",
+        "description": "Pytaj społeczność i zespół w czasie rzeczywistym."
+      },
+      "github": {
+        "label": "Zgłoszenia na GitHub",
+        "description": "Zgłaszaj błędy i proponuj nowe funkcje publicznie."
+      },
+      "email": {
+        "label": "founders@manaflow.com",
+        "description": "Wolisz e-mail? Napisz do nas bezpośrednio."
+      }
+    },
+    "formAriaLabel": "Formularz kontaktowy pomocy",
+    "form": {
+      "name": "Imię i nazwisko",
+      "email": "Adres e-mail",
+      "topic": "Temat",
+      "message": "W czym możemy pomóc?",
+      "selectPlaceholder": "Wybierz opcję",
+      "topicOptions": [
+        "Zgłoszenie błędu",
+        "Rozliczenia lub subskrypcja",
+        "Konto lub logowanie",
+        "Cloud VMs",
+        "Prośba o funkcję",
+        "Inne"
+      ],
+      "privacy": "Twojego adresu e-mail używamy wyłącznie po to, aby odpowiedzieć na Twoje zgłoszenie. Nie sprzedajemy danych kontaktowych.",
+      "submit": "Wyślij wiadomość",
+      "submitting": "Wysyłanie…",
+      "success": "Dziękujemy. Otrzymaliśmy Twoją wiadomość i odpowiemy na Twój e-mail z adresu founders@manaflow.com.",
+      "error": "Coś poszło nie tak. Spróbuj ponownie lub napisz na founders@manaflow.com."
     }
   },
   "emails": {

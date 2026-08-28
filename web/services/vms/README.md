@@ -68,8 +68,24 @@ the provider, provider image id, cmux image version, build metadata, and validat
 
 Default image policy:
 
-- Production and staging select images with `E2B_CMUXD_WS_TEMPLATE` and
-  `FREESTYLE_SANDBOX_SNAPSHOT`.
+- Production and staging select images with `E2B_CMUXD_WS_TEMPLATE`,
+  `FREESTYLE_SANDBOX_SNAPSHOT`, `DAYTONA_SANDBOX_SNAPSHOT`, and for Blaxel `BLAXEL_SANDBOX_IMAGE`
+  (base machines) plus `BLAXEL_SANDBOX_DESKTOP_IMAGE` (desktop machines).
+- Clients request a machine **kind** (`kind: "desktop" | "base"` on `POST /api/vm`,
+  `POST /api/vm/base/open`, and `POST /api/vm/base/reset`) rather than pinning an image id. With
+  no `image`, the resolver picks the kind's env var, then the manifest entry flagged
+  `kind` + `defaultForKind` (also in deployed runtimes), and only then fails. `image` still wins
+  when present, and a body with neither keeps the legacy single-image behavior. Responses and
+  `GET /api/vm` entries echo `kind`; `GET /api/vm` `limits.imageKinds` lists the kinds the
+  default provider can serve and the image each resolves to.
+- An image named by a provider env var is operator configuration and is accepted even when the
+  manifest does not list it (logged once, `imageVersion: null`). Only a client-requested `image`
+  must be in the manifest (or `CMUX_VM_ALLOW_UNMANIFESTED_IMAGES=1`). `vm_image_config_error`
+  responses carry client-safe `details.imageRequested`, `details.kind`, `details.source`
+  (`request` | `env` | `default`), and `details.allowedKinds`; the provider, env var name, manifest
+  image ids, and reason go to the server log (`[vm-image-config-error]`) because API error
+  payloads must not leak provider implementation details (see
+  `expectNoCloudVmImplementationLeaks` in `tests/vm-route-auth.test.ts`).
 - Local development uses the manifest entry marked `defaultForLocalDev` when the provider env var
   is unset.
 - The current intended default provider is Blaxel. Set `CMUX_VM_DEFAULT_PROVIDER=blaxel` (the local
@@ -316,7 +332,57 @@ The dev Postgres port is `CMUX_PORT + 10000`, so `CMUX_PORT=10180` maps to `loca
 `cmux vm ssh <id>` is the user-facing interactive alias and opens the same managed workspace path
 as `cmux vm attach <id>`. `cmux vm ssh-info <id>` is print-only for provider SSH debugging.
 
-Blaxel needs no baked image: the driver bootstraps the stock `blaxel/base-image:latest` at create time by injecting the cmuxd-remote linux/amd64 binary through the sandbox filesystem API (gzip+base64, sub-second) and starting `serve --ws` as a `keepAlive` process. `keepAlive` is required — Blaxel freezes a sandbox ~15 s after the last connection otherwise, which would pause user workloads on disconnect; standby time is free, so a later "smart sleep while all PTYs are idle" optimization can reclaim the cost without changing the bootstrap. Config: `BL_API_KEY`, `BL_WORKSPACE`, and either `CMUX_VM_BLAXEL_DAEMON_PATH` (local linux/amd64 build) or `CMUX_VM_BLAXEL_DAEMON_URL` (R2 artifact). A URL source additionally requires `CMUX_VM_BLAXEL_DAEMON_SHA256` (sha256 of the raw binary) and fails closed without it — the daemon runs in every sandbox, so the download is integrity-pinned; a local path may run unpinned but honors the pin when set. Preview ingress is enforced private: attach only reuses a preview whose spec is not public, replaces a public one, and refuses a preview that comes back public, so the daemon is never reachable without a minted preview token. Attach dials the sandbox's private preview URL for port 7777 with a minted `X-Blaxel-Preview-Token` header (12 h expiry); the workspace API key never leaves the backend. Live driver E2E: `bun scripts/test-blaxel-vm-poc.ts`.
+Blaxel machines boot the baked `sandbox/cmux-devbox` image (template in
+`services/vms/images/blaxel/`, published with `web/scripts/build-blaxel-image.sh` on
+Blaxel's remote builder): chatmux-devbox tool parity (mise node/python/bun, uv, gh,
+devtools, pinned coding agents, ble.sh, half-life prompt, seeded history) plus an
+openbox/TigerVNC desktop with Ghostty, Chrome, and noVNC on 6901. The image stamps
+`/etc/cmux/image-stamp`, which short-circuits the driver's create-time provisioning
+fallback for stock images, and keeps the stock desktop contract (`start-vnc.sh` as user
+`cua`, RFB 5901) so the driver's VNC heal works unchanged. Stock `blaxel/xfce-vnc:latest`
+remains a validated manifest fallback (`BLAXEL_SANDBOX_IMAGE`;
+`blaxel/base-image:latest` with `cmux vm new --base`). Machines run no cmuxd-remote: the
+driver bootstraps every image, baked or stock, at create time with the **cmux-tui remote
+daemon as the machine's only session daemon**.
+The sandbox downloads the pinned static-musl `cmux-tui` build onto its persistent home
+volume (`/root/.cmux/bin/cmux-tui`, sha256-verified inside the VM with `sha256sum -c`,
+reused on resurrection) and the sandbox supervisor runs `cmux-tui server start --session
+cloud --remote-ws 0.0.0.0:1337`. The build and its digest come from the artifacts manifest
+published by `.github/workflows/cmux-tui-artifacts.yml` — nothing is pinned by hand.
+Config: `BL_API_KEY`, `BL_WORKSPACE`; optionally `CMUX_VM_CMUX_TUI_MANIFEST_URL` to pin a
+deployment to one commit's `https://files.cmux.com/cmux-tui/<commit>/manifest.json` instead
+of the rolling `latest`. Blaxel freezes a sandbox ~15 s after the last connection unless a
+`keepAlive` process runs; the smart-sleep watcher is that process and exits once every
+cmux-tui shell is idle and no client is connected, so an idle machine drops to (free)
+standby and the next attach wakes it.
+
+The persistent home volume (`/root`) is sized from the machine's memory in dev-box tiers
+(`defaultHomeVolumeMbForMemory`: ≤4 GB → 8 GB, otherwise 16 GB — Blaxel refuses volumes
+above 16 GB (measured 2026-08-26), so the 24 GB plan default gets the 16 GB ceiling instead of the
+old flat 5 GB); `CMUX_VM_BLAXEL_HOME_VOLUME_MB` pins every
+new volume to one size instead. The chosen size is recorded as `providerMetadata.homeVolumeMb`.
+Volumes are never resized: existing machines keep the volume they were created with, and a
+size Blaxel's volume API rejects fails the create with the provider's message.
+
+Preview ingress is enforced private: attach only reuses a preview whose spec is not public,
+replaces a public one, and refuses a preview that comes back public, so the daemon is never
+reachable without a minted preview token. The daemon has two previews for port 1337: the
+branded `https://<machine>.vm.cmux.sh` host (whose ingress refuses WebSocket upgrades
+without a User-Agent, so it is handed only to clients advertising the
+`direct-ws-user-agent` capability from `cmux-tui remote-probe --json`) and the raw
+`<hash>.preview.bl.run` host for everyone else. `POST /api/vm/[id]/attach-endpoint` with
+`{"transport":"cmux-remote","clientCapabilities":[...]}` returns
+`{route, token, session, daemonBuild?, invitation?}` where `route` is
+`wss://<host>/v1/link?bl_preview_token=…` and `invitation` is a single-use
+`cmux://enroll/…` URI minted only when the caller's device is not enrolled. The client
+connects with `cmux-tui remote connect <route> --invite-file …`, then
+`POST /api/vm/[id]/cmux-remote/approve {invitationId}` approves the pending claim (poll
+until `state` is `approved`). The legacy websocket/SSH attach (`attach-endpoint` without a
+transport, `POST /api/vm/[id]/sessions`) answers `409 vm_attach_transport_unsupported` on
+Blaxel machines with `details.supportedTransports: ["cmux-remote"]`. `cmux vm shell`,
+`cmux vm new`, `cmux vm base open` and the Machines panel all drive this from the Mac.
+See docs/cloud-cmux-tui-daemon.md for the design. Live driver E2E:
+`bun scripts/test-blaxel-vm-poc.ts`.
 
 E2B and Daytona interactive paths require a cmuxd WebSocket PTY image. The backend writes only a hash of attach tokens to Postgres; raw tokens are returned once to the Mac client. Daytona attach dials the sandbox preview URL for port 7777 with the `x-daytona-preview-token` header; preview tokens reset on sandbox restart, so the backend mints a fresh preview link per attach. cmux does not use Daytona's SSH gateway.
 

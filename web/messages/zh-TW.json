@@ -54,6 +54,7 @@
     "community": "社群",
     "docs": "文件",
     "changelog": "更新日誌",
+    "support": "支援",
     "privacy": "隱私權",
     "terms": "服務條款",
     "eula": "EULA",
@@ -3672,6 +3673,52 @@
       "secondaryCta": "Debian 套件（.deb）",
       "requirements": "Linux · x64",
       "installBody": "執行一次使用者層級安裝程式。cmux 會在不需要 root 權限的情況下安裝到 ~/.local，並啟用經簽署的 App 內更新。若希望由套件管理員管理更新，請改選 Debian 套件。"
+    }
+  },
+  "support": {
+    "metaTitle": "支援 | cmux",
+    "metaDescription": "取得 cmux 協助。傳訊息給我們，我們會透過電子郵件回覆；也可以在 Discord 和 GitHub 上與我們聯絡。",
+    "section": "支援",
+    "title": "取得 cmux 協助。",
+    "body": "傳訊息給我們，我們會透過電子郵件回覆。請說明你當時在做什麼、預期的結果以及實際發生了什麼，這樣我們能更快幫上忙。",
+    "channels": {
+      "docs": {
+        "label": "文件",
+        "description": "涵蓋入門、設定與疑難排解的指南。"
+      },
+      "discord": {
+        "label": "Discord",
+        "description": "即時向社群和團隊提問。"
+      },
+      "github": {
+        "label": "GitHub issues",
+        "description": "公開回報 bug 和提出功能請求。"
+      },
+      "email": {
+        "label": "founders@manaflow.com",
+        "description": "偏好使用電子郵件？直接寫信給我們。"
+      }
+    },
+    "formAriaLabel": "支援聯絡表單",
+    "form": {
+      "name": "姓名",
+      "email": "電子郵件地址",
+      "topic": "主題",
+      "message": "我們可以幫你什麼？",
+      "selectPlaceholder": "請選擇",
+      "topicOptions": [
+        "Bug 回報",
+        "帳單或訂閱",
+        "帳號或登入",
+        "Cloud VMs",
+        "功能請求",
+        "其他"
+      ],
+      "privacy": "我們只會使用你的電子郵件地址回覆你的支援請求，不會出售聯絡資訊。",
+      "submit": "傳送訊息",
+      "submitting": "正在傳送…",
+      "success": "謝謝。我們已收到你的訊息，會從 founders@manaflow.com 回覆到你的電子郵件。",
+      "error": "發生錯誤。請再試一次，或寄電子郵件到 founders@manaflow.com。"
     }
   },
   "emails": {

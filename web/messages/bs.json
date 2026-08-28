@@ -54,6 +54,7 @@
     "community": "Zajednica",
     "docs": "Dokumentacija",
     "changelog": "Zapisnik promjena",
+    "support": "Podrška",
     "privacy": "Privatnost",
     "terms": "Uslovi korištenja",
     "eula": "EULA",
@@ -3673,6 +3674,52 @@
       "secondaryCta": "Debian paket (.deb)",
       "requirements": "Linux · x64",
       "installBody": "Jednom pokrenite instalacijski program za trenutnog korisnika. Instalirat će cmux u ~/.local bez root ovlaštenja i omogućiti potpisana ažuriranja unutar aplikacije. Ako želite da ažuriranjima upravlja vaš upravitelj paketa, umjesto toga odaberite Debian paket."
+    }
+  },
+  "support": {
+    "metaTitle": "Podrška | cmux",
+    "metaDescription": "Dobij pomoć za cmux. Pošalji nam poruku i odgovorit ćemo ti emailom, ili nas potraži na Discordu i GitHub-u.",
+    "section": "Podrška",
+    "title": "Dobij pomoć za cmux.",
+    "body": "Pošalji nam poruku i odgovorit ćemo ti emailom. Napiši šta si radio, šta si očekivao i šta se desilo umjesto toga, da ti možemo brže pomoći.",
+    "channels": {
+      "docs": {
+        "label": "Dokumentacija",
+        "description": "Vodiči za početak rada, konfiguraciju i rješavanje problema."
+      },
+      "discord": {
+        "label": "Discord",
+        "description": "Pitaj zajednicu i tim u realnom vremenu."
+      },
+      "github": {
+        "label": "GitHub issues",
+        "description": "Prijavi greške i predloži nove funkcije javno."
+      },
+      "email": {
+        "label": "founders@manaflow.com",
+        "description": "Više voliš email? Piši nam direktno."
+      }
+    },
+    "formAriaLabel": "Kontakt forma za podršku",
+    "form": {
+      "name": "Ime",
+      "email": "Email adresa",
+      "topic": "Tema",
+      "message": "Kako ti možemo pomoći?",
+      "selectPlaceholder": "Odaberi jedno",
+      "topicOptions": [
+        "Prijava greške",
+        "Naplata ili pretplata",
+        "Račun ili prijava",
+        "Cloud VMs",
+        "Prijedlog za funkciju",
+        "Ostalo"
+      ],
+      "privacy": "Tvoju email adresu koristimo samo za odgovor na tvoj zahtjev za podršku. Ne prodajemo kontakt podatke.",
+      "submit": "Pošalji poruku",
+      "submitting": "Slanje…",
+      "success": "Hvala. Primili smo tvoju poruku i odgovorit ćemo ti na email sa adrese founders@manaflow.com.",
+      "error": "Nešto je pošlo po zlu. Pokušaj ponovo ili nam piši na founders@manaflow.com."
     }
   },
   "emails": {
