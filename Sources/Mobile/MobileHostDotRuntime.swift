@@ -148,13 +148,13 @@ final class MobileHostDotRuntime {
             // with. Registration FIRST — non-legacy namespaces 403 every
             // other broker call until the binding authorization exists.
             var registrationError: (any Error)?
+            let stateDir = FileManager.default.urls(
+                for: .applicationSupportDirectory, in: .userDomainMask
+            )[0].appendingPathComponent("cmux-irx", isDirectory: true)
             if let brokerBaseURL = AuthEnvironment.irohBrokerBaseURL,
                 let namespace = CmxIrohMacBundleNamespace(
                     bundleIdentifier: Bundle.main.bundleIdentifier)
             {
-                let stateDir = FileManager.default.urls(
-                    for: .applicationSupportDirectory, in: .userDomainMask
-                )[0].appendingPathComponent("cmux-irx", isDirectory: true)
                 do {
                     let identity = IrxIdentity(
                         privateKeyData: material.secretKey.bytes,
@@ -201,7 +201,7 @@ final class MobileHostDotRuntime {
             // never awaits the broker (steady-state independence, same
             // snapshot the irx grant judge reads). Registration above just
             // refreshed it when reachable.
-            let trust = IrxDiskCacheTrustReader.read()
+            let trust = IrxDiskCacheTrustReader.read(stateDirectory: stateDir)
             let verificationKeys = Self.grantVerificationKeys(from: trust)
             if verificationKeys.isEmpty {
                 Self.journal.record(
