@@ -350,9 +350,8 @@ impl Connection {
                 self.finish();
             }
             Some("pty_error") => {
-                let code = wire_error_code(
-                    frame.get("code").and_then(Value::as_str).unwrap_or("failed"),
-                );
+                let code =
+                    wire_error_code(frame.get("code").and_then(Value::as_str).unwrap_or("failed"));
                 let mut error = json!({ "t": "error", "code": code });
                 if let Some(message) = frame.get("message").and_then(Value::as_str) {
                     error["message"] = Value::from(message);
@@ -466,7 +465,7 @@ async fn serve_connection(stream: TcpStream, manager: Arc<PtyManager>, parent: C
 
     // Writer: the only task that touches the write half. Applies the flow
     // water marks as the queue drains.
-    let writer = {
+    let mut writer = {
         let connection = Arc::clone(&connection);
         tokio::spawn(async move {
             while let Some(message) = writer_rx.recv().await {
