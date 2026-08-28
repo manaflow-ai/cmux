@@ -193,8 +193,21 @@ export type SnapshotRef = {
   name?: string;
 };
 
+/** What a provider can actually do, so clients hide verbs that would only fail. */
+export interface VmCapabilities {
+  readonly snapshot: boolean;
+  readonly restore: boolean;
+  readonly fork: boolean;
+}
+
 export interface VMProvider {
   readonly id: ProviderId;
+  /**
+   * Optional-operation support. A driver that implements `snapshot`/`restore` only to
+   * throw NotImplementedError declares that here; `fork` defaults to whether the method
+   * exists. Everything omitted defaults to supported.
+   */
+  readonly capabilities?: Partial<VmCapabilities>;
 
   create(options: CreateOptions): Promise<VMHandle>;
   destroy(vmId: string): Promise<void>;

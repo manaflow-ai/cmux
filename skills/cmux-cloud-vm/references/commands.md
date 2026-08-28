@@ -15,8 +15,8 @@ cmux vm workspace open <id> <ws-id>    # open a machine workspace as a NEW local
 cmux vm workspace open <id> <ws-id> --here [--workspace <local>]      # into the current local workspace: one pane + the rest as tabs ("Open All Here")
 cmux vm workspace open <id> <ws-id> --tabs [--pane <p>]                # all as tabs of the focused/--pane pane ("Open All in New Tabs")
 cmux vm workspace open <id> <ws-id> --pane <p> --left|--right|--up|--down   # what dropping the row on that pane edge does
-cmux vm workspace close <id> <ws-id>   # close that workspace and its terminals on the machine
-cmux vm terminal close <id> <term-id>  # end one terminal on the machine (the sidebar's ×)
+cmux vm workspace close <id> <ws-id>   # close that workspace AND end the terminals that live only in it (no orphans left running)
+cmux vm terminal close <id> <term-id>  # end one terminal on the machine (the sidebar's ×); its local panes close too
 cmux vm tree --json                    # {machines: [{id, local, name, status, link_state, …}], resources: [{id, machine, kind, key, title, detail, lifecycle, agent, remote_workspace, port, url, open, open_surface_ids}], projections: […]}
 cmux surface ls [--json]               # same catalog; `surface open <resource>` / `surface new-terminal --machine <m>` are the generic verbs
 cmux vm status <id>                    # provider, status, image

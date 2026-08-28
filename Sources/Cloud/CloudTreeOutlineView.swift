@@ -280,11 +280,15 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 }
             case .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .portsGroup, .browsersGroup:
                 toggle(node)
-            case .workspace(let machine, let workspace, _):
-                // A remote workspace opens as its own local workspace, panes and all.
+            case .workspace(let machine, let workspace, _, let openIn):
+                // A remote workspace already showing in a local workspace: go there
+                // (the row's open mark says so) instead of opening a second copy.
+                // Otherwise it opens as its own local workspace, panes and all.
                 // D9: open never creates — an empty workspace row opens nothing here;
                 // its "+" and menu own creation.
-                if let group = node.dragGroup, !group.isEmpty {
+                if let openIn {
+                    nodeActions.selectLocalWorkspace(openIn)
+                } else if let group = node.dragGroup, !group.isEmpty {
                     nodeActions.openGroupAsWorkspace(machine, group, workspace.id)
                 }
             case .localWorkspace(let row):
@@ -416,9 +420,13 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                     item(String(localized: "cloudTree.menu.newTerminal", defaultValue: "New Terminal")) { [nodeActions] in nodeActions.newTerminal(machine, nil) },
                     item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() },
                 ]
-            case .workspace(let machine, let workspace, _):
+            case .workspace(let machine, let workspace, _, let openIn):
                 let group = node.dragGroup ?? SurfaceResourceGroup(title: workspace.name, resources: [])
-                return [
+                var items: [NSMenuItem] = []
+                if let openIn {
+                    items.append(item(String(localized: "cloudTree.menu.selectWorkspace", defaultValue: "Go to Workspace")) { [nodeActions] in nodeActions.selectLocalWorkspace(openIn) })
+                }
+                return items + [
                     item(String(localized: "cloudTree.menu.openAsNewWorkspace", defaultValue: "Open as New Workspace")) { [nodeActions] in nodeActions.openGroupAsWorkspace(machine, group, workspace.id) },
                     item(String(localized: "cloudTree.menu.openAllHere", defaultValue: "Open All Here")) { [nodeActions] in nodeActions.openGroup(machine, group, .split, workspace.id) },
                     item(String(localized: "cloudTree.menu.openAllInNewTabs", defaultValue: "Open All in New Tabs")) { [nodeActions] in nodeActions.openGroup(machine, group, .tab, workspace.id) },
@@ -497,8 +505,13 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             items.append(.separator())
             items.append(item(String(localized: "machines.menu.rename", defaultValue: "Rename\u{2026}")) { actions.promptRename(id, machine.label) })
             items.append(item(String(localized: "machines.menu.status", defaultValue: "Status")) { actions.runCommand(id, ["vm", "status"]) })
-            items.append(item(String(localized: "machines.menu.checkpoint", defaultValue: "Checkpoint")) { actions.runCommand(id, ["vm", "snapshot"]) })
-            items.append(item(String(localized: "machines.menu.fork", defaultValue: "Fork")) { actions.runCommand(id, ["vm", "fork"]) })
+            // Only verbs this provider can honor: a Checkpoint that answers 502 is not a verb.
+            if machine.capabilities.snapshot {
+                items.append(item(String(localized: "machines.menu.checkpoint", defaultValue: "Checkpoint")) { actions.runCommand(id, ["vm", "snapshot"]) })
+            }
+            if machine.capabilities.fork {
+                items.append(item(String(localized: "machines.menu.fork", defaultValue: "Fork")) { actions.runCommand(id, ["vm", "fork"]) })
+            }
             items.append(.separator())
             items.append(item(String(localized: "machines.menu.delete", defaultValue: "Delete…")) { actions.confirmDelete(id) })
             return items
