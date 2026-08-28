@@ -43,8 +43,19 @@ final class FileDropOverlayView: NSView {
     /// Fallback handler when no terminal is found under the drop point.
     var onDrop: (([URL]) -> Bool)?
     private var isForwardingMouseEvent = false
-    private weak var forwardedMouseDragTarget: NSView?
-    private var forwardedMouseDragButton: ForwardedMouseDragButton?
+    /// AppKit captures a separate target for each button. Keeping the captures
+    /// independent prevents a right/middle press from replacing an in-flight
+    /// left drag, which would otherwise redirect the eventual left release.
+    private final class ForwardedMouseDragTarget {
+        weak var view: NSView?
+
+        init(view: NSView) {
+            self.view = view
+        }
+    }
+
+    private var forwardedMouseDragTargets:
+        [ForwardedMouseDragButton: ForwardedMouseDragTarget] = [:]
     /// The WKWebView currently receiving forwarded drag events, so we can
     /// synthesize draggingExited/draggingEntered as the cursor moves.
     weak var activeDragWebView: WKWebView?
@@ -74,7 +85,7 @@ final class FileDropOverlayView: NSView {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) not implemented") }
 
-    private enum ForwardedMouseDragButton: Equatable {
+    private enum ForwardedMouseDragButton: Hashable {
         case left
         case right
         case other(Int)
@@ -111,43 +122,55 @@ final class FileDropOverlayView: NSView {
         }
     }
 
-    private func isTrackedForwardedMouseDragEnd(for event: NSEvent) -> Bool {
-        guard shouldTrackForwardedMouseDragEnd(for: event.type) else { return false }
-        return forwardedMouseDragButton == dragButton(for: event)
-    }
-
-    private func clearForwardedMouseDragState(reason: String) {
+    /// Clears one captured target, or every capture when `button` is nil.
+    /// All forwarded-drag reset paths go through this method so target and
+    /// button ownership cannot be cleared independently.
+    private func clearForwardedMouseDragState(
+        for button: ForwardedMouseDragButton? = nil,
+        reason: String
+    ) {
 #if DEBUG
-        if let forwardedMouseDragButton {
+        let buttons: String
+        if let button {
+            buttons = String(describing: button)
+        } else {
+            buttons = forwardedMouseDragTargets.keys
+                .map(String.init(describing:))
+                .sorted()
+                .joined(separator: ",")
+        }
+        if !buttons.isEmpty {
             dlog(
                 "overlay.forwardedDrag.reset reason=\(reason) " +
-                "button=\(String(describing: forwardedMouseDragButton))"
+                "button=\(buttons)"
             )
         }
 #endif
-        forwardedMouseDragTarget = nil
-        forwardedMouseDragButton = nil
+        if let button {
+            forwardedMouseDragTargets.removeValue(forKey: button)
+        } else {
+            forwardedMouseDragTargets.removeAll(keepingCapacity: true)
+        }
     }
 
     private func repairForwardedMouseDragStateIfNeeded(for event: NSEvent) {
-        if forwardedMouseDragButton != nil,
-           forwardedMouseDragTarget?.window == nil {
-            clearForwardedMouseDragState(reason: "targetDetached")
-            return
+        // A portal target can disappear independently for each button. Drop
+        // only the detached capture so another button's drag remains intact.
+        for button in Array(forwardedMouseDragTargets.keys) {
+            guard let target = forwardedMouseDragTargets[button]?.view else {
+                clearForwardedMouseDragState(for: button, reason: "targetDetached")
+                continue
+            }
+            guard target.window != nil else {
+                clearForwardedMouseDragState(for: button, reason: "targetDetached")
+                continue
+            }
         }
 
         if let eventButton = dragButton(for: event),
            shouldTrackForwardedMouseDragStart(for: event.type),
-           forwardedMouseDragButton == eventButton {
-            clearForwardedMouseDragState(reason: "repeatedMouseDown")
-            return
-        }
-
-        if forwardedMouseDragButton != nil,
-           !isForwardedMouseDragMotion(event.type),
-           NSEvent.pressedMouseButtons == 0,
-           !isTrackedForwardedMouseDragEnd(for: event) {
-            clearForwardedMouseDragState(reason: "buttonsReleased")
+           forwardedMouseDragTargets[eventButton] != nil {
+            clearForwardedMouseDragState(for: eventButton, reason: "repeatedMouseDown")
         }
     }
 
@@ -215,13 +238,12 @@ final class FileDropOverlayView: NSView {
         }
 
         let target: NSView?
-        if let eventButton,
-           forwardedMouseDragButton == eventButton,
-           let activeTarget = forwardedMouseDragTarget,
-           activeTarget.window != nil {
-            // Preserve normal AppKit mouse-delivery semantics: once a drag starts,
-            // keep routing dragged/up events to the original mouseDown target.
-            target = activeTarget
+        if let eventButton, isForwardedMouseDragMotion(event.type) || shouldTrackForwardedMouseDragEnd(for: event.type) {
+            // Preserve normal AppKit mouse-delivery semantics: once a drag
+            // starts, keep routing dragged/up events to that button's original
+            // mouseDown target. A motion/up without a capture is discarded;
+            // hit-testing it as a fresh drag would invent a new gesture.
+            target = forwardedMouseDragTargets[eventButton]?.view
         } else {
             let point = contentView.convert(event.locationInWindow, from: nil)
             target = contentView.hitTest(point)
@@ -229,16 +251,14 @@ final class FileDropOverlayView: NSView {
 
         guard let target, target !== self else {
             if shouldTrackForwardedMouseDragEnd(for: event.type),
-               let eventButton,
-               forwardedMouseDragButton == eventButton {
-                clearForwardedMouseDragState(reason: "targetUnavailable")
+               let eventButton {
+                clearForwardedMouseDragState(for: eventButton, reason: "targetUnavailable")
             }
             return
         }
 
         if shouldTrackForwardedMouseDragStart(for: event.type), let eventButton {
-            forwardedMouseDragTarget = target
-            forwardedMouseDragButton = eventButton
+            forwardedMouseDragTargets[eventButton] = ForwardedMouseDragTarget(view: target)
         }
 
         switch event.type {
@@ -256,9 +276,15 @@ final class FileDropOverlayView: NSView {
         }
 
         if shouldTrackForwardedMouseDragEnd(for: event.type),
-           let eventButton,
-           forwardedMouseDragButton == eventButton {
-            clearForwardedMouseDragState(reason: "mouseUp")
+           let eventButton {
+            clearForwardedMouseDragState(for: eventButton, reason: "mouseUp")
+        }
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil {
+            clearForwardedMouseDragState(reason: "overlayDetached")
         }
     }
 

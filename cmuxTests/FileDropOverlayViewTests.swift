@@ -86,6 +86,30 @@ struct FileDropOverlayViewTests {
         override func mouseUp(with event: NSEvent) {
             mouseCalls.append("up")
         }
+
+        override func rightMouseDown(with event: NSEvent) {
+            mouseCalls.append("rightDown")
+        }
+
+        override func rightMouseDragged(with event: NSEvent) {
+            mouseCalls.append("rightDragged")
+        }
+
+        override func rightMouseUp(with event: NSEvent) {
+            mouseCalls.append("rightUp")
+        }
+
+        override func otherMouseDown(with event: NSEvent) {
+            mouseCalls.append("otherDown\(event.buttonNumber)")
+        }
+
+        override func otherMouseDragged(with event: NSEvent) {
+            mouseCalls.append("otherDragged\(event.buttonNumber)")
+        }
+
+        override func otherMouseUp(with event: NSEvent) {
+            mouseCalls.append("otherUp\(event.buttonNumber)")
+        }
     }
 
     private final class MockDraggingInfo: NSObject, NSDraggingInfo {
@@ -387,6 +411,65 @@ struct FileDropOverlayViewTests {
         #expect(underCursorTarget.mouseCalls.isEmpty)
     }
 
+    @Test("Forwarded button captures remain independent during right and middle drags")
+    func forwardedButtonCapturesRemainIndependent() throws {
+        _ = NSApplication.shared
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        defer {
+            window.orderOut(nil)
+            window.close()
+        }
+
+        let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 420, height: 240))
+        window.contentView = contentView
+        let leftTarget = MouseEventSpyView(frame: NSRect(x: 0, y: 0, width: 210, height: 240))
+        let rightTarget = MouseEventSpyView(frame: NSRect(x: 210, y: 0, width: 210, height: 240))
+        contentView.addSubview(leftTarget)
+        contentView.addSubview(rightTarget)
+        let overlay = FileDropOverlayView(frame: contentView.bounds)
+        contentView.addSubview(overlay, positioned: .above, relativeTo: nil)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+
+        let leftPoint = leftTarget.convert(
+            NSPoint(x: leftTarget.bounds.midX, y: leftTarget.bounds.midY),
+            to: nil
+        )
+        let rightPoint = rightTarget.convert(
+            NSPoint(x: rightTarget.bounds.midX, y: rightTarget.bounds.midY),
+            to: nil
+        )
+        let leftDown = try #require(Self.mouseEvent(type: .leftMouseDown, location: leftPoint, window: window))
+        let rightDown = try #require(Self.mouseEvent(type: .rightMouseDown, location: rightPoint, window: window))
+        let rightDrag = try #require(Self.mouseEvent(type: .rightMouseDragged, location: leftPoint, window: window))
+        let middleDown = try #require(Self.otherMouseEvent(type: .otherMouseDown, location: leftPoint, window: window, buttonNumber: 2))
+        let middleDrag = try #require(Self.otherMouseEvent(type: .otherMouseDragged, location: rightPoint, window: window, buttonNumber: 2))
+        let leftUp = try #require(Self.mouseEvent(type: .leftMouseUp, location: rightPoint, window: window))
+        let rightUp = try #require(Self.mouseEvent(type: .rightMouseUp, location: leftPoint, window: window))
+        let middleUp = try #require(Self.otherMouseEvent(type: .otherMouseUp, location: rightPoint, window: window, buttonNumber: 2))
+
+        overlay.mouseDown(with: leftDown)
+        overlay.rightMouseDown(with: rightDown)
+        overlay.rightMouseDragged(with: rightDrag)
+        overlay.otherMouseDown(with: middleDown)
+        overlay.otherMouseDragged(with: middleDrag)
+        overlay.mouseUp(with: leftUp)
+        overlay.rightMouseUp(with: rightUp)
+        overlay.otherMouseUp(with: middleUp)
+
+        #expect(leftTarget.mouseCalls == ["down", "otherDown2", "otherDragged2", "up", "otherUp2"])
+        #expect(rightTarget.mouseCalls == ["rightDown", "rightDragged", "rightUp"])
+    }
+
     private static func mouseEvent(
         type: NSEvent.EventType,
         location: NSPoint,
@@ -403,5 +486,35 @@ struct FileDropOverlayViewTests {
             clickCount: 1,
             pressure: type == .leftMouseUp ? 0 : 1
         )
+    }
+
+    private static func otherMouseEvent(
+        type: NSEvent.EventType,
+        location: NSPoint,
+        window: NSWindow,
+        buttonNumber: Int
+    ) throws -> NSEvent {
+        let cgEventType: CGEventType
+        switch type {
+        case .otherMouseDown:
+            cgEventType = .otherMouseDown
+        case .otherMouseUp:
+            cgEventType = .otherMouseUp
+        case .otherMouseDragged:
+            cgEventType = .otherMouseDragged
+        default:
+            fatalError("Unsupported event type \(type)")
+        }
+        let mouseButton = try #require(CGMouseButton(rawValue: UInt32(buttonNumber)))
+        let cgEvent = try #require(
+            CGEvent(
+                mouseEventSource: nil,
+                mouseType: cgEventType,
+                mouseCursorPosition: location,
+                mouseButton: mouseButton
+            )
+        )
+        cgEvent.setIntegerValueField(.mouseEventButtonNumber, value: Int64(buttonNumber))
+        return try #require(NSEvent(cgEvent: cgEvent))
     }
 }

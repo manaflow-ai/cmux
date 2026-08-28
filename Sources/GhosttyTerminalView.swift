@@ -3950,63 +3950,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var deferredSurfaceSizeNonMetalRetryCount = 0
     private var lastDrawableSize: CGSize = .zero
     private var isFindEscapeSuppressionArmed = false
-    private enum TrackedMouseButton: String, CaseIterable {
-        case left
-        case right
-        case middle
-
-        init?(mouseUpEvent: NSEvent) {
-            switch mouseUpEvent.type {
-            case .leftMouseUp:
-                self = .left
-            case .rightMouseUp:
-                self = .right
-            case .otherMouseUp:
-                guard mouseUpEvent.buttonNumber == 2 else { return nil }
-                self = .middle
-            default:
-                return nil
-            }
-        }
-
-        var ghosttyButton: ghostty_input_mouse_button_e {
-            switch self {
-            case .left:
-                return GHOSTTY_MOUSE_LEFT
-            case .right:
-                return GHOSTTY_MOUSE_RIGHT
-            case .middle:
-                return GHOSTTY_MOUSE_MIDDLE
-            }
-        }
-
-        var pressedMouseButtonsMask: Int {
-            switch self {
-            case .left:
-                return 1 << 0
-            case .right:
-                return 1 << 1
-            case .middle:
-                return 1 << 2
-            }
-        }
-    }
-    private struct RememberedGhosttyMouseState {
-        let localPoint: NSPoint
-        let surfacePoint: NSPoint
-        let mods: ghostty_input_mods_e
-    }
-    private var ghosttyPressedMouseButtons: Set<TrackedMouseButton> = []
-    private var ghosttyPressedMouseButtonGenerations: [TrackedMouseButton: UInt64] = [:]
-    private var nextGhosttyMouseButtonGeneration: UInt64 = 0
-    private var ghosttyLastMouseSurfacePoint: NSPoint?
-    private var ghosttyLastMouseMods: ghostty_input_mods_e = GHOSTTY_MODS_NONE
-    private var hasDeferredMouseButtonRepair = false
-    private var deferredGhosttyMouseButtonRepairForceButtons: Set<TrackedMouseButton> = []
-    private var deferredGhosttyMouseButtonRepairForceButtonGenerations: [TrackedMouseButton: UInt64] = [:]
-    private var deferredGhosttyMouseButtonRepairReason: String?
-    private var hasPendingLeftMouseRelease = false
-    private var pendingLeftMouseReleaseGeneration: UInt64?
+    private typealias TrackedMouseButton = GhosttyMouseSessionLedger.Button
+    private typealias RememberedGhosttyMouseState = GhosttyMouseSessionLedger.PointerState
+    /// The surface view is the sole owner of Ghostty button-session state.
+    /// AppKit forwarding and clipboard sequencing feed this ledger rather than
+    /// maintaining independent pressed-button mirrors.
+    private let ghosttyMouseSessionLedger = GhosttyMouseSessionLedger()
     let imageTransferPreparation: TerminalImageTransferPreparationService?
 #if DEBUG
     private var lastSizeSkipSignature: String?
@@ -4243,18 +4192,28 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     private func localEventMouseUp(_ event: NSEvent) -> NSEvent? {
+        synchronizeGhosttyMouseSurfaceIdentity()
         guard let button = TrackedMouseButton(mouseUpEvent: event),
-              ghosttyPressedMouseButtons.contains(button) else { return event }
+              ghosttyMouseSessionLedger.hasSession(
+                  for: button,
+                  on: currentGhosttyMouseSurfaceIdentity
+              ) else { return event }
         // The normal mouse-up path is buffered while a sequenced clipboard
         // read is in flight. Let that event replay in order instead of
         // synthesizing a release ahead of the queued gesture.
         guard !hasClipboardInputDeferral else { return event }
 
-        if let eventWindow = event.window, eventWindow == window {
-            _ = rememberGhosttyMouseState(from: event)
-        }
+        // A same-window mouse-up must continue through AppKit's responder
+        // path. In particular, command-click release routing needs to run on
+        // ``mouseUp(with:)``; repairing here would consume the release before
+        // that path can resolve links. The next non-drag event reconciles a
+        // release that was genuinely lost inside the window. Only an
+        // out-of-window release has no normal responder path and is repaired
+        // at this monitor boundary.
+        guard event.window != window else { return event }
 
-        scheduleGhosttyMouseButtonRepair(
+        _ = rememberGhosttyMouseState(from: event)
+        reconcileGhosttyMouseButtons(
             reason: "localMouseUp.\(button.rawValue)",
             forceButtons: Set([button])
         )
@@ -4263,30 +4222,18 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     @discardableResult
     private func markGhosttyMouseButtonPressed(_ button: TrackedMouseButton) -> UInt64 {
-        nextGhosttyMouseButtonGeneration &+= 1
-        ghosttyPressedMouseButtons.insert(button)
-        ghosttyPressedMouseButtonGenerations[button] = nextGhosttyMouseButtonGeneration
-        return nextGhosttyMouseButtonGeneration
-    }
-
-    private func markGhosttyMouseButtonReleased(
-        _ button: TrackedMouseButton,
-        expectedGeneration: UInt64
-    ) {
-        guard ghosttyPressedMouseButtonGenerations[button] == expectedGeneration else { return }
-        if button == .left, pendingLeftMouseReleaseGeneration == expectedGeneration {
-            hasPendingLeftMouseRelease = false
-            pendingLeftMouseReleaseGeneration = nil
+        guard let surfaceIdentity = currentGhosttyMouseSurfaceIdentity,
+              let session = ghosttyMouseSessionLedger.begin(
+                  button,
+                  on: surfaceIdentity
+              ) else {
+            return 0
         }
-        ghosttyPressedMouseButtons.remove(button)
-        ghosttyPressedMouseButtonGenerations[button] = nil
+        return session.generation
     }
 
     private func resetGhosttyMouseButtonTracking() {
-        ghosttyPressedMouseButtons.removeAll()
-        ghosttyPressedMouseButtonGenerations.removeAll()
-        hasPendingLeftMouseRelease = false
-        pendingLeftMouseReleaseGeneration = nil
+        ghosttyMouseSessionLedger.invalidate()
     }
 
     func attachSurface(_ surface: TerminalSurface) {
@@ -4302,6 +4249,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             }
             titleUpdateSurfaceKey = nextTitleUpdateSurfaceKey
         }
+        let currentMouseSurfaceIdentity = currentGhosttyMouseSurfaceIdentity
+        let nextMouseSurfaceIdentity = ghosttyMouseSurfaceIdentity(for: surface)
         if !isSameSurface {
             if pendingKeyActionCount > 0,
                (pendingExplicitKeyDownSurface !== surface
@@ -4314,15 +4263,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 discardPendingPasteAfterSurfaceReady()
             }
             appliedColorScheme = nil
+            // Finish any sessions that still belong to the old surface before
+            // replacing the view's surface owner.
+            releaseAllGhosttyMouseButtons(reason: "attachSurface")
             resetGhosttyMouseButtonTracking()
-            ghosttyLastMouseSurfacePoint = nil
-            ghosttyLastMouseMods = GHOSTTY_MODS_NONE
-            hasDeferredMouseButtonRepair = false
-            deferredGhosttyMouseButtonRepairForceButtons = []
-            deferredGhosttyMouseButtonRepairForceButtonGenerations = [:]
-            deferredGhosttyMouseButtonRepairReason = nil
             // Reset any OSC 22 mouse shape carried over from the previous surface.
             updateGhosttyMouseShape(GHOSTTY_MOUSE_SHAPE_TEXT)
+        } else if currentMouseSurfaceIdentity != nextMouseSurfaceIdentity {
+            // A TerminalSurface can rebuild its native pointer without being
+            // replaced. Never send an old session to the replacement pointer.
+            resetGhosttyMouseButtonTracking()
         }
         terminalSurface = surface
         tabId = surface.tabId
@@ -4337,6 +4287,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         applySurfaceBackground()
         applySurfaceColorScheme(force: !isSameSurface || !isAlreadyAttached)
+        synchronizeGhosttyMouseSurfaceIdentity()
     }
 
     private func queueExplicitKeyDownForInputDemand(_ event: NSEvent) {
@@ -4700,9 +4651,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
 #endif
         guard let window else {
-            scheduleGhosttyMouseButtonRepair(
-                reason: "viewDidMoveToWindow.nil",
-                forceButtons: ghosttyPressedMouseButtons
+            releaseAllGhosttyMouseButtons(
+                reason: "viewDidMoveToWindow.nil"
             )
             return
         }
@@ -6020,9 +5970,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             imeConsumedKeyUps.removeAll()
             manualNamedKeyConsumedKeyUps.removeAll()
             desiredFocus = false
-            scheduleGhosttyMouseButtonRepair(
-                reason: "resignFirstResponder",
-                forceButtons: ghosttyPressedMouseButtons
+            releaseAllGhosttyMouseButtons(
+                reason: "resignFirstResponder"
             )
             cancelKeyboardCopyMode()
             terminalSurface?.hostedView.cancelSuppressedFirstResponderFocusReapply()
@@ -6940,117 +6889,121 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return ghostty_input_mods_e(rawValue: mods)
     }
 
+    private func ghosttyMouseSurfaceIdentity(
+        for terminalSurface: TerminalSurface
+    ) -> GhosttyMouseSessionLedger.SurfaceIdentity? {
+        guard let nativeSurface = terminalSurface.surface else { return nil }
+        return GhosttyMouseSessionLedger.SurfaceIdentity(
+            surfaceID: terminalSurface.id,
+            runtimeGeneration: terminalSurface.runtimeSurfaceGeneration,
+            nativeAddress: UInt(bitPattern: nativeSurface)
+        )
+    }
+
+    private var currentGhosttyMouseSurfaceIdentity:
+        GhosttyMouseSessionLedger.SurfaceIdentity? {
+        guard let terminalSurface else { return nil }
+        return ghosttyMouseSurfaceIdentity(for: terminalSurface)
+    }
+
+    /// Moves the ledger to the currently attached native runtime. A runtime
+    /// replacement clears old sessions before any event can reach the new
+    /// pointer, so stale releases are never sent across generations.
+    @discardableResult
+    private func synchronizeGhosttyMouseSurfaceIdentity() -> Bool {
+        ghosttyMouseSessionLedger.transition(to: currentGhosttyMouseSurfaceIdentity)
+    }
+
     @discardableResult
     private func rememberGhosttyMouseState(from event: NSEvent) -> RememberedGhosttyMouseState {
+        synchronizeGhosttyMouseSurfaceIdentity()
         let localPoint = convert(event.locationInWindow, from: nil)
         let surfacePoint = NSPoint(x: localPoint.x, y: bounds.height - localPoint.y)
         let mods = mouseModsFromEvent(event)
-        ghosttyLastMouseSurfacePoint = surfacePoint
-        ghosttyLastMouseMods = mods
-        return RememberedGhosttyMouseState(
+        let state = RememberedGhosttyMouseState(
             localPoint: localPoint,
             surfacePoint: surfacePoint,
             mods: mods
         )
+        if let surfaceIdentity = currentGhosttyMouseSurfaceIdentity {
+            ghosttyMouseSessionLedger.rememberPointer(state, on: surfaceIdentity)
+        }
+        return state
     }
 
-    private func repairGhosttyMouseButtonsIfNeeded(
+    /// Synchronously reconciles the ledger at an AppKit event/lifecycle
+    /// boundary. Drag dispatch itself never calls this method, so a captured
+    /// drag cannot be released from an unrelated physical-button snapshot.
+    private func reconcileGhosttyMouseButtons(
         reason: String,
-        forceButtons: Set<TrackedMouseButton> = [],
-        forceButtonGenerations: [TrackedMouseButton: UInt64]? = nil
+        forceButtons: Set<TrackedMouseButton> = []
     ) {
-        guard let surface else {
+        guard let surface,
+              let surfaceIdentity = currentGhosttyMouseSurfaceIdentity else {
             resetGhosttyMouseButtonTracking()
             return
         }
-        guard !ghosttyPressedMouseButtons.isEmpty else { return }
+        guard ghosttyMouseSessionLedger.activeSurface == surfaceIdentity else {
+            // The native pointer changed without a view attachment callback.
+            // Invalidate rather than risking a release on the replacement.
+            synchronizeGhosttyMouseSurfaceIdentity()
+            return
+        }
+        guard !ghosttyMouseSessionLedger.activeButtons.isEmpty else { return }
 
         let physicalButtons = NSEvent.pressedMouseButtons
-        let buttonsToRelease = ghosttyPressedMouseButtons
-            .filter { button in
-                if forceButtons.contains(button) {
-                    guard let forceButtonGenerations else { return true }
-                    guard let forceGeneration = forceButtonGenerations[button] else { return false }
-                    return ghosttyPressedMouseButtonGenerations[button] == forceGeneration
-                }
+        let sessions = ghosttyMouseSessionLedger.sessionsNeedingRepair(
+            on: surfaceIdentity,
+            physicalButtons: physicalButtons,
+            forcedButtons: forceButtons
+        )
+        guard !sessions.isEmpty else { return }
 
-                return (physicalButtons & button.pressedMouseButtonsMask) == 0
-            }
-            .sorted { $0.pressedMouseButtonsMask < $1.pressedMouseButtonsMask }
-
-        guard !buttonsToRelease.isEmpty else { return }
-
-        if let surfacePoint = ghosttyLastMouseSurfacePoint {
-            ghostty_surface_mouse_pos(surface, surfacePoint.x, surfacePoint.y, ghosttyLastMouseMods)
+        let pointer = ghosttyMouseSessionLedger.pointerState
+        if let surfacePoint = pointer?.surfacePoint {
+            ghostty_surface_mouse_pos(
+                surface,
+                surfacePoint.x,
+                surfacePoint.y,
+                pointer?.mods ?? GHOSTTY_MODS_NONE
+            )
         }
 
 #if DEBUG
-        let buttonList = buttonsToRelease.map(\.rawValue).joined(separator: ",")
+        let buttonList = sessions.map { $0.button.rawValue }.joined(separator: ",")
         cmuxDebugLog(
-            "terminal.mouseRepair surface=\(terminalSurface?.id.uuidString.prefix(5) ?? \"nil\") " +
+            "terminal.mouseRepair surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
             "reason=\(reason) buttons=\(buttonList) physicalMask=\(physicalButtons)"
         )
 #endif
 
-        for button in buttonsToRelease {
-            guard let generation = ghosttyPressedMouseButtonGenerations[button] else { continue }
+        for session in sessions {
+            guard ghosttyMouseSessionLedger.session(
+                for: session.button,
+                on: surfaceIdentity
+            ) == session else { continue }
             _ = sendGhosttyMouseButton(
                 surface,
                 state: GHOSTTY_MOUSE_RELEASE,
-                button: button.ghosttyButton,
-                mods: ghosttyLastMouseMods
+                button: session.button.ghosttyButton,
+                mods: pointer?.mods ?? GHOSTTY_MODS_NONE
             )
-            markGhosttyMouseButtonReleased(button, expectedGeneration: generation)
+            _ = ghosttyMouseSessionLedger.finish(session)
         }
     }
 
-    private func scheduleGhosttyMouseButtonRepair(
-        reason: String,
-        forceButtons: Set<TrackedMouseButton>
-    ) {
-        guard !ghosttyPressedMouseButtons.isEmpty else { return }
-        for button in forceButtons {
-            guard let generation = ghosttyPressedMouseButtonGenerations[button] else { continue }
-            deferredGhosttyMouseButtonRepairForceButtons.insert(button)
-            // Preserve the scheduled press generation so stale async repairs
-            // cannot release a newer press of the same button.
-            deferredGhosttyMouseButtonRepairForceButtonGenerations[button] = generation
-        }
-        deferredGhosttyMouseButtonRepairReason = {
-            guard let existing = deferredGhosttyMouseButtonRepairReason,
-                  existing != reason else {
-                return reason
-            }
-            return "\(existing)+\(reason)"
-        }()
-        guard !hasDeferredMouseButtonRepair else { return }
-        hasDeferredMouseButtonRepair = true
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            let deferredReason = self.deferredGhosttyMouseButtonRepairReason ?? reason
-            let deferredForceButtons = self.deferredGhosttyMouseButtonRepairForceButtons
-            let deferredForceButtonGenerations = self.deferredGhosttyMouseButtonRepairForceButtonGenerations
-            self.deferredGhosttyMouseButtonRepairReason = nil
-            self.deferredGhosttyMouseButtonRepairForceButtons = []
-            self.deferredGhosttyMouseButtonRepairForceButtonGenerations = [:]
-            self.hasDeferredMouseButtonRepair = false
-            self.repairGhosttyMouseButtonsIfNeeded(
-                reason: deferredReason,
-                forceButtons: deferredForceButtons,
-                forceButtonGenerations: deferredForceButtonGenerations
-            )
-        }
+    func reconcileGhosttyMouseButtons(reason: String) {
+        reconcileGhosttyMouseButtons(reason: reason, forceButtons: [])
     }
 
-    func scheduleGhosttyMouseButtonRepair(reason: String) {
-        scheduleGhosttyMouseButtonRepair(reason: reason, forceButtons: [])
-    }
-
-    fileprivate func scheduleForcedGhosttyMouseButtonRepair(reason: String) {
-        scheduleGhosttyMouseButtonRepair(
+    fileprivate func releaseAllGhosttyMouseButtons(reason: String) {
+        reconcileGhosttyMouseButtons(
             reason: reason,
-            forceButtons: ghosttyPressedMouseButtons
+            forceButtons: ghosttyMouseSessionLedger.activeButtons
         )
+        // A missing native surface or a generation change is terminal for the
+        // current gesture; discard the ledger after the synchronous release.
+        resetGhosttyMouseButtonTracking()
     }
 
     func beginFindEscapeSuppression() {
@@ -7256,11 +7209,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func mouseDown(with event: NSEvent) {
         if routeInputDuringClipboardRead(event) { return }
-        let mouseState = rememberGhosttyMouseState(from: event)
-        repairGhosttyMouseButtonsIfNeeded(
+        reconcileGhosttyMouseButtons(
             reason: "mouseDown.preflight",
             forceButtons: Set([.left])
         )
+        let mouseState = rememberGhosttyMouseState(from: event)
         #if DEBUG
         let debugPoint = mouseState.localPoint
         cmuxDebugLog("terminal.mouseDown surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") mods=[\(debugModifierString(event.modifierFlags))] clickCount=\(event.clickCount) point=(\(String(format: "%.0f", debugPoint.x)),\(String(format: "%.0f", debugPoint.y)))")
@@ -7283,9 +7236,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             button: GHOSTTY_MOUSE_LEFT,
             mods: mouseState.mods
         )
-        let generation = markGhosttyMouseButtonPressed(.left)
-        hasPendingLeftMouseRelease = true
-        pendingLeftMouseReleaseGeneration = generation
+        _ = markGhosttyMouseButtonPressed(.left)
     }
 
     override func mouseUp(with event: NSEvent) {
@@ -7298,7 +7249,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     @discardableResult
     func forwardPendingLeftMouseDrag(with event: NSEvent) -> Bool {
         if routeInputDuringClipboardRead(event) { return true }
-        guard hasPendingLeftMouseRelease, let surface else { return false }
+        synchronizeGhosttyMouseSurfaceIdentity()
+        guard let surface,
+              ghosttyMouseSessionLedger.hasSession(
+                  for: .left,
+                  on: currentGhosttyMouseSurfaceIdentity
+              ) else { return false }
         let mouseState = rememberGhosttyMouseState(from: event)
         let eventPoint = mouseState.localPoint
         trackMousePointIfUsable(eventPoint)
@@ -7309,17 +7265,18 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     @discardableResult
     func completePendingLeftMouseRelease(with event: NSEvent) -> Bool {
         if routeInputDuringClipboardRead(event) { return true }
-        guard hasPendingLeftMouseRelease else { return false }
-        let pendingGeneration = pendingLeftMouseReleaseGeneration
-        hasPendingLeftMouseRelease = false
-        pendingLeftMouseReleaseGeneration = nil
+        synchronizeGhosttyMouseSurfaceIdentity()
+        guard let surfaceIdentity = currentGhosttyMouseSurfaceIdentity,
+              let pendingSession = ghosttyMouseSessionLedger.session(
+                  for: .left,
+                  on: surfaceIdentity
+              ) else { return false }
         let mouseState = rememberGhosttyMouseState(from: event)
-        guard let surface else {
+        guard let surface,
+              currentGhosttyMouseSurfaceIdentity == surfaceIdentity else {
             // A portal can detach the runtime between the press and release.
             // Clear our mirror even when there is no surface left to receive it.
-            if let pendingGeneration {
-                markGhosttyMouseButtonReleased(.left, expectedGeneration: pendingGeneration)
-            }
+            resetGhosttyMouseButtonTracking()
             return false
         }
         let point = mouseState.localPoint
@@ -7329,9 +7286,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             modifierFlags: event.modifierFlags,
             mouseMods: mouseState.mods
         )
-        if let pendingGeneration {
-            markGhosttyMouseButtonReleased(.left, expectedGeneration: pendingGeneration)
-        }
+        _ = ghosttyMouseSessionLedger.finish(pendingSession)
         return true
     }
 
@@ -8114,11 +8069,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func rightMouseDown(with event: NSEvent) {
         if routeInputDuringClipboardRead(event) { return }
-        let mouseState = rememberGhosttyMouseState(from: event)
-        repairGhosttyMouseButtonsIfNeeded(
+        reconcileGhosttyMouseButtons(
             reason: "rightMouseDown.preflight",
             forceButtons: Set([.right])
         )
+        let mouseState = rememberGhosttyMouseState(from: event)
         focusFromPointerDown()
         guard let surface = surface else { return }
         if !ghostty_surface_mouse_captured(surface) {
@@ -8133,27 +8088,34 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             button: GHOSTTY_MOUSE_RIGHT,
             mods: mouseState.mods
         )
-        markGhosttyMouseButtonPressed(.right)
+        _ = markGhosttyMouseButtonPressed(.right)
     }
 
     override func rightMouseUp(with event: NSEvent) {
         if routeInputDuringClipboardRead(event) { return }
+        synchronizeGhosttyMouseSurfaceIdentity()
+        let surfaceIdentity = currentGhosttyMouseSurfaceIdentity
+        let session = ghosttyMouseSessionLedger.session(
+            for: .right,
+            on: surfaceIdentity
+        )
         let mouseState = rememberGhosttyMouseState(from: event)
         guard let surface else {
-            if let generation = ghosttyPressedMouseButtonGenerations[.right] {
-                markGhosttyMouseButtonReleased(.right, expectedGeneration: generation)
-            }
+            if let session { _ = ghosttyMouseSessionLedger.finish(session) }
             return
         }
         let mouseCaptured = ghostty_surface_mouse_captured(surface)
-        if let generation = ghosttyPressedMouseButtonGenerations[.right] {
+        if session != nil,
+           currentGhosttyMouseSurfaceIdentity == surfaceIdentity {
             _ = sendGhosttyMouseButton(
                 surface,
                 state: GHOSTTY_MOUSE_RELEASE,
                 button: GHOSTTY_MOUSE_RIGHT,
                 mods: mouseState.mods
             )
-            markGhosttyMouseButtonReleased(.right, expectedGeneration: generation)
+            if let session {
+                _ = ghosttyMouseSessionLedger.finish(session)
+            }
         }
         if !mouseCaptured {
             super.rightMouseUp(with: event)
@@ -8167,11 +8129,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return
         }
         if routeInputDuringClipboardRead(event) { return }
-        let mouseState = rememberGhosttyMouseState(from: event)
-        repairGhosttyMouseButtonsIfNeeded(
+        reconcileGhosttyMouseButtons(
             reason: "otherMouseDown.preflight",
             forceButtons: Set([.middle])
         )
+        let mouseState = rememberGhosttyMouseState(from: event)
         terminalSurface?.didReceiveExplicitInput()
         requestPointerFocusRecovery()
         window?.makeFirstResponder(self)
@@ -8184,7 +8146,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             button: GHOSTTY_MOUSE_MIDDLE,
             mods: mouseState.mods
         )
-        markGhosttyMouseButtonPressed(.middle)
+        _ = markGhosttyMouseButtonPressed(.middle)
     }
 
     override func otherMouseUp(with event: NSEvent) {
@@ -8193,21 +8155,28 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return
         }
         if routeInputDuringClipboardRead(event) { return }
+        synchronizeGhosttyMouseSurfaceIdentity()
+        let surfaceIdentity = currentGhosttyMouseSurfaceIdentity
+        let session = ghosttyMouseSessionLedger.session(
+            for: .middle,
+            on: surfaceIdentity
+        )
         let mouseState = rememberGhosttyMouseState(from: event)
         guard let surface else {
-            if let generation = ghosttyPressedMouseButtonGenerations[.middle] {
-                markGhosttyMouseButtonReleased(.middle, expectedGeneration: generation)
-            }
+            if let session { _ = ghosttyMouseSessionLedger.finish(session) }
             return
         }
-        if let generation = ghosttyPressedMouseButtonGenerations[.middle] {
+        if session != nil,
+           currentGhosttyMouseSurfaceIdentity == surfaceIdentity {
             _ = sendGhosttyMouseButton(
                 surface,
                 state: GHOSTTY_MOUSE_RELEASE,
                 button: GHOSTTY_MOUSE_MIDDLE,
                 mods: mouseState.mods
             )
-            markGhosttyMouseButtonReleased(.middle, expectedGeneration: generation)
+            if let session {
+                _ = ghosttyMouseSessionLedger.finish(session)
+            }
         }
     }
 
@@ -8225,16 +8194,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         for event: NSEvent,
         sendsTerminalPointerEvent: Bool
     ) -> NSMenu? {
+        reconcileGhosttyMouseButtons(
+            reason: "menu.preflight",
+            forceButtons: Set([.right])
+        )
         guard let surface = surface else { return nil }
         if sendsTerminalPointerEvent, ghostty_surface_mouse_captured(surface) {
             return nil
         }
 
         let mouseState = rememberGhosttyMouseState(from: event)
-        repairGhosttyMouseButtonsIfNeeded(
-            reason: "menu.preflight",
-            forceButtons: Set([.right])
-        )
         window?.makeFirstResponder(self)
         if sendsTerminalPointerEvent {
             ghostty_surface_mouse_pos(surface, mouseState.surfacePoint.x, mouseState.surfacePoint.y, mouseState.mods)
@@ -8244,7 +8213,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 button: GHOSTTY_MOUSE_RIGHT,
                 mods: mouseState.mods
             )
-            markGhosttyMouseButtonPressed(.right)
+            _ = markGhosttyMouseButtonPressed(.right)
         }
 
         let menu = NSMenu()
@@ -8376,7 +8345,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
     override func mouseMoved(with event: NSEvent) {
         if routeInputDuringClipboardRead(event) { return }
-        repairGhosttyMouseButtonsIfNeeded(reason: "mouseMoved")
+        reconcileGhosttyMouseButtons(reason: "mouseMoved")
         maybeRequestFirstResponderForMouseFocus()
         guard let surface = surface else { return }
         let suppressCommandPathHover = shouldSuppressCommandPathHover(for: event.modifierFlags)
@@ -8402,7 +8371,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     override func mouseEntered(with event: NSEvent) {
         if routeInputDuringClipboardRead(event) { return }
         super.mouseEntered(with: event)
-        repairGhosttyMouseButtonsIfNeeded(reason: "mouseEntered")
+        reconcileGhosttyMouseButtons(reason: "mouseEntered")
         maybeRequestFirstResponderForMouseFocus()
         guard let surface = surface else { return }
         let suppressCommandPathHover = shouldSuppressCommandPathHover(for: event.modifierFlags)
@@ -8444,13 +8413,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func mouseExited(with event: NSEvent) {
         if routeInputDuringClipboardRead(event) { return }
-        repairGhosttyMouseButtonsIfNeeded(reason: "mouseExited")
+        reconcileGhosttyMouseButtons(reason: "mouseExited")
         if wordPathHoverActive {
             wordPathHoverActive = false
             NSCursor.pop()
         }
         guard let surface = surface else { return }
-        if NSEvent.pressedMouseButtons != 0 {
+        if !ghosttyMouseSessionLedger.activeButtons.isEmpty {
             return
         }
         ghostty_surface_mouse_pos(surface, -1, -1, mouseModsFromEvent(event))
@@ -8458,6 +8427,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func mouseDragged(with event: NSEvent) {
         if routeInputDuringClipboardRead(event) { return }
+        synchronizeGhosttyMouseSurfaceIdentity()
         guard let surface = surface else { return }
         let mouseState = rememberGhosttyMouseState(from: event)
         let eventPoint = mouseState.localPoint
@@ -8490,13 +8460,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
 #if DEBUG
     func debugHasPendingLeftMouseReleaseForTesting() -> Bool {
-        hasPendingLeftMouseRelease
+        ghosttyMouseSessionLedger.hasSession(
+            for: .left,
+            on: currentGhosttyMouseSurfaceIdentity
+        )
     }
 #endif
 
     override func scrollWheel(with event: NSEvent) {
         if routeInputDuringClipboardRead(event) { return }
-        repairGhosttyMouseButtonsIfNeeded(reason: "scrollWheel")
+        reconcileGhosttyMouseButtons(reason: "scrollWheel")
         guard let surface else {
             // Detached views used by previews and tests have no runtime
             // snapshot. Preserve the bounded first-packet fallback for them.
@@ -11123,7 +11096,7 @@ final class GhosttySurfaceScrollView: NSView {
             )
         }
         if !visible {
-            surfaceView.scheduleForcedGhosttyMouseButtonRepair(reason: "setVisibleInUI.false")
+            surfaceView.releaseAllGhosttyMouseButtons(reason: "setVisibleInUI.false")
             setLinkHoverURL(nil)
             // If we were focused, yield first responder.
             if let window = uiWindow, let fr = window.firstResponder as? NSView,
@@ -11131,7 +11104,7 @@ final class GhosttySurfaceScrollView: NSView {
                 window.makeFirstResponder(nil)
             }
         } else {
-            surfaceView.scheduleGhosttyMouseButtonRepair(reason: "setVisibleInUI.true")
+            surfaceView.reconcileGhosttyMouseButtons(reason: "setVisibleInUI.true")
             if !wasVisible {
                 // Workspace/sidebar selection can make an already-sized terminal visible again
                 // without a portal frame delta or a focus handoff. Nudge the Metal layer with
@@ -11186,12 +11159,12 @@ final class GhosttySurfaceScrollView: NSView {
         }
 #endif
         if active {
-            surfaceView.scheduleGhosttyMouseButtonRepair(reason: "setActive.true")
+            surfaceView.reconcileGhosttyMouseButtons(reason: "setActive.true")
             if !wasActive {
                 scheduleAutomaticFirstResponderApply(reason: "setActive")
             }
         } else {
-            surfaceView.scheduleForcedGhosttyMouseButtonRepair(reason: "setActive.false")
+            surfaceView.releaseAllGhosttyMouseButtons(reason: "setActive.false")
             resignOwnedFirstResponderIfNeeded(reason: "setActive(false)")
         }
     }

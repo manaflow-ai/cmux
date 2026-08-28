@@ -105,7 +105,7 @@ extension GhosttyNSView {
 
     private func scheduleMouseRepairAfterClipboardDrainIfNeeded() {
         guard !hasClipboardInputDeferral else { return }
-        scheduleGhosttyMouseButtonRepair(reason: "clipboardInputDrained")
+        reconcileGhosttyMouseButtons(reason: "clipboardInputDrained")
     }
 
     func routeInputDuringClipboardRead(_ event: NSEvent) -> Bool {
