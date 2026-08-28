@@ -9037,7 +9037,9 @@ impl Mux {
         let mut records = self.agent_records.lock().unwrap();
         let record = match records.get(&terminal_id) {
             Some(existing)
-                if existing.source == AgentSource::Hook && source == AgentSource::Socket =>
+                if existing.source == AgentSource::Hook
+                    && source == AgentSource::Socket
+                    && !hook_state.is_some_and(|state| state.ended) =>
             {
                 existing.clone()
             }
@@ -22492,7 +22494,10 @@ mod tests {
 
     #[test]
     fn new_non_hook_session_can_start_after_hook_session_end() {
-        let mux = test_mux();
+        let root = std::env::temp_dir()
+            .join(format!("cmux-agent-hook-restart-{}", crate::workspace_registry::new_uuid_v4()));
+        let mux = Mux::open_persistent("agent-hook-restart", SurfaceOptions::default(), &root)
+            .unwrap();
         let surface = mux.new_workspace(None, None).unwrap();
         let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
         let hook = |event: &str| {
@@ -22517,11 +22522,29 @@ mod tests {
         assert_eq!(record.source, AgentSource::Socket);
         assert_eq!(record.session.as_deref(), Some("new-socket-session"));
 
+        let public = crate::resource_api::public_session_snapshot(&mux).unwrap();
+        assert_eq!(public["agents"][0]["source_session"], "new-socket-session");
+
         // A late event from the ended hook session remains fenced.
         mux.apply_agent_hook_record(&hook("UserPromptSubmit"), 2).unwrap();
         let record = &mux.list_agents(Some(surface.id), None)[0];
         assert_eq!(record.source, AgentSource::Socket);
         assert_eq!(record.session.as_deref(), Some("new-socket-session"));
+
+        mux.shutdown();
+        drop(mux);
+        let reopened = Mux::open_persistent("agent-hook-restart", SurfaceOptions::default(), &root)
+            .unwrap();
+        let reopened_record = &reopened.list_agents(Some(surface.id), None)[0];
+        assert_eq!(reopened_record.source, AgentSource::Socket);
+        assert_eq!(reopened_record.session.as_deref(), Some("new-socket-session"));
+        assert_eq!(
+            crate::resource_api::public_session_snapshot(&reopened).unwrap()["agents"][0]
+                ["source_session"],
+            "new-socket-session"
+        );
+        reopened.shutdown();
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
