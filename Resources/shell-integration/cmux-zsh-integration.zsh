@@ -1507,8 +1507,8 @@ _cmux_run_pr_probe_with_timeout() {
 # days on a busy machine, so once the recorded shell PID is reassigned to any
 # live process the guard returns true forever and the watcher never exits
 # (793 orphans / 2.1 GB after 20 days). Pair the PID with Darwin's kernel
-# start time (seconds) from /bin/ps so a recycled PID no longer counts as the
-# parent.
+# start time (epoch seconds) from Darwin so a recycled PID no longer counts as
+# the parent. Both providers return the same representation.
 _cmux_watcher_parent_start_time() {
     local pid="${1:-}" raw month day clock year token
     case "$pid" in ''|*[!0-9]*) return 1 ;; esac
@@ -1519,7 +1519,7 @@ _cmux_watcher_parent_start_time() {
     for (( i = 1; i < ${#fields}; i++ )); do
         sec="${fields[i]}"; usec="${fields[i+1]}"
         if [[ "$sec" == <-> && "$usec" == <-> ]] && (( sec >= 1000000000 && sec <= 3000000000 && usec < 1000000 )); then
-            token="${sec}${(l:6::0:)usec}"
+            token="$sec"
             _cmux_watcher_parent_identity_valid "$pid" "$token" || return 1
             print -r -- "$token"
             return 0
@@ -1527,8 +1527,7 @@ _cmux_watcher_parent_start_time() {
     done
     # Darwin's ps exposes process start time through `lstart`, which is a
     # locale-formatted string. Force the stable C locale and UTC timezone,
-    # then convert the five fields to a fixed-width numeric token before
-    # comparing.
+    # then use date(1) to convert it to the same epoch-second token.
     raw="$(TZ=UTC LC_ALL=C /bin/ps -o lstart= -p "$pid" 2>/dev/null)" || return 1
     case "$raw" in *$'\n'*) return 1 ;; esac
     local -a words
@@ -1555,7 +1554,8 @@ _cmux_watcher_parent_start_time() {
         [0-9][0-9][0-9][0-9]) year="${words[5]}" ;;
         *) return 1 ;;
     esac
-    token="${year}${month}${day}${clock//:/}"
+    token="$(TZ=UTC LC_ALL=C /bin/date -j -u -f '%a %b %d %T %Y' "$raw" '+%s' 2>/dev/null)" || return 1
+    [[ "$token" == <-> ]] || return 1
     _cmux_watcher_parent_identity_valid "$pid" "$token" || return 1
     print -r -- "$token"
 }
@@ -1572,7 +1572,7 @@ _cmux_watcher_parent_identity_valid() {
     case "$identity" in
         ''|*[!0-9]*) return 1 ;;
     esac
-    (( ${#identity} == 16 || ${#identity} == 14 ))
+    (( ${#identity} >= 10 && ${#identity} <= 11 ))
 }
 
 _cmux_watcher_parent_alive() {
