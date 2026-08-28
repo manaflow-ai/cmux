@@ -22,7 +22,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use tokio::sync::Notify;
 
 use async_trait::async_trait;
@@ -421,9 +421,11 @@ struct Inner {
     /// one global snapshot would let the last frame on either transport
     /// authorize asynchronous output for every other attachment.
     transport_auth: Mutex<HashMap<TransportOwner, AuthSnapshot>>,
-    /// Serializes short authority and attachment state transitions. It is
-    /// never held while a PTY control method, callback, or provider await runs.
-    tunnel_state: Mutex<()>,
+    /// A read/write authority barrier. Normal attachment operations hold a
+    /// shared read guard while they validate and act. Authority transitions
+    /// take the exclusive guard before removing the authorization snapshot,
+    /// so no operation can cross a revocation boundary after validation.
+    tunnel_state: RwLock<()>,
     /// Monotonic floor for managed tunnel authority generations. It remains
     /// effective while a stale open is still unwinding after revocation.
     tunnel_authority_generation: AtomicU64,
@@ -484,7 +486,7 @@ impl PtyManager {
                 shell_sessions: Mutex::new(HashMap::new()),
                 shell_starting: Mutex::new(HashMap::new()),
                 transport_auth: Mutex::new(HashMap::new()),
-                tunnel_state: Mutex::new(()),
+                tunnel_state: RwLock::new(()),
                 tunnel_authority_generation: AtomicU64::new(0),
             }),
         }
@@ -511,7 +513,7 @@ impl PtyManager {
                 shell_sessions: Mutex::new(HashMap::new()),
                 shell_starting: Mutex::new(HashMap::new()),
                 transport_auth: Mutex::new(HashMap::new()),
-                tunnel_state: Mutex::new(()),
+                tunnel_state: RwLock::new(()),
                 tunnel_authority_generation: AtomicU64::new(0),
             }),
         }
@@ -599,7 +601,7 @@ impl PtyManager {
     /// Network frames never get to replace an existing snapshot implicitly.
     pub fn update_transport_auth(&self, context: &FrameContext) {
         debug_assert!(context.transport_id.is_some(), "transport refresh needs an id");
-        let _state = self.inner.tunnel_state.lock().expect("tunnel state lock");
+        let _state = self.inner.tunnel_state.write().expect("tunnel state lock");
         if !self.inner.tunnel_authority_generation_current(context) {
             return;
         }
@@ -614,7 +616,7 @@ impl PtyManager {
     /// matching snapshot. A stale in-flight frame cannot recreate a removed
     /// transport entry after this point.
     pub fn set_tunnel_authority_generation(&self, generation: u64) {
-        let _state = self.inner.tunnel_state.lock().expect("tunnel state lock");
+        let _state = self.inner.tunnel_state.write().expect("tunnel state lock");
         let mut current = self.inner.tunnel_authority_generation.load(Ordering::Acquire);
         while generation > current {
             match self.inner.tunnel_authority_generation.compare_exchange_weak(
@@ -674,7 +676,7 @@ impl PtyManager {
         // The state lock couples authority transitions with the final open
         // install. PTY kill calls happen after it is released, so one slow
         // attachment cannot block unrelated tunnel operations.
-        let _state = self.inner.tunnel_state.lock().expect("tunnel state lock");
+        let _state = self.inner.tunnel_state.write().expect("tunnel state lock");
         self.inner
             .transport_auth
             .lock()
@@ -771,7 +773,7 @@ impl Inner {
         let fail = |code: &str, message: &str| send_pty_error(context, &pty_id, code, message);
         let reservation_owner = OpeningOwner { owner: TransportOwner::from_context(context) };
         let reservation_result = {
-            let _state = self.tunnel_state.lock().expect("tunnel state lock");
+            let _state = self.tunnel_state.write().expect("tunnel state lock");
             let mut opening = self.opening_state.lock().expect("opening state lock");
             let attachments = self.attachments.lock().expect("attach lock");
             if attachments.contains_key(&pty_id) || opening.reservations.contains_key(&pty_id) {
@@ -942,7 +944,7 @@ impl Inner {
         // The short state lock couples this transition with revocation, while
         // no PTY operation runs under it.
         let (surface, start, previous) = {
-            let _state = self.tunnel_state.lock().expect("tunnel state lock");
+            let _state = self.tunnel_state.write().expect("tunnel state lock");
             let auth_changed = self
                 .transport_auth
                 .lock()
@@ -1033,20 +1035,16 @@ impl Inner {
     }
 
     fn emit_output(&self, pty_id: &str, chunk: &Bytes, context: &FrameContext) {
-        if !self.tunnel_authority_generation_current(context) {
-            return;
-        }
-        let Some(auth) = self.auth_for_transport(context) else {
-            return;
-        };
         let Some(attachment) = self.attachment(pty_id) else {
             return;
         };
         let _operation = attachment.operation_gate.lock().expect("attachment operation lock");
-        // The state lock is only the authorization linearization point. Do
-        // not keep it while backpressure or the send callback runs.
+        let Some(auth) = self.auth_for_transport(context) else { return };
+        // Hold the authority barrier only through the authorization decision.
+        // Backpressure probes and the send callback cross the transport and
+        // can block, so they must not delay revocation of other attachments.
         let authorized = {
-            let _state = self.tunnel_state.lock().expect("tunnel state lock");
+            let _state = self.tunnel_state.read().expect("tunnel state lock");
             self.attachment_is_authorized(pty_id, &attachment, &auth, context)
         };
         if !authorized {
@@ -1064,8 +1062,14 @@ impl Inner {
         // frame exactly at the cap, but must reject one that would push the
         // buffered amount over the cap.
         if buffered.saturating_add(chunk.len() as u64) > self.output_cap {
+            // `retire_if_current` takes the write side of the barrier. The
+            // authorization guard is already out of scope, while the
+            // attachment gate remains held for the removal window.
+            let removed = self.remove_if_current(pty_id, &attachment);
             drop(_operation);
-            self.retire_if_current(pty_id, &attachment);
+            if let Some(removed) = removed {
+                self.retire_attachment(removed);
+            }
             send_pty_error(
                 context,
                 pty_id,
@@ -1086,39 +1090,35 @@ impl Inner {
     }
 
     fn emit_exit(&self, pty_id: &str, code: i64, context: &FrameContext) {
-        if !self.tunnel_authority_generation_current(context) {
-            return;
-        }
-        let Some(auth) = self.auth_for_transport(context) else {
-            return;
-        };
         let Some(attachment) = self.attachment(pty_id) else {
             return;
         };
         let _operation = attachment.operation_gate.lock().expect("attachment operation lock");
-        let authorized = {
-            let _state = self.tunnel_state.lock().expect("tunnel state lock");
-            self.attachment_is_authorized(pty_id, &attachment, &auth, context)
+        // Exit publication is also an authorized operation. Keep the
+        // exclusive transition from racing the validation and removal, or a
+        // revoked transport could receive one last terminal result.
+        let _state = self.tunnel_state.write().expect("tunnel state lock");
+        let Some(auth) = self.auth_for_transport(context) else {
+            return;
         };
-        if !authorized {
+        if !self.attachment_is_authorized(pty_id, &attachment, &auth, context) {
+            drop(_state);
             drop(_operation);
             self.handle_authorization_failure(pty_id, &attachment, &auth, context, "exit");
             return;
         }
-        let removed = {
-            let _state = self.tunnel_state.lock().expect("tunnel state lock");
-            let mut attachments = self.attachments.lock().expect("attach lock");
-            let same = attachments.get(pty_id).is_some_and(|current| {
-                Arc::ptr_eq(&current.operation_gate, &attachment.operation_gate)
-            });
-            if same { attachments.remove(pty_id).is_some() } else { false }
-        };
+        let mut attachments = self.attachments.lock().expect("attach lock");
+        let same = attachments.get(pty_id).is_some_and(|current| {
+            Arc::ptr_eq(&current.operation_gate, &attachment.operation_gate)
+        });
+        let removed = if same { attachments.remove(pty_id).is_some() } else { false };
+        drop(attachments);
         if !removed {
             return;
         }
         attachment.closing.store(true, Ordering::SeqCst);
-        // Exit publication crosses the transport boundary. Release the
-        // lifecycle state before invoking the callback.
+        // The queue callback must run outside the exclusive state barrier.
+        drop(_state);
         drop(_operation);
         (auth.send)(json!({
             "version": PTY_PROTOCOL_VERSION,
@@ -1133,7 +1133,7 @@ impl Inner {
         // Match `open`'s lock order. If opening still owns the reservation,
         // record an owner-specific cancellation and let it dispose the PTY.
         let attachment = {
-            let _state = self.tunnel_state.lock().expect("tunnel state lock");
+            let _state = self.tunnel_state.write().expect("tunnel state lock");
             let mut opening = self.opening_state.lock().expect("opening state lock");
             if let Some(owner) = opening.reservations.get(pty_id).cloned() {
                 opening.cancelled.insert(pty_id.to_owned(), owner);
@@ -1168,14 +1168,14 @@ impl Inner {
     where
         F: FnOnce(&Attachment),
     {
-        let Some(auth) = self.auth_for_transport(context) else { return };
         let Some(attachment) = self.attachment(pty_id) else { return };
         let operation_gate = Arc::clone(&attachment.operation_gate);
         let _operation = operation_gate.lock().expect("attachment operation lock");
-        // The state lock is only the authorization linearization point. The
-        // control operation can block on a child that does not read stdin.
+        let Some(auth) = self.auth_for_transport(context) else { return };
+        // The control operation is synchronous and may block on a child that
+        // does not read stdin. Release the global barrier before running it.
         let authorized = {
-            let _state = self.tunnel_state.lock().expect("tunnel state lock");
+            let _state = self.tunnel_state.read().expect("tunnel state lock");
             self.attachment_is_authorized(pty_id, &attachment, &auth, context)
         };
         if !authorized {
@@ -1217,30 +1217,28 @@ impl Inner {
     }
 
     fn close_authorized(&self, pty_id: &str, context: &FrameContext) {
-        let Some(auth) = self.auth_for_transport(context) else { return };
         let Some(attachment) = self.attachment(pty_id) else { return };
         let _operation = attachment.operation_gate.lock().expect("attachment operation lock");
-        let authorized = {
-            let _state = self.tunnel_state.lock().expect("tunnel state lock");
-            self.attachment_is_authorized(pty_id, &attachment, &auth, context)
-        };
-        if !authorized {
+        // Use the exclusive barrier for the check and removal. A close from a
+        // transport that lost authority must never win a race with the
+        // revocation transition.
+        let _state = self.tunnel_state.write().expect("tunnel state lock");
+        let Some(auth) = self.auth_for_transport(context) else { return };
+        if !self.attachment_is_authorized(pty_id, &attachment, &auth, context) {
+            drop(_state);
             drop(_operation);
             self.handle_authorization_failure(pty_id, &attachment, &auth, context, "close");
             return;
         }
-        let removed = {
-            let _state = self.tunnel_state.lock().expect("tunnel state lock");
-            let mut attachments = self.attachments.lock().expect("attach lock");
-            let same = attachments.get(pty_id).is_some_and(|current| {
-                Arc::ptr_eq(&current.operation_gate, &attachment.operation_gate)
-            });
-            if same { attachments.remove(pty_id).is_some() } else { false }
-        };
+        let mut attachments = self.attachments.lock().expect("attach lock");
+        let same = attachments.get(pty_id).is_some_and(|current| {
+            Arc::ptr_eq(&current.operation_gate, &attachment.operation_gate)
+        });
+        let removed = if same { attachments.remove(pty_id).is_some() } else { false };
+        drop(attachments);
         if removed {
             attachment.closing.store(true, Ordering::SeqCst);
-            // Killing a PTY can acquire a platform mutex. Keep it outside the
-            // lifecycle barrier and the per-attachment operation gate.
+            drop(_state);
             drop(_operation);
             attachment.control.kill();
         }
@@ -1296,24 +1294,26 @@ impl Inner {
     }
 
     fn retire_if_current(&self, pty_id: &str, attachment: &Attachment) {
-        let removed = {
-            let _state = self.tunnel_state.lock().expect("tunnel state lock");
+        if let Some(removed) = self.remove_if_current(pty_id, attachment) {
+            self.retire_attachment(removed);
+        }
+    }
+
+    fn remove_if_current(&self, pty_id: &str, attachment: &Attachment) -> Option<Attachment> {
+        {
+            let _state = self.tunnel_state.write().expect("tunnel state lock");
             let mut attachments = self.attachments.lock().expect("attach lock");
             let same = attachments.get(pty_id).is_some_and(|current| {
                 Arc::ptr_eq(&current.operation_gate, &attachment.operation_gate)
             });
             if same { attachments.remove(pty_id) } else { None }
-        };
-        if let Some(removed) = removed {
-            self.retire_attachment(removed);
         }
     }
 
     fn retire_attachment(&self, attachment: Attachment) {
         // Revocation must not wait for an admitted PTY write. The operation
-        // was linearized before removal from the attachment map; killing the
-        // control concurrently closes that admitted operation when the
-        // platform permits it, while this transition remains bounded.
+        // was linearized before removal from the attachment map; kill the
+        // control concurrently and keep the transition bounded.
         attachment.closing.store(true, Ordering::SeqCst);
         attachment.control.kill();
     }
@@ -1365,7 +1365,7 @@ fn drive_handle(
 
 impl Inner {
     fn cache_transport_auth(&self, context: &FrameContext) -> bool {
-        let _state = self.tunnel_state.lock().expect("tunnel state lock");
+        let _state = self.tunnel_state.write().expect("tunnel state lock");
         if !self.tunnel_authority_generation_current(context) {
             return false;
         }
@@ -1389,9 +1389,9 @@ impl Inner {
 
     fn tunnel_authority_generation_current(&self, context: &FrameContext) -> bool {
         context.auth_generation.is_none_or(|generation| {
-            // A frame is valid only for the exact published generation. A
-            // future generation has not passed the authority publication
-            // boundary and must fail closed as well as an old generation.
+            // A future generation is not valid until the corresponding
+            // authority snapshot has been published. Equality makes the
+            // transition fail closed in both directions.
             generation == self.tunnel_authority_generation.load(Ordering::Acquire)
         })
     }
@@ -1420,6 +1420,7 @@ impl Inner {
                 .connect_control(&ensured.socket_path)
                 .await
                 .map_err(|_| "cannot inspect existing daemon cwd".to_owned())?;
+            let mut control_guard = ControlEndOnDrop::new(Arc::clone(&control));
             let Some(listed) = control.request("list-workspaces", json!({})).await else {
                 control.end();
                 return Err("cannot inspect existing daemon surfaces".to_owned());
@@ -1489,6 +1490,7 @@ impl Inner {
                 }
             }
             control.end();
+            control_guard.disarm();
         }
         let mut args = cmux_tui.prefix.clone();
         args.extend([
@@ -1906,6 +1908,39 @@ struct ControlTerminalControl {
     surface_id: i64,
 }
 
+/// Own a control connection while an async terminal open is in progress.
+/// Dropping an in-flight open must close the socket, because `ControlHandle`
+/// intentionally does not make its `Drop` implementation part of the trait.
+struct ControlEndOnDrop {
+    control: Option<Arc<dyn ControlHandle>>,
+}
+
+impl ControlEndOnDrop {
+    fn new(control: Arc<dyn ControlHandle>) -> Self {
+        Self { control: Some(control) }
+    }
+
+    fn disarm(&mut self) {
+        self.control = None;
+    }
+}
+
+impl Drop for ControlEndOnDrop {
+    fn drop(&mut self) {
+        if let Some(control) = self.control.take() {
+            control.end();
+        }
+    }
+}
+
+impl Drop for ControlTerminalControl {
+    fn drop(&mut self) {
+        // A cancelled open can drop the proxy before it is wrapped in
+        // `Opened`; close the underlying reader/writer tasks in that case.
+        self.control.end();
+    }
+}
+
 impl PtyControl for ControlTerminalControl {
     fn write(&self, data: &[u8]) {
         self.control
@@ -2104,6 +2139,7 @@ impl Inner {
             Ok(control) => control,
             Err(_) => return Ok(None), // degrade to the whole-session attach
         };
+        let mut control_guard = ControlEndOnDrop::new(Arc::clone(&control));
 
         let identify = control.request("identify", json!({})).await;
         let info = identify.as_ref().filter(|v| v.get("ok").and_then(Value::as_bool) == Some(true));
@@ -2236,6 +2272,7 @@ impl Inner {
         }
 
         let proxy = Arc::new(ControlTerminalControl { control, surface_id });
+        control_guard.disarm();
         let (on_data, _) = self.sinks(pty_id, context);
         let relay = Arc::clone(&self);
         let context_for_exit = context.clone();
@@ -2354,6 +2391,7 @@ impl Inner {
         let Ok(control) = self.deps.connect_control(socket_path).await else {
             return Vec::new();
         };
+        let mut control_guard = ControlEndOnDrop::new(Arc::clone(&control));
         let identify = control.request("identify", json!({})).await;
         let protocol = identify
             .as_ref()
@@ -2418,6 +2456,7 @@ impl Inner {
             out.push((reference, title.chars().take(200).collect()));
         }
         control.end();
+        control_guard.disarm();
         out
     }
 }
@@ -2435,6 +2474,7 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
     use std::sync::{Arc as TestArc, Barrier, Mutex as StdMutex, mpsc::sync_channel};
     use std::thread;
+    use std::time::Duration;
 
     static NEXT_TEST_DIRECTORY: AtomicU64 = AtomicU64::new(0);
 

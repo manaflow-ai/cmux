@@ -38,9 +38,12 @@
 //! already attach terminals through the cmux CLI. Paired human machines
 //! never run this listener: it starts from the managed branch only.
 
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::RwLock;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
+use std::task::{Context, Poll};
 use std::time::Duration;
 
 use base64::Engine as _;
@@ -438,6 +441,22 @@ impl Connection {
         }
         match frame.get("type").and_then(Value::as_str) {
             Some("pty_opened") => {
+                // Hold the authority read lock through enqueue. The session
+                // reconciler takes the matching write lock before detaching
+                // old transports, so a revoke cannot cross this publication
+                // boundary and leave a stale `opened` frame on the wire.
+                let authority = match self.auth_state.read() {
+                    Ok(authority)
+                        if authority.generation == self.auth_generation
+                            && authority.auth.is_some() =>
+                    {
+                        authority
+                    }
+                    _ => {
+                        self.protocol_error("trust_revoked");
+                        return;
+                    }
+                };
                 self.opened_seen.store(true, Ordering::SeqCst);
                 let mut opened = json!({
                     "t": "opened",
@@ -450,8 +469,16 @@ impl Connection {
                     opened["surface"] = Value::from(surface);
                 }
                 self.send_control(&opened);
+                drop(authority);
             }
             Some("pty_output") => {
+                // Manager callbacks can race the reader's authority watch.
+                // Re-check at enqueue time so revoked transports cannot
+                // publish queued output after the generation changed.
+                if !self.authority_current() {
+                    self.protocol_error("trust_revoked");
+                    return;
+                }
                 let Some(bytes) = frame
                     .get("dataB64")
                     .and_then(Value::as_str)
@@ -532,7 +559,58 @@ fn queue_limit(control: bool) -> u64 {
     }
 }
 
-async fn handle_client_frame(connection: &Arc<Connection>, frame: TunnelFrame) {
+/// A spawned open task remains owned by the connection until it is joined.
+/// Dropping a Tokio `JoinHandle` detaches the task, which would let a cancelled
+/// tunnel finish opening and retain its PTY callbacks after the socket exits.
+struct AbortOnDrop<T> {
+    handle: Option<tokio::task::JoinHandle<T>>,
+}
+
+impl<T> AbortOnDrop<T> {
+    fn new(handle: tokio::task::JoinHandle<T>) -> Self {
+        Self { handle: Some(handle) }
+    }
+
+    fn abort(&self) {
+        if let Some(handle) = &self.handle {
+            handle.abort();
+        }
+    }
+}
+
+impl<T> Unpin for AbortOnDrop<T> {}
+
+impl<T> Future for AbortOnDrop<T> {
+    type Output = Result<T, tokio::task::JoinError>;
+
+    fn poll(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Self::Output> {
+        let result = {
+            let handle = self.handle.as_mut().expect("open task polled after completion");
+            Pin::new(handle).poll(context)
+        };
+        match result {
+            Poll::Ready(result) => {
+                self.handle = None;
+                Poll::Ready(result)
+            }
+            Poll::Pending => Poll::Pending,
+        }
+    }
+}
+
+impl<T> Drop for AbortOnDrop<T> {
+    fn drop(&mut self) {
+        if let Some(handle) = &self.handle {
+            handle.abort();
+        }
+    }
+}
+
+async fn handle_client_frame(
+    connection: &Arc<Connection>,
+    frame: TunnelFrame,
+    authority_changes: &mut watch::Receiver<u64>,
+) {
     if connection.finished.load(Ordering::SeqCst) {
         return;
     }
@@ -596,27 +674,38 @@ async fn handle_client_frame(connection: &Arc<Connection>, frame: TunnelFrame) {
             if let Some(surface) = surface {
                 open["surface"] = Value::from(surface);
             }
-            // Keep the manager future owned after the protocol deadline. A
-            // direct timeout would drop `handle_frame` while its blocking PTY
-            // spawn could still be running, leaving a late child with no
-            // owner. The detached task retains the opening reservation; the
-            // connection cleanup marks that reservation cancelled, and
-            // `Opened` then kills any handle that arrives after the deadline.
-            let mut open_task = tokio::spawn({
+            // Run the open in its own task. Dropping an in-flight
+            // `handle_frame` future from `timeout` can abandon work while it
+            // owns manager resources. An explicit abort, followed by the
+            // normal close path, gives cancellation a defined cleanup point.
+            let mut open_task = AbortOnDrop::new(tokio::spawn({
                 let manager = Arc::clone(&connection.manager);
-                let open = open.clone();
-                let context = context.clone();
                 async move { manager.handle_frame(&open, &context).await }
-            });
-            match tokio::time::timeout(OPEN_TIMEOUT, &mut open_task).await {
-                Ok(Ok(())) => {}
-                Ok(Err(_)) => connection.protocol_error("failed"),
-                Err(_) => {
+            }));
+            let deadline = tokio::time::sleep(OPEN_TIMEOUT);
+            tokio::pin!(deadline);
+            tokio::select! {
+                result = &mut open_task => {
+                    if result.is_err() {
+                        connection.protocol_error("failed");
+                    }
+                }
+                _ = &mut deadline => {
+                    open_task.abort();
+                    let _ = (&mut open_task).await;
                     connection.protocol_error("failed");
-                    // Dropping a JoinHandle detaches the task. It continues
-                    // to its ownership-aware cleanup path without blocking
-                    // this connection's reader or writer.
-                    drop(open_task);
+                }
+                changed = authority_changes.changed() => {
+                    let revoked = matches!(changed, Ok(()) if *authority_changes.borrow_and_update() != connection.auth_generation);
+                    if revoked {
+                        open_task.abort();
+                        let _ = (&mut open_task).await;
+                        connection.protocol_error("trust_revoked");
+                    } else if changed.is_err() {
+                        open_task.abort();
+                        let _ = (&mut open_task).await;
+                        connection.finish();
+                    }
                 }
             }
         }
@@ -782,7 +871,7 @@ async fn serve_connection(
                 match decoder.push(&buffer[..count]) {
                     Ok(frames) => {
                         for frame in frames {
-                            handle_client_frame(&connection, frame).await;
+                            handle_client_frame(&connection, frame, &mut authority_changes).await;
                         }
                     }
                     Err(_) => {
