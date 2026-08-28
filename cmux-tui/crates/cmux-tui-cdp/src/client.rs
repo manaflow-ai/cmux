@@ -1521,8 +1521,16 @@ fn drain_outbound<W: OutboundWriter>(
     loop {
         match outbound.try_recv() {
             Ok(Outbound::Message(text)) => {
-                outbound_bytes_sub(inner, text.len());
-                ws.send_text(text)?;
+                let bytes = text.len();
+                // Keep the reservation while the socket write is in progress.
+                // Release it only after the write returns, including errors.
+                match ws.send_text(text) {
+                    Ok(()) => outbound_bytes_sub(inner, bytes),
+                    Err(error) => {
+                        outbound_bytes_sub(inner, bytes);
+                        return Err(error);
+                    }
+                }
             }
             Ok(Outbound::Flush(done)) => {
                 let _ = done.send(());
