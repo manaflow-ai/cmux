@@ -372,6 +372,24 @@ extension TerminalSurface {
     @discardableResult
     @MainActor
     public func suspendRuntimeSurfaceForAgentHibernation(reason: String) -> Bool {
+        // A terminal can be hibernated before its portal ever realizes a
+        // native Ghostty surface (for example while a restored window is still
+        // hidden). There is no native resource to free in that state, so do
+        // not consume one of the bounded teardown reservations or reject the
+        // hibernation solely because both slots are occupied by unrelated
+        // surfaces.
+        if surface == nil {
+            if let reservation = agentHibernationRuntimeTeardownReservation {
+                agentHibernationRuntimeTeardownReservation = nil
+                runtimeTeardown.cancelIsolatedHibernationTeardown(reservation)
+            }
+            runtimeSurfaceSuspendedForAgentHibernation = true
+            backgroundSurfaceStartQueued = false
+            backgroundSurfaceStartSource = .normal
+            cancelAgentCommandShimInstallLifecycle()
+            closeHeadlessStartupWindowIfNeeded()
+            return true
+        }
         guard let teardownReservation =
                 agentHibernationRuntimeTeardownReservation ??
                 runtimeTeardown.reserveIsolatedHibernationTeardown() else {
@@ -541,6 +559,15 @@ extension TerminalSurface {
         let trimmedInput = input?.isEmpty == false ? input : nil
         nextRuntimeInitialInput = trimmedInput
     }
+
+#if DEBUG
+    /// Test support for the hibernation boundary: input prepared for the next
+    /// runtime is intentionally kept separate from the immutable startup input
+    /// of the current (surface-less) runtime.
+    public func debugNextRuntimeInitialInputForTesting() -> String? {
+        nextRuntimeInitialInput
+    }
+#endif
 
     /// Attaches the model to its inner view, creating the runtime surface
     /// when the view is in a window.

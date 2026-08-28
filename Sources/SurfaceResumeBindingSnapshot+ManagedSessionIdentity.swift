@@ -120,7 +120,9 @@ extension SurfaceResumeBindingSnapshot {
                 ?? (continuesPreviousSession ? previousForKind?.launchCommand : nil),
             registration: previousForKind?.registration,
             permissionMode: permissionMode
-                ?? (continuesPreviousSession ? previousForKind?.permissionMode : nil)
+                ?? (continuesPreviousSession ? previousForKind?.permissionMode : nil),
+            restoreWorkingDirectorySelection: restoreWorkingDirectorySelection
+                ?? (continuesPreviousSession ? previousForKind?.restoreWorkingDirectorySelection : nil)
         )
     }
 

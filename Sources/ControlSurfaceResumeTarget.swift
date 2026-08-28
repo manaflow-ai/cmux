@@ -458,6 +458,10 @@ extension TerminalController {
         // Do not replay the captured shell command without that policy proof.
         guard !isUnscopedCustomAgentHook else { return nil }
         guard bindingSelection?.permitsResume != false else { return nil }
+        // An explicit `.exact(nil)` is a real, authoritative choice—not a
+        // missing value. Keep the optional selection branch separate so the
+        // fallback cwd rescue is consulted only for legacy bindings that have
+        // no policy at all.
         let workingDirectory: String? = if let bindingSelection {
             bindingSelection.resolved(
                 snapshotWorkingDirectory: binding.cwd,

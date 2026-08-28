@@ -2238,6 +2238,13 @@ struct RemoteAgentRestoreWorkingDirectoryTests {
             directory: newerRemoteDirectory
         ))
         let secondSnapshot = restored.sessionSnapshot(includeScrollback: false)
+        // The second snapshot models a relaunch after the first runtime has
+        // exited. Release the in-process duplicate-launch claim that the first
+        // restore intentionally held while its command was running.
+        AgentResumeLaunchGuard.shared.releaseResumeLaunch(
+            kind: "codex",
+            sessionId: sessionId
+        )
         let secondRestore = Workspace(agentSessionAutoResumeDefaults: defaults)
         defer { secondRestore.teardownAllPanels() }
         let secondPanelIds = secondRestore.restoreSessionSnapshot(secondSnapshot)
@@ -2406,6 +2413,10 @@ struct RemoteAgentRestoreWorkingDirectoryTests {
             directory: newlyReportedRemoteDirectory
         ))
         let secondSnapshot = restored.sessionSnapshot(includeScrollback: false)
+        AgentResumeLaunchGuard.shared.releaseResumeLaunch(
+            kind: "codex",
+            sessionId: sessionId
+        )
         let secondRestore = Workspace(agentSessionAutoResumeDefaults: defaults)
         defer { secondRestore.teardownAllPanels() }
         let secondPanelIds = secondRestore.restoreSessionSnapshot(secondSnapshot)
@@ -2505,11 +2516,21 @@ struct RemoteAgentRestoreWorkingDirectoryTests {
         #expect(attachCommand.contains("--require-existing"), Comment(rawValue: attachCommand))
         #expect(!attachCommand.contains(capturedDirectory), Comment(rawValue: attachCommand))
 
-        let words = TerminalStartupWorkingDirectoryPrefix.shellWordRanges(attachCommand).map(\.value)
+        // The attach launcher is itself `/bin/sh -c '<script>'`; unwrap that
+        // script before inspecting its nested `ssh-pty-attach` argv.
+        let outerWords = TerminalStartupWorkingDirectoryPrefix.shellWordRanges(attachCommand)
+        let script = if let shellIndex = outerWords.firstIndex(where: { $0.value == "-c" }),
+                        outerWords.indices.contains(outerWords.index(after: shellIndex)) {
+            outerWords[outerWords.index(after: shellIndex)].value
+        } else {
+            attachCommand
+        }
+        let words = TerminalStartupWorkingDirectoryPrefix.shellWordRanges(script).map(\.value)
         let commandIndex = try #require(words.firstIndex(of: "--command-b64"))
         let commandPayloadIndex = words.index(after: commandIndex)
         try #require(words.indices.contains(commandPayloadIndex))
         let commandPayload = words[commandPayloadIndex]
+            .trimmingCharacters(in: CharacterSet(charactersIn: ";"))
         let remoteCommandData = try #require(Data(base64Encoded: commandPayload))
         let remoteCommand = try #require(String(data: remoteCommandData, encoding: .utf8))
         let unsafeStartupInput = try #require(binding.remoteStartupInput())
@@ -2605,8 +2626,15 @@ struct RemoteAgentRestoreWorkingDirectoryTests {
             expectedSurfaceID: panelId,
             persistentPTYSessionID: persistentSessionID
         ))
-        #expect(exactWithoutLaunchRemoteCommand.contains("--require-existing"))
         #expect(!exactWithoutLaunchRemoteCommand.contains(capturedDirectory))
+        // `persistentSSHResumeCommand` is the remote shell bootstrap; the
+        // local attach wrapper is the layer that owns `--require-existing`.
+        let exactWithoutLaunchAttach = SSHPTYAttachStartupCommandBuilder.command(
+            sessionID: persistentSessionID,
+            remoteCommand: exactWithoutLaunchRemoteCommand,
+            requireExisting: true
+        )
+        #expect(exactWithoutLaunchAttach.contains("--require-existing"))
     }
 
     @Test func persistentSSHRegistrationWithoutCwdFailsClosedForDirectoryKeyedAgent() {
@@ -2950,7 +2978,10 @@ struct RemoteAgentRestoreWorkingDirectoryTests {
             #expect(!resumeCommand.contains(capturedArgumentDirectory), Comment(rawValue: resumeCommand))
 
             #expect(workspace.resumeAgentHibernation(panelId: panelId, focus: false))
-            let queuedInput = try #require(panel.surface.debugInitialInputForTesting())
+            let queuedInput = try #require(
+                panel.surface.debugInitialInputForTesting()
+                    ?? panel.surface.debugNextRuntimeInitialInputForTesting()
+            )
             #expect(queuedInput.contains(sessionId), Comment(rawValue: queuedInput))
             #expect(queuedInput.contains(trustedRemoteDirectory), Comment(rawValue: queuedInput))
             #expect(!queuedInput.contains(capturedAgentDirectory), Comment(rawValue: queuedInput))

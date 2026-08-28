@@ -66,7 +66,16 @@ extension Workspace {
               let relayPort = configuration.relayPort else {
             return nil
         }
-        let matchingRestorableAgent = (restorableAgent ?? restoredAgentSnapshotsByPanelId[expectedSurfaceID]).flatMap {
+        // A binding with no launch recipe is an explicit transport-only
+        // reattach request. Do not resurrect a launch command from an older
+        // lifecycle snapshot just because one happens to be cached for the
+        // same session; doing so can replay stale/local cwd arguments. An
+        // explicitly supplied snapshot remains an intentional authority (the
+        // restore path passes one when it has validated it).
+        let candidateRestorableAgent = restorableAgent ?? (
+            binding.launchCommand == nil ? nil : restoredAgentSnapshotsByPanelId[expectedSurfaceID]
+        )
+        let matchingRestorableAgent = candidateRestorableAgent.flatMap {
             Self.restorableAgentForSessionRestore($0, resumeBinding: binding)
         }
         let bindingForStartup: SurfaceResumeBindingSnapshot = if let selection =
