@@ -233,7 +233,10 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             watchChanges(link: link)
             let data = try await link.run(arguments: CloudTuiCommandLine.snapshotArguments(socketPath: connected.socketPath))
             if let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                resources += CmuxTuiSnapshotParser.terminals(fromSnapshot: object, machine: machine)
+                resources = CmuxTuiSnapshotParser.mergingDisplays(
+                    pool: resources,
+                    parsed: CmuxTuiSnapshotParser.terminals(fromSnapshot: object, machine: machine)
+                )
                 tabByTerminal = CmuxTuiSnapshotParser.tabByTerminal(fromSnapshot: object)
                 remoteWorkspaces = CmuxTuiSnapshotParser.workspaces(fromSnapshot: object)
             }

@@ -383,7 +383,9 @@ final class MachinesPanelModelTests: XCTestCase {
         remoteA.remoteViews = [SurfaceRemoteView(tabID: "tab_1", workspace: ws0), SurfaceRemoteView(tabID: "tab_9", workspace: ws1)]
         var remoteB = terminal(.cloud("vivid-newt"), "term_2", title: "zsh", cwd: nil, lifecycle: .exited)
         remoteB.remoteViews = []
-        let display = SurfaceResource(id: SurfaceResourceID(machine: .cloud("vivid-newt"), kind: .display, key: "display:1"), title: "Desktop", detail: nil, lifecycle: .running, agent: nil, remoteWorkspace: nil, port: 6901, url: nil)
+        var display = SurfaceResource(id: SurfaceResourceID(machine: .cloud("vivid-newt"), kind: .display, key: "display:1"), title: "Desktop", detail: nil, lifecycle: .running, agent: nil, remoteWorkspace: nil, port: 6901, url: nil)
+        // ws_side also points at the machine's screen (a display tab in the daemon).
+        display.remoteViews = [SurfaceRemoteView(tabID: "tab_desk", workspace: ws1)]
         let port = SurfaceResource(id: SurfaceResourceID(machine: .cloud("vivid-newt"), kind: .browser, key: "port:3000"), title: ":3000", detail: "http", lifecycle: .running, agent: nil, remoteWorkspace: nil, port: 3000, url: nil)
         let snapshot = SurfaceCatalogSnapshot(
             machines: [machineInfo(.local, name: "Austin's Mac"), machineInfo(.cloud("vivid-newt"), remoteWorkspaces: [ws0, ws1, wsEmpty])],
@@ -415,8 +417,14 @@ final class MachinesPanelModelTests: XCTestCase {
             "machine:vivid-newt/ws/ws_main/resource:vivid-newt/terminal/term_1",
             "machine:vivid-newt/ws/ws_side",
             "machine:vivid-newt/ws/ws_side/resource:vivid-newt/terminal/term_1",
+            "machine:vivid-newt/ws/ws_side/resource:vivid-newt/display/display:1",
             "machine:vivid-newt/ws/ws_empty",
         ])
+        // The workspace's open/drag group carries its display pointer with its terminals.
+        XCTAssertEqual(
+            CloudTreeNodeBuilder.flattened(nodes).first { $0.id == "machine:vivid-newt/ws/ws_side" }?.dragGroup?.resources,
+            [remoteA.id, display.id]
+        )
         XCTAssertFalse(ids.contains { $0.contains("port") }, "ports stay out of the tree for now")
         let flattened = CloudTreeNodeBuilder.flattened(nodes)
         let byID = Dictionary(flattened.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
@@ -452,7 +460,7 @@ final class MachinesPanelModelTests: XCTestCase {
             "local/terminal/AAA",
             "vivid-newt/terminal/term_1", "vivid-newt/terminal/term_2",
             "vivid-newt/display/display:1",
-            "vivid-newt/terminal/term_1", "vivid-newt/terminal/term_1",
+            "vivid-newt/terminal/term_1", "vivid-newt/terminal/term_1", "vivid-newt/display/display:1",
         ], "pool rows, then one drag resource per pointer row")
         XCTAssertTrue(flattened[0].isMachineRow)
         XCTAssertTrue(flattened[3].isMachineRow)
