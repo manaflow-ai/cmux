@@ -79,6 +79,7 @@ final class MobileHostIrxRuntime {
     /// Periodic re-yield loop; runs only while subscribers exist.
     var irxSettingsRefreshTask: Task<Void, Never>?
 
+    private var stateDirectory: URL?
     private(set) var brokerService: IrxBrokerService?
     private(set) var endpointSupervisor: IrxEndpointSupervisor?
     private var autopilot: IrxRelayCredentialAutopilot?
@@ -150,9 +151,19 @@ final class MobileHostIrxRuntime {
             setSettingsPhase(.failed)
             return
         }
-        let stateDir = FileManager.default.urls(
+        let appSupport = FileManager.default.urls(
             for: .applicationSupportDirectory, in: .userDomainMask
-        )[0].appendingPathComponent("cmux-irx", isDirectory: true)
+        )[0]
+        // Per-bundle, per-backend state: another build (or another
+        // environment's) caches must never be readable here, or staging
+        // trust keys reject production grants at admission.
+        let stateDir = IrxStateLocation.directory(
+            base: appSupport,
+            bundleIdentifier: Bundle.main.bundleIdentifier,
+            brokerHost: brokerBaseURL.host
+        )
+        IrxStateLocation.removeLegacySharedDirectory(base: appSupport)
+        stateDirectory = stateDir
         do {
             // IDENTITY ADOPTION: reuse the legacy stack's identity, device
             // ID, and app-instance scope, so the EndpointID, binding slot,
@@ -402,11 +413,12 @@ final class MobileHostIrxRuntime {
         }
         // Admission reads the persisted trust snapshot synchronously; it
         // never awaits the broker (steady-state independence).
+        guard let stateDirectory else { return }
         let judge = IrxGrantJudge(
             acceptor: acceptor,
-            trustProvider: { IrxDiskCacheTrustReader.read() }
+            trustProvider: { IrxDiskCacheTrustReader.read(stateDirectory: stateDirectory) }
         )
-        let trustSnapshot = { IrxDiskCacheTrustReader.read() }
+        let trustSnapshot = { IrxDiskCacheTrustReader.read(stateDirectory: stateDirectory) }
         let brokerClient = brokerService.hostBrokerClient
         acceptLoop = Task { [weak self] in
             journal.record("host-runtime", "accept-loop-started")
@@ -604,9 +616,19 @@ final class MobileHostIrxRuntime {
 /// no network): reads the JSON the broker service persists.
 enum IrxDiskCacheTrustReader {
     nonisolated static func read() -> IrxTrustSnapshot? {
-        let stateDir = FileManager.default.urls(
+        let appSupport = FileManager.default.urls(
             for: .applicationSupportDirectory, in: .userDomainMask
-        )[0].appendingPathComponent("cmux-irx", isDirectory: true)
+        )[0]
+        // Per-bundle, per-backend state: another build (or another
+        // environment's) caches must never be readable here, or staging
+        // trust keys reject production grants at admission.
+        let stateDir = IrxStateLocation.directory(
+            base: appSupport,
+            bundleIdentifier: Bundle.main.bundleIdentifier,
+            brokerHost: brokerBaseURL.host
+        )
+        IrxStateLocation.removeLegacySharedDirectory(base: appSupport)
+        stateDirectory = stateDir
         return IrxDiskCache<IrxTrustSnapshot>(
             fileURL: stateDir.appendingPathComponent("trust.json")
         ).load()

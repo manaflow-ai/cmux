@@ -118,9 +118,15 @@ public actor MobileIrxRuntimeComposition {
                 || ["-", ".", ":", "_"].contains(character)
                 ? String(character) : "-"
         }.joined()
-        stateDirectory = FileManager.default.urls(
+        let appSupport = FileManager.default.urls(
             for: .applicationSupportDirectory, in: .userDomainMask
-        )[0].appendingPathComponent("cmux-irx", isDirectory: true)
+        )[0]
+        stateDirectory = IrxStateLocation.directory(
+            base: appSupport,
+            bundleIdentifier: bundleIdentifier,
+            brokerHost: brokerBaseURL?.host()
+        )
+        IrxStateLocation.removeLegacySharedDirectory(base: appSupport)
     }
 
     /// irx mints its own durable device UUID (persisted beside the identity),
