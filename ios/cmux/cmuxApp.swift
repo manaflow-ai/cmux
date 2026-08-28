@@ -217,6 +217,13 @@ struct cmuxApp: App {
                 auth: auth,
                 iroh: iroh,
                 irx: irxEnabled ? irx : nil,
+                irxDiscovery: irxEnabled
+                    ? MobileIrxDiscoveryProvider(
+                        irx: irx,
+                        preferredTag: irx.tag,
+                        compatibilityPolicy: buildCompatibilityPolicy
+                    )
+                    : nil,
                 buildCompatibilityPolicy: buildCompatibilityPolicy,
                 reachability: reachability,
                 diagnosticLog: diagnosticLog
@@ -291,9 +298,13 @@ struct cmuxApp: App {
             autoConnectMigrationStore: Self.root.autoConnectMigrationStore,
             onboardingStore: Self.root.onboardingStore,
             tailscaleStatusMonitor: Self.root.tailscaleStatusMonitor,
-            personalIrohRouteCatalog: Self.root.iroh.routeCatalog,
-            personalIrohDiscovery: Self.root.iroh,
-            personalIrohForget: Self.root.iroh,
+            // First-pair discovery must come from the ACTIVE transport: the
+            // dormant one answers "endpoint unavailable" and a fresh install
+            // (empty paired-Mac store) then lists zero Macs forever.
+            personalIrohRouteCatalog: Self.root.irxDiscovery?.routeCatalog
+                ?? Self.root.iroh.routeCatalog,
+            personalIrohDiscovery: Self.root.irxDiscovery ?? Self.root.iroh,
+            personalIrohForget: Self.root.irxDiscovery ?? Self.root.iroh,
             buildCompatibilityPolicy: Self.root.buildCompatibilityPolicy,
             signOutHook: Self.root.signOutHook,
             diagnosticLog: Self.root.diagnosticLog
