@@ -1,5 +1,7 @@
 use ghostty_vt::{Callbacks, CellWidth, RenderState, Terminal, rows_to_runs};
 
+const TEST_COLUMNS: u16 = 16;
+
 fn frame_for(input: &str, cols: u16) -> ghostty_vt::RenderFrame {
     let mut terminal = Terminal::new(cols, 2, 0, Callbacks::default()).unwrap();
     terminal.vt_write(input.as_bytes());
@@ -8,38 +10,75 @@ fn frame_for(input: &str, cols: u16) -> ghostty_vt::RenderFrame {
     state.build_frame().unwrap()
 }
 
-#[test]
-fn unicode_conformance_preserves_grapheme_clusters_and_cell_roles() {
-    for input in ["e\u{301}", "日本語", "क्ष"] {
-        let frame = frame_for(input, 16);
-        let row = frame.styled_row(0).unwrap();
-        let visible: String = row
-            .iter()
-            .filter(|c| c.width != CellWidth::SpacerTail)
-            .filter_map(|c| (!c.text.is_empty()).then_some(c.text.as_str()))
-            .collect();
-        assert_eq!(visible, input);
-        for (index, cell) in row.iter().enumerate() {
-            if cell.width == CellWidth::Wide {
-                assert!(!cell.text.is_empty());
-                assert_eq!(row.get(index + 1).map(|next| next.width), Some(CellWidth::SpacerTail));
+fn assert_grapheme_cells(input: &str, expected: &[(&str, CellWidth)]) {
+    // Mode 2027 uses the terminal's extended grapheme segmentation. UAX #29
+    // keeps combining marks and Indic conjuncts in one cluster, while UAX #11
+    // classifies Han ideographs as wide. Ghostty represents a two-column
+    // cluster with a Wide lead and a SpacerTail.
+    let frame = frame_for(&format!("\x1b[?2027h{input}"), TEST_COLUMNS);
+    let row = frame.styled_row(0).unwrap();
+    assert_eq!(row.len(), usize::from(TEST_COLUMNS), "unexpected viewport width for {input:?}");
+
+    let mut column = 0;
+    for &(expected_text, expected_width) in expected {
+        let cell = row
+            .get(column)
+            .unwrap_or_else(|| panic!("missing lead cell at column {column} for {input:?}"));
+        assert_eq!(cell.text, expected_text, "cluster text at column {column} for {input:?}");
+        assert_eq!(cell.width, expected_width, "cluster width at column {column} for {input:?}");
+
+        match expected_width {
+            CellWidth::Narrow => column += 1,
+            CellWidth::Wide => {
+                let tail = row.get(column + 1).unwrap_or_else(|| {
+                    panic!("missing spacer tail after column {column} for {input:?}")
+                });
+                assert!(tail.text.is_empty(), "spacer tail must not contain text");
+                assert_eq!(tail.width, CellWidth::SpacerTail);
+                column += 2;
             }
-            if cell.width == CellWidth::SpacerTail {
-                assert!(cell.text.is_empty());
-                assert!(index > 0 && row[index - 1].width == CellWidth::Wide);
+            CellWidth::SpacerTail | CellWidth::SpacerHead => {
+                panic!("expected entries must name grapheme lead cells")
             }
         }
     }
+
+    assert!(
+        row[column..].iter().all(|cell| cell.width == CellWidth::Narrow && cell.text.is_empty()),
+        "unexpected occupied cells after column {column} for {input:?}"
+    );
 }
 
 #[test]
-fn unicode_conformance_rows_to_runs_are_width_accounted() {
-    let frame = frame_for("e\u{301} 日本語", 16);
+fn unicode_conformance_preserves_grapheme_clusters_and_cell_roles() {
+    assert_grapheme_cells("e\u{301}", &[("e\u{301}", CellWidth::Narrow)]);
+    assert_grapheme_cells(
+        "日本語",
+        &[("日", CellWidth::Wide), ("本", CellWidth::Wide), ("語", CellWidth::Wide)],
+    );
+    assert_grapheme_cells("क्ष", &[("क्ष", CellWidth::Wide)]);
+}
+
+#[test]
+fn unicode_conformance_rows_to_runs_preserve_terminal_columns() {
+    let frame = frame_for("\x1b[?2027he\u{301} 日本語", TEST_COLUMNS);
     let row = frame.styled_row(0).unwrap();
-    assert_eq!(row.len(), usize::from(frame.size.0));
     let runs = rows_to_runs(frame.styled_rows());
     assert!(runs.iter().flat_map(|row| row.iter()).all(|run| !run.text.is_empty()));
-    assert!(runs[0].iter().any(|run| run.width_hint.is_some()));
+
+    let source_columns: u16 = row
+        .iter()
+        .map(|cell| match cell.width {
+            CellWidth::Wide => 2,
+            CellWidth::SpacerTail => 0,
+            CellWidth::Narrow | CellWidth::SpacerHead => 1,
+        })
+        .sum();
+    assert_eq!(source_columns, TEST_COLUMNS);
+    assert_eq!(frame.size.0, TEST_COLUMNS);
+
+    assert_eq!(runs[0].len(), 1, "default styling should form one maximal run");
+    assert_eq!(runs[0][0].width_hint, Some(TEST_COLUMNS));
 }
 
 #[test]
