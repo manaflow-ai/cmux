@@ -154,7 +154,7 @@ export async function POST(request: Request): Promise<Response> {
       timing.record("auth", authDurationMs);
       setResponseFinalizer((response) => {
         timing.finish({ status: response.status });
-        captureVmProvisionOutcome({ userId: initialUser.id, operation: "create", response });
+        captureVmProvisionOutcome({ userId: initialUser.id, operation: "create", response, span });
       });
       let user: AuthedUser = initialUser;
       {
