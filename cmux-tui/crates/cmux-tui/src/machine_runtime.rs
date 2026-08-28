@@ -1057,6 +1057,36 @@ mod tests {
         assert!(error.contains("cannot connect external machines"), "{error}");
     }
 
+    #[test]
+    fn close_shuts_down_a_connection_that_finishes_connecting_after_close() {
+        let key = MachineKey(7);
+        let Session::Remote(remote) = crate::session::test_remote_session_without_provider_authority()
+        else {
+            unreachable!("remote test fixture returned a local session");
+        };
+        let remote_for_connector = Arc::clone(&remote);
+        let (started_tx, started_rx) = std::sync::mpsc::sync_channel(0);
+        let (release_tx, release_rx) = std::sync::mpsc::sync_channel(0);
+        let connector: MachineConnectFn = Arc::new(move || {
+            started_tx.send(()).unwrap();
+            release_rx.recv().unwrap();
+            Ok(MachineConnection {
+                session: Session::Remote(Arc::clone(&remote_for_connector)),
+                _lease: None,
+            })
+        });
+        let hub = MachineConnectionHub::with_warm_limit([(key, connector)], 2);
+        let connecting_hub = hub.clone();
+        let connect_thread = std::thread::spawn(move || connecting_hub.connect(key));
+
+        started_rx.recv().unwrap();
+        hub.close();
+        release_tx.send(()).unwrap();
+
+        assert!(connect_thread.join().unwrap().is_err());
+        assert!(remote.is_shut_down(), "late connection must be shut down");
+    }
+
     #[cfg(unix)]
     #[test]
     fn ssh_machine_connection_uses_managed_bootstrap_and_fail_closed_policy() {
