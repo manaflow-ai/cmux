@@ -1,9 +1,16 @@
 import {
+  context as otelContext,
+  ROOT_CONTEXT,
   SpanStatusCode,
   trace,
+  TraceFlags,
   type Attributes,
+  type Context,
+  type Link,
   type Span,
 } from "@opentelemetry/api";
+
+import { isVmPriorityPath } from "./observability/sampler";
 
 type AttributeValue = string | number | boolean;
 export type MaybeAttributes = Record<string, AttributeValue | null | undefined>;
@@ -14,20 +21,26 @@ export async function withSpan<T>(
   name: string,
   attributes: MaybeAttributes,
   fn: SpanCallback<T>,
+  options: { readonly context?: Context; readonly links?: Link[] } = {},
 ): Promise<T> {
   const tracer = trace.getTracer(tracerName);
-  return tracer.startActiveSpan(name, { attributes: cleanAttributes(attributes) }, async (span) => {
-    const start = performance.now();
-    try {
-      return await fn(span);
-    } catch (err) {
-      recordSpanError(span, err);
-      throw err;
-    } finally {
-      span.setAttribute("cmux.duration_ms", Math.round((performance.now() - start) * 100) / 100);
-      span.end();
-    }
-  });
+  return tracer.startActiveSpan(
+    name,
+    { attributes: cleanAttributes(attributes), links: options.links },
+    options.context ?? otelContext.active(),
+    async (span) => {
+      const start = performance.now();
+      try {
+        return await fn(span);
+      } catch (err) {
+        recordSpanError(span, err);
+        throw err;
+      } finally {
+        span.setAttribute("cmux.duration_ms", Math.round((performance.now() - start) * 100) / 100);
+        span.end();
+      }
+    },
+  );
 }
 
 export async function withApiRouteSpan<T extends Response>(
@@ -37,6 +50,16 @@ export async function withApiRouteSpan<T extends Response>(
   fn: SpanCallback<T>,
 ): Promise<T> {
   const path = requestPath(request);
+  // Cloud VM API spans must survive head sampling even when the surrounding
+  // Next.js request trace was dropped: re-root them into their own trace
+  // (linked back to the dropped one) so the priority sampler sees the
+  // vm-cloud attributes on a root span and keeps the whole VM subtree.
+  const parent = trace.getSpanContext(otelContext.active());
+  const reRoot =
+    isVmPriorityPath(route) &&
+    parent !== undefined &&
+    (parent.traceFlags & TraceFlags.SAMPLED) === 0;
+  const links = reRoot && trace.isSpanContextValid(parent) ? [{ context: parent }] : undefined;
   return withSpan(
     "cmux-api",
     `cmux.api.${request.method} ${route}`,
@@ -57,6 +80,7 @@ export async function withApiRouteSpan<T extends Response>(
       }
       return response;
     },
+    { context: reRoot ? ROOT_CONTEXT : undefined, links },
   );
 }
 
