@@ -34,6 +34,12 @@ pub(crate) const MAX_EVAL_INTERVAL_MS: u64 = 1_000;
 const SCREEN_READ_RETRY_INITIAL_MS: u64 = 100;
 const SCREEN_READ_RETRY_MAX_MS: u64 = 2_000;
 
+/// Foreground process identity is sampled independently from output. A
+/// bounded interval prevents one terminal per 100 ms from becoming a procfs
+/// storm while still making process swaps visible promptly.
+const FOREGROUND_CHECK_INTERVAL_MS: u64 = 500;
+const FOREGROUND_CHECK_RETRY_MAX_MS: u64 = 2_000;
+
 /// The `native_event` value screen-detection journal events carry.
 pub(crate) const SCREEN_DETECT_NATIVE_EVENT: &str = "ScreenDetect";
 
@@ -60,9 +66,16 @@ struct TrackedTerminal {
     retry_not_before: Option<Instant>,
     /// Exponential retry delay, capped by `SCREEN_READ_RETRY_MAX_MS`.
     retry_delay_ms: u64,
+    /// Earliest time at which foreground process identity may be sampled.
+    identity_check_not_before: Option<Instant>,
+    /// Exponential retry delay for inaccessible process metadata.
+    identity_check_delay_ms: u64,
     /// Agent the foreground process matched on the previous scan; identity
     /// edges trigger immediate evaluation, before any quiescence.
     foreground_agent: Option<String>,
+    /// Whether `foreground_agent` came from a successful process lookup. A
+    /// missing value can mean either a known shell or no sample yet.
+    foreground_identity_known: bool,
     /// Last (agent, state) journaled; emissions are edges over this.
     emitted: Option<(String, AgentState)>,
 }
@@ -72,6 +85,9 @@ struct TrackedTerminal {
 #[derive(Debug, Default)]
 pub(crate) struct ScreenDetectTracker {
     terminals: HashMap<String, TrackedTerminal>,
+    /// Start index for the next scan pass. The scanner uses this with its
+    /// fixed lookup budget so a large terminal set cannot starve the tail.
+    scan_cursor: usize,
 }
 
 impl ScreenDetectTracker {
@@ -133,6 +149,65 @@ impl ScreenDetectTracker {
         entry.last_evaluated_at = Some(now);
     }
 
+    /// Return whether the foreground process should be resolved now. The
+    /// first lookup is immediate; later lookups are paced per terminal.
+    pub(crate) fn foreground_check_due(&self, terminal_id: &str, now: Instant) -> bool {
+        self.terminals
+            .get(terminal_id)
+            .is_none_or(|entry| entry.identity_check_not_before.is_none_or(|at| now >= at))
+    }
+
+    /// Return the last successful identity lookup. `Some(None)` means a
+    /// known non-agent shell, while `None` means that no usable sample exists.
+    pub(crate) fn cached_foreground_identity(
+        &self,
+        terminal_id: &str,
+    ) -> Option<Option<&str>> {
+        let entry = self.terminals.get(terminal_id)?;
+        entry
+            .foreground_identity_known
+            .then(|| entry.foreground_agent.as_deref())
+    }
+
+    /// Keep the last successful identity when platform metadata is
+    /// temporarily inaccessible, and schedule a bounded retry.
+    pub(crate) fn note_foreground_unavailable(&mut self, terminal_id: &str, now: Instant) {
+        self.note_foreground_check(terminal_id, now, true);
+    }
+
+    /// Arm the next foreground lookup. Inaccessible process metadata backs
+    /// off exponentially because the kernel can keep a process entry
+    /// unavailable for the lifetime of a terminal.
+    pub(crate) fn note_foreground_check(&mut self, terminal_id: &str, now: Instant, retry: bool) {
+        let entry = self.terminals.entry(terminal_id.to_string()).or_default();
+        let delay_ms = if retry {
+            if entry.identity_check_delay_ms == 0 {
+                FOREGROUND_CHECK_INTERVAL_MS
+            } else {
+                entry
+                    .identity_check_delay_ms
+                    .saturating_mul(2)
+                    .min(FOREGROUND_CHECK_RETRY_MAX_MS)
+            }
+        } else {
+            FOREGROUND_CHECK_INTERVAL_MS
+        };
+        entry.identity_check_delay_ms = delay_ms;
+        entry.identity_check_not_before = Some(now + Duration::from_millis(delay_ms));
+    }
+
+    /// Reserve the next fair scan slice. A caller with no terminals receives
+    /// zero and starts over when a terminal appears.
+    pub(crate) fn scan_start(&mut self, terminal_count: usize) -> usize {
+        if terminal_count == 0 {
+            self.scan_cursor = 0;
+            return 0;
+        }
+        let start = self.scan_cursor % terminal_count;
+        self.scan_cursor = (start + 1) % terminal_count;
+        start
+    }
+
     /// True when this terminal previously journaled a screen-derived state
     /// that has not been closed out by an exit emission.
     pub(crate) fn has_live_emission(&self, terminal_id: &str) -> bool {
@@ -145,9 +220,10 @@ impl ScreenDetectTracker {
     /// appears the moment `codex` starts, not after its first quiet screen.
     pub(crate) fn note_foreground_agent(&mut self, terminal_id: &str, agent: Option<&str>) -> bool {
         let entry = self.terminals.entry(terminal_id.to_string()).or_default();
-        if entry.foreground_agent.as_deref() == agent {
+        if entry.foreground_identity_known && entry.foreground_agent.as_deref() == agent {
             return false;
         }
+        entry.foreground_identity_known = true;
         entry.foreground_agent = agent.map(str::to_string);
         // The identity edge forces an immediate screen read. If that read
         // fails, keep the revision pending so the next scan retries it even
@@ -383,6 +459,41 @@ mod tests {
         tracker.note_evaluation_failure("term_a", t0 + Duration::from_millis(100));
         assert!(!tracker.observe_revision("term_a", 1, t0 + Duration::from_millis(299)));
         assert!(tracker.observe_revision("term_a", 1, t0 + Duration::from_millis(300)));
+    }
+
+    #[test]
+    fn foreground_identity_cache_distinguishes_unknown_shells_and_paces_lookups() {
+        let mut tracker = ScreenDetectTracker::default();
+        let t0 = Instant::now();
+
+        assert!(tracker.foreground_check_due("term_a", t0));
+        tracker.note_foreground_check("term_a", t0, false);
+        tracker.note_foreground_agent("term_a", None);
+        assert_eq!(tracker.cached_foreground_identity("term_a"), Some(None));
+        assert!(!tracker.foreground_check_due("term_a", t0 + Duration::from_millis(499)));
+        assert!(tracker.foreground_check_due("term_a", t0 + Duration::from_millis(500)));
+
+        // A failed platform lookup keeps the last successful identity. It
+        // cannot spuriously close an agent row, and retries back off.
+        tracker.note_foreground_agent("term_a", Some("codex"));
+        tracker.note_foreground_check("term_a", t0 + Duration::from_millis(500), false);
+        tracker.note_foreground_unavailable("term_a", t0 + Duration::from_millis(500));
+        assert_eq!(
+            tracker.cached_foreground_identity("term_a"),
+            Some(Some("codex"))
+        );
+        assert!(!tracker.foreground_check_due("term_a", t0 + Duration::from_millis(999)));
+        assert!(tracker.foreground_check_due("term_a", t0 + Duration::from_millis(1_000)));
+    }
+
+    #[test]
+    fn scan_cursor_rotates_fairly_for_bounded_lookup_batches() {
+        let mut tracker = ScreenDetectTracker::default();
+        assert_eq!(tracker.scan_start(100), 0);
+        assert_eq!(tracker.scan_start(100), 1);
+        assert_eq!(tracker.scan_start(100), 2);
+        assert_eq!(tracker.scan_start(0), 0);
+        assert_eq!(tracker.scan_start(100), 0);
     }
 
     #[test]

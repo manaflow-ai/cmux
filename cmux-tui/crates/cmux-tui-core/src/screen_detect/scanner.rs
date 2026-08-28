@@ -15,16 +15,27 @@ use super::manifest::{DetectionInput, ManifestSet};
 use crate::mux::Mux;
 use crate::surface::Surface;
 
-/// Sampling cadence: per terminal per tick, one atomic revision read plus
-/// one foreground process-group lookup (two proc syscalls). Viewport text
-/// is only extracted on quiescence or an identity edge. The cadence also
-/// bounds spawn-detection latency: a launched agent appears within one
-/// tick plus the journal fold.
+/// Sampling cadence: per terminal per tick, one atomic revision read. A
+/// separate paced and budgeted foreground lookup selects the manifest.
+/// Viewport text is only extracted on quiescence or an identity edge.
 const SCAN_INTERVAL: Duration = Duration::from_millis(100);
+/// Bound process-group lookups per sampling pass. The rotating start index
+/// gives every terminal a turn when the live catalog is larger than this.
+const MAX_FOREGROUND_LOOKUPS_PER_SCAN: usize = 64;
+
+/// Result of resolving the foreground process. `Unavailable` is distinct
+/// from `Exited`: procfs and platform lookups can fail transiently, and that
+/// must not close a live agent row or turn a retry into a state edge.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ProcessNameResolution {
+    Name(String),
+    Exited,
+    Unavailable,
+}
 
 /// Resolves a surface to its foreground process name; injectable so tests
 /// drive detection without spawning agent-named processes.
-pub(crate) type ProcessNameResolver = dyn Fn(&Surface) -> Option<String> + Send + Sync;
+pub(crate) type ProcessNameResolver = dyn Fn(&Surface) -> ProcessNameResolution + Send + Sync;
 
 pub(crate) fn start(mux: &Arc<Mux>) {
     let weak = Arc::downgrade(mux);
@@ -54,12 +65,18 @@ fn run_scanner(weak: Weak<Mux>) {
 }
 
 /// Production resolver: the foreground process-group leader's executable
-/// name for the terminal's PTY child. An exited terminal resolves to none.
-fn foreground_process_name(surface: &Surface) -> Option<String> {
+/// name for the terminal's PTY child. A missing terminal is exited; a failed
+/// platform lookup is unavailable and is retried without changing identity.
+fn foreground_process_name(surface: &Surface) -> ProcessNameResolution {
     if surface.terminal_exit().is_some() {
-        return None;
+        return ProcessNameResolution::Exited;
     }
-    crate::platform::foreground_process_name(surface.process_id()?)
+    let Some(pid) = surface.process_id() else {
+        return ProcessNameResolution::Unavailable;
+    };
+    crate::platform::foreground_process_name(pid)
+        .map(ProcessNameResolution::Name)
+        .unwrap_or(ProcessNameResolution::Unavailable)
 }
 
 /// One scan pass over the live terminal catalog. Pure over its inputs
@@ -78,24 +95,58 @@ pub(crate) fn scan(
     // an avoidable O(tracked × live) pass on every tick.
     let live_terminal_ids = terminals.iter().map(|(id, _)| id.as_str()).collect::<HashSet<_>>();
     tracker.retain_terminals(|terminal_id| live_terminal_ids.contains(terminal_id));
-    for (terminal_id, surface) in terminals {
+    let start = tracker.scan_start(terminals.len());
+    let mut lookup_budget = MAX_FOREGROUND_LOOKUPS_PER_SCAN;
+    for offset in 0..terminals.len() {
+        let index = (start + offset) % terminals.len();
+        let (terminal_id, surface) = &terminals[index];
         let Ok(revision) = surface.terminal_stream_revision() else { continue };
         let terminal_id = terminal_id.as_str();
-        // Identity is resolved every tick: presence comes from the
-        // foreground process, so a freshly launched agent is detected on
-        // the next scan, never gated behind output quiescence.
-        let manifest = resolver(&surface).and_then(|name| manifests.identify(&name));
-        tracker.note_foreground_agent(terminal_id, manifest.map(|manifest| manifest.id()));
+        // Identity checks have their own per-terminal deadline and a global
+        // budget. A stalled or very large terminal catalog cannot turn this
+        // fixed-cadence thread into an unbounded procfs fan-out.
+        let mut closes_identity = false;
+        let manifest = if lookup_budget > 0 && tracker.foreground_check_due(terminal_id, now) {
+            lookup_budget -= 1;
+            match resolver(surface) {
+                ProcessNameResolution::Name(name) => {
+                    let manifest = manifests.identify(&name);
+                    tracker.note_foreground_check(terminal_id, now, false);
+                    tracker.note_foreground_agent(
+                        terminal_id,
+                        manifest.map(|manifest| manifest.id()),
+                    );
+                    closes_identity = manifest.is_none();
+                    manifest
+                }
+                ProcessNameResolution::Exited => {
+                    tracker.note_foreground_check(terminal_id, now, false);
+                    tracker.note_foreground_agent(terminal_id, None);
+                    closes_identity = true;
+                    None
+                }
+                ProcessNameResolution::Unavailable => {
+                    tracker.note_foreground_unavailable(terminal_id, now);
+                    None
+                }
+            }
+        } else {
+            match tracker.cached_foreground_identity(terminal_id) {
+                Some(Some(name)) => manifests.identify(&name),
+                Some(None) | None => None,
+            }
+        };
         // Observe after the identity edge so the immediate evaluation also
         // records its pacer timestamp before later output is debounced.
         let quiesced = tracker.observe_revision(terminal_id, revision, now);
         let emission = match manifest {
-            None => {
+            None if closes_identity => {
                 // Not an agent (or the agent exited). Closes a live
                 // screen-derived entry; a terminal that never emitted
                 // stays silent.
                 tracker.record_detection(terminal_id, None)
             }
+            None => None,
             Some(manifest) if quiesced => {
                 let Ok(Ok(screen)) = surface.try_with_terminal(|terminal| terminal.viewport_text())
                 else {

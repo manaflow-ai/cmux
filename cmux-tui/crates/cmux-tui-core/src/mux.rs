@@ -22147,14 +22147,14 @@ mod tests {
         let manifests = ManifestSet::bundled();
         let t0 = Instant::now();
         let step = |milliseconds: u64| t0 + Duration::from_millis(milliseconds);
-        fn shell(_: &Surface) -> Option<String> {
-            Some("zsh".to_string())
+        fn shell(_: &Surface) -> scanner::ProcessNameResolution {
+            scanner::ProcessNameResolution::Name("zsh".to_string())
         }
-        fn codex(_: &Surface) -> Option<String> {
-            Some("codex".to_string())
+        fn codex(_: &Surface) -> scanner::ProcessNameResolution {
+            scanner::ProcessNameResolution::Name("codex".to_string())
         }
-        fn gone(_: &Surface) -> Option<String> {
-            None
+        fn gone(_: &Surface) -> scanner::ProcessNameResolution {
+            scanner::ProcessNameResolution::Exited
         }
 
         // A shell pane never enters the roster, quiesced or not.
@@ -22239,8 +22239,8 @@ mod tests {
         let mut tracker = ScreenDetectTracker::default();
         let manifests = ManifestSet::bundled();
         let t0 = Instant::now();
-        fn claude(_: &Surface) -> Option<String> {
-            Some("claude".to_string())
+        fn claude(_: &Surface) -> scanner::ProcessNameResolution {
+            scanner::ProcessNameResolution::Name("claude".to_string())
         }
         scanner::scan(&mux, &mut tracker, manifests, t0, &claude);
         scanner::scan(&mux, &mut tracker, manifests, t0 + Duration::from_millis(400), &claude);
