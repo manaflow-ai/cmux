@@ -99,6 +99,44 @@ private final class CMUXCLISentryTelemetryBundleToken {}
         )
     }
 
+    @Test func foreignBundleIdentityDoesNotCaptureSentryTelemetry() throws {
+        // The cmux repo is public and rebranded forks have shipped with the
+        // cmux CLI DSN intact (Sentry issue CMUXTERM-MACOS-1RZF: ~11k
+        // "mosaic_cli" events). A build whose identity is not a cmux bundle
+        // must not emit CLI Sentry telemetry, even for capture-worthy errors.
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-cli-sentry-foreign-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let socketPath = "127.0.0.1:\(try unusedRelayPort())"
+        let captureProbePath = root.appendingPathComponent("sentry-capture-probe.txt", isDirectory: false).path
+        let storeProbePath = root.appendingPathComponent("sentry-store-probe.txt", isDirectory: false).path
+        var environment = sentryProbeEnvironment(socketPath: socketPath, probePath: captureProbePath)
+        environment["CMUX_CLI_SENTRY_STORE_PROBE_PATH"] = storeProbePath
+        environment["CMUX_BUNDLE_ID"] = "mosaic.com.emergent.app"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["ping"],
+            environment: environment,
+            timeout: 2
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stdout))
+        #expect(result.status != 0, Comment(rawValue: result.stdout))
+        #expect(result.stdout.contains("Missing relay auth metadata"), Comment(rawValue: result.stdout))
+        #expect(
+            !FileManager.default.fileExists(atPath: captureProbePath),
+            Comment(rawValue: "A non-cmux build identity must not capture CLI Sentry telemetry. Output: \(result.stdout)")
+        )
+        #expect(
+            !FileManager.default.fileExists(atPath: storeProbePath),
+            Comment(rawValue: "A non-cmux build identity must not store CLI Sentry envelopes. Output: \(result.stdout)")
+        )
+    }
+
     private func bundledCLIPath() throws -> String {
         try BundledCLITestSupport.bundledCLIPath(for: CMUXCLISentryTelemetryBundleToken.self)
     }
