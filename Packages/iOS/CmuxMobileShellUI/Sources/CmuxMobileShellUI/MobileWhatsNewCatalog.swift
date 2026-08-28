@@ -128,11 +128,16 @@ enum MobileWhatsNewCatalog {
                 ),
             ]),
             isAnnouncement: false,
-            // The compat requirement stays one quiet line here; the full
-            // "update your Mac" story lives where it matters (the Computers
-            // row badge, the computer detail callout, and the pairing-failure
-            // guidance), all reading from MobileMacPairingFloor.
-            footnote: MobileMacPairingFloor.requiredOnMacSentence
+            // The compat requirement stays one compact notice here (owner
+            // feedback: include the revert path so BETA users know the way
+            // back); the full "update your Mac" story lives where it matters
+            // (the Computers row badge, the computer detail callout, and the
+            // pairing-failure guidance), all reading from
+            // MobileMacPairingFloor.
+            footnote: [
+                MobileMacPairingFloor.requiredOnMacSentence,
+                MobileMacPairingFloor.revertGuidance,
+            ].joined(separator: " ")
         )
     }
 }
