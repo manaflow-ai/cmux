@@ -46,7 +46,7 @@ nonisolated struct GitConfigTraversalBudget: Sendable {
             maximumByteCount: min(remainingByteCount, maximumFileByteCount),
             deadline: deadline
         ) {
-        case .contents(let contents, consumedByteCount: let byteCount):
+        case .contents(let contents, consumedByteCount: byteCount):
             remainingByteCount = max(0, remainingByteCount - byteCount)
             return contents
         case .oversized(let byteCount):
