@@ -1419,9 +1419,7 @@ fn reserve_outbound_bytes(inner: &Inner, bytes: usize) -> anyhow::Result<()> {
     let bytes = u64::try_from(bytes).unwrap_or(u64::MAX);
     loop {
         let current = inner.outbound_bytes.load(Ordering::Acquire);
-        let next = current
-            .checked_add(bytes)
-            .ok_or_else(outbound_byte_budget_error)?;
+        let next = current.checked_add(bytes).ok_or_else(outbound_byte_budget_error)?;
         if next > inner.outbound_byte_budget as u64 {
             return Err(outbound_byte_budget_error());
         }
