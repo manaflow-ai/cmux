@@ -1,5 +1,21 @@
 # cmux-tui user-intent board
 
+## Wave 85 current state: main `0b95285f6f6754ed0cde2a2d64d81b763280cc75`
+
+Snapshot: 2026-08-28T08:26:21Z.
+
+| User intent | Current proof | Remaining work |
+| --- | --- | --- |
+| cmux-tui shutdown has one cleanup owner | [#11072](https://github.com/manaflow-ai/cmux/pull/11072) merged from `7cf4ed0b96fb1bc22b2a2823dc81d3164ebbd60d` as `253df2472973a5654e1a3d7fee13764a177c7a79` | Keep dependent lifecycle teardown covered by focused checks. |
+| Cloud tree controls are direct and safe | [#11069](https://github.com/manaflow-ai/cmux/pull/11069) merged from `d9646e350bcd5db20458899ff66f4a19df9d0a14` as `f756735566a2ce16bad450a8ab592fef2a40d9c4` | Harbor still needs the requested host/tool/session/workspace/window/terminal tree, manual I/O, reconnect, and no-nested-TUI proof. |
+| Retained-tab filtering avoids a second scan | [#11056](https://github.com/manaflow-ai/cmux/pull/11056) merged from `433e1f5ec237476077e7a50eceeb1c39547fc0ff` as `102aa3d63086bf0617a6b5a34d5cb2465f2a74a7` | Keep behavior coverage for duplicate IDs and out-of-range active tabs. |
+| Agent lifecycle and projection input remain exact | [#11024](https://github.com/manaflow-ai/cmux/pull/11024) is open after a current-main rebase at `8bb1e346`; [#11025](https://github.com/manaflow-ai/cmux/pull/11025) remains open and mergeable at `35c18d226635b90c18376f2ce441eb295c10af45` | Run exact-head restart, stale-hook, tombstone, public-projection, and pointer-routing tests. |
+| Unicode rendering and private config writes are covered | [#11028](https://github.com/manaflow-ai/cmux/pull/11028) and [#10990](https://github.com/manaflow-ai/cmux/pull/10990) are open and mergeable at heads `5ca760526fed25225b135f99b238a9a0fd7ac7e9` and `244c39fb9d1543a69061280c7111da3f76678655` | Finish exact review and hosted Unicode, privacy, collision, durability, and locale checks. |
+| TUI allocation reduction continues | [#11055](https://github.com/manaflow-ai/cmux/pull/11055) is open and mergeable at `d64c71274695c17b7acb96b144c1acacf0a66c2b` on current main; checks are unstable | Run the dirty-surface hosted test. |
+| Reducer, CDP, and drag parity remain blocked or deferred | [#11002](https://github.com/manaflow-ai/cmux/pull/11002), [#11068](https://github.com/manaflow-ai/cmux/pull/11068), [#11013](https://github.com/manaflow-ai/cmux/pull/11013), [#11078](https://github.com/manaflow-ai/cmux/pull/11078), and [#10401](https://github.com/manaflow-ai/cmux/pull/10401) remain open; [#11063](https://github.com/manaflow-ai/cmux/pull/11063) is round 1 only | Resolve old-base and stacked branches, then prove durable identity, safe diagnostics, the Harbor hierarchy, cloud manual I/O, and drag without text insertion. |
+
+Strict session total remains `unknown`. Audit basis: 2026-08-28 history and archived receipts; matching TUI entries, deduplicating by session, and retaining only substantive productive sessions yields a conservative lower bound of 50. The historical ledger retains at least 258 named substantive turns. Neither is a total.
+
 ## Wave 84 current state: main `305519d149c1ca61d4be4838e18b0a59f8e69b2a`
 
 Snapshot: 2026-08-28T07:43:00Z.

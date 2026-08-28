@@ -1,5 +1,23 @@
 # cmux-tui technical-debt board
 
+## Wave 85 current state: main `0b95285f6f6754ed0cde2a2d64d81b763280cc75`
+
+Snapshot: 2026-08-28T08:26:21Z. Merged work and open gates use exact source and target heads.
+
+| Debt | Evidence | Exit condition |
+| --- | --- | --- |
+| cmux-tui shutdown ownership | [#11072](https://github.com/manaflow-ai/cmux/pull/11072), source `7cf4ed0b96fb1bc22b2a2823dc81d3164ebbd60d`, merge `253df2472973a5654e1a3d7fee13764a177c7a79` | One cleanup path is merged. Keep dependent lifecycle teardown covered by focused checks. |
+| Cloud-tree interaction polish | [#11069](https://github.com/manaflow-ai/cmux/pull/11069), source `d9646e350bcd5db20458899ff66f4a19df9d0a14`, merge `f756735566a2ce16bad450a8ab592fef2a40d9c4` | Right-click actions, confirmations, workspace double-click, and drag gating are merged. The Harbor hierarchy and cloud manual-I/O contract remain open. |
+| Second retained-tab scan | [#11056](https://github.com/manaflow-ai/cmux/pull/11056), source `433e1f5ec237476077e7a50eceeb1c39547fc0ff`, merge `102aa3d63086bf0617a6b5a34d5cb2465f2a74a7` | One-pass reindexing is merged. Keep duplicate-ID and active-index clamp behavior covered. |
+| Hook ordering and terminal tombstones | [#11024](https://github.com/manaflow-ai/cmux/pull/11024) at `8bb1e346`, open after a current-main rebase; exact mergeability and checks are pending | Exact review and hosted crash/restart, stale-hook, and public-snapshot tests pass. |
+| Projection rail pointer routing | [#11025](https://github.com/manaflow-ai/cmux/pull/11025) at `35c18d226635b90c18376f2ce441eb295c10af45`, open and mergeable | Exact review and pointer-routing tests pass. |
+| Unicode glyph invariants | [#11028](https://github.com/manaflow-ai/cmux/pull/11028) at `5ca760526fed25225b135f99b238a9a0fd7ac7e9`, open and mergeable | Exact review and hosted conformance test pass. |
+| Private config replacement | [#10990](https://github.com/manaflow-ai/cmux/pull/10990) at `244c39fb9d1543a69061280c7111da3f76678655`, open and mergeable | Exact review and hosted privacy, collision, durability, and locale tests pass. |
+| Allocation-free graphics projection | [#11055](https://github.com/manaflow-ai/cmux/pull/11055) at `d64c71274695c17b7acb96b144c1acacf0a66c2b`, open and mergeable on current main; checks unstable | Run the dirty-surface hosted test. |
+| Reducer, CDP, and drag behavior | [#11002](https://github.com/manaflow-ai/cmux/pull/11002), [#11068](https://github.com/manaflow-ai/cmux/pull/11068), [#11013](https://github.com/manaflow-ai/cmux/pull/11013), [#11078](https://github.com/manaflow-ai/cmux/pull/11078), [#11063](https://github.com/manaflow-ai/cmux/pull/11063), and [#10401](https://github.com/manaflow-ai/cmux/pull/10401) | Rebase old or stacked branches, resolve identity and privacy findings, publish the Harbor tree, and prove drag-into-terminal without text insertion. |
+
+Strict session total remains `unknown`. Audit basis: 2026-08-28 history and archived receipts; matching TUI entries, deduplicating by session, and retaining only substantive productive sessions yields a conservative lower bound of 50. The historical ledger retains at least 258 named substantive turns. Neither is a total.
+
 ## Wave 84 current state: main `305519d149c1ca61d4be4838e18b0a59f8e69b2a`
 
 Snapshot: 2026-08-28T07:43:00Z. The shutdown, paste-harness, surface-index, wire-name, and transport-loss changes are merged. The remaining debt is tracked by exact PR head, not by stale branch labels.

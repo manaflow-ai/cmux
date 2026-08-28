@@ -1,14 +1,16 @@
 # cmux-tui current state
 
-Snapshot: 2026-08-28T07:43:00Z.
+Snapshot: 2026-08-28T08:26:21Z.
 
 ## Main
 
-Current `origin/main` is `305519d149c1ca61d4be4838e18b0a59f8e69b2a`.
+Current `origin/main` is `0b95285f6f6754ed0cde2a2d64d81b763280cc75`.
 
 Recent merged TUI work:
 
-- [#11072](https://github.com/manaflow-ai/cmux/pull/11072), Lawrence Chen, shutdown cleanup, merge `253df2472973a5654e1a3d7fee13764a177c7a79`.
+- [#11072](https://github.com/manaflow-ai/cmux/pull/11072), Lawrence Chen, shutdown cleanup, source `7cf4ed0b96fb1bc22b2a2823dc81d3164ebbd60d`, merge `253df2472973a5654e1a3d7fee13764a177c7a79`.
+- [#11056](https://github.com/manaflow-ai/cmux/pull/11056), Lawrence Chen, one-pass retained-tab reindexing, source `433e1f5ec237476077e7a50eceeb1c39547fc0ff`, merge `102aa3d63086bf0617a6b5a34d5cb2465f2a74a7`.
+- [#11069](https://github.com/manaflow-ai/cmux/pull/11069), Lawrence Chen, Cloud-tree interaction and drag gating, source `d9646e350bcd5db20458899ff66f4a19df9d0a14`, merge `f756735566a2ce16bad450a8ab592fef2a40d9c4`.
 - [#11041](https://github.com/manaflow-ai/cmux/pull/11041), Lawrence Chen, paste repro harnesses and analyzer audit, merge `305519d149c1ca61d4be4838e18b0a59f8e69b2a`.
 - [#11000](https://github.com/manaflow-ai/cmux/pull/11000), Lawrence Chen, surface-exit index, merge `8910e6360e3b1d8b05b875cbe44e1901e8c7fc60`.
 - [#11044](https://github.com/manaflow-ai/cmux/pull/11044), Lawrence Chen, wire-name contract, merge `c33d38ab80166e7ca525d197faf93d1f918f55f2`.
@@ -16,27 +18,28 @@ Recent merged TUI work:
 
 ## Gates in progress
 
-- [#11024](https://github.com/manaflow-ai/cmux/pull/11024), head `d3bb50772cdca64586304e5afcfec5f3a222fe1a`. The branch is rebased on this main. Exact local review and the focused hosted test are required before merge.
-- [#11056](https://github.com/manaflow-ai/cmux/pull/11056), current head is rebase-dependent. Its one-pass retain change needs exact review and the hosted `retain_not_retired` test.
-- [#11055](https://github.com/manaflow-ai/cmux/pull/11055), head `eea8a5c16f45de1417599d626b00c1f5fae83c39`. Rebase and run the dirty-surface hosted test.
-- [#10990](https://github.com/manaflow-ai/cmux/pull/10990), head `69241f5f7a044bc797cf579b84c5fb546b4601db`. Exact review and the hosted privacy test are pending.
+- [#11024](https://github.com/manaflow-ai/cmux/pull/11024), head `8bb1e346`, is open after a current-main rebase; exact review and focused restart, stale-hook, and public-projection tests remain required.
+- [#11025](https://github.com/manaflow-ai/cmux/pull/11025), head `35c18d226635b90c18376f2ce441eb295c10af45`, is open, mergeable, and based on this main. Exact review and focused pointer-routing tests remain required.
+- [#11028](https://github.com/manaflow-ai/cmux/pull/11028), head `5ca760526fed25225b135f99b238a9a0fd7ac7e9`, is open, mergeable, and based on this main. Exact review and the hosted Unicode conformance test remain required.
+- [#10990](https://github.com/manaflow-ai/cmux/pull/10990), head `244c39fb9d1543a69061280c7111da3f76678655`, is open, mergeable, and based on this main. Exact review and the hosted privacy test remain required.
+- [#11055](https://github.com/manaflow-ai/cmux/pull/11055), head `d64c71274695c17b7acb96b144c1acacf0a66c2b`, is open, mergeable, and based on this main, with checks still unstable. Run the dirty-surface hosted test.
 
 ## Blocked or deliberately deferred
 
-- [#11002](https://github.com/manaflow-ai/cmux/pull/11002) needs a durable hook cursor, atomic projection/tombstone writes, bounded replay, and restart tests.
-- [#11068](https://github.com/manaflow-ai/cmux/pull/11068) is a large stack on the reducer and has unresolved identity, retention, snapshot, ordering, and agent-parity findings.
-- [#11013](https://github.com/manaflow-ai/cmux/pull/11013) still has raw CDP error paths outside the ACK overflow patch.
+- [#11002](https://github.com/manaflow-ai/cmux/pull/11002), head `8da5643df4d89ecf4b3a0abad5809241c57e6b1d`, is open on an old main and needs a durable hook cursor, atomic projection/tombstone writes, bounded replay, and restart tests.
+- [#11068](https://github.com/manaflow-ai/cmux/pull/11068), head `b3eca00fd03dd76763bd5273066df2779c236abc`, is open on the old reducer and has unresolved identity, retention, snapshot, ordering, and agent-parity findings.
+- [#11013](https://github.com/manaflow-ai/cmux/pull/11013), head `5f4083e33374416f1a6290bbd495319ce97f5199`, is open on an old main and still has raw CDP error paths outside the ACK overflow patch.
 - [#11078](https://github.com/manaflow-ai/cmux/pull/11078) is conflicting because it is stacked on #11013. Use its clean commit only after retargeting.
-- [#10994](https://github.com/manaflow-ai/cmux/pull/10994), [#11025](https://github.com/manaflow-ai/cmux/pull/11025), and [#11028](https://github.com/manaflow-ai/cmux/pull/11028) have stale bases and require fresh exact-head gates.
-- [#10401](https://github.com/manaflow-ai/cmux/pull/10401) is conflicting and still lacks drag-into-terminal behavior.
+- [#10994](https://github.com/manaflow-ai/cmux/pull/10994), head `0a06846c8dbbf4fefa231cb31c3e9d833f6fe427`, remains open on a stale base and requires a fresh exact-head gate.
+- [#10401](https://github.com/manaflow-ai/cmux/pull/10401), head `46590bacaed87fba46d4ceb5cdacadcafad07833`, remains open on a stale base and still lacks drag-into-terminal behavior. GitHub mergeability is not resolved.
 - [#11063](https://github.com/manaflow-ai/cmux/pull/11063) is a round-1 flat Harbor panel, not the requested hierarchical tree.
 
 ## Revert pointers
 
-For a merged PR, create a reviewable revert branch and run the focused checks before merging:
+For these single-parent squash merges, create a reviewable revert branch and run the focused checks before merging:
 
 ```text
-git revert -m 1 <merge-sha>
+git revert <merge-sha>
 ```
 
 The merge SHAs are recorded in `TECH-DEBT-CHANGELOG.md`. Revert dependent changes together when a wire contract or index consumer depends on the earlier merge.
@@ -47,6 +50,6 @@ Use one lifecycle source of truth, one shared action for every entry point, boun
 
 ## Session accounting
 
-The strict number of productive subagent sessions is not auditable from the available receipts, so it is recorded as `unknown`. The older 258 named-turn figure is a lower bound, not a total. No 10,000-session claim is made.
+The strict number of productive subagent sessions is not auditable from the available receipts, so it is recorded as `unknown`. Audit basis: 2026-08-28, `/Users/lawrence/.codex/history.jsonl`, `/Users/lawrence/.codex/thread_history_1.sqlite`, `/Users/lawrence/.claude/history.jsonl`, and archived Codex receipts. Method: match TUI-related entries, deduplicate by session, and retain only substantive productive sessions, yielding a conservative lower bound of 50; the historical ledger retains at least 258 named substantive turns. Neither is a total, and no 10,000-session claim is made.
 
 This file links the durable boards and log: `PR-INTENT-BOARD.md`, `USER-INTENT-BOARD.md`, `USER-REQUEST-BOARD.md`, `TECH-DEBT-BOARD.md`, and `TECH-DEBT-CHANGELOG.md`.

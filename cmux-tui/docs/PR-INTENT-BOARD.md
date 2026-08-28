@@ -1,5 +1,27 @@
 # cmux TUI PR intent and merge board
 
+## Wave 85 current state: main `0b95285f6f6754ed0cde2a2d64d81b763280cc75`
+
+Snapshot: 2026-08-28T08:26:21Z.
+
+| Merged PR | Author | Source head | Merge SHA | Intent result |
+| --- | --- | --- | --- | --- |
+| [#11072](https://github.com/manaflow-ai/cmux/pull/11072) | Lawrence Chen | `7cf4ed0b96fb1bc22b2a2823dc81d3164ebbd60d` | `253df2472973a5654e1a3d7fee13764a177c7a79` | cmux-tui runtime shutdown now has one cleanup path with preserved teardown order. |
+| [#11069](https://github.com/manaflow-ai/cmux/pull/11069) | Lawrence Chen | `d9646e350bcd5db20458899ff66f4a19df9d0a14` | `f756735566a2ce16bad450a8ab592fef2a40d9c4` | Cloud-tree actions, confirmations, double-click behavior, and drag gating are on main. |
+| [#11056](https://github.com/manaflow-ai/cmux/pull/11056) | Lawrence Chen | `433e1f5ec237476077e7a50eceeb1c39547fc0ff` | `102aa3d63086bf0617a6b5a34d5cb2465f2a74a7` | Retained-tab reindexing now uses one pass and preserves duplicate-ID and clamp behavior. |
+
+| Open gate | Author | Exact head and state | Required next action |
+| --- | --- | --- | --- |
+| [#11024](https://github.com/manaflow-ai/cmux/pull/11024) | Lawrence Chen | `8bb1e346`, open after a current-main rebase; exact mergeability and checks are pending | Finish exact review and focused restart, stale-hook, and public-projection tests. |
+| [#11025](https://github.com/manaflow-ai/cmux/pull/11025) | Lawrence Chen | `35c18d226635b90c18376f2ce441eb295c10af45`, open, mergeable, based on current main | Finish exact review and focused pointer-routing tests. |
+| [#11028](https://github.com/manaflow-ai/cmux/pull/11028) | Lawrence Chen | `5ca760526fed25225b135f99b238a9a0fd7ac7e9`, open, mergeable, based on current main | Finish exact review and hosted Unicode conformance. |
+| [#10990](https://github.com/manaflow-ai/cmux/pull/10990) | Lawrence Chen | `244c39fb9d1543a69061280c7111da3f76678655`, open, mergeable, based on current main | Finish exact review and hosted privacy behavior. |
+| [#11055](https://github.com/manaflow-ai/cmux/pull/11055) | Lawrence Chen | `d64c71274695c17b7acb96b144c1acacf0a66c2b`, open, mergeable, based on current main; checks unstable | Run the dirty-surface hosted test. |
+
+Blocked or deferred: [#11002](https://github.com/manaflow-ai/cmux/pull/11002) and [#11068](https://github.com/manaflow-ai/cmux/pull/11068) need the reducer ownership and parity findings resolved; [#11013](https://github.com/manaflow-ai/cmux/pull/11013) has incomplete CDP privacy coverage, and stacked [#11078](https://github.com/manaflow-ai/cmux/pull/11078) conflicts; [#10994](https://github.com/manaflow-ai/cmux/pull/10994) has a stale base; [#11063](https://github.com/manaflow-ai/cmux/pull/11063) is round 1 only; [#10401](https://github.com/manaflow-ai/cmux/pull/10401) still lacks drag-into-terminal behavior.
+
+Strict session total remains `unknown`. Audit basis: 2026-08-28 history and archived receipts; matching TUI entries, deduplicating by session, and retaining only substantive productive sessions yields a conservative lower bound of 50. The historical ledger retains at least 258 named substantive turns. Neither is a total.
+
 ## Wave 84 current state: main `305519d149c1ca61d4be4838e18b0a59f8e69b2a`
 
 Snapshot: 2026-08-28T07:43:00Z. Merged TUI work includes [#11072](https://github.com/manaflow-ai/cmux/pull/11072) by Lawrence Chen (`253df2472973a5654e1a3d7fee13764a177c7a79`), [#11041](https://github.com/manaflow-ai/cmux/pull/11041) by Lawrence Chen (`305519d149c1ca61d4be4838e18b0a59f8e69b2a`), [#11000](https://github.com/manaflow-ai/cmux/pull/11000) by Lawrence Chen (`8910e6360e3b1d8b05b875cbe44e1901e8c7fc60`), [#11045](https://github.com/manaflow-ai/cmux/pull/11045) by Lawrence Chen (`8d71d72e6de027074828d7d81443b1f8ec825283`), and [#11044](https://github.com/manaflow-ai/cmux/pull/11044) by Lawrence Chen (`c33d38ab80166e7ca525d197faf93d1f918f55f2`).

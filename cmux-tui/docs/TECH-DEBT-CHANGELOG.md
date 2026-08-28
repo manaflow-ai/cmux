@@ -1,5 +1,19 @@
 # cmux-tui aggregate change log
 
+## Wave 85, current main `0b95285f6f6754ed0cde2a2d64d81b763280cc75`
+
+Snapshot: 2026-08-28T08:26:21Z.
+
+| Change | Result | Revert pointer |
+| --- | --- | --- |
+| [#11072](https://github.com/manaflow-ai/cmux/pull/11072), source `7cf4ed0b96fb1bc22b2a2823dc81d3164ebbd60d`, merge `253df2472973a5654e1a3d7fee13764a177c7a79` | cmux-tui runtime shutdown now uses one cleanup path with preserved teardown order. | `git revert 253df2472973a5654e1a3d7fee13764a177c7a79` after checking dependent shutdown changes. |
+| [#11069](https://github.com/manaflow-ai/cmux/pull/11069), source `d9646e350bcd5db20458899ff66f4a19df9d0a14`, merge `f756735566a2ce16bad450a8ab592fef2a40d9c4` | Cloud-tree right-click verbs, confirmations, workspace double-click behavior, drag gating, and visual polish are on main. | `git revert f756735566a2ce16bad450a8ab592fef2a40d9c4` after checking dependent cloud-tree changes. |
+| [#11056](https://github.com/manaflow-ai/cmux/pull/11056), source `433e1f5ec237476077e7a50eceeb1c39547fc0ff`, merge `102aa3d63086bf0617a6b5a34d5cb2465f2a74a7` | Retained-tab reindexing now avoids the second scan while preserving duplicate-ID and clamp behavior. | `git revert 102aa3d63086bf0617a6b5a34d5cb2465f2a74a7` after checking dependent projection changes. |
+
+Open gates: [#11024](https://github.com/manaflow-ai/cmux/pull/11024) `8bb1e346` after a current-main rebase, [#11025](https://github.com/manaflow-ai/cmux/pull/11025) `35c18d226635b90c18376f2ce441eb295c10af45`, [#11028](https://github.com/manaflow-ai/cmux/pull/11028) `5ca760526fed25225b135f99b238a9a0fd7ac7e9`, and [#10990](https://github.com/manaflow-ai/cmux/pull/10990) `244c39fb9d1543a69061280c7111da3f76678655` are open on current main. [#11055](https://github.com/manaflow-ai/cmux/pull/11055) `d64c71274695c17b7acb96b144c1acacf0a66c2b` is open and mergeable on current main, with checks unstable. Blocked or deferred work remains in [#11002](https://github.com/manaflow-ai/cmux/pull/11002), [#11068](https://github.com/manaflow-ai/cmux/pull/11068), [#11013](https://github.com/manaflow-ai/cmux/pull/11013), stacked [#11078](https://github.com/manaflow-ai/cmux/pull/11078), [#10994](https://github.com/manaflow-ai/cmux/pull/10994), round-1 [#11063](https://github.com/manaflow-ai/cmux/pull/11063), and [#10401](https://github.com/manaflow-ai/cmux/pull/10401).
+
+Session accounting remains honest: strict total `unknown`. Audit basis: 2026-08-28 history and archived receipts; matching TUI entries, deduplicating by session, and retaining only substantive productive sessions yields a conservative lower bound of 50. The historical ledger retains at least 258 named substantive turns. Neither is a total.
+
 ## Wave 84, current main `305519d149c1ca61d4be4838e18b0a59f8e69b2a`
 
 Snapshot: 2026-08-28T07:43:00Z.
