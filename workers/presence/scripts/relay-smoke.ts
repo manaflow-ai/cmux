@@ -317,6 +317,10 @@ if (SOAK_MINUTES > 0) {
       `soak ${tick}: phone→host`,
       upload[0]!.payload === uploadPayload && upload[0]!.legId === phone.legId,
     );
+    // Receiver ACKs prune the sender's bounded replay ring. Without these,
+    // this driver intentionally becomes a stalled client and should hit the
+    // relay's 256-frame capacity guard.
+    hostBack.ws.send(JSON.stringify({ t: "ack", seq: upload[0]!.seq, leg: phone.legId }));
 
     const downloadPayload = `soak-down-${downloadSeq}`;
     hostBack.ws.send(dataFrame(phone.legId, downloadSeq, downloadPayload));
@@ -325,6 +329,7 @@ if (SOAK_MINUTES > 0) {
       `soak ${tick}: host→phone`,
       download[0]!.payload === downloadPayload && download[0]!.seq === downloadSeq,
     );
+    resumed.ws.send(JSON.stringify({ t: "ack", seq: download[0]!.seq }));
 
     const pingStarted = performance.now();
     hostBack.ws.send(JSON.stringify({ t: "ping", ts: Date.now() }));
