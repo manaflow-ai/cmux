@@ -133,7 +133,7 @@ use std::io::{Read, Write};
 use std::ops::Deref;
 #[cfg(unix)]
 use std::os::unix::process::CommandExt;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::process::Child;
 use std::process::Command;
 use std::process::Stdio;
@@ -4238,6 +4238,11 @@ fn ensure_config_parent_directory(parent: &Path) -> anyhow::Result<Vec<PathBuf>>
     let mut current = PathBuf::new();
     for component in parent.components() {
         current.push(component.as_os_str());
+        // Prefix, root, and navigation components establish path syntax;
+        // only normal components identify directory entries to create.
+        if !matches!(component, Component::Normal(_)) {
+            continue;
+        }
         match std::fs::create_dir(&current) {
             Ok(()) => created_directories.push(current.clone()),
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
