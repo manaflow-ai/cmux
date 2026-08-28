@@ -149,6 +149,11 @@ struct InstallJournal {
     target_existed: bool,
     metadata_existed: bool,
     config_snapshot: Option<ConfigSnapshot>,
+    /// The value this transaction wrote to the selected-plugin key. Recovery
+    /// restores the old value only while this exact value is still present;
+    /// a later user selection must never be overwritten by stale recovery.
+    #[serde(default)]
+    expected_sidebar_plugin: Option<Value>,
     phase: InstallJournalPhase,
 }
 
@@ -248,12 +253,22 @@ fn install_command(positionals: &[String], options: &CliOptions) -> Result<Value
         let id = metadata.id;
         let selected = selected_plugin_cwd()?.is_some_and(|cwd| same_path(&cwd, &target));
         let config_snapshot = selected.then(capture_config_snapshot).transpose()?;
+        // Compute the exact JSON value that the config writer will install. Recovery
+        // uses it as a compare-and-swap guard, so a newer selection is never lost.
+        let expected_sidebar_plugin = if selected {
+            let command = resolved_run_command(&manifest, &target)?;
+            let cwd = canonical_path(&target)?;
+            Some(json!({"command": command, "cwd": cwd.display().to_string()}))
+        } else {
+            None
+        };
         replace_installed_plugin_with_config(
             &root,
             &name,
             &temp_dir,
             &metadata_temp,
             config_snapshot,
+            expected_sidebar_plugin,
             || {
                 if selected {
                     let command = resolved_run_command(&manifest, &target)?;
@@ -984,8 +999,10 @@ fn reconcile_install_transactions(install_root: &Path) -> anyhow::Result<()> {
                 remove_path_if_present(&journal.metadata_temp)?;
             }
             InstallJournalPhase::Prepared => {
-                if let Some(snapshot) = &journal.config_snapshot {
-                    restore_config_snapshot(snapshot)?;
+                if let (Some(snapshot), Some(expected)) =
+                    (&journal.config_snapshot, journal.expected_sidebar_plugin.as_ref())
+                {
+                    restore_config_snapshot(snapshot, expected)?;
                 }
                 if journal.target_existed {
                     if path_entry_exists(&journal.target_backup)? {
@@ -1013,13 +1030,24 @@ fn reconcile_install_transactions(install_root: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn restore_config_snapshot(snapshot: &ConfigSnapshot) -> anyhow::Result<()> {
+fn restore_config_snapshot(
+    snapshot: &ConfigSnapshot,
+    expected_sidebar_plugin: Option<&Value>,
+) -> anyhow::Result<()> {
     let mut root = match fs::read_to_string(&snapshot.path) {
         Ok(text) if text.trim().is_empty() => json!({}),
         Ok(text) => serde_json::from_str(&text)?,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => json!({}),
         Err(error) => return Err(error.into()),
     };
+    if let Some(expected) = expected_sidebar_plugin {
+        let current = root.get("sidebar").and_then(|sidebar| sidebar.get("plugin"));
+        if current != Some(expected) {
+            // The user or another cmux process selected a different plugin after
+            // this transaction started. Leave that newer state untouched.
+            return Ok(());
+        }
+    }
     let Some(root_object) = root.as_object_mut() else {
         anyhow::bail!("{} must contain a JSON object", snapshot.path.display());
     };
@@ -1087,6 +1115,7 @@ fn replace_installed_plugin(
         temp_dir,
         metadata_temp,
         None,
+        None,
         || Ok(()),
     )
 }
@@ -1097,6 +1126,7 @@ fn replace_installed_plugin_with_config<C: FnOnce() -> anyhow::Result<()>>(
     temp_dir: &Path,
     metadata_temp: &Path,
     config_snapshot: Option<ConfigSnapshot>,
+    expected_sidebar_plugin: Option<Value>,
     after_install: C,
 ) -> anyhow::Result<()> {
     replace_installed_plugin_with_fs(
@@ -1106,6 +1136,7 @@ fn replace_installed_plugin_with_config<C: FnOnce() -> anyhow::Result<()>>(
         temp_dir,
         metadata_temp,
         config_snapshot,
+        expected_sidebar_plugin,
         after_install,
     )
 }
@@ -1155,6 +1186,7 @@ fn replace_installed_plugin_with_fs<F: InstallFilesystem, C: FnOnce() -> anyhow:
         target_existed: target_exists,
         metadata_existed: metadata_exists,
         config_snapshot,
+        expected_sidebar_plugin,
         phase: InstallJournalPhase::Prepared,
     };
     write_install_journal(&journal_path, &journal)?;
@@ -1225,8 +1257,9 @@ fn replace_installed_plugin_with_fs<F: InstallFilesystem, C: FnOnce() -> anyhow:
                 rollback_errors.push(format!("plugin restore: {rollback_error}"));
             }
         }
-        if let Some(snapshot) = &journal.config_snapshot
-            && let Err(rollback_error) = restore_config_snapshot(snapshot)
+        if let (Some(snapshot), Some(expected)) =
+            (&journal.config_snapshot, journal.expected_sidebar_plugin.as_ref())
+            && let Err(rollback_error) = restore_config_snapshot(snapshot, expected)
         {
             rollback_errors.push(format!("config restore: {rollback_error}"));
         }
@@ -1610,6 +1643,7 @@ mod tests {
             &temp_dir,
             &metadata_temp,
             None,
+            None,
             || Ok(()),
         )
         .unwrap_err();
@@ -1648,6 +1682,7 @@ mod tests {
             "demo",
             &temp_dir,
             &metadata_temp,
+            None,
             None,
             || Ok(()),
         )
@@ -1721,6 +1756,7 @@ mod tests {
                 target_existed: true,
                 metadata_existed: true,
                 config_snapshot: None,
+                expected_sidebar_plugin: None,
                 phase: InstallJournalPhase::Prepared,
             },
         )
@@ -1763,6 +1799,7 @@ mod tests {
                 target_existed: false,
                 metadata_existed: false,
                 config_snapshot: None,
+                expected_sidebar_plugin: None,
                 phase: InstallJournalPhase::Committed,
             },
         )
@@ -1790,6 +1827,7 @@ mod tests {
             path: config_path.clone(),
             sidebar_plugin: Some(json!({"command": ["old"]})),
         };
+        let expected = json!({"command": ["new"]});
         let error = replace_installed_plugin_with_fs(
             &StandardInstallFilesystem,
             &root,
@@ -1797,6 +1835,7 @@ mod tests {
             &temp_dir,
             &metadata_temp,
             Some(snapshot),
+            Some(expected),
             || {
                 fs::write(
                     &config_path,
@@ -1816,6 +1855,43 @@ mod tests {
             read_registry_metadata(&root, "demo").unwrap().id,
             "sidebar_plugin_11111111111111111111111111111111"
         );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn config_rollback_preserves_a_newer_plugin_selection() {
+        let (root, _target, temp_dir, metadata_temp) = replacement_fixture("config-newer");
+        let config_path = root.join("config.json");
+        fs::write(
+            &config_path,
+            "{\"sidebar\":{\"plugin\":{\"command\":[\"old\"]}},\"theme\":{\"name\":\"keep\"}}\n",
+        )
+        .unwrap();
+        let snapshot = ConfigSnapshot {
+            path: config_path.clone(),
+            sidebar_plugin: Some(json!({"command": ["old"]})),
+        };
+        let error = replace_installed_plugin_with_fs(
+            &StandardInstallFilesystem,
+            &root,
+            "demo",
+            &temp_dir,
+            &metadata_temp,
+            Some(snapshot),
+            Some(json!({"command": ["new"]})),
+            || {
+                fs::write(
+                    &config_path,
+                    "{\"sidebar\":{\"plugin\":{\"command\":[\"newer\"]}},\"theme\":{\"name\":\"changed\"}}\n",
+                )?;
+                anyhow::bail!("injected config failure")
+            },
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("injected config failure"));
+        let current: Value = serde_json::from_str(&fs::read_to_string(config_path).unwrap()).unwrap();
+        assert_eq!(current["sidebar"]["plugin"]["command"], json!(["newer"]));
+        assert_eq!(current["theme"]["name"], json!("changed"));
         fs::remove_dir_all(root).unwrap();
     }
 
