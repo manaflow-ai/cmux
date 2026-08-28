@@ -170,7 +170,7 @@ final class NewMachineModelTests: XCTestCase {
         XCTAssertEqual(outcomes, [.created])
     }
 
-    func testFailureShowsTheCLIOutputAndAllowsRetry() {
+    func testFailureShowsSafeCLIOutputAndAllowsRetry() {
         let (model, recorder) = makeModel()
         model.create()
         recorder.value.pendingCompletion?(CloudVMActionLauncher.Completion(
@@ -214,12 +214,28 @@ final class NewMachineModelTests: XCTestCase {
         XCTAssertNil(model.outcome, "the sheet stays up so the person sees why the open failed")
         XCTAssertFalse(model.isCreating)
         XCTAssertTrue(model.errorText?.contains("calm-petrel") == true)
-        XCTAssertTrue(model.errorText?.contains("No provider") == true, "the CLI output is kept for diagnosis")
+        XCTAssertFalse(model.errorText?.contains("No provider") == true, "provider diagnostics must not reach the sheet")
 
         // The primary button is now "Done": it closes the sheet without launching again.
         model.create()
         XCTAssertEqual(recorder.value.arguments.count, 1, "a second create would mint a second machine")
         XCTAssertEqual(model.outcome, .created)
+    }
+
+    func testFailureDoesNotRenderProviderSecretsOrTerminalControls() {
+        let (model, recorder) = makeModel()
+        model.create()
+        let secret = "bearer super-secret-token"
+        recorder.value.pendingCompletion?(CloudVMActionLauncher.Completion(
+            terminationStatus: 1,
+            output: "Error: provider failed at /home/alice/private\n\u{1B}[31m\(secret)\u{1B}[0m\n",
+            workspaceId: nil
+        ))
+
+        XCTAssertEqual(model.errorText, "The machine could not be created.")
+        XCTAssertFalse(model.errorText?.contains(secret) == true)
+        XCTAssertFalse(model.errorText?.contains("/home/alice/private") == true)
+        XCTAssertFalse(model.errorText?.contains("\u{1B}") == true)
     }
 
     func testBaseSetupFailureIsNotMistakenForACreatedMachine() {
