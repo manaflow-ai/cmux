@@ -12,6 +12,7 @@ import {
   decodeDataHeader,
   encodeControl,
   mintResumeKey,
+  relayObjectName,
   rewriteLegId,
   sha256Base64,
   validOpaqueId,
@@ -72,6 +73,9 @@ describe("control frames", () => {
     expect(decodeControl(JSON.stringify({ t: "pong", ts: 1 }))).toBeNull(); // server→client only
     expect(decodeControl(JSON.stringify({ t: "ack", seq: "1" }))).toBeNull();
     expect(decodeControl(JSON.stringify({ t: "auth.refresh", token: "" }))).toBeNull();
+    expect(decodeControl(JSON.stringify({ t: "ping", ts: Number.POSITIVE_INFINITY }))).toBeNull();
+    expect(decodeControl(JSON.stringify({ t: "ping", ts: "1" }))).toBeNull();
+    expect(decodeControl(JSON.stringify({ t: "hello", proto: "dot/1", device: "é".repeat(2_100) }))).toBeNull();
   });
 
   test("accepts ping, ack (with and without leg), auth.refresh", () => {
@@ -167,5 +171,11 @@ describe("resume keys and identifiers", () => {
     expect(validOpaqueId("")).toBe(false);
     expect(validOpaqueId("a".repeat(200))).toBe(false);
     expect(validOpaqueId("bad id with spaces")).toBe(false);
+  });
+
+  test("relay object names are isolated by verified account and Mac", () => {
+    expect(relayObjectName("user-a", "mac-1")).toBe("relay:user:user-a:mac:mac-1");
+    expect(relayObjectName("user-a", "mac-1")).not.toBe(relayObjectName("user-b", "mac-1"));
+    expect(relayObjectName("user-a", "mac-1")).not.toBe(relayObjectName("user-a", "mac-2"));
   });
 });

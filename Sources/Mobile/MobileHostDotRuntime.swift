@@ -324,6 +324,7 @@ final class MobileHostDotRuntime {
                     )
                     Task { [weak self] in
                         await self?.superviseSession(session, token: token)
+                        await acceptor.retire(sessionID: session.sessionID)
                     }
                 case .denied(let deviceID, let reason):
                     journal.record(

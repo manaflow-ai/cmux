@@ -127,10 +127,15 @@ public enum DotControlFrame: Sendable, Equatable {
         case "hello.ack":
             guard let legID = uint32(object["legId"]),
                   let resumeKey = object["resumeKey"] as? String,
+                  !resumeKey.isEmpty,
+                  resumeKey.utf8.count <= 128,
                   let epoch = object["epoch"] as? String,
+                  !epoch.isEmpty,
+                  epoch.utf8.count <= 128,
                   let peerOnline = object["peerOnline"] as? Bool
             else { throw DotWireError.malformed }
             let replayed = (object["replayed"] as? NSNumber)?.intValue ?? 0
+            guard replayed >= 0 else { throw DotWireError.malformed }
             return .helloAck(
                 legID: legID, resumeKey: resumeKey, epoch: epoch,
                 peerOnline: peerOnline, replayed: replayed
@@ -145,6 +150,7 @@ public enum DotControlFrame: Sendable, Equatable {
             return .ping(ts: ts)
         case "auth.ok":
             guard let deadline = (object["deadline"] as? NSNumber)?.doubleValue else { throw DotWireError.malformed }
+            guard deadline.isFinite else { throw DotWireError.malformed }
             return .authOK(deadline: deadline)
         case "ack":
             guard let seq = uint64(object["seq"]) else { throw DotWireError.malformed }
@@ -168,6 +174,8 @@ public enum DotControlFrame: Sendable, Equatable {
 
     private static func uint32(_ value: Any?) -> UInt32? {
         guard let number = value as? NSNumber else { return nil }
+        let double = number.doubleValue
+        guard double.isFinite, double.rounded(.towardZero) == double else { return nil }
         let raw = number.int64Value
         guard raw >= 0, raw <= Int64(UInt32.max) else { return nil }
         return UInt32(raw)
@@ -175,6 +183,8 @@ public enum DotControlFrame: Sendable, Equatable {
 
     private static func uint64(_ value: Any?) -> UInt64? {
         guard let number = value as? NSNumber else { return nil }
+        let double = number.doubleValue
+        guard double.isFinite, double.rounded(.towardZero) == double else { return nil }
         let raw = number.int64Value
         guard raw >= 0 else { return nil }
         return UInt64(raw)
