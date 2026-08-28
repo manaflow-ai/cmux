@@ -27,7 +27,8 @@ use crate::{AgentSource, AgentState, JournalSubject};
 
 pub(crate) const AGENT_ROSTER_REDUCER_ID: &str = "agent_roster";
 /// Bump to discard persisted snapshots and re-fold from the journal head.
-pub(crate) const AGENT_ROSTER_REDUCER_VERSION: u32 = 1;
+/// Version 2 added the agent adapter id to roster entries.
+pub(crate) const AGENT_ROSTER_REDUCER_VERSION: u32 = 2;
 
 /// The adapter id and native event the socket report path uses for its echo
 /// journal events. The echo carries the explicit state in `normalized`, so
@@ -116,6 +117,11 @@ pub(crate) struct RosterEntry {
     pub(crate) state: String,
     pub(crate) source: String,
     pub(crate) session: Option<String>,
+    /// The reporting adapter id (`claude`, `codex`, ...). Direct socket
+    /// reports do not know the agent behind the terminal, so it is absent
+    /// there until a hook event claims the terminal.
+    #[serde(default)]
+    pub(crate) agent: Option<String>,
     pub(crate) updated_at_ms: u64,
 }
 
@@ -157,28 +163,29 @@ impl AgentRoster {
             return Vec::new();
         }
         let Some(terminal_id) = event.terminal_id() else { return Vec::new() };
-        let (state, source, session, updated_at_ms) = if event.adapter_id()
-            == Some(SOCKET_REPORT_ADAPTER)
-        {
-            // Socket echo: explicit state and timestamp carried in the
-            // payload, so the roster mirrors the direct projection
-            // commit exactly.
-            let Some(state) = event.normalized("state").and_then(agent_state_from_str) else {
-                return Vec::new();
+        let (state, source, session, agent, updated_at_ms) =
+            if event.adapter_id() == Some(SOCKET_REPORT_ADAPTER) {
+                // Socket echo: explicit state and timestamp carried in the
+                // payload, so the roster mirrors the direct projection
+                // commit exactly. The reporter does not know the agent type.
+                let Some(state) = event.normalized("state").and_then(agent_state_from_str) else {
+                    return Vec::new();
+                };
+                let source = event
+                    .normalized("source")
+                    .and_then(agent_source_from_str)
+                    .unwrap_or(AgentSource::Socket);
+                let updated_at_ms = event
+                    .normalized("updated_at_ms")
+                    .and_then(|value| value.parse::<u64>().ok())
+                    .unwrap_or(event.committed_at_ms);
+                let session = event.normalized("source_session").map(str::to_string);
+                (state, source, session, None, updated_at_ms)
+            } else {
+                let Some(state) = state_for_hook_kind(event.kind) else { return Vec::new() };
+                let agent = event.adapter_id().map(str::to_string);
+                (state, AgentSource::Hook, None, agent, event.committed_at_ms)
             };
-            let source = event
-                .normalized("source")
-                .and_then(agent_source_from_str)
-                .unwrap_or(AgentSource::Socket);
-            let updated_at_ms = event
-                .normalized("updated_at_ms")
-                .and_then(|value| value.parse::<u64>().ok())
-                .unwrap_or(event.committed_at_ms);
-            (state, source, event.normalized("source_session").map(str::to_string), updated_at_ms)
-        } else {
-            let Some(state) = state_for_hook_kind(event.kind) else { return Vec::new() };
-            (state, AgentSource::Hook, None, event.committed_at_ms)
-        };
         if source == AgentSource::Socket
             && self
                 .entries
@@ -203,6 +210,10 @@ impl AgentRoster {
             state: state.as_str().to_string(),
             source: source.as_str().to_string(),
             session,
+            // A socket entry keeps any agent identity a hook already
+            // established for this terminal.
+            agent: agent
+                .or_else(|| self.entries.get(terminal_id).and_then(|entry| entry.agent.clone())),
             updated_at_ms,
         };
         if self.entries.get(terminal_id) == Some(&entry) {
@@ -260,6 +271,7 @@ mod tests {
 
         roster.apply(&hook_event(1, "agent.session.started", &subjects, &payload));
         assert_eq!(roster.entries["term_a"].state, "idle");
+        assert_eq!(roster.entries["term_a"].agent, None, "payload without adapter has no agent");
 
         roster.apply(&hook_event(2, "agent.turn.started", &subjects, &payload));
         assert_eq!(roster.entries["term_a"].state, "working");
@@ -291,11 +303,13 @@ mod tests {
         assert_eq!(entry.state, "working");
         assert_eq!(entry.source, "socket");
         assert_eq!(entry.session.as_deref(), Some("probe"));
+        assert_eq!(entry.agent, None);
 
-        // A hook event takes the terminal over...
-        let hook_payload = json!({});
+        // A hook event takes the terminal over and names the agent...
+        let hook_payload = json!({"adapter": {"id": "claude", "version": 1}});
         roster.apply(&hook_event(2, "agent.turn.started", &subjects, &hook_payload));
         assert_eq!(roster.entries["term_a"].source, "hook");
+        assert_eq!(roster.entries["term_a"].agent.as_deref(), Some("claude"));
 
         // ...and later socket reports cannot downgrade it.
         let deltas =
