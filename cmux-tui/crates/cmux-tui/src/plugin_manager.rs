@@ -1119,6 +1119,7 @@ fn replace_installed_plugin_with_fs<F: InstallFilesystem, C: FnOnce() -> anyhow:
             anyhow::anyhow!("failed to persist {}: {error}", metadata_path.display())
         })?;
         metadata_installed = true;
+        sync_directory(&registry)?;
         after_install()?;
         write_install_journal(
             &journal_path,
