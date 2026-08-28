@@ -218,6 +218,7 @@ async fn report_watch_failure(
 }
 
 impl WatchRegistry {
+    #[cfg(test)]
     pub(crate) fn new(outbound: OutboundSink) -> WatchRegistry {
         Self::new_with_teardown_slots(
             outbound,
@@ -225,6 +226,7 @@ impl WatchRegistry {
         )
     }
 
+    #[cfg(test)]
     pub(crate) fn new_with_teardown_slots(
         outbound: OutboundSink,
         teardown_slots: Arc<Semaphore>,
@@ -302,18 +304,20 @@ impl WatchRegistry {
                     // this slot. Tokio guarantees `spawn` does not poll the
                     // future synchronously as part of this call.
                     let task_id = watch_id.clone();
-                    let task_cancellation = opening_cancellation.clone();
+                    let context = OpenContext {
+                        generation,
+                        live: Arc::clone(&opening_live),
+                        cancellation: opening_cancellation,
+                        sessions: Arc::clone(&sessions),
+                        outbound,
+                        setup_slots,
+                        teardown_slots,
+                    };
                     let task = tokio::spawn(coordinate_open(
                         task_id,
                         frame,
                         local_roots_for_task,
-                        generation,
-                        Arc::clone(&opening_live),
-                        task_cancellation,
-                        Arc::clone(&sessions),
-                        outbound,
-                        setup_slots,
-                        teardown_slots,
+                        context,
                     ));
                     slot.opening.as_mut().expect("opening was just reserved").abort =
                         Some(task.abort_handle());
@@ -343,6 +347,19 @@ enum SetupFailure {
     Cancelled,
     Refused { code: wire::WorkspaceErrorCode, message: String },
     Failed(String),
+}
+
+/// State owned by one asynchronous open attempt. Keeping the lifecycle state
+/// together prevents a generation token from being paired with a different
+/// cancellation or liveness token.
+struct OpenContext {
+    generation: u64,
+    live: Arc<AtomicBool>,
+    cancellation: CancellationToken,
+    sessions: Sessions,
+    outbound: OutboundSink,
+    setup_slots: Arc<Semaphore>,
+    teardown_slots: Arc<Semaphore>,
 }
 
 /// Resolve the scoped root, install notify, and discover ignore files on a
@@ -406,57 +423,26 @@ async fn coordinate_open(
     watch_id: String,
     frame: wire::RelayFsWatchOpen,
     local_roots: Option<Vec<String>>,
-    generation: u64,
-    live: Arc<AtomicBool>,
-    cancellation: CancellationToken,
-    sessions: Sessions,
-    outbound: OutboundSink,
-    setup_slots: Arc<Semaphore>,
-    teardown_slots: Arc<Semaphore>,
+    context: OpenContext,
 ) {
-    let setup =
-        setup_watch(frame, local_roots, cancellation.clone(), setup_slots.clone(), teardown_slots)
-            .await;
+    let setup = setup_watch(
+        frame,
+        local_roots,
+        context.cancellation.clone(),
+        context.setup_slots.clone(),
+        context.teardown_slots.clone(),
+    )
+    .await;
     match setup {
         Ok((root, prepared)) => {
-            commit_open(
-                watch_id,
-                root,
-                prepared,
-                generation,
-                live,
-                cancellation,
-                sessions,
-                outbound,
-                setup_slots,
-            );
+            commit_open(watch_id, root, prepared, context);
         }
         Err(SetupFailure::Cancelled) => {}
         Err(SetupFailure::Refused { code, message }) => {
-            finish_open_failure(
-                &watch_id,
-                generation,
-                live,
-                cancellation,
-                sessions,
-                outbound,
-                code,
-                Some(message),
-            )
-            .await;
+            finish_open_failure(&watch_id, code, Some(message), context).await;
         }
         Err(SetupFailure::Failed(_message)) => {
-            finish_open_failure(
-                &watch_id,
-                generation,
-                live,
-                cancellation,
-                sessions,
-                outbound,
-                wire::WorkspaceErrorCode::Failed,
-                None,
-            )
-            .await;
+            finish_open_failure(&watch_id, wire::WorkspaceErrorCode::Failed, None, context).await;
         }
     }
 }
@@ -468,13 +454,17 @@ fn commit_open(
     watch_id: String,
     root: PathBuf,
     prepared: PreparedWatch,
-    generation: u64,
-    live: Arc<AtomicBool>,
-    cancellation: CancellationToken,
-    sessions: Sessions,
-    outbound: OutboundSink,
-    setup_slots: Arc<Semaphore>,
+    context: OpenContext,
 ) {
+    let OpenContext {
+        generation,
+        live,
+        cancellation,
+        sessions,
+        outbound,
+        setup_slots,
+        teardown_slots: _,
+    } = context;
     let opened = serde_json::to_string(&wire::RelayFsWatchOpened {
         version: WORKSPACE_FRAME_VERSION,
         r#type: wire::TagFsWatchOpened::FsWatchOpened,
@@ -496,10 +486,10 @@ fn commit_open(
         {
             let (start_tx, start_rx) = oneshot::channel();
             let run_id = watch_id.clone();
-            let run_root = root.clone();
-            let run_outbound = outbound.clone();
+            let run_root = root;
+            let run_outbound = outbound;
             let run_sessions = Arc::clone(&sessions);
-            let run_setup_slots = Arc::clone(&setup_slots);
+            let run_setup_slots = setup_slots;
             let run_cancellation = cancellation.clone();
             let run_live = Arc::clone(&live);
             let run_prepared = prepared.take().expect("prepared watch present");
@@ -565,14 +555,11 @@ fn commit_open(
 
 async fn finish_open_failure(
     watch_id: &str,
-    generation: u64,
-    live: Arc<AtomicBool>,
-    cancellation: CancellationToken,
-    sessions: Sessions,
-    outbound: OutboundSink,
     code: wire::WorkspaceErrorCode,
     message: Option<String>,
+    context: OpenContext,
 ) {
+    let OpenContext { generation, live, cancellation, sessions, outbound, .. } = context;
     let text = watch_error_frame(watch_id, code, message.as_deref());
     let should_report = sessions.lock().ok().is_some_and(|state| {
         state.get(watch_id).is_some_and(|slot| {
@@ -1322,15 +1309,20 @@ mod tests {
                 }),
             },
         );
-        let task = tokio::spawn(finish_open_failure(
-            "failed",
-            1,
+        let context = OpenContext {
+            generation: 1,
             live,
             cancellation,
-            Arc::clone(&sessions),
-            sink,
+            sessions: Arc::clone(&sessions),
+            outbound: sink,
+            setup_slots: Arc::new(Semaphore::new(WATCH_SETUP_CONCURRENCY)),
+            teardown_slots: Arc::new(Semaphore::new(WATCH_TEARDOWN_CONCURRENCY)),
+        };
+        let task = tokio::spawn(finish_open_failure(
+            "failed",
             wire::WorkspaceErrorCode::Failed,
             None,
+            context,
         ));
         let mut frame = critical.recv().await.expect("failure frame");
         assert!(frame.live.is_some(), "failure keeps its opening liveness token until delivery");
@@ -1362,15 +1354,20 @@ mod tests {
                 }),
             },
         );
-        let task = tokio::spawn(finish_open_failure(
-            "saturated",
-            1,
+        let context = OpenContext {
+            generation: 1,
             live,
             cancellation,
-            Arc::clone(&sessions),
-            sink,
+            sessions: Arc::clone(&sessions),
+            outbound: sink,
+            setup_slots: Arc::new(Semaphore::new(WATCH_SETUP_CONCURRENCY)),
+            teardown_slots: Arc::new(Semaphore::new(WATCH_TEARDOWN_CONCURRENCY)),
+        };
+        let task = tokio::spawn(finish_open_failure(
+            "saturated",
             wire::WorkspaceErrorCode::Failed,
             None,
+            context,
         ));
         tokio::task::yield_now().await;
         assert!(!task.is_finished(), "failure waits instead of dropping under queue pressure");

@@ -2067,7 +2067,7 @@ mod tests {
     }
 
     fn test_inner_with_capacity(capacity: usize) -> (Arc<Inner>, Receiver<Outbound>) {
-        let (outbound, outbound_rx) = std::sync::mpsc::sync_channel(capacity);
+        let (outbound, outbound_rx) = sync_channel(capacity);
         (
             Arc::new(Inner {
                 outbound,

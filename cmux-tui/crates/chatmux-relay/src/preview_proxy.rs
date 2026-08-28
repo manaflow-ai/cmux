@@ -810,15 +810,15 @@ async fn connect_target(
     shared: &ProxyShared,
 ) -> Result<
     (hyper::client::conn::http1::SendRequest<hyper::body::Incoming>, tokio::task::JoinHandle<()>),
-    hyper::Response<ProxyBody>,
+    Box<hyper::Response<ProxyBody>>,
 > {
     let stream = tokio::net::TcpStream::connect(("127.0.0.1", shared.target_port)).await.map_err(
-        |error| text_response(502, &format!("preview target port is not reachable: {error}")),
+        |error| Box::new(text_response(502, &format!("preview target port is not reachable: {error}"))),
     )?;
     let io = hyper_util::rt::TokioIo::new(stream);
     let (sender, connection) = hyper::client::conn::http1::handshake(io)
         .await
-        .map_err(|error| text_response(502, &format!("target handshake failed: {error}")))?;
+        .map_err(|error| Box::new(text_response(502, &format!("target handshake failed: {error}"))))?;
     let driver = tokio::spawn(async move {
         let _ = connection.with_upgrades().await;
     });
@@ -859,7 +859,7 @@ async fn forward_plain(
 ) -> hyper::Response<ProxyBody> {
     let (mut sender, _driver) = match connect_target(&shared).await {
         Ok(ready) => ready,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     let skip_inject = header_is_one(request.headers(), NO_INJECT_HEADER);
     let (parts, body) = request.into_parts();
@@ -917,7 +917,7 @@ async fn forward_upgrade(
 ) -> hyper::Response<ProxyBody> {
     let (mut sender, _driver) = match connect_target(&shared).await {
         Ok(ready) => ready,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     let (mut parts, body) = request.into_parts();
     let Some(server_upgrade) = parts.extensions.remove::<hyper::upgrade::OnUpgrade>() else {
