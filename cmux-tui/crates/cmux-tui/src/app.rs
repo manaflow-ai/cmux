@@ -21813,11 +21813,19 @@ impl App {
             self.sidebar_focus_pending = false;
             return Ok(RenderAction::Draw);
         }
-        let preserve_preview_for_rail_click = matches!(
-            pointer_hit,
-            Some(Hit::RailPad(kind)) if self.can_preserve_workspace_preview_for_rail(kind)
-        );
-        if !preserve_preview_for_rail_click {
+        // Dependent-rail clicks are part of the preview transaction. Classify
+        // the hit before leaving the sidebar so a tab click can commit the
+        // rendered preview target and a rail-pad click can move focus without
+        // cancelling it. Crossterm reports these as left-button Down events,
+        // while Ratatui's hit map supplies the rendered target geometry.
+        let preserve_preview_for_hit = match pointer_hit {
+            Some(Hit::RailPad(kind)) => self.can_preserve_workspace_preview_for_rail(kind),
+            Some(Hit::SidebarTab { .. }) => {
+                self.workspace_preview.is_some() && self.sidebar_rail_focused()
+            }
+            _ => false,
+        };
+        if !preserve_preview_for_hit {
             self.leave_workspace_sidebar();
         }
         self.sidebar_focus_pending = false;
