@@ -79,32 +79,34 @@ impl CommitTracker {
         mut self,
         path: &str,
         applied_state: AppliedState,
-        failure: MutationFailure,
+        failure: Box<MutationFailure>,
     ) -> CommitFailure {
-        match failure.outcome {
+        let MutationFailure { error, outcome, recovery_path } = *failure;
+        match outcome {
             MutationOutcome::Unchanged | MutationOutcome::Restored => {}
             MutationOutcome::Applied => self.applied(path, applied_state),
             MutationOutcome::Unknown => {
                 self.uncertain.insert(path.to_owned());
             }
         }
-        if let Some(recovery_path) = failure.recovery_path {
+        if let Some(recovery_path) = recovery_path {
             self.recovery_paths
                 .entry(path.to_owned())
                 .or_default()
                 .insert(recovery_path.to_string_lossy().into_owned());
         }
-        self.failure(failure.error)
+        self.failure(error)
     }
 }
 
 impl RollbackReport {
-    fn failure(&mut self, path: &str, failure: MutationFailure) {
+    fn failure(&mut self, path: &str, failure: Box<MutationFailure>) {
+        let MutationFailure { error, outcome, recovery_path } = *failure;
         self.failures.push(RollbackFailure {
             path: path.to_owned(),
-            error: failure.error,
-            outcome: failure.outcome,
-            recovery_path: failure.recovery_path.map(|path| path.to_string_lossy().into_owned()),
+            error,
+            outcome,
+            recovery_path: recovery_path.map(|path| path.to_string_lossy().into_owned()),
         });
     }
 }
@@ -134,7 +136,7 @@ pub(crate) async fn apply_patch(
     }
 
     if let Err(failure) = commit_changes(root, &changes, &snapshots).await {
-        let CommitFailure { error, applied, mut uncertain, mut recovery_paths } = failure;
+        let CommitFailure { error, applied, mut uncertain, mut recovery_paths } = *failure;
         let rollback = rollback(root, &snapshots, &applied).await;
         let mut unresolved = uncertain.clone();
         let mut rollback_errors = Vec::new();
@@ -610,7 +612,7 @@ fn unified_hunk_line_counts(line: &str) -> Option<(usize, usize)> {
 }
 
 fn unified_range_line_count(range: &str) -> Option<usize> {
-    let (start, count) = range.split_once(',').map_or((range, "1"), |parts| parts);
+    let (start, count) = range.split_once(',').unwrap_or((range, "1"));
     start.parse::<usize>().ok()?;
     count.parse().ok()
 }
@@ -629,13 +631,13 @@ async fn commit_changes(
     root: &WorkspaceRoot,
     changes: &[PreparedChange],
     snapshots: &FileSnapshots,
-) -> Result<(), CommitFailure> {
+) -> Result<(), Box<CommitFailure>> {
     let mut tracker = CommitTracker::default();
     macro_rules! commit_try {
         ($operation:expr) => {
             match $operation {
                 Ok(value) => value,
-                Err(error) => return Err(tracker.failure(error)),
+                Err(error) => return Err(Box::new(tracker.failure(error))),
             }
         };
     }
@@ -657,17 +659,21 @@ async fn commit_changes(
                 {
                     Ok(hash) => tracker.applied(new, AppliedState::Present(hash)),
                     Err(failure) => {
-                        return Err(tracker.mutation_failure(
+                        return Err(Box::new(tracker.mutation_failure(
                             new,
                             AppliedState::Present(hash_bytes(contents)),
                             failure,
-                        ));
+                        )));
                     }
                 }
                 match remove_file_precondition_locked_with_outcome(root, old, &source).await {
                     Ok(()) => tracker.applied(old, AppliedState::Missing),
                     Err(failure) => {
-                        return Err(tracker.mutation_failure(old, AppliedState::Missing, failure));
+                        return Err(Box::new(tracker.mutation_failure(
+                            old,
+                            AppliedState::Missing,
+                            failure,
+                        )));
                     }
                 }
             }
@@ -678,11 +684,11 @@ async fn commit_changes(
                 {
                     Ok(hash) => tracker.applied(new, AppliedState::Present(hash)),
                     Err(failure) => {
-                        return Err(tracker.mutation_failure(
+                        return Err(Box::new(tracker.mutation_failure(
                             new,
                             AppliedState::Present(hash_bytes(contents)),
                             failure,
-                        ));
+                        )));
                     }
                 }
             }
@@ -691,15 +697,19 @@ async fn commit_changes(
                 match remove_file_precondition_locked_with_outcome(root, old, &precondition).await {
                     Ok(()) => tracker.applied(old, AppliedState::Missing),
                     Err(failure) => {
-                        return Err(tracker.mutation_failure(old, AppliedState::Missing, failure));
+                        return Err(Box::new(tracker.mutation_failure(
+                            old,
+                            AppliedState::Missing,
+                            failure,
+                        )));
                     }
                 }
             }
             _ => {
-                return Err(tracker.failure(RpcError::new(
+                return Err(Box::new(tracker.failure(RpcError::new(
                     "invalid-patch",
                     "patch produced an invalid file transition",
-                )));
+                ))));
             }
         }
     }

@@ -313,7 +313,7 @@ mod tests {
     #[test]
     fn relay_download_limit_keeps_server_egress_budget() {
         assert_eq!(MAX_MUX_DOWNLOAD_LINE_BYTES - 1, REMOTE_SESSION_MESSAGE_MAX_BYTES);
-        assert!(MAX_MUX_DOWNLOAD_LINE_BYTES > MAX_MUX_UPLOAD_LINE_BYTES);
+        const { assert!(MAX_MUX_DOWNLOAD_LINE_BYTES > MAX_MUX_UPLOAD_LINE_BYTES) };
         let line = vec![b'x'; 32];
         let packets = encode_line_with_limit(1, &line, MAX_MUX_DOWNLOAD_LINE_BYTES).unwrap();
         let mut assembler = MuxLineAssembler::with_maximum(MAX_MUX_DOWNLOAD_LINE_BYTES);
