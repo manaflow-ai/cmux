@@ -232,6 +232,12 @@ import Testing
         // Rename takes the name via --name (verified live; positional is usage.invalid).
         #expect(CloudTuiCommandLine.renameWorkspaceArguments(socketPath: "/k.sock", workspaceID: "ws_main", name: "backend work") ==
             ["--socket", "/k.sock", "--json", "workspace", "ws_main", "rename", "--name", "backend work"])
+        #expect(CloudTuiCommandLine.setDefaultColorsArguments(socketPath: "/k.sock", foreground: "#d8dee9", background: "#171b2e") ==
+            ["--socket", "/k.sock", "--json", "set-default-colors", "--fg", "#d8dee9", "--bg", "#171b2e"])
+        #expect(CloudTuiCommandLine.setDefaultColorsArguments(socketPath: "/k.sock", foreground: nil, background: "#171b2e") ==
+            ["--socket", "/k.sock", "--json", "set-default-colors", "--bg", "#171b2e"])
+        // No colors, no command: pushing an empty set-default-colors would be a no-op round trip.
+        #expect(CloudTuiCommandLine.setDefaultColorsArguments(socketPath: "/k.sock", foreground: nil, background: nil) == nil)
     }
 
     @Test func clientPathsMirrorTheCLI() throws {

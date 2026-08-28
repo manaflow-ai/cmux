@@ -70,6 +70,17 @@ struct CloudTuiCommandLine: Sendable {
         ["--socket", socketPath, "attach", "--terminal", terminalID]
     }
 
+    /// `set-default-colors [--fg #rrggbb] [--bg #rrggbb]` (spec `set-default-colors`,
+    /// protocol 5): the session defaults every PTY surface renders with unless an
+    /// application on the machine authored its own OSC 10/11. Pushing this Mac's
+    /// resolved Ghostty colors makes remote panes match the local theme.
+    static func setDefaultColorsArguments(socketPath: String, foreground: String?, background: String?) -> [String]? {
+        var arguments = ["--socket", socketPath, "--json", "set-default-colors"]
+        if let foreground { arguments += ["--fg", foreground] }
+        if let background { arguments += ["--bg", background] }
+        return arguments.count > 4 ? arguments : nil
+    }
+
     /// The argv `vm.terminal_new` runs in the machine when the caller gives none: a login
     /// shell in the persistent home.
     static let defaultTerminalCommand = ["bash", "-l"]

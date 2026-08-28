@@ -59829,6 +59829,40 @@
         }
       }
     },
+    "cloudPane.newTerminalFailed.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t start a terminal on %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ でターミナルを開始できませんでした"
+          }
+        }
+      }
+    },
+    "cloudPane.newTerminalFailed.ok": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK"
+          }
+        }
+      }
+    },
     "cloudTree.confirm.cancel": {
       "extractionState": "manual",
       "localizations": {
