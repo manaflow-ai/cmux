@@ -883,6 +883,139 @@ private func waitForReplayRequestCount(
     #expect(queue.isIdle)
 }
 
+@MainActor
+@Test func terminalOutputBacklogBelowPendingCapKeepsBuffering() async throws {
+    let store = MobileShellComposite.preview()
+    let surfaceID = "terminal"
+
+    var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    store.deliverTerminalBytes(Data("in-flight".utf8), surfaceID: surfaceID)
+    _ = try #require(await iterator.next())
+
+    let belowCapDepth = TerminalOutputDeliveryQueue.maxPendingDepthBeforeReplayReset - 1
+    for index in 0..<belowCapDepth {
+        let accepted = store.deliverTerminalBytes(Data("raw-\(index)".utf8), surfaceID: surfaceID)
+        #expect(accepted == true)
+    }
+
+    #expect(store.terminalOutputQueuesBySurfaceID[surfaceID]?.pendingCount == belowCapDepth)
+    #expect(store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil)
+}
+
+@MainActor
+@Test func terminalOutputBacklogAtPendingCapDropsBacklogAndRequestsReplay() async throws {
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let clock = TestClock()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    let surfaceID = "live-terminal"
+
+    await router.enqueueReplayTexts(["cold-replay", "cap-replay"])
+    var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    await router.waitForCount(of: "mobile.terminal.replay", atLeast: 1)
+    let coldReplayChunk = try #require(await iterator.next())
+    #expect(String(data: coldReplayChunk.data, encoding: .utf8) == "cold-replay")
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: coldReplayChunk.streamToken)
+    let coldReplaySettled = await waitForReplayBarrierFailureToSettle {
+        !store.terminalReplaySurfaceIDsInFlight.contains(surfaceID)
+    }
+    #expect(coldReplaySettled)
+    let replayCountAfterMount = await router.count(of: "mobile.terminal.replay")
+
+    store.deliverTerminalBytes(Data("stalled-first".utf8), surfaceID: surfaceID)
+    let stalledChunk = try #require(await iterator.next())
+
+    var lastAccepted = true
+    for index in 0..<TerminalOutputDeliveryQueue.maxPendingDepthBeforeReplayReset {
+        lastAccepted = store.deliverTerminalBytes(Data("raw-\(index)".utf8), surfaceID: surfaceID)
+    }
+
+    // The cap breach must refuse the delivery, drop the whole backlog behind a
+    // replay barrier, and ask the Mac for the authoritative state.
+    #expect(lastAccepted == false)
+    #expect(store.terminalOutputQueuesBySurfaceID[surfaceID]?.isIdle == true)
+    #expect(store.terminalReplayBarrierTokensBySurfaceID[surfaceID] != nil)
+    await router.waitForCount(of: "mobile.terminal.replay", atLeast: replayCountAfterMount + 1)
+
+    let duringBarrierAccepted = store.deliverTerminalBytes(
+        Data("live-during-cap-barrier".utf8),
+        surfaceID: surfaceID
+    )
+    #expect(duringBarrierAccepted == false)
+
+    let replayChunk = try #require(await iterator.next())
+    #expect(String(data: replayChunk.data, encoding: .utf8) == "cap-replay")
+    #expect(replayChunk.streamToken != stalledChunk.streamToken)
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: replayChunk.streamToken)
+    let recovered = await waitForReplayBarrierFailureToSettle {
+        store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil
+    }
+    #expect(recovered)
+}
+
+@MainActor
+@Test func memoryPressureReclaimDropsBackloggedQueueAndRequestsReplay() async throws {
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let clock = TestClock()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    let surfaceID = "live-terminal"
+
+    await router.enqueueReplayTexts(["cold-replay", "pressure-replay"])
+    var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    await router.waitForCount(of: "mobile.terminal.replay", atLeast: 1)
+    let coldReplayChunk = try #require(await iterator.next())
+    #expect(String(data: coldReplayChunk.data, encoding: .utf8) == "cold-replay")
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: coldReplayChunk.streamToken)
+    let coldReplaySettled = await waitForReplayBarrierFailureToSettle {
+        !store.terminalReplaySurfaceIDsInFlight.contains(surfaceID)
+    }
+    #expect(coldReplaySettled)
+    let replayCountAfterMount = await router.count(of: "mobile.terminal.replay")
+
+    store.deliverTerminalBytes(Data("stalled-first".utf8), surfaceID: surfaceID)
+    _ = try #require(await iterator.next())
+    store.deliverTerminalBytes(Data("backlogged-1".utf8), surfaceID: surfaceID)
+    store.deliverTerminalBytes(Data("backlogged-2".utf8), surfaceID: surfaceID)
+    #expect(store.terminalOutputQueuesBySurfaceID[surfaceID]?.pendingCount == 2)
+
+    store.reclaimTerminalOutputBacklogsForMemoryPressure()
+
+    #expect(store.terminalOutputQueuesBySurfaceID[surfaceID]?.isIdle == true)
+    #expect(store.terminalReplayBarrierTokensBySurfaceID[surfaceID] != nil)
+    await router.waitForCount(of: "mobile.terminal.replay", atLeast: replayCountAfterMount + 1)
+
+    let replayChunk = try #require(await iterator.next())
+    #expect(String(data: replayChunk.data, encoding: .utf8) == "pressure-replay")
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: replayChunk.streamToken)
+    let recovered = await waitForReplayBarrierFailureToSettle {
+        store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil
+    }
+    #expect(recovered)
+}
+
+@MainActor
+@Test func memoryPressureReclaimLeavesQueuesWithoutBacklogUntouched() async throws {
+    let store = MobileShellComposite.preview()
+    let surfaceID = "terminal"
+
+    var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    store.deliverTerminalBytes(Data("in-flight".utf8), surfaceID: surfaceID)
+    let inFlightChunk = try #require(await iterator.next())
+
+    store.reclaimTerminalOutputBacklogsForMemoryPressure()
+
+    // No pending backlog: the surface actively applying its current chunk
+    // keeps its stream token and needs no replay churn.
+    #expect(store.terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil)
+    #expect(store.terminalOutputStreamTokensBySurfaceID[surfaceID] == inFlightChunk.streamToken)
+
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: inFlightChunk.streamToken)
+    store.deliverTerminalBytes(Data("after-reclaim".utf8), surfaceID: surfaceID)
+    let afterReclaim = try #require(await iterator.next())
+    #expect(String(data: afterReclaim.data, encoding: .utf8) == "after-reclaim")
+}
+
 @Test func renderGridViewportPatchIsReplaceableOnlyWhenEveryRowIsCleared() throws {
     let fullFrame = try MobileTerminalRenderGridFrame.fromPlainRows(
         surfaceID: "terminal",

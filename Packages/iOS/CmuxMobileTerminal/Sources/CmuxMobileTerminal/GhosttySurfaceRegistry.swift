@@ -88,7 +88,8 @@ extension GhosttySurfaceView {
     /// lifetime argument `visibleTerminalSnapshot()` relies on.
     ///
     /// The bytes read are bounded at the source: iOS surfaces are created with
-    /// `scrollback-limit = 16000000` (see `GhosttyRuntime.applyiOSDefaults`),
+    /// a RAM-scaled `scrollback-limit` capped at 16MB (see
+    /// `TerminalScrollbackByteBudget` and `GhosttyRuntime.applyGhosttyiOSDefaults`),
     /// so the SCREEN range can never materialize more than ~16MB of text no
     /// matter how long the session ran. The sheet's 5000-line budget is then
     /// applied off-main on top of that hard cap.

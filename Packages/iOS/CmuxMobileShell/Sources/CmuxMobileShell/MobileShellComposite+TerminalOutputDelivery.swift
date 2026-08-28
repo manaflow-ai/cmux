@@ -447,6 +447,22 @@ extension MobileShellComposite {
                 "terminal.output.pending surface=\(surfaceID) depth=\(pendingCount)"
             )
         }
+        if !bypassReplayBarrier,
+           immediate == nil,
+           pendingCount >= TerminalOutputDeliveryQueue.maxPendingDepthBeforeReplayReset {
+            // A backlog this deep means the consumer stopped acking. The
+            // pending chunks include nonreplaceable raw bytes, so they cannot
+            // be dropped silently: begin a replay barrier (which resets the
+            // queue and rotates the stream token, invalidating the stalled
+            // ack) and ask the Mac for the authoritative state instead of
+            // buffering without bound. Authoritative replay deliveries
+            // (bypassReplayBarrier) are exempt — they are the recovery path.
+            MobileDebugLog.anchormux(
+                "terminal.output.pending_cap_replay surface=\(surfaceID) depth=\(pendingCount)"
+            )
+            terminalOutputNeedsReplay(surfaceID: surfaceID)
+            return false
+        }
         if let immediate {
             continuation.yield(
                 MobileTerminalOutputChunk(
@@ -642,6 +658,26 @@ extension MobileShellComposite {
             coveredReplayBarrierDroppedOutputCount:
                 terminalReplayBarrierDroppedOutputCountsBySurfaceID[surfaceID]
         )
+    }
+
+    /// Drop every mounted surface's backlogged output queue in response to a
+    /// system memory warning and request authoritative replays to
+    /// resynchronize. Pending chunks retain their full byte payloads, so under
+    /// memory pressure a deep backlog is memory the process can give back
+    /// before jetsam kills it; the replay barrier keeps the drop lossless.
+    /// Idle queues and surfaces already under a replay barrier (whose queue
+    /// was reset when the barrier began) are left untouched, so a healthy
+    /// session ignores the warning entirely.
+    public func reclaimTerminalOutputBacklogsForMemoryPressure() {
+        for (surfaceID, queue) in terminalOutputQueuesBySurfaceID {
+            guard queue.pendingCount > 0,
+                  hasTerminalOutputSink(surfaceID: surfaceID),
+                  terminalReplayBarrierTokensBySurfaceID[surfaceID] == nil else { continue }
+            MobileDebugLog.anchormux(
+                "terminal.output.memory_pressure_replay surface=\(surfaceID) depth=\(queue.pendingCount)"
+            )
+            terminalOutputNeedsReplay(surfaceID: surfaceID)
+        }
     }
 
     /// Ask the Mac to replay the authoritative terminal state for a surface.

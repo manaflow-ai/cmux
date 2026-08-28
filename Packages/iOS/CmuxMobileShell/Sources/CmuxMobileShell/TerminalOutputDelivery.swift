@@ -90,6 +90,16 @@ struct TerminalOutputDelivery: Equatable, Sendable {
 /// the whole viewport are replaceable while the iOS surface is still applying a
 /// prior chunk, so fast scroll gestures can skip obsolete intermediate frames.
 struct TerminalOutputDeliveryQueue: Sendable {
+    /// Pending-depth cap for one surface's backlog. Raw byte chunks are
+    /// nonreplaceable, so a consumer that stops acking (wedged worker, a
+    /// surface stuck applying) lets live output grow the pending array without
+    /// bound and each chunk retains its full byte payload — a jetsam
+    /// contributor on low-RAM devices. The cap is generous (hundreds, far past
+    /// any healthy apply backlog) because the recovery — drop the backlog and
+    /// request an authoritative replay — is itself expensive; breaching it
+    /// must mean the backlog will never drain, not that output is bursty.
+    static let maxPendingDepthBeforeReplayReset = 512
+
     private var inFlight = false
     private var pending: [TerminalOutputDelivery] = []
     private var pendingHeadIndex = 0
