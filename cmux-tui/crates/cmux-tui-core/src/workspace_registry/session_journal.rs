@@ -131,6 +131,31 @@ pub struct SessionJournalPage {
     pub records: Vec<SessionJournalRecord>,
 }
 
+/// A journal cursor can be unrecoverable because it points beyond the
+/// current head or before the retained history. These are the only replay
+/// errors that a derived reducer may repair by rebuilding from the head.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SessionJournalCursorError {
+    Ahead { requested: u64, head: u64 },
+    Gap { requested: u64, first_retained: u64 },
+}
+
+impl std::fmt::Display for SessionJournalCursorError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Ahead { requested, head } => {
+                write!(formatter, "cursor.invalid: journal sequence {requested} is ahead of {head}")
+            }
+            Self::Gap { requested, first_retained } => write!(
+                formatter,
+                "cursor.gap: journal history before sequence {first_retained} is no longer retained after {requested}"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for SessionJournalCursorError {}
+
 pub(crate) struct SessionJournalSubjectPage {
     pub(crate) head_sequence: u64,
     pub(crate) scanned_through: u64,
@@ -1054,10 +1079,20 @@ pub(super) fn query_session_journal_after(
     )?;
     let head_sequence =
         u64::try_from(head_sequence).context("journal head sequence is negative")?;
-    anyhow::ensure!(
-        sequence <= head_sequence,
-        "cursor.invalid: journal sequence {sequence} is ahead of {head_sequence}"
-    );
+    if sequence > head_sequence {
+        return Err(anyhow::Error::new(SessionJournalCursorError::Ahead {
+            requested: sequence,
+            head: head_sequence,
+        }));
+    }
+    if let Some(first_retained) = first_retained_journal_sequence(connection)?
+        && sequence.saturating_add(1) < first_retained
+    {
+        return Err(anyhow::Error::new(SessionJournalCursorError::Gap {
+            requested: sequence,
+            first_retained,
+        }));
+    }
     let mut records = archived_records_after(connection, sequence, limit)?;
     if records.len() >= limit {
         records.truncate(limit);
@@ -1101,6 +1136,27 @@ pub(super) fn query_session_journal_after(
         "session journal contains a gap after sequence {sequence}"
     );
     Ok(SessionJournalPage { head_sequence, records })
+}
+
+fn first_retained_journal_sequence(connection: &Connection) -> anyhow::Result<Option<u64>> {
+    // Keep each MIN over its indexed column. Wrapping both tables in one
+    // UNION makes SQLite materialize the full history for every page read.
+    let active = connection.query_row(
+        "SELECT MIN(sequence) FROM session_journal",
+        [],
+        |row| row.get::<_, Option<i64>>(0),
+    )?;
+    let archived = connection.query_row(
+        "SELECT MIN(start_sequence) FROM journal_segments",
+        [],
+        |row| row.get::<_, Option<i64>>(0),
+    )?;
+    active
+        .into_iter()
+        .chain(archived)
+        .min()
+        .map(|value| u64::try_from(value).context("first retained journal sequence is negative"))
+        .transpose()
 }
 
 pub(super) fn query_session_journal_sequences(
@@ -2011,7 +2067,12 @@ mod tests {
     #[test]
     fn journal_cursor_and_page_limits_fail_closed() {
         let registry = WorkspaceRegistry::in_memory("limits").unwrap();
-        assert!(registry.session_journal_after(1, 1).unwrap_err().to_string().contains("ahead"));
+        let ahead = registry.session_journal_after(1, 1).unwrap_err();
+        assert!(ahead.to_string().contains("ahead"));
+        assert_eq!(
+            ahead.downcast_ref::<SessionJournalCursorError>(),
+            Some(&SessionJournalCursorError::Ahead { requested: 1, head: 0 })
+        );
         assert!(registry.session_journal_after(0, 0).unwrap_err().to_string().contains("positive"));
         assert!(
             registry
@@ -2019,6 +2080,48 @@ mod tests {
                 .unwrap_err()
                 .to_string()
                 .contains("exceeds")
+        );
+    }
+
+    #[test]
+    fn retained_history_gap_is_a_typed_cursor_error() {
+        let registry = WorkspaceRegistry::in_memory("cursor-gap").unwrap();
+        registry
+            .connection
+            .execute(
+                "INSERT INTO journal_segments(
+                   segment_id, start_sequence, end_sequence, record_count, codec, content,
+                   uncompressed_bytes, sha256, sealed_at_ms
+                 ) VALUES(?1, 3, 3, 1, 'test', ?2, 1, ?3, 1)",
+                rusqlite::params!["gap-segment", vec![0_u8], vec![0_u8; 32]],
+            )
+            .unwrap();
+
+        let error = registry.session_journal_after(0, 1).unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<SessionJournalCursorError>(),
+            Some(&SessionJournalCursorError::Gap { requested: 0, first_retained: 3 })
+        );
+    }
+
+    #[test]
+    fn malformed_retained_segment_is_not_classified_as_cursor_repairable() {
+        let registry = WorkspaceRegistry::in_memory("cursor-corrupt").unwrap();
+        registry
+            .connection
+            .execute(
+                "INSERT INTO journal_segments(
+                   segment_id, start_sequence, end_sequence, record_count, codec, content,
+                   uncompressed_bytes, sha256, sealed_at_ms
+                 ) VALUES(?1, 1, 1, 1, 'test', ?2, 1, ?3, 1)",
+                rusqlite::params!["corrupt-segment", vec![0_u8], vec![0_u8; 32]],
+            )
+            .unwrap();
+
+        let error = registry.session_journal_after(0, 1).unwrap_err();
+        assert!(
+            error.downcast_ref::<SessionJournalCursorError>().is_none(),
+            "segment corruption must propagate instead of triggering a cursor reset"
         );
     }
 

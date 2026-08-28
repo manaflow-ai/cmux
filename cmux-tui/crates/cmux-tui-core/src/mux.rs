@@ -64,8 +64,9 @@ use crate::workspace_registry::{
     RegistryBrowser, RegistryBrowserReconnect, RegistryCommit, RegistryLayoutNode,
     RegistrySnapshot, RegistryTab, RegistryTerminal, RegistryViewport, RegistryWorkspace,
     ResourceChange, ResourceEffectOutcome, ResourceEffectPreparation, ResourcePatch,
-    ResourcePatchCommit, ResourceTopologySnapshot, ResourceWorkspaceLedger, TerminalLifecycle,
-    TerminalOnExit, TerminalRegistrySnapshot, WorkspaceMutation, WorkspaceRegistry,
+    ResourcePatchCommit, ResourceTopologySnapshot, ResourceWorkspaceLedger,
+    SessionJournalCursorError, TerminalLifecycle, TerminalOnExit, TerminalRegistrySnapshot,
+    WorkspaceMutation, WorkspaceRegistry,
 };
 use crate::{
     PairingChallenge, PairingDecision, PairingError, PaneId, ScreenId, SplitDir, SplitId,
@@ -1133,8 +1134,42 @@ fn restore_agent_roster(registry: &WorkspaceRegistry) -> anyhow::Result<AgentRos
         _ => AgentRosterHost::default(),
     };
     let started_at = host.cursor;
+    let mut recovered_cursor = false;
     loop {
-        let page = registry.session_journal_after(host.cursor, 512)?;
+        let page = match registry.session_journal_after(host.cursor, 512) {
+            Ok(page) => page,
+            Err(error) => {
+                let Some(cursor_error) = error.downcast_ref::<SessionJournalCursorError>() else {
+                    return Err(error.context("restore agent roster from session journal"));
+                };
+                match *cursor_error {
+                    SessionJournalCursorError::Ahead { .. } => {
+                        if recovered_cursor {
+                            return Err(error.context("restore agent roster after cursor recovery"));
+                        }
+                        // A persisted cursor can point past the head. Rebuild
+                        // from the journal head, preserving ordinary I/O,
+                        // decode, and corruption errors.
+                        host = AgentRosterHost::default();
+                        recovered_cursor = true;
+                        eprintln!("cmux-tui: recovering invalid agent roster cursor: {error}");
+                        continue;
+                    }
+                    SessionJournalCursorError::Gap { requested, first_retained } => {
+                        // A retained-history gap means the snapshot does not
+                        // cover the records needed to derive the roster. A
+                        // suffix-only replay would silently drop agents and
+                        // claim a successful recovery. Keep the durable
+                        // snapshot untouched and fail closed so the caller can
+                        // surface the recovery failure and preserve evidence.
+                        return Err(anyhow::anyhow!(
+                            "cannot restore agent roster: journal history before sequence {first_retained} "
+                                "was compacted (snapshot cursor {requested}); a complete reducer snapshot is required"
+                        ));
+                    }
+                }
+            }
+        };
         if page.records.is_empty() {
             break;
         }
@@ -22439,6 +22474,64 @@ mod tests {
         assert_eq!(host.roster.entries.get(terminal_id.as_str()).unwrap().state, "idle");
 
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn agent_roster_ahead_cursor_rebuilds_from_retained_journal() {
+        use crate::journal_reducers::{
+            AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION, AgentRoster,
+        };
+
+        let registry = WorkspaceRegistry::in_memory("roster-ahead").unwrap();
+        let snapshot = AgentRoster::default().snapshot().to_string();
+        registry
+            .put_journal_reducer_state(
+                AGENT_ROSTER_REDUCER_ID,
+                AGENT_ROSTER_REDUCER_VERSION,
+                42,
+                &snapshot,
+            )
+            .unwrap();
+
+        let host = restore_agent_roster(&registry).unwrap();
+        assert_eq!(host.cursor, 0, "an ahead cursor must be repaired to the journal head");
+        assert!(host.roster.entries.is_empty());
+    }
+
+    #[test]
+    fn agent_roster_gap_fails_closed_without_complete_snapshot() {
+        use crate::journal_reducers::{
+            AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION, AgentRoster,
+        };
+
+        let registry = WorkspaceRegistry::in_memory("roster-gap").unwrap();
+        let snapshot = AgentRoster::default().snapshot().to_string();
+        registry
+            .put_journal_reducer_state(
+                AGENT_ROSTER_REDUCER_ID,
+                AGENT_ROSTER_REDUCER_VERSION,
+                0,
+                &snapshot,
+            )
+            .unwrap();
+        registry
+            .connection
+            .execute(
+                "INSERT INTO journal_segments(
+                   segment_id, start_sequence, end_sequence, record_count, codec, content,
+                   uncompressed_bytes, sha256, sealed_at_ms
+                 ) VALUES(?1, 3, 3, 1, 'test', ?2, 1, ?3, 1)",
+                rusqlite::params!["roster-gap-segment", vec![0_u8], vec![0_u8; 32]],
+            )
+            .unwrap();
+
+        let error = restore_agent_roster(&registry).unwrap_err();
+        assert!(error.to_string().contains("complete reducer snapshot"));
+        let (_, cursor, _) = registry
+            .journal_reducer_state(AGENT_ROSTER_REDUCER_ID)
+            .unwrap()
+            .unwrap();
+        assert_eq!(cursor, 0, "failed recovery must leave the durable snapshot untouched");
     }
 
     #[test]
