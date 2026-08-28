@@ -8,10 +8,5 @@ public extension MobileIrohRuntimeComposition {
     func releaseGateEndpointIdentity() async -> CmxIrohPeerIdentity? {
         await runtime?.snapshot().endpointID
     }
-
-    /// Supplies the non-secret installed relay expiry to the release gate.
-    func releaseGateRelayCredentialExpiry() async -> Date? {
-        await runtime?.relayCredentialExpiresAt()
-    }
 }
 #endif

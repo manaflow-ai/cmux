@@ -10,7 +10,6 @@ actor TestIrohEndpoint: CmxIrohEndpoint {
     private let healthStream: AsyncStream<CmxIrohEndpointHealthEvent>
     private let healthContinuation: AsyncStream<CmxIrohEndpointHealthEvent>.Continuation
     private var closeCallCount = 0
-    private var relayUpdates: [[CmxIrohRelayConfiguration]] = []
     private var relayProfileUpdates: [CmxIrohEndpointRelayProfile] = []
     private var relayUpdateShouldFail = false
     private var healthy = true
@@ -75,6 +74,10 @@ actor TestIrohEndpoint: CmxIrohEndpoint {
 
     func localDirectAddresses() -> [String] { directAddresses }
 
+    func setPathHints(_ hints: [CmxIrohPathHint]) {
+        pathHints = hints
+    }
+
     func setDirectAddresses(_ addresses: [String]) {
         directAddresses = addresses
     }
@@ -90,21 +93,14 @@ actor TestIrohEndpoint: CmxIrohEndpoint {
         nil
     }
 
-    func replaceRelays(_ relays: [CmxIrohRelayConfiguration]) throws {
-        if relayUpdateShouldFail {
-            throw TestIrohTransportError.relayUpdateFailed
-        }
-        relayUpdates.append(relays)
-        if let pathHintsAfterRelayReplacement {
-            pathHints = pathHintsAfterRelayReplacement
-        }
-    }
-
     func replaceRelayProfile(_ profile: CmxIrohEndpointRelayProfile) throws {
         if relayUpdateShouldFail {
             throw TestIrohTransportError.relayUpdateFailed
         }
         relayProfileUpdates.append(profile)
+        if let pathHintsAfterRelayReplacement {
+            pathHints = pathHintsAfterRelayReplacement
+        }
     }
 
     func healthEvents() -> AsyncStream<CmxIrohEndpointHealthEvent> {
@@ -134,10 +130,6 @@ actor TestIrohEndpoint: CmxIrohEndpoint {
 
     func observedCloseCallCount() -> Int {
         closeCallCount
-    }
-
-    func observedRelayUpdates() -> [[CmxIrohRelayConfiguration]] {
-        relayUpdates
     }
 
     func observedRelayProfileUpdates() -> [CmxIrohEndpointRelayProfile] {

@@ -26,14 +26,6 @@ type PathHintLike = {
   readonly privacy_scope?: string;
 };
 
-/** Keep only endpoint-reported managed relay URLs for server persistence. */
-export function serverPublishedIrohPathHints<T extends PathHintLike>(
-  hints: readonly T[],
-): T[] {
-  return hints.filter((hint) =>
-    hint.kind === "relay_url" && MANAGED_RELAY_URL_SET.has(hint.value));
-}
-
 /**
  * Keep only routes safe for the authenticated same-account broker.
  *

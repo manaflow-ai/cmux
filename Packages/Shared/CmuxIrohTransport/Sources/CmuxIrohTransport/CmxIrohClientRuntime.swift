@@ -20,12 +20,6 @@ public actor CmxIrohClientRuntime {
     public typealias CustomPrivateFallbackProvider =
         CmxIrohRegistryContextProvider.CustomPrivateFallbackProvider
 
-    /// Runs after a relay credential is installed on the exact active binding.
-    public typealias RelayCredentialHandler = @Sendable (
-        _ response: CmxIrohRelayTokenResponse,
-        _ binding: CmxIrohBrokerBinding
-    ) async -> Void
-
     /// Removes account-local identity, binding, relay, and route cache state.
     public typealias LocalDeactivationHandler = @Sendable () async -> Void
 
@@ -83,17 +77,14 @@ public actor CmxIrohClientRuntime {
     let customPrivateFallback: CustomPrivateFallbackProvider?
     let diagnosticLog: DiagnosticLog?
     let now: @Sendable () -> Date
-    let automaticRelayCredentialRefreshEnabled: Bool
     let handleBinding: BindingHandler
     let handleCachedBindings: CachedBindingsHandler
-    let handleRelayCredential: RelayCredentialHandler
     let handleLocalDeactivation: LocalDeactivationHandler
     let handlePolicyInvalidation: PolicyInvalidationHandler
 
     var lifecycleRevision: UInt64 = 0
     var lifecyclePhase = LifecyclePhase.inactive
     var signOutOperation: Task<CmxIrohClientSignOutPreparation, Never>?
-    var relayCoordinator: CmxIrohRelayCredentialCoordinator?
     var supervisorEventTask: Task<Void, Never>?
     var registrationRefreshTask: Task<CmxIrohLiveDiscoveryRefreshOutcome, any Error>?
     var registrationRefreshTaskID: UUID?
@@ -130,7 +121,6 @@ public actor CmxIrohClientRuntime {
     ///     private-network profiles. An empty profile set disables explicit hints.
     ///   - now: Wall-clock injection for route and relay validation.
     ///   - handleBinding: Persists the exact verified binding and discovery state.
-    ///   - handleRelayCredential: Persists an installed relay credential.
     ///   - handleLocalDeactivation: Wipes account-local Iroh caches during sign-out.
     ///   - handlePolicyInvalidation: Clears persisted broker routes after a terminal refresh.
     /// - Throws: An endpoint configuration error for an invalid cached relay set.
@@ -148,16 +138,12 @@ public actor CmxIrohClientRuntime {
         lanFallback: LANFallbackProvider? = nil,
         customPrivateFallback: CustomPrivateFallbackProvider? = nil,
         now: @escaping @Sendable () -> Date = { Date() },
-        automaticRelayCredentialRefreshEnabled: Bool = true,
         handleBinding: @escaping BindingHandler = { _, _ in true },
         handleCachedBindings: @escaping CachedBindingsHandler = { _, _ in },
-        handleRelayCredential: @escaping RelayCredentialHandler = { _, _ in },
         handleLocalDeactivation: @escaping LocalDeactivationHandler = {},
         handlePolicyInvalidation: @escaping PolicyInvalidationHandler = {}
     ) throws {
-        let endpointRelayProfile = try configuration.resolvedEndpointRelayProfile(
-            now: now()
-        )
+        let endpointRelayProfile = try configuration.resolvedEndpointRelayProfile()
         let endpointConfiguration = CmxIrohEndpointConfiguration(
             secretKey: configuration.identity.secretKey,
             alpns: [protocolConfiguration.alpn],
@@ -172,7 +158,8 @@ public actor CmxIrohClientRuntime {
             supervisor: supervisor,
             contextProvider: contextRouter,
             protocolConfiguration: protocolConfiguration,
-            diagnosticLog: diagnosticLog
+            diagnosticLog: diagnosticLog,
+            dialPhaseTimeout: configuration.dialPhaseTimeout
         )
         self.supervisor = supervisor
         self.connectivityEngine = connectivityEngine
@@ -189,10 +176,8 @@ public actor CmxIrohClientRuntime {
         self.customPrivateFallback = customPrivateFallback
         self.diagnosticLog = diagnosticLog
         self.now = now
-        self.automaticRelayCredentialRefreshEnabled = automaticRelayCredentialRefreshEnabled
         self.handleBinding = handleBinding
         self.handleCachedBindings = handleCachedBindings
-        self.handleRelayCredential = handleRelayCredential
         self.handleLocalDeactivation = handleLocalDeactivation
         self.handlePolicyInvalidation = handlePolicyInvalidation
         transportFactory = CmxConnectivityByteTransportFactory(
@@ -203,12 +188,6 @@ public actor CmxIrohClientRuntime {
     /// Returns the current non-secret lifecycle snapshot.
     public func snapshot() -> CmxIrohClientRuntimeSnapshot {
         currentSnapshot
-    }
-
-    /// Returns the non-secret hard expiry of the relay credential currently
-    /// installed on the live endpoint.
-    public func relayCredentialExpiresAt() async -> Date? {
-        await relayCoordinator?.credentialExpiresAt()
     }
 
     /// Monotonic count of online broker snapshots verified by this runtime.
@@ -372,8 +351,7 @@ public actor CmxIrohClientRuntime {
                     cachedTargetBindings: [],
                     cachedLANRendezvous: nil
                 ),
-                revision: revision,
-                startRelays: false
+                revision: revision
             )
             try requireCurrent(revision)
             let published = await handleBinding(discoveredBinding, discovery)
@@ -484,14 +462,6 @@ public actor CmxIrohClientRuntime {
         )
 
         do {
-            let startingRelayProfile = try endpointRelayProfile
-                .droppingExpiredManagedCredentials(at: now())
-            if startingRelayProfile != endpointRelayProfile {
-                try await connectivityEngine.replaceRelayProfile(
-                    startingRelayProfile
-                )
-                endpointRelayProfile = startingRelayProfile
-            }
             await startSupervisorObservation(revision: revision)
             let cachedDiscoveryTask: Task<CmxIrohDiscoveryResponse?, Never>?
             if configuration.cachedBinding != nil {
@@ -518,7 +488,7 @@ public actor CmxIrohClientRuntime {
                 brokerPreparationComplete: cachedDiscoveryTask != nil
             )
             try requireCurrent(revision)
-            try await install(policy: policy, revision: revision, startRelays: true)
+            try await install(policy: policy, revision: revision)
             if !protocolConfiguration.allowsNATTraversalAfterAdmission {
                 guard await connectivityEngine.hasConfiguredRelay() else {
                     throw CmxIrohEndpointSupervisorError.relayReadinessTimedOut
@@ -615,8 +585,6 @@ public actor CmxIrohClientRuntime {
             registrationRefreshPendingRequiresDiscovery = false
             registrationRefreshEnabled = true
             _ = try await refreshLiveDiscoveryThrowing()
-            try requireCurrent(revision)
-            try await relayCoordinator?.refreshIfNeeded()
             try requireCurrent(revision)
         } catch {
             if lifecyclePhase == .active, lifecycleRevision == revision {

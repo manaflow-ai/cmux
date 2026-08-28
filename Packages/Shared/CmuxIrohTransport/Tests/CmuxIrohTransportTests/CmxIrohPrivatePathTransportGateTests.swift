@@ -323,8 +323,7 @@ struct CmxIrohPrivatePathTransportGateTests {
         let configuration = try CmxIrohEndpointConfiguration(
             secretKey: CmxIrohSecretKey(bytes: fixture.privateKey.rawRepresentation),
             alpns: [CmxIrohProtocolConfiguration.cmuxMobileV1.alpn],
-            managedRelayURLs: [fixture.relayURL],
-            relays: []
+            managedRelayURLs: [fixture.relayURL]
         )
         let supervisor = CmxIrohEndpointSupervisor(
             factory: CmxIrohLibEndpointFactory(transportVerificationMode: .directOnly),
@@ -364,8 +363,7 @@ struct CmxIrohPrivatePathTransportGateTests {
             secretKey: CmxIrohSecretKey(bytes: fixture.acceptorSecretKey),
             alpns: [CmxIrohProtocolConfiguration.cmuxMobileV1.alpn],
             bindPolicy: .required(CmxIrohBindAddress(ipAddress: ipAddress, port: port)),
-            managedRelayURLs: [fixture.relayURL],
-            relays: []
+            managedRelayURLs: [fixture.relayURL]
         )
         return try await CmxIrohLibEndpointFactory(
             transportVerificationMode: .directOnly
