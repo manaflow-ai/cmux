@@ -665,9 +665,9 @@ impl PtyManager {
         self.detach_matching_unlocked(|owner| owner.kind == TransportKind::Tunnel);
     }
 
-    fn detach_matching(&self, owns: impl Fn(Option<&str>) -> bool) {
+    fn detach_matching(&self, owns: impl Fn(&TransportOwner) -> bool) {
         let _lifecycle = self.inner.tunnel_lifecycle.lock().expect("tunnel lifecycle lock");
-        self.detach_matching_unlocked(|owner| owns(owner.id.as_deref()));
+        self.detach_matching_unlocked(owns);
     }
 
     fn detach_matching_unlocked(&self, owns: impl Fn(&TransportOwner) -> bool) {
@@ -780,13 +780,12 @@ impl Inner {
             fail(code, &message);
             return;
         }
-        let mut reservation =
-            OpeningReservation {
-                inner: Arc::clone(&self),
-                id: pty_id.clone(),
-                owner: reservation_owner.clone(),
-                active: true,
-            };
+        let mut reservation = OpeningReservation {
+            inner: Arc::clone(&self),
+            id: pty_id.clone(),
+            owner: reservation_owner.clone(),
+            active: true,
+        };
 
         let session = frame.get("session").and_then(Value::as_str).unwrap_or_default().to_owned();
         let (Some(cols), Some(rows)) = (clamp_dim(frame.get("cols")), clamp_dim(frame.get("rows")))
@@ -943,10 +942,10 @@ impl Inner {
             .get(&TransportOwner::from_context(context))
             .is_none_or(|auth| {
                 auth.trust != context.trust
-                || auth.local_roots != context.local_roots
-                || auth.owner_user_id != context.owner_user_id
-                || auth.auth_generation != context.auth_generation
-                || auth.transport_kind != context.transport_kind
+                    || auth.local_roots != context.local_roots
+                    || auth.owner_user_id != context.owner_user_id
+                    || auth.auth_generation != context.auth_generation
+                    || auth.transport_kind != context.transport_kind
             });
         let authority_changed = !self.tunnel_authority_generation_current(context);
         let reservation_owned = opening.get(&pty_id) == Some(&reservation_owner);
