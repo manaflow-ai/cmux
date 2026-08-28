@@ -1,6 +1,7 @@
 # dot: Durable Object transport (default phone↔Mac transport)
 
-Status: implementation in progress (branch `feat-do-transport`, tag `dotx`).
+Status: implemented in the tagged Mac and iOS runtimes; deploy and dogfood are
+the remaining rollout steps.
 Owner directive: replace iroh as the default transport with a Cloudflare
 Durable Objects implementation. Acceptance: no reconnects, no disconnects,
 initial connection ≤2s, secure; verified by a 60-minute engaged iOS simulator
@@ -32,6 +33,9 @@ alongside `TeamPresence` (new binding + appended migration; auth code shared).
   Mac's device id from stored Macs / pairing).
 - The DO forwards binary frames between the host leg and client legs; it
   routes on a fixed header and never reads payloads.
+- A fresh leg announces its new leg id. A dropped socket emits no offline event
+  while resume is possible, preventing a transient network loss from closing
+  the encrypted session; a new leg id causes the clients to re-handshake.
 
 ## Wire protocol (`dot/1`)
 

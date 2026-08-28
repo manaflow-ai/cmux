@@ -100,7 +100,7 @@ export type ControlFrame =
 /** Parse an inbound control frame. Only client→relay types are accepted;
  * unknown or oversized input returns null (protocol error). */
 export function decodeControl(text: string): ControlFrame | null {
-  if (text.length > MAX_CONTROL_BYTES) return null;
+  if (new TextEncoder().encode(text).byteLength > MAX_CONTROL_BYTES) return null;
   let value: unknown;
   try {
     value = JSON.parse(text);
@@ -136,7 +136,7 @@ export function decodeControl(text: string): ControlFrame | null {
       };
     }
     case "ping": {
-      if (typeof frame.ts !== "number") return null;
+      if (typeof frame.ts !== "number" || !Number.isFinite(frame.ts)) return null;
       return { t: "ping", ts: frame.ts };
     }
     case "auth.refresh": {
@@ -254,4 +254,11 @@ export function validOpaqueId(value: string, maximum = 128): boolean {
     }
   }
   return true;
+}
+
+/** Stable account-owned relay name. Keep this in one helper so every route
+ * derives the same object id from verified identity and never from a caller's
+ * team or endpoint metadata. */
+export function relayObjectName(userId: string, macDeviceID: string): string {
+  return `relay:user:${userId}:mac:${macDeviceID}`;
 }

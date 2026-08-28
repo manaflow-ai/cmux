@@ -30,7 +30,7 @@ import {
 } from "./auth";
 import { MAX_SUBSCRIBE_AGE_MS, TeamPresence } from "./do";
 import { MacRelay } from "./relayDo";
-import { RELAY_MAX_SUBSCRIBE_AGE_MS, validOpaqueId } from "./relayProtocol";
+import { RELAY_MAX_SUBSCRIBE_AGE_MS, relayObjectName, validOpaqueId } from "./relayProtocol";
 import {
   isConnectivityPublisherAuthorized,
   parseConnectivityInvalidation,
@@ -129,7 +129,7 @@ export default {
       headers.set("x-relay-device", device);
       headers.set("x-relay-expires-at", String(Math.floor(expiresAt)));
       const stub = env.MAC_RELAY.get(
-        env.MAC_RELAY.idFromName(`relay:user:${user.id}:mac:${mac}`),
+        env.MAC_RELAY.idFromName(relayObjectName(user.id, mac)),
       );
       return stub.fetch(new Request(request.url, { method: "GET", headers }));
     }

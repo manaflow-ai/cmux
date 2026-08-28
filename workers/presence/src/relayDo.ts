@@ -177,7 +177,7 @@ export class MacRelay extends DurableObject<RelayEnv> {
       await this.handleControl(ws, att, message);
       return;
     }
-    this.handleData(ws, att, message);
+    await this.handleData(ws, att, message);
   }
 
   override async webSocketClose(ws: WebSocket, _code: number, _reason: string): Promise<void> {
@@ -191,7 +191,7 @@ export class MacRelay extends DurableObject<RelayEnv> {
   // ---- control frames ----
 
   private async handleControl(ws: WebSocket, att: WsAttachment, text: string): Promise<void> {
-    if (text.length > MAX_CONTROL_BYTES) {
+    if (new TextEncoder().encode(text).byteLength > MAX_CONTROL_BYTES) {
       ws.close(CLOSE_PROTOCOL_ERROR, "control too large");
       return;
     }
@@ -248,6 +248,7 @@ export class MacRelay extends DurableObject<RelayEnv> {
         replayed = resumed.replayed;
       }
     }
+    const freshLeg = legId === null;
 
     if (legId === null) {
       // Fresh session: supersede any live leg for the same (role, device) and
@@ -299,19 +300,31 @@ export class MacRelay extends DurableObject<RelayEnv> {
       peerOnline: att.role === "host" ? this.liveLegs("phone").length > 0 : this.hostSocket() !== null,
       replayed,
     });
+    // Tell the client when this authenticated leg must refresh. The refresh
+    // is in-band, so a healthy WebSocket never has to reconnect merely because
+    // a short-lived Stack access token rotated.
+    this.send(ws, { t: "auth.ok", deadline: att.expiresAt });
 
     // Presence notifications to the other side.
-    if (att.role === "host") {
+    if (att.role === "host" && freshLeg) {
       for (const phone of this.liveLegs("phone")) {
-        this.send(phone, { t: "peer.online" });
+        this.send(phone, { t: "peer.online", legId });
         const phoneAtt = attachment(phone);
         if (phoneAtt?.legId !== undefined) {
           this.send(ws, { t: "peer.online", legId: phoneAtt.legId, device: phoneAtt.device });
         }
       }
-    } else {
+    } else if (att.role === "phone" && freshLeg) {
       const host = this.hostSocket();
-      if (host) this.send(host, { t: "peer.online", legId, device: att.device });
+      if (host) {
+        this.send(host, { t: "peer.online", legId, device: att.device });
+        const hostAtt = attachment(host);
+        this.send(ws, {
+          t: "peer.online",
+          ...(hostAtt?.legId !== undefined ? { legId: hostAtt.legId } : {}),
+          ...(hostAtt?.device ? { device: hostAtt.device } : {}),
+        });
+      }
     }
     await this.ensureAlarmAt(att.expiresAt + AUTH_GRACE_MS);
   }
@@ -438,9 +451,10 @@ export class MacRelay extends DurableObject<RelayEnv> {
     // the detach persisted lastEnqueued and the spill covers the gap.
     const persisted = meta.lastEnqueuedBySrc?.[src];
     if (persisted === undefined) {
-      // Stream never carried data (or predates tracking): provable iff the
-      // caller claims nothing either.
-      return ack === 0 ? [] : null;
+      // A detached leg always persists this map, including an empty map. An
+      // absent map means the DO restarted while the leg was live and its
+      // in-memory ring may have been lost, so even ack=0 is not provable.
+      return meta.lastEnqueuedBySrc !== undefined && ack === 0 ? [] : null;
     }
     if (ack > persisted) return null;
     if (ack === persisted) return [];
@@ -487,7 +501,7 @@ export class MacRelay extends DurableObject<RelayEnv> {
 
   // ---- data frames ----
 
-  private handleData(ws: WebSocket, att: WsAttachment, frame: ArrayBuffer): void {
+  private async handleData(ws: WebSocket, att: WsAttachment, frame: ArrayBuffer): Promise<void> {
     if (att.legId === undefined) {
       ws.close(CLOSE_PROTOCOL_ERROR, "data before hello");
       return;
@@ -504,15 +518,32 @@ export class MacRelay extends DurableObject<RelayEnv> {
       rewriteLegId(frame, att.legId);
       const ring = this.ring("h", String(att.legId));
       ring.push(header.seq, frame);
+      if (ring.broken) {
+        ws.close(CLOSE_CAPACITY, "upload replay capacity exceeded");
+        return;
+      }
       const host = this.hostSocket();
       if (host) this.forward(host, frame, ring);
       this.send(ws, { t: "ackup", seq: ring.lastEnqueued });
       return;
     }
     // Host upload: header.legId names the destination phone leg.
+    if (header.legId === 0) {
+      ws.close(CLOSE_PROTOCOL_ERROR, "missing destination leg");
+      return;
+    }
     const dest = this.socketFor(header.legId);
+    const destinationAttachment = dest ? attachment(dest) : await this.ctx.storage.get<LegMeta>(legKey(header.legId));
+    if (!destinationAttachment || destinationAttachment.role !== "phone") {
+      ws.close(CLOSE_PROTOCOL_ERROR, "unknown destination leg");
+      return;
+    }
     const ring = this.ring(String(header.legId), "h");
     ring.push(header.seq, frame);
+    if (ring.broken) {
+      ws.close(CLOSE_CAPACITY, "upload replay capacity exceeded");
+      return;
+    }
     if (dest) this.forward(dest, frame, ring);
     this.send(ws, { t: "ackup", seq: ring.lastEnqueued, leg: header.legId });
   }
@@ -569,15 +600,11 @@ export class MacRelay extends DurableObject<RelayEnv> {
       await this.ensureAlarmAt(meta.detachedAt + RESUME_TTL_MS);
     }
 
-    // Presence notification for the surviving side.
-    if (att.role === "host") {
-      for (const phone of this.liveLegs("phone")) {
-        this.send(phone, { t: "peer.offline", reason });
-      }
-    } else {
-      const host = this.hostSocket();
-      if (host) this.send(host, { t: "peer.offline", legId, reason });
-    }
+    // Do not emit peer.offline here. A dropped WebSocket is normally a
+    // resumable leg blip, and announcing it would make the application close
+    // an otherwise continuous E2E session before the resume grace expires.
+    // A genuinely fresh leg is announced by handleHello with its new leg id;
+    // consumers use that generation change to retire the old session.
   }
 
   private async dropLegState(legId: number | undefined, role?: Role): Promise<void> {
