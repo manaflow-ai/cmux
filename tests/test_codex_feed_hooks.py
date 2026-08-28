@@ -1131,7 +1131,7 @@ def test_codex_tool_hook_opt_out_filters_real_injected_args(
 def test_codex_tool_hook_opt_out_reconciles_persistent_hooks(
     cli_path: str, root: Path
 ) -> None:
-    codex_home = root / "codex-persistent-opt-out" / ".codex"
+    codex_home = root / "codex:pre_tool_use:persistent-opt-out" / ".codex"
     codex_home.mkdir(parents=True)
     hooks_path = codex_home / "hooks.json"
     fixture, expected_third_party_groups = codex_third_party_tool_hook_fixture()
@@ -1158,7 +1158,7 @@ def test_codex_tool_hook_opt_out_reconciles_persistent_hooks(
     stale_tool_trust_keys = {
         key
         for key in installed_trust
-        if ":pre_tool_use:" in key or ":post_tool_use:" in key
+        if key.rsplit(":", 3)[1] in {"pre_tool_use", "post_tool_use"}
     }
     if not stale_tool_trust_keys:
         raise AssertionError(f"installed tool-hook trust was missing: {installed_trust!r}")
