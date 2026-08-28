@@ -317,7 +317,7 @@ impl WatchRegistry {
                     let previous = slot.opening.replace(Opening {
                         generation,
                         live: Arc::clone(&opening_live),
-                        cancellation: opening_cancellation,
+                        cancellation: opening_cancellation.clone(),
                         abort: None,
                     });
                     // Spawn while the state lock is held, then install the
@@ -328,7 +328,7 @@ impl WatchRegistry {
                         watch_id: watch_id.clone(),
                         generation,
                         live: Arc::clone(&opening_live),
-                        cancellation: opening_cancellation.clone(),
+                        cancellation: opening_cancellation,
                         resources,
                     };
                     let task = tokio::spawn(coordinate_open(context, frame, local_roots_for_task));
