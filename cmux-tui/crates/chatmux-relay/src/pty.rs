@@ -69,7 +69,7 @@ pub fn random_hex(bytes: usize) -> io::Result<String> {
     for byte in buffer {
         out.push_str(&format!("{byte:02x}"));
     }
-    out
+    Ok(out)
 }
 
 pub fn session_name_ok(name: &str) -> bool {
@@ -881,9 +881,10 @@ impl Inner {
         auth_state: &AuthState,
         context: &FrameContext,
     ) {
-        let Some(auth) = self.authorize_snapshot(pty_id, auth_state, context, "output") else {
+        let Some(_attachment) = self.authorize_snapshot(pty_id, auth_state, context, "output") else {
             return;
         };
+        let Some(auth) = auth_state.lock().expect("auth state lock").clone() else { return };
         // Zero-byte chunks carry nothing and historically crashed the web
         // terminal's write path (D-R6-1); never put an empty frame on the wire.
         if chunk.is_empty() {
@@ -921,9 +922,10 @@ impl Inner {
         auth_state: &AuthState,
         context: &FrameContext,
     ) {
-        let Some(auth) = self.authorize_snapshot(pty_id, auth_state, context, "exit") else {
+        let Some(_attachment) = self.authorize_snapshot(pty_id, auth_state, context, "exit") else {
             return;
         };
+        let Some(auth) = auth_state.lock().expect("auth state lock").clone() else { return };
         let mut attachments = self.attachments.lock().expect("attach lock");
         let Some(current) = attachments.get(pty_id) else { return };
         if current.closing.load(Ordering::SeqCst) || !Arc::ptr_eq(&current.auth, auth_state) {
@@ -2110,7 +2112,7 @@ mod tests {
                     .join(format!("chatmux-pty-{label}-{process_id}-{sequence}"));
                 match std::fs::create_dir(&path) {
                     Ok(()) => return TestDirectory { path },
-                    Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                    Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
                     Err(error) => panic!("create PTY test directory failed: {error}"),
                 }
             }
@@ -2332,7 +2334,17 @@ mod tests {
 
     impl Harness {
         fn context(&self, trust: &str, owner: Option<String>) -> FrameContext {
-            let sent = Arc::clone(&self.sent);
+            self.context_for_sink(&self.sent, trust, owner, None)
+        }
+
+        fn context_for_sink(
+            &self,
+            sent: &Arc<StdMutex<Vec<Value>>>,
+            trust: &str,
+            owner: Option<String>,
+            transport_id: Option<&str>,
+        ) -> FrameContext {
+            let sent = Arc::clone(sent);
             let buffered = Arc::clone(&self.buffered);
             FrameContext {
                 send: Arc::new(move |frame| sent.lock().unwrap().push(frame)),
@@ -2340,7 +2352,7 @@ mod tests {
                 trust: trust.to_owned(),
                 local_roots: None,
                 owner_user_id: owner,
-                transport_id: None,
+                transport_id: transport_id.map(str::to_owned),
             }
         }
 
@@ -2350,9 +2362,7 @@ mod tests {
             owner: Option<String>,
             transport_id: Option<&str>,
         ) -> FrameContext {
-            let mut context = self.context(trust, owner);
-            context.transport_id = transport_id.map(str::to_owned);
-            context
+            self.context_for_sink(&self.sent, trust, owner, transport_id)
         }
 
         async fn open_with_transport(&self, pty_id: &str, session: &str, transport_id: &str) {
@@ -2890,6 +2900,46 @@ mod tests {
         // A caller with no transport identity owns the whole manager (legacy).
         h.manager.handle_frame(&close, &h.context("supervised", h.owner.clone())).await;
         assert!(!h.manager.has_attachment("p1"));
+    }
+
+    #[tokio::test]
+    async fn output_stays_on_the_transport_that_opened_the_attachment() {
+        let h = harness(None, None);
+        let sent_a = Arc::new(StdMutex::new(Vec::new()));
+        let sent_b = Arc::new(StdMutex::new(Vec::new()));
+        let context_a = h.context_for_sink(
+            &sent_a,
+            "supervised",
+            h.owner.clone(),
+            Some("transport-a"),
+        );
+        let context_b = h.context_for_sink(
+            &sent_b,
+            "supervised",
+            h.owner.clone(),
+            Some("transport-b"),
+        );
+        let open = |pty_id: &str, session: &str| {
+            serde_json::json!({
+                "version": 4,
+                "type": "pty_open",
+                "ptyId": pty_id,
+                "session": session,
+                "cols": 80,
+                "rows": 24,
+                "actorId": "user_owner",
+            })
+        };
+        h.manager.handle_frame(&open("p1", "one"), &context_a).await;
+        h.manager.handle_frame(&open("p2", "two"), &context_b).await;
+        let pty_a = h.spawned()[0].clone();
+        pty_a.emit("only transport a");
+        let a_frames = sent_a.lock().unwrap().clone();
+        let b_frames = sent_b.lock().unwrap().clone();
+        assert!(a_frames.iter().any(|frame| {
+            ty(frame) == "pty_output" && frame["ptyId"] == "p1"
+        }));
+        assert!(!b_frames.iter().any(|frame| ty(frame) == "pty_output"));
     }
 
     #[tokio::test]

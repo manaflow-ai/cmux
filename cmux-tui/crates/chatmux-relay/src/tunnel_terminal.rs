@@ -178,7 +178,7 @@ pub fn encode_tunnel_frame(
     );
     frame.push(kind);
     frame.extend_from_slice(payload);
-    frame
+    Ok(frame)
 }
 
 pub fn encode_control_frame(frame: &Value) -> Result<Vec<u8>, TunnelEncodeError> {
@@ -725,7 +725,7 @@ pub async fn start_tunnel_terminal_listener(
     cancellation: CancellationToken,
     host: &str,
     port: u16,
-) -> std::io::Result<u16> {
+) -> io::Result<u16> {
     let listener = TcpListener::bind((host, port)).await?;
     let bound = listener.local_addr()?.port();
     tokio::spawn(async move {
@@ -869,6 +869,7 @@ mod tests {
         spawned: Arc<StdMutex<Vec<FakePty>>>,
         port: u16,
         cancel: CancellationToken,
+        authority: Arc<TunnelAuthority>,
     }
 
     async fn rig_with_limits(max_ptys: usize) -> Rig {
@@ -898,7 +899,7 @@ mod tests {
         )
         .await
         .expect("bind test listener");
-        Rig { manager, spawned, port, cancel }
+        Rig { manager, spawned, port, cancel, authority }
     }
 
     async fn rig() -> Rig {
@@ -987,6 +988,18 @@ mod tests {
     }
 
     #[test]
+    fn encoder_rejects_oversized_and_unknown_frames() {
+        assert_eq!(
+            encode_tunnel_frame(FRAME_KIND_PTY, &[0_u8; MAX_TUNNEL_FRAME_BYTES + 1]),
+            Err(TunnelEncodeError::PayloadTooLarge(MAX_TUNNEL_FRAME_BYTES + 1))
+        );
+        assert_eq!(
+            encode_tunnel_frame(7, b"x"),
+            Err(TunnelEncodeError::UnknownKind(7))
+        );
+    }
+
+    #[test]
     fn unknown_kind_poisons_the_decoder() {
         let mut decoder = TunnelFrameDecoder::new(MAX_TUNNEL_FRAME_BYTES);
         let mut frame = 1_u32.to_be_bytes().to_vec();
@@ -1046,6 +1059,8 @@ mod tests {
         assert_eq!(wire_error_code("busy"), "busy");
         assert_eq!(wire_error_code("failed"), "failed");
         assert_eq!(wire_error_code("brand_new_code"), "failed");
+        assert_eq!(wire_error_message("failed"), "terminal operation failed");
+        assert_eq!(wire_error_message("trust_refused"), "terminal access denied");
     }
 
     #[test]
@@ -1147,6 +1162,28 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn tunnel_opens_are_refused_before_relay_authority_is_published() {
+        let rig = rig().await;
+        rig.authority.clear();
+        let stream = connect(&rig).await;
+        let (mut read, mut write) = stream.into_split();
+        write
+            .write_all(
+                &encode_control_frame(&json!({ "t": "open", "cols": 80, "rows": 24 }))
+                    .expect("encode open"),
+            )
+            .await
+            .unwrap();
+        let mut decoder = TunnelFrameDecoder::new(MAX_TUNNEL_FRAME_BYTES);
+        let mut queue = Vec::new();
+        let error = control_json(&next_frame(&mut read, &mut decoder, &mut queue).await);
+        assert_eq!(error["code"], "trust_blocked");
+        assert_eq!(error["message"], "terminal access is not ready");
+        read_eof(&mut read).await;
+        rig.cancel.cancel();
+    }
+
+    #[tokio::test]
     async fn duplicate_open_is_a_protocol_error() {
         let rig = rig().await;
         let stream = connect(&rig).await;
@@ -1222,6 +1259,8 @@ mod tests {
         let error = control_json(&next_frame(&mut read, &mut decoder, &mut queue).await);
         assert_eq!(error["t"], "error");
         assert_eq!(error["code"], "session_limit");
+        assert_eq!(error["message"], "terminal limit reached");
+        assert!(!error.to_string().contains("caps concurrent"));
         read_eof(&mut read).await;
         rig.cancel.cancel();
     }
