@@ -9,6 +9,7 @@ struct CmuxTaskManagerMemoryAttribution: Sendable {
     let surfaceId: UUID?
     let surfaceRef: String?
     let surfaceType: String?
+    let reason: String?
 
     init?(_ payload: [String: Any]?) {
         guard let payload else { return nil }
@@ -19,6 +20,7 @@ struct CmuxTaskManagerMemoryAttribution: Sendable {
         self.surfaceId = Self.uuid(payload["surface_id"])
         self.surfaceRef = CmuxTaskManagerMemoryDiagnostic.string(payload["surface_ref"])
         self.surfaceType = CmuxTaskManagerMemoryDiagnostic.string(payload["surface_type"])
+        self.reason = CmuxTaskManagerMemoryDiagnostic.string(payload["reason"])
         if workspaceId == nil,
            workspaceRef == nil,
            paneId == nil,
@@ -48,6 +50,12 @@ struct CmuxTaskManagerMemoryAttribution: Sendable {
             parts.append(String.localizedStringWithFormat(
                 String(localized: "taskManager.memory.surface", defaultValue: "Surface %@"),
                 surface
+            ))
+        }
+        if let reason, !reason.isEmpty {
+            parts.append(String.localizedStringWithFormat(
+                String(localized: "taskManager.memory.evidence", defaultValue: "Evidence: %@"),
+                reason
             ))
         }
         return parts.isEmpty

@@ -151,6 +151,34 @@ extension CMUXCLI {
             memoryProcessCountText(childCount)
         ))
 
+        if let unattributedTTY = children["unattributed_tty"] as? [String: Any],
+           (topInt(unattributedTTY["process_count"]) ?? 0) > 0 {
+            let ttyRSS = topInt64(unattributedTTY["rss_bytes"] ?? unattributedTTY["resident_bytes"])
+            let ttyCount = topInt(unattributedTTY["process_count"]) ?? 0
+            let ttyReason = topLabelText(unattributedTTY["reason"] as? String)
+            let ttyPIDs = memoryTopIntArray(unattributedTTY["pids"])
+            lines.append("")
+            lines.append(String(localized: "cli.memory.output.unattributedTTYHeader", defaultValue: "UNATTRIBUTED TTY"))
+            lines.append(String.localizedStringWithFormat(
+                String(localized: "cli.memory.output.unattributedTTY", defaultValue: "  RSS %@ across %@ (excluded from cmux ownership)"),
+                formatBytes(ttyRSS),
+                memoryProcessCountText(ttyCount)
+            ))
+            if !ttyReason.isEmpty {
+                lines.append(String.localizedStringWithFormat(
+                    String(localized: "cli.memory.output.ownershipReason", defaultValue: "  reason    %@"),
+                    ttyReason
+                ))
+            }
+            if !ttyPIDs.isEmpty {
+                lines.append(String.localizedStringWithFormat(
+                    String(localized: "cli.memory.output.pids", defaultValue: "  pids      %@"),
+                    ttyPIDs.sorted().map(String.init).joined(separator: ", ")
+                ))
+            }
+            lines.append(String(localized: "cli.memory.output.forceQuitNote", defaultValue: "  macOS Force Quit may group by session or TTY; cmux cannot change that OS view"))
+        }
+
         let groups = children["groups"] as? [[String: Any]] ?? []
         guard !groups.isEmpty else {
             lines.append(String(localized: "cli.memory.output.noChildGroups", defaultValue: "  no child process groups"))
@@ -180,6 +208,14 @@ extension CMUXCLI {
             String(localized: "cli.memory.output.processCount.other", defaultValue: "%lld processes"),
             count
         )
+    }
+
+    private func memoryTopIntArray(_ raw: Any?) -> [Int] {
+        if let values = raw as? [Int] {
+            return values
+        }
+        guard let values = raw as? [Any] else { return [] }
+        return values.compactMap(topInt)
     }
 
 }

@@ -36,6 +36,7 @@ struct CmuxTopMemoryAttributionTests {
         let ttyName = String(cString: ttyCString)
         let ttyDevice = Int64(ttyStat.st_rdev)
         let scopedPID = 100
+        let scopedHelperPID = 300
         let detachedPID = 200
         let snapshot = CmuxTopProcessSnapshot(
             processes: [
@@ -48,6 +49,16 @@ struct CmuxTopMemoryAttributionTests {
                     workspaceID: workspaceID,
                     surfaceID: surfaceID,
                     attributionReason: "cmux-environment"
+                ),
+                process(
+                    pid: scopedHelperPID,
+                    parentPID: 1,
+                    name: "cmux",
+                    residentBytes: 16 * 1024 * 1024,
+                    ttyDevice: ttyDevice,
+                    workspaceID: workspaceID,
+                    surfaceID: surfaceID,
+                    attributionReason: "cmux-hook-arguments"
                 ),
                 process(
                     pid: detachedPID,
@@ -99,11 +110,127 @@ struct CmuxTopMemoryAttributionTests {
             (((windows.first?["workspaces"] as? [[String: Any]])?.first?["panes"] as? [[String: Any]])?.first?["surfaces"] as? [[String: Any]])?.first
         )
         let resources = try #require(surface["resources"] as? [String: Any])
+        let diagnostic = TerminalController.shared.v2TopMemoryDiagnosticPayload(
+            processSnapshot: snapshot,
+            annotatedWindows: windows
+        )
+        let diagnosticChildren = try #require(diagnostic["children"] as? [String: Any])
+        let unattributedTTY = try #require(diagnosticChildren["unattributed_tty"] as? [String: Any])
 
-        #expect(intArray(surface["tty_process_pids"]) == [scopedPID, detachedPID])
+        #expect(intArray(surface["cmux_process_pids"]) == [scopedPID, scopedHelperPID])
+        #expect(intArray(surface["tty_process_pids"]) == [scopedPID, detachedPID, scopedHelperPID].sorted())
         #expect(intArray(surface["tty_unattributed_process_pids"]) == [detachedPID])
-        #expect(intArray(resources["pids"]) == [scopedPID])
+        #expect(intArray(resources["pids"]) == [scopedPID, scopedHelperPID].sorted())
         #expect(!intArray(surface["root_pids"]).contains(detachedPID))
+        #expect(intArray(unattributedTTY["pids"]) == [detachedPID])
+        #expect(int64(diagnosticChildren["recursive_rss_bytes"]) == 24 * 1024 * 1024)
+    }
+
+    @Test func detachedTTYMemoryIsSeparatedFromProvenChildRSS() throws {
+        let appPID = 500
+        let helperPID = 501
+        let detachedPID = 502
+        let helperBytes: Int64 = 24 * 1024 * 1024
+        let detachedBytes: Int64 = 2 * 1024 * 1024 * 1024
+        let workspaceID = firstWorkspaceID
+        let snapshot = CmuxTopProcessSnapshot(
+            processes: [
+                process(pid: appPID, parentPID: 1, name: "cmux", residentBytes: 64 * 1024 * 1024),
+                process(pid: helperPID, parentPID: 1, name: "cmux", residentBytes: helperBytes),
+                process(pid: detachedPID, parentPID: 1, name: "python3", residentBytes: detachedBytes)
+            ],
+            sampledAt: Date(timeIntervalSince1970: 0),
+            includesProcessDetails: true
+        )
+        let helperAttribution = attribution(
+            workspaceID: workspaceID,
+            workspaceRef: "workspace:1",
+            reason: "cmux-hook-arguments"
+        )
+
+        let payload = snapshot.memoryDiagnosticPayload(
+            appPID: appPID,
+            attributionByPID: [helperPID: helperAttribution],
+            unattributedTTYProcessIDs: [detachedPID]
+        )
+        let children = try #require(payload["children"] as? [String: Any])
+        let unattributed = try #require(children["unattributed_tty"] as? [String: Any])
+
+        #expect(int64(children["recursive_rss_bytes"]) == helperBytes)
+        #expect(intArray(children["pids"]) == [helperPID])
+        #expect(int64(unattributed["rss_bytes"]) == detachedBytes)
+        #expect(intArray(unattributed["pids"]) == [detachedPID])
+        #expect(unattributed["ownership"] as? String == "ambiguous")
+        #expect(unattributed["reason"] as? String == CmuxTopProcessOwnershipReason.sameTTYUnproven.rawValue)
+        #expect((payload["summary"] as? String)?.contains("ownership unproven") == true)
+
+        let taskManager = CmuxTaskManagerSnapshot(payload: ["memory_diagnostic": payload])
+        let row = try #require(taskManager.childMemoryRows.last)
+        #expect(row.title == "Unattributed same-TTY processes")
+        #expect(row.workspaceId == nil)
+        #expect(row.surfaceId == nil)
+        #expect(!row.canKillProcess)
+        #expect(row.detail.contains(CmuxTopProcessOwnershipReason.sameTTYUnproven.rawValue))
+    }
+
+    @Test func knownCMUXHelperNeedsAProvenProcessGroup() {
+        let surfaceID = UUID(uuidString: "cccccccc-cccc-cccc-cccc-cccccccccccc")!
+        let ttyDevice: Int64 = 0x1600_0003
+        let snapshot = CmuxTopProcessSnapshot(
+            processes: [
+                process(
+                    pid: 600,
+                    parentPID: 1,
+                    name: "zsh",
+                    residentBytes: 1,
+                    ttyDevice: ttyDevice,
+                    workspaceID: firstWorkspaceID,
+                    surfaceID: surfaceID,
+                    attributionReason: "cmux-environment",
+                    processGroupID: 700,
+                    terminalProcessGroupID: 700
+                ),
+                process(
+                    pid: 601,
+                    parentPID: 1,
+                    name: "cmux",
+                    residentBytes: 1,
+                    ttyDevice: ttyDevice,
+                    processGroupID: 700
+                ),
+                process(
+                    pid: 602,
+                    parentPID: 1,
+                    name: "python3",
+                    residentBytes: 1,
+                    ttyDevice: ttyDevice,
+                    processGroupID: 700
+                ),
+                process(
+                    pid: 603,
+                    parentPID: 1,
+                    name: "cmux",
+                    residentBytes: 1,
+                    ttyDevice: ttyDevice,
+                    processGroupID: 603,
+                    terminalProcessGroupID: 700
+                )
+            ],
+            sampledAt: Date(timeIntervalSince1970: 0),
+            includesProcessDetails: true
+        )
+
+        let ownership = snapshot.terminalProcessOwnership(
+            surfaceID: surfaceID,
+            ttyDevice: ttyDevice,
+            applicationPID: -1
+        )
+
+        #expect(ownership.ownedTTYProcessIDs == Set([600, 601]))
+        #expect(ownership.ambiguousTTYProcessIDs == Set([602, 603]))
+        #expect(ownership.reasonByProcessID[601] == CmuxTopProcessOwnershipReason.processGroup.rawValue)
+        #expect(ownership.reasonByProcessID[602] == CmuxTopProcessOwnershipReason.sameTTYUnproven.rawValue)
+        #expect(ownership.reasonByProcessID[603] == CmuxTopProcessOwnershipReason.sameTTYUnproven.rawValue)
     }
 
     @Test func commandGroupSpanningWorkspacesHasNoSingleOwner() throws {
@@ -161,12 +288,16 @@ struct CmuxTopMemoryAttributionTests {
         let children = try #require(payload["children"] as? [String: Any])
         let groups = try #require(children["groups"] as? [[String: Any]])
         let group = try #require(groups.first)
+        let groupAttribution = try #require(group["group_attribution"] as? [String: Any])
         let attributions = try #require(group["attributions"] as? [[String: Any]])
         let combined = try #require(attributions.first)
 
         #expect(attributions.count == 1)
         #expect(combined["process_count"] as? Int == 2)
         #expect(combined["pids"] as? [Int] == [firstHelperPID, secondHelperPID])
+        #expect(groupAttribution["reason"] as? String == "multiple-evidence")
+        let owner = try #require(groupAttribution["owner"] as? [String: Any])
+        #expect(owner["reason"] as? String == "multiple-evidence")
     }
 
     @Test func commonOwnerPreservesMatchingSurfaceWithoutPaneMetadata() throws {
@@ -298,5 +429,24 @@ struct CmuxTopMemoryAttributionTests {
             surfaceRef: nil,
             surfaceType: surfaceID == nil ? nil : "terminal"
         )
+    }
+
+    private func int64(_ raw: Any?) -> Int64 {
+        if let value = raw as? Int64 { return value }
+        if let value = raw as? Int { return Int64(value) }
+        if let value = raw as? NSNumber { return value.int64Value }
+        if let value = raw as? String { return Int64(value) ?? 0 }
+        return 0
+    }
+
+    private func intArray(_ raw: Any?) -> [Int] {
+        if let values = raw as? [Int] { return values }
+        guard let values = raw as? [Any] else { return [] }
+        return values.compactMap { value in
+            if let value = value as? Int { return value }
+            if let value = value as? NSNumber { return value.intValue }
+            if let value = value as? String { return Int(value) }
+            return nil
+        }
     }
 }

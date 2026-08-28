@@ -45,6 +45,7 @@ struct CmuxTopMemoryDiagnosticGroupAccumulator {
     private var commonOwner: CmuxTopProcessOwner?
     private var ownerIdentityKeys: Set<String> = []
     private var workspaceIdentityKeys: Set<String> = []
+    private var attributionReasons: Set<String> = []
 
     init(id: String, name: String) {
         self.id = id
@@ -59,6 +60,7 @@ struct CmuxTopMemoryDiagnosticGroupAccumulator {
         processIDs.append(process.pid)
         guard let attribution else { return }
         attributedProcessCount += 1
+        attributionReasons.insert(attribution.reason)
         let owner = attribution.owner
         if let existingCommonOwner = commonOwner {
             commonOwner = existingCommonOwner.commonOwner(with: owner)
@@ -104,6 +106,15 @@ struct CmuxTopMemoryDiagnosticGroupAccumulator {
     private func groupAttributionPayload() -> [String: Any] {
         let processCount = processIDs.count
         let unattributedProcessCount = max(0, processCount - attributedProcessCount)
+        let sortedReasons = attributionReasons.sorted()
+        let reason: String
+        if attributedProcessCount == 0 {
+            reason = "unattributed"
+        } else if sortedReasons.count == 1, let firstReason = sortedReasons.first {
+            reason = firstReason
+        } else {
+            reason = "multiple-evidence"
+        }
         let kind: String
         let ownerPayload: Any
         if attributedProcessCount == 0 {
@@ -116,7 +127,7 @@ struct CmuxTopMemoryDiagnosticGroupAccumulator {
             kind = "common"
             ownerPayload = CmuxTopProcessAttribution(
                 owner: commonOwner,
-                reason: "common-command-group-owner"
+                reason: reason
             ).payload()
         } else {
             kind = "multiple"
@@ -125,6 +136,8 @@ struct CmuxTopMemoryDiagnosticGroupAccumulator {
         return [
             "kind": kind,
             "owner": ownerPayload,
+            "reason": reason,
+            "reasons": sortedReasons,
             "workspace_count": workspaceIdentityKeys.count,
             "owner_count": ownerIdentityKeys.count,
             "attributed_process_count": attributedProcessCount,

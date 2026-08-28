@@ -382,6 +382,10 @@ struct CmuxTaskManagerMemoryDiagnostic: Sendable {
     let childRSSBytes: Int64
     let childProcessCount: Int
     let groups: [CmuxTaskManagerMemoryGroup]
+    let unattributedTTYBytes: Int64
+    let unattributedTTYProcessCount: Int
+    let unattributedTTYProcessIds: [Int]
+    let unattributedTTYReason: String?
 
     init?(_ payload: [String: Any]?) {
         guard let payload else { return nil }
@@ -394,6 +398,11 @@ struct CmuxTaskManagerMemoryDiagnostic: Sendable {
         self.childProcessCount = Self.int(children["process_count"]) ?? 0
         self.groups = (children["groups"] as? [[String: Any]] ?? [])
             .compactMap(CmuxTaskManagerMemoryGroup.init)
+        let unattributedTTY = children["unattributed_tty"] as? [String: Any] ?? [:]
+        self.unattributedTTYBytes = Self.int64(unattributedTTY["rss_bytes"] ?? unattributedTTY["resident_bytes"])
+        self.unattributedTTYProcessCount = Self.int(unattributedTTY["process_count"]) ?? 0
+        self.unattributedTTYProcessIds = Self.intArray(unattributedTTY["pids"])
+        self.unattributedTTYReason = Self.string(unattributedTTY["reason"])
     }
 
     static func string(_ raw: Any?) -> String? {

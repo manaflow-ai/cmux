@@ -49006,6 +49006,91 @@
         }
       }
     },
+    "cli.memory.output.forceQuitNote": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  macOS Force Quit may group by session or TTY; cmux cannot change that OS view"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  macOSの強制終了はセッションやTTYでまとめる場合があります。このOS表示はcmuxから変更できません"
+          }
+        }
+      }
+    },
+    "cli.memory.output.ownershipReason": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  reason    %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  根拠      %@"
+          }
+        }
+      }
+    },
+    "cli.memory.output.pids": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  pids      %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  PID       %@"
+          }
+        }
+      }
+    },
+    "cli.memory.output.unattributedTTY": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  RSS %@ across %@ (excluded from cmux ownership)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "  RSS %@（%@、cmuxの所有対象から除外）"
+          }
+        }
+      }
+    },
+    "cli.memory.output.unattributedTTYHeader": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "UNATTRIBUTED TTY"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未帰属TTY"
+          }
+        }
+      }
+    },
     "cli.memory.output.unattributed": {
       "extractionState": "manual",
       "localizations": {
@@ -126662,6 +126747,23 @@
         }
       }
     },
+    "memory.attribution.evidence": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "evidence: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "根拠: %@"
+          }
+        }
+      }
+    },
     "memory.attribution.multipleOwners": {
       "extractionState": "manual",
       "localizations": {
@@ -126828,6 +126930,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ 應用程式 footprint + %@ 子行程 RSS"
+          }
+        }
+      }
+    },
+    "memoryDiagnostic.summary.unattributedTTY": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "; %@ same-TTY RSS excluded (ownership unproven)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "; 同一TTYのRSS %@ は所有権を確認できないため除外"
           }
         }
       }
@@ -247633,6 +247752,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "リソース使用状況を読み込み中"
+          }
+        }
+      }
+    },
+    "taskManager.memory.evidence": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Evidence: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "根拠: %@"
+          }
+        }
+      }
+    },
+    "taskManager.memory.forceQuitNote": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS Force Quit may group by session or TTY; cmux cannot change that view"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOSの強制終了はセッションやTTYでまとめる場合があります。この表示はcmuxから変更できません"
+          }
+        }
+      }
+    },
+    "taskManager.memory.pids": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PIDs: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PID: %@"
+          }
+        }
+      }
+    },
+    "taskManager.memory.unattributedTTY": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unattributed same-TTY processes"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同一TTYの未帰属プロセス"
           }
         }
       }

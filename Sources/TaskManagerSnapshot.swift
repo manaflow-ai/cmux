@@ -98,15 +98,22 @@ struct CmuxTaskManagerSnapshot {
 
     private static func childMemoryRows(from diagnostic: CmuxTaskManagerMemoryDiagnostic?) -> [CmuxTaskManagerRow] {
         guard let diagnostic else { return [] }
-        return diagnostic.groups.map { group in
+        var rows = diagnostic.groups.map { group in
             let attribution = group.attribution.commonOwner
             let workspaceId = attribution?.workspaceId
             let surfaceId = attribution?.surfaceId
             let surfaceType = attribution?.surfaceType?.lowercased()
-            let detailParts = [
+            var detailParts = [
                 processCountDetail(group.processCount),
                 group.attribution.localizedDescription
-            ].compactMap { $0 }
+            ]
+            if let reason = group.attributionReason,
+               reason != attribution?.reason {
+                detailParts.append(String.localizedStringWithFormat(
+                    String(localized: "taskManager.memory.evidence", defaultValue: "Evidence: %@"),
+                    reason
+                ))
+            }
             return CmuxTaskManagerRow(
                 id: "childMemoryAggregate:\(group.id)",
                 kind: .childMemoryAggregate,
@@ -130,6 +137,48 @@ struct CmuxTaskManagerSnapshot {
                 agentAssetName: agentAssetName(for: [group.name])
             )
         }
+        if diagnostic.unattributedTTYProcessCount > 0 {
+            let reason = diagnostic.unattributedTTYReason
+                ?? CmuxTopProcessOwnershipReason.sameTTYUnproven.rawValue
+            let processIDs = diagnostic.unattributedTTYProcessIds
+            var detailParts = [
+                processCountDetail(diagnostic.unattributedTTYProcessCount),
+                String.localizedStringWithFormat(
+                    String(localized: "taskManager.memory.evidence", defaultValue: "Evidence: %@"),
+                    reason
+                ),
+                String(localized: "taskManager.memory.forceQuitNote", defaultValue: "macOS Force Quit may group by session or TTY; cmux cannot change that view")
+            ]
+            if !processIDs.isEmpty {
+                detailParts.append(String.localizedStringWithFormat(
+                    String(localized: "taskManager.memory.pids", defaultValue: "PIDs: %@"),
+                    processIDs.sorted().map(String.init).joined(separator: ", ")
+                ))
+            }
+            rows.append(CmuxTaskManagerRow(
+                id: "childMemoryUnattributedTTY",
+                kind: .childMemoryAggregate,
+                level: 0,
+                title: String(localized: "taskManager.memory.unattributedTTY", defaultValue: "Unattributed same-TTY processes"),
+                detail: detailParts.joined(separator: " / "),
+                resources: CmuxTaskManagerResources(
+                    cpuPercent: 0,
+                    residentBytes: diagnostic.unattributedTTYBytes,
+                    memoryBytes: diagnostic.unattributedTTYBytes,
+                    processCount: diagnostic.unattributedTTYProcessCount,
+                    processIds: []
+                ),
+                isDimmed: false,
+                workspaceId: nil,
+                surfaceId: nil,
+                terminalSurfaceId: nil,
+                processId: nil,
+                rootProcessIds: [],
+                foregroundProcessGroupIds: [],
+                agentAssetName: nil
+            ))
+        }
+        return rows
     }
 
     private static func agentRows(from payloads: [[String: Any]]) -> [CmuxTaskManagerRow] {

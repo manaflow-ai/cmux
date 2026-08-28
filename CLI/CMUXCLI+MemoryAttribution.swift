@@ -9,25 +9,37 @@ extension CMUXCLI {
               let kind = groupAttribution["kind"] as? String else {
             return memoryAttributionText(group["top_attribution"], idFormat: idFormat)
         }
+        let text: String
         switch kind {
         case "common":
-            return memoryAttributionText(groupAttribution["owner"], idFormat: idFormat)
+            text = memoryAttributionText(groupAttribution["owner"], idFormat: idFormat)
         case "multiple":
             let workspaceCount = topInt(groupAttribution["workspace_count"]) ?? 0
             if workspaceCount > 1 {
-                return String.localizedStringWithFormat(
+                text = String.localizedStringWithFormat(
                     String(localized: "memory.attribution.multipleWorkspaces", defaultValue: "%lld workspaces"),
                     workspaceCount
                 )
+            } else {
+                text = String(localized: "memory.attribution.multipleOwners", defaultValue: "multiple owners")
             }
-            return String(localized: "memory.attribution.multipleOwners", defaultValue: "multiple owners")
         case "partial":
-            return String(localized: "memory.attribution.partial", defaultValue: "partially attributed")
+            text = String(localized: "memory.attribution.partial", defaultValue: "partially attributed")
         case "unattributed":
-            return String(localized: "cli.memory.output.unattributed", defaultValue: "unattributed")
+            text = String(localized: "cli.memory.output.unattributed", defaultValue: "unattributed")
         default:
-            return memoryAttributionText(group["top_attribution"], idFormat: idFormat)
+            text = memoryAttributionText(group["top_attribution"], idFormat: idFormat)
         }
+        return memoryAttributionWithReason(text, reason: groupAttribution["reason"] as? String)
+    }
+
+    private func memoryAttributionWithReason(_ text: String, reason: String?) -> String {
+        guard let reason, !reason.isEmpty else { return text }
+        let evidence = String.localizedStringWithFormat(
+            String(localized: "memory.attribution.evidence", defaultValue: "evidence: %@"),
+            reason
+        )
+        return text + " [" + evidence + "]"
     }
 
     private func memoryAttributionText(_ raw: Any?, idFormat: CLIIDFormat) -> String {

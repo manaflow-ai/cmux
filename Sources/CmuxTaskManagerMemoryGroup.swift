@@ -8,6 +8,7 @@ struct CmuxTaskManagerMemoryGroup: Sendable {
     let processCount: Int
     let processIds: [Int]
     let attribution: CmuxTaskManagerMemoryGroupAttribution
+    let attributionReason: String?
 
     init?(_ payload: [String: Any]) {
         guard let name = CmuxTaskManagerMemoryDiagnostic.string(payload["name"]) else {
@@ -21,8 +22,10 @@ struct CmuxTaskManagerMemoryGroup: Sendable {
         self.processCount = processCount
         self.processIds = CmuxTaskManagerMemoryDiagnostic.intArray(payload["pids"])
         let topAttribution = CmuxTaskManagerMemoryAttribution(payload["top_attribution"] as? [String: Any])
+        let groupAttributionPayload = payload["group_attribution"] as? [String: Any] ?? [:]
+        self.attributionReason = CmuxTaskManagerMemoryDiagnostic.string(groupAttributionPayload["reason"])
         self.attribution = CmuxTaskManagerMemoryGroupAttribution(
-            payload["group_attribution"] as? [String: Any] ?? [:]
+            groupAttributionPayload
         )
             ?? topAttribution.map(CmuxTaskManagerMemoryGroupAttribution.common)
             ?? .unattributed
