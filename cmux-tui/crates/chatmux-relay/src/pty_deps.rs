@@ -11,7 +11,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::io::{Read, Write};
 use std::mem::{offset_of, size_of};
-use std::os::fd::{AsRawFd, RawFd};
+use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
@@ -568,10 +568,6 @@ fn pump_pipe(
     completion: Arc<ProcessOutputCompletion>,
 ) {
     let fd = stream.as_raw_fd();
-    if set_nonblocking(fd).is_err() {
-        completion.reader_finished();
-        return;
-    }
     let mut buffer = [0_u8; 32_768];
     loop {
         if completion.cancelled() {
@@ -593,23 +589,11 @@ fn pump_pipe(
         }
         match stream.read(&mut buffer) {
             Ok(0) => break,
-            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => continue,
             Err(_) => break,
             Ok(count) => output.push_data(Bytes::copy_from_slice(&buffer[..count])),
         }
     }
     completion.reader_finished();
-}
-
-fn set_nonblocking(fd: RawFd) -> std::io::Result<()> {
-    let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
-    if flags < 0 {
-        return Err(std::io::Error::last_os_error());
-    }
-    if unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
-        return Err(std::io::Error::last_os_error());
-    }
-    Ok(())
 }
 
 async fn socket_exists(path: &Path) -> bool {
