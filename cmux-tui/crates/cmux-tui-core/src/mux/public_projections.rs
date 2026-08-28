@@ -9,9 +9,7 @@ pub(super) struct RestoredPublicProjections {
     pub(super) has_terminal_defaults: bool,
     pub(super) next_notification_id: u64,
     pub(super) agent_records: HashMap<TerminalPublicId, TerminalAgentRecord>,
-    pub(super) agent_hook_sequences: HashMap<TerminalPublicId, u64>,
-    pub(super) agent_hook_sessions: HashMap<TerminalPublicId, String>,
-    pub(super) agent_hook_tombstones: HashSet<TerminalPublicId>,
+    pub(super) agent_hook_fences: HashMap<TerminalPublicId, super::HookFence>,
     pub(super) terminal_notifications: HashMap<TerminalPublicId, SurfaceNotification>,
     pub(super) notification_ledger: VecDeque<ResourceNotification>,
 }
@@ -62,15 +60,16 @@ pub(super) fn restore_public_projections(
         .saturating_add(1);
 
     let mut agent_records = HashMap::with_capacity(projections.agents.len());
-    let mut agent_hook_sequences = HashMap::new();
-    let mut agent_hook_sessions = HashMap::new();
-    let mut agent_hook_tombstones = HashSet::new();
+    let mut agent_hook_fences = HashMap::new();
     for hook_state in projections.agent_hook_states {
-        agent_hook_sequences.insert(hook_state.terminal_id.clone(), hook_state.applied_sequence);
-        agent_hook_sessions.insert(hook_state.terminal_id.clone(), hook_state.agent_session_id);
-        if hook_state.ended {
-            agent_hook_tombstones.insert(hook_state.terminal_id);
-        }
+        agent_hook_fences.insert(
+            hook_state.terminal_id,
+            super::HookFence {
+                session_id: hook_state.agent_session_id,
+                sequence: hook_state.applied_sequence,
+                ended: hook_state.ended,
+            },
+        );
     }
     for agent in projections.agents {
         let state = agent_state(&agent.state)?;
@@ -81,17 +80,25 @@ pub(super) fn restore_public_projections(
             let marker = source_session.strip_prefix("cmux-hook-sequence:");
             let ended = source_session.strip_prefix("cmux-hook-ended:");
             if let Some(value) = marker.or(ended).and_then(|value| value.parse::<u64>().ok()) {
-                agent_hook_sequences.insert(agent.terminal_id.clone(), value);
-                if ended.is_some() {
-                    agent_hook_tombstones.insert(agent.terminal_id.clone());
-                }
+                agent_hook_fences.entry(agent.terminal_id.clone()).or_insert(super::HookFence {
+                    session_id: format!("legacy:{}", agent.terminal_id),
+                    sequence: value,
+                    ended: ended.is_some(),
+                });
             }
         }
         if state == AgentState::Done && agent.source == "hook" {
             // Older projections predate the internal ended marker. Keep
             // their terminal fenced after restart so a late socket report
             // cannot resurrect the completed session.
-            agent_hook_tombstones.insert(agent.terminal_id.clone());
+            agent_hook_fences.insert(
+                agent.terminal_id.clone(),
+                super::HookFence {
+                    session_id: format!("legacy:{}", agent.terminal_id),
+                    sequence: 0,
+                    ended: true,
+                },
+            );
             continue;
         }
         let previous = agent_records.insert(
@@ -115,9 +122,7 @@ pub(super) fn restore_public_projections(
         has_terminal_defaults,
         next_notification_id,
         agent_records,
-        agent_hook_sequences,
-        agent_hook_sessions,
-        agent_hook_tombstones,
+        agent_hook_fences,
         terminal_notifications,
         notification_ledger,
     })
@@ -298,7 +303,7 @@ mod tests {
         };
         let restored = restore_public_projections(&empty_state(), projections).unwrap();
         assert!(restored.agent_records.is_empty());
-        assert!(restored.agent_hook_tombstones.contains(&terminal));
+        assert!(restored.agent_hook_fences[&terminal].ended);
     }
 
     #[test]
@@ -319,7 +324,7 @@ mod tests {
             frontend_projections: Vec::new(),
         };
         let restored = restore_public_projections(&empty_state(), projections).unwrap();
-        assert_eq!(restored.agent_hook_sequences.get(&terminal), Some(&12));
+        assert_eq!(restored.agent_hook_fences[&terminal].sequence, 12);
         assert_eq!(restored.agent_records[&terminal].session, None);
     }
 
@@ -345,6 +350,6 @@ mod tests {
         assert_eq!(record.state, AgentState::Done);
         assert_eq!(record.source, AgentSource::Socket);
         assert_eq!(record.session.as_deref(), Some("socket-session"));
-        assert!(!restored.agent_hook_tombstones.contains(&terminal));
+        assert!(!restored.agent_hook_fences.contains_key(&terminal));
     }
 }

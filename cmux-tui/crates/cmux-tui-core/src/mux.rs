@@ -1114,6 +1114,13 @@ pub struct AgentRecord {
     pub updated_at_ms: u64,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct HookFence {
+    session_id: String,
+    sequence: u64,
+    ended: bool,
+}
+
 #[derive(Debug, Clone)]
 struct TerminalAgentRecord {
     state: AgentState,
@@ -2025,9 +2032,7 @@ pub struct Mux {
     durable_terminal_defaults: AtomicBool,
     sidebar_plugin: Mutex<SidebarPluginRuntime>,
     agent_records: Mutex<HashMap<TerminalPublicId, TerminalAgentRecord>>,
-    agent_hook_sequences: Mutex<HashMap<TerminalPublicId, u64>>,
-    agent_hook_sessions: Mutex<HashMap<TerminalPublicId, String>>,
-    agent_hook_tombstones: Mutex<HashSet<TerminalPublicId>>,
+    agent_hook_fences: Mutex<HashMap<TerminalPublicId, HookFence>>,
     /// Nonterminal notifications remain placement-local. Terminal unread
     /// state is keyed separately by stable content identity so every view of
     /// one terminal shares the same attention marker.
@@ -2296,9 +2301,7 @@ impl Mux {
             has_terminal_defaults,
             next_notification_id,
             agent_records,
-            agent_hook_sequences,
-            agent_hook_sessions,
-            agent_hook_tombstones,
+            agent_hook_fences,
             terminal_notifications,
             notification_ledger,
         } = restore_public_projections(&state, registry.public_projections()?)?;
@@ -2408,9 +2411,7 @@ impl Mux {
             durable_terminal_defaults: AtomicBool::new(has_terminal_defaults),
             sidebar_plugin: Mutex::new(SidebarPluginRuntime::default()),
             agent_records: Mutex::new(agent_records),
-            agent_hook_sequences: Mutex::new(agent_hook_sequences),
-            agent_hook_sessions: Mutex::new(agent_hook_sessions),
-            agent_hook_tombstones: Mutex::new(agent_hook_tombstones),
+            agent_hook_fences: Mutex::new(agent_hook_fences),
             placement_notifications: Mutex::new(HashMap::new()),
             terminal_notifications: Mutex::new(terminal_notifications),
             notification_ledger: Mutex::new(notification_ledger),
@@ -5292,19 +5293,18 @@ impl Mux {
         // update as one operation. The projection path takes registry, state,
         // then agent-record locks, so teardown acquires sequence before those
         // locks as well.
-        let mut sequences = self.agent_hook_sequences.lock().unwrap();
-        let existing_session = self.agent_hook_sessions.lock().unwrap().get(&terminal_id).cloned();
-        if existing_session.as_deref().is_some_and(|existing| existing != agent_session_id)
+        let mut fences = self.agent_hook_fences.lock().unwrap();
+        if fences.get(&terminal_id).is_some_and(|fence| fence.session_id != agent_session_id)
             && ingress.kind != "agent.session.started"
         {
             return;
         }
-        if self.agent_hook_tombstones.lock().unwrap().contains(&terminal_id)
+        if fences.get(&terminal_id).is_some_and(|fence| fence.ended)
             && ingress.kind != "agent.session.started"
         {
             return;
         }
-        if sequences.get(&terminal_id).is_some_and(|latest| sequence <= *latest) {
+        if fences.get(&terminal_id).is_some_and(|fence| sequence <= fence.sequence) {
             return;
         }
         // The record's session field is a human-facing label; native agent
@@ -5333,11 +5333,10 @@ impl Mux {
             eprintln!("cmux-tui: agent record update failed");
             return;
         }
-        sequences.insert(terminal_id.clone(), sequence);
-        self.agent_hook_sessions.lock().unwrap().insert(terminal_id.clone(), agent_session_id);
-        if ingress.kind == "agent.session.started" {
-            self.agent_hook_tombstones.lock().unwrap().remove(&terminal_id);
-        }
+        fences.insert(
+            terminal_id.clone(),
+            HookFence { session_id: agent_session_id, sequence, ended: state == AgentState::Done },
+        );
         // An ended session leaves the roster entirely: the done state was
         // committed and broadcast above (so remote caches converge), and the
         // live record is dropped so agents views stop listing the terminal
@@ -5345,7 +5344,6 @@ impl Mux {
         // sequential (they follow one agent process's lifecycle), so nothing
         // races this removal.
         if state == AgentState::Done {
-            self.agent_hook_tombstones.lock().unwrap().insert(terminal_id.clone());
             let mut records = self.agent_records.lock().unwrap();
             if records.get(&terminal_id).is_some_and(|record| record.state == AgentState::Done) {
                 records.remove(&terminal_id);
@@ -8779,8 +8777,7 @@ impl Mux {
         // Hook replay already owns this guard to serialize sequence checks and
         // projection commits. Other report sources acquire it before the
         // registry/state locks, so all paths use one lock order.
-        let sequence_guard =
-            (!sequence_lock_held).then(|| self.agent_hook_sequences.lock().unwrap());
+        let sequence_guard = (!sequence_lock_held).then(|| self.agent_hook_fences.lock().unwrap());
         let mut registry = self.workspace_registry.lock().unwrap();
         if let Some(replay) =
             registry.replay_resource_patch(mutation, "agent.report", fingerprint)?
@@ -8821,7 +8818,9 @@ impl Mux {
             }
         };
         if source != AgentSource::Hook
-            && self.agent_hook_tombstones.lock().unwrap().contains(&terminal_id)
+            && sequence_guard
+                .as_ref()
+                .is_some_and(|guard| guard.get(&terminal_id).is_some_and(|fence| fence.ended))
         {
             anyhow::bail!("agent session ended for terminal {terminal_id}");
         }
@@ -8838,7 +8837,7 @@ impl Mux {
             sequence_guard
                 .as_ref()
                 .and_then(|guard| guard.get(&terminal_id))
-                .map(|sequence| format!("cmux-hook-sequence:{sequence}"))
+                .map(|fence| format!("cmux-hook-sequence:{}", fence.sequence))
                 .or(source_session.clone())
         };
         let source_session = source_session.filter(|value| {
@@ -8945,9 +8944,7 @@ impl Mux {
     }
 
     fn purge_terminal_side_tables(&self, terminal_id: &TerminalPublicId) {
-        self.agent_hook_sequences.lock().unwrap().remove(terminal_id);
-        self.agent_hook_sessions.lock().unwrap().remove(terminal_id);
-        self.agent_hook_tombstones.lock().unwrap().remove(terminal_id);
+        self.agent_hook_fences.lock().unwrap().remove(terminal_id);
         self.agent_records.lock().unwrap().remove(terminal_id);
         self.terminal_notifications.lock().unwrap().remove(terminal_id);
     }
@@ -21853,7 +21850,10 @@ mod tests {
         mux.apply_agent_hook_record(&hook, 1);
 
         assert_eq!(mux.list_agents(Some(surface.id), None)[0].state, AgentState::Working);
-        assert_eq!(mux.agent_hook_sequences.lock().unwrap().get(&terminal_id), Some(&1));
+        assert_eq!(
+            mux.agent_hook_fences.lock().unwrap().get(&terminal_id).map(|fence| fence.sequence),
+            Some(1)
+        );
     }
 
     #[test]
@@ -21979,7 +21979,13 @@ mod tests {
         let records = mux.list_agents(Some(surface.id), None);
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].state, AgentState::Idle);
-        assert!(!mux.agent_hook_tombstones.lock().unwrap().contains(&terminal_id));
+        assert!(
+            !mux.agent_hook_fences
+                .lock()
+                .unwrap()
+                .get(&terminal_id)
+                .is_some_and(|fence| fence.ended)
+        );
     }
 
     #[test]
@@ -22012,7 +22018,10 @@ mod tests {
         let projection =
             projections.agents.into_iter().find(|agent| agent.terminal_id == terminal_id).unwrap();
         assert_eq!(projection.source_session, None);
-        assert_eq!(mux.agent_hook_sequences.lock().unwrap().get(&terminal_id), Some(&4));
+        assert_eq!(
+            mux.agent_hook_fences.lock().unwrap().get(&terminal_id).map(|fence| fence.sequence),
+            Some(4)
+        );
         let public_agents =
             mux.workspace_registry.lock().unwrap().public_agent_projections(None, None).unwrap();
         assert_eq!(public_agents.len(), 1);
@@ -22070,8 +22079,8 @@ mod tests {
         let projections = mux.workspace_registry.lock().unwrap().public_projections().unwrap();
         let restored =
             mux.with_state(|state| restore_public_projections(state, projections)).unwrap();
-        assert_eq!(restored.agent_hook_sequences.get(&terminal_id), Some(&commit.sequence));
-        assert!(restored.agent_hook_tombstones.contains(&terminal_id));
+        assert_eq!(restored.agent_hook_fences[&terminal_id].sequence, commit.sequence);
+        assert!(restored.agent_hook_fences[&terminal_id].ended);
         drop(mux);
         std::fs::remove_dir_all(root).unwrap();
     }
