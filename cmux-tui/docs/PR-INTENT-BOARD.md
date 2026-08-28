@@ -1,5 +1,27 @@
 # cmux TUI PR intent and merge board
 
+## Current reconciliation: main `6964584c030eec3e46c81545ff9e3c49ff1730ca`
+
+Snapshot: 2026-08-28T04:10:00Z. Recent merged intent is recorded with author,
+merge SHA, and rollback in `TECH-DEBT-BOARD.md`: [#11019](https://github.com/manaflow-ai/cmux/pull/11019),
+[#11026](https://github.com/manaflow-ai/cmux/pull/11026), [#11036](https://github.com/manaflow-ai/cmux/pull/11036),
+[#11030](https://github.com/manaflow-ai/cmux/pull/11030), [#11034](https://github.com/manaflow-ai/cmux/pull/11034),
+and [#10948](https://github.com/manaflow-ai/cmux/pull/10948). Current direct TUI
+intent remains open in [#10969](https://github.com/manaflow-ai/cmux/pull/10969),
+[#10990](https://github.com/manaflow-ai/cmux/pull/10990), [#10994](https://github.com/manaflow-ai/cmux/pull/10994),
+[#11000](https://github.com/manaflow-ai/cmux/pull/11000), [#11013](https://github.com/manaflow-ai/cmux/pull/11013),
+[#11024](https://github.com/manaflow-ai/cmux/pull/11024), [#11025](https://github.com/manaflow-ai/cmux/pull/11025),
+[#11028](https://github.com/manaflow-ai/cmux/pull/11028), [#11041](https://github.com/manaflow-ai/cmux/pull/11041),
+and [#11044](https://github.com/manaflow-ai/cmux/pull/11044). Heads and checks
+are intentionally not copied here because they expire on every rebase.
+
+The session-mined user-request rows remain acceptance criteria, not completion
+claims. In particular, PTY ownership/restart recovery, canonical multi-device
+sessions, resize blank-space removal, remote attach parity, alternate-screen
+wheel behavior, and Claude completion subscriptions remain open unless a later
+row cites behavior evidence. Strict session count is `unknown`; no 10,000 count
+is claimed.
+
 ## Current reconciliation: main `e27710a23149d9412665ef786b688797006b2730`
 
 Audit basis: 2026-08-28T01:15:00Z. Main includes merged #10995, source `a156463ea61f00bc9e67e16e27ed3f38d3329417`, merge `e27710a23149d9412665ef786b688797006b2730`. Live direct-TUI open heads: #10990 `9b2a78bf2021308fb311dd87f76da9825ee732eb`, #11000 `4ac679e7088096b80f4f792f987dc8197dc401b1`, #11013 `492f121cce5c6d1d72e7e7514d645a77c949b6ef`, #11024 `5f433c2fad7c3d755bbdcc618fa2c0c08cf88fdc`, #11025 `c05536313caf91a84e9f1e4065693a1b263ca4c3`, and #11026 `9160518271afc399f471569f6e3e288254511966`. Issue #11027 remains open. Strict confirmed turns: `0`; total: `unknown`.

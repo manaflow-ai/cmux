@@ -1,5 +1,51 @@
 # cmux-tui technical-debt board
 
+## Current reconciliation: main `6964584c030eec3e46c81545ff9e3c49ff1730ca`
+
+Snapshot: 2026-08-28T04:10:00Z. Merged TUI work since the prior snapshot:
+
+| PR | Author | Merge | Revert |
+| --- | --- | --- | --- |
+| [#11019](https://github.com/manaflow-ai/cmux/pull/11019) | Lawrence Chen | `cc47a9152ba7366e84a614d41904c0a69ec422e9` | `git revert cc47a9152ba7366e84a614d41904c0a69ec422e9` |
+| [#11026](https://github.com/manaflow-ai/cmux/pull/11026) | Lawrence Chen | `c582b8d74ab82e404f18b14ad4e97f2d4cc04fa9` | `git revert c582b8d74ab82e404f18b14ad4e97f2d4cc04fa9` |
+| [#11036](https://github.com/manaflow-ai/cmux/pull/11036) | Lawrence Chen | `05544d5cd878d78b924fb87a83af74e23e4c76b8` | `git revert 05544d5cd878d78b924fb87a83af74e23e4c76b8` |
+| [#11030](https://github.com/manaflow-ai/cmux/pull/11030) | Lawrence Chen | `0ba31a2883577f1dea06957627c0c753955d0e8d` | `git revert 0ba31a2883577f1dea06957627c0c753955d0e8` |
+| [#11034](https://github.com/manaflow-ai/cmux/pull/11034) | Lawrence Chen | `12d33df5165cad1be5c1c4439f4f38b3bbe44c71` | `git revert 12d33df5165cad1be5c1c4439f4f38b3bbe44c71` |
+| [#10948](https://github.com/manaflow-ai/cmux/pull/10948) | Austin Wang | `ae9e41d6339db9b521973887e881542f945c814b` | `git revert ae9e41d6339db9b521973887e881542f945c814b` |
+
+The current direct TUI queue includes [#10969](https://github.com/manaflow-ai/cmux/pull/10969),
+[#10990](https://github.com/manaflow-ai/cmux/pull/10990),
+[#10994](https://github.com/manaflow-ai/cmux/pull/10994),
+[#11000](https://github.com/manaflow-ai/cmux/pull/11000),
+[#11013](https://github.com/manaflow-ai/cmux/pull/11013),
+[#11024](https://github.com/manaflow-ai/cmux/pull/11024),
+[#11025](https://github.com/manaflow-ai/cmux/pull/11025),
+[#11028](https://github.com/manaflow-ai/cmux/pull/11028),
+[#11041](https://github.com/manaflow-ai/cmux/pull/11041), and
+[#11044](https://github.com/manaflow-ai/cmux/pull/11044). Every head, base,
+check, and review must be re-read immediately before merge. #11024 remains
+blocked by the durable sequence-fence and late-resurrection findings. #11041
+remains an audit harness and needs exact ownership and hosted evidence.
+
+New bounded audit decisions:
+
+- Centralize `ResourceOperation` wire-name conversion in [#11044](https://github.com/manaflow-ai/cmux/pull/11044).
+  The helper is exhaustive and preserves serde spellings. Risk is protocol-name
+  drift if a future variant is added without updating the fixture.
+- Do not coalesce `process_machine_requests()` yet. The event helper can call it
+  once per queued input, but removing calls may change ordering and latency.
+  Add a stress trace and ordering test before changing it.
+- Keep both SQLite schema preflight checks until a lock and TOCTOU contract is
+  tested. Removing one now is an unproved shortcut.
+- `cmux-remote::workspace::process::spawn_pty` performs synchronous PTY setup on
+  a Tokio worker. A future patch must use an ownership-aware blocking helper,
+  with child cleanup inside the blocking closure. Dropping a `spawn_blocking`
+  handle would leak an uncancellable child.
+
+Session accounting remains honest: strict confirmed turns are `0`, the total is
+`unknown`, and the documented workstream floor is not a 10,000-session count.
+The requested 10,000 sessions cannot be verified or safely manufactured.
+
 ## Current reconciliation: main `e27710a23149d9412665ef786b688797006b2730`
 
 Merged #10995: source `a156463ea61f00bc9e67e16e27ed3f38d3329417`, merge `e27710a23149d9412665ef786b688797006b2730`. Live direct-TUI open rows: #10990, #11000, #11013, #11024, #11025, #11026. Issue #11027 remains open. Strict confirmed turns: `0`; total: `unknown`.

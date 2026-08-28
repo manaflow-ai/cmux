@@ -1,5 +1,22 @@
 # cmux-tui aggregate change log
 
+## Wave 81, exact state at main `6964584c030eec3e46c81545ff9e3c49ff1730ca`
+
+| Change | Evidence | Exact revert |
+| --- | --- | --- |
+| [#11019](https://github.com/manaflow-ai/cmux/pull/11019) stops terminal-content admission from swallowing cmux-owned context-menu presses. | Merge `cc47a9152ba7366e84a614d41904c0a69ec422e9`; exact hosted and local review evidence recorded before merge. | `git revert cc47a9152ba7366e84a614d41904c0a69ec422e9` |
+| [#11026](https://github.com/manaflow-ai/cmux/pull/11026) replays retained notices without a temporary vector and tests ordered replay. | Merge `c582b8d74ab82e404f18b14ad4e97f2d4cc04fa9`; exact hosted run `33139611745` passed and local review was clean. | `git revert c582b8d74ab82e404f18b14ad4e97f2d4cc04fa9` |
+| [#11044](https://github.com/manaflow-ai/cmux/pull/11044) centralizes resource-operation wire names. | Open PR, head `f4873d0671221c06f886f40cbf81ed9bfe36620d`; exhaustive 125-name fixture and serde references. | `git revert <merge-sha-after-merge>` |
+
+The Unicode glyph work in [#11028](https://github.com/manaflow-ai/cmux/pull/11028)
+is rebased at head `7d63c066e8091866b34e63046035914e77519880` and has a clean
+exact local review. Hosted run [33140789572](https://github.com/manaflow-ai/cmux/actions/runs/33140789572)
+is the current evidence and must finish against that exact head before merge.
+The branch contains tests only, so no runtime build or deeplink is claimed.
+
+Residual risk: main is receiving unrelated merges during this wave. A clean
+review is invalid if the PR head or target SHA changes during the run.
+
 ## Current reconciliation: main `e27710a23149d9412665ef786b688797006b2730`
 
 Current merged delta: #10995, source `a156463ea61f00bc9e67e16e27ed3f38d3329417`, merge `e27710a23149d9412665ef786b688797006b2730`; rollback `git revert e27710a23149d9412665ef786b688797006b2730`. Strict confirmed turns: `0`; total: `unknown`.
