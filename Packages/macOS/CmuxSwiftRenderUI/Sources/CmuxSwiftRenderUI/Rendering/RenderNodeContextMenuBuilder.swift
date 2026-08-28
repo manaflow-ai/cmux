@@ -41,11 +41,11 @@ struct RenderNodeContextMenuBuilder {
     /// This walks the render IR without constructing `NSMenu` objects or
     /// registering action targets, so hit testing can use the same gate as
     /// presentation without causing menu-building side effects.
-    static func hasPresentableItems(nodes: [RenderNode]) -> Bool {
+    func hasPresentableItems(nodes: [RenderNode]) -> Bool {
         hasPresentableItems(in: nodes)
     }
 
-    private static func hasPresentableItems(in nodes: [RenderNode]) -> Bool {
+    private func hasPresentableItems(in nodes: [RenderNode]) -> Bool {
         for node in nodes {
             switch node.kind {
             case .divider:
@@ -121,7 +121,7 @@ struct RenderNodeContextMenuBuilder {
     /// A `Menu("…") { … }` node as an item with a recursive submenu. A
     /// disabled menu disables its item and every descendant, matching SwiftUI.
     private func submenuItem(for node: RenderNode, disabled: Bool) -> NSMenuItem? {
-        guard Self.hasPresentableItems(in: node.children) else { return nil }
+        guard hasPresentableItems(in: node.children) else { return nil }
         let title = node.text ?? ""
         let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
         item.isEnabled = !disabled

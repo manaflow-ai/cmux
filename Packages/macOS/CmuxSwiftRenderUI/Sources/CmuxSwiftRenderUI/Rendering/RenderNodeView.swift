@@ -9,13 +9,6 @@ import SwiftUI
 /// `.onTapGesture` actions are dispatched through ``sidebarActionDispatch``
 /// from the environment.
 struct RenderNodeView: View {
-    /// Paths assigned to each modifier while applying a node's modifiers.
-    /// The final path is inherited by child render nodes.
-    struct ContextMenuPathPlan {
-        let modifierPaths: [[Int]]
-        let descendantPath: [Int]
-    }
-
     let node: RenderNode
     /// Logical location in the interpreted render tree. AppKit can flatten
     /// nested `NSViewRepresentable` overlays into one hosting-view sibling
@@ -37,9 +30,10 @@ struct RenderNodeView: View {
     }
 
     /// Computes the paths used while traversing this node's modifiers. The
-    /// same plan drives modifier application and is exposed for behavior tests
-    /// without requiring a SwiftUI host view.
-    func contextMenuPathPlan(for modifiers: [RenderModifier]) -> ContextMenuPathPlan {
+    /// first tuple member is the path before each modifier; the second is the
+    /// path inherited by child render nodes.
+    func contextMenuPathPlan(for modifiers: [RenderModifier])
+        -> (modifierPaths: [[Int]], descendantPath: [Int]) {
         var path = contextMenuPath
         var modifierPaths: [[Int]] = []
         for (index, modifier) in modifiers.enumerated() {
@@ -48,7 +42,7 @@ struct RenderNodeView: View {
                 path = appendingContextMenuModifierPath(path, modifierIndex: index)
             }
         }
-        return ContextMenuPathPlan(modifierPaths: modifierPaths, descendantPath: path)
+        return (modifierPaths: modifierPaths, descendantPath: path)
     }
 
     var body: some View {
