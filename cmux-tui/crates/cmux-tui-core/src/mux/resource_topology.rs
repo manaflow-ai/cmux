@@ -4603,9 +4603,8 @@ fn validate_effect_fields(
             if value.is_null() {
                 continue;
             }
-            let value = value
-                .as_str()
-                .with_context(|| format!("field {field:?} must be a string"))?;
+            let value =
+                value.as_str().with_context(|| format!("field {field:?} must be a string"))?;
             crate::workspace_registry::validate_display_name(field, value)?;
         }
     }

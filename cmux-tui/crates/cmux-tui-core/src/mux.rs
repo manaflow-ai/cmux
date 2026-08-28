@@ -24580,19 +24580,12 @@ mod tests {
         let (workspace, screen, pane) = mux.with_state(|state| {
             let pane = state.pane_of(surface.id).expect("workspace surface has a pane");
             let (workspace, screen) = state.screen_of(pane).expect("pane has a screen");
-            (
-                state.workspaces[workspace].id,
-                state.workspaces[workspace].screens[screen].id,
-                pane,
-            )
+            (state.workspaces[workspace].id, state.workspaces[workspace].screens[screen].id, pane)
         });
 
-        for invalid in [
-            "bad\nname",
-            "bad\u{2028}name",
-            "bad\u{2029}name",
-            "bad\u{1b}]0;title\u{7}name",
-        ] {
+        for invalid in
+            ["bad\nname", "bad\u{2028}name", "bad\u{2029}name", "bad\u{1b}]0;title\u{7}name"]
+        {
             assert!(!mux.rename_workspace(workspace, invalid.into()));
             assert!(!mux.rename_screen(screen, invalid.into()));
             assert!(!mux.rename_pane(pane, invalid.into()));
@@ -24606,8 +24599,7 @@ mod tests {
         assert!(!mux.rename_surface(surface.id, oversized));
 
         mux.with_state(|state| {
-            let workspace_index =
-                state.workspace_index(workspace).expect("workspace remains live");
+            let workspace_index = state.workspace_index(workspace).expect("workspace remains live");
             let screen_index = state.workspaces[workspace_index]
                 .screens
                 .iter()

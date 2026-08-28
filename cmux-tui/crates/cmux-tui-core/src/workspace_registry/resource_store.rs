@@ -3508,12 +3508,9 @@ pub(super) fn validate_resource_invariants(transaction: &Transaction<'_>) -> any
     ensure_no_foreign_key_violations(transaction)?;
     validate_concrete_identity_lifecycles(transaction)?;
     let workspace_names = {
-        let mut statement = transaction.prepare(
-            "SELECT name FROM workspaces WHERE tombstoned = 0",
-        )?;
-        statement
-            .query_map([], |row| row.get::<_, String>(0))?
-            .collect::<Result<Vec<_>, _>>()?
+        let mut statement =
+            transaction.prepare("SELECT name FROM workspaces WHERE tombstoned = 0")?;
+        statement.query_map([], |row| row.get::<_, String>(0))?.collect::<Result<Vec<_>, _>>()?
     };
     for name in workspace_names {
         validate_display_name("workspace name", &name)?;
@@ -3523,9 +3520,7 @@ pub(super) fn validate_resource_invariants(transaction: &Transaction<'_>) -> any
             "SELECT name FROM resource_screens
              WHERE deleted_revision IS NULL AND name IS NOT NULL",
         )?;
-        statement
-            .query_map([], |row| row.get::<_, String>(0))?
-            .collect::<Result<Vec<_>, _>>()?
+        statement.query_map([], |row| row.get::<_, String>(0))?.collect::<Result<Vec<_>, _>>()?
     };
     for name in screen_names {
         validate_display_name("screen name", &name)?;
@@ -3535,9 +3530,7 @@ pub(super) fn validate_resource_invariants(transaction: &Transaction<'_>) -> any
             "SELECT name FROM resource_panes
              WHERE deleted_revision IS NULL AND name IS NOT NULL",
         )?;
-        statement
-            .query_map([], |row| row.get::<_, String>(0))?
-            .collect::<Result<Vec<_>, _>>()?
+        statement.query_map([], |row| row.get::<_, String>(0))?.collect::<Result<Vec<_>, _>>()?
     };
     for name in pane_names {
         validate_display_name("pane name", &name)?;
@@ -3547,9 +3540,7 @@ pub(super) fn validate_resource_invariants(transaction: &Transaction<'_>) -> any
             "SELECT name FROM resource_tabs
              WHERE deleted_revision IS NULL AND name IS NOT NULL",
         )?;
-        statement
-            .query_map([], |row| row.get::<_, String>(0))?
-            .collect::<Result<Vec<_>, _>>()?
+        statement.query_map([], |row| row.get::<_, String>(0))?.collect::<Result<Vec<_>, _>>()?
     };
     for name in tab_names {
         validate_display_name("tab name", &name)?;
