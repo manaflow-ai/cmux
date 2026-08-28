@@ -298,16 +298,19 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             case .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .portsGroup, .browsersGroup:
                 toggle(node)
             case .workspace(let machine, let workspace, _):
-                // Open-or-focus: a workspace already showing in a pane focuses that
-                // pane; otherwise the whole group opens. D9 still holds — open never
-                // creates, so an empty workspace opens nothing (its "+" owns creation).
+                // Open-or-focus. Already showing in a pane -> focus it. Otherwise the
+                // remote workspace opens into a NEW local workspace of its own —
+                // remote and local workspaces never intermingle, so its contents
+                // never land in whatever local workspace happens to be selected.
+                // D9 still holds: open never creates, so an empty workspace opens
+                // nothing (its "+" owns creation).
                 if let shown = node.children.first(where: { child in
                     if case .terminal(let row) = child.kind { return row.isOpen }
                     return false
                 }), case .terminal(let openRow) = shown.kind {
                     nodeActions.project(openRow.resource.id, .split, true)
                 } else if let group = node.dragGroup, !group.isEmpty {
-                    nodeActions.openGroup(machine, group, .split, workspace.id)
+                    nodeActions.openWorkspaceInNewLocalWorkspace(machine, workspace, group)
                 }
             case .localWorkspace(let row):
                 nodeActions.selectLocalWorkspace(row.workspaceID)
@@ -441,8 +444,9 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             case .workspace(let machine, let workspace, _):
                 let group = node.dragGroup ?? SurfaceResourceGroup(title: workspace.name, resources: [])
                 return [
-                    item(String(localized: "cloudTree.menu.openAllHere", defaultValue: "Open All Here")) { [nodeActions] in nodeActions.openGroup(machine, group, .split, workspace.id) },
-                    item(String(localized: "cloudTree.menu.openAllInNewTabs", defaultValue: "Open All in New Tabs")) { [nodeActions] in nodeActions.openGroup(machine, group, .tab, workspace.id) },
+                    // One open verb, same as double-click: the remote workspace gets
+                    // its own local workspace (remote and local never intermingle).
+                    item(String(localized: "cloudTree.menu.openWorkspace", defaultValue: "Open Workspace")) { [nodeActions] in nodeActions.openWorkspaceInNewLocalWorkspace(machine, workspace, group) },
                     item(String(localized: "cloudTree.menu.newTerminalHere", defaultValue: "New Terminal Here")) { [nodeActions] in nodeActions.newTerminal(machine, workspace.id) },
                     .separator(),
                     item(String(localized: "cloudTree.menu.renameWorkspace", defaultValue: "Rename\u{2026}")) { [nodeActions] in nodeActions.renameWorkspace(machine, workspace) },

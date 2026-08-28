@@ -59800,6 +59800,23 @@
         }
       }
     },
+    "cloudTree.menu.openWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースを開く"
+          }
+        }
+      }
+    },
     "cloudTree.menu.renameWorkspace": {
       "extractionState": "manual",
       "localizations": {

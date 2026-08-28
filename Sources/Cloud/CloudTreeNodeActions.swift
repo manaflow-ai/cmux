@@ -17,6 +17,10 @@ struct CloudTreeNodeActions {
     /// selected workspace, the rest as tabs of that pane. An empty group starts a fresh
     /// terminal in `remoteWorkspaceID` on the machine instead.
     let openGroup: @MainActor (_ machine: SurfaceMachineID, _ group: SurfaceResourceGroup, _ placement: SurfacePlacement, _ remoteWorkspaceID: String?) -> Void
+    /// Open a remote workspace into a NEW local workspace of its own. Remote and
+    /// local workspaces never intermingle: a remote workspace's contents get a
+    /// dedicated `vm:`-titled local workspace, not whatever is selected.
+    let openWorkspaceInNewLocalWorkspace: @MainActor (_ machine: SurfaceMachineID, _ workspace: SurfaceRemoteWorkspace, _ group: SurfaceResourceGroup) -> Void
     /// Select a local workspace.
     let selectLocalWorkspace: @MainActor (_ workspaceID: UUID) -> Void
     let copyToPasteboard: @MainActor (_ text: String) -> Void
@@ -35,6 +39,18 @@ struct CloudTreeNodeActions {
         catalog: @escaping @MainActor () -> SurfaceCatalog,
         selectedWorkspaceID: @escaping @MainActor () -> UUID?,
         selectLocalWorkspace: @escaping @MainActor (UUID) -> Void,
+        createLocalWorkspace: @escaping @MainActor (_ title: String) -> UUID? = { title in
+            // `.cloudVMLoading`, not `.terminal`: the dedicated workspace must not
+            // boot a stray local shell next to the remote panes. The loading pane
+            // is closed once the group has projected.
+            AppDelegate.shared?.tabManager?.addWorkspaceIfActive(
+                title: title,
+                initialSurface: .cloudVMLoading,
+                select: true,
+                eagerLoadTerminal: false,
+                allowTextBoxFocusDefault: false
+            )?.id
+        },
         onWillMutate: @escaping @MainActor (String) -> Void,
         onDidMutate: @escaping @MainActor () -> Void,
         onFailure: @escaping @MainActor (String) -> Void,
@@ -100,6 +116,17 @@ struct CloudTreeNodeActions {
                     run(openingLabel(machine)) { catalog in
                         _ = try await catalog.projectGroup(group.resources, into: try destination(placement), focus: true)
                     }
+                }
+            },
+            openWorkspaceInNewLocalWorkspace: { machine, workspace, group in
+                guard !group.isEmpty else { return }
+                run(openingLabel(machine)) { catalog in
+                    let title = "vm:\(machine.rawValue)/\(workspace.name)"
+                    guard let workspaceID = createLocalWorkspace(title) else {
+                        throw SurfaceCatalogError.destinationNotFound("could not create a local workspace")
+                    }
+                    _ = try await catalog.projectGroup(group.resources, into: .workspace(id: workspaceID, placement: .split), focus: true)
+                    SurfacePaneFactory.closeLoadingPane(in: workspaceID)
                 }
             },
             selectLocalWorkspace: selectLocalWorkspace,

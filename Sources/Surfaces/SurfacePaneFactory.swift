@@ -51,6 +51,14 @@ enum SurfacePaneFactory {
         _ = TerminalController.shared.controlSurfaceClose(routing: routing(workspaceID: workspaceID), surfaceID: panelID, hasSurfaceIDParam: true)
     }
 
+    /// Closes the transient Cloud VM loading pane a `.cloudVMLoading` workspace
+    /// boots with, once real panes have been projected next to it.
+    static func closeLoadingPane(in workspaceID: UUID) {
+        guard let workspace = workspace(id: workspaceID),
+              let pair = workspace.panels.first(where: { $0.value.panelType == .cloudVMLoading }) else { return }
+        close(panelID: pair.key, in: workspaceID)
+    }
+
     /// The pane (Bonsplit id) that hosts a panel, for re-projecting in place.
     static func paneID(ofPanel panelID: UUID, in workspaceID: UUID) -> String? {
         guard let workspace = workspace(id: workspaceID) else { return nil }
