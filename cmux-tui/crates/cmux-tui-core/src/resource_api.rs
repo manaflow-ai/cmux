@@ -1306,10 +1306,7 @@ mod tests {
         assert_eq!(resources_by_host.len(), 1);
         assert_eq!(resources_by_host.get("host-live"), Some(&live_terminal_id));
         assert_eq!(hosts_by_resource.len(), 1);
-        assert_eq!(
-            hosts_by_resource.get(&live_terminal_id).map(String::as_str),
-            Some("host-live")
-        );
+        assert_eq!(hosts_by_resource.get(&live_terminal_id).map(String::as_str), Some("host-live"));
         assert!(!hosts_by_resource.contains_key(&stale_terminal_id));
     }
 

@@ -2284,12 +2284,6 @@ impl OrderedSession {
         self.inner.daemon_shutdown_requested()
     }
 
-    /// The first reason recorded when a remote transport reader stopped, or
-    /// `None` for local sessions and deliberate local disconnects.
-    fn transport_disconnect_reason(&self) -> Option<String> {
-        self.inner.transport_disconnect_reason()
-    }
-
     fn attach_surface(&self, id: SurfaceId, size: Option<(u16, u16)>) {
         if self.remote
             && let Some(size) = size
