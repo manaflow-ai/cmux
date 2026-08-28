@@ -286,6 +286,10 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         let outputConsumerRecoveryClock: any Clock<Duration>
         private var composerMounted = false
         private var activeViewportPolicy: MobileTerminalOutputViewportPolicy = .natural
+        /// Shared by the legacy and verified apply paths: an alternating
+        /// config-theme producer mismatches on both, and the storm is per
+        /// consumer, not per path.
+        private var configThemeMismatchResetPolicy = TerminalConfigThemeMismatchResetPolicy()
         private let verifiedReplayState = VerifiedTerminalReplayStateMachine()
         private var pendingReplayViewportAnchor: VerifiedReplayCapturedViewportAnchor?
         /// Serializes the natural-grid viewport reports and their echoes. One
@@ -629,8 +633,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                     case nil:
                         break
                     }
-                    if let chunkConfigTheme = chunk.terminalConfigTheme,
-                       chunkConfigTheme != store.terminalConfigTheme(for: surfaceID) {
+                    if self.shouldResetForConfigThemeMismatch(chunk, store: store) {
                         store.terminalOutputDidReset(
                             surfaceID: surfaceID,
                             streamToken: chunk.streamToken
@@ -991,14 +994,38 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             }
         }
 
+        /// Whether a theme-carrying chunk must be abandoned (reset plus
+        /// authoritative replay) because its config theme no longer matches
+        /// the store's newest for this surface. Bounded by
+        /// ``TerminalConfigThemeMismatchResetPolicy``: past the budget the
+        /// chunk applies with its own carried config theme, which
+        /// `processOutputAndWait(_:terminalConfigTheme:)` installs atomically
+        /// with the bytes, so an alternating theme pair cannot ping-pong
+        /// resets and replays forever.
+        private func shouldResetForConfigThemeMismatch(
+            _ chunk: MobileTerminalOutputChunk,
+            store: CMUXMobileShellStore
+        ) -> Bool {
+            guard let chunkConfigTheme = chunk.terminalConfigTheme else { return false }
+            let matchesStoreTheme = chunkConfigTheme == store.terminalConfigTheme(for: surfaceID)
+            let shouldReset = configThemeMismatchResetPolicy.shouldReset(
+                chunkMatchesStoreTheme: matchesStoreTheme
+            )
+            if !shouldReset, !matchesStoreTheme {
+                MobileDebugLog.anchormux(
+                    "terminal.output.theme_mismatch_apply surface=\(surfaceID)"
+                )
+            }
+            return shouldReset
+        }
+
         private func applyVerifiedRenderGrid(
             _ frame: MobileTerminalRenderGridFrame,
             chunk: MobileTerminalOutputChunk,
             surfaceView: GhosttySurfaceView,
             store: CMUXMobileShellStore
         ) async -> Bool {
-            if let chunkConfigTheme = chunk.terminalConfigTheme,
-               chunkConfigTheme != store.terminalConfigTheme(for: surfaceID) {
+            if shouldResetForConfigThemeMismatch(chunk, store: store) {
                 store.terminalOutputDidReset(
                     surfaceID: surfaceID,
                     streamToken: chunk.streamToken
