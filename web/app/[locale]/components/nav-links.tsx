@@ -36,6 +36,14 @@ export function NavLinks() {
       >
         {t("community")}
       </Link>
+      <ContentLocaleLink
+        href="/jobs"
+        currentLocale={locale}
+        contentLocales={fallbackContentLocales}
+        className="hover:text-foreground transition-colors"
+      >
+        {t("jobs")}
+      </ContentLocaleLink>
       <ProUpgradeVisibility>
         <ContentLocaleLink
           href="/pricing"

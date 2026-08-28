@@ -141,6 +141,15 @@ export function SiteHeader({
           >
             {t("community")}
           </Link>
+          <ContentLocaleLink
+            href="/jobs"
+            currentLocale={locale}
+            contentLocales={fallbackContentLocales}
+            onClick={close}
+            className="hover:text-foreground transition-colors py-1"
+          >
+            {t("jobs")}
+          </ContentLocaleLink>
           <ProUpgradeVisibility>
             <ContentLocaleLink
               href="/pricing"

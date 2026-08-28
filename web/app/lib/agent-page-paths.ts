@@ -131,6 +131,11 @@ export const agentReadablePages = [
   { path: "/ios", title: "cmux iOS" },
   { path: "/browser", title: "cmux Browser" },
   ...agentReadableDownloadPages,
+  {
+    path: "/jobs",
+    title: "Founding Engineer jobs at cmux",
+    locales: fallbackContentLocales,
+  },
   { path: "/pricing", title: "Pricing", locales: fallbackContentLocales },
   { path: "/enterprise", title: "Enterprise" },
   { path: "/blog", title: "Blog" },
