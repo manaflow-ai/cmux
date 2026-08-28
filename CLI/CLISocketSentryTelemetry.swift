@@ -1,5 +1,6 @@
 import CmuxFoundation
 import CmuxSentryReporting
+import CmuxSettings
 import Darwin
 import Foundation
 
@@ -49,12 +50,14 @@ final class CLISocketSentryTelemetry {
     private let disabledByEnv: Bool
     private let noiseFilter: SentryNoiseFilter
     private let sentryPolicy: CLISocketSentryPolicy
+    private let buildIdentityPolicy: SentryBuildIdentityPolicy
     private var pendingBreadcrumbs: [PendingBreadcrumb] = []
 
 #if canImport(Sentry)
     private static let startupLock = NSLock()
     private static var started = false
     private static let dsn = "https://ecba1ec90ecaee02a102fba931b6d2b3@o4507547940749312.ingest.us.sentry.io/4510796264636416"
+#endif
 
     private static func currentSentryReleaseName() -> String? {
         guard let bundleIdentifier = currentSentryBundleIdentifier(),
@@ -66,8 +69,10 @@ final class CLISocketSentryTelemetry {
         return "\(bundleIdentifier)@\(version)+\(build)"
     }
 
-    private static func currentSentryBundleIdentifier() -> String? {
-        if let bundleIdentifier = ProcessInfo.processInfo.environment["CMUX_BUNDLE_ID"]?
+    private static func currentSentryBundleIdentifier(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> String? {
+        if let bundleIdentifier = environment["CMUX_BUNDLE_ID"]?
             .trimmingCharacters(in: .whitespacesAndNewlines),
            !bundleIdentifier.isEmpty {
             return bundleIdentifier
@@ -105,7 +110,6 @@ final class CLISocketSentryTelemetry {
 
         return Bundle.main
     }
-#endif
 
     init(command: String, commandArgs: [String], socketPath: String, processEnv: [String: String]) {
         self.command = command.lowercased()
@@ -120,6 +124,13 @@ final class CLISocketSentryTelemetry {
             processEnv["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] == "1"
         self.noiseFilter = SentryNoiseFilter()
         self.sentryPolicy = CLISocketSentryPolicy(environment: processEnv)
+        // The cmux repo is public; rebranded forks have shipped with this
+        // CLI's hardcoded DSN intact. Only a build that identifies as cmux
+        // may report to it (Sentry issue CMUXTERM-MACOS-1RZF).
+        self.buildIdentityPolicy = SentryBuildIdentityPolicy(
+            bundleIdentifier: Self.currentSentryBundleIdentifier(environment: processEnv),
+            trustedBaseBundleIdentifier: SocketPathMarkerFiles.stableBundleIdentifier
+        )
     }
 
     func breadcrumb(_ message: String, data: [String: Any] = [:]) {
@@ -185,7 +196,7 @@ final class CLISocketSentryTelemetry {
     }
 
     private var shouldEmit: Bool {
-        !disabledByEnv
+        !disabledByEnv && buildIdentityPolicy.allowsTelemetry
     }
 
 #if DEBUG

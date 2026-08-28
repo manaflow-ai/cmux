@@ -98,7 +98,8 @@ private var appHostIsolationRequiredByBuild: Bool {
             MacSentryStartupPolicy(
                 telemetryEnabled: true,
                 isRunningUnderXCTest: true,
-                allowUnderXCTest: false
+                allowUnderXCTest: false,
+                allowsBuildIdentity: true
             ).shouldStart == false
         )
     }
@@ -108,7 +109,8 @@ private var appHostIsolationRequiredByBuild: Bool {
             MacSentryStartupPolicy(
                 telemetryEnabled: true,
                 isRunningUnderXCTest: true,
-                allowUnderXCTest: true
+                allowUnderXCTest: true,
+                allowsBuildIdentity: true
             ).shouldStart == true
         )
     }
@@ -118,7 +120,8 @@ private var appHostIsolationRequiredByBuild: Bool {
             MacSentryStartupPolicy(
                 telemetryEnabled: true,
                 isRunningUnderXCTest: false,
-                allowUnderXCTest: false
+                allowUnderXCTest: false,
+                allowsBuildIdentity: true
             ).shouldStart == true
         )
     }
@@ -128,7 +131,8 @@ private var appHostIsolationRequiredByBuild: Bool {
             MacSentryStartupPolicy(
                 telemetryEnabled: false,
                 isRunningUnderXCTest: false,
-                allowUnderXCTest: false
+                allowUnderXCTest: false,
+                allowsBuildIdentity: true
             ).shouldStart == false
         )
     }
@@ -159,6 +163,43 @@ private var appHostIsolationRequiredByBuild: Bool {
                     "CMUX_TEST_SENTRY_ENABLED": "1"
                 ],
                 telemetryEnabled: true
+            ).shouldStart == true
+        )
+    }
+
+    @Test func foreignBundleIdentityPreventsSentryStartup() {
+        // A rebranded public-repo fork keeping the hardcoded cmux DSN must
+        // not start Sentry (Sentry issue CMUXTERM-MACOS-1RZF).
+        #expect(
+            MacSentryStartupPolicy(
+                environment: [:],
+                telemetryEnabled: true,
+                bundleIdentifier: "mosaic.com.emergent.app"
+            ).shouldStart == false
+        )
+    }
+
+    @Test func missingBundleIdentityPreventsSentryStartup() {
+        #expect(
+            MacSentryStartupPolicy(
+                environment: [:],
+                telemetryEnabled: true,
+                bundleIdentifier: nil
+            ).shouldStart == false
+        )
+    }
+
+    @Test(arguments: [
+        "com.cmuxterm.app",
+        "com.cmuxterm.app.nightly",
+        "com.cmuxterm.app.debug.snmsc"
+    ])
+    func cmuxBundleIdentityStartsSentry(_ bundleIdentifier: String) {
+        #expect(
+            MacSentryStartupPolicy(
+                environment: [:],
+                telemetryEnabled: true,
+                bundleIdentifier: bundleIdentifier
             ).shouldStart == true
         )
     }
