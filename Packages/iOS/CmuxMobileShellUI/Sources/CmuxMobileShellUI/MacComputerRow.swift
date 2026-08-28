@@ -97,6 +97,9 @@ struct MacComputerRow: View {
                     if let buildLabel = computer.buildLabel {
                         ComputerBuildBadge(label: buildLabel)
                     }
+                    if computer.needsMacUpdate {
+                        ComputerUpdateRequiredBadge()
+                    }
                 }
                 Text(connectionLine)
                     .font(.caption)

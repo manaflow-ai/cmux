@@ -553,8 +553,7 @@ extension MobileShellComposite {
               ) else {
             return false
         }
-        return currentMac.routes.contains { $0.kind == .tailscale }
-            && !currentMac.routes.contains { $0.kind == .iroh }
+        return MobileMacPairingFloor.pairingRequiresMacUpdate(routes: currentMac.routes)
     }
 
     func freshReconnectRoutesAfterLocalFailure(
@@ -608,8 +607,8 @@ extension MobileShellComposite {
             return .inconclusive
         }
         let registryHasIroh = registryRoutes.contains { $0.kind == .iroh }
-        let isLegacyPrivateNetworkPairing = !mac.routes.contains { $0.kind == .iroh }
-            && mac.routes.contains { $0.kind == .tailscale }
+        let isLegacyPrivateNetworkPairing =
+            MobileMacPairingFloor.pairingRequiresMacUpdate(routes: mac.routes)
         guard let updatedRoutes = DeviceRegistryService.selectReconnectRoutes(
             local: currentMac.routes,
             registry: registryRoutes

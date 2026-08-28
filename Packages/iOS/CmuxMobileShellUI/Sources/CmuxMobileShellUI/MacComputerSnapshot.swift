@@ -1,5 +1,6 @@
 import CMUXMobileCore
 import CmuxMobilePairedMac
+import CmuxMobileShell
 import CmuxMobileShellModel
 import Foundation
 
@@ -50,6 +51,13 @@ struct MacComputerSnapshot: Equatable, Identifiable {
     /// The route kind this Computer's method dials; the row endpoint and the
     /// detail view's leading route follow it.
     var routeKind: CmxAttachTransportKind?
+
+    /// Whether this build refuses to dial the pairing until cmux on the Mac
+    /// updates (legacy private-network routes without an Iroh identity).
+    /// Drives the row's "Update required" badge and the detail callout.
+    var needsMacUpdate: Bool {
+        MobileMacPairingFloor.pairingRequiresMacUpdate(routes: routes)
+    }
 
     /// The pairing identity (device + build). Operations that are pairing
     /// scoped (visibility, forget, mutation spinners) key on this.

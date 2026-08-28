@@ -17,6 +17,11 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
 const linkClass =
   "underline underline-offset-2 decoration-link-underline hover:decoration-foreground transition-colors";
 
+// The minimum cmux version on the Mac that the shipping iOS app pairs with.
+// Bump alongside MobileMacPairingFloor (iOS app) and the App Store description
+// at each release cut that raises the pairing floor.
+const MINIMUM_MAC_VERSION = "0.64.17";
+
 export default function IosPage() {
   const t = useTranslations("docs.ios");
 
@@ -45,10 +50,11 @@ export default function IosPage() {
       <DocsHeading level={2} id="prerequisites">{t("prereqTitle")}</DocsHeading>
       <p>{t("prereqIntro")}</p>
       <ul>
-        <li>{t("prereq1")}</li>
+        <li>{t("prereq1", { version: MINIMUM_MAC_VERSION })}</li>
         <li>{t("prereq2")}</li>
         <li>{t("prereq3")}</li>
       </ul>
+      <Callout>{t("requirementsNote", { version: MINIMUM_MAC_VERSION })}</Callout>
 
       <DocsHeading level={2} id="networking">{t("networkingTitle")}</DocsHeading>
       <p>{t("networkingDesc")}</p>

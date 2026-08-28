@@ -43,7 +43,16 @@ struct MobileWhatsNewContent: View {
                     }
                 }
                 .padding(.horizontal, 28)
-                .padding(.bottom, 24)
+                .padding(.bottom, page.footnote == nil ? 24 : 0)
+            }
+            if let footnote = page.footnote {
+                Text(footnote)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 28)
+                    .padding(.bottom, 24)
+                    .accessibilityIdentifier("MobileWhatsNewFootnote")
             }
         }
     }
