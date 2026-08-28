@@ -4151,7 +4151,6 @@ fn write_config_value_atomic_with_sync(
     value: &Value,
     sync_parent: &dyn Fn(&Path) -> anyhow::Result<ConfigParentSyncOutcome>,
 ) -> anyhow::Result<ConfigWriteOutcome> {
-    let parent = config_parent_directory(path);
     let file_name = path.file_name().and_then(|name| name.to_str()).unwrap_or("cmux-tui.json");
     let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos();
     let process_id = std::process::id();
@@ -4269,11 +4268,10 @@ enum ConfigParentSyncOutcome {
 fn sync_config_parent_directory(parent: &Path) -> anyhow::Result<ConfigParentSyncOutcome> {
     let result = std::fs::File::open(parent).and_then(|directory| directory.sync_all());
     #[cfg(target_os = "macos")]
-    if let Err(error) = &result {
-        if matches!(error.raw_os_error(), Some(code) if code == libc::EINVAL || code == libc::ENOTSUP)
-        {
-            return Ok(ConfigParentSyncOutcome::Unsupported);
-        }
+    if let Err(error) = &result
+        && matches!(error.raw_os_error(), Some(code) if code == libc::EINVAL || code == libc::ENOTSUP)
+    {
+        return Ok(ConfigParentSyncOutcome::Unsupported);
     }
     result.map(|()| ConfigParentSyncOutcome::Synced).map_err(Into::into)
 }
