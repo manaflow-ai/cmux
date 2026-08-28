@@ -8841,7 +8841,8 @@ fn run_with_machine_updates_inner(
             let _ = browser_failure_tx.send(AppEvent::BrowserResizeFailed(failure));
         },
         move |error| {
-            let message = localization::catalog().browser.control_failed(&error);
+            crate::client_log::error("browser-control", &error);
+            let message = localization::catalog().browser.control_unavailable();
             let _ = browser_control_tx.send(AppEvent::Mux(MuxEvent::Status(message)));
         },
     )?;
