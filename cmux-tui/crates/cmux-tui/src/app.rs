@@ -9178,14 +9178,7 @@ fn run_with_machine_updates_inner(
     }
 
     if let Err(error) = app.restart_machine_updates() {
-        app.shutdown_background_workers();
-        app.cancel_pointer_interaction();
-        app.session.begin_shutdown();
-        let _ = app.pty_input.shutdown(Duration::from_secs(3));
-        if let Some(writer) = app.graphics_writer.as_mut() {
-            writer.shutdown(Duration::from_millis(200));
-        }
-        let _ = std::panic::take_hook();
+        app.shutdown_runtime_components();
         return Err(terminal_restore.restore_after_error(error));
     }
 
@@ -9194,14 +9187,7 @@ fn run_with_machine_updates_inner(
     }
 
     let result = app.event_loop(&mut terminal, rx);
-    app.shutdown_background_workers();
-    app.cancel_pointer_interaction();
-    app.session.begin_shutdown();
-    let _ = app.pty_input.shutdown(Duration::from_secs(3));
-    if let Some(writer) = app.graphics_writer.as_mut() {
-        writer.shutdown(Duration::from_millis(200));
-    }
-    let _ = std::panic::take_hook();
+    app.shutdown_runtime_components();
     let restore_result = terminal_restore.restore();
     match (result, restore_result) {
         (Ok(()), Ok(())) => {}
@@ -9563,6 +9549,14 @@ fn should_claim_clear_history_shortcut(
     supports_atomic_fallback: bool,
 ) -> bool {
     surface_kind == SurfaceKind::Pty && supports_atomic_fallback
+}
+
+fn adjust_active_tab_after_removal(pane: &mut PaneView, removed_tab_index: usize) {
+    if pane.active_tab > removed_tab_index {
+        pane.active_tab -= 1;
+    } else if pane.active_tab >= pane.tabs.len() {
+        pane.active_tab = pane.tabs.len().saturating_sub(1);
+    }
 }
 
 impl App {
@@ -10496,6 +10490,17 @@ impl App {
         if let Some(mut owner_reload) = self.owner_reload_worker.take() {
             owner_reload.stop_and_join();
         }
+    }
+
+    fn shutdown_runtime_components(&mut self) {
+        self.shutdown_background_workers();
+        self.cancel_pointer_interaction();
+        self.session.begin_shutdown();
+        let _ = self.pty_input.shutdown(Duration::from_secs(3));
+        if let Some(writer) = self.graphics_writer.as_mut() {
+            writer.shutdown(Duration::from_millis(200));
+        }
+        let _ = std::panic::take_hook();
     }
 
     fn process_machine_requests(&mut self) -> RenderAction {
@@ -12882,6 +12887,52 @@ impl App {
     /// topology refresh arrives. The backend projection still owns parent
     /// pane, screen, and workspace collapse.
     fn remove_surface_from_cached_tree(&mut self, surface: SurfaceId) {
+        let Some([workspace_index, screen_index, pane_index, tab_index]) =
+            self.tab_locations.get(&surface).copied()
+        else {
+            self.remove_surface_from_cached_tree_scan_and_rebuild_locations(surface);
+            return;
+        };
+
+        let location_is_current = self
+            .tree
+            .workspaces
+            .get(workspace_index)
+            .and_then(|workspace| workspace.screens.get(screen_index))
+            .and_then(|screen| screen.panes.get(pane_index))
+            .and_then(|pane| pane.tabs.get(tab_index))
+            .is_some_and(|tab| tab.surface == surface);
+        if !location_is_current {
+            self.remove_surface_from_cached_tree_scan_and_rebuild_locations(surface);
+            return;
+        }
+
+        let shifted_tabs = {
+            let pane =
+                &mut self.tree.workspaces[workspace_index].screens[screen_index].panes[pane_index];
+            pane.tabs.remove(tab_index);
+            adjust_active_tab_after_removal(pane, tab_index);
+            pane.tabs
+                .iter()
+                .enumerate()
+                .skip(tab_index)
+                .map(|(tab_index, tab)| (tab.surface, tab_index))
+                .collect::<Vec<_>>()
+        };
+
+        self.tab_locations.remove(&surface);
+        for (shifted_surface, shifted_index) in shifted_tabs {
+            self.tab_locations.insert(
+                shifted_surface,
+                [workspace_index, screen_index, pane_index, shifted_index],
+            );
+        }
+    }
+
+    /// Repair the cache from the tree and rebuild `tab_locations` if the index was missing or stale.
+    /// This path is defensive only. Normal surface exits use the indexed path
+    /// above and touch one pane instead of scanning the entire topology.
+    fn remove_surface_from_cached_tree_scan_and_rebuild_locations(&mut self, surface: SurfaceId) {
         for workspace in &mut self.tree.workspaces {
             for screen in &mut workspace.screens {
                 for pane in &mut screen.panes {
@@ -12890,11 +12941,7 @@ impl App {
                         continue;
                     };
                     pane.tabs.remove(index);
-                    if pane.active_tab > index {
-                        pane.active_tab -= 1;
-                    } else if pane.active_tab >= pane.tabs.len() {
-                        pane.active_tab = pane.tabs.len().saturating_sub(1);
-                    }
+                    adjust_active_tab_after_removal(pane, index);
                 }
             }
         }
@@ -33168,6 +33215,68 @@ mod tests {
         assert!(!app.render_states.contains_key(&42));
         assert!(!app.tab_locations.contains_key(&42));
         assert!(!app.mux_titles.snapshot().contains_key(&42));
+    }
+
+    #[test]
+    fn cached_surface_exit_updates_tab_index_without_rebuilding_unrelated_tabs() {
+        let mux = Mux::new("cached-surface-exit-index-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let mut tree = notify_tree(41, false);
+        let pane = &mut tree.workspaces[0].screens[0].panes[0];
+        let mut second = pane.tabs[0].clone();
+        second.surface = 41;
+        let mut third = pane.tabs[0].clone();
+        third.surface = 43;
+        pane.tabs[0].surface = 40;
+        pane.tabs.push(second);
+        pane.tabs.push(third);
+        pane.active_tab = 1;
+        app.replace_tree(tree);
+
+        app.remove_surface_from_cached_tree(40);
+
+        let pane = &app.tree.workspaces[0].screens[0].panes[0];
+        assert_eq!(pane.tabs.iter().map(|tab| tab.surface).collect::<Vec<_>>(), vec![41, 43]);
+        assert_eq!(pane.active_tab, 0);
+        assert!(!app.tab_locations.contains_key(&40));
+        assert_eq!(app.tab_locations.get(&41), Some(&[0, 0, 0, 0]));
+        assert_eq!(app.tab_locations.get(&43), Some(&[0, 0, 0, 1]));
+    }
+
+    #[test]
+    fn stale_surface_exit_index_falls_back_to_tree_scan_and_rebuilds_locations() {
+        let mux = Mux::new("stale-surface-exit-index-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let mut tree = notify_tree(41, false);
+        let pane = &mut tree.workspaces[0].screens[0].panes[0];
+        let mut second = pane.tabs[0].clone();
+        second.surface = 41;
+        let mut third = pane.tabs[0].clone();
+        third.surface = 43;
+        pane.tabs[0].surface = 40;
+        pane.tabs.push(second);
+        pane.tabs.push(third);
+        pane.active_tab = 2;
+        app.replace_tree(tree);
+
+        // Force the defensive dispatch path by making the cached location stale.
+        app.tab_locations.insert(40, [0, 0, 0, 1]);
+        app.remove_surface_from_cached_tree(40);
+
+        let pane = &app.tree.workspaces[0].screens[0].panes[0];
+        assert_eq!(pane.tabs.iter().map(|tab| tab.surface).collect::<Vec<_>>(), vec![41, 43]);
+        assert_eq!(pane.active_tab, 1);
+        assert_eq!(app.tab_locations.get(&41), Some(&[0, 0, 0, 0]));
+        assert_eq!(app.tab_locations.get(&43), Some(&[0, 0, 0, 1]));
+        assert!(!app.tab_locations.contains_key(&40));
+
+        // The fallback must repair the index so the next exit uses the
+        // indexed path instead of scanning the whole tree again.
+        app.remove_surface_from_cached_tree(41);
+        let pane = &app.tree.workspaces[0].screens[0].panes[0];
+        assert_eq!(pane.tabs.iter().map(|tab| tab.surface).collect::<Vec<_>>(), vec![43]);
+        assert_eq!(app.tab_locations.get(&43), Some(&[0, 0, 0, 0]));
+        assert!(!app.tab_locations.contains_key(&41));
     }
 
     #[test]
