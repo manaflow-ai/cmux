@@ -7001,9 +7001,10 @@ mod tests {
             closed: Arc::new(AtomicBool::new(false)),
         }));
         let started = Instant::now();
-        let error = session
-            .refresh_tree_with_timeout(Duration::from_millis(5))
-            .expect_err("a silent probe must time out");
+        let error = match session.refresh_tree_with_timeout(Duration::from_millis(5)) {
+            Err(error) => error,
+            Ok(_) => panic!("a silent probe unexpectedly completed"),
+        };
 
         assert!(matches!(
             error.downcast_ref::<RemoteRequestError>(),
@@ -7024,9 +7025,10 @@ mod tests {
         }));
         let _refresh = session.tree_refresh.lock().unwrap();
         let started = Instant::now();
-        let error = session
-            .refresh_tree_with_timeout(Duration::from_millis(5))
-            .expect_err("a contended refresh lock must time out");
+        let error = match session.refresh_tree_with_timeout(Duration::from_millis(5)) {
+            Err(error) => error,
+            Ok(_) => panic!("a contended refresh lock unexpectedly completed"),
+        };
 
         assert!(matches!(
             error.downcast_ref::<RemoteRequestError>(),
@@ -7048,9 +7050,10 @@ mod tests {
         control.wait_until_entered();
 
         let started = Instant::now();
-        let error = session
-            .refresh_tree_with_timeout(Duration::from_millis(5))
-            .expect_err("a blocked probe write must time out");
+        let error = match session.refresh_tree_with_timeout(Duration::from_millis(5)) {
+            Err(error) => error,
+            Ok(_) => panic!("a blocked probe write unexpectedly completed"),
+        };
 
         assert!(error.downcast_ref::<RemoteRequestError>().is_some_and(|error| {
             matches!(error, RemoteRequestError::Transport(io_error)
