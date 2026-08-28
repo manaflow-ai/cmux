@@ -42154,6 +42154,28 @@ mod tests {
     }
 
     #[test]
+    fn denied_workspace_preview_keeps_sidebar_selection_aligned() {
+        let mux = Mux::new("workspace-preview-admission-denied-test", SurfaceOptions::default());
+        mux.new_workspace(Some("Alpha".into()), Some((80, 24))).unwrap();
+        mux.new_workspace(Some("Beta".into()), Some((80, 24))).unwrap();
+        let mut app = test_app(Session::Local(mux));
+        app.replace_tree(app.session.tree());
+        app.machine_ui = Some({
+            let mut ui = provider_machine_ui();
+            ui.session_available = false;
+            ui
+        });
+        let target = app.tree.workspaces[1].id;
+
+        app.select_workspace_rail_target(WorkspaceRailTarget::Workspace(target));
+
+        assert_eq!(app.sidebar_workspace_selection, 0);
+        assert_eq!(app.workspace_rail_selection, WorkspaceRailSelection::Workspace);
+        assert_eq!(app.tree.active_workspace, 0);
+        assert!(app.workspace_preview.is_none());
+    }
+
+    #[test]
     fn replace_tree_reconciles_preview_only_when_workspace_revision_changes() {
         let mux = Mux::new("workspace-preview-revision-gate-test", SurfaceOptions::default());
         mux.new_workspace(Some("Alpha".into()), Some((80, 24))).unwrap();
