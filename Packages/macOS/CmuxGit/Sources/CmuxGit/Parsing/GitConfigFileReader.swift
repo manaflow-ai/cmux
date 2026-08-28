@@ -59,7 +59,7 @@ nonisolated struct GitConfigFileReader: Sendable {
         }
         defer { Darwin.close(descriptor) }
 
-        var metadata = stat()
+        var metadata = Darwin.stat()
         guard Darwin.fstat(descriptor, &metadata) == 0,
               metadata.st_mode & mode_t(S_IFMT) == mode_t(S_IFREG) else {
             return .unavailable(consumedByteCount: 0)
@@ -118,7 +118,7 @@ nonisolated struct GitConfigFileReader: Sendable {
         guard descriptor >= 0 else { return nil }
         defer { Darwin.close(descriptor) }
 
-        var metadata = stat()
+        var metadata = Darwin.stat()
         guard Darwin.fstat(descriptor, &metadata) == 0 else { return nil }
         let kind = metadata.st_mode & mode_t(S_IFMT)
         guard kind == mode_t(S_IFREG) || kind == mode_t(S_IFDIR) else { return nil }
