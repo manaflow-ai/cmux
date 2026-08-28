@@ -758,8 +758,8 @@ fn process_name(pid: u32) -> Option<String> {
 fn interpreter_script_path(pid: u32, executable: &Path) -> Option<String> {
     let interpreter = executable.file_name()?.to_str()?.to_ascii_lowercase();
     const INTERPRETERS: &[&str] = &[
-        "bash", "bun", "dash", "deno", "env", "node", "nodejs", "perl", "php", "python",
-        "python2", "python3", "ruby", "sh", "zsh",
+        "bash", "bun", "dash", "deno", "env", "node", "nodejs", "perl", "php", "python", "python2",
+        "python3", "ruby", "sh", "zsh",
     ];
     if !INTERPRETERS.contains(&interpreter.as_str()) {
         return None;
@@ -1168,10 +1168,8 @@ mod tests {
     fn interpreter_wrapped_process_reports_the_script_name() {
         use std::os::unix::fs::PermissionsExt;
 
-        let root = std::env::temp_dir().join(format!(
-            "cmux-screen-detect-script-{}",
-            std::process::id()
-        ));
+        let root =
+            std::env::temp_dir().join(format!("cmux-screen-detect-script-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).unwrap();
         let script = root.join("codex");
