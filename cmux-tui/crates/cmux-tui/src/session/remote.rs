@@ -32,6 +32,7 @@ use ghostty_vt::{
     MouseEncoders, MouseInput, RenderState, Terminal, TerminalColorOverrides,
     TerminalPointerSemanticSnapshot, parse_color,
 };
+use parking_lot::Mutex as ParkingMutex;
 use serde_json::{Value, json};
 use zeroize::{Zeroize, Zeroizing};
 
@@ -1519,7 +1520,7 @@ pub struct RemoteSession {
     retired_surfaces: Mutex<HashSet<SurfaceId>>,
     tree: Mutex<RemoteTreeCache>,
     browser_sources: Mutex<HashMap<SurfaceId, BrowserSource>>,
-    tree_refresh: Mutex<()>,
+    tree_refresh: ParkingMutex<()>,
     tree_stale: AtomicBool,
     subscription_started: AtomicBool,
     event_surface_filter: AtomicU64,
@@ -1979,7 +1980,7 @@ impl RemoteSession {
             retired_surfaces: Mutex::new(HashSet::new()),
             tree: Mutex::new(RemoteTreeCache::default()),
             browser_sources: Mutex::new(HashMap::new()),
-            tree_refresh: Mutex::new(()),
+            tree_refresh: ParkingMutex::new(()),
             tree_stale: AtomicBool::new(true),
             subscription_started: AtomicBool::new(false),
             event_surface_filter: AtomicU64::new(0),
@@ -3577,17 +3578,11 @@ impl RemoteSession {
         deadline: RequestDeadline,
     ) -> anyhow::Result<TreeView> {
         let _refresh = if let RequestDeadline::Until(deadline) = deadline {
-            loop {
-                match self.tree_refresh.try_lock() {
-                    Ok(lock) => break lock,
-                    Err(_) if Instant::now() >= deadline => {
-                        anyhow::bail!(RemoteRequestError::Timeout)
-                    }
-                    Err(_) => std::thread::yield_now(),
-                }
-            }
+            self.tree_refresh
+                .try_lock_for(deadline.saturating_duration_since(Instant::now()))
+                .ok_or(RemoteRequestError::Timeout)?
         } else {
-            self.tree_refresh.lock().unwrap()
+            self.tree_refresh.lock()
         };
         if identity_refresh {
             self.tree_stale.store(false, Ordering::Release);
@@ -4045,7 +4040,7 @@ fn test_session_with_writer(
         retired_surfaces: Mutex::new(HashSet::new()),
         tree: Mutex::new(RemoteTreeCache::default()),
         browser_sources: Mutex::new(HashMap::new()),
-        tree_refresh: Mutex::new(()),
+        tree_refresh: ParkingMutex::new(()),
         tree_stale: AtomicBool::new(true),
         subscription_started: AtomicBool::new(false),
         event_surface_filter: AtomicU64::new(0),
@@ -5287,7 +5282,7 @@ mod tests {
             retired_surfaces: Mutex::new(HashSet::new()),
             tree: Mutex::new(RemoteTreeCache::default()),
             browser_sources: Mutex::new(HashMap::new()),
-            tree_refresh: Mutex::new(()),
+            tree_refresh: ParkingMutex::new(()),
             tree_stale: AtomicBool::new(true),
             subscription_started: AtomicBool::new(false),
             event_surface_filter: AtomicU64::new(0),
@@ -7023,7 +7018,7 @@ mod tests {
         let session = test_session(Box::new(CloseTrackingWriter {
             closed: Arc::new(AtomicBool::new(false)),
         }));
-        let _refresh = session.tree_refresh.lock().unwrap();
+        let _refresh = session.tree_refresh.lock();
         let started = Instant::now();
         let error = match session.refresh_tree_with_timeout(Duration::from_millis(5)) {
             Err(error) => error,
