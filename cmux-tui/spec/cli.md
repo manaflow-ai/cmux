@@ -37,7 +37,8 @@ authority (authority is last-claim-wins across a terminal's attachments; an
 embedder sends it when its pane receives user input, so the typed-in pane
 owns the PTY size). Each applied resize and claim is reported as one
 `{"diag":...}` stderr line; unknown keys are ignored. stderr ends with one
-JSON line
+JSON line. Input objects are limited to 1 MiB of decoded bytes and each JSON
+line is limited to 2 MiB, including its newline.
 `{"exit":{"reason":"terminal-ended"|"daemon-lost"|"parent-closed"}}`. Exit
 code 0 means the terminal ended or the embedder closed stdin (do not
 respawn); exit code 2 means the daemon connection was lost and a respawn

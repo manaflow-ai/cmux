@@ -35,9 +35,9 @@ use ghostty_vt::{
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
-pub use remote::{
-    PipeIoEvent, RemoteMessageReader, RemoteMessageWriter, RemoteSession, RemoteSurface,
-    RemoteTransport, RemoteTransportAbort,
+pub(crate) use remote::{
+    PipeIoEvent, PipeIoQueue, PipeIoQueuePushError, RemoteMessageReader, RemoteMessageWriter,
+    RemoteSession, RemoteSurface, RemoteTransport, RemoteTransportAbort,
 };
 pub use tree::{TabNotificationView, TreeView, WorkspaceView};
 

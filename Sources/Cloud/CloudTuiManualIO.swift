@@ -65,7 +65,7 @@ actor CloudTuiPipeIOProbe {
         let supported = await probeHelp(clientURL: clientURL)
         results[cacheKey] = supported
 #if DEBUG
-        cmuxDebugLog("cloudTuiManualIO.probe client=\(path) supportsPipeIO=\(supported)")
+        cmuxDebugLog("cloudTuiManualIO.probe supportsPipeIO=\(supported)")
 #endif
         return supported
     }

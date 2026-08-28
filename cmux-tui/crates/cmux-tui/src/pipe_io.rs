@@ -21,26 +21,33 @@
 //!   not respawn), 2 when the daemon connection was lost (respawning
 //!   reattaches and resyncs from a fresh replay).
 
-use std::io::{BufRead, Write};
+use std::io::{self, BufRead, Read, Write};
 use std::path::Path;
 use std::sync::Arc;
-use std::sync::mpsc::{Receiver, SyncSender};
 
 use base64::Engine as _;
 use cmux_tui_core::SurfaceId;
 use cmux_tui_core::resource::TerminalPublicId;
 
-use crate::session::{PipeIoEvent, RemoteSession, Session, SurfaceAttach, SurfaceHandle};
+use crate::session::{
+    PipeIoEvent, PipeIoQueue, PipeIoQueuePushError, RemoteSession, Session, SurfaceAttach,
+    SurfaceHandle, is_remote_surface_unavailable, is_remote_transport_failure,
+};
 
 /// The terminal ended, or the embedder walked away: respawning is wrong.
 pub const EXIT_DO_NOT_RESPAWN: i32 = 0;
 /// The daemon connection was lost: the embedder may respawn to resync.
 pub const EXIT_DAEMON_LOST: i32 = 2;
 
-/// Bounded event queue between the session reader thread and the stdout
-/// pump. A full queue means the embedder stopped reading; the session
-/// treats that as a lost transport rather than wedging its reader thread.
-const EVENT_QUEUE_CAPACITY: usize = 4096;
+/// Bound one stdin frame before JSON parsing and base64 decoding. The
+/// embedder sends keyboard and paste chunks, so a one-megabyte decoded limit
+/// is large enough for normal input while keeping a hostile parent from
+/// turning one line into an unbounded allocation.
+const MAX_PIPE_IO_INPUT_BYTES: usize = 1024 * 1024;
+/// The line bound includes the JSON bytes and its newline. It leaves room for
+/// base64 expansion and the small JSON envelope around one input chunk.
+const MAX_PIPE_IO_REQUEST_LINE_BYTES: usize = 2 * 1024 * 1024;
+const MAX_PIPE_IO_INPUT_BASE64_BYTES: usize = MAX_PIPE_IO_INPUT_BYTES.div_ceil(3) * 4;
 
 /// Emitted before any replay that is not the relay's first output: full
 /// reset plus erase-scrollback, so the replacement replay does not stack on
@@ -93,7 +100,15 @@ pub enum PipeIoRequest {
 pub fn parse_request(line: &str) -> anyhow::Result<PipeIoRequest> {
     let value: serde_json::Value = serde_json::from_str(line)?;
     if let Some(encoded) = value.get("input").and_then(serde_json::Value::as_str) {
+        anyhow::ensure!(
+            encoded.len() <= MAX_PIPE_IO_INPUT_BASE64_BYTES,
+            "input exceeds the {MAX_PIPE_IO_INPUT_BYTES}-byte limit"
+        );
         let bytes = base64::engine::general_purpose::STANDARD.decode(encoded)?;
+        anyhow::ensure!(
+            bytes.len() <= MAX_PIPE_IO_INPUT_BYTES,
+            "input exceeds the {MAX_PIPE_IO_INPUT_BYTES}-byte limit"
+        );
         return Ok(PipeIoRequest::Input(bytes));
     }
     if let Some(resize) = value.get("resize") {
@@ -111,6 +126,38 @@ pub fn parse_request(line: &str) -> anyhow::Result<PipeIoRequest> {
     Ok(PipeIoRequest::Unknown)
 }
 
+/// Read one complete JSON line without allowing `BufRead::lines` to allocate
+/// an attacker-controlled amount of memory. A final, shorter line at EOF is
+/// accepted, matching the standard `lines` behavior.
+fn read_request_line(reader: &mut impl BufRead, line: &mut String) -> io::Result<bool> {
+    line.clear();
+    let mut limited = reader.take((MAX_PIPE_IO_REQUEST_LINE_BYTES + 1) as u64);
+    let bytes_read = limited.read_line(line)?;
+    if bytes_read == 0 {
+        return Ok(false);
+    }
+    if bytes_read > MAX_PIPE_IO_REQUEST_LINE_BYTES
+        || (bytes_read == MAX_PIPE_IO_REQUEST_LINE_BYTES && !line.ends_with('\n'))
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "pipe-io request line exceeds its byte limit",
+        ));
+    }
+    Ok(true)
+}
+
+struct PipeIoTapGuard<'a> {
+    remote: &'a RemoteSession,
+    id: u64,
+}
+
+impl Drop for PipeIoTapGuard<'_> {
+    fn drop(&mut self) {
+        self.remote.clear_pipe_io_tap(self.id);
+    }
+}
+
 pub fn run(
     session: &Session,
     remote: &Arc<RemoteSession>,
@@ -120,28 +167,39 @@ pub fn run(
     cols: u16,
     rows: u16,
 ) -> anyhow::Result<PipeIoExitReason> {
-    let (sender, receiver) = std::sync::mpsc::sync_channel(EVENT_QUEUE_CAPACITY);
+    let queue = Arc::new(PipeIoQueue::new());
     // Install before attach so the initial replay cannot be missed.
-    remote.install_pipe_io_tap(surface, sender.clone());
-    let handle = match session.try_surface_sized(surface, Some((cols.max(1), rows.max(1))))? {
-        SurfaceAttach::Attached(handle) => handle,
-        SurfaceAttach::Retired | SurfaceAttach::Missing => {
+    let tap_id = remote.install_pipe_io_tap(surface, queue.clone());
+    let tap_guard = PipeIoTapGuard { remote, id: tap_id };
+    let handle = match session.try_surface_sized(surface, Some((cols.max(1), rows.max(1)))) {
+        Ok(SurfaceAttach::Attached(handle)) => handle,
+        Ok(SurfaceAttach::Retired | SurfaceAttach::Missing) => {
             return Ok(PipeIoExitReason::TerminalEnded);
         }
-        SurfaceAttach::Deferred => anyhow::bail!("terminal attach was deferred by the server"),
+        Ok(SurfaceAttach::Deferred) => anyhow::bail!("terminal attach was deferred by the server"),
+        Err(error) if is_remote_transport_failure(&error) => {
+            return Ok(PipeIoExitReason::DaemonLost);
+        }
+        Err(error) if is_remote_surface_unavailable(&error, surface) => {
+            return Ok(PipeIoExitReason::TerminalEnded);
+        }
+        Err(error) => return Err(error),
     };
     // The daemon resizes a terminal's PTY only for its geometry-authority
     // client (the full TUI client claims this for its active surface). The
     // relay is the embedder's only viewer of this terminal, so claim the
     // authority or every embedder resize is recorded but never applied.
-    if let Err(error) = session.claim_terminal_geometry(surface) {
+    if session.claim_terminal_geometry(surface).is_err() {
         eprintln!(
             "{}",
-            serde_json::json!({"diag": {"claim-terminal-geometry": {"error": error.to_string()}}})
+            serde_json::json!({"diag": {"claim-terminal-geometry": {"code": "claim_failed"}}})
         );
     }
-    spawn_stdin_pump(handle, sender, session.clone(), surface);
-    let reason = pump_events_to_stdout(&receiver, &mut std::io::stdout().lock())?;
+    spawn_stdin_pump(handle, session.clone(), surface, queue.clone());
+    let reason = pump_events_to_stdout(&queue, &mut std::io::stdout().lock())?;
+    // Stop forwarding while the daemon probe runs. Otherwise events can fill
+    // the abandoned queue and falsely disconnect the session during probing.
+    drop(tap_guard);
     if reason == PipeIoExitReason::DaemonLost {
         return Ok(classify_daemon_loss(remote, socket_path, terminal));
     }
@@ -178,24 +236,33 @@ fn classify_daemon_loss(
 /// parent through the shared event queue.
 fn spawn_stdin_pump(
     handle: SurfaceHandle,
-    sender: SyncSender<PipeIoEvent>,
     session: Session,
     surface: SurfaceId,
+    queue: Arc<PipeIoQueue>,
 ) {
     std::thread::Builder::new()
         .name("pipe-io-stdin".into())
         .spawn(move || {
             let stdin = std::io::stdin();
-            for line in stdin.lock().lines() {
-                let Ok(line) = line else { break };
+            let mut reader = stdin.lock();
+            let mut line = String::new();
+            let mut transport_lost = false;
+            loop {
+                let Ok(has_line) = read_request_line(&mut reader, &mut line) else { break };
+                if !has_line {
+                    break;
+                }
                 if line.trim().is_empty() {
                     continue;
                 }
                 match parse_request(&line) {
                     Ok(PipeIoRequest::Input(bytes)) => {
                         if handle.write_bytes(&bytes).is_err() {
-                            // The transport owns loss reporting; input can
-                            // only stop early.
+                            // A failed input write is a transport failure, not
+                            // a clean parent close. Signal it out of band so
+                            // it cannot race a queued StdinClosed event.
+                            queue.signal_transport_lost();
+                            transport_lost = true;
                             break;
                         }
                     }
@@ -210,10 +277,10 @@ fn spawn_stdin_pump(
                                     "diag": {"resize": {"cols": cols, "rows": rows, "accepted": accepted}}
                                 })
                             ),
-                            Err(error) => eprintln!(
+                            Err(_error) => eprintln!(
                                 "{}",
                                 serde_json::json!({
-                                    "diag": {"resize": {"cols": cols, "rows": rows, "error": error.to_string()}}
+                                    "diag": {"resize": {"cols": cols, "rows": rows, "code": "resize_failed"}}
                                 })
                             ),
                         }
@@ -226,10 +293,10 @@ fn spawn_stdin_pump(
                                 "{}",
                                 serde_json::json!({"diag": {"claim": {"accepted": true}}})
                             ),
-                            Err(error) => eprintln!(
+                            Err(_error) => eprintln!(
                                 "{}",
                                 serde_json::json!({
-                                    "diag": {"claim": {"error": error.to_string()}}
+                                    "diag": {"claim": {"code": "claim_failed"}}
                                 })
                             ),
                         }
@@ -242,20 +309,22 @@ fn spawn_stdin_pump(
             }
             // Blocking send: the queue is drained until the main loop
             // returns, and a dropped receiver just ends this thread.
-            let _ = sender.send(PipeIoEvent::StdinClosed);
+            if !transport_lost {
+                let _ = queue.push(PipeIoEvent::StdinClosed);
+            }
         })
         .expect("spawn pipe-io stdin pump");
 }
 
 fn pump_events_to_stdout(
-    receiver: &Receiver<PipeIoEvent>,
+    queue: &PipeIoQueue,
     stdout: &mut impl Write,
 ) -> anyhow::Result<PipeIoExitReason> {
     let mut emitted_output = false;
     loop {
         // A dropped sender without a prior event means the session went
         // away wholesale: report it as a lost daemon.
-        let Ok(event) = receiver.recv() else {
+        let Some(event) = queue.recv() else {
             return Ok(PipeIoExitReason::DaemonLost);
         };
         let write_result = match &event {
@@ -305,6 +374,29 @@ mod tests {
     }
 
     #[test]
+    fn parse_request_rejects_oversized_input_before_decoding() {
+        let encoded =
+            base64::engine::general_purpose::STANDARD
+                .encode(vec![b'x'; MAX_PIPE_IO_INPUT_BYTES + 1]);
+        let line = serde_json::json!({"input": encoded}).to_string();
+        assert!(parse_request(&line).is_err());
+    }
+
+    #[test]
+    fn request_line_reader_rejects_unterminated_and_oversized_lines() {
+        let mut exact =
+            std::io::Cursor::new(format!("{}\n", "x".repeat(MAX_PIPE_IO_REQUEST_LINE_BYTES - 1)));
+        let mut line = String::new();
+        assert!(read_request_line(&mut exact, &mut line).unwrap());
+
+        let mut oversized = std::io::Cursor::new("x".repeat(MAX_PIPE_IO_REQUEST_LINE_BYTES + 1));
+        assert_eq!(
+            read_request_line(&mut oversized, &mut line).unwrap_err().kind(),
+            std::io::ErrorKind::InvalidData
+        );
+    }
+
+    #[test]
     fn exit_reasons_map_to_the_respawn_contract() {
         assert_eq!(PipeIoExitReason::TerminalEnded.exit_code(), EXIT_DO_NOT_RESPAWN);
         assert_eq!(PipeIoExitReason::ParentClosed.exit_code(), EXIT_DO_NOT_RESPAWN);
@@ -316,13 +408,13 @@ mod tests {
 
     #[test]
     fn stdout_pump_prefixes_only_non_initial_replays_with_a_full_reset() {
-        let (sender, receiver) = std::sync::mpsc::sync_channel(8);
-        sender.send(replay(b"FIRST")).unwrap();
-        sender.send(PipeIoEvent::Output(b"live".to_vec())).unwrap();
-        sender.send(replay(b"SECOND")).unwrap();
-        sender.send(PipeIoEvent::SurfaceExited).unwrap();
+        let queue = PipeIoQueue::new();
+        queue.push(replay(b"FIRST")).unwrap();
+        queue.push(PipeIoEvent::Output(b"live".to_vec())).unwrap();
+        queue.push(replay(b"SECOND")).unwrap();
+        queue.push(PipeIoEvent::SurfaceExited).unwrap();
         let mut stdout = Vec::new();
-        let reason = pump_events_to_stdout(&receiver, &mut stdout).unwrap();
+        let reason = pump_events_to_stdout(&queue, &mut stdout).unwrap();
         assert_eq!(reason, PipeIoExitReason::TerminalEnded);
         let mut expected = b"FIRSTlive".to_vec();
         expected.extend_from_slice(REPLAY_RESET);
@@ -336,19 +428,41 @@ mod tests {
             (PipeIoEvent::TransportLost, PipeIoExitReason::DaemonLost),
             (PipeIoEvent::StdinClosed, PipeIoExitReason::ParentClosed),
         ] {
-            let (sender, receiver) = std::sync::mpsc::sync_channel(8);
-            sender.send(event).unwrap();
+            let queue = PipeIoQueue::new();
+            queue.push(event).unwrap();
             let mut stdout = Vec::new();
-            assert_eq!(pump_events_to_stdout(&receiver, &mut stdout).unwrap(), expected);
+            assert_eq!(pump_events_to_stdout(&queue, &mut stdout).unwrap(), expected);
             assert!(stdout.is_empty());
         }
-        // Sender dropped without any event: the session vanished wholesale.
-        let (sender, receiver) = std::sync::mpsc::sync_channel::<PipeIoEvent>(8);
-        drop(sender);
+        // A closed queue without any event means the session vanished wholesale.
+        let queue = PipeIoQueue::new();
+        queue.close();
         let mut stdout = Vec::new();
         assert_eq!(
-            pump_events_to_stdout(&receiver, &mut stdout).unwrap(),
+            pump_events_to_stdout(&queue, &mut stdout).unwrap(),
             PipeIoExitReason::DaemonLost
         );
+    }
+
+    #[test]
+    fn event_queue_bounds_bytes_and_prioritizes_transport_loss() {
+        let queue = PipeIoQueue::new();
+        assert!(queue.push(PipeIoEvent::Output(vec![0; 8 * 1024 * 1024])).is_ok());
+        assert_eq!(
+            queue.push(PipeIoEvent::Output(vec![1])).unwrap_err(),
+            PipeIoQueuePushError::Full
+        );
+        queue.push(PipeIoEvent::TransportLost).unwrap();
+        assert_eq!(queue.recv(), Some(PipeIoEvent::TransportLost));
+    }
+
+    #[test]
+    fn direct_transport_loss_signal_wakes_a_full_queue() {
+        let queue = PipeIoQueue::new();
+        assert!(queue.push(PipeIoEvent::Output(vec![0; 8 * 1024 * 1024])).is_ok());
+        queue.signal_transport_lost();
+        queue.close();
+        assert_eq!(queue.recv(), Some(PipeIoEvent::TransportLost));
+        assert!(queue.recv().is_none());
     }
 }
