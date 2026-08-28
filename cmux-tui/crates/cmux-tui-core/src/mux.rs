@@ -5528,6 +5528,9 @@ impl Mux {
             terminal_id.clone(),
             HookFence { session_id: agent_session_id, sequence, ended: state == AgentState::Done },
         );
+        // Projection ordering is complete. Do not carry the fence guard into
+        // cleanup or any retry/reentrant path.
+        drop(fences);
         // An ended session leaves the roster entirely: the done state was
         // committed and broadcast above (so remote caches converge), and the
         // live record is dropped so agents views stop listing the terminal
@@ -9059,11 +9062,15 @@ impl Mux {
             }) {
                 anyhow::bail!("reserved hook marker is invalid for non-hook agent source");
             }
-            sequence_guard
-                .as_ref()
-                .and_then(|guard| guard.get(&terminal_id))
-                .map(|fence| format!("cmux-hook-sequence:{}", fence.sequence))
-                .or(source_session.clone())
+            // Preserve a valid fresh socket identity. The internal hook
+            // marker is only a compatibility fallback when no identity was
+            // supplied, while durable hook state carries the fence itself.
+            source_session.clone().or_else(|| {
+                sequence_guard
+                    .as_ref()
+                    .and_then(|guard| guard.get(&terminal_id))
+                    .map(|fence| format!("cmux-hook-sequence:{}", fence.sequence))
+            })
         };
         let source_session = source_session.filter(|value| {
             !value.starts_with("cmux-hook-sequence:") && !value.starts_with("cmux-hook-ended:")
@@ -22834,6 +22841,53 @@ mod tests {
         assert_eq!(restored.agent_hook_fences[&terminal_id].sequence, commit.sequence);
         assert!(restored.agent_hook_fences[&terminal_id].ended);
         drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn reopened_ended_hook_fence_rejects_late_events() {
+        let root = std::env::temp_dir()
+            .join(format!("cmux-agent-ended-reopen-{}", crate::workspace_registry::new_uuid_v4()));
+        let mux =
+            Mux::open_persistent("agent-ended-reopen", SurfaceOptions::default(), &root).unwrap();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+        let ingress = |event: &str, session_id: Option<&str>| {
+            crate::agent_hooks::agent_hook_journal_ingress(
+                "claude",
+                event,
+                Some(&terminal_id.to_string()),
+                session_id
+                    .map(|session_id| serde_json::json!({"session_id": session_id}))
+                    .unwrap_or_else(|| serde_json::json!({})),
+            )
+            .unwrap()
+        };
+        mux.apply_agent_hook_record(&ingress("SessionStart", Some("ended-session")), 1).unwrap();
+        mux.apply_agent_hook_record(&ingress("SessionEnd", Some("ended-session")), 2).unwrap();
+        assert!(mux.list_agents(Some(surface.id), None).is_empty());
+        mux.shutdown();
+        drop(mux);
+
+        let reopened =
+            Mux::open_persistent("agent-ended-reopen", SurfaceOptions::default(), &root).unwrap();
+        let reopened_surface = reopened.resource_surface_for_terminal(&terminal_id).unwrap();
+        assert!(reopened.list_agents(Some(reopened_surface), None).is_empty());
+        assert!(reopened.agent_hook_fences.lock().unwrap()[&terminal_id].ended);
+
+        // Events from the ended identity, a different identity, and a
+        // session-less adapter must all remain behind the durable fence.
+        reopened
+            .apply_agent_hook_record(&ingress("UserPromptSubmit", Some("ended-session")), 3)
+            .unwrap();
+        reopened
+            .apply_agent_hook_record(&ingress("UserPromptSubmit", Some("different-session")), 4)
+            .unwrap();
+        reopened.apply_agent_hook_record(&ingress("UserPromptSubmit", None), 5).unwrap();
+        assert!(reopened.list_agents(Some(reopened_surface), None).is_empty());
+        assert_eq!(reopened.agent_hook_fences.lock().unwrap()[&terminal_id].sequence, 2);
+        reopened.shutdown();
+        drop(reopened);
         std::fs::remove_dir_all(root).unwrap();
     }
 
