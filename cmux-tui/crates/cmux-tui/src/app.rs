@@ -9565,6 +9565,14 @@ fn should_claim_clear_history_shortcut(
     surface_kind == SurfaceKind::Pty && supports_atomic_fallback
 }
 
+fn adjust_active_tab_after_removal(pane: &mut PaneView, removed_tab_index: usize) {
+    if pane.active_tab > removed_tab_index {
+        pane.active_tab -= 1;
+    } else if pane.active_tab >= pane.tabs.len() {
+        pane.active_tab = pane.tabs.len().saturating_sub(1);
+    }
+}
+
 impl App {
     pub fn is_surface_only(&self) -> bool {
         self.surface_only.is_some()
@@ -12906,11 +12914,7 @@ impl App {
             let pane =
                 &mut self.tree.workspaces[workspace_index].screens[screen_index].panes[pane_index];
             pane.tabs.remove(tab_index);
-            if pane.active_tab > tab_index {
-                pane.active_tab -= 1;
-            } else if pane.active_tab >= pane.tabs.len() {
-                pane.active_tab = pane.tabs.len().saturating_sub(1);
-            }
+            adjust_active_tab_after_removal(pane, tab_index);
             pane.tabs
                 .iter()
                 .enumerate()
@@ -12940,11 +12944,7 @@ impl App {
                         continue;
                     };
                     pane.tabs.remove(index);
-                    if pane.active_tab > index {
-                        pane.active_tab -= 1;
-                    } else if pane.active_tab >= pane.tabs.len() {
-                        pane.active_tab = pane.tabs.len().saturating_sub(1);
-                    }
+                    adjust_active_tab_after_removal(pane, index);
                 }
             }
         }
