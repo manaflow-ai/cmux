@@ -1,8 +1,8 @@
 # cmux-tui aggregate change log
 
-## Wave 85, current main `0b95285f6f6754ed0cde2a2d64d81b763280cc75`
+## Wave 85, current main `1e09970237f21686b8c0e6853b51a89819623803`
 
-Snapshot: 2026-08-28T08:26:21Z.
+Snapshot: 2026-08-28T09:04:37Z.
 
 | Change | Result | Revert pointer |
 | --- | --- | --- |
@@ -10,7 +10,7 @@ Snapshot: 2026-08-28T08:26:21Z.
 | [#11069](https://github.com/manaflow-ai/cmux/pull/11069), source `d9646e350bcd5db20458899ff66f4a19df9d0a14`, merge `f756735566a2ce16bad450a8ab592fef2a40d9c4` | Cloud-tree right-click verbs, confirmations, workspace double-click behavior, drag gating, and visual polish are on main. | `git revert f756735566a2ce16bad450a8ab592fef2a40d9c4` after checking dependent cloud-tree changes. |
 | [#11056](https://github.com/manaflow-ai/cmux/pull/11056), source `433e1f5ec237476077e7a50eceeb1c39547fc0ff`, merge `102aa3d63086bf0617a6b5a34d5cb2465f2a74a7` | Retained-tab reindexing now avoids the second scan while preserving duplicate-ID and clamp behavior. | `git revert 102aa3d63086bf0617a6b5a34d5cb2465f2a74a7` after checking dependent projection changes. |
 
-Open gates: [#11024](https://github.com/manaflow-ai/cmux/pull/11024) `8bb1e346` after a current-main rebase, [#11025](https://github.com/manaflow-ai/cmux/pull/11025) `35c18d226635b90c18376f2ce441eb295c10af45`, [#11028](https://github.com/manaflow-ai/cmux/pull/11028) `5ca760526fed25225b135f99b238a9a0fd7ac7e9`, and [#10990](https://github.com/manaflow-ai/cmux/pull/10990) `244c39fb9d1543a69061280c7111da3f76678655` are open on current main. [#11055](https://github.com/manaflow-ai/cmux/pull/11055) `d64c71274695c17b7acb96b144c1acacf0a66c2b` is open and mergeable on current main, with checks unstable. Blocked or deferred work remains in [#11002](https://github.com/manaflow-ai/cmux/pull/11002), [#11068](https://github.com/manaflow-ai/cmux/pull/11068), [#11013](https://github.com/manaflow-ai/cmux/pull/11013), stacked [#11078](https://github.com/manaflow-ai/cmux/pull/11078), [#10994](https://github.com/manaflow-ai/cmux/pull/10994), round-1 [#11063](https://github.com/manaflow-ai/cmux/pull/11063), and [#10401](https://github.com/manaflow-ai/cmux/pull/10401).
+Open gates: [#11024](https://github.com/manaflow-ai/cmux/pull/11024) `7593d643fac436a01ad5044dcba180989702b4c3` is open and mergeable on `main` at `1e09970237f21686b8c0e6853b51a89819623803`, with checks unstable. [#11025](https://github.com/manaflow-ai/cmux/pull/11025) `35c18d226635b90c18376f2ce441eb295c10af45`, [#11028](https://github.com/manaflow-ai/cmux/pull/11028) `5ca760526fed25225b135f99b238a9a0fd7ac7e9`, and [#11055](https://github.com/manaflow-ai/cmux/pull/11055) `d64c71274695c17b7acb96b144c1acacf0a66c2b` are open and mergeable on stale base `102aa3d63086bf0617a6b5a34d5cb2465f2a74a7`, with checks unstable. [#10990](https://github.com/manaflow-ai/cmux/pull/10990) `2608c8ca279f26c188723e95f31e6ac287439423` is open and mergeable on `main` at `1e09970237f21686b8c0e6853b51a89819623803`, with checks unstable. Blocked or deferred work remains in [#11002](https://github.com/manaflow-ai/cmux/pull/11002), [#11068](https://github.com/manaflow-ai/cmux/pull/11068), [#11013](https://github.com/manaflow-ai/cmux/pull/11013), stacked [#11078](https://github.com/manaflow-ai/cmux/pull/11078), [#10994](https://github.com/manaflow-ai/cmux/pull/10994), round-1 [#11063](https://github.com/manaflow-ai/cmux/pull/11063), and [#10401](https://github.com/manaflow-ai/cmux/pull/10401).
 
 Session accounting remains honest: strict total `unknown`. Audit basis: 2026-08-28 history and archived receipts; matching TUI entries, deduplicating by session, and retaining only substantive productive sessions yields a conservative lower bound of 50. The historical ledger retains at least 258 named substantive turns. Neither is a total.
 
@@ -20,11 +20,11 @@ Snapshot: 2026-08-28T07:43:00Z.
 
 | Change | Result | Revert pointer |
 | --- | --- | --- |
-| [#11072](https://github.com/manaflow-ai/cmux/pull/11072), `253df2472973a5654e1a3d7fee13764a177c7a79` | Runtime shutdown cleanup is deduplicated with preserved teardown order. | `git revert -m 1 253df2472973a5654e1a3d7fee13764a177c7a79` after checking dependent shutdown changes. |
-| [#11041](https://github.com/manaflow-ai/cmux/pull/11041), `305519d149c1ca61d4be4838e18b0a59f8e69b2a` | Paste repro harnesses and analyzer audit are on main. | `git revert -m 1 305519d149c1ca61d4be4838e18b0a59f8e69b2a` only if the test infrastructure must be removed. |
-| [#11000](https://github.com/manaflow-ai/cmux/pull/11000), `8910e6360e3b1d8b05b875cbe44e1901e8c7fc60` | Surface-exit indexing avoids repeated scans and repairs stale indexes. | `git revert -m 1 8910e6360e3b1d8b05b875cbe44e1901e8c7fc60` with the index consumers reviewed. |
-| [#11044](https://github.com/manaflow-ai/cmux/pull/11044), `c33d38ab80166e7ca525d197faf93d1f918f55f2` | Resource operation wire names use one contract. | `git revert -m 1 c33d38ab80166e7ca525d197faf93d1f918f55f2` only with protocol compatibility checks. |
-| [#11045](https://github.com/manaflow-ai/cmux/pull/11045), `8d71d72e6de027074828d7d81443b1f8ec825283` | Remote transport loss is explicit and localized. | `git revert -m 1 8d71d72e6de027074828d7d81443b1f8ec825283` with client behavior checks. |
+| [#11072](https://github.com/manaflow-ai/cmux/pull/11072), `253df2472973a5654e1a3d7fee13764a177c7a79` | Runtime shutdown cleanup is deduplicated with preserved teardown order. | `git revert 253df2472973a5654e1a3d7fee13764a177c7a79` after checking dependent shutdown changes. |
+| [#11041](https://github.com/manaflow-ai/cmux/pull/11041), `305519d149c1ca61d4be4838e18b0a59f8e69b2a` | Paste repro harnesses and analyzer audit are on main. | `git revert 305519d149c1ca61d4be4838e18b0a59f8e69b2a` only if the test infrastructure must be removed. |
+| [#11000](https://github.com/manaflow-ai/cmux/pull/11000), `8910e6360e3b1d8b05b875cbe44e1901e8c7fc60` | Surface-exit indexing avoids repeated scans and repairs stale indexes. | `git revert 8910e6360e3b1d8b05b875cbe44e1901e8c7fc60` with the index consumers reviewed. |
+| [#11044](https://github.com/manaflow-ai/cmux/pull/11044), `c33d38ab80166e7ca525d197faf93d1f918f55f2` | Resource operation wire names use one contract. | `git revert c33d38ab80166e7ca525d197faf93d1f918f55f2` only with protocol compatibility checks. |
+| [#11045](https://github.com/manaflow-ai/cmux/pull/11045), `8d71d72e6de027074828d7d81443b1f8ec825283` | Remote transport loss is explicit and localized. | `git revert 8d71d72e6de027074828d7d81443b1f8ec825283` with client behavior checks. |
 
 Open work remains gated by exact current heads in `PR-INTENT-BOARD.md`. Session accounting is honest: strict count `unknown`, older named-turn lower bound 258, no 10,000-session evidence.
 

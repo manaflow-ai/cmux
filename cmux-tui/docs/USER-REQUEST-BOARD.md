@@ -1,20 +1,20 @@
 # cmux-tui user request board
 
-## Wave 85 current state: main `0b95285f6f6754ed0cde2a2d64d81b763280cc75`
+## Wave 85 current state: main `1e09970237f21686b8c0e6853b51a89819623803`
 
-Snapshot: 2026-08-28T08:26:21Z. The latest merge and gate states are pinned to exact heads.
+Snapshot: 2026-08-28T09:04:37Z. The latest merge and gate states are pinned to exact heads.
 
 | Request | Status | Acceptance proof |
 | --- | --- | --- |
 | Deduplicate cmux-tui shutdown | [#11072](https://github.com/manaflow-ai/cmux/pull/11072) merged, source `7cf4ed0b96fb1bc22b2a2823dc81d3164ebbd60d`, merge `253df2472973a5654e1a3d7fee13764a177c7a79` | One owned shutdown cleanup path is on main; dependent lifecycle changes still need focused checks. |
 | Cloud tree interaction | [#11069](https://github.com/manaflow-ai/cmux/pull/11069) merged, source `d9646e350bcd5db20458899ff66f4a19df9d0a14`, merge `f756735566a2ce16bad450a8ab592fef2a40d9c4` | Right-click verbs, confirmations, workspace double-click, and drag gating are on main. Hierarchical Harbor redesign remains open. |
 | Remove the second retained-tab scan | [#11056](https://github.com/manaflow-ai/cmux/pull/11056) merged, source `433e1f5ec237476077e7a50eceeb1c39547fc0ff`, merge `102aa3d63086bf0617a6b5a34d5cb2465f2a74a7` | One-pass reindexing preserves duplicate surface IDs and clamp behavior. |
-| Order hook records and suppress ended agents | [#11024](https://github.com/manaflow-ai/cmux/pull/11024) open after a current-main rebase, head `8bb1e346` | Exact review and restart, stale-hook, tombstone, and sanitized-projection tests. |
-| Preserve projection rail pointer routing | [#11025](https://github.com/manaflow-ai/cmux/pull/11025) open, head `35c18d226635b90c18376f2ce441eb295c10af45`, mergeable | Exact review and focused pointer-routing tests. |
-| Add Unicode glyph conformance invariants | [#11028](https://github.com/manaflow-ai/cmux/pull/11028) open, head `5ca760526fed25225b135f99b238a9a0fd7ac7e9`, mergeable | Exact review and hosted Unicode test. |
-| Keep config replacement files private | [#10990](https://github.com/manaflow-ai/cmux/pull/10990) open, head `244c39fb9d1543a69061280c7111da3f76678655`, mergeable | Atomic private staging, collision retry, durability, and locale tests. |
-| Remove avoidable graphics allocations | [#11055](https://github.com/manaflow-ai/cmux/pull/11055) open, head `d64c71274695c17b7acb96b144c1acacf0a66c2b`, mergeable, checks unstable | Run the dirty-surface hosted test. |
-| Resolve reducer, CDP, Harbor, and drag blockers | [#11002](https://github.com/manaflow-ai/cmux/pull/11002), [#11068](https://github.com/manaflow-ai/cmux/pull/11068), [#11013](https://github.com/manaflow-ai/cmux/pull/11013), [#11078](https://github.com/manaflow-ai/cmux/pull/11078), [#11063](https://github.com/manaflow-ai/cmux/pull/11063), and [#10401](https://github.com/manaflow-ai/cmux/pull/10401) remain open or stacked | Do not claim completion without exact-head reducer/parity, safe CDP diagnostics, Harbor tree/manual-I/O, and drag-into-terminal behavior proof. |
+| Order hook records and suppress ended agents | [#11024](https://github.com/manaflow-ai/cmux/pull/11024) open, head `7593d643fac436a01ad5044dcba180989702b4c3`, mergeable on `main` `1e09970237f21686b8c0e6853b51a89819623803`, checks unstable | Exact review and restart, stale-hook, tombstone, and sanitized-projection tests. |
+| Preserve projection rail pointer routing | [#11025](https://github.com/manaflow-ai/cmux/pull/11025) open, head `35c18d226635b90c18376f2ce441eb295c10af45`, mergeable on stale base `102aa3d63086bf0617a6b5a34d5cb2465f2a74a7`, checks unstable | Exact review and focused pointer-routing tests. |
+| Add Unicode glyph conformance invariants | [#11028](https://github.com/manaflow-ai/cmux/pull/11028) open, head `5ca760526fed25225b135f99b238a9a0fd7ac7e9`, mergeable on stale base `102aa3d63086bf0617a6b5a34d5cb2465f2a74a7`, checks unstable | Exact review and hosted Unicode test. |
+| Keep config replacement files private | [#10990](https://github.com/manaflow-ai/cmux/pull/10990) open, head `2608c8ca279f26c188723e95f31e6ac287439423`, mergeable on `main` `1e09970237f21686b8c0e6853b51a89819623803`, checks unstable | Atomic private staging, collision retry, durability, and locale tests. |
+| Remove avoidable graphics allocations | [#11055](https://github.com/manaflow-ai/cmux/pull/11055) open, head `d64c71274695c17b7acb96b144c1acacf0a66c2b`, mergeable on stale base `102aa3d63086bf0617a6b5a34d5cb2465f2a74a7`, checks unstable | Run the dirty-surface hosted test. |
+| Resolve reducer, CDP, Harbor, and drag blockers | [#11002](https://github.com/manaflow-ai/cmux/pull/11002), [#11068](https://github.com/manaflow-ai/cmux/pull/11068), and [#11013](https://github.com/manaflow-ai/cmux/pull/11013) are open, mergeable, and clean on stale bases; stacked [#11078](https://github.com/manaflow-ai/cmux/pull/11078) and [#10401](https://github.com/manaflow-ai/cmux/pull/10401) are conflicting and dirty; [#11063](https://github.com/manaflow-ai/cmux/pull/11063) is open, mergeable, and clean on a stale base | Do not claim completion without exact-head reducer/parity, safe CDP diagnostics, Harbor tree/manual-I/O, and drag-into-terminal behavior proof. |
 
 Strict session total remains `unknown`. Audit basis: 2026-08-28 history and archived receipts; matching TUI entries, deduplicating by session, and retaining only substantive productive sessions yields a conservative lower bound of 50. The historical ledger retains at least 258 named substantive turns. Neither is a total.
 
