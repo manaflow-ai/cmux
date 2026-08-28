@@ -173,21 +173,39 @@ public actor MobileIrxRuntimeComposition {
         // the account route revision fleet-wide.
         provisioningTask?.cancel()
         provisioningTask = Task { [weak self] in
+            // Restored sessions first: bootstrap completion is the point
+            // where signed-in state is definitively known, and a session
+            // restored from the keychain may have published before this
+            // subscription existed. Checking directly here means a
+            // signed-in launch provisions immediately without depending on
+            // catching that publish.
+            await auth.awaitBootstrapped()
+            guard !Task.isCancelled else { return }
+            if await self?.provisionSignedInWithRetry() == true { return }
+            // Fresh sign-ins and account transitions: provision the instant
+            // the session publishes. Still zero pre-auth attempts.
             for await identity in await auth.authenticatedSessionIdentities() {
                 guard !Task.isCancelled else { return }
                 guard identity != nil else { continue }
-                // Signed in: any failure past this point is a real broker or
-                // network failure, retried on a capped backoff.
-                var delay: Duration = .seconds(1)
-                while !Task.isCancelled {
-                    if await self?.provisionIfPossible() == true {
-                        return
-                    }
-                    try? await Task.sleep(for: delay)
-                    delay = min(delay * 2, .seconds(30))
-                }
+                if await self?.provisionSignedInWithRetry() == true { return }
             }
         }
+    }
+
+    /// Provisions with capped backoff. Returns true on success; returns
+    /// false immediately when not signed in (the caller's auth signal owns
+    /// the next attempt, so no pre-auth retries ever run).
+    private func provisionSignedInWithRetry() async -> Bool {
+        guard let auth,
+            (try? await auth.authenticatedSessionSnapshot()) != nil
+        else { return false }
+        var delay: Duration = .seconds(1)
+        while !Task.isCancelled {
+            if await provisionIfPossible() { return true }
+            try? await Task.sleep(for: delay)
+            delay = min(delay * 2, .seconds(30))
+        }
+        return false
     }
 
     /// Foreground kick: re-check credential freshness immediately (iOS
