@@ -54,6 +54,7 @@
     "community": "커뮤니티",
     "docs": "문서",
     "changelog": "변경 로그",
+    "support": "지원",
     "privacy": "개인정보 처리방침",
     "terms": "이용약관",
     "eula": "EULA",
@@ -3670,6 +3671,52 @@
       "secondaryCta": "Debian 패키지(.deb)",
       "requirements": "Linux · x64",
       "installBody": "사용자별 설치 프로그램을 한 번 실행하세요. root 권한 없이 ~/.local에 설치되며 서명된 앱 내 업데이트가 활성화됩니다. 패키지 관리자로 업데이트를 관리하려면 대신 Debian 패키지를 선택하세요."
+    }
+  },
+  "support": {
+    "metaTitle": "지원 | cmux",
+    "metaDescription": "cmux에 대한 도움을 받아 보세요. 메시지를 보내 주시면 이메일로 답변해 드리며, Discord와 GitHub에서도 만나실 수 있습니다.",
+    "section": "지원",
+    "title": "cmux에 대한 도움을 받아 보세요.",
+    "body": "메시지를 보내 주시면 이메일로 답변해 드립니다. 무엇을 하고 있었는지, 무엇을 기대했는지, 실제로는 어떤 일이 일어났는지 함께 적어 주시면 더 빠르게 도와드릴 수 있습니다.",
+    "channels": {
+      "docs": {
+        "label": "문서",
+        "description": "시작하기, 설정, 문제 해결을 위한 가이드입니다."
+      },
+      "discord": {
+        "label": "Discord",
+        "description": "커뮤니티와 팀에게 실시간으로 질문해 보세요."
+      },
+      "github": {
+        "label": "GitHub 이슈",
+        "description": "버그를 신고하고 기능을 공개적으로 요청해 보세요."
+      },
+      "email": {
+        "label": "founders@manaflow.com",
+        "description": "이메일이 더 편하신가요? 직접 보내 주세요."
+      }
+    },
+    "formAriaLabel": "지원 문의 양식",
+    "form": {
+      "name": "이름",
+      "email": "이메일 주소",
+      "topic": "주제",
+      "message": "무엇을 도와드릴까요?",
+      "selectPlaceholder": "하나를 선택하세요",
+      "topicOptions": [
+        "버그 신고",
+        "결제 또는 구독",
+        "계정 또는 로그인",
+        "Cloud VMs",
+        "기능 요청",
+        "기타"
+      ],
+      "privacy": "이메일 주소는 지원 요청에 답변하는 용도로만 사용하며, 연락처 정보를 판매하지 않습니다.",
+      "submit": "메시지 보내기",
+      "submitting": "보내는 중...",
+      "success": "감사합니다. 메시지를 잘 받았으며 founders@manaflow.com에서 이메일로 답변해 드리겠습니다.",
+      "error": "문제가 발생했습니다. 다시 시도하시거나 founders@manaflow.com으로 이메일을 보내 주세요."
     }
   },
   "emails": {

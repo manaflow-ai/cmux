@@ -28,6 +28,16 @@ final class CmuxWebView: WKWebView {
         trustedInternalNavigationURLs.remove(url.absoluteString) != nil
     }
 
+    @MainActor
+    func clearTrustedInternalNavigationGrants() {
+        trustedInternalNavigationURLs.removeAll()
+    }
+
+    @MainActor
+    func resetTrustedInternalNavigationState() {
+        clearTrustedInternalNavigationGrants()
+    }
+
     // WebKit registers web-content edit commands on the view's `undoManager`;
     // owning one per web view keeps every page's undo stack scoped to this
     // view's lifetime instead of the window's shared undo manager.

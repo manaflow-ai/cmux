@@ -28,10 +28,10 @@ import {
 
 export const PRO_PLAN_ID = "pro";
 export const TEAM_PLAN_ID = "team";
-// Founder's Edition is a verified one-time entitlement. It is stored in the
-// operator-owned `cmuxVmPlan` metadata key because it has no Stripe
-// subscription to reconcile. The dashboard normalizes this source to Pro
-// without treating it as Stripe-managed billing.
+// Founder's Edition is a verified one-time entitlement stored in the
+// operator-owned `cmuxVmPlan` override. Stripe reconciliation leaves that
+// marker intact, while personal-plan normalization exposes Pro access without
+// enabling subscription-management controls.
 export const FOUNDERS_PLAN_ID = "founders";
 export const FREE_PLAN_ID = "free";
 export const PRO_ACCESS_ITEM_ID = "cmux-pro-access";

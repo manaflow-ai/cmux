@@ -6966,7 +6966,7 @@ pub struct App {
     active_pointer_buttons: HashSet<MouseButton>,
     ignored_pty_mouse_buttons: HashSet<MouseButton>,
     #[cfg(test)]
-    timeout_drain_hook: Option<Box<dyn FnOnce() + Send>>,
+    timeout_drain_hook: Option<Box<dyn FnOnce(&mut Self) + Send>>,
     encoder: KeyEncoder,
     encode_buf: Vec<u8>,
     quit: bool,
@@ -10307,6 +10307,7 @@ impl App {
                 Duration::from_millis(250)
             };
             let timeout = terminal_paints.wait_timeout(timeout, Instant::now());
+            let mut toast_expired_on_timeout = false;
             let first = match rx.recv_timeout(timeout) {
                 Ok(event) => Some(event),
                 Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
@@ -10317,6 +10318,7 @@ impl App {
                         action = action.merge(RenderAction::Draw);
                     }
                     if self.expire_toast() {
+                        toast_expired_on_timeout = true;
                         action = action.merge(RenderAction::Draw);
                     }
                     if self.tick_sidebar_files() {
@@ -10339,7 +10341,7 @@ impl App {
             if first.is_none()
                 && let Some(hook) = self.timeout_drain_hook.take()
             {
-                hook();
+                hook(self);
             }
             if let Some(event) = first {
                 action = self.handle_event_and_process_machine_requests(event, action)?;
@@ -10369,7 +10371,8 @@ impl App {
             if self.quit {
                 break;
             }
-            if self.expire_toast() {
+            // Keep a toast reintroduced by the timeout drain hook alive for one iteration.
+            if !toast_expired_on_timeout && self.expire_toast() {
                 action = action.merge(RenderAction::Draw);
             }
             action = action.merge(self.advance_viewport_animation(Instant::now()));
@@ -23671,7 +23674,7 @@ mod tests {
         StatusTemplateValues, StatusWorkerStop, StdoutLock, SurfaceAttachClaimState,
         SurfaceResizeDecision, SurfaceResizeOwnership, TERMINAL_PAINT_CADENCE, TerminalInput,
         TerminalPaintPacer, TerminalPointerAdmission, TerminalPointerAdmissionResult,
-        TerminalPointerEncoding, TextInput, VIEWPORT_ANIMATION_DURATION, ViewportMotion,
+        TerminalPointerEncoding, TextInput, Toast, VIEWPORT_ANIMATION_DURATION, ViewportMotion,
         ViewportPaneAreaProjection, WorkspaceRailSelection, action_available_in_mode,
         browser_content_size_for_rect, browser_frame_source_crop, browser_hover_forward_allowed,
         browser_source_crop, canonical_terminal_content, catch_renderer_panic,
@@ -26717,6 +26720,20 @@ mod tests {
         assert_eq!(app.status_message.as_deref(), Some("SSH connection failed"));
         app.run_action(Action::ToggleSidebarCompact).unwrap();
         assert_eq!(app.status_message.as_deref(), Some("SSH connection failed"));
+    }
+
+    #[test]
+    fn expired_toast_is_consumed_once() {
+        let mux = Mux::new("expired-toast-once-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.toast = Some(Toast {
+            text: "expired".to_string(),
+            deadline: Instant::now() - Duration::from_millis(1),
+        });
+
+        assert!(app.expire_toast());
+        assert!(!app.expire_toast());
+        assert!(app.toast.is_none());
     }
 
     #[test]
@@ -36311,7 +36328,7 @@ mod tests {
         app.shake_frames = 2;
         let (timeout_started_tx, timeout_started_rx) = std::sync::mpsc::channel();
         let (pointer_queued_tx, pointer_queued_rx) = std::sync::mpsc::channel();
-        app.timeout_drain_hook = Some(Box::new(move || {
+        app.timeout_drain_hook = Some(Box::new(move |_| {
             timeout_started_tx.send(()).unwrap();
             pointer_queued_rx.recv().unwrap();
         }));
@@ -36337,6 +36354,33 @@ mod tests {
             app.deferred_input_sequence, 1,
             "pointer input drained after a timeout-triggered draw must cross the rendered-frame barrier"
         );
+    }
+
+    #[test]
+    fn event_loop_expires_toast_on_idle_timeout() {
+        let mux = Mux::new("toast-timeout-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.toast = Some(Toast {
+            text: "expired".to_string(),
+            deadline: Instant::now() - Duration::from_millis(1),
+        });
+        let timeout_seen = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let timeout_seen_in_hook = timeout_seen.clone();
+        let (events, receiver) = crossbeam_channel::unbounded();
+        app.timeout_drain_hook = Some(Box::new(move |app| {
+            timeout_seen_in_hook.store(true, std::sync::atomic::Ordering::Relaxed);
+            app.toast = Some(Toast {
+                text: "reintroduced".to_string(),
+                deadline: Instant::now() - Duration::from_millis(1),
+            });
+            drop(events);
+        }));
+        let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+
+        app.event_loop(&mut terminal, receiver).unwrap();
+
+        assert!(timeout_seen.load(std::sync::atomic::Ordering::Relaxed));
+        assert_eq!(app.toast.as_ref().map(|toast| toast.text.as_str()), Some("reintroduced"));
     }
 
     #[test]
