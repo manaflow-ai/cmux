@@ -704,10 +704,6 @@ fn spawn_pipe_mode(spec: &SpawnSpec, _reason: &str, handoff: &SpawnHandoff) -> P
                 let child = child_guard.child_mut();
                 (child.stdin.take(), child.stdout.take(), child.stderr.take(), child.id())
             };
-            let Some(pid) = pid else {
-                drop(child_guard);
-                return dead_handle(output, None);
-            };
             let lifecycle = ChildLifecycle::new(Some(pid));
             let wait_lifecycle = Arc::clone(&lifecycle);
             let control = Arc::new(PipeControl { stdin: Mutex::new(stdin), pid, lifecycle });
