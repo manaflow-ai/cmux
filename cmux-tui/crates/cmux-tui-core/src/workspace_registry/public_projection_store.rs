@@ -211,10 +211,11 @@ impl WorkspaceRegistry {
     ) -> anyhow::Result<Vec<RegistryAgentProjection>> {
         let mut agents = self.durable_agents(terminal, state)?;
         agents.retain(|agent| {
-            !agent
-                .source_session
-                .as_deref()
-                .is_some_and(|value| value.starts_with("cmux-hook-ended:"))
+            !(agent.source == "hook" && agent.state == "done")
+                && !agent
+                    .source_session
+                    .as_deref()
+                    .is_some_and(|value| value.starts_with("cmux-hook-ended:"))
         });
         for agent in &mut agents {
             if agent.source_session.as_deref().is_some_and(|value| {

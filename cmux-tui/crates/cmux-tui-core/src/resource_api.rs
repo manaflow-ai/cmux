@@ -725,10 +725,11 @@ pub(crate) fn public_session_snapshot_with_journal_head(
             .agents
             .into_iter()
             .filter(|agent| {
-                !agent
-                    .source_session
-                    .as_deref()
-                    .is_some_and(|value| value.starts_with("cmux-hook-ended:"))
+                !(agent.source == "hook" && agent.state == "done")
+                    && !agent
+                        .source_session
+                        .as_deref()
+                        .is_some_and(|value| value.starts_with("cmux-hook-ended:"))
             })
             .map(|mut agent| {
                 if agent.source_session.as_deref().is_some_and(|value| {

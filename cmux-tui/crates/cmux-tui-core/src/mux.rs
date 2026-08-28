@@ -5265,9 +5265,9 @@ impl Mux {
     /// Committed agent hook events double as the live agent-status feed:
     /// a fresh `agent.*` journal event updates its terminal's agent record,
     /// so agents views show working/blocked/idle/done without a separate
-    /// reporting channel. Best effort by design: a hook may outlive its
-    /// terminal (exit races, replays into closed tabs), and the journal
-    /// append must never start failing because the record cannot update.
+    /// reporting channel. The journal commit remains durable even when the
+    /// projection fails, and the error is returned so the caller can retry the
+    /// same idempotent ingress after the terminal or projection is available.
     fn apply_agent_hook_record(
         &self,
         ingress: &crate::JournalIngress,
@@ -21820,8 +21820,8 @@ mod tests {
             serde_json::json!({}),
         )
         .unwrap();
-        mux.apply_agent_hook_record(&newer, 2);
-        mux.apply_agent_hook_record(&older, 1);
+        mux.apply_agent_hook_record(&newer, 2).unwrap();
+        mux.apply_agent_hook_record(&older, 1).unwrap();
         assert_eq!(mux.list_agents(Some(surface.id), None)[0].state, AgentState::Blocked);
     }
 
@@ -21846,7 +21846,7 @@ mod tests {
         // apply_agent_hook_record intentionally holds the sequence guard while
         // it commits. The Hook report path must use its supplied marker and
         // must not try to acquire that guard again.
-        mux.apply_agent_hook_record(&hook, 1);
+        mux.apply_agent_hook_record(&hook, 1).unwrap();
 
         assert_eq!(mux.list_agents(Some(surface.id), None)[0].state, AgentState::Working);
         assert_eq!(
@@ -21901,10 +21901,10 @@ mod tests {
         )
         .unwrap();
         mux.workspace_registry.lock().unwrap().set_resource_patch_failure(true).unwrap();
-        mux.apply_agent_hook_record(&ingress, 7);
+        assert!(mux.apply_agent_hook_record(&ingress, 7).is_err());
         assert!(mux.list_agents(Some(surface.id), None).is_empty());
         mux.workspace_registry.lock().unwrap().set_resource_patch_failure(false).unwrap();
-        mux.apply_agent_hook_record(&ingress, 7);
+        mux.apply_agent_hook_record(&ingress, 7).unwrap();
         assert_eq!(mux.list_agents(Some(surface.id), None)[0].state, AgentState::Working);
     }
 
@@ -21926,7 +21926,7 @@ mod tests {
             serde_json::json!({}),
         )
         .unwrap();
-        mux.apply_agent_hook_record(&ended, 9);
+        mux.apply_agent_hook_record(&ended, 9).unwrap();
         let ended_events = mux.resource_events_after(initial_revision).unwrap();
         assert_eq!(ended_events.batches.len(), 1);
         let ended_change = &ended_events.batches[0].changes[0];
@@ -21940,7 +21940,7 @@ mod tests {
             serde_json::json!({}),
         )
         .unwrap();
-        mux.apply_agent_hook_record(&delayed, 10);
+        mux.apply_agent_hook_record(&delayed, 10).unwrap();
         assert!(mux.list_agents(Some(surface.id), None).is_empty());
         let snapshot = crate::resource_api::public_session_snapshot(&mux).unwrap();
         assert!(snapshot["agents"].as_array().unwrap().is_empty());
@@ -21972,9 +21972,9 @@ mod tests {
             )
             .unwrap()
         };
-        mux.apply_agent_hook_record(&ingress("SessionEnd", "old"), 1);
-        mux.apply_agent_hook_record(&ingress("SessionStart", "new"), 2);
-        mux.apply_agent_hook_record(&ingress("UserPromptSubmit", "old"), 3);
+        mux.apply_agent_hook_record(&ingress("SessionEnd", "old"), 1).unwrap();
+        mux.apply_agent_hook_record(&ingress("SessionStart", "new"), 2).unwrap();
+        mux.apply_agent_hook_record(&ingress("UserPromptSubmit", "old"), 3).unwrap();
         let records = mux.list_agents(Some(surface.id), None);
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].state, AgentState::Idle);
@@ -22005,7 +22005,7 @@ mod tests {
             serde_json::json!({}),
         )
         .unwrap();
-        mux.apply_agent_hook_record(&hook, 4);
+        mux.apply_agent_hook_record(&hook, 4).unwrap();
         mux.report_agent(
             surface.id,
             AgentState::Working,
