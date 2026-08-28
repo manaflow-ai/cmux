@@ -81,6 +81,10 @@ public struct SubrouterCodexResumeRouting: Sendable, Equatable {
         var index = 0
         while index < arguments.count {
             let argument = arguments[index]
+            if argument == "--" {
+                selected.append(contentsOf: arguments[index...])
+                break
+            }
             if (argument == "-c" || argument == "--config"), index + 1 < arguments.count {
                 if isSubrouterRoutingAssignment(arguments[index + 1]) {
                     index += 2
@@ -102,17 +106,25 @@ public struct SubrouterCodexResumeRouting: Sendable, Equatable {
 
     private func launchArgumentsContainSubrouterProvider(_ arguments: [String]) -> Bool {
         var effectiveProvider: String?
-        for (index, argument) in arguments.enumerated() {
+        var index = 0
+        while index < arguments.count {
+            let argument = arguments[index]
+            if argument == "--" {
+                break
+            }
             if (argument == "-c" || argument == "--config"),
                index + 1 < arguments.count,
                let provider = modelProviderAssignment(in: arguments[index + 1]) {
                 effectiveProvider = provider
+                index += 2
+                continue
             }
             for prefix in ["-c=", "--config="] where argument.hasPrefix(prefix) {
                 if let provider = modelProviderAssignment(in: String(argument.dropFirst(prefix.count))) {
                     effectiveProvider = provider
                 }
             }
+            index += 1
         }
         return effectiveProvider == "subrouter"
     }

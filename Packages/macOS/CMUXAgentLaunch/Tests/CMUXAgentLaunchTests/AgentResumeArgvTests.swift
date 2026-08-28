@@ -401,8 +401,6 @@ struct AgentResumeArgvTests {
             ) == .resolved([
                 "sr", "codex", "resume", "SID",
                 "-c", "check_for_update_on_startup=false",
-                "--",
-                "-c", "model_provider=openai",
             ])
         )
 

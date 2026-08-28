@@ -167,7 +167,8 @@ public struct AgentRestorePlanner: Sendable {
         for request: AgentRestoreRequest,
         kind: String
     ) -> [String: String] {
-        var captured = request.launchCommand?.environment ?? [:]
+        let launchEnvironment = request.launchCommand?.environment ?? [:]
+        var captured = launchEnvironment
         captured.merge(request.environment) { _, binding in binding }
         if kind == "codex",
            let rawCodexHome = normalized(captured["CODEX_HOME"]),
@@ -197,9 +198,12 @@ public struct AgentRestorePlanner: Sendable {
                 launcher: request.launchCommand?.launcher,
                 sessionID: "restore-environment-validation",
                 launchArguments: request.launchCommand?.arguments ?? [],
-                environment: captured
+                environment: launchEnvironment
             ) != nil {
-                selected.merge(router.capturedRoutingEnvironment(in: captured)) { _, routingValue in
+                // Only the launch record can prove routed resume. Request environment
+                // remains authoritative for ordinary replay values, but cannot replace
+                // the bounded routing values captured with that proof.
+                selected.merge(router.capturedRoutingEnvironment(in: launchEnvironment)) { _, routingValue in
                     routingValue
                 }
             }

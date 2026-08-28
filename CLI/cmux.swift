@@ -9148,7 +9148,7 @@ struct CMUXCLI {
             let params = try surfaceResumeTarget(rest, client: client, windowOverride: windowOverride).params
             let payload = try client.sendV2(method: "surface.resume.get", params: params)
             if jsonOutput {
-                print(jsonString(formatIDs(payload, mode: idFormat)))
+                print(jsonString(formatIDs(publicSurfaceResumePayload(payload), mode: idFormat)))
             } else if let binding = payload["resume_binding"] as? [String: Any],
                       let command = binding["command"] as? String,
                       !command.isEmpty {
@@ -31360,7 +31360,7 @@ struct CMUXCLI {
         if let resumeWorkingDirectory {
             params["cwd"] = resumeWorkingDirectory
         }
-        if let resumeEnvironment, !resumeEnvironment.isEmpty {
+        if !resumeEnvironment.isEmpty {
             params["environment"] = resumeEnvironment
         }
         if let launchCommand {
@@ -31569,16 +31569,15 @@ struct CMUXCLI {
     private func agentSurfaceResumeEnvironment(
         kind: String,
         launchCommand: AgentHookLaunchCommandRecord?
-    ) -> [String: String]? {
-        let environment = launchCommand?.environment
-        guard let environment else { return nil }
+    ) -> [String: String] {
+        let environment = launchCommand?.environment ?? [:]
         let selected = AgentLaunchEnvironmentPolicy().selectedReplayEnvironment(
             from: environment,
             kind: kind,
             launcher: launchCommand?.launcher,
             arguments: launchCommand?.arguments ?? []
         )
-        guard !selected.isEmpty else { return nil }
+        guard !selected.isEmpty else { return [:] }
 
         let claudeAuthKeys: Set<String> = [
             "ANTHROPIC_API_KEY",
