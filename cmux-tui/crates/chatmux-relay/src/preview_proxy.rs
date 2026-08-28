@@ -813,12 +813,15 @@ async fn connect_target(
     Box<hyper::Response<ProxyBody>>,
 > {
     let stream = tokio::net::TcpStream::connect(("127.0.0.1", shared.target_port)).await.map_err(
-        |error| Box::new(text_response(502, &format!("preview target port is not reachable: {error}"))),
+        |error| {
+            Box::new(text_response(502, &format!("preview target port is not reachable: {error}")))
+        },
     )?;
     let io = hyper_util::rt::TokioIo::new(stream);
-    let (sender, connection) = hyper::client::conn::http1::handshake(io)
-        .await
-        .map_err(|error| Box::new(text_response(502, &format!("target handshake failed: {error}"))))?;
+    let (sender, connection) =
+        hyper::client::conn::http1::handshake(io).await.map_err(|error| {
+            Box::new(text_response(502, &format!("target handshake failed: {error}")))
+        })?;
     let driver = tokio::spawn(async move {
         let _ = connection.with_upgrades().await;
     });
