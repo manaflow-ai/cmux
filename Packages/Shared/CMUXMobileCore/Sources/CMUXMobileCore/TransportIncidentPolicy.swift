@@ -15,12 +15,20 @@ public import Foundation
 /// decisions are deterministic and fully unit-testable with synthesized events.
 ///
 /// Suppression rules encode what an operator can already attribute without a
-/// report: failures classified ``DiagnosticFailureKind/cancelled`` or
-/// ``DiagnosticFailureKind/superseded`` are lifecycle churn;
-/// ``DiagnosticFailureKind/offline`` failures and pairing preflight
-/// unreachability while the device reports no network path are expected;
-/// ``DiagnosticFailureKind/transportIdleTimedOut`` while backgrounded is
-/// suspension, not a defect.
+/// report: failures classified ``DiagnosticFailureKind/cancelled``,
+/// ``DiagnosticFailureKind/superseded``, or ``DiagnosticFailureKind/routeGated``
+/// are lifecycle churn; ``DiagnosticFailureKind/offline`` failures and pairing
+/// preflight unreachability while the device reports no network path are
+/// expected; ``DiagnosticFailureKind/transportIdleTimedOut`` while backgrounded
+/// is suspension, not a defect.
+///
+/// Peer-unreachable failures (the *Mac* was unreachable while this device had
+/// a usable network path) are demoted rather than suppressed: a sleeping or
+/// offline Mac is the single most common environment and capturing each such
+/// dial/pair failure flooded the project, but a sustained no-success window is
+/// still a real incident. Demoted failures therefore stay breadcrumb-only as
+/// individual captures while continuing to feed the consecutive-failure streak,
+/// so the transport-outage escalator remains the error-level signal.
 public struct TransportIncidentPolicy: Sendable {
     /// Tunable thresholds. Defaults are chosen so one broken user produces a
     /// handful of well-grouped events per hour, not thousands.
@@ -182,7 +190,8 @@ public struct TransportIncidentPolicy: Sendable {
         guard Self.failureCodes.contains(event.code) else { return nil }
 
         let failure = failureKind(of: event)
-        guard isReportable(event: event, failure: failure) else { return nil }
+        let disposition = disposition(event: event, failure: failure)
+        guard disposition != .ignored else { return nil }
 
         let transport = DiagnosticEventPresentation().transportKind(of: event)
         let signature = Self.signature(code: event.code, failure: failure, transport: transport)
@@ -195,6 +204,8 @@ public struct TransportIncidentPolicy: Sendable {
         if let outage = decideOutage(event: event, signature: signature, failure: failure, transport: transport) {
             return outage
         }
+
+        guard disposition == .capturable else { return nil }
 
         return decideFailureCapture(
             event: event,
@@ -230,28 +241,74 @@ public struct TransportIncidentPolicy: Sendable {
         return nil
     }
 
-    private func isReportable(event: DiagnosticEvent, failure: DiagnosticFailureKind?) -> Bool {
+    /// How one failure event participates in incident decisions.
+    private enum FailureDisposition {
+        /// Lifecycle churn: neither captured nor counted toward the streak.
+        case ignored
+        /// Expected environmental failure: breadcrumb-only as an individual
+        /// capture, but still streak-eligible so a sustained no-success
+        /// window escalates into one outage incident.
+        case demoted
+        /// A diagnosable defect: streak-eligible and capture-eligible.
+        case capturable
+    }
+
+    /// Failure kinds that mean the dialed peer (or the path to it), not this
+    /// device or our request, was the problem. A Mac that is asleep, offline,
+    /// or mid-relaunch produces these on every automatic reconnect pass.
+    private static let peerUnreachableFailureKinds: Set<DiagnosticFailureKind> = [
+        .timedOut, .connectionRefused, .hostUnreachable, .noRoute,
+    ]
+
+    /// Codes on which a `connectionClosed` classification is ordinary connect
+    /// churn (the peer or path dropped mid-handshake) rather than an
+    /// established session dying under the user. `.error` is the subscription
+    /// handshake's stream-ended-before-ack seam.
+    private static let connectionClosedDemotedCodes: Set<DiagnosticEventCode> = [
+        .pairFail, .transportDialFailed, .transportDialLegFailed, .error,
+    ]
+
+    private func disposition(
+        event: DiagnosticEvent,
+        failure: DiagnosticFailureKind?
+    ) -> FailureDisposition {
         switch failure {
-        case .some(.none), .some(.cancelled), .some(.superseded):
-            // Expected lifecycle churn: an intentional close, a dial replaced by
-            // a newer attempt, or a cooperative cancellation.
-            return false
+        case .some(.none), .some(.cancelled), .some(.superseded), .some(.routeGated):
+            // Expected lifecycle churn: an intentional close, a dial replaced
+            // by a newer attempt, a cooperative cancellation, or a dial
+            // refused because this exact route already has an attempt in
+            // flight. A gated dial never reached the network, so it is not
+            // even connectivity evidence for the streak.
+            return .ignored
         case .some(.offline):
             // Offline failures while the device itself reports no network path
             // are environmental, not diagnosable defects. When reachability is
             // unknown or claims a usable path, an offline classification IS
             // interesting (e.g. a stale local socket).
-            return reachable != false
+            return reachable != false ? .capturable : .ignored
         case .some(.transportIdleTimedOut):
             // Idle expiry while backgrounded is scene suspension. In the
             // foreground it is a real defect (sessions dying under the user).
-            return appPhase != .background
+            return appPhase != .background ? .capturable : .ignored
+        case .some(.connectionClosed) where Self.connectionClosedDemotedCodes.contains(event.code):
+            // An ordinary mid-connect close while this device has a usable
+            // path: expected peer churn. Breadcrumb-only, streak-eligible.
+            // While the device itself reports no path the current capture
+            // behavior is preserved (offline-state handling has its own
+            // owner and rules).
+            return reachable != false ? .demoted : .capturable
+        case .some(let kind) where Self.peerUnreachableFailureKinds.contains(kind):
+            // The Mac was unreachable while this device had (or may have had)
+            // a network path: the expected asleep/offline-Mac environment.
+            // Breadcrumb-only, but streak-eligible so the outage escalator
+            // stays the error-level signal for a sustained window.
+            return reachable != false ? .demoted : .capturable
         case nil:
             // Codes that never carry a failure kind (pairFail, error) stay
             // reportable; sessionClosed without one is documented as expected.
-            return event.code != .sessionClosed
+            return event.code != .sessionClosed ? .capturable : .ignored
         default:
-            return true
+            return .capturable
         }
     }
 

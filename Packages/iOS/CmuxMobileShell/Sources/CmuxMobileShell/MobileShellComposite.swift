@@ -284,11 +284,23 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public internal(set) var activeTicket: CmxAttachTicket?
     public internal(set) var activeRoute: CmxAttachRoute? {
         didSet {
+            if let route = activeRoute {
+                lastKnownActiveTransportKind = DiagnosticTransportKind(route.kind)
+            }
             guard oldValue != activeRoute, connectionState == .connected else { return }
             recordForegroundTransportSelected()
             restartTerminalLanesForMountedSurfaces()
         }
     }
+
+    /// Transport kind of the most recently assigned non-nil ``activeRoute``.
+    ///
+    /// Connection recovery tears the live route down (its teardown nils
+    /// ``activeRoute``) before its outcome diagnostics record, so reading the
+    /// live route there labeled every recovery event "Unknown transport".
+    /// This retained kind names the transport the recovery is actually about.
+    /// Diagnostic-only: never used for routing decisions.
+    var lastKnownActiveTransportKind: DiagnosticTransportKind?
 
     /// Records which transport actually carries the foreground connection, so
     /// a shared report states Iroh vs Tailscale usage explicitly instead of
@@ -9378,6 +9390,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let routeAllowsStackAuthFallbackOverride = allowsStackAuthFallback
         let connectionAttemptStartedAt = pairingAttemptStartedAt
         var lastError: (any Error)?
+        // True while the failure currently held in `lastError` was already
+        // recorded as `.hostAuthenticationFailed`. The exhausted-connect
+        // `.pairFail` record below skips those so one failed connect cannot
+        // double the incident policy's streak with two events for the same
+        // underlying error. Every `lastError` assignment must keep this in
+        // sync.
+        var lastErrorRecordedHostAuthenticationFailure = false
         var displacedControlReservations: [SecondaryMacSubscription] = []
         let displacedControlReservationHolder = UUID()
         defer {
@@ -9614,6 +9633,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         await client.disconnect()
                         lastError = MobileShellConnectionError.invalidResponse
                         recordHostAuthenticationFailure(route: route, failure: .protocolViolation)
+                        lastErrorRecordedHostAuthenticationFailure = true
                         continue routeLoop
                     }
                     let reportedDeviceID = status.macDeviceID?
@@ -9635,6 +9655,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                             "Mac build is incompatible with this iOS build"
                         )
                         recordHostAuthenticationFailure(route: route, failure: .protocolViolation)
+                        lastErrorRecordedHostAuthenticationFailure = true
                         continue routeLoop
                     }
                     let authority = macInstanceTagAuthority.resolve(
@@ -9648,6 +9669,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         await client.disconnect()
                         lastError = MobileShellConnectionError.invalidResponse
                         recordHostAuthenticationFailure(route: route, failure: .identityMismatch)
+                        lastErrorRecordedHostAuthenticationFailure = true
                         continue routeLoop
                     }
                     let ticketDeviceID = ticket.macDeviceID
@@ -9661,6 +9683,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         await client.disconnect()
                         lastError = MobileShellConnectionError.invalidResponse
                         recordHostAuthenticationFailure(route: route, failure: .identityMismatch)
+                        lastErrorRecordedHostAuthenticationFailure = true
                         continue routeLoop
                     }
                     if let expectedDeviceID,
@@ -9673,6 +9696,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         await client.disconnect()
                         lastError = MobileShellConnectionError.invalidResponse
                         recordHostAuthenticationFailure(route: route, failure: .identityMismatch)
+                        lastErrorRecordedHostAuthenticationFailure = true
                         continue routeLoop
                     }
                     if case .preserve = instanceTagExpectation,
@@ -9683,6 +9707,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         await client.disconnect()
                         lastError = MobileShellConnectionError.invalidResponse
                         recordHostAuthenticationFailure(route: route, failure: .identityMismatch)
+                        lastErrorRecordedHostAuthenticationFailure = true
                         continue routeLoop
                     }
                     if case .require = instanceTagExpectation,
@@ -9690,6 +9715,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         await client.disconnect()
                         lastError = MobileShellConnectionError.invalidResponse
                         recordHostAuthenticationFailure(route: route, failure: .identityMismatch)
+                        lastErrorRecordedHostAuthenticationFailure = true
                         continue routeLoop
                     }
                     let resolvedTicket = Self.ticket(
@@ -9733,6 +9759,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     guard accepted else {
                         await client.disconnect()
                         lastError = MobileShellConnectionError.invalidResponse
+                        lastErrorRecordedHostAuthenticationFailure = false
                         continue routeLoop
                     }
                     diagnosticLog?.record(DiagnosticEvent(
@@ -9943,6 +9970,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     return nil
                 } catch {
                     lastError = error
+                    lastErrorRecordedHostAuthenticationFailure = false
                     guard isConnectCurrent() else {
                         await client.disconnect()
                         return nil
@@ -9956,6 +9984,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         || failure == .authorizationFailed
                         || failure == .accountMismatch {
                         recordHostAuthenticationFailure(route: route, failure: failure)
+                        lastErrorRecordedHostAuthenticationFailure = true
                     }
                     // An unreachable-class iroh route failure is staleness
                     // evidence: drop any reusable discovery snapshot for this
@@ -9983,12 +10012,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // One event per exhausted connect: a second `.rpcFailed` record here
         // would double the incident policy's consecutive-failure streak and
         // burn a second signature-cooldown gate for the same underlying error.
-        diagnosticLog?.record(DiagnosticEvent(
-            .pairFail,
-            a: activeRoute.map { DiagnosticTransportKind($0.kind).rawValue }
-                ?? DiagnosticTransportKind.unknown.rawValue,
-            b: Self.diagnosticFailureKind(for: lastError).rawValue
-        ))
+        // For the same reason, when the failure that exhausted the connect was
+        // already recorded as `.hostAuthenticationFailed`, that record IS the
+        // one event for this connect and a trailing `.pairFail` would
+        // double-count it.
+        if !lastErrorRecordedHostAuthenticationFailure {
+            diagnosticLog?.record(DiagnosticEvent(
+                .pairFail,
+                a: activeRoute.map { DiagnosticTransportKind($0.kind).rawValue }
+                    ?? DiagnosticTransportKind.unknown.rawValue,
+                b: Self.diagnosticFailureKind(for: lastError).rawValue
+            ))
+        }
         throw lastError ?? MobileShellConnectionError.connectionClosed
     }
 
@@ -12663,7 +12698,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             self.terminalSubscriptionStartTask = nil
             guard ack.isSubscribed else {
                 MobileDebugLog.anchormux("sync.subscribe_failed reason=start")
-                self.diagnosticLog?.record(DiagnosticEvent(.error))
+                // The Mac answered but refused/failed the subscription: a
+                // protocol-level defect, not peer unreachability. Carrying the
+                // kind keeps this out of the "Unclassified transport error"
+                // bucket so incident-policy rules can apply.
+                self.diagnosticLog?.record(DiagnosticEvent(
+                    .error,
+                    b: DiagnosticFailureKind.protocolViolation.rawValue
+                ))
                 if recoversConnectionOnFailure {
                     self.recoverDeadConnection(
                         trigger: .subscriptionStartFailed,
@@ -12728,7 +12770,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // dies before its handshake completes IS a failed start.
             mobileShellLog.info("terminal event stream ended before subscribe ack, marking unavailable")
             MobileDebugLog.anchormux("sync.stream_ended before subscribe ack; failed start")
-            diagnosticLog?.record(DiagnosticEvent(.error))
+            // The transport dropped mid-handshake: an ordinary connection
+            // close, classified so the incident policy can demote it instead
+            // of capturing an "Unclassified transport error".
+            diagnosticLog?.record(DiagnosticEvent(
+                .error,
+                b: DiagnosticFailureKind.connectionClosed.rawValue
+            ))
             recoverDeadConnection(
                 trigger: .subscriptionStartFailed,
                 expectedClient: client

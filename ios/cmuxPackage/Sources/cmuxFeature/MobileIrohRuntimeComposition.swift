@@ -237,6 +237,12 @@ public final class MobileIrohRuntimeComposition:
     private let authObserver = MobileIrohAuthObserver()
 
     private weak var auth: AuthCoordinator?
+    /// True once ``configure(auth:connectivityInvalidationBaseURL:)`` ran.
+    /// Under the irx transport this legacy composition is deliberately left
+    /// unconfigured (it stays dormant as the identity donor), so lifecycle
+    /// entrypoints that can only ever fail on an unconfigured composition
+    /// must not record telemetry for that dead code path.
+    private var isConfigured = false
     private var connectivityInvalidationSubscriber:
         CmxConnectivityInvalidationSubscriber?
     private var connectivityInvalidationAccountID: String?
@@ -573,6 +579,7 @@ public final class MobileIrohRuntimeComposition:
         connectivityInvalidationBaseURL: URL? = nil
     ) {
         self.auth = auth
+        isConfigured = true
         if let connectivityInvalidationBaseURL {
             connectivityInvalidationSubscriber = CmxConnectivityInvalidationSubscriber(
                 serviceBaseURL: connectivityInvalidationBaseURL,
@@ -641,6 +648,11 @@ public final class MobileIrohRuntimeComposition:
     /// The catalog keeps cached bindings in a separate route-only view, so this
     /// method can never turn an offline cache entry into a first pairing.
     public func discoverLiveMacs() async -> [MobileDiscoveredIrohMac] {
+        // Under irx this composition is never configured but is still injected
+        // as the shell's discovery seam, so every call here would settle to
+        // `endpointUnavailable` and record a discovery failure for a code path
+        // that can never succeed. Record nothing for the dormant composition.
+        guard isConfigured else { return [] }
         diagnosticLog?.record(DiagnosticEvent(.discoveryStarted, a: DiagnosticTransportKind.iroh.rawValue))
         let readiness = await settleConnectionReadiness()
         guard let runtime else {
