@@ -138,6 +138,20 @@ impl ThreadOutput {
         *self.overflow_handler.lock().expect("overflow handler lock") = Some(handler);
     }
 
+    /// Bind overflow cleanup without extending the control owner's lifetime.
+    /// The source can outlive its `PtyHandle` while its reader thread drains.
+    fn set_overflow_control<T>(&self, control: &Arc<T>)
+    where
+        T: PtyControl + 'static,
+    {
+        let weak_control = Arc::downgrade(control);
+        self.set_overflow_handler(Arc::new(move || {
+            if let Some(control) = weak_control.upgrade() {
+                control.kill();
+            }
+        }));
+    }
+
     /// Mark the queue as owned by a drainer, if a subscriber is ready.
     fn start_delivery(state: &mut SourceState) -> bool {
         if state.delivering
@@ -335,8 +349,7 @@ fn spawn_real_pty(spec: &SpawnSpec) -> anyhow::Result<PtyHandle> {
         writer: Mutex::new(writer),
         killer: Mutex::new(killer),
     });
-    let overflow_control = Arc::clone(&control);
-    output.set_overflow_handler(Arc::new(move || overflow_control.kill()));
+    output.set_overflow_control(&control);
 
     // Blocking reader thread -> output sink.
     let data_output = Arc::clone(&output);
@@ -384,8 +397,7 @@ fn spawn_pipe_mode(spec: &SpawnSpec, reason: &str) -> PtyHandle {
             let stdin = child.stdin.take();
             let pid = child.id() as i32;
             let control = Arc::new(PipeControl { stdin: Mutex::new(stdin), pid });
-            let overflow_control = Arc::clone(&control);
-            output.set_overflow_handler(Arc::new(move || overflow_control.kill()));
+            output.set_overflow_control(&control);
             if let Some(stdout) = child.stdout.take() {
                 let out = Arc::clone(&output);
                 std::thread::spawn(move || pump_pipe(stdout, out));
@@ -634,6 +646,27 @@ mod tests {
     use std::sync::{Arc as TestArc, Barrier, Mutex as TestMutex};
     use std::thread;
 
+    struct TestControl {
+        kills: TestArc<AtomicUsize>,
+        drops: TestArc<AtomicUsize>,
+    }
+
+    impl Drop for TestControl {
+        fn drop(&mut self) {
+            self.drops.fetch_add(1, AtomicOrdering::Relaxed);
+        }
+    }
+
+    impl PtyControl for TestControl {
+        fn write(&self, _data: &[u8]) {}
+        fn resize(&self, _cols: u16, _rows: u16) {}
+        fn pause(&self) {}
+        fn resume(&self) {}
+        fn kill(&self) {
+            self.kills.fetch_add(1, AtomicOrdering::Relaxed);
+        }
+    }
+
     #[test]
     fn session_socket_path_matches_core_fallback_order() {
         let session = format!("legacy-{}", "x".repeat(200));
@@ -729,6 +762,27 @@ mod tests {
         );
         output.push_data(Bytes::from_static(b"another overflow"));
         assert_eq!(kills.load(AtomicOrdering::Relaxed), 1);
+    }
+
+    #[test]
+    fn overflow_control_kills_live_owner_without_retaining_it() {
+        let output = ThreadOutput::new();
+        let kills = TestArc::new(AtomicUsize::new(0));
+        let drops = TestArc::new(AtomicUsize::new(0));
+        let control = TestArc::new(TestControl {
+            kills: TestArc::clone(&kills),
+            drops: TestArc::clone(&drops),
+        });
+        let weak_control = TestArc::downgrade(&control);
+        output.set_overflow_control(&control);
+
+        output.push_data(Bytes::from(vec![b'x'; THREAD_OUTPUT_BACKLOG_CAP]));
+        output.push_data(Bytes::from_static(b"overflow"));
+        assert_eq!(kills.load(AtomicOrdering::Relaxed), 1);
+
+        drop(control);
+        assert!(weak_control.upgrade().is_none());
+        assert_eq!(drops.load(AtomicOrdering::Relaxed), 1);
     }
 
     #[test]
