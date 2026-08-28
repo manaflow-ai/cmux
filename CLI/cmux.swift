@@ -32805,13 +32805,8 @@ export default CMUXSessionRestore;
             def: def
         ).filter {
             $0.key.contains(":pre_tool_use:") || $0.key.contains(":post_tool_use:")
-        }.sorted { $0.key < $1.key }
-        guard !entries.isEmpty else { return nil }
-
-        let state = entries.map { entry in
-            "\"\(tomlBasicStringContent(entry.key))\"={enabled=false}"
-        }.joined(separator: ",")
-        return "hooks.state={\(state)}"
+        }.map(\.trustEntry)
+        return CmuxCodexConfigEditor().hookStateOverrideDisabling(entries)
     }
 
     private func pruneLegacyGrokHookFileIfNeeded(

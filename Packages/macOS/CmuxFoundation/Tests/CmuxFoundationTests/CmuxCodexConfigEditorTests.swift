@@ -94,7 +94,7 @@ struct CmuxCodexConfigEditorTests {
     func hookStateOverrideSortsAndEscapesTrustKeys() {
         let entries = [
             CmuxCodexConfigEditor.HookTrustEntry(
-                key: #"/tmp/z\"hook:post_tool_use:0:0"#,
+                key: "/tmp/z\"hook:post_tool_use:0:0",
                 trustedHash: "sha256:z"
             ),
             CmuxCodexConfigEditor.HookTrustEntry(
@@ -107,7 +107,7 @@ struct CmuxCodexConfigEditorTests {
 
         #expect(
             override ==
-                #"hooks.state={\"/tmp/a-hook:pre_tool_use:0:0\"={enabled=false},\"/tmp/z\\\"hook:post_tool_use:0:0\"={enabled=false}}"#
+                #"hooks.state={"/tmp/a-hook:pre_tool_use:0:0"={enabled=false},"/tmp/z\"hook:post_tool_use:0:0"={enabled=false}}"#
         )
     }
 
