@@ -2561,18 +2561,87 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
 
-        let directRoute = try? Self.manualHostRoute(
+        guard let directRoute = try? Self.manualHostRoute(
             host: normalizedHost,
             port: port
-        )
-        let sameRouteProbeClient: MobileCoreRPCClient? = directRoute.flatMap { route in
+        ) else {
+            if recordsPairingAttempt {
+                recordAppEvent(.pairingStarted)
+                recordAppEvent(.pairingFailed, failure: .protocolViolation)
+            }
+            connectionError = L10n.string(
+                "mobile.addDevice.invalidHost",
+                defaultValue: "Enter a host or IP address, without spaces or URL paths."
+            )
+            connectionErrorGuidance = nil
+            connectionState = .disconnected
+            macConnectionStatus = .unavailable
+            clearRemoteConnectionContext()
+            return
+        }
+
+        let isLoopbackRoute = MobileShellRouteAuthPolicy.routeIsLoopback(directRoute)
+        if MobileShellRouteAuthPolicy.ticketRejectsLoopbackRoutes(
+            [directRoute],
+            isPhysicalDevice: Self.isPhysicalDevice
+        ) {
+            if recordsPairingAttempt {
+                recordAppEvent(.pairingStarted)
+                recordAppEvent(.pairingFailed, failure: .unsupportedRoute)
+            }
+            connectionError = L10n.string(
+                "mobile.pairing.loopbackRejected",
+                defaultValue: "This device cannot connect to the Mac through localhost. Scan the Mac's Tailscale pairing QR or enter its numeric Tailscale IP."
+            )
+            connectionErrorGuidance = nil
+            connectionState = .disconnected
+            macConnectionStatus = .unavailable
+            clearRemoteConnectionContext()
+            return
+        }
+
+        // A fresh manual attempt is an explicit user action, so a numeric
+        // Tailscale address can receive the same exact-destination capability
+        // as a scanned/pasted QR route. MagicDNS, LAN, and arbitrary names do
+        // not provide a stable peer proof and must fail before any TCP dial.
+        let userTailscalePairingAuthorization: CmxUserTailscalePairingAuthorization?
+        if recordsPairingAttempt && !isLoopbackRoute {
+            userTailscalePairingAuthorization = try? CmxUserTailscalePairingAuthorization(
+                host: normalizedHost,
+                port: port
+            )
+            guard userTailscalePairingAuthorization != nil else {
+                recordAppEvent(.pairingStarted)
+                recordAppEvent(.pairingFailed, failure: .unsupportedRoute)
+                connectionError = L10n.string(
+                    "mobile.addDevice.tailscaleNumericRequired",
+                    defaultValue: "For Tailscale pairing, enter the Mac's numeric Tailscale IP or scan its QR. MagicDNS names and local or LAN hosts aren't supported."
+                )
+                connectionErrorGuidance = nil
+                connectionState = .disconnected
+                macConnectionStatus = .unavailable
+                clearRemoteConnectionContext()
+                analytics.capture("ios_pairing_failed", [
+                    "method": .string("manual"),
+                    "reason": .string("unsupported_route"),
+                    "failure_phase": .string("validation"),
+                    "is_first_pair": .bool(!hasKnownPairedMac),
+                ])
+                return
+            }
+        } else {
+            userTailscalePairingAuthorization = nil
+        }
+
+        let sameRouteProbeClient: MobileCoreRPCClient? = {
+            let route = directRoute
             guard remoteClient?.sharesPhysicalTransportRoute(
                 with: route
             ) == true else {
                 return nil
             }
             return remoteClient
-        }
+        }()
         if sameRouteProbeClient == nil {
             activeRoute = directRoute
         }
@@ -2590,7 +2659,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         // Fast offline preflight: fail immediately instead of stacking
         // per-route timeouts into the opaque ~60s blob.
-        let manualRoutes = directRoute.map { [$0] } ?? []
+        let manualRoutes = [directRoute]
         if sameRouteProbeClient == nil {
             guard await failPairingIfOffline(
                 attemptID: attemptID,
@@ -2618,7 +2687,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             let noThrowFailure = try await connect(
                 ticket: ticket,
-                allowsStackAuthFallback: true,
+                // The generic Stack-bearer fallback remains loopback-only.
+                // Numeric Tailscale pairing uses the explicit authorization
+                // mode below, which is independent of this fallback flag.
+                allowsStackAuthFallback: isLoopbackRoute,
+                userTailscalePairingAuthorizations: userTailscalePairingAuthorization.map { [$0] } ?? [],
                 pairedMacDeviceID: pairedMacDeviceID,
                 instanceTagExpectation: instanceTagExpectation,
                 ifStillCurrent: ifStillCurrent
@@ -9231,7 +9304,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let ticketMacDeviceID = ticket.macDeviceID
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let requestedMacDeviceID = pairedMacDeviceID
-            ?? (ticketMacDeviceID.isEmpty ? nil : ticketMacDeviceID)
+            ?? (ticketMacDeviceID.isEmpty
+                || Self.isSyntheticManualDeviceID(ticketMacDeviceID)
+                ? nil
+                : ticketMacDeviceID)
         let previousForegroundKeyBeforeConnect = foregroundOrRecoveryMacKey
         let currentFocusedConnection: MacConnection? =
             foregroundMacDeviceID.flatMap { macID in
@@ -9260,10 +9336,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // pins no addresses (automatic, or a legacy pairing without an Iroh
         // identity).
         let directOnlyDialCandidates = directOnlyDialCandidates
-            ?? irohMethodPinnedDialCandidates(
-                forMacDeviceID: requestedMacDeviceID ?? ticket.macDeviceID,
-                instanceTag: instanceTagExpectation.expectedTag
-            )
+            ?? (userTailscalePairingAuthorizations.isEmpty
+                ? irohMethodPinnedDialCandidates(
+                    forMacDeviceID: requestedMacDeviceID ?? ticket.macDeviceID,
+                    instanceTag: instanceTagExpectation.expectedTag
+                )
+                : nil)
         let supportedRoutes = supportedRoutes(
             for: ticket,
             supportedKinds: supportedKinds,
@@ -9652,7 +9730,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     }
                     let ticketDeviceID = ticket.macDeviceID
                         .trimmingCharacters(in: .whitespacesAndNewlines)
-                    let expectedDeviceID = pairedMacDeviceID ?? (ticketDeviceID.isEmpty ? nil : ticketDeviceID)
+                    let expectedDeviceID = pairedMacDeviceID
+                        ?? (ticketDeviceID.isEmpty
+                            || Self.isSyntheticManualDeviceID(ticketDeviceID)
+                            ? nil
+                            : ticketDeviceID)
                     if await adoptWouldConflictWithStoredInstanceAuthority(
                         expectation: instanceTagExpectation,
                         reportedInstanceTag: reportedInstanceTag,
@@ -10020,6 +10102,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 supportedKinds.contains(route.kind)
             }
         }
+        // An explicit QR/manual entry is itself the authorization event.  Keep
+        // the dial on the exact numeric Tailscale destination it named even
+        // when the app-wide method is Automatic, Iroh, or Tailscale Only.
+        // `directOnly` is reserved for an already-paired Direct connection and
+        // must remain the stronger, Iroh-only constraint.
+        if !directOnly, !userTailscalePairingAuthorizations.isEmpty {
+            return supportedRoutes.filter { route in
+                Self.userTailscalePairingAuthorization(
+                    for: route,
+                    authorizations: userTailscalePairingAuthorizations
+                ) != nil
+            }
+        }
+
         // The explicit Tailscale method is strict: only authorized Tailscale
         // destinations may be dialed, and an unavailable route leaves the app
         // disconnected instead of silently switching to Iroh. The method is
@@ -10135,7 +10231,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         _ ticket: CmxAttachTicket,
         adoptingReportedDeviceID reportedDeviceID: String?
     ) -> CmxAttachTicket {
-        guard ticket.macDeviceID.isEmpty,
+        guard (ticket.macDeviceID.isEmpty
+               || Self.isSyntheticManualDeviceID(ticket.macDeviceID)),
               let reportedDeviceID = reportedDeviceID?
                 .trimmingCharacters(in: .whitespacesAndNewlines),
               !reportedDeviceID.isEmpty,

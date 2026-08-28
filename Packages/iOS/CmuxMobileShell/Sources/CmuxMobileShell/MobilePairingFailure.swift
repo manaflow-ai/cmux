@@ -332,7 +332,7 @@ extension MobilePairingFailureCategory {
         case .unsupportedRoute:
             return L10n.string(
                 "mobile.pairing.secureRouteRequired",
-                defaultValue: "This pairing route is not allowed. Enter a host and port, or pair with a QR/link from that computer."
+                defaultValue: "This pairing route is not trusted. Enter the Mac's numeric Tailscale IP and port, or scan its pairing QR."
             )
         case .noSupportedRoute:
             return L10n.string(
@@ -373,7 +373,7 @@ extension MobilePairingFailureCategory {
         case .tailscaleUnavailable:
             return L10n.string(
                 "mobile.pairing.guidance.tailscaleUnavailable",
-                defaultValue: "Open Tailscale on both devices, confirm they use the same network, then scan a fresh Pair iPhone code from the Mac."
+                defaultValue: "Open Tailscale on both devices, then scan a fresh Mac pairing QR or enter its numeric Tailscale IP and port."
             )
         case .hostUnreachable, .dnsFailed, .handshakeTimedOut:
             return L10n.string(
@@ -416,7 +416,7 @@ extension MobilePairingFailureCategory {
         case .ticketExpired, .unsupportedRoute, .noSupportedRoute:
             return L10n.string(
                 "mobile.pairing.guidance.rescanFresh",
-                defaultValue: "On cmux 0.64.17, open Pair iPhone. On newer versions, open Tailscale Pairing. Then scan a fresh QR or link."
+                defaultValue: "Open Tailscale Pairing on the Mac and scan a fresh QR, or enter the Mac's numeric Tailscale IP and port."
             )
         case .unrecognizedVersion:
             return L10n.string(

@@ -466,7 +466,7 @@ struct MobilePairingView: View {
     @ViewBuilder
     private func manualEntry(_ ready: MobilePairingModel.Ready) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(String(localized: "mobile.pairing.manual.title", defaultValue: "Can't scan? Add this Mac manually:"))
+            Text(String(localized: "mobile.pairing.manual.title", defaultValue: "Can't scan? Enter this Mac's numeric Tailscale IP and port:"))
                 .cmuxFont(.caption, weight: .semibold)
                 .foregroundStyle(.secondary)
             ForEach(ready.tailscaleLines, id: \.self) { line in

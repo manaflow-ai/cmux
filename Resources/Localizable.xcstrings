@@ -145118,13 +145118,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Can't scan? Add this Mac manually:"
+            "value": "Can't scan? Enter this Mac's numeric Tailscale IP and port:"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "スキャンできない場合は、この Mac を手動で追加します:"
+            "value": "スキャンできない場合は、この Mac の数値 Tailscale IP アドレスとポートを入力してください："
           }
         }
       }

@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxMobilePairedMac
 import CmuxMobileRPC
 import CmuxMobileShellModel
 import Foundation
@@ -16,7 +17,10 @@ import Testing
     private let host = "100.71.210.41"
     private let port = CmxMobileDefaults.defaultHostPort
 
-    @Test func currentQRCodeEnteredThroughSharedInputAuthorizesExactRoute() async throws {
+    @Test(arguments: MobileConnectionMethod.allCases)
+    func currentQRCodeEnteredThroughSharedInputAuthorizesExactRoute(
+        _ method: MobileConnectionMethod
+    ) async throws {
         let router = LivenessHostRouter()
         let box = TransportBox()
         let factory = KindRecordingTransportFactory(router: router, box: box)
@@ -25,7 +29,7 @@ import Testing
             now: { Date.now },
             supportedRouteKinds: [.iroh, .tailscale]
         )
-        let store = makeStore(runtime: runtime)
+        let store = makeStore(runtime: runtime, connectionMethod: method)
         store.pairingCode = currentQRCode()
 
         await store.connectPairingInput()
@@ -79,16 +83,27 @@ import Testing
         ])
     }
 
-    @Test func manualNumericEntryAuthorizesExactDestinationAndPersistsRouteGrant() async throws {
+    @Test func manualNumericEntryAuthorizesExactDestination() async throws {
         let router = LivenessHostRouter()
         let box = TransportBox()
         let factory = KindRecordingTransportFactory(router: router, box: box)
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let pairedMacStore = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("paired-macs.sqlite3")
+        )
         let runtime = LivenessTestRuntime(
             transportFactory: factory,
             now: { Date.now },
-            supportedRouteKinds: [.tailscale]
+            supportedRouteKinds: [.tailscale],
+            supportsServerPushEvents: false
         )
-        let store = makeStore(runtime: runtime)
+        let store = makeStore(runtime: runtime, pairedMacStore: pairedMacStore)
 
         await store.connectManualHost(name: "Work Mac", host: host, port: port)
 
@@ -100,6 +115,8 @@ import Testing
             ),
         ])
         #expect((await router.authorization(for: "workspace.list")).first?.stackAccessToken == "test-stack-token")
+        let saved = try await pairedMacStore.activeMac(stackUserID: "phone-user")
+        #expect(saved?.legacyTailscaleRoutes?.first?.endpoint == .hostPort(host: host, port: port))
     }
 
     @Test func manualMagicDNSHasDeterministicSafeFallbackWithoutDialing() async throws {
@@ -164,10 +181,24 @@ import Testing
         #expect(await router.authorization(for: "workspace.list").isEmpty)
     }
 
-    private func makeStore(runtime: any MobileSyncRuntime) -> MobileShellComposite {
-        MobileShellComposite(
+    private func makeStore(
+        runtime: any MobileSyncRuntime,
+        pairedMacStore: (any MobilePairedMacStoring)? = nil,
+        connectionMethod: MobileConnectionMethod? = nil
+    ) -> MobileShellComposite {
+        let methodStore: MobileConnectionMethodStore? = connectionMethod.map { method in
+            let defaults = UserDefaults(
+                suiteName: "tailscale-pairing-regression-method-\(UUID().uuidString)"
+            )!
+            let store = MobileConnectionMethodStore(defaults: defaults)
+            store.method = method
+            return store
+        }
+        return MobileShellComposite(
             runtime: runtime,
             isSignedIn: true,
+            pairedMacStore: pairedMacStore,
+            connectionMethodStore: methodStore,
             identityProvider: StaticIdentityProvider(userID: "phone-user"),
             reachability: AlwaysOnlineReachability(),
             pairingHintDefaults: UserDefaults(
