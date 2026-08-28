@@ -3511,6 +3511,37 @@ mod tests {
         assert!(!inner.opening_state.lock().unwrap().cancelled.contains_key("p1"));
     }
 
+    #[tokio::test(flavor = "current_thread")]
+    async fn cancelled_open_is_fenced_before_its_task_is_first_polled() {
+        let h = harness(None, None);
+        let manager = Arc::new(h.manager);
+        let context = h.context_with_transport("supervised", h.owner.clone(), Some("tunnel-a"));
+        let frame = serde_json::json!({
+            "version": 4,
+            "type": "pty_open",
+            "ptyId": "p1",
+            "session": "main",
+            "cols": 80,
+            "rows": 24,
+        });
+        let cancellation = CancellationToken::new();
+        let task_cancellation = cancellation.clone();
+        let task_manager = Arc::clone(&manager);
+        let task = tokio::spawn(async move {
+            task_manager
+                .handle_frame_with_open_cancellation(&frame, &context, Some(task_cancellation))
+                .await;
+        });
+
+        // A current-thread executor does not poll the spawned task until this
+        // function yields. Cancelling first proves the pre-reservation fence,
+        // rather than relying on the task having installed a reservation.
+        cancellation.cancel();
+        task.await.unwrap();
+        assert!(h.recorded.lock().unwrap().spawned.is_empty());
+        assert_eq!(manager.attachment_count(), 0);
+    }
+
     #[tokio::test]
     async fn detach_transport_releases_only_that_transports_attachments() {
         let h = harness(None, None);
