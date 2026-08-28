@@ -1,6 +1,8 @@
 # cmux-tui aggregate change log
 
-## Current reconciliation: main `af31628f7b0b2f6c34e184049254fa2fe91f285d`
+## Current reconciliation: main `e27710a23149d9412665ef786b688797006b2730`
+
+Current merged delta: #10995, source `a156463ea61f00bc9e67e16e27ed3f38d3329417`, merge `e27710a23149d9412665ef786b688797006b2730`; rollback `git revert e27710a23149d9412665ef786b688797006b2730`. Strict confirmed turns: `0`; total: `unknown`.
 
 Audit basis: 2026-08-27T19:39:39Z. The current merged cmux-tui log is
 [#10984](https://github.com/manaflow-ai/cmux/pull/10984) `e9543607420f7b3b3284ac4c71ea21918dea692e`,

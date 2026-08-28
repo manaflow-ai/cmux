@@ -1,6 +1,8 @@
 # cmux TUI PR intent and merge board
 
-## Current reconciliation: main `af31628f7b0b2f6c34e184049254fa2fe91f285d`
+## Current reconciliation: main `e27710a23149d9412665ef786b688797006b2730`
+
+Audit basis: 2026-08-28T01:15:00Z. Main includes merged #10995, source `a156463ea61f00bc9e67e16e27ed3f38d3329417`, merge `e27710a23149d9412665ef786b688797006b2730`. Live direct-TUI open heads: #10990 `9b2a78bf2021308fb311dd87f76da9825ee732eb`, #11000 `4ac679e7088096b80f4f792f987dc8197dc401b1`, #11013 `492f121cce5c6d1d72e7e7514d645a77c949b6ef`, #11024 `5f433c2fad7c3d755bbdcc618fa2c0c08cf88fdc`, #11025 `c05536313caf91a84e9f1e4065693a1b263ca4c3`, and #11026 `9160518271afc399f471569f6e3e288254511966`. Issue #11027 remains open. Strict confirmed turns: `0`; total: `unknown`.
 
 Audit basis: 2026-08-27T19:39:39Z. Main currently includes the following
 cmux-tui merge log: [#10984](https://github.com/manaflow-ai/cmux/pull/10984)

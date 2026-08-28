@@ -1,6 +1,8 @@
 # cmux-tui user request board
 
-## Current reconciliation: main `af31628f7b0b2f6c34e184049254fa2fe91f285d`
+## Current reconciliation: main `e27710a23149d9412665ef786b688797006b2730`
+
+Main includes merged #10995 (source `a156463ea61f00bc9e67e16e27ed3f38d3329417`, merge `e27710a23149d9412665ef786b688797006b2730`). Live direct-TUI open rows: #10990, #11000, #11013, #11024, #11025, and #11026. Issue #11027 remains open. Strict confirmed turns: `0`; total: `unknown`.
 
 Audit basis: 2026-08-27T19:39:39Z. Current merged log: [#10984](https://github.com/manaflow-ai/cmux/pull/10984)
 `e9543607420f7b3b3284ac4c71ea21918dea692e`, [#10975](https://github.com/manaflow-ai/cmux/pull/10975)
