@@ -20,6 +20,8 @@ final class KeyboardShortcutSettingsObserver {
     @ObservationIgnored
     private var settingsObserver: NSObjectProtocol?
     @ObservationIgnored
+    private var featureGateObserver: NSObjectProtocol?
+    @ObservationIgnored
     private var recorderObserver: NSObjectProtocol?
     @ObservationIgnored
     private var inputSourceObserver: NSObjectProtocol?
@@ -38,6 +40,18 @@ final class KeyboardShortcutSettingsObserver {
         )
         settingsObserver = notificationCenter.addObserver(
             forName: KeyboardShortcutSettings.didChangeNotification,
+            object: nil,
+            queue: nil
+        ) { [weak self] _ in
+            Self.deliverOnMainActor { [weak self] in
+                self?.reloadCachedShortcuts()
+            }
+        }
+        // Feature-gated sidebar defaults are also stored in UserDefaults. The
+        // matcher must rebuild when a gate changes, even when no shortcut was
+        // edited.
+        featureGateObserver = notificationCenter.addObserver(
+            forName: UserDefaults.didChangeNotification,
             object: nil,
             queue: nil
         ) { [weak self] _ in
@@ -70,6 +84,9 @@ final class KeyboardShortcutSettingsObserver {
     deinit {
         if let settingsObserver {
             notificationCenter.removeObserver(settingsObserver)
+        }
+        if let featureGateObserver {
+            notificationCenter.removeObserver(featureGateObserver)
         }
         if let recorderObserver {
             notificationCenter.removeObserver(recorderObserver)
