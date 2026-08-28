@@ -56,14 +56,18 @@ const RAW_ATTACH_BACKLOG_CAP: usize = 1024 * 1024;
 const PTY_INPUT_B64_CAP: usize = 4 * 1024 * 1024;
 
 /// Random lowercase-hex identity for transports and tunnel attachments.
-pub fn random_hex(bytes: usize) -> String {
+///
+/// Identity generation is security-sensitive. Callers must reject the
+/// operation when the operating system cannot provide entropy instead of
+/// continuing with a predictable identifier.
+pub fn random_hex(bytes: usize) -> Result<String, getrandom::Error> {
     let mut buffer = vec![0_u8; bytes];
-    let _ = getrandom::fill(&mut buffer);
+    getrandom::fill(&mut buffer)?;
     let mut out = String::with_capacity(bytes * 2);
     for byte in buffer {
         out.push_str(&format!("{byte:02x}"));
     }
-    out
+    Ok(out)
 }
 
 pub fn session_name_ok(name: &str) -> bool {
@@ -344,7 +348,11 @@ struct Inner {
     cancelled_openings: Mutex<std::collections::HashSet<String>>,
     shell_sessions: Mutex<HashMap<String, Arc<ShellSession>>>,
     shell_starting: Mutex<HashMap<String, Arc<Notify>>>,
-    auth: Mutex<Option<AuthSnapshot>>,
+    /// Authentication is scoped to the transport that owns an attachment.
+    /// A single manager serves the relay socket and managed tunnel sockets;
+    /// one global snapshot would let the last frame on either transport
+    /// authorize asynchronous output for every other attachment.
+    transport_auth: Mutex<HashMap<Option<String>, AuthSnapshot>>,
 }
 
 struct ShellStartReservation {
@@ -395,7 +403,7 @@ impl PtyManager {
                 cancelled_openings: Mutex::new(std::collections::HashSet::new()),
                 shell_sessions: Mutex::new(HashMap::new()),
                 shell_starting: Mutex::new(HashMap::new()),
-                auth: Mutex::new(None),
+                transport_auth: Mutex::new(HashMap::new()),
             }),
         }
     }
@@ -421,14 +429,18 @@ impl PtyManager {
                 cancelled_openings: Mutex::new(std::collections::HashSet::new()),
                 shell_sessions: Mutex::new(HashMap::new()),
                 shell_starting: Mutex::new(HashMap::new()),
-                auth: Mutex::new(None),
+                transport_auth: Mutex::new(HashMap::new()),
             }),
         }
     }
 
     /// Handle one Worker -> relay PTY frame.
     pub async fn handle_frame(&self, frame: &Value, context: &FrameContext) {
-        *self.inner.auth.lock().expect("auth lock") = Some(AuthSnapshot {
+        self.inner
+            .transport_auth
+            .lock()
+            .expect("transport auth lock")
+            .insert(context.transport_id.clone(), AuthSnapshot {
             trust: context.trust.clone(),
             owner_user_id: context.owner_user_id.clone(),
             send: Arc::clone(&context.send),
@@ -520,6 +532,13 @@ impl PtyManager {
         self.detach_matching(|owner| owner == Some(transport_id));
     }
 
+    /// Release all managed tunnel attachments. The relay connection clears
+    /// tunnel authority on disconnect or trust renegotiation; existing tunnel
+    /// viewers must lose their attachments at the same boundary.
+    pub fn detach_tunnel_transports(&self) {
+        self.detach_matching(|owner| owner.is_some_and(|id| id.starts_with("tunnel-")));
+    }
+
     fn detach_matching(&self, owns: impl Fn(Option<&str>) -> bool) {
         // Openings first: close() records cancellation for a reserved id, so
         // a late open cannot install an attachment after its transport died.
@@ -543,6 +562,11 @@ impl PtyManager {
         for id in ids {
             self.inner.close(&id);
         }
+        self.inner
+            .transport_auth
+            .lock()
+            .expect("transport auth lock")
+            .retain(|owner, _| !owns(owner.as_deref()));
     }
 }
 
@@ -812,7 +836,9 @@ impl Inner {
     }
 
     fn emit_output(&self, pty_id: &str, chunk: &Bytes, context: &FrameContext) {
-        let Some(auth) = self.auth.lock().expect("auth lock").clone() else { return };
+        let Some(auth) = self.auth_for_transport(context.transport_id.as_deref()) else {
+            return;
+        };
         if self.authorize_snapshot(pty_id, &auth, context, "output").is_none() {
             return;
         }
@@ -847,7 +873,9 @@ impl Inner {
     }
 
     fn emit_exit(&self, pty_id: &str, code: i64, context: &FrameContext) {
-        let Some(auth) = self.auth.lock().expect("auth lock").clone() else { return };
+        let Some(auth) = self.auth_for_transport(context.transport_id.as_deref()) else {
+            return;
+        };
         if self.authorize_snapshot(pty_id, &auth, context, "exit").is_none() {
             return;
         }
@@ -901,8 +929,13 @@ impl Inner {
     }
 
     fn authorize(&self, pty_id: &str, context: &FrameContext, action: &str) -> Option<Attachment> {
-        let auth = self.auth.lock().expect("auth lock").clone()?;
+        let auth = self.auth_for_transport(context.transport_id.as_deref())?;
         self.authorize_snapshot(pty_id, &auth, context, action)
+    }
+
+    fn auth_for_transport(&self, transport_id: Option<&str>) -> Option<AuthSnapshot> {
+        let key = transport_id.map(str::to_owned);
+        self.transport_auth.lock().expect("transport auth lock").get(&key).cloned()
     }
 
     fn authorize_snapshot(
@@ -2803,6 +2836,47 @@ mod tests {
         assert!(h.manager.has_attachment("p-tunnel"), "the tunnel viewer must survive");
         h.manager.detach_all();
         assert!(!h.manager.has_attachment("p-tunnel"));
+    }
+
+    #[tokio::test]
+    async fn asynchronous_output_stays_bound_to_the_transport_that_opened_it() {
+        let h = harness(None, None);
+        let sent_a = Arc::new(StdMutex::new(Vec::<Value>::new()));
+        let sent_b = Arc::new(StdMutex::new(Vec::<Value>::new()));
+        let context = |sent: Arc<StdMutex<Vec<Value>>>, transport: &str| FrameContext {
+            send: Arc::new(move |frame| sent.lock().unwrap().push(frame)),
+            buffered_amount: Arc::new(|| 0),
+            trust: "supervised".to_owned(),
+            local_roots: None,
+            owner_user_id: Some("user_owner".to_owned()),
+            transport_id: Some(transport.to_owned()),
+        };
+        let context_a = context(Arc::clone(&sent_a), "transport-a");
+        let context_b = context(Arc::clone(&sent_b), "transport-b");
+        let open = |pty_id: &str, session: &str| {
+            serde_json::json!({
+                "version": 4,
+                "type": "pty_open",
+                "ptyId": pty_id,
+                "session": session,
+                "cols": 80,
+                "rows": 24,
+                "actorId": "user_owner",
+            })
+        };
+        h.manager.handle_frame(&open("p-a", "session-a"), &context_a).await;
+        h.manager.handle_frame(&open("p-b", "session-b"), &context_b).await;
+        let spawned = h.spawned();
+        assert_eq!(spawned.len(), 2);
+
+        spawned[0].emit("output-a");
+        spawned[1].emit("output-b");
+        let a = sent_a.lock().unwrap().clone();
+        let b = sent_b.lock().unwrap().clone();
+        assert!(a.iter().any(|frame| frame["ptyId"] == "p-a"));
+        assert!(!a.iter().any(|frame| frame["ptyId"] == "p-b"));
+        assert!(b.iter().any(|frame| frame["ptyId"] == "p-b"));
+        assert!(!b.iter().any(|frame| frame["ptyId"] == "p-a"));
     }
 
     #[test]
