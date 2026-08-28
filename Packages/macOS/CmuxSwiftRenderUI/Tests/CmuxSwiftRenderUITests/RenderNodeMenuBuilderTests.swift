@@ -198,6 +198,10 @@ struct RenderNodeMenuBuilderTests {
                                                       ModifierArg(label: "modifiers", value: "[.command, .shift]"),
                                                   ])],
                        action: ButtonAction(commands: [.log("copy")])),
+            RenderNode(kind: .button, text: "Period",
+                       modifiers: [RenderModifier(name: "keyboardShortcut",
+                                                  args: [ModifierArg(label: nil, value: "\".\"")])],
+                       action: ButtonAction(commands: [.log("period")])),
         ]
 
         let menu = RenderNodeContextMenuBuilder(dispatch: .noop).makeMenu(nodes: nodes)
@@ -205,6 +209,7 @@ struct RenderNodeMenuBuilderTests {
         #expect(menu.items[0].keyEquivalent == "\r")
         #expect(menu.items[1].keyEquivalent == "c")
         #expect(menu.items[1].keyEquivalentModifierMask == [.command, .shift])
+        #expect(menu.items[2].keyEquivalent == ".")
     }
 
     @Test("overlay presents only when the IR yields actual items")
@@ -270,6 +275,9 @@ struct RenderNodeMenuBuilderTests {
         #expect(!rowOverlay.deeperOverlayClaims(NSPoint(x: 20, y: 20)))
         // A nested overlay with no menu content never claims.
         nested.nodes = []
+        #expect(!rowOverlay.deeperOverlayClaims(NSPoint(x: 175, y: 20)))
+        // Non-empty IR that builds no usable menu must not hide the parent.
+        nested.nodes = [RenderNode(kind: .divider), RenderNode(kind: .spacer)]
         #expect(!rowOverlay.deeperOverlayClaims(NSPoint(x: 175, y: 20)))
         // A hidden nested overlay never claims.
         nested.nodes = menuNodes
