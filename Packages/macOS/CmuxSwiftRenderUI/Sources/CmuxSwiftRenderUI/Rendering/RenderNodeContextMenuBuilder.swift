@@ -32,7 +32,7 @@ struct RenderNodeContextMenuBuilder {
         // Enablement is decided by the IR (`.disabled`), not responder-chain
         // validation, so autoenable would re-disable every targeted item.
         menu.autoenablesItems = false
-        append(nodes, to: menu, inheritedDisabled: false)
+        _ = append(nodes, to: menu, inheritedDisabled: false)
         return menu
     }
 
@@ -78,7 +78,9 @@ struct RenderNodeContextMenuBuilder {
         return false
     }
 
-    private func append(_ nodes: [RenderNode], to menu: NSMenu, inheritedDisabled: Bool) {
+    @discardableResult
+    private func append(_ nodes: [RenderNode], to menu: NSMenu, inheritedDisabled: Bool) -> Bool {
+        var emitted = false
         for node in nodes {
             // SwiftUI propagates `.disabled(true)` from a container down the
             // environment; a child cannot re-enable inside a disabled ancestor.
@@ -89,45 +91,50 @@ struct RenderNodeContextMenuBuilder {
             case .menu:
                 if let item = submenuItem(for: node, disabled: disabled) {
                     menu.addItem(item)
+                    emitted = true
                 }
             case .button:
                 menu.addItem(actionItem(for: node, disabled: disabled))
+                emitted = true
             case .text, .label:
                 // Informational rows render like SwiftUI menu text: visible
                 // but inert (unless `.onTapGesture` gave the node an action).
                 menu.addItem(actionItem(for: node, disabled: disabled))
+                emitted = true
             case .vstack, .hstack, .zstack, .lazyVStack, .lazyHStack, .group,
                  .list, .hscroll, .grid, .gridRow, .lazyVGrid, .lazyHGrid,
                  .viewThatFits, .hsplit, .reorderable:
-                append(node.children, to: menu, inheritedDisabled: disabled)
+                emitted = append(node.children, to: menu, inheritedDisabled: disabled) || emitted
             case .section:
                 if let header = node.text, !header.isEmpty {
                     let item = NSMenuItem(title: header, action: nil, keyEquivalent: "")
                     item.isEnabled = false
                     menu.addItem(item)
+                    emitted = true
                 }
-                append(node.children, to: menu, inheritedDisabled: disabled)
+                emitted = append(node.children, to: menu, inheritedDisabled: disabled) || emitted
             default:
                 // Shapes, images, gradients, progress, spacers: no NSMenu
                 // representation. Fall back to a text-only row when text (or
                 // a tap action) exists rather than re-hosting SwiftUI.
                 if node.action != nil || !renderNodePlainText(of: node).isEmpty {
                     menu.addItem(actionItem(for: node, disabled: disabled))
+                    emitted = true
                 }
             }
         }
+        return emitted
     }
 
     /// A `Menu("…") { … }` node as an item with a recursive submenu. A
     /// disabled menu disables its item and every descendant, matching SwiftUI.
     private func submenuItem(for node: RenderNode, disabled: Bool) -> NSMenuItem? {
-        guard hasPresentableItems(in: node.children) else { return nil }
         let title = node.text ?? ""
-        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
-        item.isEnabled = !disabled
         let submenu = NSMenu(title: title)
         submenu.autoenablesItems = false
-        append(node.children, to: submenu, inheritedDisabled: disabled)
+        guard append(node.children, to: submenu, inheritedDisabled: disabled) else { return nil }
+        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        item.isEnabled = !disabled
         item.submenu = submenu
         return item
     }
@@ -160,7 +167,11 @@ struct RenderNodeContextMenuBuilder {
 /// Mirrors `RenderNodeView`'s `.disabled` semantics: disabled only when
 /// the argument explicitly resolves to `true`.
 private func isRenderNodeDisabled(_ node: RenderNode) -> Bool {
-    node.modifiers.contains { $0.name == "disabled" && $0.firstValue == "true" }
+    node.modifiers.contains { $0.name == "disabled" && cleanRenderToken($0.firstValue) == "true" }
+}
+
+private func cleanRenderToken(_ token: String?) -> String? {
+    token?.trimmingCharacters(in: CharacterSet(charactersIn: ".\" "))
 }
 
 /// Maps a `.keyboardShortcut` modifier to the item's key-equivalent hint.
@@ -194,6 +205,7 @@ private func renderNodeNSKeyEquivalent(_ token: String?) -> String? {
     case "downarrow": return String(UnicodeScalar(NSDownArrowFunctionKey)!)
     case "leftarrow": return String(UnicodeScalar(NSLeftArrowFunctionKey)!)
     case "rightarrow": return String(UnicodeScalar(NSRightArrowFunctionKey)!)
+    case "deleteforward", "home", "end", "pageup", "pagedown", "clear": return nil
     default: return raw.count == 1 ? raw.lowercased() : nil
     }
 }
