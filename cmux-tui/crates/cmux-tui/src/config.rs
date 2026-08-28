@@ -9101,16 +9101,9 @@ mod tests {
             }
         }))
         .unwrap();
-        let resolved = resolve_sidebar_view_specs(
-            &raw.sidebar.views.unwrap(),
-            22,
-            0,
-            22,
-            0,
-            "sidebar",
-            &[],
-        )
-        .views;
+        let resolved =
+            resolve_sidebar_view_specs(&raw.sidebar.views.unwrap(), 22, 0, 22, 0, "sidebar", &[])
+                .views;
         assert_eq!(resolved[0].row_lines, 2, "agents views default to two-line rows");
         assert_eq!(resolved[1].row_lines, 1, "row_lines: 1 opts into compact rows");
         assert_eq!(resolved[2].row_lines, 1, "non-agent views stay single-line");

@@ -637,7 +637,14 @@ mod tests {
 
     #[test]
     fn flat_agent_view_is_empty_when_no_agents_are_running() {
-        let rows = rows(&spec(vec![SidebarResourceKind::Agents]), &tree(), &[], &HashSet::new(), 0, &HashSet::new());
+        let rows = rows(
+            &spec(vec![SidebarResourceKind::Agents]),
+            &tree(),
+            &[],
+            &HashSet::new(),
+            0,
+            &HashSet::new(),
+        );
         assert!(rows.is_empty());
     }
 
@@ -651,8 +658,14 @@ mod tests {
             agent: None,
             updated_at_ms: 1,
         }];
-        let rows =
-            rows(&spec(vec![SidebarResourceKind::Agents]), &tree(), &agents, &HashSet::new(), 0, &HashSet::new());
+        let rows = rows(
+            &spec(vec![SidebarResourceKind::Agents]),
+            &tree(),
+            &agents,
+            &HashSet::new(),
+            0,
+            &HashSet::new(),
+        );
         assert!(rows.is_empty());
     }
 
@@ -781,8 +794,14 @@ mod tests {
                 updated_at_ms: 900,
             },
         ];
-        let rows =
-            rows(&spec(vec![SidebarResourceKind::Agents]), &tree, &agents, &HashSet::new(), 1, &HashSet::new());
+        let rows = rows(
+            &spec(vec![SidebarResourceKind::Agents]),
+            &tree,
+            &agents,
+            &HashSet::new(),
+            1,
+            &HashSet::new(),
+        );
         assert_eq!(rows.len(), 1);
         assert!(matches!(rows[0].target, ProjectionTarget::Surface { surface: 22, .. }));
     }
@@ -808,8 +827,14 @@ mod tests {
                 updated_at_ms: 100,
             },
         ];
-        let rows =
-            rows(&spec(vec![SidebarResourceKind::Agents]), &tree, &agents, &HashSet::new(), 0, &HashSet::new());
+        let rows = rows(
+            &spec(vec![SidebarResourceKind::Agents]),
+            &tree,
+            &agents,
+            &HashSet::new(),
+            0,
+            &HashSet::new(),
+        );
         let surfaces = rows
             .iter()
             .map(|row| match row.target {
@@ -860,11 +885,7 @@ mod tests {
                 _ => panic!("agent rows target surfaces"),
             })
             .collect();
-        assert_eq!(
-            order,
-            vec![12, 11, 21, 22],
-            "blocked > idle-unseen > working > idle-seen"
-        );
+        assert_eq!(order, vec![12, 11, 21, 22], "blocked > idle-unseen > working > idle-seen");
 
         // Marking the remaining idle agent seen drops it below working.
         let seen: SeenIdleSurfaces = [11, 22].into_iter().collect();
@@ -922,7 +943,8 @@ mod tests {
             AgentInfo { updated_at_ms: 1_000, ..initial_agents[0].clone() },
             initial_agents[1].clone(),
         ];
-        let reordered = rows(&all_spec, &tree, &updated_agents, &HashSet::new(), 0, &HashSet::new());
+        let reordered =
+            rows(&all_spec, &tree, &updated_agents, &HashSet::new(), 0, &HashSet::new());
         assert_ne!(reordered[1].target, selected_target);
         state.reconcile_selection(&reordered);
         assert_eq!(state.selected_target, Some(selected_target));
