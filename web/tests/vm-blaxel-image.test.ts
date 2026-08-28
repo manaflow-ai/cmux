@@ -181,10 +181,11 @@ describe("Blaxel baked image template", () => {
       const ref = /^([a-z_]+_background_id)\s*=\s*(\d+)/.exec(line);
       if (!ref) continue;
       const id = Number(ref[2]);
-      expect(
-        id < backgrounds,
-        `tint2rc line ${index + 1}: ${ref[1]} = ${id} references a background that is not defined yet (${backgrounds} known so far)`,
-      ).toBe(true);
+      if (id >= backgrounds) {
+        throw new Error(
+          `tint2rc line ${index + 1}: ${ref[1]} = ${id} references a background that is not defined yet (${backgrounds} known so far)`,
+        );
+      }
     }
     expect(backgrounds).toBeGreaterThan(1);
     // Every launcher entry is a template file whose icon is a baked PNG.
