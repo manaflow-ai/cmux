@@ -63,10 +63,11 @@ impl Listener for AdmissionListener {
                         address,
                     );
                 }
-                Err(error) if is_connection_error(&error) => continue,
                 Err(_) => {
-                    // Back off transient listener failures without a busy loop. The sleep
-                    // future is cancellation-safe: dropping the listener drops this future.
+                    // Back off every listener failure, including per-connection aborts. A
+                    // peer can cause those errors repeatedly, so an immediate retry would
+                    // let it turn the accept task into a CPU spin. The sleep future is
+                    // cancellation-safe: dropping the listener drops this future.
                     tokio::time::sleep(accept_retry_delay(retry_attempt)).await;
                     retry_attempt = retry_attempt.saturating_add(1);
                 }
@@ -238,15 +239,6 @@ impl AsyncWrite for AdmissionStream {
     ) -> Poll<Result<(), io::Error>> {
         Pin::new(&mut self.inner).poll_shutdown(context)
     }
-}
-
-fn is_connection_error(error: &io::Error) -> bool {
-    matches!(
-        error.kind(),
-        io::ErrorKind::ConnectionRefused
-            | io::ErrorKind::ConnectionAborted
-            | io::ErrorKind::ConnectionReset
-    )
 }
 
 #[cfg(test)]
