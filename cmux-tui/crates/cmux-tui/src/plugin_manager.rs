@@ -290,7 +290,8 @@ fn persist_sidebar_plugin(plugin: Option<&SidebarPluginConfig>) -> Result<(), Ma
     if let Some(error) = config::write_sidebar_plugin(plugin)?.into_unsynced_error() {
         crate::client_log::stderr_log!(
             "config",
-            "config write committed, but parent directory durability is unconfirmed: {error}"
+            "{}",
+            crate::localization::catalog().config.write_durability_warning(&error.to_string())
         );
     }
     Ok(())
