@@ -82,6 +82,7 @@ actor CloudMachineLink {
     private var processGeneration: UUID?
     private var eventsProcess: Process?
     private var eventsProcessStopper: CloudLinkProcessStopper?
+    private var eventsLineObserver: CloudLinkPipe.LineObserver?
     private var inviteFileURL: URL?
 
     /// One tick per daemon-side change (from `session current events`) or link state
@@ -201,12 +202,23 @@ actor CloudMachineLink {
             throw error
         }
         guard process.isRunning else {
+            let failure = LinkError.exited(status: process.terminationStatus, code: .other)
             stopper.stop()
-            self.process = nil
-            self.processStopper = nil
-            self.processGeneration = nil
-            removeInviteFile()
-            throw LinkError.exited(status: process.terminationStatus, code: .other)
+            // `terminationHandler` and this check can observe the same exit in
+            // either order. Only the current generation may publish the
+            // pre-connect failure; this prevents a stale callback from leaving
+            // the link stuck in `.connecting`.
+            if processGeneration == generation {
+                self.process = nil
+                self.processStopper = nil
+                self.processGeneration = nil
+                connected = nil
+                state = .error
+                lastError = Self.errorText(failure)
+                removeInviteFile()
+                changesContinuation.yield()
+            }
+            throw failure
         }
         let connected = Connected(socketPath: socketPath, session: session)
         self.connected = connected
@@ -217,6 +229,8 @@ actor CloudMachineLink {
     }
 
     func disconnect() {
+        eventsLineObserver?.cancel()
+        eventsLineObserver = nil
         eventsProcessStopper?.stop()
         eventsProcessStopper = nil
         eventsProcess = nil
@@ -347,6 +361,8 @@ actor CloudMachineLink {
     }
 
     private func startEventsSubscription(socketPath: String) {
+        eventsLineObserver?.cancel()
+        eventsLineObserver = nil
         let process = Process()
         process.executableURL = clientURL
         process.arguments = CloudTuiCommandLine.eventsArguments(socketPath: socketPath)
@@ -364,27 +380,32 @@ actor CloudMachineLink {
         eventsProcess = process
         eventsProcessStopper = stopper
         let continuation = changesContinuation
-        let lines = CloudLinkPipe.lines(from: stdout.fileHandleForReading)
-        Task.detached {
-            for await line in lines where !line.isEmpty {
-                continuation.yield()
+        let observer = CloudLinkPipe.LineObserver(
+            handle: stdout.fileHandleForReading,
+            onLine: { line in
+                guard !line.isEmpty else { return }
+                // `changes` is a wake-only stream. A dropped wake means one is
+                // already queued; the consumer rereads the complete snapshot,
+                // so no daemon event is lost at this boundary.
+                _ = continuation.yield()
             }
-            // The link's own exit handler reports the state change.
-        }
+        )
+        observer.install()
+        eventsLineObserver = observer
+        // The link's own exit handler reports the state change.
     }
 
-    private func drainAndDiscard(_ handle: FileHandle) {
-        let lines = CloudLinkPipe.lines(from: handle)
-        Task.detached {
-            for await _ in lines {}
-        }
+    private func clearEventsProcess() {
+        eventsLineObserver?.cancel()
+        eventsLineObserver = nil
+        eventsProcessStopper?.stop()
+        eventsProcessStopper = nil
+        eventsProcess = nil
     }
 
     private func linkProcessDidExit(status: Int32, generation: UUID) {
         guard processGeneration == generation else { return }
-        eventsProcessStopper?.stop()
-        eventsProcessStopper = nil
-        eventsProcess = nil
+        clearEventsProcess()
         processStopper = nil
         process = nil
         processGeneration = nil
@@ -397,6 +418,13 @@ actor CloudMachineLink {
         changesContinuation.yield()
         changesContinuation.finish()
     }
+    private func drainAndDiscard(_ handle: FileHandle) {
+        let lines = CloudLinkPipe.lines(from: handle)
+        Task.detached {
+            for await _ in lines {}
+        }
+    }
+
 
     private func removeInviteFile() {
         if let inviteFileURL {
@@ -598,6 +626,74 @@ enum CloudLinkPipe {
             var line = String(decoding: pending, as: UTF8.self)
             if line.hasSuffix("\r") { line.removeLast() }
             return line
+        }
+    }
+
+    /// Delivers complete lines directly from the readability callback. Unlike
+    /// ``lines(from:)``, this observer has no intermediate AsyncStream queue,
+    /// so a burst cannot evict a daemon event before the wake-only continuation
+    /// sees it. The callback itself performs no blocking work.
+    final class LineObserver: @unchecked Sendable {
+        private let handle: FileHandle
+        private let buffer: LineBuffer
+        private let onLine: @Sendable (String) -> Void
+        private let lock = NSLock()
+        private var finished = false
+
+        init(
+            handle: FileHandle,
+            maximumLineBytes: Int = CloudLinkPipe.maximumLineBytes,
+            onLine: @escaping @Sendable (String) -> Void
+        ) {
+            self.handle = handle
+            self.buffer = LineBuffer(maximumBytes: maximumLineBytes)
+            self.onLine = onLine
+        }
+
+        func install() {
+            handle.readabilityHandler = { [weak self] fileHandle in
+                guard let self else { return }
+                let data = fileHandle.availableData
+                if data.isEmpty {
+                    self.finish()
+                    return
+                }
+                self.lock.lock()
+                guard !self.finished else {
+                    self.lock.unlock()
+                    return
+                }
+                let lines = self.buffer.append(data)
+                self.lock.unlock()
+                for line in lines {
+                    self.lock.lock()
+                    let shouldDeliver = !self.finished
+                    self.lock.unlock()
+                    if shouldDeliver { self.onLine(line) }
+                }
+            }
+        }
+
+        func cancel() {
+            lock.lock()
+            guard !finished else {
+                lock.unlock()
+                return
+            }
+            finished = true
+            lock.unlock()
+            handle.readabilityHandler = nil
+        }
+
+        private func finish() {
+            lock.lock()
+            guard !finished else {
+                lock.unlock()
+                return
+            }
+            finished = true
+            lock.unlock()
+            handle.readabilityHandler = nil
         }
     }
 }
