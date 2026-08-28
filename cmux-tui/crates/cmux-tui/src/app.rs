@@ -13303,14 +13303,12 @@ impl App {
         let context_changed = self.graphics_scene_cache.context.as_ref() != Some(&context);
         let full_scan = !dirty_only || context_changed;
         self.mark_graphics_clean((!full_scan).then_some(&dirty_surfaces));
-        let areas = self
-            .pane_areas
-            .iter()
-            .copied()
-            .filter(|area| full_scan || dirty_surfaces.contains(&area.surface))
-            .collect::<Vec<_>>();
         let mut updates = Vec::new();
-        for area in areas {
+        for index in 0..self.pane_areas.len() {
+            let area = self.pane_areas[index];
+            if !full_scan && !dirty_surfaces.contains(&area.surface) {
+                continue;
+            }
             let surface = self.session.surface(area.surface);
             let key = self.graphics_pane_scene_key(area, surface.as_ref());
             let unchanged = !context_changed
