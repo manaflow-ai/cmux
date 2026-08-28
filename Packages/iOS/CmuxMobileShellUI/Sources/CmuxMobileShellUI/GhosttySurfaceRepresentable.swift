@@ -176,6 +176,10 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
     }
 
     static func dismantleUIView(_ uiView: UIView, coordinator: Coordinator) {
+        // The latch must be up BEFORE prepareForDismantle(): the surface
+        // synchronously resets its artifact count through the delegate, and
+        // that reset must not re-enter the dismantling view graph.
+        coordinator.isTearingDown = true
         (uiView as? GhosttySurfaceHostView)?.surfaceView.prepareForDismantle()
         coordinator.tearDownArtifactChip()
         coordinator.tearDownComposer()
@@ -193,6 +197,14 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         var showMissingFiles: Bool
         var sessionArtifactCountEnabled: Bool
         var visibleArtifactCount: Int
+        /// Latched by `dismantleUIView` before the surface teardown runs.
+        /// SwiftUI dismantles this host while the owning view graph is itself
+        /// being torn down, so the artifact-count callbacks must not re-enter
+        /// it: writing that graph's `@State` mid-teardown is a Swift
+        /// exclusivity violation (Sentry CMUXTERM-MACOS-2Z6D). Coordinator
+        /// bookkeeping keeps running; only the SwiftUI-facing notifications
+        /// stop. Never cleared — a dismantled coordinator is not remounted.
+        var isTearingDown = false
         var onArtifactFilesRequested: @MainActor (_ anchor: UnitPoint) -> Void
         var onArtifactPathTapped: @MainActor (_ path: String) -> Void
         var onVisibleArtifactCountChanged: @MainActor (_ count: Int) -> Void
