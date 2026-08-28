@@ -710,7 +710,7 @@ for (const sessionId of [
         if "hooks amp stop" in args_log:
             print(f"FAIL: extension bypassed lifecycle reconciliation with a direct stop, got {args_log!r}")
             return 1
-        if "kind=amp" not in env_log or "cwd=/tmp/amp-project" not in env_log or "argv=" not in env_log:
+        if "kind=amp" not in env_log or f"cwd={root.resolve()}" not in env_log or "argv=" not in env_log:
             print(f"FAIL: plugin did not pass launch metadata environment, got {env_log!r}")
             return 1
         if "amp_api_key=secret-should-not-propagate" in env_log:
