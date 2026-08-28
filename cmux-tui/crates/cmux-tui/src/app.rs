@@ -33272,6 +33272,14 @@ mod tests {
         assert_eq!(app.tab_locations.get(&41), Some(&[0, 0, 0, 0]));
         assert_eq!(app.tab_locations.get(&43), Some(&[0, 0, 0, 1]));
         assert!(!app.tab_locations.contains_key(&40));
+
+        // The fallback must repair the index so the next exit uses the
+        // indexed path instead of scanning the whole tree again.
+        app.remove_surface_from_cached_tree(41);
+        let pane = &app.tree.workspaces[0].screens[0].panes[0];
+        assert_eq!(pane.tabs.iter().map(|tab| tab.surface).collect::<Vec<_>>(), vec![43]);
+        assert_eq!(app.tab_locations.get(&43), Some(&[0, 0, 0, 0]));
+        assert!(!app.tab_locations.contains_key(&41));
     }
 
     #[test]
