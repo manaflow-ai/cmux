@@ -22250,6 +22250,59 @@ mod tests {
     }
 
     #[test]
+    fn corrupt_agent_roster_snapshot_replays_from_the_journal_head() {
+        use crate::journal_reducers::{AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION};
+
+        let root = std::env::temp_dir()
+            .join(format!("cmux-roster-corrupt-{}", crate::workspace_registry::new_uuid_v4()));
+        let session = "roster-corrupt";
+        let terminal_id = {
+            let registry = WorkspaceRegistry::open(&root, session).unwrap();
+            let mux = Mux::from_workspace_registry(
+                session.into(),
+                SurfaceOptions::default(),
+                registry,
+                ProviderWorkspaceState::default(),
+                true,
+            )
+            .unwrap();
+            let surface = mux.new_workspace(None, None).unwrap();
+            let terminal_id = mux.with_state(|state| {
+                match state.resource_indexes.content_ids.get(&surface.id).unwrap() {
+                    ContentPublicId::Terminal(terminal_id) => terminal_id.clone(),
+                    ContentPublicId::Browser(_) => panic!("workspace opened a browser"),
+                }
+            });
+            let ingress = crate::agent_hooks::agent_hook_journal_ingress(
+                "claude",
+                "SessionStart",
+                Some(&terminal_id.to_string()),
+                serde_json::json!({"session_id":"corrupt-snapshot-session"}),
+            )
+            .unwrap();
+            mux.append_journal_ingress(&ingress, "test", "corrupt-snapshot-event").unwrap();
+            mux.shutdown();
+            terminal_id
+        };
+
+        let registry = WorkspaceRegistry::open(&root, session).unwrap();
+        let sequence = registry.session_journal_after(0, 512).unwrap().records.last().unwrap().sequence;
+        registry
+            .put_journal_reducer_state(
+                AGENT_ROSTER_REDUCER_ID,
+                AGENT_ROSTER_REDUCER_VERSION,
+                sequence,
+                "{not-json}",
+            )
+            .unwrap();
+        let host = restore_agent_roster(&registry).unwrap();
+        assert_eq!(host.cursor, sequence);
+        assert_eq!(host.roster.entries.get(terminal_id.as_str()).unwrap().state, "idle");
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn failed_raw_agent_report_rolls_back_projection_memory_revision_and_event() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, None).unwrap();

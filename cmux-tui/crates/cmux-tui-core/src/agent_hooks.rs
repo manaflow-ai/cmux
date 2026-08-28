@@ -841,6 +841,25 @@ mod tests {
     }
 
     #[test]
+    fn hostile_agent_structure_is_bounded_during_redaction() {
+        let mut deeply_nested = json!("secret-leaf");
+        for _ in 0..64 {
+            deeply_nested = json!({"nested": deeply_nested});
+        }
+        let wide = (0..8_192).map(|_| json!({"value":"secret"})).collect::<Vec<_>>();
+        let ingress = agent_hook_journal_ingress(
+            "codex",
+            "Stop",
+            None,
+            json!({"deep": deeply_nested, "wide": wide}),
+        )
+        .unwrap();
+        let encoded = serde_json::to_string(&ingress.payload).unwrap();
+        assert!(encoded.contains("\"reason\":\"structure_limit\""));
+        assert!(!encoded.contains("secret-leaf"));
+    }
+
+    #[test]
     fn dedicated_question_and_plan_tools_are_semantic_events() {
         let question = agent_hook_journal_ingress(
             "claude-code",
