@@ -15,7 +15,8 @@ use serde_json::{Value, json};
 use tungstenite::client::IntoClientRequest;
 use tungstenite::http::HeaderValue;
 use tungstenite::http::header::AUTHORIZATION;
-use tungstenite::{Error as WsError, Message, WebSocket, client};
+use tungstenite::protocol::WebSocketConfig;
+use tungstenite::{Error as WsError, Message, WebSocket, client_with_config};
 
 /// Maximum number of pending events in each bounded CDP event queue.
 ///
@@ -39,6 +40,9 @@ pub const CDP_EVENT_QUEUE_MAX_BYTES: usize = 32 * 1024 * 1024;
 /// full, so a blocked reader cannot block the TUI thread indefinitely.
 const CDP_OUTBOUND_QUEUE_CAPACITY: usize = 256;
 const CDP_OUTBOUND_QUEUE_MAX_BYTES: usize = 8 * 1024 * 1024;
+// Include tungstenite's default 128 KiB staging buffer and frame overhead in
+// addition to the largest message admitted by the outbound byte budget.
+const CDP_SOCKET_WRITE_BUFFER_MAX_BYTES: usize = CDP_OUTBOUND_QUEUE_MAX_BYTES + 256 * 1024;
 const CDP_CONNECTION_UNAVAILABLE_MESSAGE: &str =
     "browser connection unavailable; retry the command";
 const CDP_OUTBOUND_QUEUE_BYTE_BUDGET_DETAIL: &str = "CDP outbound queue byte budget exceeded";
@@ -572,7 +576,7 @@ impl CdpClient {
                 .map_err(|error| anyhow::anyhow!("invalid CDP bearer token: {error}"))?;
             request.headers_mut().insert(AUTHORIZATION, value);
         }
-        let (ws, _) = client(request, stream)?;
+        let (ws, _) = client_with_config(request, stream, Some(cdp_websocket_config()))?;
         // The reader thread owns the socket and drains queued outbound
         // writes before each read poll. A message enqueued just after a
         // read starts can wait for this window, but writers never contend
@@ -1398,6 +1402,10 @@ impl CdpClient {
         }
         Ok(())
     }
+}
+
+fn cdp_websocket_config() -> WebSocketConfig {
+    WebSocketConfig::default().max_write_buffer_size(CDP_SOCKET_WRITE_BUFFER_MAX_BYTES)
 }
 
 fn outbound_bytes(error: &TrySendError<Outbound>) -> usize {
