@@ -601,13 +601,33 @@ impl PtyManager {
     }
 }
 
-fn send_pty_error(context: &FrameContext, pty_id: &str, code: &str, message: &str) {
+/// Convert an internal refusal into the stable public error vocabulary.
+///
+/// `open_cmux_terminal` and provider-backed daemon calls can return text that
+/// contains paths, command lines, or remote response bodies. A PTY error is a
+/// network boundary, so truncating that text would still disclose secrets.
+/// Keep the caller's message parameter for the internal call-site contract,
+/// but never put it on the wire.
+fn public_pty_error_message(code: &str) -> &'static str {
+    match code {
+        "bad_request" => "invalid terminal request",
+        "trust_refused" => "terminal access denied",
+        "trust_revoked" => "terminal access revoked",
+        "session_limit" => "terminal limit reached",
+        "terminal_gone" => "terminal is no longer available",
+        "overflow" => "terminal output overflowed; reattach to continue",
+        "busy" => "terminal is busy",
+        _ => "terminal operation failed",
+    }
+}
+
+fn send_pty_error(context: &FrameContext, pty_id: &str, code: &str, _message: &str) {
     (context.send)(json!({
         "version": PTY_PROTOCOL_VERSION,
         "type": "pty_error",
         "ptyId": pty_id,
         "code": code,
-        "message": message,
+        "message": public_pty_error_message(code),
     }));
 }
 
@@ -2835,12 +2855,13 @@ mod tests {
         let sent = h.sent();
         let error = sent.iter().find(|f| ty(f) == "pty_error").expect("pty_error frame");
         // The typed code is the contract (chatmux protocol RelayPtyErrorCode);
-        // the message keeps the human wording the Node relay used.
+        // the public message is stable and contains no surface or session
+        // identifiers.
         assert_eq!(error["code"], "terminal_gone");
         let decoded: crate::relay_wire::RelayPtyError =
             serde_json::from_value(error.clone()).expect("generated pty_error fixture");
         assert_eq!(decoded.code, RelayPtyErrorCode::TerminalGone);
-        assert!(error["message"].as_str().unwrap_or_default().contains("not found in session"),);
+        assert_eq!(error["message"], "terminal is no longer available");
         // A gone terminal must NOT degrade to a whole-session attach.
         assert!(!sent.iter().any(|f| ty(f) == "pty_opened"));
     }
