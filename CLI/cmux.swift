@@ -38286,7 +38286,7 @@ export default CMUXSessionRestore;
         if source == "codex",
            hookEventName == "SubagentStart" || hookEventName == "SubagentStop" {
             let lifecycle = CodexTurnLifecycleCoordinator(environment: env, cli: self)
-            _ = lifecycle.recordFeedLifecycle(
+            let decision = lifecycle.recordFeedLifecycle(
                 sessionID: sessionId,
                 eventName: hookEventName,
                 agentID: firstString(in: stdinObj, keys: ["agent_id", "agentId"]),
@@ -38298,6 +38298,22 @@ export default CMUXSessionRestore;
                 surfaceID: firstString(in: stdinObj, keys: ["surface_id", "surfaceId"])
                     ?? env["CMUX_SURFACE_ID"]
             )
+            if hookEventName == "SubagentStop",
+               decision.ownership == .foreground,
+               decision.settlement == .settled,
+               decision.shouldNotify,
+               let payload = String(data: stdinData, encoding: .utf8) {
+                // Persistent Codex feed hooks share the same ledger as the
+                // wrapper-injected child hooks. Once the final child drains,
+                // run the normal Stop projection out of band so the parent
+                // completion is published even when Codex emits no second
+                // parent Stop event.
+                spawnDetachedCodexSettledStop(
+                    payload: payload,
+                    environment: env,
+                    telemetry: telemetry
+                )
+            }
         }
 
         var eventDict: [String: Any] = [

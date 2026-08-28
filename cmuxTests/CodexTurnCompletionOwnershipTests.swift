@@ -139,15 +139,18 @@ struct CodexTurnCompletionOwnershipTests {
             "One remaining child must not also mark the pane idle: \(partiallyDrainedCommands)"
         )
 
+        let beforeFinalChildStop = harness.context.state.snapshot().count
         try runFeedLifecycle(harness, event: "SubagentStop", id: "child-b")
-        let beforeFinalStop = harness.context.state.snapshot().count
-        try runHook(
-            harness,
-            subcommand: "stop",
-            input: stopPayload(harness, turnId: "turn-1")
+        #expect(
+            waitForConditionBlocking(timeout: 5) {
+                let snapshot = harness.context.state.snapshot()
+                return snapshot.contains { $0.hasPrefix("notify_target_async ") }
+                    && snapshot.contains { $0.hasPrefix("set_status codex Idle ") }
+            },
+            "The persistent child-stop path must settle the pending parent turn: \(harness.context.state.snapshot())"
         )
         let finalCommands = Array(
-            harness.context.state.snapshot().dropFirst(beforeFinalStop)
+            harness.context.state.snapshot().dropFirst(beforeFinalChildStop)
         )
         let finalNotifications = finalCommands.filter {
             $0.hasPrefix("notify_target_async ")
@@ -165,8 +168,9 @@ struct CodexTurnCompletionOwnershipTests {
             "The settled foreground turn must not remain Running: \(finalCommands)"
         )
 
-        // A second Stop for the same settled turn is a duplicate boundary and
-        // must not publish another completion or repaint the pane.
+        // A parent Stop arriving after the detached child-stop settlement is a
+        // duplicate boundary and must not publish another completion or repaint
+        // the pane.
         let beforeDuplicateStop = harness.context.state.snapshot().count
         try runHook(
             harness,
