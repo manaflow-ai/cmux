@@ -1328,7 +1328,7 @@ impl InteractiveWriter {
         let _ = self.abort.abort();
     }
 
-    fn close(&self) {
+    pub(crate) fn close(&self) {
         self.request_close();
         let deadline = Instant::now() + remote_write_timeout();
         let mut state = self.shared.state.lock().unwrap_or_else(|poison| poison.into_inner());
@@ -1533,10 +1533,152 @@ pub enum PipeIoEvent {
     StdinClosed,
 }
 
+const PIPE_IO_EVENT_QUEUE_CAPACITY: usize = 4096;
+const PIPE_IO_EVENT_QUEUE_BYTES: usize = 8 * 1024 * 1024;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PipeIoQueuePushError {
+    Full,
+    Closed,
+}
+
+struct PipeIoQueueState {
+    events: VecDeque<PipeIoEvent>,
+    data_events: usize,
+    data_bytes: usize,
+    closed: bool,
+    transport_lost: bool,
+}
+
+/// Byte-bounded FIFO for one manual-IO relay. Transport loss has an
+/// out-of-band wakeup so a full data queue can never hide reconnection.
+pub struct PipeIoQueue {
+    state: Mutex<PipeIoQueueState>,
+    changed: Condvar,
+}
+
+impl PipeIoQueue {
+    pub fn new() -> Self {
+        Self {
+            state: Mutex::new(PipeIoQueueState {
+                events: VecDeque::new(),
+                data_events: 0,
+                data_bytes: 0,
+                closed: false,
+                transport_lost: false,
+            }),
+            changed: Condvar::new(),
+        }
+    }
+
+    pub(crate) fn push(&self, event: PipeIoEvent) -> Result<(), PipeIoQueuePushError> {
+        let is_control = matches!(
+            &event,
+            PipeIoEvent::SurfaceExited | PipeIoEvent::TransportLost | PipeIoEvent::StdinClosed
+        );
+        let mut state = self.state.lock().unwrap();
+        if state.closed {
+            return Err(PipeIoQueuePushError::Closed);
+        }
+        if is_control {
+            if matches!(&event, PipeIoEvent::TransportLost) {
+                // Transport loss is an out-of-band wakeup. It is delivered
+                // before queued bytes, so a stalled consumer cannot hide the
+                // reconnect signal behind a large replay.
+                state.transport_lost = true;
+                self.changed.notify_one();
+                return Ok(());
+            }
+            // Each other lifecycle signal is idempotent and remains in the
+            // same FIFO as data, preserving the server's event order.
+            let already_present = state
+                .events
+                .iter()
+                .any(|queued| std::mem::discriminant(queued) == std::mem::discriminant(&event));
+            if !already_present {
+                state.events.push_back(event);
+                self.changed.notify_one();
+            }
+            return Ok(());
+        }
+
+        let bytes = match &event {
+            PipeIoEvent::Replay { bytes } | PipeIoEvent::Output(bytes) => bytes.len(),
+            PipeIoEvent::SurfaceExited | PipeIoEvent::TransportLost | PipeIoEvent::StdinClosed => 0,
+        };
+        if state.data_events >= PIPE_IO_EVENT_QUEUE_CAPACITY
+            || bytes > PIPE_IO_EVENT_QUEUE_BYTES.saturating_sub(state.data_bytes)
+        {
+            return Err(PipeIoQueuePushError::Full);
+        }
+        state.data_bytes += bytes;
+        state.data_events += 1;
+        state.events.push_back(event);
+        self.changed.notify_one();
+        Ok(())
+    }
+
+    pub(crate) fn recv(&self) -> Option<PipeIoEvent> {
+        let mut state = self.state.lock().unwrap();
+        loop {
+            if state.transport_lost {
+                state.transport_lost = false;
+                state.events.clear();
+                state.data_events = 0;
+                state.data_bytes = 0;
+                return Some(PipeIoEvent::TransportLost);
+            }
+            if let Some(event) = state.events.pop_front() {
+                let is_data = matches!(&event, PipeIoEvent::Replay { .. } | PipeIoEvent::Output(_));
+                let bytes = match &event {
+                    PipeIoEvent::Replay { bytes } | PipeIoEvent::Output(bytes) => bytes.len(),
+                    PipeIoEvent::SurfaceExited
+                    | PipeIoEvent::TransportLost
+                    | PipeIoEvent::StdinClosed => 0,
+                };
+                if is_data {
+                    state.data_events = state.data_events.saturating_sub(1);
+                }
+                state.data_bytes = state.data_bytes.saturating_sub(bytes);
+                return Some(event);
+            }
+            if state.closed {
+                return None;
+            }
+            state = self.changed.wait(state).unwrap();
+        }
+    }
+
+    fn close(&self) {
+        let mut state = self.state.lock().unwrap();
+        if state.closed {
+            return;
+        }
+        state.closed = true;
+        state.events.clear();
+        state.data_events = 0;
+        state.data_bytes = 0;
+        state.transport_lost = true;
+        self.changed.notify_all();
+    }
+}
+
+impl Default for PipeIoQueue {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 struct PipeIoTap {
     id: u64,
     surface: SurfaceId,
-    sender: std::sync::mpsc::SyncSender<PipeIoEvent>,
+    queue: Arc<PipeIoQueue>,
+}
+
+impl Drop for PipeIoTap {
+    fn drop(&mut self) {
+        self.queue.close();
+    }
 }
 
 pub(super) enum RemoteSurfaceAttach {
@@ -2924,13 +3066,15 @@ impl RemoteSession {
             };
         }
         drop(state);
+        // Wake the embedder before any bounded writer shutdown work. A
+        // stalled stdout consumer must not wait for an unrelated drain timeout
+        // to learn that it should reconnect.
+        let queue = self.pipe_io_tap.lock().unwrap().as_ref().map(|tap| tap.queue.clone());
+        if let Some(queue) = queue {
+            let _ = queue.push(PipeIoEvent::TransportLost);
+        }
         self.begin_shutdown();
         self.interactive_writer.close();
-        // A pipe-io relay learns about every terminal-connection loss here
-        // (reader-thread EOF and every protocol-error disconnect path).
-        if let Some(tap) = self.pipe_io_tap.lock().unwrap().as_ref() {
-            let _ = tap.sender.try_send(PipeIoEvent::TransportLost);
-        }
     }
 
     /// Routes one scoped surface's raw byte stream to a `--pipe-io` relay.
@@ -2938,10 +3082,10 @@ impl RemoteSession {
     pub fn install_pipe_io_tap(
         &self,
         surface: SurfaceId,
-        sender: std::sync::mpsc::SyncSender<PipeIoEvent>,
+        queue: Arc<PipeIoQueue>,
     ) -> u64 {
         let id = self.next_pipe_io_tap_id.fetch_add(1, Ordering::Relaxed);
-        *self.pipe_io_tap.lock().unwrap() = Some(PipeIoTap { id, surface, sender });
+        *self.pipe_io_tap.lock().unwrap() = Some(PipeIoTap { id, surface, queue });
         id
     }
 
@@ -2961,17 +3105,13 @@ impl RemoteSession {
     /// would corrupt the embedder's terminal state (bounded-backpressure
     /// policy; never wedge the session reader thread).
     fn pipe_io_forward(&self, surface: SurfaceId, event: impl FnOnce() -> PipeIoEvent) {
-        use std::sync::mpsc::TrySendError;
         let stalled = {
             let tap = self.pipe_io_tap.lock().unwrap();
             let Some(tap) = tap.as_ref() else { return };
             if tap.surface != surface {
                 return;
             }
-            match tap.sender.try_send(event()) {
-                Ok(()) => false,
-                Err(TrySendError::Full(_) | TrySendError::Disconnected(_)) => true,
-            }
+            matches!(tap.queue.push(event()), Err(PipeIoQueuePushError::Full))
         };
         if stalled {
             self.disconnect_transport();
