@@ -66,7 +66,9 @@ export function enforceRelayRateLimit(input: {
       if (rateLimited || error === "blocked") {
         const source: RelayRateLimitSource = input.rateLimitKey === null
           ? "ingress_ip"
-          : "device_budget";
+          : input.devicePartition
+            ? "device_budget"
+            : "account_budget";
         console.warn("relay.rate_limited", { source });
         const retryAfterSeconds = input.retryAfterSeconds;
         return Effect.fail(new RelayRateLimitError({
