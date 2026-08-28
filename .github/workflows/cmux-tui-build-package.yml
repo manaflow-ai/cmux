@@ -223,7 +223,9 @@ jobs:
       - name: Install cargo-zigbuild
         if: matrix.cross == true && runner.os == 'Linux'
         shell: bash
-        run: cargo install --locked cargo-zigbuild@0.20.0
+        # Rust 1.98 adds the Cortex-A53 erratum linker flag for AArch64.
+        # cargo-zigbuild 0.23.2 filters that flag for Zig's linker wrapper.
+        run: cargo install --locked cargo-zigbuild@0.23.2
 
       - name: Build cmux-tui (native)
         if: matrix.cross == false
