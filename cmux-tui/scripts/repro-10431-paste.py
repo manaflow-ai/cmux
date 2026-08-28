@@ -3,7 +3,8 @@
 # Restores the smoke step that pasted a ~818-byte python heredoc into the
 # TUI's shell as raw pty keystrokes, loops it under CPU load, and stops at
 # the first iteration where the OSC 11 reply never appears. Run with
-# CMUX_TUI_INPUT_AUDIT=<file> so the TUI logs its byte-accounting taps; on
+# CMUX_TUI_INPUT_AUDIT=<file> and CMUX_TUI_INPUT_AUDIT_ALLOW_SENSITIVE=1 so the
+# TUI logs its byte-accounting taps; on
 # failure this script prints the screen, the exact bytes it wrote, and where
 # the audit says the bytes died.
 #
@@ -12,6 +13,7 @@
 #   REPRO_ITERS      paste iterations (default 30)
 #   REPRO_LOAD       busy-spin worker count (default: os.cpu_count())
 #   CMUX_TUI_INPUT_AUDIT  audit file the TUI appends taps to (recommended)
+#   CMUX_TUI_INPUT_AUDIT_ALLOW_SENSITIVE  must be `1` to record raw bytes
 
 import json
 import multiprocessing
@@ -32,6 +34,10 @@ CONTROL_SOCKET_RE = re.compile(r"control socket at (.+)$")
 ITERS = int(os.environ.get("REPRO_ITERS", "30"))
 LOAD = int(os.environ.get("REPRO_LOAD", str(os.cpu_count() or 4)))
 AUDIT = os.environ.get("CMUX_TUI_INPUT_AUDIT")
+if AUDIT and os.environ.get("CMUX_TUI_INPUT_AUDIT_ALLOW_SENSITIVE") != "1":
+    raise SystemExit(
+        "set CMUX_TUI_INPUT_AUDIT_ALLOW_SENSITIVE=1 before recording raw input bytes"
+    )
 
 
 def write_all(fd, data):

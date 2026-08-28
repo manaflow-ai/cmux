@@ -1,7 +1,9 @@
 //! Byte-accounting audit taps (issue 10431), backed by the shared
 //! non-blocking writer in [`cmux_tui_core::input_audit`] so the taps here and
 //! the surface-lifecycle notes in `cmux-tui-core` share one open path and one
-//! regular-file-only, mode-0600 contract. `main()` installs the error
+//! regular-file-only, mode-0600 contract. Raw payload capture requires
+//! `CMUX_TUI_INPUT_AUDIT_ALLOW_SENSITIVE=1` in addition to the audit path.
+//! `main()` installs the error
 //! reporter that carries the single "audit disabled" note into the client
 //! log.
 

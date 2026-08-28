@@ -16,7 +16,9 @@
 //! [`set_error_reporter`]. The audit target must be a freshly creatable or
 //! existing REGULAR file: it is opened non-blocking, created `0600`, and an
 //! existing file with group/other permission bits is refused, because the
-//! taps capture raw keystrokes. When the queue is full the event is dropped
+//! taps capture raw keystrokes. Raw payload capture also requires the separate
+//! `CMUX_TUI_INPUT_AUDIT_ALLOW_SENSITIVE=1` opt-in, so a global audit path
+//! cannot silently persist passwords or tokens. When the queue is full the event is dropped
 //! and counted; the writer notes the drop count in the file
 //! (`audit-dropped`). When the byte budget is exceeded a line first loses
 //! its payload (recorded as `payload-bytes=N` in the detail) and is dropped
@@ -40,6 +42,7 @@ const STATE_UNKNOWN: u8 = 0;
 const STATE_DISABLED: u8 = 1;
 const STATE_ENABLED: u8 = 2;
 const STATE_STARTING: u8 = 3;
+const SENSITIVE_AUDIT_OPT_IN: &str = "CMUX_TUI_INPUT_AUDIT_ALLOW_SENSITIVE";
 
 static STATE: AtomicU8 = AtomicU8::new(STATE_UNKNOWN);
 static SENDER: OnceLock<SyncSender<AuditLine>> = OnceLock::new();
@@ -90,6 +93,13 @@ fn sender() -> Option<&'static SyncSender<AuditLine>> {
             return None;
         }
     };
+    if !sensitive_capture_enabled() {
+        STATE.store(STATE_DISABLED, Ordering::Release);
+        report_error(&format!(
+            "input audit disabled: raw payload capture requires {SENSITIVE_AUDIT_OPT_IN}=1"
+        ));
+        return None;
+    }
     let (line_sender, line_receiver) = sync_channel::<AuditLine>(QUEUE_CAPACITY);
     let sender = SENDER.get_or_init(|| line_sender);
     // Only the writer thread transitions STARTING -> ENABLED (after a
@@ -116,6 +126,14 @@ fn sender_or_count_drop() -> Option<&'static SyncSender<AuditLine>> {
     sender
 }
 
+fn sensitive_capture_enabled() -> bool {
+    sensitive_capture_enabled_value(std::env::var_os(SENSITIVE_AUDIT_OPT_IN).as_deref())
+}
+
+fn sensitive_capture_enabled_value(value: Option<&OsStr>) -> bool {
+    value == Some(OsStr::new("1"))
+}
+
 /// Open the audit target without ever blocking (a writer-less FIFO blocks
 /// `open(2)` forever) and refuse anything that is not a private regular
 /// file: create with mode `0600`, and reject an existing file readable by
@@ -126,7 +144,7 @@ fn open_audit_file(path: &OsStr) -> Result<File, &'static str> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt as _;
-        options.custom_flags(libc::O_NONBLOCK).mode(0o600);
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK).mode(0o600);
     }
     let file = options.open(path).map_err(|_| "target is not openable")?;
     let metadata = file.metadata().map_err(|_| "target metadata is unreadable")?;
@@ -135,9 +153,15 @@ fn open_audit_file(path: &OsStr) -> Result<File, &'static str> {
     }
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt as _;
-        if metadata.permissions().mode() & 0o077 != 0 {
-            return Err("target is readable by group or other; require mode 0600");
+        use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
+        if metadata.uid() != unsafe { libc::geteuid() } {
+            return Err("target is not owned by the current user");
+        }
+        if metadata.permissions().mode() & 0o7777 != 0o600 {
+            return Err("target must have private mode 0600");
+        }
+        if metadata.nlink() != 1 {
+            return Err("target must not have hard links");
         }
     }
     Ok(file)
@@ -229,4 +253,42 @@ pub fn record(tag: &'static str, detail: &str, bytes: &[u8]) {
 /// Enqueue a bytes-free note (event names, enqueue failures, drop sites).
 pub fn note(tag: &'static str, detail: &str) {
     record(tag, detail, &[]);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn raw_capture_requires_an_explicit_exact_opt_in() {
+        assert!(!sensitive_capture_enabled_value(None));
+        assert!(!sensitive_capture_enabled_value(Some(OsStr::new("true"))));
+        assert!(!sensitive_capture_enabled_value(Some(OsStr::new("1 "))));
+        assert!(sensitive_capture_enabled_value(Some(OsStr::new("1"))));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn audit_file_rejects_symlinks_and_non_private_modes() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let root = std::env::temp_dir().join(format!(
+            "cmux-input-audit-file-{}-{}",
+            std::process::id(),
+            timestamp_micros()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let target = root.join("audit.log");
+        std::fs::write(&target, b"").unwrap();
+        std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o600)).unwrap();
+        assert!(open_audit_file(target.as_os_str()).is_ok());
+
+        std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o640)).unwrap();
+        assert!(open_audit_file(target.as_os_str()).is_err());
+
+        let link = root.join("audit-link");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        assert!(open_audit_file(link.as_os_str()).is_err());
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }
