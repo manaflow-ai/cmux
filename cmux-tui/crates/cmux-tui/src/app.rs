@@ -18,6 +18,7 @@ use std::time::{Duration, Instant};
 
 use base64::Engine;
 use cmux_tui_core::resource::FrontendProjectionPublicId;
+use cmux_tui_cdp::is_connection_unavailable;
 use cmux_tui_core::{
     BrowserFrame, BrowserSource, BrowserStatus, ClearHistoryDelivery, ClearHistoryFailure,
     DEFAULT_VIEWPORT_PANE_WIDTH, Direction, FrontendFocusTarget, FrontendJournalEvent,
@@ -8842,7 +8843,11 @@ fn run_with_machine_updates_inner(
         },
         move |error| {
             crate::client_log::error("browser-control", &error);
-            let message = localization::catalog().browser.control_unavailable();
+            let message = if is_connection_unavailable(&error) {
+                localization::catalog().browser.control_unavailable()
+            } else {
+                localization::catalog().browser.control_failed(&error.to_string())
+            };
             let _ = browser_control_tx.send(AppEvent::Mux(MuxEvent::Status(message)));
         },
     )?;
