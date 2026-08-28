@@ -147,12 +147,12 @@ use cmux_tui_core::TRANSPORT_SAFE_CAPTURE_MEGAPIXELS;
 use cmux_tui_core::platform;
 use cmux_tui_core::{CursorShape, DefaultColors, Rgb};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use fs4::FileExt;
 use ratatui::style::Color;
 use serde::{Deserialize, Deserializer};
 use serde_json::{Value, json};
 use unicode_width::UnicodeWidthStr;
 use wait_timeout::ChildExt;
-use fs4::FileExt;
 
 use crate::localization::catalog;
 
@@ -4150,11 +4150,9 @@ pub(crate) fn with_config_file_lock<T>(
     let file = options.open(&lock_path)?;
     #[cfg(unix)]
     {
+        use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
         let metadata = file.metadata()?;
-        anyhow::ensure!(
-            metadata.uid() == unsafe { libc::geteuid() },
-            "config lock owner changed"
-        );
+        anyhow::ensure!(metadata.uid() == unsafe { libc::geteuid() }, "config lock owner changed");
         anyhow::ensure!(
             metadata.permissions().mode() & 0o022 == 0,
             "config lock is writable by another user"
@@ -4182,9 +4180,7 @@ fn read_config_value(path: &Path) -> anyhow::Result<Value> {
 /// [`ConfigWriteOutcome::CommittedButUnsynced`] value means a supported
 /// directory sync failed.
 fn write_config_value_atomic(path: &Path, value: &Value) -> anyhow::Result<ConfigWriteOutcome> {
-    with_config_file_lock(path, || {
-        write_config_value_atomic_unlocked(path, value)
-    })
+    with_config_file_lock(path, || write_config_value_atomic_unlocked(path, value))
 }
 
 fn write_config_value_atomic_unlocked(

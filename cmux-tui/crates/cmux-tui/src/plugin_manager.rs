@@ -203,7 +203,10 @@ fn acquire_plugin_operation_lock() -> anyhow::Result<PluginOperationLock> {
         use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
         let metadata = file.metadata()?;
         anyhow::ensure!(metadata.uid() == unsafe { libc::geteuid() }, "plugin lock owner changed");
-        anyhow::ensure!(metadata.permissions().mode() & 0o022 == 0, "plugin lock is writable by another user");
+        anyhow::ensure!(
+            metadata.permissions().mode() & 0o022 == 0,
+            "plugin lock is writable by another user"
+        );
     }
     FileExt::lock(&file)?;
     Ok(PluginOperationLock(file))
@@ -1158,7 +1161,8 @@ fn reconcile_install_transactions(install_root: &Path) -> anyhow::Result<()> {
             .map(|owner_token| commit_marker_matches(&marker_path, owner_token))
             .transpose()?
             .unwrap_or(false);
-        let committed = matches!(&journal.phase, InstallJournalPhase::Committed) || marker_committed;
+        let committed =
+            matches!(&journal.phase, InstallJournalPhase::Committed) || marker_committed;
         if committed {
             remove_path_if_present(&journal.target_backup)?;
             remove_path_if_present(&journal.metadata_backup)?;
@@ -1167,36 +1171,39 @@ fn reconcile_install_transactions(install_root: &Path) -> anyhow::Result<()> {
         } else {
             match journal.phase {
                 InstallJournalPhase::Prepared => {
-                if let Some(snapshot) = &journal.config_snapshot {
-                    let legacy_target = journal
-                        .expected_sidebar_plugin
-                        .is_none()
-                        .then(|| install_root.join(&journal.name));
-                    restore_config_snapshot(
-                        snapshot,
-                        journal.expected_sidebar_plugin.as_ref(),
-                        legacy_target.as_deref(),
-                    )?;
-                }
-                if journal.target_existed {
-                    if path_entry_exists(&journal.target_backup)? {
+                    if let Some(snapshot) = &journal.config_snapshot {
+                        let legacy_target = journal
+                            .expected_sidebar_plugin
+                            .is_none()
+                            .then(|| install_root.join(&journal.name));
+                        restore_config_snapshot(
+                            snapshot,
+                            journal.expected_sidebar_plugin.as_ref(),
+                            legacy_target.as_deref(),
+                        )?;
+                    }
+                    if journal.target_existed {
+                        if path_entry_exists(&journal.target_backup)? {
+                            remove_path_if_present(&install_root.join(&journal.name))?;
+                            fs::rename(&journal.target_backup, install_root.join(&journal.name))?;
+                        }
+                    } else {
                         remove_path_if_present(&install_root.join(&journal.name))?;
-                        fs::rename(&journal.target_backup, install_root.join(&journal.name))?;
                     }
-                } else {
-                    remove_path_if_present(&install_root.join(&journal.name))?;
-                }
-                if journal.metadata_existed {
-                    let metadata_path = registry_metadata_path(install_root, &journal.name);
-                    if path_entry_exists(&journal.metadata_backup)? {
-                        remove_path_if_present(&metadata_path)?;
-                        fs::rename(&journal.metadata_backup, metadata_path)?;
+                    if journal.metadata_existed {
+                        let metadata_path = registry_metadata_path(install_root, &journal.name);
+                        if path_entry_exists(&journal.metadata_backup)? {
+                            remove_path_if_present(&metadata_path)?;
+                            fs::rename(&journal.metadata_backup, metadata_path)?;
+                        }
+                    } else {
+                        remove_path_if_present(&registry_metadata_path(
+                            install_root,
+                            &journal.name,
+                        ))?;
                     }
-                } else {
-                    remove_path_if_present(&registry_metadata_path(install_root, &journal.name))?;
-                }
-                remove_path_if_present(&journal.temp_dir)?;
-                remove_path_if_present(&journal.metadata_temp)?;
+                    remove_path_if_present(&journal.temp_dir)?;
+                    remove_path_if_present(&journal.metadata_temp)?;
                 }
                 InstallJournalPhase::Committed => unreachable!(),
             }
@@ -1279,9 +1286,8 @@ fn cleanup_orphan_commit_markers(
     for entry in entries {
         let path = entry?.path();
         let Some(name) = path.file_name().and_then(|value| value.to_str()) else { continue };
-        let Some(plugin_name) = name
-            .strip_prefix('.')
-            .and_then(|value| value.strip_suffix(".install-commit"))
+        let Some(plugin_name) =
+            name.strip_prefix('.').and_then(|value| value.strip_suffix(".install-commit"))
         else {
             continue;
         };
@@ -1310,14 +1316,15 @@ fn restore_config_snapshot(
             Err(error) => return Err(error.into()),
         };
         let current = root.get("sidebar").and_then(|sidebar| sidebar.get("plugin"));
-        let current_is_transaction = expected_sidebar_plugin.is_some_and(|expected| {
-            current == Some(expected)
-        }) || expected_sidebar_plugin.is_none() && legacy_target.is_some_and(|target| {
-            current
-                .and_then(|plugin| plugin.get("cwd"))
-                .and_then(Value::as_str)
-                .is_some_and(|cwd| same_path(Path::new(cwd), target))
-        });
+        let current_is_transaction = expected_sidebar_plugin
+            .is_some_and(|expected| current == Some(expected))
+            || expected_sidebar_plugin.is_none()
+                && legacy_target.is_some_and(|target| {
+                    current
+                        .and_then(|plugin| plugin.get("cwd"))
+                        .and_then(Value::as_str)
+                        .is_some_and(|cwd| same_path(Path::new(cwd), target))
+                });
         if !current_is_transaction {
             // The user or another cmux process selected a different plugin after
             // this transaction started. Leave that newer state untouched. A
@@ -1558,10 +1565,7 @@ fn replace_installed_plugin_with_fs<F: InstallFilesystem, C: FnOnce() -> anyhow:
             }
         }
         if let Some(snapshot) = &journal.config_snapshot {
-            let legacy_target = journal
-                .expected_sidebar_plugin
-                .is_none()
-                .then(|| target.clone());
+            let legacy_target = journal.expected_sidebar_plugin.is_none().then(|| target.clone());
             if let Err(rollback_error) = restore_config_snapshot(
                 snapshot,
                 journal.expected_sidebar_plugin.as_ref(),
@@ -2282,7 +2286,8 @@ mod tests {
         )
         .unwrap_err();
         assert!(error.to_string().contains("injected config failure"));
-        let current: Value = serde_json::from_str(&fs::read_to_string(config_path).unwrap()).unwrap();
+        let current: Value =
+            serde_json::from_str(&fs::read_to_string(config_path).unwrap()).unwrap();
         assert_eq!(current["sidebar"]["plugin"]["command"], json!(["newer"]));
         assert_eq!(current["theme"]["name"], json!("changed"));
         fs::remove_dir_all(root).unwrap();
