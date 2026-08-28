@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import * as Effect from "effect/Effect";
-import { IrohDatabaseError, IrohQuotaExceededError } from "../services/iroh/errors";
+import { IrohDatabaseError } from "../services/iroh/errors";
 import {
   buildConnectivityInvalidationRequest,
   handleIrohRoute,
@@ -328,13 +328,11 @@ describe("Iroh route boundary", () => {
       issueEndpointAttestation: namespaced,
       revoke: namespaced,
       issuePairGrant: namespaced,
-      issueRelayToken: namespaced,
     });
     const operations = [
       "endpoint_attestation",
       "revoke",
       "pair_grant",
-      "relay_token",
     ] as const;
     for (const operation of operations) {
       const base = authedPost("/api/devices/iroh", {});
@@ -353,30 +351,10 @@ describe("Iroh route boundary", () => {
       );
       expect(response.status).toBe(operation === "revoke" ? 200 : 201);
     }
-    expect(received).toEqual(Array(4).fill("dev.cmux.app.demo"));
+    expect(received).toEqual(Array(3).fill("dev.cmux.app.demo"));
     expect(receivedBindingIDs).toEqual(
-      Array(4).fill("123e4567-e89b-42d3-a456-426614174000"),
+      Array(3).fill("123e4567-e89b-42d3-a456-426614174000"),
     );
-  });
-
-  test("maps DB-authoritative quota failures to typed 429 with Retry-After", async () => {
-    const response = await handleIrohRoute(authedPost("/api/devices/iroh/relay-token", {
-      bindingId: "30000000-0000-4000-8000-000000000001",
-    }), "relay_token", {
-      verify: async () => USER,
-      broker: broker({
-        issueRelayToken: () => Effect.fail(new IrohQuotaExceededError({
-          code: "relay_endpoint_10m_quota",
-          retryAfterSeconds: 417,
-        })),
-      }),
-    });
-    expect(response.status).toBe(429);
-    expect(response.headers.get("retry-after")).toBe("417");
-    expect(await response.json()).toEqual({
-      error: "relay_endpoint_10m_quota",
-      retry_after_seconds: 417,
-    });
   });
 
   test("does not expose database implementation details in service failures", async () => {
@@ -435,7 +413,6 @@ function broker(overrides: Partial<IrohTrustBrokerShape> = {}): IrohTrustBrokerS
     issueEndpointAttestation: unavailable,
     revoke: unavailable,
     issuePairGrant: unavailable,
-    issueRelayToken: unavailable,
     ...overrides,
   };
 }

@@ -115,7 +115,7 @@ Every catalog has a strictly increasing sequence and at most sixteen unique cred
 
 The server may add, remove, or replace relays without a client update. A remote `EndpointAddr` contains only the remote endpoint's advertised home relay or relays, validated against the signed fleet. Fleet configuration and remote reachability remain separate wire fields.
 
-A signed-in native client calls `POST /api/relay/token` with its canonical EndpointID. The web API returns a five-minute endpoint-bound relay JWT, the signed policy, and the account preference. Each cmux relay verifies its JWT offline. The app refreshes before expiry and replaces the verified relay policy on the live endpoint without changing EndpointID or application streams.
+A signed-in native client calls `GET /api/relay/policy`. The web API returns the signed policy and the account preference; clients hold no relay credentials. Relay admission is server-side: the relay's allow hook (`POST /api/relay/allow`) checks the endpoint key proven in the iroh handshake and caches the answer. The app refreshes the signed policy before its expiry and replaces the verified relay policy on the live endpoint without changing EndpointID or application streams.
 
 Relay preferences are personal-account scoped:
 
@@ -172,7 +172,7 @@ Before defaulting to Iroh, verification must cover:
 - public direct, managed-relay, post-admission NAT-traversed LAN/Tailscale/custom-VPN candidates, authenticated Bonjour LAN bootstrap, and hardened numeric Tailscale TCP compatibility paths;
 - TCP-only firewalls, blocked UDP, captive portals, constrained paths, and expensive cellular paths;
 - explicit HTTP-proxy-only networks, with a clear legacy/private-network fallback until Iroh relay WebSockets support proxy-controlled connection establishment;
-- relay token denial, expiry, refresh, and long-lived stream preservation;
+- relay allow-hook denial, signed-policy expiry and refresh, and long-lived stream preservation;
 - background and foreground endpoint recreation with stable EndpointID;
 - a deterministic failed-rebind/network-resume test that proves the health watchdog detects terminal driver failure and recreates the endpoint from the same key and identity generation with a new runtime generation;
 - a malicious pre-admission QNT peer, proving zero candidate disclosure, `REACH_OUT` probes, timers, or migration before activation and same-connection migration after both admitted sides activate;

@@ -15,10 +15,8 @@ import {
   IrohConflictError,
   IrohForbiddenError,
   IrohNotFoundError,
-  IrohRelayMintError,
 } from "../services/iroh/errors";
 import {
-  IROH_RELAY_TOKEN_LIFETIME_SECONDS,
   MANAGED_RELAY_URLS,
   sha256,
   type IrohRegistrationPayload,
@@ -33,9 +31,8 @@ import {
   type IrohChallengeRecord,
   type IrohRepositoryShape,
 } from "../services/iroh/repository";
-import type { IrohRelayMinterShape } from "../services/iroh/relayMinter";
 import { makeIrohTrustBroker } from "../services/iroh/trustBroker";
-import { bindingMatchesDiscoveryScope } from "../services/iroh/discoveryScope";
+import type { IrohDiscoveryScope } from "../services/iroh/discoveryScope";
 import type { RelayPreference } from "../services/relay/model";
 
 const NOW = new Date("2026-07-09T20:00:00.000Z");
@@ -206,13 +203,13 @@ describe("Iroh build compatibility", () => {
 });
 
 describe("Iroh trust broker registration", () => {
-  test("registers a valid endpoint proof and mints relay credentials after commit", async () => {
+  test("registers a valid endpoint proof and reports the relay credential unavailable", async () => {
     const fixture = makeFixture();
     const request = await fixture.signedRegistration();
     const result = await Effect.runPromise(fixture.broker.register(USER_A, request, NOW)) as {
       revision: number;
       binding: { endpoint_id: string };
-      relay: { status: string; token: string };
+      relay: { status: string };
       discovery_complete: boolean;
       discovery: {
         revision: number;
@@ -220,7 +217,7 @@ describe("Iroh trust broker registration", () => {
       };
     };
     expect(result.binding.endpoint_id).toBe(fixture.endpointId);
-    expect(result.relay.status).toBe("issued");
+    expect(result.relay.status).toBe("unavailable");
     expect(result.discovery.revision).toBe(result.revision);
     expect(result.discovery_complete).toBe(true);
     expect(result.discovery.bindings.map((binding) => binding.binding_id))
@@ -234,7 +231,6 @@ describe("Iroh trust broker registration", () => {
       observed_at: "2026-07-09T19:55:00.000Z",
       expires_at: "2026-07-09T20:45:00.000Z",
     }]);
-    expect(fixture.minter.calls).toBe(1);
   });
 
   test("persists and publishes signed family-specific direct ports to the same account", async () => {
@@ -345,16 +341,7 @@ describe("Iroh trust broker registration", () => {
     ]);
   });
 
-  test("relay failure cannot roll back an authenticated registration", async () => {
-    const fixture = makeFixture({ minterFailure: true });
-    const result = await Effect.runPromise(
-      fixture.broker.register(USER_A, await fixture.signedRegistration(), NOW),
-    ) as { relay: { status: string } };
-    expect(result.relay.status).toBe("unavailable");
-    expect(fixture.repository.bindings).toHaveLength(1);
-  });
-
-  test("does not mint another relay token when refreshing the same binding", async () => {
+  test("reports not_requested when refreshing the same binding", async () => {
     const fixture = makeFixture();
     await Effect.runPromise(fixture.broker.register(
       USER_A,
@@ -369,7 +356,6 @@ describe("Iroh trust broker registration", () => {
     )) as { relay: { status: string } };
 
     expect(refreshed.relay.status).toBe("not_requested");
-    expect(fixture.minter.calls).toBe(1);
   });
 
   test("marks a truncated registration discovery page incomplete", async () => {
@@ -1337,6 +1323,87 @@ describe("Iroh discovery and grants", () => {
     expect(discovered.bindings[0]?.path_hints).toEqual([]);
   });
 
+  test("serves the fleet-reported attach route ahead of client-published hints", async () => {
+    const attachedURL = MANAGED_RELAY_URLS[0]!;
+    const otherManagedURL = MANAGED_RELAY_URLS[1]!;
+    const fixture = makeFixture();
+    fixture.repository.bindings.push(binding({
+      userId: USER_A,
+      // The client republish also advertised the same relay plus another one.
+      pathHints: [relayHint(attachedURL), relayHint(otherManagedURL)],
+      relayAttachedUrl: attachedURL,
+      relayAttachReportedAt: new Date(NOW.getTime() - 60_000),
+    }));
+
+    const discovered = await Effect.runPromise(fixture.broker.discover(USER_A, NOW)) as {
+      bindings: Array<{ path_hints: Array<Record<string, unknown>> }>;
+    };
+    const hints = discovered.bindings[0]!.path_hints;
+    // Server-observed hint first, the duplicate client hint dropped, the
+    // remaining client hint kept as fallback.
+    expect(hints.map((hint) => hint.value)).toEqual([attachedURL, otherManagedURL]);
+    expect(hints[0]).toMatchObject({
+      kind: "relay_url",
+      source: "native",
+      privacy_scope: "public_internet",
+      observed_at: NOW.toISOString(),
+    });
+    expect(new Date(String(hints[0]!.expires_at)).getTime())
+      .toBeGreaterThan(NOW.getTime());
+  });
+
+  test("ages out an attach route with no fresh evidence (lost detach report)", async () => {
+    const fixture = makeFixture();
+    fixture.repository.bindings.push(binding({
+      userId: USER_A,
+      pathHints: [],
+      relayAttachedUrl: MANAGED_RELAY_URLS[0]!,
+      // Both evidence channels are stale: the relay died without a detach
+      // report and the Mac stopped renewing its registration.
+      relayAttachReportedAt: new Date(NOW.getTime() - 2 * 60 * 60 * 1_000),
+      lastSeenAt: new Date(NOW.getTime() - 2 * 60 * 60 * 1_000),
+    }));
+
+    const discovered = await Effect.runPromise(fixture.broker.discover(USER_A, NOW)) as {
+      bindings: Array<{ path_hints: unknown[] }>;
+    };
+    expect(discovered.bindings[0]?.path_hints).toEqual([]);
+  });
+
+  test("a fresh attach report keeps the route while the binding lease is stale", async () => {
+    const fixture = makeFixture();
+    fixture.repository.bindings.push(binding({
+      userId: USER_A,
+      pathHints: [],
+      relayAttachedUrl: MANAGED_RELAY_URLS[0]!,
+      relayAttachReportedAt: new Date(NOW.getTime() - 5 * 60 * 1_000),
+      // Broker unreachable from the Mac (cache-first world) while the relay
+      // path works: the attach report alone corroborates the route.
+      lastSeenAt: new Date(NOW.getTime() - 2 * 60 * 60 * 1_000),
+    }));
+
+    const discovered = await Effect.runPromise(fixture.broker.discover(USER_A, NOW)) as {
+      bindings: Array<{ path_hints: Array<Record<string, unknown>> }>;
+    };
+    expect(discovered.bindings[0]?.path_hints.map((hint) => hint.value))
+      .toEqual([MANAGED_RELAY_URLS[0]!]);
+  });
+
+  test("withholds a fleet-reported custom relay the account no longer saves", async () => {
+    const fixture = makeFixture();
+    fixture.repository.bindings.push(binding({
+      userId: USER_A,
+      pathHints: [],
+      relayAttachedUrl: "https://relay.example.net/",
+      relayAttachReportedAt: new Date(NOW.getTime() - 60_000),
+    }));
+
+    const discovered = await Effect.runPromise(fixture.broker.discover(USER_A, NOW)) as {
+      bindings: Array<{ path_hints: unknown[] }>;
+    };
+    expect(discovered.bindings[0]?.path_hints).toEqual([]);
+  });
+
   test("does not combine a pre-revocation binding with a post-revocation LAN generation", async () => {
     const fixture = makeFixture();
     const active = binding({ userId: USER_A });
@@ -1704,18 +1771,6 @@ describe("Iroh discovery and grants", () => {
         bindingBody,
       ),
     ), "IrohNotFoundError");
-    await expectEffectFailure(fixture.broker.issueRelayToken(
-      USER_A,
-      bindingBody,
-      NOW,
-      "dev.cmux.app.beta",
-      fixture.bindingProof(
-        beta.id,
-        "POST",
-        "api/relay/token",
-        bindingBody,
-      ),
-    ), "IrohNotFoundError");
     const pairBody = {
       initiatorBindingId: internal.id,
       acceptorBindingId: mac.id,
@@ -1734,7 +1789,6 @@ describe("Iroh discovery and grants", () => {
     ), "IrohNotFoundError");
 
     expect(internal.revokedAt).toBeNull();
-    expect(fixture.minter.calls).toBe(0);
     expect(fixture.repository.pairGrantAudits).toHaveLength(0);
   });
 
@@ -1835,13 +1889,13 @@ describe("Iroh discovery and grants", () => {
     const fixture = makeFixture();
     const active = binding({ userId: USER_A, platform: "ios" });
     fixture.repository.bindings.push(active);
-    const noVerificationKeys = makeIrohTrustBroker(fixture.repository, fixture.minter, {
+    const noVerificationKeys = makeIrohTrustBroker(fixture.repository, {
       ...fixture.config,
       grantVerificationKeysJson: undefined,
     });
     await expectEffectFailure(noVerificationKeys.discover(USER_A, NOW), "IrohConfigurationError");
 
-    const noAccountSubject = makeIrohTrustBroker(fixture.repository, fixture.minter, {
+    const noAccountSubject = makeIrohTrustBroker(fixture.repository, {
       ...fixture.config,
       accountSubjectSecretBase64: undefined,
     });
@@ -1851,74 +1905,49 @@ describe("Iroh discovery and grants", () => {
   });
 });
 
-describe("Iroh relay quotas", () => {
-  test("never calls the minter for an unregistered or revoked binding", async () => {
-    const fixture = makeFixture();
-    await expectEffectFailure(
-      fixture.broker.issueRelayToken(USER_A, { bindingId: randomUUID() }, NOW),
-      "IrohNotFoundError",
-    );
-    const revoked = binding({ userId: USER_A, revokedAt: NOW });
-    fixture.repository.bindings.push(revoked);
-    await expectEffectFailure(
-      fixture.broker.issueRelayToken(USER_A, { bindingId: revoked.id }, NOW),
-      "IrohNotFoundError",
-    );
-    expect(fixture.minter.calls).toBe(0);
-  });
-
-  test("treats authenticated relay renewal as binding activity", async () => {
-    const fixture = makeFixture();
-    const active = binding({
-      userId: USER_A,
-      lastSeenAt: new Date(NOW.getTime() - 48 * 60 * 60 * 1_000),
-      updatedAt: new Date(NOW.getTime() - 48 * 60 * 60 * 1_000),
-    });
-    fixture.repository.bindings.push(active);
-
-    await Effect.runPromise(fixture.broker.issueRelayToken(
-      USER_A,
-      { bindingId: active.id },
-      NOW,
-    ));
-
-    expect(active.lastSeenAt).toEqual(NOW);
-    expect(active.updatedAt).toEqual(NOW);
-  });
-
-  test("does not return a relay credential when the binding is revoked during mint", async () => {
-    const fixture = makeFixture();
-    const active = binding({ userId: USER_A });
-    fixture.repository.bindings.push(active);
-    fixture.minter.afterMint = () => {
-      active.revokedAt = NOW;
-    };
-
-    await expectEffectFailure(
-      fixture.broker.issueRelayToken(USER_A, { bindingId: active.id }, NOW),
-      "IrohNotFoundError",
-    );
-    expect(fixture.repository.relayIssuances[0]?.status).toBe("failed");
-  });
-});
-
 type MutableBinding = IrohBindingRecord & {
   userId: string;
   directPortV4: number | null;
   directPortV6: number | null;
 };
 
+// Mirrors the live repository's SQL discovery-scope filter for the in-memory
+// fixture (the production filter lives in repository.ts SQL, not TypeScript).
+function bindingMatchesDiscoveryScope(
+  binding: {
+    readonly deviceUuid: string;
+    readonly appInstanceId: string;
+    readonly tag: string;
+    readonly platform: string;
+    readonly pairingEnabled: boolean;
+  },
+  scope: IrohDiscoveryScope,
+): boolean {
+  const local = scope.localBinding;
+  if (
+    binding.deviceUuid === local.deviceId
+    && binding.appInstanceId === local.appInstanceId
+    && binding.tag === local.tag
+    && binding.platform === local.platform
+  ) {
+    return true;
+  }
+  const peers = scope.peerBindings;
+  return binding.platform === peers.platform
+    && (
+      peers.tags === undefined
+      || peers.tags.includes(binding.tag.toLowerCase())
+    )
+    && (
+      peers.pairingEnabled === undefined
+      || binding.pairingEnabled === peers.pairingEnabled
+    );
+}
+
 class MemoryRepository implements IrohRepositoryShape {
   readonly challenges: IrohChallengeRecord[] = [];
   readonly bindings: MutableBinding[] = [];
   readonly pairGrantAudits: unknown[] = [];
-  readonly relayIssuances: Array<{
-    id: string;
-    userId: string;
-    bindingId: string;
-    requestedAt: Date;
-    status: string;
-  }> = [];
   private lanGenerations = new Map<string, number>();
   private routeRevisions = new Map<string, number>();
   beforeDiscoverySnapshot: (() => Promise<void>) | undefined;
@@ -2324,63 +2353,10 @@ class MemoryRepository implements IrohRepositoryShape {
     }
     return Effect.void;
   }
-
-  reserveRelayIssuance(input: Parameters<IrohRepositoryShape["reserveRelayIssuance"]>[0]) {
-    const active = this.bindings.find((row) =>
-      row.id === input.bindingId && row.userId === input.userId && !row.revokedAt);
-    if (!active) return Effect.fail(new IrohNotFoundError({ resource: "binding" }));
-    if (active.clientNamespace !== (input.clientNamespace ?? "legacy")) {
-      return Effect.fail(new IrohNotFoundError({ resource: "binding" }));
-    }
-    active.lastSeenAt = input.now;
-    active.updatedAt = input.now;
-    const issuanceId = randomUUID();
-    this.relayIssuances.push({ id: issuanceId, userId: input.userId, bindingId: active.id, requestedAt: input.now, status: "pending" });
-    return Effect.succeed({ issuanceId, binding: active });
-  }
-
-  completeRelayIssuance(input: Parameters<IrohRepositoryShape["completeRelayIssuance"]>[0]) {
-    const row = this.relayIssuances.find((candidate) => candidate.id === input.issuanceId);
-    const active = this.bindings.find((candidate) =>
-      candidate.id === input.bindingId &&
-      candidate.userId === input.userId &&
-      candidate.endpointId === input.endpointId &&
-      !candidate.revokedAt);
-    if (!row || !active) {
-      if (row) row.status = "failed";
-      return Effect.succeed(false);
-    }
-    row.status = "succeeded";
-    return Effect.succeed(true);
-  }
-
-  failRelayIssuance(input: Parameters<IrohRepositoryShape["failRelayIssuance"]>[0]) {
-    const row = this.relayIssuances.find((candidate) => candidate.id === input.issuanceId);
-    if (row) row.status = "failed";
-    return Effect.void;
-  }
-}
-
-class FakeMinter implements IrohRelayMinterShape {
-  calls = 0;
-  afterMint: (() => void) | undefined;
-  constructor(private readonly fail: boolean) {}
-
-  mint(input: Parameters<IrohRelayMinterShape["mint"]>[0]) {
-    this.calls += 1;
-    if (this.fail) return Effect.fail(new IrohRelayMintError({ code: "test_failure" }));
-    const result = {
-      token: `relay-token-${this.calls}-with-safe-length`,
-      expiresAt: new Date(input.now.getTime() + IROH_RELAY_TOKEN_LIFETIME_SECONDS * 1_000),
-    };
-    this.afterMint?.();
-    return Effect.succeed(result);
-  }
 }
 
 function makeFixture(options: {
   repository?: MemoryRepository;
-  minterFailure?: boolean;
   appInstanceId?: string;
   deviceId?: string;
   identityGeneration?: number;
@@ -2399,7 +2375,6 @@ function makeFixture(options: {
   const endpointPublicDer = endpointKeys.publicKey.export({ format: "der", type: "spki" });
   const endpointId = Buffer.from(endpointPublicDer).subarray(-32).toString("hex");
   const repository = options.repository ?? new MemoryRepository();
-  const minter = new FakeMinter(options.minterFailure ?? false);
   const appInstanceId = options.appInstanceId ?? randomUUID();
   const deviceId = options.deviceId ?? randomUUID();
   const identityGeneration = options.identityGeneration ?? 1;
@@ -2424,22 +2399,18 @@ function makeFixture(options: {
         },
       ],
     }),
-    relayMinterInsecureLoopbackOptIn: false,
-    deploymentEnvironment: "test",
-    isVercelDeployment: false,
   };
   let relayPreference = options.relayPreference ?? {
     mode: "automatic" as const,
     selectedManagedRelayIds: [],
     customRelays: [],
   };
-  const broker = makeIrohTrustBroker(repository, minter, config, {
+  const broker = makeIrohTrustBroker(repository, config, {
     getPreference: () => Effect.succeed({ preference: relayPreference, revision: 0 }),
   });
 
   return {
     repository,
-    minter,
     broker,
     config,
     endpointId,
@@ -2556,6 +2527,8 @@ function binding(overrides: Partial<MutableBinding> = {}): MutableBinding {
     directPortV6: null,
     pathHints: [],
     pathHintsNextExpiry: null,
+    relayAttachedUrl: null,
+    relayAttachReportedAt: null,
     deviceLimitOverrideUsed: false,
     lastSeenAt: now,
     registeredAt: now,

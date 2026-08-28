@@ -45,33 +45,25 @@ the Stack credential.
 
 There is no total active-binding limit per account or device. Postgres advisory
 locks keep request-rate limits concurrency-safe: six challenges per device per
-ten minutes, 32 outstanding challenges per account, 60 pair grants per account
-per hour, three relay mints per endpoint per ten minutes, 12 relay mints per
-endpoint per day, and 100 relay mints per account per day. A relay reservation
-remains active for 60 seconds, then the next account-scoped reservation marks it
-expired before applying those quotas. The optional Vercel Firewall rule is
-defense in depth. A tagged-build override widens challenge issuance only after
-an exact authenticated user-id and deployment-environment allowlist match.
+ten minutes, 32 outstanding challenges per account, and 60 pair grants per
+account per hour. The optional Vercel Firewall rule is defense in depth. A
+tagged-build override widens challenge issuance only after an exact
+authenticated user-id and deployment-environment allowlist match.
 
-Registration bootstraps a relay credential only when it creates a binding.
-Signed refreshes of the same binding return `relay.status = "not_requested"`;
-clients retain their existing credential or use the dedicated relay-token route
-when its refresh window arrives. Platform is part of the immutable binding
-identity and requires explicit revocation before it can change.
-
-The n0-hosted relay minter is an optional compatibility path. When
-`CMUX_IROH_MINT_URL` and `CMUX_IROH_MINT_HMAC_SECRET_B64` are absent, initial
-registration returns `relay.status = "unavailable"` without rolling back the
-binding. Current clients obtain endpoint-bound credentials for the self-hosted
-fleet from `/api/relay/token`.
+Registration never mints a relay credential. A newly created binding receives
+`relay.status = "unavailable"` and signed refreshes of the same binding return
+`relay.status = "not_requested"`; the fields exist only for wire compatibility.
+Relay admission is decided server-side by the relay's allow hook
+(`/api/relay/allow`) against the proven endpoint key, and clients fetch the
+signed fleet policy from `/api/relay/policy`. Platform is part of the immutable
+binding identity and requires explicit revocation before it can change.
 
 Every user-scoped mutation acquires the account-deletion advisory fence before
 any Iroh lock. If the deletion tombstone wins, no challenge, binding, grant, or
 relay audit state can be created. If an Iroh mutation wins, account deletion
 waits for that transaction and then removes its rows. Pair grants re-read and
 lock both exact signed peers at audit insertion, requiring an iOS initiator and
-a pairable Mac acceptor. Relay credentials are returned only after a second
-locked active-binding check following the external mint.
+a pairable Mac acceptor.
 
 Registration stores the earliest managed-relay expiry in
 `path_hints_next_expiry`. The hourly cleanup uses that indexed scalar and

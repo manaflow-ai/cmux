@@ -98,7 +98,7 @@ extension CmxIrohClientRuntime {
             guard policy.binding.bindingID == previousBinding.bindingID else {
                 throw CmxIrohClientRuntimeError.invalidLocalBinding
             }
-            try await install(policy: policy, revision: revision, startRelays: false)
+            try await install(policy: policy, revision: revision)
             try requireCurrent(revision)
             currentSnapshot = CmxIrohClientRuntimeSnapshot(
                 state: .active,

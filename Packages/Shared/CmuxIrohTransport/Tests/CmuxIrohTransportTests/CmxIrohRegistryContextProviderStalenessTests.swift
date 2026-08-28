@@ -384,6 +384,40 @@ struct CmxIrohRegistryContextProviderStalenessTests {
     }
 
     @Test
+    func refreshFailureAfterStalenessFallsBackToLastVerifiedSnapshot() async throws {
+        let fixture = try RegistryFixture()
+        let relay = try managedRelayHint(fixture)
+        let broker = ConfigurableRegistryBroker(
+            discovery: try fixture.discovery(targetHints: [relay]),
+            pairGrantResponses: [try fixture.pairGrantResponse(
+                issuedAt: fixture.nowSeconds,
+                expiresAt: fixture.nowSeconds + 7 * 24 * 60 * 60
+            )]
+        )
+        let provider = try await makeProvider(
+            fixture: fixture,
+            broker: broker,
+            verifiedDiscovery: try fixture.discovery(targetHints: [relay])
+        )
+        // A timed-out dial marked the peer stale, so the next attempt must
+        // try one fresh fetch first.
+        await provider.noteDialFailure(
+            for: try fixture.request(hints: []),
+            dialPlan: try nonEmptyPlan(fixture, hints: [relay]),
+            failure: .timedOut
+        )
+        await broker.setDiscoverError(CmxIrohTrustBrokerClientError.connectivity)
+
+        // The forced refresh failed. Dialing with the last verified snapshot
+        // beats not dialing at all (cmux#9724): the staleness mark survives,
+        // so a later attempt still refetches once the broker recovers.
+        let context = try await provider.context(for: fixture.request(hints: []))
+
+        #expect(await broker.discoveryRequestCount() == 1)
+        #expect(context.dialPlan.publicPaths == [relay])
+    }
+
+    @Test
     func cooldownDuringEmptyPlanRefetchKeepsResolvedContextInsteadOfSpinning() async throws {
         let fixture = try RegistryFixture()
         let broker = ConfigurableRegistryBroker(
@@ -408,6 +442,74 @@ struct CmxIrohRegistryContextProviderStalenessTests {
         let context = try await provider.context(for: fixture.request(hints: []))
         #expect(await broker.discoveryRequestCount() == 1)
         #expect(context.dialPlan.publicPaths.isEmpty)
+    }
+
+    @Test
+    func nonTransientRefreshFailuresDoNotReuseLastGoodDiscovery() async throws {
+        let fixture = try RegistryFixture()
+        let relay = try managedRelayHint(fixture)
+        let grant = try fixture.pairGrantResponse(
+            issuedAt: fixture.nowSeconds,
+            expiresAt: fixture.nowSeconds + 7 * 24 * 60 * 60
+        )
+        let broker = ConfigurableRegistryBroker(
+            discovery: try fixture.discovery(targetHints: [relay]),
+            pairGrantResponses: [grant, grant, grant]
+        )
+        let provider = try await makeProvider(
+            fixture: fixture,
+            broker: broker,
+            verifiedDiscovery: try fixture.discovery(targetHints: [relay])
+        )
+        // A healthy dial consumes the one-shot verified snapshot, leaving the
+        // last-good authoritative snapshot armed for the next refresh.
+        _ = try await provider.context(for: fixture.request(hints: []))
+        #expect(await broker.discoveryRequestCount() == 0)
+
+        // Rollback/equivocation detection surfaces as `invalidResponse`; a
+        // revoked or replaced binding as a non-transient rejection. Neither
+        // may be masked by silently dialing with the last verified snapshot:
+        // both must fail closed toward re-discovery.
+        for error in [
+            CmxIrohTrustBrokerClientError.invalidResponse,
+            CmxIrohTrustBrokerClientError.rejected(
+                statusCode: 403,
+                code: "binding_revoked"
+            ),
+        ] {
+            await broker.setDiscoverError(error)
+            await #expect(throws: error) {
+                try await provider.context(for: fixture.request(hints: []))
+            }
+        }
+    }
+
+    @Test
+    func connectivityRefreshFailuresStillReuseLastGoodDiscovery() async throws {
+        let fixture = try RegistryFixture()
+        let relay = try managedRelayHint(fixture)
+        let grant = try fixture.pairGrantResponse(
+            issuedAt: fixture.nowSeconds,
+            expiresAt: fixture.nowSeconds + 7 * 24 * 60 * 60
+        )
+        let broker = ConfigurableRegistryBroker(
+            discovery: try fixture.discovery(targetHints: [relay]),
+            pairGrantResponses: [grant, grant]
+        )
+        let provider = try await makeProvider(
+            fixture: fixture,
+            broker: broker,
+            verifiedDiscovery: try fixture.discovery(targetHints: [relay])
+        )
+        _ = try await provider.context(for: fixture.request(hints: []))
+        #expect(await broker.discoveryRequestCount() == 0)
+
+        // The transient class keeps the cmux#9724 behavior: dialing with the
+        // last verified snapshot beats not dialing at all while the broker
+        // recovers.
+        await broker.setDiscoverError(CmxIrohTrustBrokerClientError.connectivity)
+        let context = try await provider.context(for: fixture.request(hints: []))
+        #expect(context.dialPlan.publicPaths == [relay])
     }
 
     // MARK: - Support

@@ -13,7 +13,7 @@
 // availability through its allow cache.
 
 import { env } from "../../../env";
-import { jsonResponse } from "../../../../services/relay/http";
+import { jsonResponse, readBoundedBody } from "../../../../services/relay/http";
 import {
   RELAY_ALLOW_SIGNATURE_HEADER,
   parseRelayAllowSecret,
@@ -61,10 +61,10 @@ export async function handleRelayAllowRequest(
   const secret = parseRelayAllowSecret(deps.secretBase64());
   if (!secret) return jsonResponse({ error: "relay_allow_not_configured" }, 503);
 
-  const body = await readBoundedBody(
-    request,
-    deps.bodyReadTimeoutMs ?? BODY_READ_TIMEOUT_MS,
-  );
+  const body = await readBoundedBody(request, {
+    maxBytes: MAX_BODY_BYTES,
+    timeoutMs: deps.bodyReadTimeoutMs ?? BODY_READ_TIMEOUT_MS,
+  });
   if (!body.ok) return body.response;
 
   const provided = providedSignature(request);
@@ -172,59 +172,6 @@ function admissionResponse(admission: RelayAllowAdmission): Response {
       "cache-control": "no-store",
     },
   });
-}
-
-async function readBoundedBody(
-  request: Request,
-  timeoutMs: number,
-): Promise<
-  | { readonly ok: true; readonly bytes: Uint8Array }
-  | { readonly ok: false; readonly response: Response }
-> {
-  const contentLength = request.headers.get("content-length");
-  if (contentLength) {
-    const parsed = Number(contentLength);
-    if (!Number.isSafeInteger(parsed) || parsed < 0 || parsed > MAX_BODY_BYTES) {
-      return { ok: false, response: jsonResponse({ error: "request_too_large" }, 413) };
-    }
-  }
-  const reader = request.body?.getReader();
-  // iroh-relay's access-mode POST carries no body at all.
-  if (!reader) return { ok: true, bytes: new Uint8Array() };
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  let timedOut = false;
-  // Cancelling the reader on expiry resolves the pending read() and releases
-  // the underlying stream: real cancellation, not an abandoned promise.
-  const timer = setTimeout(() => {
-    timedOut = true;
-    void reader.cancel().catch(() => undefined);
-  }, timeoutMs);
-  try {
-    while (true) {
-      const next = await reader.read();
-      if (next.done) break;
-      total += next.value.byteLength;
-      if (total > MAX_BODY_BYTES) {
-        await reader.cancel();
-        return { ok: false, response: jsonResponse({ error: "request_too_large" }, 413) };
-      }
-      chunks.push(next.value);
-    }
-  } catch {
-    if (!timedOut) {
-      return { ok: false, response: jsonResponse({ error: "invalid_body" }, 400) };
-    }
-  } finally {
-    clearTimeout(timer);
-  }
-  if (timedOut) {
-    return { ok: false, response: jsonResponse({ error: "request_read_timeout" }, 408) };
-  }
-  return {
-    ok: true,
-    bytes: Buffer.concat(chunks.map((chunk) => Buffer.from(chunk)), total),
-  };
 }
 
 export function POST(request: Request): Promise<Response> {

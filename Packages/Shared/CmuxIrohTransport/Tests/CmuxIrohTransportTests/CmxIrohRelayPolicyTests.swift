@@ -270,6 +270,41 @@ struct CmxIrohRelayPolicyTests {
     }
 
     @Test
+    func expiredPolicyReuseGraceIsClampedToTheCacheMaximum() async throws {
+        let fixture = try Fixture()
+        let cache = CmxIrohRelayPolicyCache(secureStore: TestSecureCredentialStore())
+        // The fixture token carries the default one-hour signed validity.
+        _ = try await cache.install(
+            signedPolicy: fixture.token(sequence: 1),
+            trustRoot: fixture.trustRoot,
+            now: fixture.now
+        )
+
+        // An unbounded caller grace must not make the expired signed policy
+        // reusable indefinitely: past the cache's own maximum the load fails
+        // closed as expired.
+        let farPastExpiry = fixture.now.addingTimeInterval(
+            3_600 + CmxIrohRelayPolicyCache.maximumExpiredPolicyReuseGrace + 60
+        )
+        await #expect(throws: CmxIrohRelayPolicyError.expired) {
+            try await cache.load(
+                trustRoot: fixture.trustRoot,
+                now: farPastExpiry,
+                expiredPolicyReuseGrace: .infinity
+            )
+        }
+
+        // Inside the clamp the same unbounded request still grants the
+        // bounded fail-open window (cmux#10375).
+        let graced = try await cache.load(
+            trustRoot: fixture.trustRoot,
+            now: fixture.now.addingTimeInterval(3_600 + 60),
+            expiredPolicyReuseGrace: .infinity
+        )
+        #expect(graced?.sequence == 1)
+    }
+
+    @Test
     func corruptPolicyCacheCannotEraseTheRollbackFloor() async throws {
         let fixture = try Fixture()
         let store = TestSecureCredentialStore()
@@ -298,8 +333,11 @@ struct CmxIrohRelayPolicyTests {
         #expect(await store.recordCount() == 1)
     }
 
+    /// A verified managed selection installs tokenless: every selected relay
+    /// is active with no client credential, because relay admission is the
+    /// relay's server-side allow hook, not a token.
     @Test
-    func endpointProfileRequiresExactCredentialsForVerifiedSelection() throws {
+    func endpointProfileFromVerifiedSelectionIsTokenless() throws {
         let fixture = try Fixture()
         let policy = try CmxIrohRelayPolicyVerifier().verify(
             fixture.token(sequence: 7),
@@ -310,25 +348,11 @@ struct CmxIrohRelayPolicyTests {
             policy: policy,
             selection: .only(["cmux-eu"])
         )
-        let selected = try fixture.relayConfiguration(url: fixture.relayURLs[1])
-        let profile = try CmxIrohEndpointRelayProfile(
-            snapshot: snapshot,
-            relays: [selected]
-        )
+        let profile = try CmxIrohEndpointRelayProfile(snapshot: snapshot)
 
         #expect(profile.allowedRelayURLs == [fixture.relayURLs[1]])
-        #expect(profile.managedRelays == [selected])
-        #expect(throws: CmxIrohEndpointConfigurationError.incompleteManagedRelayCredentials) {
-            try CmxIrohEndpointRelayProfile(snapshot: snapshot, relays: [])
-        }
-        let substituted = try fixture.relayConfiguration(
-            url: "https://capture.example.com/"
-        )
-        #expect(
-            throws: CmxIrohEndpointConfigurationError.unmanagedRelayURL(substituted.url)
-        ) {
-            try CmxIrohEndpointRelayProfile(snapshot: snapshot, relays: [substituted])
-        }
+        #expect(profile.activeRelays.map(\.url) == [fixture.relayURLs[1]])
+        #expect(profile.activeRelays.allSatisfy { $0.authenticationToken == nil })
     }
 
     private struct Fixture {
@@ -424,16 +448,6 @@ struct CmxIrohRelayPolicyTests {
                 .replacingOccurrences(of: "+", with: "-")
                 .replacingOccurrences(of: "/", with: "_")
                 .replacingOccurrences(of: "=", with: "")
-        }
-
-        func relayConfiguration(url: String) throws -> CmxIrohRelayConfiguration {
-            try CmxIrohRelayConfiguration(
-                url: url,
-                token: "aaaa",
-                expiresAt: now.addingTimeInterval(3_600),
-                refreshAfter: now.addingTimeInterval(1_800),
-                now: now
-            )
         }
     }
 }
