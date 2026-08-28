@@ -282,6 +282,18 @@ import Testing
         let launchCommand = try #require(record["launch_command"] as? [String: Any])
         let launchEnvironment = try #require(launchCommand["environment"] as? [String: Any])
         #expect(launchEnvironment["PATH"] as? String == "/usr/bin:/bin")
+
+        let plainResult = runProcess(
+            executablePath: cliPath,
+            arguments: ["surface", "resume", "show"],
+            environment: environment,
+            timeout: 5
+        )
+        #expect(!plainResult.timedOut, Comment(rawValue: plainResult.diagnostics))
+        #expect(plainResult.status == 0, Comment(rawValue: plainResult.diagnostics))
+        #expect(plainResult.stdout.trimmingCharacters(in: .whitespacesAndNewlines) == "null")
+        #expect(plainResult.stdout.contains("private@example.test") == false)
+        #expect(plainResult.stdout.contains("router.example.test") == false)
     }
 
     @Test func testIOSContextFromTerminalFallsBackToWorkspaceSimulator() throws {
