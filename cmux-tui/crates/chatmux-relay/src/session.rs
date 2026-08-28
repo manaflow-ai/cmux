@@ -17,8 +17,8 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex as StdMutex};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
 
 use futures_util::{SinkExt as _, StreamExt as _};
@@ -182,10 +182,7 @@ impl OutboundSink {
     /// thread failure into a process-wide denial of service, so recover the
     /// protected unit instead of panicking.
     pub(crate) fn with_delivery_gate<T>(&self, operation: impl FnOnce() -> T) -> T {
-        let _guard = self
-            .delivery_gate
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _guard = self.delivery_gate.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         operation()
     }
 
@@ -1438,7 +1435,10 @@ mod outbound_frame_tests {
         let (sink, mut critical, mut watch) = OutboundSink::channels();
         let live = Arc::new(AtomicBool::new(true));
         sink.with_delivery_gate(|| live.store(false, Ordering::Release));
-        assert!(sink.try_critical_text_with_token("critical".to_owned(), Some(Arc::clone(&live))).is_err());
+        assert!(
+            sink.try_critical_text_with_token("critical".to_owned(), Some(Arc::clone(&live)))
+                .is_err()
+        );
         assert!(sink.try_watch_text_with_token("watch".to_owned(), Some(live)).is_err());
         assert!(critical.try_recv().is_err());
         assert!(watch.try_recv().is_err());

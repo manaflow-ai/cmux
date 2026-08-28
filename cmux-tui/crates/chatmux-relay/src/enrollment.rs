@@ -529,9 +529,7 @@ mod tests {
         let (sender, receiver) = mpsc::channel();
         let worker_path = path.to_string_lossy().into_owned();
         let worker = std::thread::spawn(move || {
-            sender
-                .send(load_managed_enrollment_file(&worker_path, NOW))
-                .unwrap();
+            sender.send(load_managed_enrollment_file(&worker_path, NOW)).unwrap();
         });
         let result = receiver
             .recv_timeout(Duration::from_secs(1))

@@ -468,9 +468,7 @@ fn commit_open(context: OpenContext, root: PathBuf, prepared: PreparedWatch) {
     // Admit the acknowledgement first. The token-aware queue operation and
     // the state transition both use the delivery fence, so a replacement or
     // close can invalidate this frame before it reaches the writer.
-    let admitted = outbound
-        .try_critical_text_with_token(opened, Some(Arc::clone(&live)))
-        .is_ok();
+    let admitted = outbound.try_critical_text_with_token(opened, Some(Arc::clone(&live))).is_ok();
     outbound.with_delivery_gate(|| {
         let Ok(mut state) = sessions.lock() else {
             return;
@@ -591,8 +589,7 @@ async fn finish_open_failure(
         let remove_slot = if let Some(slot) = state.get_mut(&watch_id)
             && slot.opening.as_ref().is_some_and(|opening| {
                 opening.generation == generation && !opening.cancellation.is_cancelled()
-            })
-        {
+            }) {
             slot.opening.take();
             live.store(false, Ordering::Release);
             slot.active.is_none()
@@ -612,12 +609,7 @@ async fn finish_open_failure(
     }
 }
 
-fn finish_active(
-    watch_id: &str,
-    generation: u64,
-    sessions: Sessions,
-    outbound: OutboundSink,
-) {
+fn finish_active(watch_id: &str, generation: u64, sessions: Sessions, outbound: OutboundSink) {
     // Every runner exit retires its liveness token. Replacement, close, and
     // watcher failure must discard queued events from a dead generation; a
     // terminal critical frame is awaited before those paths return, so it is

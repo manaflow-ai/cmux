@@ -418,8 +418,7 @@ mod tests {
         use std::os::unix::fs::PermissionsExt as _;
         let path = scratch("special-perms/config.json");
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        std::fs::write(&path, r#"{"deviceId":"dev_special","token":"tok_special"}"#)
-            .unwrap();
+        std::fs::write(&path, r#"{"deviceId":"dev_special","token":"tok_special"}"#).unwrap();
         // Keep owner read/write permissions, then add setgid. The file is
         // otherwise private, so a check that only masks group/other bits would
         // incorrectly accept it.

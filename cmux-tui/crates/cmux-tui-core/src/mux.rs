@@ -5285,10 +5285,8 @@ impl Mux {
         // frontend has a chance to install its reporter. Recheck under the
         // pending slot lock so a concurrent setter cannot leave this message
         // stranded between the initial lookup and the store.
-        let mut pending = self
-            .pending_diagnostic
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut pending =
+            self.pending_diagnostic.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         if let Some(reporter) = self.diagnostic_reporter.get().cloned() {
             drop(pending);
             reporter(&message);
