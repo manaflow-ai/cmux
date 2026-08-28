@@ -922,10 +922,13 @@ fn validate_install_temp_path(install_root: &Path, path: &Path) -> anyhow::Resul
         "install journal temporary directory is outside the install root"
     );
     match fs::symlink_metadata(path) {
-        Ok(metadata) => anyhow::ensure!(
-            metadata.is_dir() && !metadata.file_type().is_symlink(),
-            "install journal temporary directory is not a real directory"
-        ),
+        Ok(metadata) => {
+            anyhow::ensure!(
+                metadata.is_dir() && !metadata.file_type().is_symlink(),
+                "install journal temporary directory is not a real directory"
+            );
+            Ok(())
+        }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(error) => Err(error.into()),
     }
@@ -1054,7 +1057,7 @@ fn rename_into_quarantine(
         return Err(std::io::Error::last_os_error());
     }
     // SAFETY: `open` returned a new owned descriptor.
-    let root = unsafe { std::fs::File::from_raw_fd(root_fd) };
+    let root = unsafe { fs::File::from_raw_fd(root_fd) };
 
     let quarantine_name = CString::new(
         quarantine
@@ -1076,7 +1079,7 @@ fn rename_into_quarantine(
         return Err(std::io::Error::last_os_error());
     }
     // SAFETY: `openat` returned a new owned descriptor.
-    let quarantine = unsafe { std::fs::File::from_raw_fd(quarantine_fd) };
+    let quarantine = unsafe { fs::File::from_raw_fd(quarantine_fd) };
 
     let from = CString::new(
         path.file_name()
