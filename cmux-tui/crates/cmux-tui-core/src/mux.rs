@@ -22292,13 +22292,8 @@ mod tests {
         };
 
         let registry = WorkspaceRegistry::open(&root, session).unwrap();
-        let sequence = registry
-            .session_journal_after(0, 512)
-            .unwrap()
-            .records
-            .last()
-            .unwrap()
-            .sequence;
+        let sequence =
+            registry.session_journal_after(0, 512).unwrap().records.last().unwrap().sequence;
         registry
             .put_journal_reducer_state(
                 AGENT_ROSTER_REDUCER_ID,
