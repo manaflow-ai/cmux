@@ -350,11 +350,7 @@ impl Connection {
         let mut current = self.pending_out.load(Ordering::Acquire);
         loop {
             let Some(next) = current.checked_add(length) else { return false };
-            let limit = if control {
-                TUNNEL_QUEUE_BYTES
-            } else {
-                TUNNEL_QUEUE_BYTES.saturating_sub(TUNNEL_CONTROL_QUEUE_RESERVE_BYTES)
-            };
+            let limit = queue_limit(control);
             if next > limit {
                 return false;
             }
@@ -514,6 +510,10 @@ impl Connection {
             authority.generation == self.auth_generation && authority.auth.is_some()
         })
     }
+}
+
+fn queue_limit(control: bool) -> u64 {
+    if control { TUNNEL_QUEUE_BYTES } else { TUNNEL_QUEUE_BYTES - TUNNEL_CONTROL_QUEUE_RESERVE_BYTES }
 }
 
 async fn handle_client_frame(connection: &Arc<Connection>, frame: TunnelFrame) {
@@ -1025,6 +1025,20 @@ mod tests {
     fn control_json(frame: &TunnelFrame) -> Value {
         assert_eq!(frame.kind, FRAME_KIND_CONTROL);
         serde_json::from_slice(&frame.payload).expect("control json")
+    }
+
+    #[test]
+    fn data_reservation_leaves_control_bytes_available() {
+        assert_eq!(queue_limit(false), TUNNEL_QUEUE_BYTES - TUNNEL_CONTROL_QUEUE_RESERVE_BYTES);
+        assert!(queue_limit(false) < queue_limit(true));
+        assert!(queue_limit(false) + TUNNEL_CONTROL_QUEUE_RESERVE_BYTES <= TUNNEL_QUEUE_BYTES);
+    }
+
+    #[test]
+    fn control_reservation_accepts_reserved_tail() {
+        let data_limit = queue_limit(false);
+        assert!(data_limit + TUNNEL_CONTROL_QUEUE_RESERVE_BYTES <= queue_limit(true));
+        assert!(TUNNEL_CONTROL_QUEUE_RESERVE_BYTES > 0);
     }
 
     /// Wait until the fake spawn landed (open settles asynchronously).
