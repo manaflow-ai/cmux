@@ -420,6 +420,27 @@ final class MachinesPanelModelTests: XCTestCase {
             "machine:vivid-newt/ws/ws_side/resource:vivid-newt/display/display:1",
             "machine:vivid-newt/ws/ws_empty",
         ])
+        // A remote workspace already showing locally: its row marks it open and the click
+        // jumps to that local workspace instead of opening a second copy.
+        let openSnapshot = SurfaceCatalogSnapshot(
+            machines: snapshot.machines,
+            resources: snapshot.resources,
+            projections: snapshot.projections + [SurfaceProjection(resource: remoteA.id, workspaceID: local, panelID: UUID())]
+        )
+        let openNodes = CloudTreeNodeBuilder.nodes(
+            machines: [machineSnapshot(id: "vivid-newt")],
+            snapshot: openSnapshot,
+            localWorkspaces: [CloudTreeLocalWorkspace(id: local, title: "cmux90", isSelected: true)],
+            includeLocalMachine: true
+        )
+        let openByID = Dictionary(CloudTreeNodeBuilder.flattened(openNodes).map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        if case .workspace(_, _, _, let openIn) = openByID["machine:vivid-newt/ws/ws_main"]!.kind {
+            XCTAssertEqual(openIn, local, "term_1's pane lives in the local workspace")
+        } else { XCTFail("expected ws_main row") }
+        if case .workspace(_, _, _, let openIn) = openByID["machine:vivid-newt/ws/ws_empty"]!.kind {
+            XCTAssertNil(openIn, "nothing of it is open anywhere")
+        } else { XCTFail("expected ws_empty row") }
+        XCTAssertNil(CloudTreeNodeBuilder.localWorkspaceShowing([], snapshot: openSnapshot))
         // The workspace's open/drag group carries its display pointer with its terminals.
         XCTAssertEqual(
             CloudTreeNodeBuilder.flattened(nodes).first { $0.id == "machine:vivid-newt/ws/ws_side" }?.dragGroup?.resources,
@@ -445,7 +466,7 @@ final class MachinesPanelModelTests: XCTestCase {
             XCTAssertEqual(row.resource.id.key, "term_1")
         } else { XCTFail("expected pointer row") }
         // The empty workspace still gets a row (from the machine info), with no pointers.
-        if case .workspace(_, let workspace, let count) = byID["machine:vivid-newt/ws/ws_empty"]!.kind {
+        if case .workspace(_, let workspace, let count, _) = byID["machine:vivid-newt/ws/ws_empty"]!.kind {
             XCTAssertEqual(workspace.name, "scratch")
             XCTAssertEqual(count, 0)
         } else { XCTFail("expected empty workspace row") }
@@ -726,6 +747,18 @@ final class MachinesPanelModelTests: XCTestCase {
 /// outline updates rows in place unless the tree's structure changed.
 @MainActor
 final class CloudTreeScopeAndSignatureTests: XCTestCase {
+    func testMachineCapabilitiesDecodeWithSupportedDefaults() {
+        XCTAssertEqual(VMCapabilities(json: nil), .all, "an older control plane supports everything")
+        XCTAssertEqual(VMCapabilities(json: ["snapshot": false, "fork": false]), VMCapabilities(snapshot: false, restore: true, fork: false))
+        XCTAssertEqual(VMCapabilities(json: ["snapshot": NSNumber(value: false), "restore": NSNumber(value: true), "fork": true]),
+                       VMCapabilities(snapshot: false, restore: true, fork: true))
+        let summary = VMSummary(id: "m", provider: "blaxel", status: "running", image: "sandbox/cmux-devbox:latest", createdAt: 0, base: nil)
+        XCTAssertEqual(summary.capabilities, .all)
+        var declared = summary
+        declared.capabilities = VMCapabilities(json: ["snapshot": false, "restore": false, "fork": false])
+        XCTAssertFalse(declared.capabilities.snapshot)
+    }
+
     private func terminal(_ machine: SurfaceMachineID, _ key: String, title: String = "shell", cwd: String? = "/root") -> SurfaceResource {
         SurfaceResource(id: SurfaceResourceID(machine: machine, kind: .terminal, key: key), title: title, detail: cwd, lifecycle: .running, agent: nil, remoteWorkspace: SurfaceRemoteWorkspace(id: "ws_0", name: "0", index: 0, focused: true), port: nil, url: nil)
     }

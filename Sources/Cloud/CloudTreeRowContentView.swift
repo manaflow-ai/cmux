@@ -75,14 +75,15 @@ struct CloudTreeRowContentView: View {
             groupRow(title: String(localized: "cloudTree.group.displays", defaultValue: "Displays"), count: count)
         case .workspacesGroup:
             groupRow(title: String(localized: "cloudTree.group.workspaces", defaultValue: "Workspaces"))
-        case .workspace(_, let workspace, let terminalCount):
+        case .workspace(_, let workspace, let terminalCount, let openIn):
             CloudTreeLeafRow(
                 style: style,
                 icon: "folder.fill",
                 tint: CloudTreeIconPalette.workspace,
                 title: workspace.name,
                 titleWeight: workspace.focused ? .medium : .regular,
-                detail: style.showsGroupCounts ? CloudTreeRowContentView.count(terminalCount) : nil
+                detail: style.showsGroupCounts ? CloudTreeRowContentView.count(terminalCount) : nil,
+                showsOpenMark: openIn != nil
             )
         case .localWorkspace(let row):
             CloudTreeLeafRow(
@@ -701,7 +702,7 @@ struct CloudTreeRowHoverButtons: View {
             plus(String(localized: "cloudTree.menu.newWorkspace", defaultValue: "New Workspace")) {
                 nodeActions.newWorkspace(machine)
             }
-        case .workspace(let machine, let workspace, _):
+        case .workspace(let machine, let workspace, _, _):
             HStack(spacing: 4) {
                 plus(String(localized: "cloudTree.menu.newTerminalHere", defaultValue: "New Terminal Here")) {
                     nodeActions.newTerminal(machine, workspace.id)
