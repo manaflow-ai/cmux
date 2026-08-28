@@ -348,5 +348,4 @@ private final class HarborProbeOutputBox: @unchecked Sendable {
         defer { lock.unlock() }
         return stdout
     }
-
 }
