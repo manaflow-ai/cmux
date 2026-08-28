@@ -153,8 +153,9 @@ export function hasFounderEditionEntitlement(raw: unknown): boolean {
   // lower-priority cmuxPlan value bypass an explicit operator override. The
   // cmuxPlan fallback keeps older verified Founder records durable while they
   // are migrated to the dedicated override key.
-  const source = metadata.cmuxVmPlan ?? metadata.cmuxPlan;
-  return normalizedPlanValue(source) === FOUNDERS_PLAN_ID;
+  const override = normalizedPlanValue(metadata.cmuxVmPlan);
+  const source = override ?? normalizedPlanValue(metadata.cmuxPlan);
+  return source === FOUNDERS_PLAN_ID;
 }
 
 /**

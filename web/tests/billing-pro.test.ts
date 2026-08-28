@@ -141,6 +141,19 @@ describe("normalizePersonalPlan", () => {
       billingManagement: "none",
     });
   });
+
+  test("treats a blank VM override as absent when a Founder marker remains", () => {
+    expect(
+      normalizePersonalPlan(
+        { cmuxVmPlan: " ", cmuxPlan: "founders" },
+        false,
+      ),
+    ).toEqual({
+      planId: PRO_PLAN_ID,
+      isPro: true,
+      billingManagement: "none",
+    });
+  });
 });
 
 describe("reconcileProPlanMetadata", () => {
