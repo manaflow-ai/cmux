@@ -9234,6 +9234,15 @@ impl Mux {
     }
 
     fn purge_terminal_side_tables(&self, terminal_id: &TerminalPublicId) {
+        if self
+            .workspace_registry
+            .lock()
+            .unwrap()
+            .purge_agent_hook_pending_for_terminal(terminal_id)
+            .is_err()
+        {
+            eprintln!("cmux-tui: terminal agent hook cleanup deferred");
+        }
         self.agent_hook_fences.lock().unwrap().remove(terminal_id);
         self.agent_records.lock().unwrap().remove(terminal_id);
         self.terminal_notifications.lock().unwrap().remove(terminal_id);
@@ -22965,6 +22974,42 @@ mod tests {
         )
         .unwrap();
         mux.append_journal_ingress(&ingress, "test", "unknown-terminal").unwrap();
+        assert!(
+            mux.workspace_registry
+                .lock()
+                .unwrap()
+                .pending_agent_hook_projections()
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn terminal_cleanup_purges_pending_hook_receipts() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+        let ingress = crate::agent_hooks::agent_hook_journal_ingress(
+            "claude",
+            "UserPromptSubmit",
+            Some(&terminal_id.to_string()),
+            serde_json::json!({}),
+        )
+        .unwrap();
+        mux.workspace_registry
+            .lock()
+            .unwrap()
+            .enqueue_agent_hook_pending(
+                &ingress.producer_id,
+                "test",
+                "pending-before-close",
+                1,
+                &ingress,
+                AGENT_HOOK_RETRY_ERROR,
+                crate::workspace_registry::AgentHookRetryClass::Transient,
+            )
+            .unwrap();
+        mux.purge_terminal_side_tables(&terminal_id);
         assert!(
             mux.workspace_registry
                 .lock()

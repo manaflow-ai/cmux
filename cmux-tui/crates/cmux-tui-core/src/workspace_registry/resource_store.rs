@@ -12,6 +12,7 @@ pub(super) const AGENT_HOOK_RETRY_PAGE_SIZE: i64 = 64;
 // exclude them, so a permanent projection failure cannot spin forever.
 pub(crate) const AGENT_HOOK_MAX_ATTEMPTS: i64 = 8;
 pub(crate) const AGENT_HOOK_MAX_RETRY_PAGES_PER_WAKE: usize = 16;
+pub(crate) const AGENT_HOOK_DEAD_LETTER_CAP: i64 = 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum AgentHookRetryClass {
@@ -581,6 +582,31 @@ impl WorkspaceRegistry {
                 transient as i64,
                 AGENT_HOOK_MAX_ATTEMPTS,
             ],
+        )?;
+        // Keep quarantined failures bounded. Live retry rows remain untouched;
+        // only the oldest dead letters beyond the retention cap are evicted.
+        self.connection.execute(
+            "DELETE FROM resource_agent_hook_pending
+             WHERE attempt >= ?1
+               AND rowid NOT IN (
+                 SELECT rowid
+                 FROM resource_agent_hook_pending
+                 WHERE attempt >= ?1
+                 ORDER BY rowid DESC
+                 LIMIT ?2
+               )",
+            params![AGENT_HOOK_MAX_ATTEMPTS, AGENT_HOOK_DEAD_LETTER_CAP],
+        )?;
+        Ok(())
+    }
+
+    pub(crate) fn purge_agent_hook_pending_for_terminal(
+        &mut self,
+        terminal_id: &crate::resource::TerminalPublicId,
+    ) -> anyhow::Result<()> {
+        self.connection.execute(
+            "DELETE FROM resource_agent_hook_pending WHERE terminal_id = ?1",
+            [terminal_id.as_str()],
         )?;
         Ok(())
     }
