@@ -11,7 +11,7 @@ nonisolated struct SystemGitExecutableFileProbe: GitExecutableFileProbing {
     func isExecutableFile(atPath path: String) -> Bool {
         var metadata = stat()
         return path.withCString { pathPointer in
-            Darwin.stat(pathPointer, &metadata) == 0
+            stat(pathPointer, &metadata) == 0
                 && metadata.st_mode & mode_t(S_IFMT) == mode_t(S_IFREG)
                 && Darwin.access(pathPointer, X_OK) == 0
         }

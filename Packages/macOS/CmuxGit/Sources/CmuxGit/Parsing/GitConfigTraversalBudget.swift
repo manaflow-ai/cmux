@@ -11,7 +11,23 @@ nonisolated struct GitConfigTraversalBudget: Sendable {
     var didExhaustBudget = false
     let reader: GitConfigFileReader
     let maximumFileByteCount: Int
-    let deadline: DispatchTime? = nil
+    let deadline: DispatchTime?
+
+    init(
+        remainingPathCount: Int,
+        remainingFileCount: Int,
+        remainingByteCount: Int,
+        reader: GitConfigFileReader,
+        maximumFileByteCount: Int,
+        deadline: DispatchTime? = nil
+    ) {
+        self.remainingPathCount = remainingPathCount
+        self.remainingFileCount = remainingFileCount
+        self.remainingByteCount = remainingByteCount
+        self.reader = reader
+        self.maximumFileByteCount = maximumFileByteCount
+        self.deadline = deadline
+    }
 
     var isExpired: Bool {
         if WorkspaceChangesCancellationSignal.isCurrentCancelled {
@@ -46,7 +62,7 @@ nonisolated struct GitConfigTraversalBudget: Sendable {
             maximumByteCount: min(remainingByteCount, maximumFileByteCount),
             deadline: deadline
         ) {
-        case .contents(let contents, consumedByteCount: byteCount):
+        case let .contents(contents, consumedByteCount: byteCount):
             remainingByteCount = max(0, remainingByteCount - byteCount)
             return contents
         case .oversized(let byteCount):

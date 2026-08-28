@@ -1,4 +1,5 @@
 import Foundation
+@testable import CmuxGit
 
 final class WorkspaceChangesGitRepositoryFixture {
     let root: URL

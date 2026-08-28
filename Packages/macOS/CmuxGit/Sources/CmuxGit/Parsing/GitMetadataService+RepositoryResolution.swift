@@ -73,9 +73,10 @@ extension GitMetadataService {
     ) async -> ResolvedGitRepository? {
         let cancellationSignal = WorkspaceChangesCancellationSignal(deadline: deadline)
         return await withTaskCancellationHandler {
-            await withCheckedContinuation { continuation in
+            await withCheckedContinuation { (continuation: CheckedContinuation<ResolvedGitRepository?, Never>) in
                 Self.blockingStatusQueue.async {
-                    let repository = cancellationSignal.withCurrentBinding {
+                    let repository: ResolvedGitRepository? = cancellationSignal.withCurrentBinding {
+                        () -> ResolvedGitRepository? in
                         guard deadline > DispatchTime.now() else { return nil }
                         return Self.resolveGitRepository(containing: directory, deadline: deadline)
                     }

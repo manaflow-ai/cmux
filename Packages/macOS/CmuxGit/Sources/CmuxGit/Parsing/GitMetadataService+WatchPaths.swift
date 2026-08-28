@@ -46,7 +46,6 @@ extension GitMetadataService {
             (watchOnlyPathsByRepository?.values.flatMap { $0 } ?? [])
                 + metadataSentinelParentPaths
         )
-        let watchOnlyPathSet = Set(watchOnlyPaths)
         let gitMetadataPaths = gitRepositoryMetadataWatchPaths(
             repository: repository,
             configPathsByRepository: configPathsByRepository
@@ -70,17 +69,20 @@ extension GitMetadataService {
             $0.entryCount > safetyConfiguration.trackedEventPathCount
                 || $0.fileByteCount > Int64(safetyConfiguration.directIndexByteCount)
         } ?? false
-        let indexSnapshot: GitIndexSnapshot? = if header != nil, !exceedsTrackedPathBudget {
+        let indexSnapshot: GitIndexSnapshot?
+        if header != nil, !exceedsTrackedPathBudget {
             let parser = GitIndexSnapshotParser()
             if let cached = indexSnapshotsByRepository?[repository.workTreeRoot],
                let data = indexReadResult.data,
                parser.signature(data: data) == cached.signature {
-                cached
+                indexSnapshot = cached
             } else {
-                indexReadResult.data.flatMap { parser.parse(data: $0, deadline: deadline) }
+                indexSnapshot = indexReadResult.data.flatMap { data in
+                    parser.parse(data: data, deadline: deadline)
+                }
             }
         } else {
-            nil
+            indexSnapshot = nil
         }
         let acceptsAllWorkTreeEvents = exceedsTrackedPathBudget
         let includesWorkTreeRoot = acceptsAllWorkTreeEvents
@@ -167,7 +169,7 @@ extension GitMetadataService {
         } else {
             gitConfigURLs(repository: repository).map(\.path)
         }
-        [
+        return [
             joinedPath(root: repository.gitDirectory, relativePath: "HEAD"),
             joinedPath(root: repository.gitDirectory, relativePath: "index"),
             joinedPath(root: repository.gitDirectory, relativePath: "refs"),

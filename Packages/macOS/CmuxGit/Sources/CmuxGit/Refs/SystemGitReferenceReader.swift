@@ -71,7 +71,8 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
         guard deadline > DispatchTime.now() else {
             return unreadableSnapshot()
         }
-        if hasReftableDirectory(repository: repository, deadline: deadline) {
+        let hasReftable = hasReftableDirectory(repository: repository, deadline: deadline)
+        if hasReftable {
             return plumbingSnapshot(
                 repository: repository,
                 deadline: deadline,
@@ -94,6 +95,14 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
             switch quickProbe {
             case .complete(let storage):
                 if let storage, storage != "files" {
+                    // An incomplete include graph is represented as
+                    // "unknown". Watch planning still needs the direct branch
+                    // context to retain exact include sentinels; the resulting
+                    // conservative forced-root plan will retry when metadata
+                    // changes. Known non-files backends remain on plumbing.
+                    if includeStorageWatchPaths, storage == "unknown" {
+                        return directSnapshot
+                    }
                     return plumbingSnapshot(
                         repository: repository,
                         deadline: deadline,
@@ -226,7 +235,7 @@ nonisolated struct SystemGitReferenceReader: GitReferenceReading {
     ) -> Bool {
         let effectiveDeadline = deadline
             ?? (DispatchTime.now() + boundedCommandWallTimeLimit)
-        [repository.gitDirectory, repository.commonDirectory].contains { directory in
+        return [repository.gitDirectory, repository.commonDirectory].contains { directory in
             guard effectiveDeadline > DispatchTime.now() else { return false }
             let reftableDirectory = URL(fileURLWithPath: directory)
                 .appendingPathComponent("reftable", isDirectory: true)
