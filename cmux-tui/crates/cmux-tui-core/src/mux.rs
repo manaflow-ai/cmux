@@ -23574,6 +23574,107 @@ mod tests {
     }
 
     #[test]
+    fn screen_detect_scan_drives_the_roster_through_journal_events() {
+        use crate::screen_detect::manifest::ManifestSet;
+        use crate::screen_detect::{ScreenDetectTracker, scanner};
+
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let surface_id = surface.id;
+        let mut tracker = ScreenDetectTracker::default();
+        let manifests = ManifestSet::bundled();
+        let t0 = Instant::now();
+        let step = |milliseconds: u64| t0 + Duration::from_millis(milliseconds);
+        let shell = |_: &Surface| Some("zsh".to_string());
+        let codex = |_: &Surface| Some("codex".to_string());
+        let gone = |_: &Surface| None;
+
+        // A shell pane never enters the roster, quiesced or not.
+        scanner::scan(&mux, &mut tracker, manifests, step(0), &shell);
+        scanner::scan(&mux, &mut tracker, manifests, step(400), &shell);
+        assert!(mux.list_agents(Some(surface_id), None).is_empty());
+
+        // codex launches: the identity edge emits immediately, without
+        // waiting for output quiescence.
+        scanner::scan(&mux, &mut tracker, manifests, step(500), &codex);
+        let records = mux.list_agents(Some(surface_id), None);
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].state, AgentState::Idle);
+        assert_eq!(records[0].source, AgentSource::Detected);
+        assert_eq!(records[0].agent.as_deref(), Some("codex"));
+
+        // New output re-arms the debounce; the blocked screen lands after
+        // quiescence.
+        surface.apply_stream_output_for_test(b"$ rm -rf build\r\nAllow command?\r\n").unwrap();
+        scanner::scan(&mux, &mut tracker, manifests, step(600), &codex);
+        assert_eq!(mux.list_agents(Some(surface_id), None)[0].state, AgentState::Idle);
+        scanner::scan(&mux, &mut tracker, manifests, step(1_000), &codex);
+        let records = mux.list_agents(Some(surface_id), None);
+        assert_eq!(records[0].state, AgentState::Blocked);
+        assert_eq!(records[0].source, AgentSource::Detected);
+
+        // Steady state re-scans journal nothing (edge-triggered).
+        let journal_len = |mux: &Mux| {
+            mux.workspace_registry.lock().unwrap().session_journal_after(0, 512).unwrap().records.len()
+        };
+        let before = journal_len(&mux);
+        scanner::scan(&mux, &mut tracker, manifests, step(1_100), &codex);
+        scanner::scan(&mux, &mut tracker, manifests, step(1_500), &codex);
+        assert_eq!(journal_len(&mux), before);
+
+        // Replaying the committed journal reproduces the live roster.
+        let records = mux.workspace_registry.lock().unwrap().session_journal_after(0, 512).unwrap();
+        let mut replayed = crate::journal_reducers::AgentRoster::default();
+        for record in &records.records {
+            replayed.apply(&crate::journal_reducers::RosterEvent::from_record(record));
+        }
+        assert_eq!(replayed.entries, mux.agent_roster.lock().unwrap().roster.entries);
+
+        // The codex process leaves the pane: session-ended-equivalent
+        // removal, immediately (exit is an identity edge).
+        scanner::scan(&mux, &mut tracker, manifests, step(1_600), &gone);
+        assert!(mux.list_agents(Some(surface_id), None).is_empty());
+    }
+
+    #[test]
+    fn screen_detect_events_lose_to_live_hooks_end_to_end() {
+        use crate::screen_detect::manifest::ManifestSet;
+        use crate::screen_detect::{ScreenDetectTracker, scanner};
+
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let surface_id = surface.id;
+        let terminal_id = mux.with_state(|state| {
+            match state.resource_indexes.content_ids.get(&surface_id).unwrap() {
+                ContentPublicId::Terminal(terminal_id) => terminal_id.clone(),
+                ContentPublicId::Browser(_) => panic!("workspace opened a browser"),
+            }
+        });
+        // A live claude hook owns the terminal.
+        let ingress = crate::agent_hooks::agent_hook_journal_ingress(
+            "claude",
+            "UserPromptSubmit",
+            Some(&terminal_id.to_string()),
+            serde_json::json!({"session_id":"native-1"}),
+        )
+        .unwrap();
+        mux.append_journal_ingress(&ingress, "test", "hook-vs-screen").unwrap();
+
+        // Screen detection sees claude too; its state must not flap the
+        // fresh hook entry.
+        let mut tracker = ScreenDetectTracker::default();
+        let manifests = ManifestSet::bundled();
+        let t0 = Instant::now();
+        let claude = |_: &Surface| Some("claude".to_string());
+        scanner::scan(&mux, &mut tracker, manifests, t0, &claude);
+        scanner::scan(&mux, &mut tracker, manifests, t0 + Duration::from_millis(400), &claude);
+        let records = mux.list_agents(Some(surface_id), None);
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].source, AgentSource::Hook);
+        assert_eq!(records[0].state, AgentState::Working);
+    }
+
+    #[test]
     fn agent_roster_rederives_from_the_journal_head_without_its_snapshot() {
         let root = std::env::temp_dir()
             .join(format!("cmux-roster-rederive-{}", crate::workspace_registry::new_uuid_v4()));
