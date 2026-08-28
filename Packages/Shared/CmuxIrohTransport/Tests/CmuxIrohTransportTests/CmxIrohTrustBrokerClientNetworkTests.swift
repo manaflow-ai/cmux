@@ -54,6 +54,10 @@ extension CmxIrohTrustBrokerClientTests {
                 "rate_limited:device_budget"
             ),
             (
+                #"{"error":"rate_limited","source":"account_budget"}"#,
+                "rate_limited:account_budget"
+            ),
+            (
                 #"{"error":"rate_limited","source":"auth_provider"}"#,
                 "rate_limited:auth_provider"
             ),
