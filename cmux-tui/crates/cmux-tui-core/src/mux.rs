@@ -1104,6 +1104,48 @@ fn agent_state_for_hook_kind(kind: &str) -> Option<AgentState> {
     })
 }
 
+fn restore_agent_hook_watermarks(
+    registry: &WorkspaceRegistry,
+) -> anyhow::Result<(HashMap<TerminalPublicId, u64>, HashSet<TerminalPublicId>)> {
+    let mut sequences = HashMap::new();
+    let mut tombstones = HashSet::new();
+    if registry.session_journal_database_path().is_none() {
+        return Ok((sequences, tombstones));
+    }
+    let mut cursor = 0;
+    loop {
+        let page = registry.session_journal_after(cursor, 256)?;
+        for record in &page.records {
+            if record.producer.id != crate::agent_hooks::AGENT_HOOK_PRODUCER_ID {
+                continue;
+            }
+            let Some(terminal_id) = record
+                .subjects
+                .iter()
+                .find(|subject| subject.kind == "terminal")
+                .and_then(|subject| TerminalPublicId::parse(&subject.id).ok())
+            else {
+                continue;
+            };
+            sequences
+                .entry(terminal_id.clone())
+                .and_modify(|latest| *latest = (*latest).max(record.sequence))
+                .or_insert(record.sequence);
+            if record.kind == "agent.session.ended" {
+                tombstones.insert(terminal_id);
+            } else if record.kind == "agent.session.started" {
+                tombstones.remove(&terminal_id);
+            }
+        }
+        let Some(last) = page.records.last() else { break };
+        cursor = last.sequence;
+        if cursor >= page.head_sequence {
+            break;
+        }
+    }
+    Ok((sequences, tombstones))
+}
+
 #[derive(Debug, Clone)]
 pub struct AgentRecord {
     pub surface: SurfaceId,
@@ -2026,6 +2068,7 @@ pub struct Mux {
     sidebar_plugin: Mutex<SidebarPluginRuntime>,
     agent_records: Mutex<HashMap<TerminalPublicId, TerminalAgentRecord>>,
     agent_hook_sequences: Mutex<HashMap<TerminalPublicId, u64>>,
+    agent_hook_tombstones: Mutex<HashSet<TerminalPublicId>>,
     /// Nonterminal notifications remain placement-local. Terminal unread
     /// state is keyed separately by stable content identity so every view of
     /// one terminal shares the same attention marker.
@@ -2297,6 +2340,8 @@ impl Mux {
             terminal_notifications,
             notification_ledger,
         } = restore_public_projections(&state, registry.public_projections()?)?;
+        let (agent_hook_sequences, agent_hook_tombstones) =
+            restore_agent_hook_watermarks(&registry)?;
         let journal_producers = registry.journal_producer_manifests()?;
         let session_public_id = registry.session_id().clone();
         let journal_kernel = crate::journal_kernel::JournalKernel::new(
@@ -2403,7 +2448,8 @@ impl Mux {
             durable_terminal_defaults: AtomicBool::new(has_terminal_defaults),
             sidebar_plugin: Mutex::new(SidebarPluginRuntime::default()),
             agent_records: Mutex::new(agent_records),
-            agent_hook_sequences: Mutex::new(HashMap::new()),
+            agent_hook_sequences: Mutex::new(agent_hook_sequences),
+            agent_hook_tombstones: Mutex::new(agent_hook_tombstones),
             placement_notifications: Mutex::new(HashMap::new()),
             terminal_notifications: Mutex::new(terminal_notifications),
             notification_ledger: Mutex::new(notification_ledger),
@@ -5289,6 +5335,9 @@ impl Mux {
             return;
         }
         sequences.insert(terminal_id.clone(), sequence);
+        if ingress.kind == "agent.session.started" {
+            self.agent_hook_tombstones.lock().unwrap().remove(&terminal_id);
+        }
         // An ended session leaves the roster entirely: the done state was
         // committed and broadcast above (so remote caches converge), and the
         // live record is dropped so agents views stop listing the terminal
@@ -5296,6 +5345,7 @@ impl Mux {
         // sequential (they follow one agent process's lifecycle), so nothing
         // races this removal.
         if state == AgentState::Done {
+            self.agent_hook_tombstones.lock().unwrap().insert(terminal_id.clone());
             let mut records = self.agent_records.lock().unwrap();
             if records.get(&terminal_id).is_some_and(|record| record.state == AgentState::Done) {
                 records.remove(&terminal_id);
@@ -8747,6 +8797,11 @@ impl Mux {
                 (surface, (*terminal_id).clone())
             }
         };
+        if source == AgentSource::Socket
+            && self.agent_hook_tombstones.lock().unwrap().contains(&terminal_id)
+        {
+            anyhow::bail!("agent session ended for terminal {terminal_id}");
+        }
         let now = now_ms();
         let mut records = self.agent_records.lock().unwrap();
         let record = match records.get(&terminal_id) {
@@ -8837,6 +8892,7 @@ impl Mux {
 
     fn purge_terminal_side_tables(&self, terminal_id: &TerminalPublicId) {
         self.agent_hook_sequences.lock().unwrap().remove(terminal_id);
+        self.agent_hook_tombstones.lock().unwrap().remove(terminal_id);
         self.agent_records.lock().unwrap().remove(terminal_id);
         self.terminal_notifications.lock().unwrap().remove(terminal_id);
     }
@@ -21769,6 +21825,59 @@ mod tests {
         mux.workspace_registry.lock().unwrap().set_resource_patch_failure(false).unwrap();
         mux.apply_agent_hook_record(&ingress, 7);
         assert_eq!(mux.list_agents(Some(surface.id), None)[0].state, AgentState::Working);
+    }
+
+    #[test]
+    fn late_socket_report_cannot_resurrect_hook_ended_agent() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = mux.with_state(|state| {
+            match state.resource_indexes.content_ids.get(&surface.id).unwrap() {
+                ContentPublicId::Terminal(id) => id.clone(),
+                ContentPublicId::Browser(_) => panic!("workspace opened a browser"),
+            }
+        });
+        let ended = crate::agent_hooks::agent_hook_journal_ingress(
+            "claude",
+            "SessionEnd",
+            Some(&terminal_id.to_string()),
+            serde_json::json!({}),
+        )
+        .unwrap();
+        mux.apply_agent_hook_record(&ended, 9);
+        assert!(
+            mux.report_agent(surface.id, AgentState::Working, AgentSource::Socket, None).is_err()
+        );
+        assert!(mux.list_agents(Some(surface.id), None).is_empty());
+    }
+
+    #[test]
+    fn persistent_hook_watermark_restores_from_journal() {
+        let root = std::env::temp_dir()
+            .join(format!("cmux-agent-watermark-{}", crate::workspace_registry::new_uuid_v4()));
+        let mux =
+            Mux::open_persistent("agent-watermark", SurfaceOptions::default(), &root).unwrap();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = mux.with_state(|state| {
+            match state.resource_indexes.content_ids.get(&surface.id).unwrap() {
+                ContentPublicId::Terminal(id) => id.clone(),
+                ContentPublicId::Browser(_) => panic!("workspace opened a browser"),
+            }
+        });
+        let ingress = crate::agent_hooks::agent_hook_journal_ingress(
+            "claude",
+            "SessionEnd",
+            Some(&terminal_id.to_string()),
+            serde_json::json!({}),
+        )
+        .unwrap();
+        let commit = mux.append_journal_ingress(&ingress, "test", "watermark-end").unwrap();
+        let (sequences, tombstones) =
+            restore_agent_hook_watermarks(&mux.workspace_registry.lock().unwrap()).unwrap();
+        assert_eq!(sequences.get(&terminal_id), Some(&commit.sequence));
+        assert!(tombstones.contains(&terminal_id));
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
