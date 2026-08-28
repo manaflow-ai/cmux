@@ -186,10 +186,24 @@ public struct AgentRestorePlanner: Sendable {
         if request.mode == .direct {
             return captured
         }
-        var selected = AgentLaunchEnvironmentPolicy().selectedRestoreEnvironment(
+        let environmentPolicy = AgentLaunchEnvironmentPolicy()
+        var selected = environmentPolicy.selectedRestoreEnvironment(
             from: captured,
             kind: kind
         )
+        if kind == "codex" {
+            let router = SubrouterCodexResumeRouting()
+            if router.resumeArguments(
+                launcher: request.launchCommand?.launcher,
+                sessionID: "restore-environment-validation",
+                launchArguments: request.launchCommand?.arguments ?? [],
+                environment: captured
+            ) != nil {
+                selected.merge(router.capturedRoutingEnvironment(in: captured)) { _, routingValue in
+                    routingValue
+                }
+            }
+        }
         if kind == "claude" {
             let keys = selected.keys.sorted().filter {
                 Self.claudeAuthSelectionEnvironmentKeys.contains($0)

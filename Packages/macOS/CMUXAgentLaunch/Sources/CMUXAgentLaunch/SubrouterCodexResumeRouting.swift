@@ -12,6 +12,13 @@ public struct SubrouterCodexResumeRouting: Sendable, Equatable {
         ["cx", "codex", "resume"],
     ]
 
+    private static let routingEnvironmentLimits = [
+        "SUBROUTER_CODEX_ACCOUNT_ID": 256,
+        "SUBROUTER_CODEX_BASE_URL": 2048,
+        "SUBROUTER_CODEX_SERVER": 256,
+        "SUBROUTER_CODEX_USER_EMAIL": 320,
+    ]
+
     /// Creates a Subrouter Codex resume router.
     public init() {}
 
@@ -24,6 +31,20 @@ public struct SubrouterCodexResumeRouting: Sendable, Equatable {
         let tokens = rawValue.split(whereSeparator: \Character.isWhitespace).map(String.init)
         guard Self.expectedMarkerTokens.contains(tokens) else { return nil }
         return tokens.joined(separator: " ")
+    }
+
+    /// Returns bounded, non-secret Subrouter routing inputs that may accompany
+    /// a trusted resume marker through structured restore metadata.
+    public func capturedRoutingEnvironment(in environment: [String: String]?) -> [String: String] {
+        guard let environment else { return [:] }
+        var selected: [String: String] = [:]
+        for key in Self.routingEnvironmentLimits.keys.sorted() {
+            guard let value = sanitizedRoutingValue(key: key, value: environment[key]) else {
+                continue
+            }
+            selected[key] = value
+        }
+        return selected
     }
 
     /// Builds the captured Subrouter launcher resume argv only when both the
@@ -76,5 +97,31 @@ public struct SubrouterCodexResumeRouting: Sendable, Equatable {
             value.removeLast()
         }
         return value == "subrouter"
+    }
+
+    private func sanitizedRoutingValue(key: String, value: String?) -> String? {
+        guard let maximumByteCount = Self.routingEnvironmentLimits[key],
+              let value else {
+            return nil
+        }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              trimmed.utf8.count <= maximumByteCount,
+              !trimmed.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains) else {
+            return nil
+        }
+        guard key == "SUBROUTER_CODEX_BASE_URL" else { return trimmed }
+
+        guard let components = URLComponents(string: trimmed),
+              let scheme = components.scheme?.lowercased(),
+              scheme == "http" || scheme == "https",
+              components.host != nil,
+              components.user == nil,
+              components.password == nil,
+              components.query == nil,
+              components.fragment == nil else {
+            return nil
+        }
+        return trimmed
     }
 }

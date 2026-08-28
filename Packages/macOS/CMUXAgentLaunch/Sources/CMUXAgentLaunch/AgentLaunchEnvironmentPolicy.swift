@@ -200,6 +200,9 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
         let marker = router.capturedMarker(in: env) else {
             return selected
         }
+        selected.merge(router.capturedRoutingEnvironment(in: env)) { _, routingValue in
+            routingValue
+        }
         selected[SubrouterCodexResumeRouting.environmentKey] = marker
         return selected
     }
