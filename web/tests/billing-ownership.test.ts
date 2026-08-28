@@ -180,16 +180,18 @@ describe("verified Pro billing ownership claims", () => {
         operation(client),
     };
     const deps = dependencies();
-    const { ownershipRepository: _ignored, ...productionDeps } = deps.dependencyValue as {
-      ownershipRepository: unknown;
-      [key: string]: unknown;
+    const dependencyRecord = deps.dependencyValue as {
+      stackApp: unknown;
+      stripeClient: unknown;
     };
+    const productionDeps = {
+      db: db as never,
+      stackApp: dependencyRecord.stackApp,
+      stripeClient: dependencyRecord.stripeClient,
+    } as never;
 
     await expect(
-      claimPendingProBilling(targetUser, {
-        ...productionDeps,
-        db: db as never,
-      } as never),
+      claimPendingProBilling(targetUser, productionDeps),
     ).resolves.toEqual({ claimed: 1 });
 
     expect(

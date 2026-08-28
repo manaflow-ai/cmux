@@ -66,14 +66,13 @@ export async function GET(request: NextRequest) {
       ? await stripeCustomerIdForStackTeam(team.id)
       : await stripeCustomerIdForStackUser(user.id);
     if (!customerId) {
-      const status = await resolveProPlanStatus(user);
       if (!team && personalStatus.billingManagement === "stripe") {
         captureBillingError(
           new Error("Stripe-managed billing user is missing a Stripe customer row"),
           {
             route: "/api/billing/portal",
             stackUserId: user.id,
-            billingManagement: status.billingManagement,
+            billingManagement: personalStatus.billingManagement,
           },
         );
       }
