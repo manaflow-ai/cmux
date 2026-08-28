@@ -1385,12 +1385,7 @@ body[data-loading="true"] #status::before {
   cursor: default;
 }
 
-/* Find match highlights (CSS Custom Highlight API; not DOM mutations, so
-   they survive the code view's virtualization without fighting React). */
-::highlight(cmux-find-match) {
-  background-color: light-dark(rgba(255, 199, 0, 0.42), rgba(255, 199, 0, 0.34));
-}
-::highlight(cmux-find-active) {
-  background-color: light-dark(#ff9632, #e8821e);
-  color: #1a1208;
-}
+/* The find match ::highlight() rules live in src/find/highlight.ts: they
+   must be adopted into each diffs-container shadow root (highlight pseudo
+   styles do not cross shadow boundaries), so the TS module is their single
+   source. */

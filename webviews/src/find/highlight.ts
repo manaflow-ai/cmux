@@ -3,6 +3,21 @@ import type { FindMatch } from "./model";
 export const FIND_HIGHLIGHT_NAME = "cmux-find-match";
 export const FIND_ACTIVE_HIGHLIGHT_NAME = "cmux-find-active";
 
+// ::highlight() pseudo styles are scoped per tree: rules in the outer
+// document never reach shadow trees, and the code view renders every row
+// inside `diffs-container` open shadow roots. The rules therefore live here
+// and are adopted into the document AND into every shadow root that hosts
+// rows (see ensureHighlightStyles).
+const highlightCSS = `
+::highlight(${FIND_HIGHLIGHT_NAME}) {
+  background-color: light-dark(rgba(255, 199, 0, 0.42), rgba(255, 199, 0, 0.34));
+}
+::highlight(${FIND_ACTIVE_HIGHLIGHT_NAME}) {
+  background-color: light-dark(#ff9632, #e8821e);
+  color: #1a1208;
+}
+`;
+
 /**
  * What the painter reads on every pass. `activeItemSpan` is the active
  * match's file span in scroll coordinates (from the virtualizer's item
@@ -26,7 +41,7 @@ export type FindHighlightPainter = {
 };
 
 export function supportsFindHighlights(): boolean {
-  return typeof CSS !== "undefined" && "highlights" in CSS;
+  return typeof CSS !== "undefined" && "highlights" in CSS && typeof Highlight === "function";
 }
 
 function clearHighlights(): void {
@@ -35,6 +50,38 @@ function clearHighlights(): void {
   }
   CSS.highlights.delete(FIND_HIGHLIGHT_NAME);
   CSS.highlights.delete(FIND_ACTIVE_HIGHLIGHT_NAME);
+}
+
+/**
+ * Every open shadow root under `root`, depth-first. The code view hosts rows
+ * in (possibly nested) open shadow roots; only the rendered virtualization
+ * window exists at any time, so the scan stays small.
+ */
+export function collectOpenShadowRoots(root: ParentNode, into: ShadowRoot[] = []): ShadowRoot[] {
+  for (const element of root.querySelectorAll("*")) {
+    const shadowRoot = element.shadowRoot;
+    if (shadowRoot != null) {
+      into.push(shadowRoot);
+      collectOpenShadowRoots(shadowRoot, into);
+    }
+  }
+  return into;
+}
+
+// Code-line cells. The code view renders each line as a code cell carrying
+// `data-line` (its own side's 1-based line number; context cells also carry
+// `data-alt-line` for the other side) next to a SEPARATE line-number cell
+// that carries `data-column-number` — the selector must never match the
+// number cells, whose text is just digits. `data-no-newline` marks the
+// final-line-without-newline cell variant.
+const rowSelector = "[data-line-type]:is([data-line], [data-no-newline])";
+
+function collectRows(container: HTMLElement, shadowRoots: ShadowRoot[]): Element[] {
+  const rows: Element[] = Array.from(container.querySelectorAll(rowSelector));
+  for (const root of shadowRoots) {
+    rows.push(...Array.from(root.querySelectorAll(rowSelector)));
+  }
+  return rows;
 }
 
 type RowText = {
@@ -110,15 +157,19 @@ function rowScrollTop(row: Element, container: HTMLElement): number {
 
 function findActiveRow(
   container: HTMLElement,
+  rows: Element[],
   snapshot: FindPaintSnapshot,
 ): Element | null {
   const active = snapshot.active;
   if (active == null) {
     return null;
   }
-  const candidates = Array.from(
-    container.querySelectorAll(`[data-line-type][data-column-number="${active.lineNumber}"]`),
-  ).filter((row) => rowMatchesSide(row, active.side));
+  const lineNumber = String(active.lineNumber);
+  const candidates = rows.filter((row) =>
+    (row.getAttribute("data-line") === lineNumber ||
+      row.getAttribute("data-alt-line") === lineNumber) &&
+    rowMatchesSide(row, active.side),
+  );
   if (candidates.length === 0) {
     return null;
   }
@@ -151,25 +202,28 @@ function findActiveRow(
   return best;
 }
 
+export type FindPaintRanges = {
+  matchRanges: Range[];
+  activeRanges: Range[];
+};
+
 /**
- * Paints find highlights over the currently RENDERED rows using the CSS
- * Custom Highlight API. The code view virtualizes rows, so this runs on
- * every scroll/DOM change; match COUNTING is model-side (`collectFindMatches`)
- * and never depends on what happens to be rendered. Highlight ranges are not
- * DOM mutations, so painting never re-triggers the mutation observer.
+ * Collects highlight ranges for every query occurrence in the currently
+ * RENDERED rows (light DOM and open shadow roots). Pure DOM reads — the
+ * registry/style side effects live in `paint`. Exported for tests.
  */
-function paint(container: HTMLElement, snapshot: FindPaintSnapshot): void {
-  if (!supportsFindHighlights()) {
-    return;
-  }
-  if (snapshot.query === "") {
-    clearHighlights();
-    return;
-  }
+export function collectFindPaintRanges(
+  container: HTMLElement,
+  snapshot: FindPaintSnapshot,
+  shadowRoots: ShadowRoot[] = collectOpenShadowRoots(container),
+): FindPaintRanges {
   const matchRanges: Range[] = [];
   const activeRanges: Range[] = [];
-  const activeRow = findActiveRow(container, snapshot);
-  const rows = container.querySelectorAll("[data-line-type][data-column-number]");
+  if (snapshot.query === "") {
+    return { matchRanges, activeRanges };
+  }
+  const rows = collectRows(container, shadowRoots);
+  const activeRow = findActiveRow(container, rows, snapshot);
   for (const row of rows) {
     const rowText = collectRowText(row);
     const haystack = rowText.text.toLowerCase();
@@ -193,6 +247,29 @@ function paint(container: HTMLElement, snapshot: FindPaintSnapshot): void {
       from = start + Math.max(snapshot.query.length, 1);
     }
   }
+  return { matchRanges, activeRanges };
+}
+
+/**
+ * Paints find highlights over the rendered rows using the CSS Custom
+ * Highlight API. The code view virtualizes rows, so this runs on every
+ * scroll/DOM change; match COUNTING is model-side (`collectFindMatches`)
+ * and never depends on what happens to be rendered. Highlight ranges are
+ * not DOM mutations, so painting never re-triggers the mutation observers.
+ */
+function paint(
+  container: HTMLElement,
+  snapshot: FindPaintSnapshot,
+  shadowRoots: ShadowRoot[],
+): void {
+  if (!supportsFindHighlights()) {
+    return;
+  }
+  if (snapshot.query === "") {
+    clearHighlights();
+    return;
+  }
+  const { matchRanges, activeRanges } = collectFindPaintRanges(container, snapshot, shadowRoots);
   CSS.highlights.set(FIND_HIGHLIGHT_NAME, new Highlight(...matchRanges));
   const activeHighlight = new Highlight(...activeRanges);
   activeHighlight.priority = 1;
@@ -200,21 +277,63 @@ function paint(container: HTMLElement, snapshot: FindPaintSnapshot): void {
 }
 
 /**
- * Installs the paint loop: repaints on scroll and on virtualizer row churn,
- * coalesced to one paint per animation frame. Call `repaint()` after query,
- * navigation, or match changes; `dispose()` removes listeners and clears
- * all highlights.
+ * Installs the paint loop: repaints on scroll and on row churn in the light
+ * DOM and in every open shadow root (the virtualizer's rows live in shadow
+ * trees that a document-level observer cannot see), coalesced to one paint
+ * per animation frame. Shadow roots also get the ::highlight styles adopted,
+ * since outer-document rules do not apply inside them. Call `repaint()`
+ * after query, navigation, or match changes; `dispose()` removes listeners
+ * and clears all highlights.
  */
 export function installFindHighlightPainter(options: PainterOptions): FindHighlightPainter {
   const { container, getSnapshot } = options;
   let frame: number | null = null;
   let disposed = false;
+  let highlightSheet: CSSStyleSheet | null = null;
+  const styledRoots = new WeakSet<DocumentOrShadowRoot>();
+  const observedRoots = new WeakSet<Node>();
+
+  const adoptStyles = (root: DocumentOrShadowRoot & { adoptedStyleSheets: CSSStyleSheet[] }) => {
+    if (styledRoots.has(root) || typeof CSSStyleSheet !== "function") {
+      return;
+    }
+    try {
+      highlightSheet ??= (() => {
+        const sheet = new CSSStyleSheet();
+        sheet.replaceSync(highlightCSS);
+        return sheet;
+      })();
+      root.adoptedStyleSheets = [...root.adoptedStyleSheets, highlightSheet];
+      styledRoots.add(root);
+    } catch {
+      // Constructable stylesheets unavailable: highlights simply stay
+      // unstyled; find still counts and navigates.
+    }
+  };
+
+  const observer = new MutationObserver(() => schedule());
+
+  const syncShadowRoots = (): ShadowRoot[] => {
+    const shadowRoots = collectOpenShadowRoots(container);
+    for (const root of shadowRoots) {
+      adoptStyles(root as DocumentOrShadowRoot & { adoptedStyleSheets: CSSStyleSheet[] });
+      if (!observedRoots.has(root)) {
+        observer.observe(root, { childList: true, subtree: true, characterData: true });
+        observedRoots.add(root);
+      }
+    }
+    return shadowRoots;
+  };
 
   const paintNow = () => {
     frame = null;
-    if (!disposed) {
-      paint(container, getSnapshot());
+    if (disposed) {
+      return;
     }
+    // New files stream in as new shadow hosts; re-sync before painting so
+    // their rows are styled, observed, and painted in the same pass.
+    const shadowRoots = syncShadowRoots();
+    paint(container, getSnapshot(), shadowRoots);
   };
   const schedule = () => {
     if (frame == null && !disposed) {
@@ -222,9 +341,10 @@ export function installFindHighlightPainter(options: PainterOptions): FindHighli
     }
   };
 
+  adoptStyles(document as unknown as DocumentOrShadowRoot & { adoptedStyleSheets: CSSStyleSheet[] });
   container.addEventListener("scroll", schedule, { passive: true });
-  const observer = new MutationObserver(schedule);
   observer.observe(container, { childList: true, subtree: true, characterData: true });
+  syncShadowRoots();
 
   return {
     repaint: schedule,
