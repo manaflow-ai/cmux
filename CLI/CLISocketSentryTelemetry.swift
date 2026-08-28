@@ -140,6 +140,12 @@ final class CLISocketSentryTelemetry {
         ) else {
             return
         }
+        let fingerprintKind = Self.fingerprintKind(for: error, message: errorDescription)
+        if let fingerprintKind,
+           CLISentryErrorFingerprint.throttledKinds.contains(fingerprintKind),
+           !claimThrottledCaptureSlot(stage: stage, kind: fingerprintKind) {
+            return
+        }
 #if DEBUG
         recordCaptureProbe(stage: stage, error: error)
 #endif
@@ -161,6 +167,7 @@ final class CLISocketSentryTelemetry {
             context: context,
             command: command,
             subcommand: subcommand,
+            fingerprint: ["cmux-cli", stage, fingerprintKind ?? "{{ default }}"],
             breadcrumbs: pendingBreadcrumbs.map { pending in
                 makeBreadcrumb(message: pending.message, data: pending.data)
             }
@@ -179,13 +186,44 @@ final class CLISocketSentryTelemetry {
         // coordination path. The app's Sentry client will pick up the cached
         // envelope on its next transport pass.
 #if DEBUG
-        recordStoreProbe(eventId: scrubbedEvent.eventId.sentryIdString)
+        recordStoreProbe(
+            eventId: scrubbedEvent.eventId.sentryIdString,
+            fingerprint: scrubbedEvent.fingerprint ?? []
+        )
 #endif
 #endif
     }
 
     private var shouldEmit: Bool {
         !disabledByEnv
+    }
+
+    /// Chooses the stable fingerprint kind for a CLI failure: the structured
+    /// v2 protocol error code when the app replied with one, else the known
+    /// transport failure class of the rendered message, else `nil` so the
+    /// event keeps Sentry's default grouping within its stage.
+    private static func fingerprintKind(for error: Error, message: String) -> String? {
+        if let v2Code = (error as? CLIError)?.v2Code?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased(),
+           !v2Code.isEmpty {
+            return "v2-\(v2Code)"
+        }
+        return CLISentryErrorFingerprint().kind(forMessage: message)
+    }
+
+    /// One durable capture per (stage, kind) per throttle interval for
+    /// expected-but-reportable volume states like command timeouts, which
+    /// otherwise fire once per agent hook invocation while the app is wedged.
+    /// Backed by the same locked state file the agent hook failure reporter
+    /// uses; a claim error fails closed (skips the capture) like that reporter.
+    private func claimThrottledCaptureSlot(stage: String, kind: String) -> Bool {
+        let store = ClaudeHookSessionStore(processEnv: processEnv)
+        return (try? store.claimAgentHookFailureReport(
+            agentName: "cli-sentry",
+            stage: stage,
+            sessionId: kind
+        )) == true
     }
 
 #if DEBUG
@@ -199,12 +237,12 @@ final class CLISocketSentryTelemetry {
     }
 
 #if canImport(Sentry)
-    private func recordStoreProbe(eventId: String) {
+    private func recordStoreProbe(eventId: String, fingerprint: [String]) {
         guard let path = processEnv["CMUX_CLI_SENTRY_STORE_PROBE_PATH"]?.trimmingCharacters(in: .whitespacesAndNewlines),
               !path.isEmpty else {
             return
         }
-        let payload = "event_id=\(eventId)\n"
+        let payload = "event_id=\(eventId)\nfingerprint=\(fingerprint.joined(separator: "|"))\n"
         try? payload.write(toFile: NSString(string: path).expandingTildeInPath, atomically: true, encoding: .utf8)
     }
 #endif
@@ -216,12 +254,19 @@ final class CLISocketSentryTelemetry {
         context: [String: Any],
         command: String,
         subcommand: String,
+        fingerprint: [String],
         breadcrumbs: [Breadcrumb]
     ) -> Event {
         let nsError = error as NSError
         let event = Event(error: nsError)
         event.exceptions = errorChain(for: nsError).reversed().map(Self.makeException)
         event.level = .error
+        // Every CLI error shares one NSError domain+code with system-only
+        // frames, so default grouping folds all failure classes into a single
+        // issue. Group by stage plus normalized error kind instead;
+        // "{{ default }}" keeps default grouping inside the stage for
+        // unclassified errors.
+        event.fingerprint = fingerprint
         event.releaseName = currentSentryReleaseName()
 #if DEBUG
         event.environment = "development-cli"
