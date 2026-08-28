@@ -1380,7 +1380,7 @@ mod tests {
         rig.cancel.cancel();
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn tunnel_open_replays_start_output_without_deadlocking() {
         let rig = rig_with_start_banner(b"startup").await;
         let stream = connect(&rig).await;
