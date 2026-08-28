@@ -3783,6 +3783,8 @@ impl Mux {
         self.surface(surface).context("created surface disappeared")
     }
 
+    /// Report an agent state for a selected terminal resource and reconcile
+    /// any durable hook projections waiting for that terminal.
     #[allow(clippy::too_many_arguments)]
     fn commit_resource_mutation_plan(
         &self,
@@ -4507,6 +4509,8 @@ impl Mux {
         )
     }
 
+    /// Commit an agent report and its resource projection under the sequence
+    /// fence used to preserve hook ordering across retries and restarts.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn prepare_resource_effect(
         &self,
@@ -8981,7 +8985,7 @@ impl Mux {
             if ended_fence.is_some_and(|fence| {
                 fresh_session.is_none_or(|session| session == fence.session_id)
             }) {
-                anyhow::bail!("agent session ended for terminal {terminal_id}");
+                anyhow::bail!("agent_session_ended");
             }
         } else if let Some(fence) = sequence_guard
             .as_ref()
@@ -8997,7 +9001,7 @@ impl Mux {
                         .is_some_and(|session| session.starts_with("cmux-hook-sequence:"))
             });
             if !is_new_hook_session {
-                anyhow::bail!("agent session ended for terminal {terminal_id}");
+                anyhow::bail!("agent_session_ended");
             }
         }
         let persisted_source_session = if source == AgentSource::Hook {
