@@ -3,7 +3,7 @@ extension CMUXCLI {
 export default function (amp: PluginAPI) {
   const rootThread = (amp as unknown as { thread?: AmpThread }).thread;
   const helpers = (amp as unknown as { helpers?: unknown }).helpers;
-  const cwdFromEnv = (): string => firstString(process.env.PWD, process.cwd()) || process.cwd();
+  const cwdFromEnv = (): string => process.cwd();
   const titleByThread = new Map<string, string>();
   const emittedTitleByThread = new Map<string, string>();
   const titleVersions = new Map<string, number>();
