@@ -1419,6 +1419,36 @@ _cmux_run_pr_probe_with_timeout() {
     wait "$probe_pid"
 }
 
+# Stable parent identity for disowned watchers (issue #10926): a bare
+# `kill -0 $pid` guard is defeated by PID reuse. macOS recycles PIDs within
+# days on a busy machine, so once the recorded shell PID is reassigned to any
+# live process the guard returns true forever and the watcher never exits.
+# Pair the PID with the kernel start time from /bin/ps so a recycled PID no
+# longer counts as the parent.
+_cmux_watcher_parent_start_time() {
+    local raw
+    raw="$(/bin/ps -o lstart= -p "$1" 2>/dev/null)" || return 1
+    # Normalize whitespace: lstart pads single-digit days with spaces, and the
+    # identity must compare stably across ps invocations.
+    local -a words=()
+    read -r -a words <<< "$raw" || true
+    (( ${#words[@]} )) || return 1
+    printf '%s\n' "${words[*]}"
+}
+
+_cmux_watcher_parent_alive() {
+    # $1 = parent PID, $2 = start time recorded at watcher spawn. A start-time
+    # mismatch means the PID was recycled; a failed /bin/ps counts as
+    # parent-dead. An empty recorded start time (ps failed at spawn) degrades
+    # to the plain PID liveness check.
+    local pid="$1" expected="$2" actual
+    [[ -n "$pid" ]] || return 1
+    kill -0 "$pid" >/dev/null 2>&1 || return 1
+    [[ -n "$expected" ]] || return 0
+    actual="$(_cmux_watcher_parent_start_time "$pid")" || return 1
+    [[ "$actual" == "$expected" ]]
+}
+
 _cmux_halt_pr_poll_loop() {
     if [[ -n "$_CMUX_PR_POLL_PID" ]]; then
         # Process-group kill: background jobs are process-group leaders, so
@@ -1451,6 +1481,8 @@ _cmux_start_pr_poll_loop() {
     local watch_pwd="${1:-$PWD}"
     local force_restart="${2:-0}"
     local watch_shell_pid="$$"
+    local watch_shell_start
+    watch_shell_start="$(_cmux_watcher_parent_start_time "$watch_shell_pid" 2>/dev/null)" || watch_shell_start=""
     local interval="${_CMUX_PR_POLL_INTERVAL:-45}"
 
     if [[ "$force_restart" != "1" && "$watch_pwd" == "$_CMUX_PR_POLL_PWD" && -n "$_CMUX_PR_POLL_PID" ]] \
@@ -1469,7 +1501,7 @@ _cmux_start_pr_poll_loop() {
         local signal_path=""
         signal_path="$(_cmux_pr_force_signal_path 2>/dev/null || true)"
         while :; do
-            kill -0 "$watch_shell_pid" 2>/dev/null || break
+            _cmux_watcher_parent_alive "$watch_shell_pid" "$watch_shell_start" || break
             local force_probe=0
             if [[ -n "$signal_path" && -f "$signal_path" ]]; then
                 force_probe=1
@@ -1479,7 +1511,7 @@ _cmux_start_pr_poll_loop() {
 
             local slept=0
             while (( slept < interval )); do
-                kill -0 "$watch_shell_pid" 2>/dev/null || exit 0
+                _cmux_watcher_parent_alive "$watch_shell_pid" "$watch_shell_start" || exit 0
                 if [[ -n "$signal_path" && -f "$signal_path" ]]; then
                     break
                 fi
