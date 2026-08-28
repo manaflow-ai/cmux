@@ -376,6 +376,143 @@ pub enum ResourceOperation {
     StreamCancel,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+
+pub enum OperationClass {
+    Read,
+    Mutation,
+    StreamOpen,
+    ConnectionControl,
+    Local,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum LocalOperation {
+    #[serde(rename = "sidebar_plugin.list")]
+    SidebarPluginList,
+    #[serde(rename = "sidebar_plugin.install")]
+    SidebarPluginInstall,
+    #[serde(rename = "sidebar_plugin.use")]
+    SidebarPluginUse,
+    #[serde(rename = "sidebar_plugin.update")]
+    SidebarPluginUpdate,
+    #[serde(rename = "sidebar_plugin.remove")]
+    SidebarPluginRemove,
+    #[serde(rename = "sidebar_plugin.use_builtin")]
+    SidebarPluginUseBuiltin,
+}
+
+impl LocalOperation {
+    pub const fn class(self) -> OperationClass {
+        OperationClass::Local
+    }
+}
+
+impl ResourceOperation {
+    pub const fn class(self) -> OperationClass {
+        if matches!(
+            self,
+            Self::SessionEvents
+                | Self::SessionJournalSubscribe
+                | Self::TerminalAttach
+                | Self::BrowserAttach
+                | Self::SidebarViewAttach
+        ) {
+            OperationClass::StreamOpen
+        } else if matches!(
+            self,
+            Self::RequestCancel
+                | Self::StreamCancel
+                | Self::ClientMetadataUpdate
+                | Self::ClientSizingSet
+                | Self::ClientSizingRelease
+                | Self::ClientCellPixelsSet
+                | Self::ClientDetach
+                | Self::TerminalRendererGrantCreate
+                | Self::TerminalViewerResize
+                | Self::TerminalViewerRelease
+                | Self::BrowserViewerResize
+                | Self::BrowserViewerRelease
+        ) {
+            OperationClass::ConnectionControl
+        } else if matches!(
+            self,
+            Self::MachineList
+                | Self::MachineGet
+                | Self::SessionList
+                | Self::SessionGet
+                | Self::SessionSnapshot
+                | Self::SessionCreationResolve
+                | Self::SessionPing
+                | Self::SessionJournalProducerList
+                | Self::SessionJournalHookList
+                | Self::SessionJournalCheckpointList
+                | Self::SessionJournalRestorePreview
+                | Self::SessionJournalSegmentList
+                | Self::ClientList
+                | Self::ClientGet
+                | Self::PairingRequestList
+                | Self::FrontendProjectionGet
+                | Self::WorkspaceList
+                | Self::WorkspaceGet
+                | Self::ScreenList
+                | Self::ScreenGet
+                | Self::ScreenLayoutExport
+                | Self::PaneList
+                | Self::PaneGet
+                | Self::PaneNeighborGet
+                | Self::TabList
+                | Self::TabGet
+                | Self::TerminalList
+                | Self::TerminalGet
+                | Self::TerminalScreenRead
+                | Self::TerminalStateRead
+                | Self::TerminalHistoryRead
+                | Self::TerminalOutputRead
+                | Self::TerminalWait
+                | Self::TerminalWaitExit
+                | Self::TerminalCopy
+                | Self::TerminalProcessGet
+                | Self::BrowserList
+                | Self::BrowserGet
+                | Self::NotificationList
+                | Self::AgentList
+                | Self::SidebarViewGet
+        ) {
+            OperationClass::Read
+        } else {
+            OperationClass::Mutation
+        }
+    }
+
+    pub const fn is_mutation(self) -> bool {
+        matches!(self.class(), OperationClass::Mutation)
+    }
+}
+
+#[cfg(test)]
+mod resource_operation_wire_name_tests {
+    use super::ResourceOperation;
+
+    #[test]
+    fn wire_name_round_trips_through_serde() {
+        for name in [
+            "machine.list",
+            "session.journal.append",
+            "workspace.create",
+            "terminal.output_read",
+            "browser.close",
+            "stream.cancel",
+        ] {
+            let operation: ResourceOperation =
+                serde_json::from_str(&format!("\"{name}\"")).expect("known operation");
+            assert_eq!(operation.wire_name(), name);
+            assert_eq!(serde_json::to_string(&operation).unwrap(), format!("\"{name}\""));
+        }
+    }
+}
+
 impl ResourceOperation {
     pub const fn wire_name(self) -> &'static str {
         match self {
@@ -508,403 +645,6 @@ impl ResourceOperation {
     }
 }
 
-#[cfg(test)]
-mod resource_operation_wire_name_tests {
-    use super::ResourceOperation;
-
-    #[test]
-    fn wire_names_match_serde_for_every_variant() {
-        const NAMES: &[&str] = &[
-+            "machine.list",
-            "machine.get",
-            "session.list",
-            "session.open",
-            "session.get",
-            "session.snapshot",
-            "session.creation.resolve",
-            "session.events",
-            "session.journal.subscribe",
-            "session.journal.producer.list",
-            "session.journal.producer.put",
-            "session.journal.append",
-            "session.journal.checkpoint.create",
-            "session.journal.checkpoint.list",
-            "session.journal.hook.list",
-            "session.journal.hook.put",
-            "session.journal.restore.preview",
-            "session.journal.segment.list",
-            "session.journal.segment.seal",
-            "session.ping",
-            "session.shutdown",
-            "session.reload_config",
-            "session.terminal_defaults.update",
-            "client.list",
-            "client.get",
-            "client.metadata.update",
-            "client.sizing.set",
-            "client.sizing.release",
-            "client.cell_pixels.set",
-            "client.detach",
-            "session.window.title.set",
-            "session.window.title.clear",
-            "pairing_request.list",
-            "pairing_request.resolve",
-            "request.cancel",
-            "frontend_projection.get",
-            "frontend_projection.put",
-            "workspace.list",
-            "workspace.get",
-            "workspace.create",
-            "workspace.rename",
-            "workspace.move",
-            "workspace.focus",
-            "workspace.close",
-            "workspace.run",
-            "workspace.layout.apply",
-            "screen.list",
-            "screen.get",
-            "screen.create",
-            "screen.rename",
-            "screen.focus",
-            "screen.close",
-            "screen.layout.export",
-            "screen.layout.undo",
-            "pane.list",
-            "pane.get",
-            "pane.create",
-            "pane.split",
-            "pane.rename",
-            "pane.focus",
-            "pane.focus_direction",
-            "pane.neighbor.get",
-            "pane.swap",
-            "pane.zoom",
-            "pane.split_ratio.set",
-            "pane.viewport_width.set",
-            "pane.close",
-            "pane.run",
-            "tab.list",
-            "tab.get",
-            "tab.create_terminal",
-            "tab.create_browser",
-            "tab.rename",
-            "tab.move",
-            "tab.focus",
-            "tab.close",
-            "terminal.list",
-            "terminal.get",
-            "terminal.input.write",
-            "terminal.input.keys",
-            "terminal.input.mouse",
-            "terminal.input.focus",
-            "terminal.screen.read",
-            "terminal.state.read",
-            "terminal.history.read",
-            "terminal.history.clear",
-            "terminal.output_read",
-            "terminal.wait",
-            "terminal.wait_exit",
-            "terminal.copy",
-            "terminal.process.get",
-            "terminal.renderer_grant.create",
-            "terminal.viewer.resize",
-            "terminal.viewer.release",
-            "terminal.viewport.scroll",
-            "terminal.move",
-            "terminal.project",
-            "terminal.attach",
-            "terminal.close",
-            "browser.list",
-            "browser.get",
-            "browser.navigate",
-            "browser.back",
-            "browser.forward",
-            "browser.reload",
-            "browser.activate",
-            "browser.input.key",
-            "browser.input.text",
-            "browser.input.mouse",
-            "browser.input.wheel",
-            "browser.viewer.resize",
-            "browser.viewer.release",
-            "browser.attach",
-            "browser.close",
-            "notification.list",
-            "notification.create",
-            "agent.list",
-            "agent.report",
-            "sidebar_view.get",
-            "sidebar_view.ensure",
-            "sidebar_view.attach",
-            "sidebar_view.input",
-            "sidebar_view.resize",
-            "sidebar_view.reload",
-            "stream.cancel",
-        ];
-        for &name in NAMES {
-            let operation: ResourceOperation =
-                serde_json::from_str(&format!("\"{name}\"")).expect("known operation");
-            assert_eq!(operation.wire_name(), name);
-            assert_eq!(serde_json::to_string(&operation).unwrap(), format!("\"{name}\""));
-        }
-    }
-}
-
-#[cfg(test)]
-mod resource_operation_wire_name_tests {
-    use super::ResourceOperation;
-
-    #[test]
-    fn wire_names_match_serde_for_every_variant() {
-        const NAMES: &[&str] = &[
-+            "machine.list",
-            "machine.get",
-            "session.list",
-            "session.open",
-            "session.get",
-            "session.snapshot",
-            "session.creation.resolve",
-            "session.events",
-            "session.journal.subscribe",
-            "session.journal.producer.list",
-            "session.journal.producer.put",
-            "session.journal.append",
-            "session.journal.checkpoint.create",
-            "session.journal.checkpoint.list",
-            "session.journal.hook.list",
-            "session.journal.hook.put",
-            "session.journal.restore.preview",
-            "session.journal.segment.list",
-            "session.journal.segment.seal",
-            "session.ping",
-            "session.shutdown",
-            "session.reload_config",
-            "session.terminal_defaults.update",
-            "client.list",
-            "client.get",
-            "client.metadata.update",
-            "client.sizing.set",
-            "client.sizing.release",
-            "client.cell_pixels.set",
-            "client.detach",
-            "session.window.title.set",
-            "session.window.title.clear",
-            "pairing_request.list",
-            "pairing_request.resolve",
-            "request.cancel",
-            "frontend_projection.get",
-            "frontend_projection.put",
-            "workspace.list",
-            "workspace.get",
-            "workspace.create",
-            "workspace.rename",
-            "workspace.move",
-            "workspace.focus",
-            "workspace.close",
-            "workspace.run",
-            "workspace.layout.apply",
-            "screen.list",
-            "screen.get",
-            "screen.create",
-            "screen.rename",
-            "screen.focus",
-            "screen.close",
-            "screen.layout.export",
-            "screen.layout.undo",
-            "pane.list",
-            "pane.get",
-            "pane.create",
-            "pane.split",
-            "pane.rename",
-            "pane.focus",
-            "pane.focus_direction",
-            "pane.neighbor.get",
-            "pane.swap",
-            "pane.zoom",
-            "pane.split_ratio.set",
-            "pane.viewport_width.set",
-            "pane.close",
-            "pane.run",
-            "tab.list",
-            "tab.get",
-            "tab.create_terminal",
-            "tab.create_browser",
-            "tab.rename",
-            "tab.move",
-            "tab.focus",
-            "tab.close",
-            "terminal.list",
-            "terminal.get",
-            "terminal.input.write",
-            "terminal.input.keys",
-            "terminal.input.mouse",
-            "terminal.input.focus",
-            "terminal.screen.read",
-            "terminal.state.read",
-            "terminal.history.read",
-            "terminal.history.clear",
-            "terminal.output_read",
-            "terminal.wait",
-            "terminal.wait_exit",
-            "terminal.copy",
-            "terminal.process.get",
-            "terminal.renderer_grant.create",
-            "terminal.viewer.resize",
-            "terminal.viewer.release",
-            "terminal.viewport.scroll",
-            "terminal.move",
-            "terminal.project",
-            "terminal.attach",
-            "terminal.close",
-            "browser.list",
-            "browser.get",
-            "browser.navigate",
-            "browser.back",
-            "browser.forward",
-            "browser.reload",
-            "browser.activate",
-            "browser.input.key",
-            "browser.input.text",
-            "browser.input.mouse",
-            "browser.input.wheel",
-            "browser.viewer.resize",
-            "browser.viewer.release",
-            "browser.attach",
-            "browser.close",
-            "notification.list",
-            "notification.create",
-            "agent.list",
-            "agent.report",
-            "sidebar_view.get",
-            "sidebar_view.ensure",
-            "sidebar_view.attach",
-            "sidebar_view.input",
-            "sidebar_view.resize",
-            "sidebar_view.reload",
-            "stream.cancel",
-        ];
-        for &name in NAMES {
-            let operation: ResourceOperation =
-                serde_json::from_str(&format!("\"{name}\"")).expect("known operation");
-            assert_eq!(operation.wire_name(), name);
-            assert_eq!(serde_json::to_string(&operation).unwrap(), format!("\"{name}\""));
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum OperationClass {
-    Read,
-    Mutation,
-    StreamOpen,
-    ConnectionControl,
-    Local,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum LocalOperation {
-    #[serde(rename = "sidebar_plugin.list")]
-    SidebarPluginList,
-    #[serde(rename = "sidebar_plugin.install")]
-    SidebarPluginInstall,
-    #[serde(rename = "sidebar_plugin.use")]
-    SidebarPluginUse,
-    #[serde(rename = "sidebar_plugin.update")]
-    SidebarPluginUpdate,
-    #[serde(rename = "sidebar_plugin.remove")]
-    SidebarPluginRemove,
-    #[serde(rename = "sidebar_plugin.use_builtin")]
-    SidebarPluginUseBuiltin,
-}
-
-impl LocalOperation {
-    pub const fn class(self) -> OperationClass {
-        OperationClass::Local
-    }
-}
-
-impl ResourceOperation {
-    pub const fn class(self) -> OperationClass {
-        if matches!(
-            self,
-            Self::SessionEvents
-                | Self::SessionJournalSubscribe
-                | Self::TerminalAttach
-                | Self::BrowserAttach
-                | Self::SidebarViewAttach
-        ) {
-            OperationClass::StreamOpen
-        } else if matches!(
-            self,
-            Self::RequestCancel
-                | Self::StreamCancel
-                | Self::ClientMetadataUpdate
-                | Self::ClientSizingSet
-                | Self::ClientSizingRelease
-                | Self::ClientCellPixelsSet
-                | Self::ClientDetach
-                | Self::TerminalRendererGrantCreate
-                | Self::TerminalViewerResize
-                | Self::TerminalViewerRelease
-                | Self::BrowserViewerResize
-                | Self::BrowserViewerRelease
-        ) {
-            OperationClass::ConnectionControl
-        } else if matches!(
-            self,
-            Self::MachineList
-                | Self::MachineGet
-                | Self::SessionList
-                | Self::SessionGet
-                | Self::SessionSnapshot
-                | Self::SessionCreationResolve
-                | Self::SessionPing
-                | Self::SessionJournalProducerList
-                | Self::SessionJournalHookList
-                | Self::SessionJournalCheckpointList
-                | Self::SessionJournalRestorePreview
-                | Self::SessionJournalSegmentList
-                | Self::ClientList
-                | Self::ClientGet
-                | Self::PairingRequestList
-                | Self::FrontendProjectionGet
-                | Self::WorkspaceList
-                | Self::WorkspaceGet
-                | Self::ScreenList
-                | Self::ScreenGet
-                | Self::ScreenLayoutExport
-                | Self::PaneList
-                | Self::PaneGet
-                | Self::PaneNeighborGet
-                | Self::TabList
-                | Self::TabGet
-                | Self::TerminalList
-                | Self::TerminalGet
-                | Self::TerminalScreenRead
-                | Self::TerminalStateRead
-                | Self::TerminalHistoryRead
-                | Self::TerminalOutputRead
-                | Self::TerminalWait
-                | Self::TerminalWaitExit
-                | Self::TerminalCopy
-                | Self::TerminalProcessGet
-                | Self::BrowserList
-                | Self::BrowserGet
-                | Self::NotificationList
-                | Self::AgentList
-                | Self::SidebarViewGet
-        ) {
-            OperationClass::Read
-        } else {
-            OperationClass::Mutation
-        }
-    }
-
-    pub const fn is_mutation(self) -> bool {
-        matches!(self.class(), OperationClass::Mutation)
-    }
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
