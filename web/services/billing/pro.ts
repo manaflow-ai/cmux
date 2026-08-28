@@ -94,6 +94,10 @@ export async function syncProPlanMetadata(
 
 export type ProReconcileUser = ProMetadataCustomer & {
   readonly id?: string;
+  readonly primaryEmail?: string | null;
+  readonly primaryEmailVerified?: boolean;
+  readonly isAnonymous?: boolean;
+  readonly isRestricted?: boolean;
 };
 
 export type ActiveStripeSubscriptionQuery = (stackUserId: string) => Promise<boolean>;
@@ -104,6 +108,9 @@ export type FreshProMetadataUserMutation = <Result>(
     lease: AccountDeletionUserMutationLease,
   ) => Promise<Result>,
 ) => Promise<Result>;
+export type PendingBillingClaimResolver = (
+  user: ProReconcileUser & { readonly id: string },
+) => Promise<unknown>;
 export type BillingManagementKind = "stripe" | "none";
 
 export type NormalizedPersonalPlan = {
@@ -189,8 +196,26 @@ export async function resolveProPlanStatus(
   options: {
     hasActiveStripeSubscription?: ActiveStripeSubscriptionQuery;
     withFreshMetadataUser?: FreshProMetadataUserMutation;
+    claimPendingBilling?: PendingBillingClaimResolver;
   } = {},
 ): Promise<ProPlanStatus> {
+  if (
+    user.id &&
+    user.isAnonymous !== true &&
+    user.isRestricted !== true &&
+    user.primaryEmailVerified === true &&
+    user.primaryEmail?.trim()
+  ) {
+    try {
+      await (options.claimPendingBilling ?? defaultPendingBillingClaim)(
+        user as ProReconcileUser & { readonly id: string },
+      );
+    } catch {
+      // Billing status still resolves from the authoritative subscription rows
+      // when a pending ownership claim is temporarily unavailable. The claim
+      // is retried on the next authenticated billing read.
+    }
+  }
   const metadata = proMetadataRecord(user.clientReadOnlyMetadata);
   const hasManualVmPlanOverride =
     hasManualVmOverride(metadata) || hasFounderEditionEntitlement(metadata);
@@ -223,6 +248,14 @@ export async function resolveProPlanStatus(
     metadataChanged,
   };
 }
+
+const defaultPendingBillingClaim: PendingBillingClaimResolver = async (user) => {
+  // Keep the ownership boundary out of this module's static dependency graph:
+  // purchase.ts imports the metadata helpers above, while this lazy edge lets
+  // both modules initialize without a circular top-level import.
+  const { claimPendingProBilling } = await import("./purchase");
+  return claimPendingProBilling(user);
+};
 
 async function reconcileProMetadataIfAvailable(
   userId: string,

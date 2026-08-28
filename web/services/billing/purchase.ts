@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, or, sql } from "drizzle-orm";
 import type Stripe from "stripe";
 
 import { stackServerApp } from "../../app/lib/stack";
@@ -49,6 +49,44 @@ type BillingDbTransaction = BillingDbClient & {
 };
 type StripeBillingClient = Pick<ReturnType<typeof stripe>, "customers" | "subscriptions">;
 
+/** A Stack account that may prove ownership of a parked Pro checkout. */
+export type ProBillingClaimUser = {
+  readonly id: string;
+  readonly primaryEmail?: string | null;
+  readonly primaryEmailVerified?: boolean;
+  readonly isAnonymous?: boolean;
+  readonly isRestricted?: boolean;
+};
+
+export type BillingOwnershipClaim = {
+  readonly id: string;
+  readonly email: string;
+  readonly stripeCustomerId: string;
+  readonly stackUserId: string;
+  readonly claimedByUserId: string | null;
+};
+
+export type BillingOwnershipTransfer = {
+  readonly kind: "claimed";
+  readonly claimId: string;
+  readonly email: string;
+  readonly customerId: string;
+  readonly subscriptionIds: readonly string[];
+  readonly sourceStackUserId: string;
+  readonly targetStackUserId: string;
+};
+
+export type BillingOwnershipRepository = {
+  findClaims: (
+    email: string,
+    targetStackUserId: string,
+  ) => Promise<readonly BillingOwnershipClaim[]>;
+  transferClaim: (
+    claim: BillingOwnershipClaim,
+    targetStackUserId: string,
+  ) => Promise<BillingOwnershipTransfer | null>;
+};
+
 type StripeSubscriptionValuesInput = {
   subscription: Stripe.Subscription;
   customerId: string;
@@ -60,6 +98,9 @@ type StripeSubscriptionValuesInput = {
 type StackBillingUser = {
   readonly id: string;
   readonly primaryEmail?: string | null;
+  readonly primaryEmailVerified?: boolean;
+  readonly isAnonymous?: boolean;
+  readonly isRestricted?: boolean;
   readonly clientReadOnlyMetadata?: unknown;
   update(options: {
     primaryEmail?: string | null;
@@ -96,6 +137,7 @@ type BillingPurchaseDependencies = {
   db?: BillingDb;
   stackApp?: StackBillingApp | null;
   stripeClient?: () => StripeBillingClient;
+  ownershipRepository?: BillingOwnershipRepository;
   testflight?: {
     isAscConfigured?: () => boolean;
     removeTester?: (
@@ -108,6 +150,61 @@ type BillingPurchaseDependencies = {
     ) => void;
   };
 };
+
+/**
+ * Attach a parked anonymous Pro checkout to the currently authenticated
+ * account. A claim is usable only when Stack itself says the account is
+ * non-anonymous and its primary email is verified. The email is merely the
+ * selector for a server-created claim; it is never accepted as proof on its
+ * own.
+ *
+ * The database transfer is transactional and keyed by the exact claim and
+ * Stripe ids. Stripe metadata is reconciled after the transfer so a webhook
+ * cannot grant access to an account selected only by an unverified email.
+ */
+export async function claimPendingProBilling(
+  user: ProBillingClaimUser,
+  dependencies: BillingPurchaseDependencies = {},
+): Promise<{ readonly claimed: number }> {
+  const email = verifiedClaimEmail(user);
+  if (!email) return { claimed: 0 };
+
+  const app = dependencies.stackApp ?? stackServerApp;
+  if (!app) return { claimed: 0 };
+  const db = dependencies.db ?? cloudDb();
+  const repository =
+    dependencies.ownershipRepository ?? makeBillingOwnershipRepository(db);
+  const claims = await repository.findClaims(email, user.id);
+  let claimed = 0;
+
+  for (const claim of claims) {
+    if (claim.claimedByUserId && claim.claimedByUserId !== user.id) continue;
+
+    // A fresh claim must originate from the anonymous purchaser created by
+    // checkout. Never transfer a claim from an ordinary account, even when its
+    // billing email happens to match.
+    if (!claim.claimedByUserId) {
+      const source = await app.getUser(claim.stackUserId);
+      if (
+        !source ||
+        source.id === user.id ||
+        source.isAnonymous !== true
+      ) {
+        continue;
+      }
+    }
+
+    const transfer = await repository.transferClaim(claim, user.id);
+    if (!transfer) continue;
+    claimed += 1;
+    await syncTransferredStripeOwnership(
+      transfer,
+      dependencies.stripeClient ?? stripe,
+    );
+  }
+
+  return { claimed };
+}
 
 export type CheckoutCompletionInput = {
   session: Stripe.Checkout.Session;
@@ -1073,6 +1170,253 @@ async function recordBillingEmailClaim(
     stackUserId: input.stackUserId,
     plan: PRO_PLAN_ID,
   });
+}
+
+function verifiedClaimEmail(user: ProBillingClaimUser): string | null {
+  if (
+    user.isAnonymous === true ||
+    user.isRestricted === true ||
+    user.primaryEmailVerified !== true
+  ) {
+    return null;
+  }
+  const email = user.primaryEmail?.trim().toLowerCase();
+  return email && email.includes("@") ? email : null;
+}
+
+function makeBillingOwnershipRepository(db: BillingDb): BillingOwnershipRepository {
+  return {
+    findClaims: async (email, targetStackUserId) => {
+      const rows = await db
+        .select({
+          id: billingEmailClaims.id,
+          email: billingEmailClaims.email,
+          stripeCustomerId: billingEmailClaims.stripeCustomerId,
+          stackUserId: billingEmailClaims.stackUserId,
+          claimedByUserId: billingEmailClaims.claimedByUserId,
+        })
+        .from(billingEmailClaims)
+        .where(
+          and(
+            eq(billingEmailClaims.email, email),
+            eq(billingEmailClaims.plan, PRO_PLAN_ID),
+            or(
+              isNull(billingEmailClaims.claimedByUserId),
+              eq(billingEmailClaims.claimedByUserId, targetStackUserId),
+            ),
+          ),
+        )
+        .orderBy(asc(billingEmailClaims.createdAt))
+        .limit(20);
+      return rows;
+    },
+    transferClaim: (claim, targetStackUserId) =>
+      transferBillingOwnershipClaim(db, claim, targetStackUserId),
+  };
+}
+
+async function transferBillingOwnershipClaim(
+  db: BillingDb,
+  claim: BillingOwnershipClaim,
+  targetStackUserId: string,
+): Promise<BillingOwnershipTransfer | null> {
+  const sourceStackUserId = claim.stackUserId;
+  const lockIDs = [...new Set([sourceStackUserId, targetStackUserId])].sort();
+  return await db.transaction(async (tx) => {
+    const accountTx = tx as BillingDbTransaction;
+    for (const lockID of lockIDs) {
+      await accountTx.execute(
+        sql`select pg_advisory_xact_lock(hashtextextended(${accountDeletionAdvisoryLockKey(lockID)}, 0))`,
+      );
+    }
+
+    const [freshClaim] = await accountTx
+      .select({
+        id: billingEmailClaims.id,
+        email: billingEmailClaims.email,
+        stripeCustomerId: billingEmailClaims.stripeCustomerId,
+        stackUserId: billingEmailClaims.stackUserId,
+        claimedByUserId: billingEmailClaims.claimedByUserId,
+      })
+      .from(billingEmailClaims)
+      .where(eq(billingEmailClaims.id, claim.id))
+      .limit(1);
+    if (!freshClaim) return null;
+    if (
+      freshClaim.claimedByUserId &&
+      freshClaim.claimedByUserId !== targetStackUserId
+    ) {
+      return null;
+    }
+
+    const effectiveSource = freshClaim.claimedByUserId === targetStackUserId
+      ? targetStackUserId
+      : freshClaim.stackUserId;
+    if (!effectiveSource || effectiveSource === DELETED_ACCOUNT_ACTOR_ID) return null;
+    if (
+      await hasCheckoutBlockingAccountDeletionTombstone(effectiveSource, accountTx) ||
+      await hasCheckoutBlockingAccountDeletionTombstone(targetStackUserId, accountTx)
+    ) {
+      return null;
+    }
+
+    const [targetCustomer] = await accountTx
+      .select({ id: stripeCustomers.id })
+      .from(stripeCustomers)
+      .where(
+        and(
+          eq(stripeCustomers.stackUserId, targetStackUserId),
+          isNull(stripeCustomers.stackTeamId),
+        ),
+      )
+      .limit(1);
+    if (targetCustomer && targetCustomer.id !== freshClaim.stripeCustomerId) {
+      // Do not silently merge two paid accounts. An operator can resolve this
+      // explicit conflict after checking the Stripe customer records.
+      return null;
+    }
+
+    const sourceCustomer = await accountTx
+      .select({ id: stripeCustomers.id })
+      .from(stripeCustomers)
+      .where(
+        and(
+          eq(stripeCustomers.id, freshClaim.stripeCustomerId),
+          eq(stripeCustomers.stackUserId, effectiveSource),
+          isNull(stripeCustomers.stackTeamId),
+        ),
+      )
+      .limit(1);
+    if (sourceCustomer.length === 0 && !targetCustomer) return null;
+
+    const sourceSubscriptions = await accountTx
+      .select({ id: stripeSubscriptions.id, status: stripeSubscriptions.status })
+      .from(stripeSubscriptions)
+      .where(
+        and(
+          eq(stripeSubscriptions.customerId, freshClaim.stripeCustomerId),
+          eq(stripeSubscriptions.stackUserId, effectiveSource),
+          eq(stripeSubscriptions.scope, "user"),
+          eq(stripeSubscriptions.plan, PRO_PLAN_ID),
+          isNull(stripeSubscriptions.stackTeamId),
+        ),
+      )
+      .limit(50);
+    const subscriptionIDs = sourceSubscriptions.map((row) => row.id);
+    if (
+      sourceSubscriptions.length === 0 ||
+      !sourceSubscriptions.some((row) => isActiveStripeSubscriptionStatus(row.status))
+    ) {
+      // A parked claim without a live subscription must never turn into Pro.
+      return null;
+    }
+
+    const targetSubscriptions = await accountTx
+      .select({ id: stripeSubscriptions.id, status: stripeSubscriptions.status })
+      .from(stripeSubscriptions)
+      .where(
+        and(
+          eq(stripeSubscriptions.stackUserId, targetStackUserId),
+          eq(stripeSubscriptions.scope, "user"),
+          eq(stripeSubscriptions.plan, PRO_PLAN_ID),
+          isNull(stripeSubscriptions.stackTeamId),
+        ),
+      )
+      .limit(50);
+    if (
+      targetSubscriptions.some(
+        (row) =>
+          isActiveStripeSubscriptionStatus(row.status) &&
+          !subscriptionIDs.includes(row.id),
+      )
+    ) {
+      return null;
+    }
+
+    const now = new Date();
+    if (sourceCustomer.length > 0) {
+      await accountTx
+        .update(stripeCustomers)
+        .set({
+          stackUserId: targetStackUserId,
+          email: freshClaim.email,
+          updatedAt: now,
+        })
+        .where(
+          and(
+            eq(stripeCustomers.id, freshClaim.stripeCustomerId),
+            eq(stripeCustomers.stackUserId, effectiveSource),
+            isNull(stripeCustomers.stackTeamId),
+          ),
+        );
+    }
+    await accountTx
+      .update(stripeSubscriptions)
+      .set({ stackUserId: targetStackUserId, updatedAt: now })
+      .where(
+        and(
+          eq(stripeSubscriptions.customerId, freshClaim.stripeCustomerId),
+          eq(stripeSubscriptions.stackUserId, effectiveSource),
+          eq(stripeSubscriptions.scope, "user"),
+          eq(stripeSubscriptions.plan, PRO_PLAN_ID),
+          isNull(stripeSubscriptions.stackTeamId),
+        ),
+      );
+    await accountTx
+      .update(billingEmailClaims)
+      .set({ claimedByUserId: targetStackUserId, claimedAt: now })
+      .where(eq(billingEmailClaims.id, freshClaim.id));
+
+    return {
+      kind: "claimed" as const,
+      claimId: freshClaim.id,
+      email: freshClaim.email,
+      customerId: freshClaim.stripeCustomerId,
+      subscriptionIds: subscriptionIDs,
+      sourceStackUserId: effectiveSource,
+      targetStackUserId,
+    };
+  });
+}
+
+async function syncTransferredStripeOwnership(
+  transfer: BillingOwnershipTransfer,
+  clientFactory: () => StripeBillingClient,
+): Promise<void> {
+  // The durable DB transfer is authoritative. Stripe metadata is repaired on
+  // a best-effort basis here; a later webhook or operator reconciliation can
+  // safely retry these idempotent updates without changing ownership again.
+  try {
+    const client = clientFactory();
+    const customer = await client.customers.retrieve(transfer.customerId);
+    if (customer.deleted) return;
+    const customerEmail = customer.email?.trim().toLowerCase();
+    if (customerEmail && customerEmail !== transfer.email) return;
+    await client.customers.update(transfer.customerId, {
+      metadata: {
+        ...customer.metadata,
+        app: "cmux",
+        stackUserId: transfer.targetStackUserId,
+      },
+    });
+
+    for (const subscriptionID of transfer.subscriptionIds) {
+      const subscription = await client.subscriptions.retrieve(subscriptionID);
+      if (stringId(subscription.customer) !== transfer.customerId) continue;
+      await client.subscriptions.update(subscriptionID, {
+        metadata: {
+          ...subscription.metadata,
+          app: "cmux",
+          plan: PRO_PLAN_ID,
+          stackUserId: transfer.targetStackUserId,
+        },
+      });
+    }
+  } catch {
+    // Keep the user-facing plan available from the committed local ownership
+    // rows. Metadata repair is intentionally retryable and must not make a
+    // successful account claim look like a failed purchase.
+  }
 }
 
 async function stackUserIdForStripeCustomer(

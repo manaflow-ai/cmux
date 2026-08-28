@@ -51,12 +51,14 @@ export async function GET(request: NextRequest) {
 
     const requestedScope = billingPortalScope(request.nextUrl.searchParams.get("scope"));
     const team = requestedScope === "team" ? await resolveBillingTeam(user) : null;
+    // Resolve once before looking up the customer so a verified account can
+    // consume a parked anonymous Pro checkout before requesting management.
+    const personalStatus = await resolveProPlanStatus(user);
     // Founder's Edition is a one-time entitlement. It can share the normal
     // account plan, but it must not open an empty Stripe subscription portal;
     // allow this path only when the same account also has a real Pro row.
     if (!team && hasFounderEditionEntitlement(user.clientReadOnlyMetadata)) {
-      const status = await resolveProPlanStatus(user);
-      if (status.billingManagement !== "stripe") {
+      if (personalStatus.billingManagement !== "stripe") {
         return pricingRedirect(request, "unavailable");
       }
     }
@@ -65,7 +67,7 @@ export async function GET(request: NextRequest) {
       : await stripeCustomerIdForStackUser(user.id);
     if (!customerId) {
       const status = await resolveProPlanStatus(user);
-      if (!team && status.billingManagement === "stripe") {
+      if (!team && personalStatus.billingManagement === "stripe") {
         captureBillingError(
           new Error("Stripe-managed billing user is missing a Stripe customer row"),
           {

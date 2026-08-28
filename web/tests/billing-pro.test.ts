@@ -23,6 +23,10 @@ import type {
 
 type MetadataUser = {
   id?: string;
+  primaryEmail?: string | null;
+  primaryEmailVerified?: boolean;
+  isAnonymous?: boolean;
+  isRestricted?: boolean;
   clientReadOnlyMetadata?: unknown;
   update: (options: {
     clientReadOnlyMetadata: ProMetadataJson;
@@ -201,6 +205,46 @@ describe("reconcileProPlanMetadata", () => {
 });
 
 describe("resolveProPlanStatus", () => {
+  test("runs the pending ownership claim only for a verified account", async () => {
+    const user = metadataUser({}, "user-verified");
+    user.primaryEmail = "buyer@example.com";
+    user.primaryEmailVerified = true;
+    user.isAnonymous = false;
+    user.isRestricted = false;
+    const claimPendingBilling = async (candidate: { id: string }) => {
+      expect(candidate.id).toBe("user-verified");
+    };
+
+    await expect(
+      resolveProPlanStatus(user, {
+        hasActiveStripeSubscription: async () => false,
+        claimPendingBilling,
+      }),
+    ).resolves.toMatchObject({
+      planId: FREE_PLAN_ID,
+      isPro: false,
+    });
+  });
+
+  test("does not claim billing from an unverified account", async () => {
+    const user = metadataUser({}, "user-unverified");
+    user.primaryEmail = "buyer@example.com";
+    user.primaryEmailVerified = false;
+    const claimPendingBilling = async () => {
+      throw new Error("must not run");
+    };
+
+    await expect(
+      resolveProPlanStatus(user, {
+        hasActiveStripeSubscription: async () => false,
+        claimPendingBilling,
+      }),
+    ).resolves.toMatchObject({
+      planId: FREE_PLAN_ID,
+      isPro: false,
+    });
+  });
+
   test("normalizes a verified Founder entitlement to Pro without Stripe management", async () => {
     const user = metadataUser({ cmuxVmPlan: "founders" }, "user-founder");
 

@@ -11,6 +11,7 @@ import {
   PRO_PLAN_ID,
   TEAM_PLAN_ID,
 } from "../../../../services/billing/pro";
+import { claimPendingProBilling } from "../../../../services/billing/purchase";
 import {
   isStripeBillingConfigured,
   stripe,
@@ -59,6 +60,24 @@ export async function POST(request: NextRequest) {
 
     if (!isStripeBillingConfigured()) {
       throw new Error("Billing subscription management is not configured");
+    }
+
+    // A verified account may have completed Pro checkout while signed out.
+    // Let the shared ownership boundary consume that parked claim before
+    // selecting a subscription to mutate. Older/anonymous callers have no
+    // claim eligibility and avoid an extra database read.
+    if (
+      user.isAnonymous !== true &&
+      user.isRestricted !== true &&
+      user.primaryEmailVerified === true &&
+      user.primaryEmail?.trim()
+    ) {
+      try {
+        await claimPendingProBilling(user);
+      } catch {
+        // Keep the existing subscription action available; the next billing
+        // read retries the ownership claim.
+      }
     }
 
     const subscription = scope === "team"
