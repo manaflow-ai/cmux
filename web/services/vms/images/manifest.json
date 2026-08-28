@@ -193,6 +193,46 @@
       "builderScriptVersion": "bootstrap-on-create",
       "validationStatus": "passed",
       "notes": "Stock Blaxel Alpine shell image, no desktop; `cmux vm new --base` and `vm run` pool provisioning send this id explicitly. Nothing is baked: the driver bootstraps every image at create time, installing the pinned cmux-tui build onto the persistent home volume (the installer adds curl via apk first, since the stock image ships without it). Validated live in #10478 in us-pdx-1: create + bootstrap, cmux-remote attach (route + enrollment), exec, and standby/wake process preservation. Listed so deployed runtimes accept the id the CLI sends; it was missing from the manifest between #10478 and this entry, so `vm new --base` failed closed in production."
+    },
+    {
+      "provider": "e2b",
+      "version": "e2b-devbox-20260828b",
+      "imageId": "cmux-devbox:devbox-20260828b",
+      "envVar": "E2B_CMUXD_WS_TEMPLATE",
+      "defaultForLocalDev": false,
+      "kind": "base",
+      "cmuxdRemoteCommit": "none-cmux-tui",
+      "builtAt": "2026-08-28T10:01:44.701Z",
+      "builderScriptVersion": "b87b2a7d33d83e2213f0afc407bae5d2fdd90083bbba2a9fccffaa368d1d3aa6",
+      "agentToolResolvedVersions": {
+        "@anthropic-ai/claude-code": "2.1.246",
+        "@openai/codex": "0.150.0",
+        "opencode-ai": "1.18.23",
+        "@earendil-works/pi-coding-agent": "0.84.3",
+        "agent-browser": "0.35.1"
+      },
+      "validationStatus": "passed",
+      "notes": "Shared devbox image (services/vms/images/devbox) at epoch 2026-08-28-r1 (#11099: agent-config also wires pi models.json and the opencode config fetch to the coderouter model plane), cmux-tui transport. Supersedes cmux-devbox:devbox-20260828a. Baked with build-devbox-e2b.ts (templateId 3fktz2o6rxgms895lclw). Validated 2026-08-28 with verify-devbox-image.ts against cmux-tui pin fa77ad23364aa12993644b357b425513d61ca632: pinned agents, mise toolchain, devtools, Chrome + DuckDuckGo managed policy, cua-driver, ffmpeg/Xvfb, byte-identical baked files, ble.sh ghost text under a tmux PTY, agent-config generator (codex custom provider + pi models.json with the x-coderouter-route-token env reference and no literal token; no opencode.json when the config endpoint is unreachable), cmux-tui install + daemon serving session cloud on 1337. Inbound firewall proven live again: after the driver's default-deny INPUT (allow lo/established/icmp + envd 49983 + cmux-tui 1337) envd control and 1337 stayed reachable while a scratch dev server on 4820 was reachable before and blocked after. Not the default provider; Blaxel stays default."
+    },
+    {
+      "provider": "daytona",
+      "version": "daytona-cmux-devbox-20260828b",
+      "imageId": "cmux-devbox-20260828b",
+      "envVar": "DAYTONA_SANDBOX_SNAPSHOT",
+      "defaultForLocalDev": false,
+      "kind": "base",
+      "cmuxdRemoteCommit": "none-cmux-tui",
+      "builtAt": "2026-08-28T10:02:08.431Z",
+      "builderScriptVersion": "64efcb7124e5e135ad25939b11568c940c69ee208d32ffdd38d466ddade5d643",
+      "agentToolResolvedVersions": {
+        "@anthropic-ai/claude-code": "2.1.246",
+        "@openai/codex": "0.150.0",
+        "opencode-ai": "1.18.23",
+        "@earendil-works/pi-coding-agent": "0.84.3",
+        "agent-browser": "0.35.1"
+      },
+      "validationStatus": "passed",
+      "notes": "Shared devbox image (services/vms/images/devbox) at epoch 2026-08-28-r1 (#11099: agent-config also wires pi models.json and the opencode config fetch to the coderouter model plane), cmux-tui transport. Supersedes cmux-devbox-20260828a. Baked fresh (never trusting Daytona's layer cache) with build-devbox-daytona.ts; the cmux-devbox-boot supervisor is the registered snapshot entrypoint (Daytona stop kills processes, start re-runs it). Validated 2026-08-28 with verify-devbox-image.ts against cmux-tui pin fa77ad23364aa12993644b357b425513d61ca632: pinned agents, mise toolchain, devtools, Chrome + DuckDuckGo managed policy, cua-driver, ffmpeg/Xvfb, byte-identical baked files, ble.sh ghost text under a tmux PTY, agent-config generator (codex custom provider + pi models.json with the x-coderouter-route-token env reference and no literal token; no opencode.json when the config endpoint is unreachable), cmux-tui install + daemon serving session cloud on 1337 through the entrypoint supervisor, and the preview proxy route with the DAYTONA_SANDBOX_AUTH_KEY query token. Region shared us. Not the default provider; Blaxel stays default."
     }
   ]
 }

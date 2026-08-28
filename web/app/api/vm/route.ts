@@ -12,6 +12,7 @@ import {
   type ProviderId,
 } from "../../../services/vms/drivers";
 import { assertVmCreateEnabled } from "../../../services/vms/config";
+import { mintVmModelPlaneEnvBestEffort } from "../../../services/coderouter/vmModelPlane";
 import {
   isVmCreateDisabledError,
   isVmCreateFailedError,
@@ -426,6 +427,18 @@ export async function POST(request: Request): Promise<Response> {
           "cmux.vm.max_memory_mb": maxMemoryMb,
         });
 
+        // Wire the machine to coderouter: mint a per-machine route token and
+        // hand it over as create-time env (the baked image materializes agent
+        // configs from it). Best-effort: a coderouter outage or entitlement
+        // block ships an unwired machine, never a failed create.
+        const modelPlaneEnvs = await measureVmAsync(timing, "model_plane_env", () =>
+          mintVmModelPlaneEnvBestEffort({
+            teamId: entitlements.billingTeamId,
+            stackUserId: user.id,
+            requestUrl: request.url,
+          }));
+        setSpanAttributes(span, { "cmux.vm.model_plane_env": !!modelPlaneEnvs });
+
         let created;
         try {
           created = await runVmWorkflow(createVm({
@@ -442,6 +455,7 @@ export async function POST(request: Request): Promise<Response> {
             persistentHome: candidate.persistentHome === true,
             perMachineHome: candidate.perMachineHome === true,
             memoryMb,
+            envs: modelPlaneEnvs ?? undefined,
             timing,
           }));
         } catch (err) {

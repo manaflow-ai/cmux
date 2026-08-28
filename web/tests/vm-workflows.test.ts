@@ -2629,6 +2629,9 @@ describe("VM Effect workflows", () => {
   dbTest("resumes a paused VM before minting SSH credentials", async () => {
     if (!sql) throw new Error("test database not initialized");
     await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+    // A paid plan: the free plan's active-VM limit is 0 since #10948, which
+    // would fail the resume reservation before the SSH mechanics under test
+    // ever run.
     await sql`
       insert into cloud_vms (user_id, billing_team_id, billing_plan_id, provider, provider_vm_id, image_id, status)
       values ('user-workflow-resume-ssh', 'team-workflow-resume-ssh', 'pro', 'freestyle', 'provider-vm-resume-ssh', 'snapshot-test', 'paused')
@@ -2890,6 +2893,9 @@ describe("VM Effect workflows", () => {
   dbTest("rolls back a paused resume reservation when provider resume fails", async () => {
     if (!sql) throw new Error("test database not initialized");
     await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+    // A paid plan: the free plan's active-VM limit is 0 since #10948, which
+    // would fail the resume reservation before the rollback path under test
+    // ever runs.
     await sql`
       insert into cloud_vms (user_id, billing_team_id, billing_plan_id, provider, provider_vm_id, image_id, status)
       values ('user-workflow-resume-fail', 'team-workflow-resume-fail', 'pro', 'freestyle', 'provider-vm-resume-fail', 'snapshot-test', 'paused')
