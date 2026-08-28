@@ -728,7 +728,7 @@ impl Inner {
         } else {
             None
         };
-        let opened = match opened {
+        let mut opened = match opened {
             Some(opened) => opened,
             None => {
                 let result = if let Some(cmux_tui) = cmux_tui.as_ref() {
@@ -794,11 +794,15 @@ impl Inner {
         // The value is now owned by the attachment map. Its Drop handler
         // must not release a live viewer when this local is consumed below.
         opened.cleanup_on_drop = false;
+        let closing = opened.closing.take().expect("opened closing handle");
+        let control = opened.control.take().expect("opened control handle");
+        let start = opened.start.take().expect("opened start callback");
+        let surface = opened.surface.take();
         let previous = self.attachments.lock().expect("attach lock").insert(
             pty_id.clone(),
             Attachment {
-                closing: opened.closing,
-                control: opened.control,
+                closing,
+                control,
                 actor_id: actor.to_owned(),
                 transport_id: context.transport_id.clone(),
             },
@@ -815,7 +819,7 @@ impl Inner {
         opened_frame.insert("type".to_owned(), Value::from("pty_opened"));
         opened_frame.insert("ptyId".to_owned(), Value::from(pty_id.clone()));
         opened_frame.insert("session".to_owned(), Value::from(session));
-        if let Some(surface) = opened.surface {
+        if let Some(surface) = surface {
             opened_frame.insert("surface".to_owned(), Value::from(surface));
         }
         opened_frame.insert("created".to_owned(), Value::from(opened.created));
@@ -825,7 +829,7 @@ impl Inner {
 
         // Output only AFTER pty_opened (ordering): banner, then scrollback
         // replay, then live bytes.
-        (opened.start)();
+        start();
     }
 
     /// Build the per-attachment emit closures (output + exit framing).
@@ -986,9 +990,9 @@ impl Inner {
 struct Opened {
     created: bool,
     surface: Option<String>,
-    control: Arc<dyn PtyControl>,
-    closing: Arc<AtomicBool>,
-    start: Box<dyn FnOnce() + Send>,
+    control: Option<Arc<dyn PtyControl>>,
+    closing: Option<Arc<AtomicBool>>,
+    start: Option<Box<dyn FnOnce() + Send>>,
     /// A cancelled open can finish after the caller's deadline. Until the
     /// attachment is installed, dropping this value must release the spawned
     /// viewer instead of leaking a PTY and its process group.
@@ -998,8 +1002,12 @@ struct Opened {
 impl Drop for Opened {
     fn drop(&mut self) {
         if self.cleanup_on_drop {
-            self.closing.store(true, Ordering::SeqCst);
-            self.control.kill();
+            if let Some(closing) = &self.closing {
+                closing.store(true, Ordering::SeqCst);
+            }
+            if let Some(control) = &self.control {
+                control.kill();
+            }
         }
     }
 }
@@ -1143,9 +1151,9 @@ impl Inner {
         Ok(Opened {
             created: ensured.created,
             surface: None,
-            control,
-            closing: Arc::new(AtomicBool::new(false)),
-            start: Box::new(move || drive_handle(output, banner, on_data, on_exit)),
+            control: Some(control),
+            closing: Some(Arc::new(AtomicBool::new(false))),
+            start: Some(Box::new(move || drive_handle(output, banner, on_data, on_exit))),
             cleanup_on_drop: true,
         })
     }
@@ -1323,7 +1331,14 @@ impl Inner {
             }
         });
 
-        Ok(Opened { created, surface: None, control: proxy, closing, start, cleanup_on_drop: true })
+        Ok(Opened {
+            created,
+            surface: None,
+            control: Some(proxy),
+            closing: Some(closing),
+            start: Some(start),
+            cleanup_on_drop: true,
+        })
     }
 }
 
@@ -1878,9 +1893,9 @@ impl Inner {
         Ok(Some(Opened {
             created: ensured.created,
             surface: Some(surface_ref.to_owned()),
-            control: proxy,
-            closing: Arc::new(AtomicBool::new(false)),
-            start: Box::new(move || start_stream.go_live(on_data, on_exit)),
+            control: Some(proxy),
+            closing: Some(Arc::new(AtomicBool::new(false))),
+            start: Some(Box::new(move || start_stream.go_live(on_data, on_exit))),
             cleanup_on_drop: true,
         }))
     }
