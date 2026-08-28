@@ -560,7 +560,7 @@ jobs:
 
       - name: Build cmux-tui server
         working-directory: cmux-tui
-        run: cargo build -p cmux-tui
+        run: cargo build -p cmux-tui --locked
 
       - name: Resolve Zig SDK version
         id: zig-sdk-version
@@ -581,10 +581,6 @@ jobs:
           ZIG_REQUIRED: ${{ steps.zig-sdk-version.outputs.version }}
           ZIG_FORCE_LOCAL_INSTALL: "1"
         run: ./scripts/install-zig-ci.sh
-
-      - name: Install TypeScript adapter build tools
-        working-directory: cmux-tui/bindings/typescript
-        run: npm ci --no-audit --no-fund
 
       - name: Python conformance fixtures
         run: |
