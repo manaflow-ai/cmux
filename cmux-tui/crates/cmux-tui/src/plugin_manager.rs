@@ -930,13 +930,39 @@ fn quarantine_install_journal(install_root: &Path, path: &Path) -> anyhow::Resul
         if fs::symlink_metadata(&destination).is_ok() {
             continue;
         }
-        match fs::rename(path, &destination) {
+        match rename_into_quarantine(install_root, &quarantine, path, &destination) {
             Ok(()) => return Ok(()),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
             Err(error) => return Err(error.into()),
         }
     }
     anyhow::bail!("could not quarantine invalid install journal")
+}
+
+/// Rename using directory handles so a concurrent replacement of the
+/// quarantine path cannot redirect the journal outside the install root.
+#[cfg(unix)]
+fn rename_into_quarantine(
+    install_root: &Path,
+    quarantine: &Path,
+    path: &Path,
+    destination: &Path,
+) -> std::io::Result<()> {
+    use std::ffi::CString;
+    use std::os::unix::ffi::OsStrExt;
+    use std::os::unix::fs::OpenOptionsExt;
+    use std::os::unix::io::AsRawFd;
+    let root = fs::OpenOptions::new().read(true).custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW).open(install_root)?;
+    let dir = fs::OpenOptions::new().read(true).custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW).open(quarantine)?;
+    let from = CString::new(path.file_name().ok_or_else(|| std::io::Error::other("journal has no basename"))?.as_bytes()).map_err(|_| std::io::Error::other("invalid journal basename"))?;
+    let to = CString::new(destination.file_name().ok_or_else(|| std::io::Error::other("quarantine destination has no basename"))?.as_bytes()).map_err(|_| std::io::Error::other("invalid quarantine basename"))?;
+    let result = unsafe { libc::renameat(root.as_raw_fd(), from.as_ptr(), dir.as_raw_fd(), to.as_ptr()) };
+    if result == 0 { Ok(()) } else { Err(std::io::Error::last_os_error()) }
+}
+
+#[cfg(not(unix))]
+fn rename_into_quarantine(_: &Path, _: &Path, path: &Path, destination: &Path) -> std::io::Result<()> {
+    fs::rename(path, destination)
 }
 
 fn reconcile_install_transactions(install_root: &Path) -> anyhow::Result<()> {
