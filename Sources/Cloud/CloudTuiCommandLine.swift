@@ -77,10 +77,19 @@ struct CloudTuiCommandLine: Sendable {
     /// theme. (The flat `set-default-colors` verb in spec/commands.md is the protocol
     /// name; the v2 resource CLI rejects it — verified live against a machine.)
     static func setDefaultColorsArguments(socketPath: String, foreground: String?, background: String?) -> [String]? {
+        guard [foreground, background].compactMap({ $0 }).allSatisfy(validColor),
+              foreground != nil || background != nil else { return nil }
         var arguments = ["--socket", socketPath, "--json", "session", "current", "terminal", "defaults", "set"]
         if let foreground { arguments += ["--foreground", foreground] }
         if let background { arguments += ["--background", background] }
-        return arguments.count > 8 ? arguments : nil
+        return arguments
+    }
+
+    private static func validColor(_ value: String) -> Bool {
+        let bytes = Array(value.utf8)
+        return bytes.count == 7
+            && bytes[0] == 0x23
+            && bytes.dropFirst().allSatisfy { ($0 >= 0x30 && $0 <= 0x39) || ($0 >= 0x41 && $0 <= 0x46) || ($0 >= 0x61 && $0 <= 0x66) }
     }
 
     /// The argv `vm.terminal_new` runs in the machine when the caller gives none: a login

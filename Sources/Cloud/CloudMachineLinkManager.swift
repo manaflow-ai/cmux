@@ -34,6 +34,7 @@ actor CloudMachineLinkManager {
     private let clientURL: URL?
     private var links: [String: CloudMachineLink] = [:]
     private var connecting: [String: Task<CloudMachineLink.Connected, Error>] = [:]
+    private var themeTasks: [String: Task<Void, Never>] = [:]
     private var lastFailure: [String: (at: Date, error: String)] = [:]
     /// A failed link is not retried for this long, so a polling sidebar does not hammer
     /// a machine whose route is broken.
@@ -85,7 +86,7 @@ actor CloudMachineLinkManager {
             let endpoint = try await client.openCmuxRemote(
                 id: machineID,
                 deviceFingerprint: paths.deviceFingerprint(for: machineID),
-                clientCapabilities: Self.clientCapabilities(clientURL: clientURL)
+                clientCapabilities: await Self.clientCapabilities(clientURL: clientURL)
             )
             var approval: Task<Void, Never>?
             if let invitation = endpoint.invitation {
@@ -107,7 +108,7 @@ actor CloudMachineLinkManager {
             #if DEBUG
             cmuxDebugLog("cloud.link.connected machine=\(machineID) socket=\(connected.socketPath)")
             #endif
-            pushHostTheme(machineID: machineID, socketPath: connected.socketPath)
+            pushHostTheme(machineID: machineID, connected: connected)
             return connected
         } catch {
             let text = CloudMachineLink.errorText(error)
@@ -140,6 +141,8 @@ actor CloudMachineLinkManager {
     func disconnect(machineID: String) async {
         connecting[machineID]?.cancel()
         connecting[machineID] = nil
+        themeTasks[machineID]?.cancel()
+        themeTasks[machineID] = nil
         if let link = links.removeValue(forKey: machineID) {
             await link.disconnect()
         }
@@ -150,6 +153,8 @@ actor CloudMachineLinkManager {
         for id in Array(links.keys) {
             await disconnect(machineID: id)
         }
+        for task in themeTasks.values { task.cancel() }
+        themeTasks.removeAll()
         for task in connecting.values { task.cancel() }
         connecting.removeAll()
         lastFailure.removeAll()
@@ -167,7 +172,7 @@ actor CloudMachineLinkManager {
     func pushHostThemeToConnectedLinks() async {
         for (machineID, link) in links {
             guard await link.isConnected, let connected = await link.connected else { continue }
-            pushHostTheme(machineID: machineID, socketPath: connected.socketPath)
+            pushHostTheme(machineID: machineID, connected: connected)
         }
     }
 
@@ -176,15 +181,24 @@ actor CloudMachineLinkManager {
     /// Fire-and-forget: theme parity is cosmetic, so a machine that predates
     /// `set-default-colors` (or a link that just dropped) must not fail the operation
     /// that connected it.
-    private func pushHostTheme(machineID: String, socketPath: String) {
+    private func pushHostTheme(machineID: String, connected: CloudMachineLink.Connected) {
+        themeTasks[machineID]?.cancel()
         guard let link = links[machineID] else { return }
-        Task { [hostThemeColors] in
-            guard let colors = await hostThemeColors(),
+        let task = Task { [hostThemeColors] in
+            guard !Task.isCancelled,
+                  await link.isConnected,
+                  await link.connected == connected,
+                  let colors = await hostThemeColors(),
                   let arguments = CloudTuiCommandLine.setDefaultColorsArguments(
-                      socketPath: socketPath, foreground: colors.foreground, background: colors.background
+                      socketPath: connected.socketPath,
+                      foreground: colors.foreground,
+                      background: colors.background
                   ) else { return }
             do {
                 _ = try await link.run(arguments: arguments)
+                guard !Task.isCancelled,
+                      await link.isConnected,
+                      await link.connected == connected else { return }
                 #if DEBUG
                 cmuxDebugLog("cloud.link.theme machine=\(machineID) fg=\(colors.foreground) bg=\(colors.background)")
                 #endif
@@ -194,6 +208,7 @@ actor CloudMachineLinkManager {
                 #endif
             }
         }
+        themeTasks[machineID] = task
     }
 
     private func store(link: CloudMachineLink, for machineID: String) {
@@ -224,7 +239,7 @@ actor CloudMachineLinkManager {
 
     /// `remote-probe --json` → `capabilities`; the control plane picks the machine host by
     /// them (a client that sends a User-Agent earns the branded host).
-    nonisolated static func clientCapabilities(clientURL: URL) -> [String] {
+    nonisolated static func clientCapabilities(clientURL: URL) async -> [String] {
         let process = Process()
         process.executableURL = clientURL
         process.arguments = ["remote-probe", "--json"]
@@ -232,15 +247,47 @@ actor CloudMachineLinkManager {
         process.standardOutput = out
         process.standardError = FileHandle.nullDevice
         process.standardInput = FileHandle.nullDevice
+        let stopper = CloudLinkProcessStopper(process: process, handles: [out.fileHandleForReading])
+        let exit = CloudLinkFirstValue<Int32>()
+        process.terminationHandler = { finished in exit.resolve(finished.terminationStatus) }
+        let reader = BoundedReadState(maximumBytes: CloudLinkPipe.maximumDiagnosticOutputBytes)
+        reader.install(on: out.fileHandleForReading)
+        let output = Task {
+            await reader.result()
+        }
         do {
             try process.run()
         } catch {
+            exit.resolve(nil)
+            stopper.stop()
+            reader.cancel()
+            _ = await output.value
             return []
         }
-        let data = out.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        guard process.terminationStatus == 0,
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+        let deadline = Task {
+            do {
+                try await Task.sleep(for: .seconds(5))
+                stopper.stop()
+                reader.cancel()
+                return true
+            } catch {
+                return false
+            }
+        }
+        let status = await withTaskCancellationHandler {
+            await exit.result ?? process.terminationStatus
+        } onCancel: {
+            stopper.stop()
+            reader.cancel()
+            exit.resolve(nil)
+        }
+        deadline.cancel()
+        let timedOut = await deadline.value
+        let result = await output.value
+        stopper.stop()
+        process.terminationHandler = nil
+        guard !Task.isCancelled, !timedOut, !result.truncated, status == 0,
+              let object = try? JSONSerialization.jsonObject(with: result.data) as? [String: Any],
               (object["app"] as? String) == "cmux-tui",
               let raw = object["capabilities"] as? [Any] else {
             return []

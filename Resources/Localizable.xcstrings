@@ -59846,6 +59846,23 @@
         }
       }
     },
+    "cloud.link.alreadyConnecting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The cloud terminal is already connecting. Try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウドターミナルは接続中です。もう一度お試しください。"
+          }
+        }
+      }
+    },
     "cloud.link.exited": {
       "extractionState": "manual",
       "localizations": {
