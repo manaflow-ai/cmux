@@ -2100,6 +2100,27 @@ mod tests {
     }
 
     #[test]
+    fn malformed_retained_segment_is_not_classified_as_cursor_repairable() {
+        let registry = WorkspaceRegistry::in_memory("cursor-corrupt").unwrap();
+        registry
+            .connection
+            .execute(
+                "INSERT INTO journal_segments(
+                   segment_id, start_sequence, end_sequence, record_count, codec, content,
+                   uncompressed_bytes, sha256, sealed_at_ms
+                 ) VALUES(?1, 1, 1, 1, 'test', ?2, 1, ?3, 1)",
+                rusqlite::params!["corrupt-segment", vec![0_u8], vec![0_u8; 32]],
+            )
+            .unwrap();
+
+        let error = registry.session_journal_after(0, 1).unwrap_err();
+        assert!(
+            error.downcast_ref::<SessionJournalCursorError>().is_none(),
+            "segment corruption must propagate instead of triggering a cursor reset"
+        );
+    }
+
+    #[test]
     fn persistent_reader_observes_commits_on_an_independent_connection() {
         let root = std::env::temp_dir().join(format!("cmux-journal-reader-{}", new_uuid_v4()));
         let mut registry = WorkspaceRegistry::open(&root, "reader").unwrap();
