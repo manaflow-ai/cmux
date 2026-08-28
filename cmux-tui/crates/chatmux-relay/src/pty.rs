@@ -290,6 +290,7 @@ pub struct FrameContext {
 #[derive(Clone)]
 struct AuthSnapshot {
     trust: String,
+    local_roots: Option<Vec<String>>,
     owner_user_id: Option<String>,
     send: Arc<dyn Fn(Value) + Send + Sync>,
     buffered_amount: Arc<dyn Fn() -> u64 + Send + Sync>,
@@ -444,6 +445,7 @@ impl PtyManager {
             context.transport_id.clone(),
             AuthSnapshot {
                 trust: context.trust.clone(),
+                local_roots: context.local_roots.clone(),
                 owner_user_id: context.owner_user_id.clone(),
                 send: Arc::clone(&context.send),
                 buffered_amount: Arc::clone(&context.buffered_amount),
@@ -777,14 +779,25 @@ impl Inner {
         let mut opening = self.opening_ids.lock().expect("opening lock");
         let cancelled =
             self.cancelled_openings.lock().expect("cancelled openings lock").remove(&pty_id);
-        if cancelled {
+        let auth_changed = self
+            .transport_auth
+            .lock()
+            .expect("transport auth lock")
+            .get(&context.transport_id)
+            .is_none_or(|auth| {
+                auth.trust != context.trust
+                    || auth.local_roots != context.local_roots
+                    || auth.owner_user_id != context.owner_user_id
+            });
+        if cancelled || auth_changed {
             opening.remove(&pty_id);
             drop(opening);
             reservation.active = false;
-            opened.closing.store(true, Ordering::SeqCst);
-            opened.control.kill();
             return;
         }
+        // The value is now owned by the attachment map. Its Drop handler
+        // must not release a live viewer when this local is consumed below.
+        opened.cleanup_on_drop = false;
         let previous = self.attachments.lock().expect("attach lock").insert(
             pty_id.clone(),
             Attachment {
@@ -980,6 +993,19 @@ struct Opened {
     control: Arc<dyn PtyControl>,
     closing: Arc<AtomicBool>,
     start: Box<dyn FnOnce() + Send>,
+    /// A cancelled open can finish after the caller's deadline. Until the
+    /// attachment is installed, dropping this value must release the spawned
+    /// viewer instead of leaking a PTY and its process group.
+    cleanup_on_drop: bool,
+}
+
+impl Drop for Opened {
+    fn drop(&mut self) {
+        if self.cleanup_on_drop {
+            self.closing.store(true, Ordering::SeqCst);
+            self.control.kill();
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1125,6 +1151,7 @@ impl Inner {
             control,
             closing: Arc::new(AtomicBool::new(false)),
             start: Box::new(move || drive_handle(output, banner, on_data, on_exit)),
+            cleanup_on_drop: true,
         })
     }
 
@@ -1302,7 +1329,7 @@ impl Inner {
             }
         });
 
-        Ok(Opened { created, surface: None, control: proxy, closing, start })
+        Ok(Opened { created, surface: None, control: proxy, closing, start, cleanup_on_drop: true })
     }
 }
 
@@ -1860,6 +1887,7 @@ impl Inner {
             control: proxy,
             closing: Arc::new(AtomicBool::new(false)),
             start: Box::new(move || start_stream.go_live(on_data, on_exit)),
+            cleanup_on_drop: true,
         }))
     }
 
