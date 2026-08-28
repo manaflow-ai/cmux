@@ -13,6 +13,26 @@ extension MobileShellComposite {
 
     // MARK: - Per-Mac surface
 
+    /// Whether the named pairing is the live foreground connection, using the
+    /// SAME device-id + tag correlation the Computers rows and detail use for
+    /// their Connected status (``exactPairingConnectionStatus``). Keying off
+    /// `foregroundMacKey` alone breaks manual/anonymous tickets, whose device
+    /// id settles through the ``connectedMacDeviceID`` fallback chain; caffeine
+    /// routing must agree with the Connected gate the UI renders.
+    private func isForegroundCaffeinePairing(
+        macDeviceID: String,
+        instanceTag: String?
+    ) -> Bool {
+        guard let connectedMacDeviceID else { return false }
+        return Self.exactPairingConnectionStatus(
+            deviceStatus: .connected,
+            connectedMacDeviceID: connectedMacDeviceID,
+            connectedMacInstanceTag: connectedMacInstanceTag,
+            rowMacDeviceID: macDeviceID,
+            rowInstanceTag: instanceTag
+        ) == .connected
+    }
+
     /// Keep-awake is controlled per Mac: the foreground connection and each
     /// live control (secondary) connection carry their own state, so every
     /// read and mutation names the exact pairing it targets.
@@ -20,8 +40,10 @@ extension MobileShellComposite {
         macDeviceID: String,
         instanceTag: String?
     ) -> MobileCaffeineStatus? {
+        if isForegroundCaffeinePairing(macDeviceID: macDeviceID, instanceTag: instanceTag) {
+            return caffeineStatus
+        }
         let key = MacPairingKey(macDeviceID: macDeviceID, instanceTag: instanceTag)
-        if key == foregroundMacKey { return caffeineStatus }
         // A dict entry is only trusted while its control connection is live;
         // retirement paths don't have to chase entries down.
         guard secondaryMacSubscriptions[key] != nil else { return nil }
@@ -34,8 +56,10 @@ extension MobileShellComposite {
         macDeviceID: String,
         instanceTag: String?
     ) -> Bool {
+        if isForegroundCaffeinePairing(macDeviceID: macDeviceID, instanceTag: instanceTag) {
+            return supportsCaffeineControl
+        }
         let key = MacPairingKey(macDeviceID: macDeviceID, instanceTag: instanceTag)
-        if key == foregroundMacKey { return supportsCaffeineControl }
         return secondaryMacSubscriptions[key]?
             .supportedHostCapabilities
             .contains(Self.caffeineControlCapability) == true
@@ -46,8 +70,10 @@ extension MobileShellComposite {
         macDeviceID: String,
         instanceTag: String?
     ) -> Bool {
+        if isForegroundCaffeinePairing(macDeviceID: macDeviceID, instanceTag: instanceTag) {
+            return isCaffeineMutationInFlight
+        }
         let key = MacPairingKey(macDeviceID: macDeviceID, instanceTag: instanceTag)
-        if key == foregroundMacKey { return isCaffeineMutationInFlight }
         return secondaryCaffeineMutationPairingIDs.contains(key.pairingID)
     }
 
@@ -55,8 +81,11 @@ extension MobileShellComposite {
     /// states on the Computers screen.
     public var caffeineMutatingPairingIDs: Set<String> {
         var ids = secondaryCaffeineMutationPairingIDs
-        if isCaffeineMutationInFlight {
-            ids.insert(foregroundMacKey.pairingID)
+        if isCaffeineMutationInFlight, let connectedMacDeviceID {
+            ids.insert(MacPairingKey(
+                macDeviceID: connectedMacDeviceID,
+                instanceTag: connectedMacInstanceTag
+            ).pairingID)
         }
         return ids
     }
@@ -67,10 +96,10 @@ extension MobileShellComposite {
         macDeviceID: String,
         instanceTag: String?
     ) async -> Bool {
-        let key = MacPairingKey(macDeviceID: macDeviceID, instanceTag: instanceTag)
-        if key == foregroundMacKey {
+        if isForegroundCaffeinePairing(macDeviceID: macDeviceID, instanceTag: instanceTag) {
             return await refreshForegroundCaffeineStatus()
         }
+        let key = MacPairingKey(macDeviceID: macDeviceID, instanceTag: instanceTag)
         return await refreshSecondaryCaffeineStatus(ownerKey: key)
     }
 
@@ -81,10 +110,10 @@ extension MobileShellComposite {
         macDeviceID: String,
         instanceTag: String?
     ) async -> Bool {
-        let key = MacPairingKey(macDeviceID: macDeviceID, instanceTag: instanceTag)
-        if key == foregroundMacKey {
+        if isForegroundCaffeinePairing(macDeviceID: macDeviceID, instanceTag: instanceTag) {
             return await setForegroundCaffeineEnabled(enabled)
         }
+        let key = MacPairingKey(macDeviceID: macDeviceID, instanceTag: instanceTag)
         return await setSecondaryCaffeineEnabled(enabled, ownerKey: key)
     }
 

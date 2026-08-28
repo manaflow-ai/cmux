@@ -1629,7 +1629,12 @@ final class cmuxUITests: XCTestCase {
             predicate: NSPredicate(format: "value == %@", "1"),
             object: toggle
         )
-        XCTAssertEqual(XCTWaiter.wait(for: [enabled], timeout: 4), .completed)
+        let enabledResult = XCTWaiter.wait(for: [enabled], timeout: 4)
+        if enabledResult != .completed {
+            print("CAFFDBG toggle value=\(String(describing: toggle.value)) isEnabled=\(toggle.isEnabled)")
+            print("CAFFDBG tree begin\n\(app.debugDescription)\nCAFFDBG tree end")
+        }
+        XCTAssertEqual(enabledResult, .completed)
         let didEnableCaffeine = await server.waitForRequest(method: "caffeine.set")
         XCTAssertTrue(didEnableCaffeine)
 
