@@ -131,6 +131,32 @@ pub struct SessionJournalPage {
     pub records: Vec<SessionJournalRecord>,
 }
 
+/// A journal cursor can be unrecoverable because it points beyond the
+/// current head or before the retained history. These are the only replay
+/// errors that a derived reducer may repair by rebuilding from the head.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SessionJournalCursorError {
+    Ahead { requested: u64, head: u64 },
+    Gap { requested: u64, first_retained: u64 },
+}
+
+impl std::fmt::Display for SessionJournalCursorError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Ahead { requested, head } => write!(
+                formatter,
+                "cursor.invalid: journal sequence {requested} is ahead of {head}"
+            ),
+            Self::Gap { requested, first_retained } => write!(
+                formatter,
+                "cursor.gap: journal history before sequence {first_retained} is no longer retained after {requested}"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for SessionJournalCursorError {}
+
 pub(crate) struct SessionJournalSubjectPage {
     pub(crate) head_sequence: u64,
     pub(crate) scanned_through: u64,
@@ -1054,10 +1080,20 @@ pub(super) fn query_session_journal_after(
     )?;
     let head_sequence =
         u64::try_from(head_sequence).context("journal head sequence is negative")?;
-    anyhow::ensure!(
-        sequence <= head_sequence,
-        "cursor.invalid: journal sequence {sequence} is ahead of {head_sequence}"
-    );
+    if sequence > head_sequence {
+        return Err(anyhow::Error::new(SessionJournalCursorError::Ahead {
+            requested: sequence,
+            head: head_sequence,
+        }));
+    }
+    if let Some(first_retained) = first_retained_journal_sequence(connection)?
+        && sequence.saturating_add(1) < first_retained
+    {
+        return Err(anyhow::Error::new(SessionJournalCursorError::Gap {
+            requested: sequence,
+            first_retained,
+        }));
+    }
     let mut records = archived_records_after(connection, sequence, limit)?;
     if records.len() >= limit {
         records.truncate(limit);
@@ -1101,6 +1137,21 @@ pub(super) fn query_session_journal_after(
         "session journal contains a gap after sequence {sequence}"
     );
     Ok(SessionJournalPage { head_sequence, records })
+}
+
+fn first_retained_journal_sequence(connection: &Connection) -> anyhow::Result<Option<u64>> {
+    let first = connection.query_row(
+        "SELECT MIN(sequence) FROM (
+           SELECT sequence FROM session_journal
+           UNION ALL
+           SELECT start_sequence FROM journal_segments
+         )",
+        [],
+        |row| row.get::<_, Option<i64>>(0),
+    )?;
+    first
+        .map(|value| u64::try_from(value).context("first retained journal sequence is negative"))
+        .transpose()
 }
 
 pub(super) fn query_session_journal_sequences(

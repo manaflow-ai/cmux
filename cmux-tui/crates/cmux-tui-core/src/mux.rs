@@ -64,8 +64,10 @@ use crate::workspace_registry::{
     RegistryBrowser, RegistryBrowserReconnect, RegistryCommit, RegistryLayoutNode,
     RegistrySnapshot, RegistryTab, RegistryTerminal, RegistryViewport, RegistryWorkspace,
     ResourceChange, ResourceEffectOutcome, ResourceEffectPreparation, ResourcePatch,
-    ResourcePatchCommit, ResourceTopologySnapshot, ResourceWorkspaceLedger, TerminalLifecycle,
-    TerminalOnExit, TerminalRegistrySnapshot, WorkspaceMutation, WorkspaceRegistry,
+<<<<<<< HEAD
+    ResourcePatchCommit, ResourceTopologySnapshot, ResourceWorkspaceLedger, SessionJournalCursorError,
+    TerminalLifecycle, TerminalOnExit, TerminalRegistrySnapshot, WorkspaceMutation,
+    WorkspaceRegistry,
 };
 use crate::{
     PairingChallenge, PairingDecision, PairingError, PaneId, ScreenId, SplitDir, SplitId,
@@ -1110,13 +1112,6 @@ struct AgentRosterHost {
     cursor: u64,
 }
 
-/// Only a cursor-range violation is safe to repair by replaying from the
-/// journal floor. I/O, decoding, and integrity failures must not be treated
-/// as derived-state damage because that could hide a broken source journal.
-fn is_recoverable_agent_roster_cursor_error(error: &anyhow::Error) -> bool {
-    error.chain().any(|cause| cause.to_string().starts_with("cursor.invalid:"))
-}
-
 /// Restore the roster from its persisted snapshot and fold the journal tail
 /// committed after the cursor. A reducer-version mismatch discards the
 /// snapshot and re-folds from the journal head. Deltas produced here are
@@ -1147,26 +1142,25 @@ fn restore_agent_roster(registry: &WorkspaceRegistry) -> anyhow::Result<AgentRos
             Err(error)
                 if !reset_after_error
                     && host.cursor != 0
-                    && is_recoverable_agent_roster_cursor_error(&error) =>
+                    && error.downcast_ref::<SessionJournalCursorError>().is_some() =>
             {
                 // A persisted cursor can point past the head or before the
                 // retained journal floor. Do not fail startup on corrupt
                 // derived state. Reset and make one best-effort replay from
                 // the journal head; if the journal itself has a gap, return
                 // an empty, safe roster and let future events rebuild it.
-                eprintln!("cmux-tui: resetting invalid agent roster cursor");
+                eprintln!("cmux-tui: resetting invalid agent roster cursor: {error}");
                 host = AgentRosterHost::default();
                 reset_after_error = true;
                 continue;
             }
-            Err(_error) => {
-                // The roster is advisory, so a damaged journal must not
-                // prevent the terminal from starting. Keep this diagnostic
-                // class-only: database paths and decoded payloads are not
-                // safe to place in shared logs.
-                eprintln!("cmux-tui: agent journal replay unavailable");
+            Err(error)
+                if error.downcast_ref::<SessionJournalCursorError>().is_some() =>
+            {
+                eprintln!("cmux-tui: agent journal replay unavailable after cursor reset: {error}");
                 return Ok(AgentRosterHost::default());
             }
+            Err(error) => return Err(error.context("restore agent roster from session journal")),
         };
         if page.records.is_empty() {
             break;
@@ -17446,19 +17440,6 @@ mod tests {
         Mux::new_for_test("test", SurfaceOptions::default())
     }
 
-    #[test]
-    fn roster_cursor_recovery_accepts_only_explicit_cursor_errors() {
-        assert!(is_recoverable_agent_roster_cursor_error(&anyhow::anyhow!(
-            "cursor.invalid: journal sequence 9 is ahead of 2"
-        )));
-        assert!(!is_recoverable_agent_roster_cursor_error(&anyhow::anyhow!(
-            "journal segment digest is invalid"
-        )));
-        assert!(!is_recoverable_agent_roster_cursor_error(&anyhow::anyhow!(
-            "database is locked"
-        )));
-    }
-
     /// A machine resume reconnects every hosted terminal at once. Checkpoint
     /// capture can lose its consistency race while those reconnects append to
     /// the journal, but the skipped optimization is recovered by replaying
@@ -22485,6 +22466,28 @@ mod tests {
         assert_eq!(host.roster.entries.get(terminal_id.as_str()).unwrap().state, "idle");
 
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn agent_roster_ahead_cursor_rebuilds_from_retained_journal() {
+        use crate::journal_reducers::{
+            AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION, AgentRoster,
+        };
+
+        let registry = WorkspaceRegistry::in_memory("roster-ahead").unwrap();
+        let snapshot = AgentRoster::default().snapshot().to_string();
+        registry
+            .put_journal_reducer_state(
+                AGENT_ROSTER_REDUCER_ID,
+                AGENT_ROSTER_REDUCER_VERSION,
+                42,
+                &snapshot,
+            )
+            .unwrap();
+
+        let host = restore_agent_roster(&registry).unwrap();
+        assert_eq!(host.cursor, 0, "an ahead cursor must be repaired to the journal head");
+        assert!(host.roster.entries.is_empty());
     }
 
     #[test]

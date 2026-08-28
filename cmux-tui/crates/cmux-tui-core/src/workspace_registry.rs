@@ -84,7 +84,7 @@ use session_journal::{
     append_resource_journal_record, create_session_journal_schema,
     migrate_resource_events_to_session_journal,
 };
-pub(crate) use session_journal::{SessionJournalReader, unix_epoch_ms};
+pub(crate) use session_journal::{SessionJournalCursorError, SessionJournalReader, unix_epoch_ms};
 
 // Schema 9 shipped independently on the journal and multiview development
 // branches. Schema 10 shipped the journal extensions. Version 11 is the first
