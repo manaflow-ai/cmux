@@ -65,7 +65,11 @@ export class RelayAuthenticationError extends Data.TaggedError(
 
 /** Which enforcement layer produced a 429; diagnosing the 08-27 incident
  * required hours of elimination because all three were indistinguishable. */
-export type RelayRateLimitSource = "ingress_ip" | "device_budget" | "auth_provider";
+export type RelayRateLimitSource =
+  | "ingress_ip"
+  | "account_budget"
+  | "device_budget"
+  | "auth_provider";
 
 
 export class RelaySigningError extends Data.TaggedError("RelaySigningError")<{
