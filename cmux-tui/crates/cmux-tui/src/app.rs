@@ -12893,7 +12893,7 @@ impl App {
         let Some([workspace_index, screen_index, pane_index, tab_index]) =
             self.tab_locations.get(&surface).copied()
         else {
-            self.remove_surface_from_cached_tree_scan(surface);
+            self.remove_surface_from_cached_tree_scan_and_rebuild_locations(surface);
             return;
         };
 
@@ -12906,7 +12906,7 @@ impl App {
             .and_then(|pane| pane.tabs.get(tab_index))
             .is_some_and(|tab| tab.surface == surface);
         if !location_is_current {
-            self.remove_surface_from_cached_tree_scan(surface);
+            self.remove_surface_from_cached_tree_scan_and_rebuild_locations(surface);
             return;
         }
 
@@ -12932,10 +12932,10 @@ impl App {
         }
     }
 
-    /// Repair the cache from the tree if the index was missing or stale.
+    /// Repair the cache from the tree and rebuild `tab_locations` if the index was missing or stale.
     /// This path is defensive only. Normal surface exits use the indexed path
     /// above and touch one pane instead of scanning the entire topology.
-    fn remove_surface_from_cached_tree_scan(&mut self, surface: SurfaceId) {
+    fn remove_surface_from_cached_tree_scan_and_rebuild_locations(&mut self, surface: SurfaceId) {
         for workspace in &mut self.tree.workspaces {
             for screen in &mut workspace.screens {
                 for pane in &mut screen.panes {
