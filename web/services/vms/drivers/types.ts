@@ -4,6 +4,12 @@
 
 export type ProviderId = "e2b" | "freestyle" | "daytona" | "blaxel";
 
+const PROVIDER_IDS: readonly ProviderId[] = ["e2b", "freestyle", "daytona", "blaxel"];
+
+export function isProviderId(value: unknown): value is ProviderId {
+  return typeof value === "string" && PROVIDER_IDS.includes(value as ProviderId);
+}
+
 export type VMStatus = "creating" | "running" | "paused" | "destroyed";
 
 /// A point-in-time reading of one machine. Sleeping machines are never woken for a
