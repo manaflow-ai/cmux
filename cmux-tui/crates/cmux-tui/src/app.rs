@@ -2420,6 +2420,12 @@ impl OrderedSession {
         self.inner.daemon_shutdown_requested()
     }
 
+    /// The first reason recorded when a remote transport reader stopped, or
+    /// `None` for local sessions and deliberate local disconnects.
+    fn transport_disconnect_reason(&self) -> Option<String> {
+        self.inner.transport_disconnect_reason()
+    }
+
     fn attach_surface(&self, id: SurfaceId, size: Option<(u16, u16)>) {
         if self.remote
             && let Some(size) = size
@@ -12434,34 +12440,41 @@ impl App {
         self.encode_buf.clear();
     }
 
-    fn request_current_machine_session(&mut self) -> bool {
+    /// A machine that is sleeping or stopped lost its stream BECAUSE it was
+    /// paused; reconnecting would start it right back up and make pause
+    /// impossible. Present it as asleep instead - the user's next input (or
+    /// a rail click) wakes it through the normal switch path.
+    fn present_machine_as_asleep_after_stream_loss(&mut self) -> bool {
         let Some(machine) = self.machine_ui.as_mut() else { return false };
-        // A machine that is sleeping or stopped lost its stream BECAUSE it
-        // was paused; reconnecting would start it right back up and make
-        // pause impossible. Present it as asleep instead - the user's next
-        // input (or a rail click) wakes it through the normal switch path.
-        if let Some(active) = machine.snapshot.active
-            && machine.snapshot.machines.iter().any(|descriptor| {
-                descriptor.key == active
-                    && matches!(
-                        descriptor.status,
-                        crate::machine::MachineStatus::Sleeping
-                            | crate::machine::MachineStatus::Stopped
-                    )
-            })
-        {
-            crate::client_log::info(
-                "machine",
-                &format!("stream lost for sleeping machine {}; presenting as asleep", active.0),
-            );
-            machine.session_available = false;
-            machine.set_connection_phase(active, MachineConnectionPhase::Disconnected);
-            // The previous open's narration is stale now; a later wake
-            // reuses the same selection intent, so select_machine_intent
-            // will not clear it.
-            machine.clear_connection_progress(active);
+        let Some(active) = machine.snapshot.active else { return false };
+        if !machine.snapshot.machines.iter().any(|descriptor| {
+            descriptor.key == active
+                && matches!(
+                    descriptor.status,
+                    crate::machine::MachineStatus::Sleeping
+                        | crate::machine::MachineStatus::Stopped
+                )
+        }) {
+            return false;
+        }
+        crate::client_log::info(
+            "machine",
+            &format!("stream lost for sleeping machine {}; presenting as asleep", active.0),
+        );
+        machine.session_available = false;
+        machine.set_connection_phase(active, MachineConnectionPhase::Disconnected);
+        // The previous open's narration is stale now; a later wake
+        // reuses the same selection intent, so select_machine_intent
+        // will not clear it.
+        machine.clear_connection_progress(active);
+        true
+    }
+
+    fn request_current_machine_session(&mut self) -> bool {
+        if self.present_machine_as_asleep_after_stream_loss() {
             return true;
         }
+        let Some(machine) = self.machine_ui.as_mut() else { return false };
         if machine.request.is_none() {
             let request = machine
                 .snapshot
@@ -15720,6 +15733,26 @@ impl App {
                 Ok(self.apply_machine_controller_completion(*completion))
             }
             AppEvent::Mux(MuxEvent::Empty) => {
+                // A genuinely emptied workspace list and a dead event
+                // transport both end the event stream with this event, but
+                // only the former is a clean exit. The remote reader records
+                // why it stopped; consult that BEFORE any machine-session
+                // request so a machine or provider surface cannot swallow the
+                // dead transport into a stuck reconnect (issue 11042). A
+                // deliberate local disconnect records no reason. The one
+                // machine response that outranks the error is a sleeping or
+                // stopped machine, whose stream loss is the designed result
+                // of pausing it.
+                if let Some(reason) = self.session.transport_disconnect_reason() {
+                    if self.present_machine_as_asleep_after_stream_loss() {
+                        return Ok(RenderAction::Draw);
+                    }
+                    crate::client_log::error(
+                        "session",
+                        &format!("remote event transport lost: {reason}"),
+                    );
+                    anyhow::bail!(localization::catalog().runtime.session_transport_lost());
+                }
                 if self.request_current_machine_session() {
                     return Ok(RenderAction::Draw);
                 }
@@ -24862,7 +24895,7 @@ mod tests {
         ClientInfo, ClientSizeInfo, RemoteSession, Session, SidebarPluginSurface, SurfaceAttach,
         SurfaceHandle, TreeView, test_remote_session_with_deferred_attach,
         test_remote_session_with_deferred_attach_and_first_resize_failure,
-        test_remote_session_with_deferred_sized_attach,
+        test_remote_session_with_deferred_sized_attach, test_remote_session_with_lost_transport,
     };
 
     #[test]
@@ -44942,6 +44975,80 @@ mod tests {
         assert_eq!(app.session_generation, 2);
         assert!(app.machine_ui.as_ref().unwrap().request.is_none());
         assert!(!app.quit);
+    }
+
+    /// Regression test for issue 11042: when a remote event transport dies,
+    /// the reader thread records the reason and synthesizes `MuxEvent::Empty`.
+    /// That must surface the transport failure as an error, never the "session
+    /// has no workspaces" clean quit (exit code 0) it produces today.
+    #[test]
+    fn transport_loss_empty_event_is_an_error_not_a_clean_quit() {
+        let reason = "the daemon closed the connection";
+        let mut app = test_app(test_remote_session_with_lost_transport(reason));
+
+        let result = app.handle(AppEvent::Mux(MuxEvent::Empty));
+
+        let error = result.expect_err("a lost event transport must not report an empty session");
+        assert_eq!(error.to_string(), "session connection lost. Reconnect and retry.");
+        assert!(!error.to_string().contains(reason));
+        assert!(!app.quit, "a lost transport must not use the clean-quit path");
+    }
+
+    /// The transport check must run BEFORE any machine-session request: with
+    /// machine/provider authority present, `request_current_machine_session`
+    /// returns true and would otherwise swallow the dead transport into a
+    /// stuck reconnect state.
+    #[test]
+    fn transport_loss_outranks_a_machine_session_request() {
+        let reason = "the daemon closed the connection";
+        let mut app = test_app(test_remote_session_with_lost_transport(reason));
+        app.machine_ui = Some(provider_machine_ui());
+
+        let result = app.handle(AppEvent::Mux(MuxEvent::Empty));
+
+        let error = result.expect_err("machine authority must not hide a lost transport");
+        assert_eq!(error.to_string(), "session connection lost. Reconnect and retry.");
+        assert!(!error.to_string().contains(reason));
+        assert!(!app.quit);
+        let machine = app.machine_ui.as_ref().unwrap();
+        assert!(
+            machine.request.is_none(),
+            "no reconnect request may be queued for a dead transport"
+        );
+    }
+
+    /// A sleeping or stopped machine loses its stream because it was paused;
+    /// that deliberate loss keeps presenting the machine as asleep instead of
+    /// failing the client, even though a transport reason is recorded.
+    #[test]
+    fn sleeping_machine_stream_loss_still_presents_as_asleep() {
+        let mut app =
+            test_app(test_remote_session_with_lost_transport("the daemon closed the connection"));
+        let mut ui = provider_machine_ui();
+        ui.snapshot.machines[0].status = MachineStatus::Sleeping;
+        app.machine_ui = Some(ui);
+
+        let action = app.handle(AppEvent::Mux(MuxEvent::Empty)).unwrap();
+
+        assert_eq!(action, RenderAction::Draw);
+        assert!(!app.quit);
+        let machine = app.machine_ui.as_ref().unwrap();
+        assert!(!machine.session_available);
+        assert!(machine.request.is_none());
+    }
+
+    /// A genuinely emptied session (all workspaces closed) still exits
+    /// cleanly: `MuxEvent::Empty` without a recorded transport failure keeps
+    /// the quiet quit path.
+    #[test]
+    fn empty_session_without_transport_loss_still_quits_cleanly() {
+        let mux = Mux::new("empty-clean-quit-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+
+        let action = app.handle(AppEvent::Mux(MuxEvent::Empty)).unwrap();
+
+        assert_eq!(action, RenderAction::None);
+        assert!(app.quit);
     }
 
     #[test]
