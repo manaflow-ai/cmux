@@ -1348,7 +1348,7 @@ fn archived_records_after(
         } else {
             anyhow::ensure!(
                 start_sequence <= sequence.saturating_add(1),
-                "journal segments contain a gap before sequence {start_sequence}"
+                "cursor.invalid: journal retention begins at sequence {start_sequence}"
             );
         }
         previous_end = Some(end_sequence);

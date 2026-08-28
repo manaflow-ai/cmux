@@ -1110,6 +1110,13 @@ struct AgentRosterHost {
     cursor: u64,
 }
 
+/// Only a cursor-range violation is safe to repair by replaying from the
+/// journal floor. I/O, decoding, and integrity failures must not be treated
+/// as derived-state damage because that could hide a broken source journal.
+fn is_recoverable_agent_roster_cursor_error(error: &anyhow::Error) -> bool {
+    error.chain().any(|cause| cause.to_string().starts_with("cursor.invalid:"))
+}
+
 /// Restore the roster from its persisted snapshot and fold the journal tail
 /// committed after the cursor. A reducer-version mismatch discards the
 /// snapshot and re-folds from the journal head. Deltas produced here are
@@ -1137,19 +1144,27 @@ fn restore_agent_roster(registry: &WorkspaceRegistry) -> anyhow::Result<AgentRos
     loop {
         let page = match registry.session_journal_after(host.cursor, 512) {
             Ok(page) => page,
-            Err(error) if !reset_after_error && host.cursor != 0 => {
+            Err(error)
+                if !reset_after_error
+                    && host.cursor != 0
+                    && is_recoverable_agent_roster_cursor_error(&error) =>
+            {
                 // A persisted cursor can point past the head or before the
                 // retained journal floor. Do not fail startup on corrupt
                 // derived state. Reset and make one best-effort replay from
                 // the journal head; if the journal itself has a gap, return
                 // an empty, safe roster and let future events rebuild it.
-                eprintln!("cmux-tui: resetting invalid agent roster cursor: {error}");
+                eprintln!("cmux-tui: resetting invalid agent roster cursor");
                 host = AgentRosterHost::default();
                 reset_after_error = true;
                 continue;
             }
-            Err(error) => {
-                eprintln!("cmux-tui: agent journal replay unavailable after cursor reset: {error}");
+            Err(_error) => {
+                // The roster is advisory, so a damaged journal must not
+                // prevent the terminal from starting. Keep this diagnostic
+                // class-only: database paths and decoded payloads are not
+                // safe to place in shared logs.
+                eprintln!("cmux-tui: agent journal replay unavailable");
                 return Ok(AgentRosterHost::default());
             }
         };
@@ -17429,6 +17444,19 @@ mod tests {
 
     fn test_mux() -> Arc<Mux> {
         Mux::new_for_test("test", SurfaceOptions::default())
+    }
+
+    #[test]
+    fn roster_cursor_recovery_accepts_only_explicit_cursor_errors() {
+        assert!(is_recoverable_agent_roster_cursor_error(&anyhow::anyhow!(
+            "cursor.invalid: journal sequence 9 is ahead of 2"
+        )));
+        assert!(!is_recoverable_agent_roster_cursor_error(&anyhow::anyhow!(
+            "journal segment digest is invalid"
+        )));
+        assert!(!is_recoverable_agent_roster_cursor_error(&anyhow::anyhow!(
+            "database is locked"
+        )));
     }
 
     /// A machine resume reconnects every hosted terminal at once. Checkpoint
