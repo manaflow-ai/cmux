@@ -5429,6 +5429,16 @@ impl Mux {
             .map(str::to_owned);
         let is_session_start = ingress.kind == "agent.session.started";
         let previous_fence = fences.get(&terminal_id).cloned();
+        // Once an adapter has supplied a native session identity, a later
+        // session-less event is ambiguous. Do not assign delayed events from
+        // that generation to the currently active session.
+        if explicit_session_id.is_none()
+            && previous_fence
+                .as_ref()
+                .is_some_and(|fence| !fence.session_id.starts_with("legacy:"))
+        {
+            return Ok(());
+        }
         // A non-start event without an adapter identity belongs to the live
         // legacy generation. A start event must carry a new identity, or it
         // receives a fresh local generation token below. Reusing the active
@@ -22568,6 +22578,39 @@ mod tests {
         mux.apply_agent_hook_record(&ingress("SessionStart", "old"), 5).unwrap();
         assert_eq!(mux.list_agents(Some(surface.id), None)[0].state, AgentState::Idle);
         assert_eq!(mux.agent_hook_fences.lock().unwrap()[&terminal_id].session_id, "new");
+    }
+
+    #[test]
+    fn late_sessionless_hook_event_cannot_attach_to_new_session() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().unwrap();
+        let explicit = |event: &str, session_id: &str| {
+            crate::agent_hooks::agent_hook_journal_ingress(
+                "claude",
+                event,
+                Some(&terminal_id.to_string()),
+                serde_json::json!({"session_id": session_id}),
+            )
+            .unwrap()
+        };
+        let sessionless = |event: &str| {
+            crate::agent_hooks::agent_hook_journal_ingress(
+                "claude",
+                event,
+                Some(&terminal_id.to_string()),
+                serde_json::json!({}),
+            )
+            .unwrap()
+        };
+
+        mux.apply_agent_hook_record(&explicit("SessionStart", "old"), 1).unwrap();
+        mux.apply_agent_hook_record(&explicit("SessionEnd", "old"), 2).unwrap();
+        mux.apply_agent_hook_record(&explicit("SessionStart", "new"), 3).unwrap();
+        mux.apply_agent_hook_record(&sessionless("UserPromptSubmit"), 4).unwrap();
+
+        assert_eq!(mux.agent_hook_fences.lock().unwrap()[&terminal_id].session_id, "new");
+        assert_eq!(mux.list_agents(Some(surface.id), None)[0].state, AgentState::Idle);
     }
 
     #[test]
