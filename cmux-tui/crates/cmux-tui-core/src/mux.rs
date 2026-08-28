@@ -22489,6 +22489,42 @@ mod tests {
     }
 
     #[test]
+    fn agent_roster_gap_fails_closed_without_complete_snapshot() {
+        use crate::journal_reducers::{
+            AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION, AgentRoster,
+        };
+
+        let registry = WorkspaceRegistry::in_memory("roster-gap").unwrap();
+        let snapshot = AgentRoster::default().snapshot().to_string();
+        registry
+            .put_journal_reducer_state(
+                AGENT_ROSTER_REDUCER_ID,
+                AGENT_ROSTER_REDUCER_VERSION,
+                0,
+                &snapshot,
+            )
+            .unwrap();
+        registry
+            .connection
+            .execute(
+                "INSERT INTO journal_segments(
+                   segment_id, start_sequence, end_sequence, record_count, codec, content,
+                   uncompressed_bytes, sha256, sealed_at_ms
+                 ) VALUES(?1, 3, 3, 1, 'test', ?2, 1, ?3, 1)",
+                rusqlite::params!["roster-gap-segment", vec![0_u8], vec![0_u8; 32]],
+            )
+            .unwrap();
+
+        let error = restore_agent_roster(&registry).unwrap_err();
+        assert!(error.to_string().contains("complete reducer snapshot"));
+        let (_, cursor, _) = registry
+            .journal_reducer_state(AGENT_ROSTER_REDUCER_ID)
+            .unwrap()
+            .unwrap();
+        assert_eq!(cursor, 0, "failed recovery must leave the durable snapshot untouched");
+    }
+
+    #[test]
     fn failed_raw_agent_report_rolls_back_projection_memory_revision_and_event() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, None).unwrap();
