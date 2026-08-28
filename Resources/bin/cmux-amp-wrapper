@@ -114,11 +114,11 @@ run_amp_extension_installer() {
 }
 
 REAL_AMP="$(find_real_amp)" || {
-    echo "Error: amp not found in PATH" >&2
+    echo "Unable to start the configured agent. Check that it is installed and available." >&2
     exit 127
 }
 
-if [[ -n "${CMUX_SURFACE_ID:-}" && "${CMUX_AMP_HOOKS_DISABLED:-}" != "1" ]]; then
+if [[ ( -n "${CMUX_SURFACE_ID:-}" || -n "${CMUX_WORKSPACE_ID:-}" ) && "${CMUX_AMP_HOOKS_DISABLED:-}" != "1" ]]; then
     if CMUX_AMP_INSTALL_CLI="$(resolve_cmux_cli)"; then
         if [[ -n "${CMUX_SOCKET_PATH:-}" ]]; then
             run_amp_extension_installer "$CMUX_AMP_INSTALL_CLI" --socket "$CMUX_SOCKET_PATH" \
