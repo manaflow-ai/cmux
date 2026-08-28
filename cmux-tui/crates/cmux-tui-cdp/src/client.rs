@@ -10,6 +10,7 @@ use std::sync::mpsc::{
 use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::time::{Duration, Instant};
 
+use anyhow::Context;
 use base64::Engine;
 use serde_json::{Value, json};
 use tungstenite::client::IntoClientRequest;
@@ -39,6 +40,9 @@ pub const CDP_EVENT_QUEUE_MAX_BYTES: usize = 32 * 1024 * 1024;
 /// full, so a blocked reader cannot block the TUI thread indefinitely.
 const CDP_OUTBOUND_QUEUE_CAPACITY: usize = 256;
 const CDP_OUTBOUND_QUEUE_MAX_BYTES: usize = 8 * 1024 * 1024;
+const CDP_CONNECTION_UNAVAILABLE_MESSAGE: &str =
+    "browser connection unavailable; retry the command";
+const CDP_OUTBOUND_QUEUE_BYTE_BUDGET_DETAIL: &str = "CDP outbound queue byte budget exceeded";
 const MAX_ENCODED_FRAME_BYTES: usize = 16 * 1024 * 1024;
 const MAX_DECODED_FRAME_BYTES: usize = 12 * 1024 * 1024;
 const TIMESTAMPLESS_CAPTURE_INTERVAL: Duration = Duration::from_secs(1);
@@ -1418,9 +1422,9 @@ fn reserve_outbound_bytes(inner: &Inner, bytes: usize) -> anyhow::Result<()> {
         let current = inner.outbound_bytes.load(Ordering::Acquire);
         let next = current
             .checked_add(bytes)
-            .ok_or_else(|| anyhow::anyhow!("CDP outbound queue byte budget exceeded"))?;
+            .ok_or_else(outbound_byte_budget_error)?;
         if next > inner.outbound_byte_budget as u64 {
-            anyhow::bail!("CDP outbound queue byte budget exceeded");
+            return Err(outbound_byte_budget_error());
         }
         if inner
             .outbound_bytes
@@ -1430,6 +1434,11 @@ fn reserve_outbound_bytes(inner: &Inner, bytes: usize) -> anyhow::Result<()> {
             return Ok(());
         }
     }
+}
+
+fn outbound_byte_budget_error() -> anyhow::Error {
+    anyhow::anyhow!(CDP_OUTBOUND_QUEUE_BYTE_BUDGET_DETAIL)
+        .context(CDP_CONNECTION_UNAVAILABLE_MESSAGE)
 }
 
 fn outbound_bytes_sub(inner: &Inner, bytes: usize) {
@@ -1841,8 +1850,9 @@ fn ack_screencast_frame(inner: &Arc<Inner>, target_session: &str, frame_session:
         "params": { "sessionId": frame_session },
     });
     let Ok(text) = serde_json::to_string(&msg) else { return };
-    if reserve_outbound_bytes(inner, text.len()).is_err() {
-        close_inner(inner, "CDP outbound queue byte budget exceeded");
+    if let Err(error) = reserve_outbound_bytes(inner, text.len()) {
+        eprintln!("cmux-tui-cdp: screencast acknowledgment rejected: {error:#}");
+        close_inner(inner, CDP_CONNECTION_UNAVAILABLE_MESSAGE);
         return;
     }
     if let Err(error) = inner.outbound.try_send(Outbound::Message(text)) {
