@@ -141,43 +141,7 @@ public enum DotLegEvent: Sendable {
     case closed(reason: String)
 }
 
-/// One relay WebSocket leg. Owns: dial + hello, transparent resume with
-/// upload resend buffering (pruned on ackup) and download ack emission,
-/// WS keepalive pings, read-liveness + clock-jump watchdogs, in-band
-/// auth refresh ahead of the deadline.
-///
-/// Reliability contract for callers: `send` never fails while the leg is
-/// logically alive (frames buffer across suspensions); ordering per
-/// destination is preserved; duplicates are dropped internally on resume
-/// overlap; a `.reset` event is the ONLY loss signal.
-public actor DotLeg {
-    public let configuration: DotLegConfiguration
-
-    public init(configuration: DotLegConfiguration) {
-        self.configuration = configuration
-    }
-
-    /// Start dialing. Events (including all inbound frames) arrive on the
-    /// returned stream; exactly one consumer may iterate it.
-    public func start() -> AsyncStream<DotLegEvent> {
-        fatalError("DotLeg.start: unimplemented (S1)")
-    }
-
-    /// Send one E2E payload to the peer. Host: `destination` = phone leg id.
-    /// Phone: destination is ignored (the relay routes uploads to the host).
-    public func send(_ payload: Data, to destination: UInt32) async throws {
-        fatalError("DotLeg.send: unimplemented (S1)")
-    }
-
-    /// This leg's relay-assigned id (nil until the first hello.ack).
-    public var legID: UInt32? {
-        fatalError("DotLeg.legID: unimplemented (S1)")
-    }
-
-    public func stop() async {
-        fatalError("DotLeg.stop: unimplemented (S1)")
-    }
-}
+// The `DotLeg` actor implementation lives in DotLeg.swift.
 
 // MARK: - Secure session (E2E mux)
 
@@ -257,34 +221,7 @@ public enum DotPeerState: Sendable {
     case closed(reason: String)
 }
 
-/// THE single reconnect owner for one Mac peer (IrxPeerEngine lineage).
-/// Leg blips resolve below this layer (transparent resume); this engine only
-/// redials when the session itself dies (host restart, leg reset, denial).
-public actor DotPeerEngine {
-    public init(configuration: DotPeerEngineConfiguration) {
-        fatalError("DotPeerEngine.init: unimplemented (S1)")
-    }
-
-    /// Current state plus a stream of transitions (single consumer).
-    public func states() -> AsyncStream<DotPeerState> {
-        fatalError("DotPeerEngine.states: unimplemented (S1)")
-    }
-
-    /// Dial now (idempotent while connecting/ready).
-    public func connect() async {
-        fatalError("DotPeerEngine.connect: unimplemented (S1)")
-    }
-
-    /// Returns the ready session, dialing if needed, or throws after the
-    /// bounded admission deadline.
-    public func readySession() async throws -> any DotSecureSessionProtocol {
-        fatalError("DotPeerEngine.readySession: unimplemented (S1)")
-    }
-
-    public func shutdown() async {
-        fatalError("DotPeerEngine.shutdown: unimplemented (S1)")
-    }
-}
+// The `DotPeerEngine` actor implementation lives in DotPeerEngine.swift.
 
 // MARK: - Host side: session acceptor
 
@@ -316,18 +253,5 @@ public enum DotAcceptorEvent: Sendable {
     case legEvent(DotLegEvent)
 }
 
-/// Mac-side acceptor: runs the host leg, answers phone handshakes, verifies
-/// grants, and emits admitted sessions.
-public actor DotSessionAcceptor {
-    public init(configuration: DotSessionAcceptorConfiguration) {
-        fatalError("DotSessionAcceptor.init: unimplemented (S1)")
-    }
-
-    public func start() -> AsyncStream<DotAcceptorEvent> {
-        fatalError("DotSessionAcceptor.start: unimplemented (S1)")
-    }
-
-    public func stop() async {
-        fatalError("DotSessionAcceptor.stop: unimplemented (S1)")
-    }
-}
+// The `DotSessionAcceptor` actor implementation lives in
+// DotSessionAcceptor.swift.
