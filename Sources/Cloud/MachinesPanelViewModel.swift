@@ -35,6 +35,8 @@ struct MachineSnapshot: Equatable, Identifiable {
     let provider: String
     let image: String
     let isDesktop: Bool
+    /// Verbs the provider can honor; menus omit Checkpoint/Fork when unsupported.
+    var capabilities: VMCapabilities = .all
     let activity: Activity
     let createdAt: Date?
     /// User-chosen label; nil when the machine has no label.
@@ -143,6 +145,7 @@ enum MachineSnapshotBuilder {
             provider: summary.provider,
             image: summary.image,
             isDesktop: summary.resolvedKind.hasDesktop,
+            capabilities: summary.capabilities,
             activity: activity(fromStatus: summary.status),
             createdAt: createdAt,
             label: summary.displayName,
