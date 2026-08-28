@@ -1014,6 +1014,7 @@ impl ConnectionError {
             Self::Provider(error) => error.is_retryable_carrier_failure(),
             Self::Crypto(CryptoError::LinkError(LinkError::Closed | LinkError::Transport(_)))
             | Self::Crypto(CryptoError::UnexpectedEof)
+            | Self::Crypto(CryptoError::HandshakeTimeout { .. })
             | Self::Link(LinkError::Closed | LinkError::Transport(_))
             | Self::Session(SessionError::Link(LinkError::Closed | LinkError::Transport(_)))
             | Self::Session(SessionError::LinkMessage(_))
@@ -1403,6 +1404,7 @@ mod tests {
                 limits: SessionLimits::default(),
                 reconnect: ReconnectPolicy {
                     attempt_timeout: Duration::from_millis(200),
+                    maximum_attempts: Some(1),
                     ..ReconnectPolicy::default()
                 },
             },
@@ -1419,8 +1421,8 @@ mod tests {
             "handshake deadline produced the wrong error: {error}"
         );
         assert!(
-            !error.is_retryable_carrier_failure(),
-            "a silent endpoint must be a terminal failure so the client exits: {error}"
+            error.is_retryable_carrier_failure(),
+            "a handshake timeout must stay a retryable carrier failure: {error}"
         );
         assert!(
             link_closed.load(Ordering::Acquire),

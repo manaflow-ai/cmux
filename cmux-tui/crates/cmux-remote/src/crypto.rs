@@ -713,9 +713,11 @@ pub enum CryptoError {
     },
     Unauthorized(String),
     /// The peer accepted the transport but did not complete the prelude and
-    /// Noise exchange within the handshake deadline. Terminal, not a carrier
-    /// availability failure: retrying a dial that connects and then stays
-    /// silent would hold the endpoint open forever.
+    /// Noise exchange within the handshake deadline. A retryable carrier
+    /// failure, like any unavailable carrier: the link is torn down before
+    /// this is reported, so nothing holds TCP between attempts, and the
+    /// caller's ReconnectPolicy (attempt limits, backoff, startup budget)
+    /// decides when to stop redialing and exit.
     HandshakeTimeout {
         timeout: Duration,
     },
