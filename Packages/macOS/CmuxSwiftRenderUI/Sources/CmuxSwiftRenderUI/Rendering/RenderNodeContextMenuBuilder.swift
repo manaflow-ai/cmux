@@ -36,6 +36,48 @@ struct RenderNodeContextMenuBuilder {
         return menu
     }
 
+    /// Returns whether `nodes` produce at least one non-separator menu item.
+    ///
+    /// This walks the render IR without constructing `NSMenu` objects or
+    /// registering action targets, so hit testing can use the same gate as
+    /// presentation without causing menu-building side effects.
+    static func hasPresentableItems(nodes: [RenderNode]) -> Bool {
+        hasPresentableItems(in: nodes)
+    }
+
+    private static func hasPresentableItems(in nodes: [RenderNode]) -> Bool {
+        for node in nodes {
+            switch node.kind {
+            case .divider:
+                // Separators alone do not make a menu useful.
+                continue
+            case .menu:
+                // An empty submenu parent is not useful and must not be
+                // emitted. Recurse so nested empty parents are pruned too.
+                if hasPresentableItems(in: node.children) { return true }
+            case .button, .text, .label:
+                // The builder emits these rows even when they are inert or
+                // have an empty title, so they are still presentable items.
+                return true
+            case .vstack, .hstack, .zstack, .lazyVStack, .lazyHStack, .group,
+                 .list, .hscroll, .grid, .gridRow, .lazyVGrid, .lazyHGrid,
+                 .viewThatFits, .hsplit, .reorderable:
+                if hasPresentableItems(in: node.children) { return true }
+            case .section:
+                if let header = node.text, !header.isEmpty { return true }
+                if hasPresentableItems(in: node.children) { return true }
+            default:
+                // Shapes, images, gradients, progress, spacers, and other
+                // unsupported kinds only become rows when they carry text or
+                // an action, matching the fallback in `append`.
+                if node.action != nil || !renderNodePlainText(of: node).isEmpty {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
     private func append(_ nodes: [RenderNode], to menu: NSMenu, inheritedDisabled: Bool) {
         for node in nodes {
             // SwiftUI propagates `.disabled(true)` from a container down the
@@ -45,7 +87,9 @@ struct RenderNodeContextMenuBuilder {
             case .divider:
                 menu.addItem(.separator())
             case .menu:
-                menu.addItem(submenuItem(for: node, disabled: disabled))
+                if let item = submenuItem(for: node, disabled: disabled) {
+                    menu.addItem(item)
+                }
             case .button:
                 menu.addItem(actionItem(for: node, disabled: disabled))
             case .text, .label:
@@ -76,7 +120,8 @@ struct RenderNodeContextMenuBuilder {
 
     /// A `Menu("…") { … }` node as an item with a recursive submenu. A
     /// disabled menu disables its item and every descendant, matching SwiftUI.
-    private func submenuItem(for node: RenderNode, disabled: Bool) -> NSMenuItem {
+    private func submenuItem(for node: RenderNode, disabled: Bool) -> NSMenuItem? {
+        guard Self.hasPresentableItems(in: node.children) else { return nil }
         let title = node.text ?? ""
         let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
         item.isEnabled = !disabled
