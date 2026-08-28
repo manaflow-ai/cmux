@@ -8945,7 +8945,7 @@ impl Mux {
                 .unwrap()
                 .roster
                 .entries
-                .get(&terminal_id)
+                .get(terminal_id.as_str())
                 .and_then(|entry| entry.agent.clone())
         });
         let record = match current.as_ref().filter(|_| hook_override) {
