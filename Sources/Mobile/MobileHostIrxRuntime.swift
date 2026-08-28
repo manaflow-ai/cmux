@@ -501,22 +501,10 @@ final class MobileHostIrxRuntime {
 /// Synchronous trust-snapshot reader for the admission path (no actor hop,
 /// no network): reads the JSON the broker service persists.
 enum IrxDiskCacheTrustReader {
-    nonisolated static func read() -> IrxTrustSnapshot? {
-        let appSupport = FileManager.default.urls(
-            for: .applicationSupportDirectory, in: .userDomainMask
-        )[0]
-        // Per-bundle, per-backend state: another build (or another
-        // environment's) caches must never be readable here, or staging
-        // trust keys reject production grants at admission.
-        let stateDir = IrxStateLocation.directory(
-            base: appSupport,
-            bundleIdentifier: Bundle.main.bundleIdentifier,
-            brokerHost: brokerBaseURL.host
-        )
-        IrxStateLocation.removeLegacySharedDirectory(base: appSupport)
-        stateDirectory = stateDir
+    /// Reads the trust snapshot from the state directory selected at activation.
+    nonisolated static func read(stateDirectory: URL) -> IrxTrustSnapshot? {
         return IrxDiskCache<IrxTrustSnapshot>(
-            fileURL: stateDir.appendingPathComponent("trust.json")
+            fileURL: stateDirectory.appendingPathComponent("trust.json")
         ).load()
     }
 }
