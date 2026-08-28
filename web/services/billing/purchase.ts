@@ -197,6 +197,11 @@ export async function claimPendingProBilling(
     const transfer = await repository.transferClaim(claim, user.id);
     if (!transfer) continue;
     claimed += 1;
+    await clearTransferredSourceProMetadata(
+      transfer,
+      db,
+      app,
+    );
     await syncTransferredStripeOwnership(
       transfer,
       dependencies.stripeClient ?? stripe,
@@ -204,6 +209,32 @@ export async function claimPendingProBilling(
   }
 
   return { claimed };
+}
+
+async function clearTransferredSourceProMetadata(
+  transfer: BillingOwnershipTransfer,
+  db: BillingDb,
+  stackApp: StackBillingApp,
+): Promise<void> {
+  if (transfer.sourceStackUserId === transfer.targetStackUserId) return;
+  try {
+    const loader: AccountMetadataUserLoader<StackBillingUser> = {
+      getUser: (userId) => stackApp.getUser(userId),
+    };
+    await withFreshAccountMetadataUser({
+      db,
+      userId: transfer.sourceStackUserId,
+      loader,
+      operation: async (source, lease) => {
+        // Only remove the Pro marker from the exact anonymous source account;
+        // any unrelated manual metadata (including Founder access) remains.
+        await syncProPlanMetadata(source, false, lease);
+      },
+    });
+  } catch {
+    // The ownership transfer is already durable. A missing/deleting anonymous
+    // source is harmless; the next claim/read can retry this cleanup.
+  }
 }
 
 export type CheckoutCompletionInput = {
