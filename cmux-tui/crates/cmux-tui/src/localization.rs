@@ -393,6 +393,7 @@ pub(crate) struct RuntimeMessages {
     pub terminal_capacity_exhausted: &'static str,
     renderer_panicked: &'static str,
     host_input_failed: &'static str,
+    session_transport_lost: &'static str,
     signal_handlers_failed: &'static str,
     terminal_restore_also_failed: &'static str,
 }
@@ -404,6 +405,10 @@ impl RuntimeMessages {
 
     pub(crate) fn host_input_failed(&self, error: &str) -> String {
         self.host_input_failed.replace("{error}", error)
+    }
+
+    pub(crate) fn session_transport_lost(&self) -> String {
+        self.session_transport_lost.to_owned()
     }
 
     pub(crate) fn signal_handlers_failed(&self, error: &str) -> String {
@@ -877,7 +882,6 @@ pub(crate) struct SidebarMessages {
     pub machine_provider_lifecycle_update_failed: &'static str,
     pub machine_provider_workspace_update_failed: &'static str,
     pub machine_reconnect_failed: &'static str,
-    pub machine_terminal_colors_failed: &'static str,
     pub machine_provider_external_connect_unsupported: &'static str,
     pub machine_provider_external_connect_ambiguous: &'static str,
     pub machine_not_ready_to_connect: &'static str,
@@ -1388,6 +1392,7 @@ edits shell files. Authenticate with the configured host before retrying.
         terminal_capacity_exhausted: "No pseudo-terminals are available. Close an unused terminal session, then retry.",
         renderer_panicked: "terminal renderer panicked: {message}",
         host_input_failed: "host terminal input failed: {error}",
+        session_transport_lost: "session connection lost. Reconnect and retry.",
         signal_handlers_failed: "failed to install signal handlers: {error}",
         terminal_restore_also_failed: "{error}; host terminal restoration also failed: {restore_error}",
     },
@@ -1731,7 +1736,6 @@ OPTIONS:
         machine_provider_lifecycle_update_failed: "Machine provider lifecycle update failed",
         machine_provider_workspace_update_failed: "Machine provider workspace update failed",
         machine_reconnect_failed: "Could not reconnect machine",
-        machine_terminal_colors_failed: "Could not apply terminal colors",
         machine_provider_external_connect_unsupported: "This machine provider cannot connect external machines",
         machine_provider_external_connect_ambiguous: "The previous connection attempt may have succeeded; reconnect the provider and retry with the same pairing code",
         machine_not_ready_to_connect: "Selected machine is not ready to connect",
@@ -2033,6 +2037,7 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
         terminal_capacity_exhausted: "疑似ターミナルの空きがありません。不要なターミナルセッションを閉じてから再試行してください。",
         renderer_panicked: "ターミナル描画処理でパニックが発生しました: {message}",
         host_input_failed: "ホストターミナルの入力に失敗しました: {error}",
+        session_transport_lost: "セッションへの接続が失われました。再接続して再試行してください。",
         signal_handlers_failed: "シグナルハンドラーの設定に失敗しました: {error}",
         terminal_restore_also_failed: "{error}; ホストターミナルの復元にも失敗しました: {restore_error}",
     },
@@ -2373,7 +2378,6 @@ ID とセッション:
         machine_provider_lifecycle_update_failed: "マシンプロバイダーのライフサイクル更新に失敗しました",
         machine_provider_workspace_update_failed: "マシンプロバイダーのワークスペース更新に失敗しました",
         machine_reconnect_failed: "マシンに再接続できませんでした",
-        machine_terminal_colors_failed: "ターミナルの色を適用できませんでした",
         machine_provider_external_connect_unsupported: "このマシンプロバイダーは外部マシンに接続できません",
         machine_provider_external_connect_ambiguous: "前回の接続処理が完了している可能性があります。プロバイダーを再接続し、同じペアリングコードで再試行してください",
         machine_not_ready_to_connect: "選択したマシンは接続準備ができていません",

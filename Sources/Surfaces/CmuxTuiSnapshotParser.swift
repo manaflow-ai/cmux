@@ -10,10 +10,11 @@ import Foundation
 /// `tabs[{id,pane_id,content_kind,content_id}]`,
 /// `terminals[{id,tab_id,title,cwd?,lifecycle}]`, `agents[{terminal_id,state,source}]`.
 struct CmuxTuiSnapshotParser: Sendable {
-    /// Terminal resources in the daemon's workspace order. A terminal whose tab chain does
-    /// not resolve to a workspace is attributed to the first workspace so nothing is hidden.
+    /// Terminal resources in the daemon's workspace order, each carrying every view of it
+    /// (`tab_ids` joined through tabs → panes → screens → workspaces). A terminal with no
+    /// resolvable view keeps an empty view list: it is alive in the machine's pool, not
+    /// attributed to a workspace it is not in.
     static func terminals(fromSnapshot snapshot: [String: Any], machine: SurfaceMachineID) -> [SurfaceResource] {
-        let workspacesRaw = (snapshot["workspaces"] as? [[String: Any]]) ?? []
         let screensRaw = (snapshot["screens"] as? [[String: Any]]) ?? []
         let panesRaw = (snapshot["panes"] as? [[String: Any]]) ?? []
         let tabsRaw = (snapshot["tabs"] as? [[String: Any]]) ?? []
@@ -44,30 +45,109 @@ struct CmuxTuiSnapshotParser: Sendable {
             agentByTerminal[terminalID] = SurfaceAgentBadge(state: state, source: agent["source"] as? String)
         }
 
-        let workspaces: [SurfaceRemoteWorkspace] = workspacesRaw.enumerated().compactMap { index, raw in
-            guard let id = raw["id"] as? String, !id.isEmpty else { return nil }
-            let name = (raw["name"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? id
-            return SurfaceRemoteWorkspace(id: id, name: name, index: index, focused: (raw["focused"] as? Bool) ?? false)
-        }
-        guard !workspaces.isEmpty else { return [] }
+        let workspaces = Self.workspaces(fromSnapshot: snapshot)
         var workspaceByID: [String: SurfaceRemoteWorkspace] = [:]
         for workspace in workspaces { workspaceByID[workspace.id] = workspace }
 
         var resources: [SurfaceResource] = []
         for raw in terminalsRaw {
             guard var terminal = terminal(fromSnapshotEntry: raw, machine: machine, agents: agentByTerminal) else { continue }
-            let tabIDs = ((raw["tab_ids"] as? [String]) ?? []) + [(raw["tab_id"] as? String) ?? ""]
-            terminal.remoteWorkspace = tabIDs
-                .compactMap { paneOfTab[$0] }
-                .compactMap { screenOfPane[$0] }
-                .compactMap { workspaceOfScreen[$0] }
-                .compactMap { workspaceByID[$0] }
-                .first ?? workspaces[0]
+            var tabIDs = (raw["tab_ids"] as? [String]) ?? []
+            if tabIDs.isEmpty, let single = raw["tab_id"] as? String, !single.isEmpty {
+                tabIDs = [single]
+            }
+            // cmux-tui keeps a record of a terminal whose process exited after its tab is
+            // gone; nothing can open or close it any more (its selector no longer resolves),
+            // so it is not a surface. An exited terminal that still has a tab stays listed —
+            // that one can be closed.
+            if terminal.lifecycle == .exited, tabIDs.isEmpty { continue }
+            terminal.remoteViews = tabIDs.compactMap { tabID in
+                guard let paneID = paneOfTab[tabID],
+                      let screenID = screenOfPane[paneID],
+                      let workspaceID = workspaceOfScreen[screenID],
+                      let workspace = workspaceByID[workspaceID] else { return nil }
+                return SurfaceRemoteView(tabID: tabID, workspace: workspace)
+            }
+            terminal.remoteWorkspace = terminal.remoteViews?.first?.workspace
             resources.append(terminal)
         }
+        // Daemon browsers are workspace tab content just like terminals
+        // (`browsers[{id,tab_id,url,title,status}]`) — a workspace holds more than
+        // terminals, and the tree shows a browser inside the workspace that views it.
+        for raw in (snapshot["browsers"] as? [[String: Any]]) ?? [] {
+            guard let id = raw["id"] as? String, !id.isEmpty else { continue }
+            let urlString = (raw["url"] as? String) ?? ""
+            let title = (raw["title"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? urlString
+            var views: [SurfaceRemoteView] = []
+            if let tabID = raw["tab_id"] as? String,
+               let paneID = paneOfTab[tabID],
+               let screenID = screenOfPane[paneID],
+               let workspaceID = workspaceOfScreen[screenID],
+               let workspace = workspaceByID[workspaceID] {
+                views = [SurfaceRemoteView(tabID: tabID, workspace: workspace)]
+            }
+            var browser = SurfaceResource(
+                id: SurfaceResourceID(machine: machine, kind: .browser, key: id),
+                title: title,
+                detail: urlString.isEmpty ? nil : urlString,
+                lifecycle: (raw["status"] as? String) == "failed" ? .exited : .running,
+                agent: nil,
+                remoteWorkspace: views.first?.workspace,
+                port: localhostPort(fromURL: urlString),
+                url: urlString.isEmpty ? nil : urlString
+            )
+            browser.remoteViews = views
+            resources.append(browser)
+        }
+        // Workspace order first; zero-view terminals (the pool) trail.
         return resources.sorted { lhs, rhs in
-            let li = lhs.remoteWorkspace?.index ?? 0, ri = rhs.remoteWorkspace?.index ?? 0
+            let li = lhs.remoteWorkspace?.index ?? Int.max, ri = rhs.remoteWorkspace?.index ?? Int.max
             return li != ri ? li < ri : false
+        }
+    }
+
+    /// The machine-local port a daemon browser's URL points at, when it does —
+    /// `http://localhost:3000/...` and equivalents. A remote browser projects through the
+    /// machine's port preview, so only localhost URLs are projectable today.
+    static func localhostPort(fromURL urlString: String) -> Int? {
+        guard let url = URL(string: urlString), let host = url.host?.lowercased() else { return nil }
+        guard ["localhost", "127.0.0.1", "::1", "[::1]", "0.0.0.0"].contains(host) else { return nil }
+        if let port = url.port { return port }
+        switch url.scheme?.lowercased() {
+        case "http": return 80
+        case "https": return 443
+        default: return nil
+        }
+    }
+
+    /// The tab each terminal currently sits in (`terminals[].tab_ids`/`tab_id`), so an
+    /// exited terminal can be closed through its tab when its own selector is gone.
+    static func tabByTerminal(fromSnapshot snapshot: [String: Any]) -> [String: String] {
+        var result: [String: String] = [:]
+        for raw in (snapshot["terminals"] as? [[String: Any]]) ?? [] {
+            guard let id = raw["id"] as? String, !id.isEmpty else { continue }
+            let tabIDs = ((raw["tab_ids"] as? [String]) ?? []) + [(raw["tab_id"] as? String) ?? ""]
+            if let tab = tabIDs.first(where: { !$0.isEmpty }) { result[id] = tab }
+        }
+        return result
+    }
+
+    /// The workspace and first terminal a `workspace create` mutation made
+    /// (`{value: {workspace_id, terminal_id, …}}`).
+    static func createdWorkspaceTerminal(fromResult result: [String: Any]) -> (workspaceID: String, terminalID: String?)? {
+        let path = (result["value"] as? [String: Any]) ?? result
+        guard let workspaceID = ((path["workspace_id"] as? String) ?? (path["id"] as? String)), !workspaceID.isEmpty else { return nil }
+        return (workspaceID, (path["terminal_id"] as? String).flatMap { $0.isEmpty ? nil : $0 })
+    }
+
+    /// The daemon's workspaces, in its order — including empty ones, which have no
+    /// terminal to derive them from.
+    static func workspaces(fromSnapshot snapshot: [String: Any]) -> [SurfaceRemoteWorkspace] {
+        let workspacesRaw = (snapshot["workspaces"] as? [[String: Any]]) ?? []
+        return workspacesRaw.enumerated().compactMap { index, raw in
+            guard let id = raw["id"] as? String, !id.isEmpty else { return nil }
+            let name = (raw["name"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? id
+            return SurfaceRemoteWorkspace(id: id, name: name, index: index, focused: (raw["focused"] as? Bool) ?? false)
         }
     }
 
@@ -148,10 +228,10 @@ struct CmuxTuiSnapshotParser: Sendable {
         image.contains("xfce-vnc") || image.contains("cmux-devbox")
     }
 
-    /// The VNC screen of a desktop machine.
-    static func screen(machine: SurfaceMachineID) -> SurfaceResource {
+    /// The VNC display of a desktop machine.
+    static func display(machine: SurfaceMachineID) -> SurfaceResource {
         SurfaceResource(
-            id: SurfaceResourceID(machine: machine, kind: .screen, key: "display:1"),
+            id: SurfaceResourceID(machine: machine, kind: .display, key: "display:1"),
             title: "Desktop",
             detail: "noVNC",
             lifecycle: .running,

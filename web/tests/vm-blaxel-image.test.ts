@@ -193,14 +193,6 @@ describe("Blaxel baked image template", () => {
     const tint2 = read("tint2rc");
     expect(tint2).toContain("panel_items = LT");
     expect(tint2).not.toContain("time1_format");
-    // Regression: tint2 background blocks must be defined BEFORE the panel
-    // options and referenced by explicit ids. A config whose first `rounded`
-    // block sits after `panel_items` parses into "too large rounded value"
-    // errors and the panel renders nothing (missing toolbar, 2026-08-27).
-    expect(tint2.indexOf("rounded = 0")).toBeLessThan(tint2.indexOf("panel_items"));
-    expect(tint2).toContain("panel_background_id = 1");
-    expect(tint2).toContain("task_active_background_id = 2");
-    expect(tint2).toContain("strut_policy = follow_size");
     const launchers = tint2
       .split("\n")
       .filter((line) => line.startsWith("launcher_item_app"))
@@ -212,6 +204,36 @@ describe("Blaxel baked image template", () => {
         "launcher_item_app = /etc/cmux/apps/ghostty-cmux.desktop",
       ].join("\n"),
     );
+  });
+
+  test("tint2rc defines every background before the line that references it", () => {
+    // tint2 resolves `*_background_id = N` while parsing, against the backgrounds
+    // defined ABOVE that line (id 0 is the built-in transparent one; each
+    // `rounded =` opens the next). A forward reference clamps to -1 and hands the
+    // panel a garbage Background (out-of-bounds g_array_index): garbage borders
+    // make the launcher's icon size negative, every scaled icon comes back NULL,
+    // and the whole dock paints nothing — the 2026-08-27 invisible-toolbar
+    // regression on real machines. Order is the contract, so pin it.
+    const lines = read("tint2rc").split("\n");
+    let backgrounds = 1;
+    for (const [index, raw] of lines.entries()) {
+      const line = raw.trim();
+      if (line.startsWith("rounded")) backgrounds += 1;
+      const ref = /^([a-z_]+_background_id)\s*=\s*(\d+)/.exec(line);
+      if (!ref) continue;
+      const id = Number(ref[2]);
+      if (id >= backgrounds) {
+        throw new Error(
+          `tint2rc line ${index + 1}: ${ref[1]} = ${id} references a background that is not defined yet (${backgrounds} known so far)`,
+        );
+      }
+    }
+    expect(backgrounds).toBeGreaterThan(1);
+    // Every launcher entry is a template file whose icon is a baked PNG.
+    for (const line of lines.filter((l) => l.startsWith("launcher_item_app"))) {
+      const file = path.basename(line.split("=")[1].trim());
+      expect(read(file)).toMatch(/^Icon=\/etc\/cmux\/icons\/[a-z-]+\.png$/m);
+    }
   });
 
   test("never installs docker (unsupported in Blaxel microVMs)", () => {

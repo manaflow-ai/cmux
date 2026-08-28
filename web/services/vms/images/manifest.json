@@ -150,13 +150,15 @@
     },
     {
       "provider": "blaxel",
-      "version": "blaxel-cmux-devbox-20260826a",
+      "version": "blaxel-cmux-devbox-20260827a",
       "imageId": "sandbox/cmux-devbox:latest",
       "envVar": "BLAXEL_SANDBOX_IMAGE",
       "defaultForLocalDev": true,
+      "kind": "desktop",
+      "defaultForKind": true,
       "cmuxdRemoteCommit": "none-cmux-tui",
-      "builtAt": "2026-08-26T00:00:00.000Z",
-      "builderScriptVersion": "cmux-devbox-2026-08-26-r6",
+      "builtAt": "2026-08-28T00:55:00.000Z",
+      "builderScriptVersion": "cmux-devbox-2026-08-27-r7",
       "agentToolResolvedVersions": {
         "@anthropic-ai/claude-code": "2.1.246",
         "@openai/codex": "0.150.0",
@@ -165,7 +167,7 @@
         "agent-browser": "0.35.1"
       },
       "validationStatus": "passed",
-      "notes": "Baked cmux machine image (services/vms/images/blaxel, deployed with web/scripts/build-blaxel-image.sh): chatmux-devbox tool parity (mise node/python/bun, uv, gh, devtools, pinned coding agents, ble.sh ghost text, half-life prompt, seeded history) plus an openbox/TigerVNC desktop with Ghostty, Chrome, Thunar, and noVNC on 6901. Keeps the stock desktop driver contract: start-vnc.sh as user cua, RFB 5901. /etc/cmux/image-stamp makes the driver skip create-time provisioning. The session daemon is not baked: the driver installs the pinned cmux-tui build at create time exactly as on stock images. Validated 2026-08-26 on tag bb86c85e4ea70d04351d5 (epoch r6) in us-pdx-1: driver E2E on the cmux-tui transport (create, cmux-tui install, cmux-remote route upgrade, enrollment, smart-sleep watcher), agents/toolchain/Ghostty/Chrome versions, half-life prompt + seeded history, 5901+6901 listening, noVNC through a tokened gateway preview, and screenshots showing the wallpaper, the Chrome/Files/Ghostty dock, Chrome opening straight to DuckDuckGo with first run pre-accepted, and Ghostty rendering with the prompt. Blaxel's deploy-time rootfs slimming strips /usr/share/applications and raster icon themes, so dock launchers and icons bake under /etc/cmux."
+      "notes": "Baked cmux machine image (services/vms/images/blaxel, deployed with web/scripts/build-blaxel-image.sh): chatmux-devbox tool parity (mise node/python/bun, uv, gh, devtools, pinned coding agents, ble.sh ghost text, half-life prompt, seeded history) plus an openbox/TigerVNC desktop with Ghostty, Chrome, Thunar, and noVNC on 6901. Keeps the stock desktop driver contract: start-vnc.sh as user cua, RFB 5901. /etc/cmux/image-stamp makes the driver skip create-time provisioning. The session daemon is not baked: the driver installs the pinned cmux-tui build at create time exactly as on stock images. Validated 2026-08-26 on tag bb86c85e4ea70d04351d5 (epoch r6) in us-pdx-1: driver E2E on the cmux-tui transport (create, cmux-tui install, cmux-remote route upgrade, enrollment, smart-sleep watcher), agents/toolchain/Ghostty/Chrome versions, half-life prompt + seeded history, 5901+6901 listening, noVNC through a tokened gateway preview, and screenshots showing the wallpaper, the Chrome/Files/Ghostty dock, Chrome opening straight to DuckDuckGo with first run pre-accepted, and Ghostty rendering with the prompt. Blaxel's deploy-time rootfs slimming strips /usr/share/applications and raster icon themes, so dock launchers and icons bake under /etc/cmux. r7 (2026-08-27, digest sandbox/cmux-devbox:b3c3cdc9cfe048515743e): the tint2 dock paints again (panel background defined before it is referenced); wallpaper re-fills on noVNC remote resize."
     },
     {
       "provider": "blaxel",
@@ -173,11 +175,24 @@
       "imageId": "blaxel/xfce-vnc:latest",
       "envVar": "BLAXEL_SANDBOX_IMAGE",
       "defaultForLocalDev": false,
+      "kind": "desktop",
       "cmuxdRemoteCommit": "none-cmux-tui",
       "builtAt": "2026-08-20T04:30:00.000Z",
       "builderScriptVersion": "bootstrap-on-create",
       "validationStatus": "passed",
       "notes": "Stock Blaxel xfce + TigerVNC/noVNC image (a machine comes with its screen; `cmux vm new --base` picks blaxel/base-image:latest explicitly). No cmuxd-remote: at create time the sandbox installs the pinned cmux-tui build from the artifacts manifest onto its persistent home volume and the supervisor runs `cmux-tui server start --remote-ws 0.0.0.0:1337`, so no baked template is required. Validated cmux-remote attach (route + enrollment), exec, private preview URL + minted preview token, and standby/wake process preservation in us-pdx-1."
+    },
+    {
+      "provider": "blaxel",
+      "version": "blaxel-base-bootstrap-20260824a",
+      "imageId": "blaxel/base-image:latest",
+      "envVar": "BLAXEL_SANDBOX_IMAGE",
+      "defaultForLocalDev": false,
+      "cmuxdRemoteCommit": "none-cmux-tui",
+      "builtAt": "2026-08-24T23:07:01.000Z",
+      "builderScriptVersion": "bootstrap-on-create",
+      "validationStatus": "passed",
+      "notes": "Stock Blaxel Alpine shell image, no desktop; `cmux vm new --base` and `vm run` pool provisioning send this id explicitly. Nothing is baked: the driver bootstraps every image at create time, installing the pinned cmux-tui build onto the persistent home volume (the installer adds curl via apk first, since the stock image ships without it). Validated live in #10478 in us-pdx-1: create + bootstrap, cmux-remote attach (route + enrollment), exec, and standby/wake process preservation. Listed so deployed runtimes accept the id the CLI sends; it was missing from the manifest between #10478 and this entry, so `vm new --base` failed closed in production."
     }
   ]
 }

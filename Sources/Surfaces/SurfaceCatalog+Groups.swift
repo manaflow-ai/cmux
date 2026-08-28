@@ -68,4 +68,65 @@ extension SurfaceCatalog {
         }
         return projected
     }
+
+    /// How a group becomes a new local workspace: the machinery a caller injects so the
+    /// layout can be checked without AppKit.
+    struct NewWorkspaceHost {
+        /// Creates the workspace (⌘N) and reports its starter pane, if any.
+        var create: @MainActor (_ title: String) throws -> (workspaceID: UUID, starterPanelID: UUID?)
+        /// Bonsplit pane id of a projected panel (the next split anchors on it).
+        var paneLookup: PaneLookup
+        /// Removes the starter pane once the group's first resource is in place.
+        var closeStarter: @MainActor (_ panelID: UUID, _ workspaceID: UUID) -> Void
+
+        @MainActor
+        static let app = NewWorkspaceHost(
+            create: { title in try SurfacePaneFactory.createLocalWorkspace(title: title) },
+            paneLookup: { panelID, workspaceID in SurfacePaneFactory.paneID(ofPanel: panelID, in: workspaceID) },
+            closeStarter: { panelID, workspaceID in SurfacePaneFactory.close(panelID: panelID, in: workspaceID) }
+        )
+    }
+
+    /// Opens a group the way a person expects a remote workspace to open: a new local
+    /// workspace named after it, with every terminal and browser as its own pane (not
+    /// tabs). The first resource replaces the starter pane; each following one splits the
+    /// previous pane, alternating right and down so four terminals land as a 2×2 grid.
+    /// Throws when nothing could be projected (the empty workspace is closed again).
+    @discardableResult
+    func projectGroupAsNewLocalWorkspace(
+        _ ids: [SurfaceResourceID],
+        title: String,
+        focus: Bool,
+        host: NewWorkspaceHost
+    ) async throws -> (workspaceID: UUID, projections: [SurfaceProjection]) {
+        guard !ids.isEmpty else { throw SurfaceCatalogError.destinationNotFound("empty group") }
+        let created = try host.create(title)
+        var projected: [SurfaceProjection] = []
+        var firstError: Error?
+        var lastPane: String?
+        for (index, id) in ids.enumerated() {
+            let target: SurfaceDestination
+            if let lastPane {
+                let direction: SurfaceSplitDirection = index % 2 == 1 ? .right : .down
+                target = .split(workspaceID: created.workspaceID, paneID: lastPane, direction: direction)
+            } else {
+                target = .workspace(id: created.workspaceID, placement: .split)
+            }
+            do {
+                let result = try await project(id, into: target, focus: projected.isEmpty && focus, reuseExisting: false)
+                if projected.isEmpty, let starter = created.starterPanelID, starter != result.projection.panelID {
+                    host.closeStarter(starter, created.workspaceID)
+                }
+                projected.append(result.projection)
+                lastPane = host.paneLookup(result.projection.panelID, created.workspaceID) ?? lastPane
+            } catch {
+                if firstError == nil { firstError = error }
+            }
+        }
+        if projected.isEmpty {
+            if let starter = created.starterPanelID { host.closeStarter(starter, created.workspaceID) }
+            throw firstError ?? SurfaceCatalogError.destinationNotFound("empty group")
+        }
+        return (created.workspaceID, projected)
+    }
 }

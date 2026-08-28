@@ -142,7 +142,7 @@ enum MachineSnapshotBuilder {
             id: summary.id,
             provider: summary.provider,
             image: summary.image,
-            isDesktop: summary.image.contains("xfce-vnc") || summary.image.contains("cmux-devbox"),
+            isDesktop: summary.resolvedKind.hasDesktop,
             activity: activity(fromStatus: summary.status),
             createdAt: createdAt,
             label: summary.displayName,
@@ -346,6 +346,8 @@ final class MachinesPanelViewModel: ObservableObject {
     /// Last plan limits the list returned; the banner countdown re-derives from
     /// these on every local recompute without another round trip.
     private var lastLimits: VMPlanLimits?
+    /// Which image each kind provisions, from the last list; empty until then.
+    var imageKinds: [VMImageKindOption] { lastLimits?.imageKinds ?? [] }
     private var authSignOutObserver: NSObjectProtocol?
     private var treeChangeObserver: NSObjectProtocol?
     private var treeTask: Task<Void, Never>?

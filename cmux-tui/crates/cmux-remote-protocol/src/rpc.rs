@@ -38,6 +38,11 @@ impl RequestId {
     pub const fn from_u128(value: u128) -> Self {
         Self(uuid::Uuid::from_u128(value))
     }
+
+    /// Returns the opaque UUID bits for local request routing.
+    pub const fn as_u128(self) -> u128 {
+        self.0.as_u128()
+    }
 }
 
 impl std::fmt::Display for RequestId {

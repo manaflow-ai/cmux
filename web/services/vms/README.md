@@ -68,8 +68,24 @@ the provider, provider image id, cmux image version, build metadata, and validat
 
 Default image policy:
 
-- Production and staging select images with `E2B_CMUXD_WS_TEMPLATE` and
-  `FREESTYLE_SANDBOX_SNAPSHOT`.
+- Production and staging select images with `E2B_CMUXD_WS_TEMPLATE`,
+  `FREESTYLE_SANDBOX_SNAPSHOT`, `DAYTONA_SANDBOX_SNAPSHOT`, and for Blaxel `BLAXEL_SANDBOX_IMAGE`
+  (base machines) plus `BLAXEL_SANDBOX_DESKTOP_IMAGE` (desktop machines).
+- Clients request a machine **kind** (`kind: "desktop" | "base"` on `POST /api/vm`,
+  `POST /api/vm/base/open`, and `POST /api/vm/base/reset`) rather than pinning an image id. With
+  no `image`, the resolver picks the kind's env var, then the manifest entry flagged
+  `kind` + `defaultForKind` (also in deployed runtimes), and only then fails. `image` still wins
+  when present, and a body with neither keeps the legacy single-image behavior. Responses and
+  `GET /api/vm` entries echo `kind`; `GET /api/vm` `limits.imageKinds` lists the kinds the
+  default provider can serve and the image each resolves to.
+- An image named by a provider env var is operator configuration and is accepted even when the
+  manifest does not list it (logged once, `imageVersion: null`). Only a client-requested `image`
+  must be in the manifest (or `CMUX_VM_ALLOW_UNMANIFESTED_IMAGES=1`). `vm_image_config_error`
+  responses carry client-safe `details.imageRequested`, `details.kind`, `details.source`
+  (`request` | `env` | `default`), and `details.allowedKinds`; the provider, env var name, manifest
+  image ids, and reason go to the server log (`[vm-image-config-error]`) because API error
+  payloads must not leak provider implementation details (see
+  `expectNoCloudVmImplementationLeaks` in `tests/vm-route-auth.test.ts`).
 - Local development uses the manifest entry marked `defaultForLocalDev` when the provider env var
   is unset.
 - The current intended default provider is Blaxel. Set `CMUX_VM_DEFAULT_PROVIDER=blaxel` (the local

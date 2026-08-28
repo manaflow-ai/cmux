@@ -9,6 +9,7 @@ extension AppDelegate {
         from pasteboard: NSPasteboard = NSPasteboard(name: .drag)
     ) {
         tabDragTransferRegistry.finish(from: pasteboard)
+        liveTabDragCapabilityResolver.invalidate()
     }
 }
 

@@ -114,9 +114,15 @@ public actor MobileIrxRuntimeComposition {
                 || ["-", ".", ":", "_"].contains(character)
                 ? String(character) : "-"
         }.joined()
-        stateDirectory = FileManager.default.urls(
+        let appSupport = FileManager.default.urls(
             for: .applicationSupportDirectory, in: .userDomainMask
-        )[0].appendingPathComponent("cmux-irx", isDirectory: true)
+        )[0]
+        stateDirectory = IrxStateLocation.directory(
+            base: appSupport,
+            bundleIdentifier: bundleIdentifier,
+            brokerHost: brokerBaseURL?.host()
+        )
+        IrxStateLocation.removeLegacySharedDirectory(base: appSupport)
     }
 
     /// irx mints its own durable device UUID (persisted beside the identity),
@@ -158,11 +164,17 @@ public actor MobileIrxRuntimeComposition {
         // background at launch, never on the dial path.
         provisioningTask?.cancel()
         provisioningTask = Task { [weak self] in
+            // Capped exponential backoff: a persistent broker-side failure
+            // must degrade to a gentle poll, never a 2s hammer (each failed
+            // attempt can hit registration, and registration writes bump the
+            // account route revision fleet-wide).
+            var delay: Duration = .seconds(2)
             while !Task.isCancelled {
                 if await self?.provisionIfPossible() == true {
                     return
                 }
-                try? await Task.sleep(for: .seconds(2))
+                try? await Task.sleep(for: delay)
+                delay = min(delay * 2, .seconds(30))
             }
         }
     }
@@ -273,13 +285,26 @@ public actor MobileIrxRuntimeComposition {
         // during provisioning so the first dial never pays for it.
         let cachedBinding = await broker.cachedBinding()
         let cachedTrust = await broker.cachedTrust()
+        let cachedCredentials = await broker.cachedRelayCredentials()
         if cachedBinding == nil || cachedTrust == nil {
             // First run for this identity: the full serial path, correctness
             // over speed (registration must precede mint/discovery).
             _ = try await broker.register(pairingEnabled: false, relayURLHint: nil)
             _ = try await pilot.usableCredentials()
             _ = try? await broker.discover()
+        } else if cachedCredentials.isEmpty {
+            // Cached identity but stale relay passes: the mint below MUST
+            // follow a registration on THIS client instance. register() arms
+            // the client's per-request binding proof, and the broker's mint
+            // policy rejects proofless non-legacy mints; a mint racing a
+            // background register 403s (`binding_request_proof_required`)
+            // and wedges provisioning in a retry loop.
+            _ = try await broker.register(pairingEnabled: false, relayURLHint: nil)
+            Task { _ = try? await broker.discover() }
         } else {
+            // Fresh passes on disk: nothing needs the broker before dialing,
+            // so registration + discovery refresh entirely in the background
+            // (the true zero-RTT launch).
             Task {
                 _ = try? await broker.register(pairingEnabled: false, relayURLHint: nil)
                 _ = try? await broker.discover()
