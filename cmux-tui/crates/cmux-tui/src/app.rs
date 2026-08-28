@@ -5916,9 +5916,10 @@ impl RenderedPointerFrame {
                 };
             }
         }
-        let pane_content_owns_cell = self.panes.iter().any(|pane| pane.content.contains(x, y));
-        for (kind, rect) in self.projection_rails.iter().copied() {
-            if !pane_content_owns_cell && rect.contains(x, y) {
+        if let Some((kind, rect)) =
+            self.projection_rails.iter().copied().find(|(_, rect)| rect.contains(x, y))
+        {
+            if !self.panes.iter().any(|pane| pane.content.contains(x, y)) {
                 return PointerRouteIdentity::Rail {
                     kind,
                     rect,
@@ -12079,7 +12080,7 @@ impl App {
             .ordered
             .iter()
             .filter_map(|placement| match placement.kind {
-                RailKind::Projection(index) => Some((placement.kind, placement.rect)),
+                RailKind::Projection(_) => Some((placement.kind, placement.rect)),
                 _ => None,
             })
             .collect::<Vec<_>>()
@@ -30911,25 +30912,25 @@ mod tests {
     #[test]
     fn pointer_routes_projection_rail_padding_to_projection_rail() {
         let rect = Rect { x: 4, y: 0, width: 20, height: 10 };
-        let pane = RenderedPaneRoute {
+        let pane = PaneArea {
             pane: 7,
             surface: 9,
-            kind: Some(SurfaceKind::Pty),
             rect,
             bar: None,
             omnibar: None,
-            omnibar_source_x: 0,
             content: Rect { x: 5, y: 1, width: 18, height: 8 },
-            content_source_x: 0,
             track: None,
-            terminal_input: None,
+            viewport: None,
         };
-        let frame = RenderedPointerFrame {
-            projection_rails: vec![(RailKind::Projection(0), rect)].into(),
-            panes: vec![pane].into(),
-            ..Default::default()
-        };
-        let padding_route = frame.route_for_mouse(&MouseEvent {
+        let mux = Mux::new("projection-rail-pointer-frame-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.outer_size = (40, 10);
+        app.sidebar_layout.ordered =
+            vec![super::RailPlacement { kind: RailKind::Projection(0), view_index: 0, rect }];
+        app.pane_areas = vec![pane];
+        app.commit_rendered_pointer_frame();
+
+        let padding_route = app.rendered_pointer_frame.route_for_mouse(&MouseEvent {
             kind: MouseEventKind::Down(MouseButton::Left),
             column: rect.x + rect.width - 1,
             row: rect.y + rect.height - 1,
@@ -30940,14 +30941,14 @@ mod tests {
             PointerRouteIdentity::Rail { kind: RailKind::Projection(0), .. }
         ));
 
-        let content_route = frame.route_for_mouse(&MouseEvent {
+        let content_route = app.rendered_pointer_frame.route_for_mouse(&MouseEvent {
             kind: MouseEventKind::Down(MouseButton::Left),
             column: pane.content.x,
             row: pane.content.y,
             modifiers: KeyModifiers::NONE,
         });
         assert!(
-            matches!(content_route, PointerRouteIdentity::Pane { pane: routed, .. } if routed == pane)
+            matches!(content_route, PointerRouteIdentity::Pane { pane: routed, .. } if routed.pane == pane.pane)
         );
     }
 
