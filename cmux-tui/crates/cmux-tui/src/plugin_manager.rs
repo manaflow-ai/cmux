@@ -401,6 +401,8 @@ fn installed_plugins(reconcile: bool) -> anyhow::Result<Vec<InstalledPlugin>> {
     // need a lock file. Mutating callers hold the operation lock and reconcile.
     if reconcile {
         reconcile_install_transactions(&root)?;
+    } else {
+        reject_listing_with_pending_transaction(&root)?;
     }
     let selected = selected_plugin_cwd()?;
     let mut plugins = Vec::new();
@@ -437,6 +439,22 @@ fn installed_plugins(reconcile: bool) -> anyhow::Result<Vec<InstalledPlugin>> {
     }
     plugins.sort_by(|a, b| a.name.cmp(&b.name));
     Ok(plugins)
+}
+
+fn reject_listing_with_pending_transaction(install_root: &Path) -> anyhow::Result<()> {
+    let entries = match fs::read_dir(install_root) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error.into()),
+    };
+    for entry in entries {
+        let entry = entry?;
+        let Some(name) = entry.file_name().to_str().map(str::to_owned) else { continue };
+        if name.starts_with('.') && name.ends_with(".install-journal.json") {
+            anyhow::bail!("plugin installation recovery is pending");
+        }
+    }
+    Ok(())
 }
 
 fn resolve_installed_plugin(selector: &str) -> Result<InstalledPlugin, ManagerError> {
@@ -1382,6 +1400,36 @@ mod tests {
             assert!(command_requires_operation_lock(&[command.to_string()]));
         }
         assert!(!command_requires_operation_lock(&[]));
+    }
+
+    #[test]
+    fn read_only_listing_allows_a_clean_root_without_creating_a_lock() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-plugin-read-only-list-{}-{}",
+            std::process::id(),
+            now_nanos()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        assert!(reject_listing_with_pending_transaction(&root).is_ok());
+        assert!(!root.join(".install.lock").exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn read_only_listing_rejects_pending_journal_without_mutating_root() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-plugin-read-only-pending-{}-{}",
+            std::process::id(),
+            now_nanos()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let journal = root.join(".demo.install-journal.json");
+        fs::write(&journal, b"pending").unwrap();
+        let error = reject_listing_with_pending_transaction(&root).unwrap_err();
+        assert_eq!(error.to_string(), "plugin installation recovery is pending");
+        assert!(journal.exists());
+        assert!(!root.join(".install.lock").exists());
+        fs::remove_dir_all(root).unwrap();
     }
 
     fn manifest_text(name: &str) -> String {
