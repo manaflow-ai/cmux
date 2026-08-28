@@ -12,7 +12,7 @@ final class WorkspaceChangesGitRepositoryFixture {
         self.root = rootURL
         self.home = rootURL.appendingPathComponent("home", isDirectory: true)
         self.gitExecutableURLs = gitExecutableURL.map { [$0] }
-            ?? SystemGitExecutableResolver().referenceExecutableURLs()
+            ?? Self.availableGitExecutableURLs()
         self.gitExecutableURL = self.gitExecutableURLs[0]
         try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: self.home, withIntermediateDirectories: true)
@@ -23,6 +23,20 @@ final class WorkspaceChangesGitRepositoryFixture {
 
     deinit {
         try? FileManager.default.removeItem(at: root)
+    }
+
+    private static func availableGitExecutableURLs() -> [URL] {
+        let candidates = [
+            "/opt/homebrew/bin/git",
+            "/usr/local/bin/git",
+            "/opt/local/bin/git",
+            "/usr/bin/git",
+            "/Library/Developer/CommandLineTools/usr/bin/git",
+        ]
+        let available = candidates
+            .map { URL(fileURLWithPath: $0) }
+            .filter { FileManager.default.isExecutableFile(atPath: $0.path) }
+        return available.isEmpty ? [URL(fileURLWithPath: "/usr/bin/git")] : available
     }
 
     func makeBaseline() throws {
