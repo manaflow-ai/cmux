@@ -6,12 +6,18 @@ extension CMUXCLI {
         switch object {
         case let dictionary as [String: Any]:
             var selected: [String: Any] = [:]
-            let commandContainsPrivateEnvironment = (dictionary["environment"] as? [String: Any])?
-                .keys
-                .contains(where: isPrivateSubrouterRoutingKey) == true
+            let commandContainsPrivateEnvironment = containsPrivateSubrouterRoutingKey(
+                in: dictionary["environment"]
+            )
+            let legacyCommandContainsPrivateEnvironment = commandContainsPrivateEnvironment
+                || containsPrivateSubrouterRoutingKey(
+                    in: (dictionary["launch_command"] as? [String: Any])?["environment"]
+                )
             for (key, value) in dictionary
                 where !isPrivateSubrouterRoutingKey(key) {
                 if key == "command", commandContainsPrivateEnvironment {
+                    selected[key] = NSNull()
+                } else if key == "legacy_command", legacyCommandContainsPrivateEnvironment {
                     selected[key] = NSNull()
                 } else if key == "arguments", let arguments = value as? [String] {
                     selected[key] = SubrouterCodexResumeRouting()
@@ -26,6 +32,12 @@ extension CMUXCLI {
         default:
             return object
         }
+    }
+
+    private func containsPrivateSubrouterRoutingKey(in value: Any?) -> Bool {
+        (value as? [String: Any])?
+            .keys
+            .contains(where: isPrivateSubrouterRoutingKey) == true
     }
 
     private func isPrivateSubrouterRoutingKey(_ key: String) -> Bool {
