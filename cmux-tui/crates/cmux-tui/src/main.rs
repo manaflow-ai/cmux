@@ -2783,7 +2783,7 @@ mod remote_args_tests {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
 
     use super::*;
 
@@ -3210,7 +3210,7 @@ mod tests {
 
         let application_background = cmux_tui_core::Rgb { r: 0x17, g: 0x1b, b: 0x2e };
         authoritative.write_bytes(b"\x1b]11;#171b2e\x1b\\\n").unwrap();
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let deadline = Instant::now() + Duration::from_secs(5);
         loop {
             let mut existing_render = ghostty_vt::RenderState::new().unwrap();
             let existing_background =
@@ -3224,10 +3224,10 @@ mod tests {
                 break;
             }
             assert!(
-                std::time::Instant::now() < deadline,
+                Instant::now() < deadline,
                 "application-authored OSC defaults did not reach both client projections"
             );
-            std::thread::sleep(std::time::Duration::from_millis(10));
+            std::thread::sleep(Duration::from_millis(10));
         }
     }
 

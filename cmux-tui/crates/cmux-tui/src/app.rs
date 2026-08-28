@@ -36506,11 +36506,11 @@ mod tests {
             text: "expired".to_string(),
             deadline: Instant::now() - Duration::from_millis(1),
         });
-        let timeout_seen = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let timeout_seen = Arc::new(AtomicBool::new(false));
         let timeout_seen_in_hook = timeout_seen.clone();
         let (events, receiver) = crossbeam_channel::unbounded();
         app.timeout_drain_hook = Some(Box::new(move |app| {
-            timeout_seen_in_hook.store(true, std::sync::atomic::Ordering::Relaxed);
+            timeout_seen_in_hook.store(true, Ordering::Relaxed);
             app.toast = Some(Toast {
                 text: "reintroduced".to_string(),
                 deadline: Instant::now() - Duration::from_millis(1),
@@ -36521,7 +36521,7 @@ mod tests {
 
         app.event_loop(&mut terminal, receiver).unwrap();
 
-        assert!(timeout_seen.load(std::sync::atomic::Ordering::Relaxed));
+        assert!(timeout_seen.load(Ordering::Relaxed));
         assert_eq!(app.toast.as_ref().map(|toast| toast.text.as_str()), Some("reintroduced"));
     }
 
@@ -42572,7 +42572,6 @@ mod tests {
         );
     }
 
-    #[test]
     #[test]
     fn replaced_session_ignores_old_surface_lane_completion() {
         let first = Mux::new("surface-lane-generation-first", SurfaceOptions::default());
