@@ -219,7 +219,21 @@ enum CloudLinkTelemetry {
     /// per-launch salt is part of the digest input.
     static func machineCorrelationID(_ machineID: String) -> String {
         let digest = SHA256.hash(data: correlationSalt + Data(machineID.utf8))
-        return digest.prefix(10).map { String(format: "%02x", $0) }.joined()
+        return hex(digest.prefix(10))
+    }
+
+    /// Encode digest bytes without Foundation's locale-sensitive varargs
+    /// formatter. This runs on every link poll and must stay deterministic
+    /// across supported SDK versions.
+    private static func hex<Bytes: Collection>(_ bytes: Bytes) -> String where Bytes.Element == UInt8 {
+        let digits = Array("0123456789abcdef".utf8)
+        var encoded = [UInt8]()
+        encoded.reserveCapacity(bytes.count * 2)
+        for byte in bytes {
+            encoded.append(digits[Int(byte >> 4)])
+            encoded.append(digits[Int(byte & 0x0f)])
+        }
+        return String(decoding: encoded, as: UTF8.self)
     }
 
     private static func boundedDuration(_ value: Int) -> Int {
