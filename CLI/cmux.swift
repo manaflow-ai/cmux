@@ -31313,7 +31313,7 @@ struct CMUXCLI {
             )
             return
         }
-        let resumeEnvironment = agentSurfaceResumeEnvironment(kind: kind, environment: launchCommand?.environment)
+        let resumeEnvironment = agentSurfaceResumeEnvironment(kind: kind, launchCommand: launchCommand)
         // Pin to the launch directory, not drift-prone runtime cwd.
         let resumeWorkingDirectory = AgentResumeWorkingDirectory().resolve(
             kind: kind,
@@ -31568,10 +31568,16 @@ struct CMUXCLI {
 
     private func agentSurfaceResumeEnvironment(
         kind: String,
-        environment: [String: String]?
+        launchCommand: AgentHookLaunchCommandRecord?
     ) -> [String: String]? {
+        let environment = launchCommand?.environment
         guard let environment else { return nil }
-        let selected = selectedAgentLaunchEnvironment(from: environment, kind: kind)
+        let selected = AgentLaunchEnvironmentPolicy().selectedReplayEnvironment(
+            from: environment,
+            kind: kind,
+            launcher: launchCommand?.launcher,
+            arguments: launchCommand?.arguments ?? []
+        )
         guard !selected.isEmpty else { return nil }
 
         let claudeAuthKeys: Set<String> = [
