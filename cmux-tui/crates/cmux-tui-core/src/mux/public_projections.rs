@@ -65,6 +65,9 @@ pub(super) fn restore_public_projections(
     let mut agent_hook_tombstones = HashSet::new();
     for agent in projections.agents {
         let state = agent_state(&agent.state)?;
+        let internal_marker = agent.source_session.as_deref().is_some_and(|value| {
+            value.starts_with("cmux-hook-sequence:") || value.starts_with("cmux-hook-ended:")
+        });
         if let Some(source_session) = agent.source_session.as_deref() {
             let marker = source_session.strip_prefix("cmux-hook-sequence:");
             let ended = source_session.strip_prefix("cmux-hook-ended:");
@@ -83,7 +86,7 @@ pub(super) fn restore_public_projections(
             TerminalAgentRecord {
                 state,
                 source: agent_source(&agent.source)?,
-                session: agent.source_session,
+                session: (!internal_marker).then_some(agent.source_session).flatten(),
                 updated_at_ms: agent.updated_at_ms,
             },
         );
@@ -277,5 +280,26 @@ mod tests {
         };
         let restored = restore_public_projections(&empty_state(), projections).unwrap();
         assert!(restored.agent_records.is_empty());
+    }
+
+    #[test]
+    fn hook_marker_restores_watermark_without_exposing_session() {
+        let terminal = terminal_id(10);
+        let projections = RegistryPublicProjections {
+            notifications: Vec::new(),
+            agents: vec![RegistryAgentProjection {
+                id: AgentPublicId::parse("agent_00000000000000000000000000000010").unwrap(),
+                terminal_id: terminal.clone(),
+                state: "working".into(),
+                source: "hook".into(),
+                updated_at_ms: 1,
+                source_session: Some("cmux-hook-sequence:12".into()),
+            }],
+            terminal_defaults: None,
+            frontend_projections: Vec::new(),
+        };
+        let restored = restore_public_projections(&empty_state(), projections).unwrap();
+        assert_eq!(restored.agent_hook_sequences.get(&terminal), Some(&12));
+        assert_eq!(restored.agent_records[&terminal].session, None);
     }
 }

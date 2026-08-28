@@ -5298,7 +5298,10 @@ impl Mux {
         } else {
             format!("cmux-hook-sequence:{sequence}")
         };
-        if self.report_agent(surface, state, AgentSource::Hook, Some(marker)).is_err() {
+        if self
+            .report_agent_with_sequence_lock(surface, state, AgentSource::Hook, Some(marker), true)
+            .is_err()
+        {
             eprintln!("cmux-tui: agent record update failed");
             return;
         }
@@ -8661,6 +8664,17 @@ impl Mux {
         source: AgentSource,
         session: Option<String>,
     ) -> anyhow::Result<AgentRecord> {
+        self.report_agent_with_sequence_lock(surface, state, source, session, false)
+    }
+
+    fn report_agent_with_sequence_lock(
+        &self,
+        surface: SurfaceId,
+        state: AgentState,
+        source: AgentSource,
+        session: Option<String>,
+        sequence_lock_held: bool,
+    ) -> anyhow::Result<AgentRecord> {
         let mutation = WorkspaceMutation::new(
             format!("raw-agent-{}", crate::workspace_registry::new_uuid_v4()),
             "raw-control",
@@ -8680,6 +8694,7 @@ impl Mux {
             None,
             &mutation,
             &fingerprint,
+            sequence_lock_held,
         )?;
         record.context("fresh raw agent report unexpectedly replayed")
     }
@@ -8711,6 +8726,7 @@ impl Mux {
             expected_revision,
             mutation,
             &fingerprint,
+            false,
         )
         .map(|(commit, _)| commit)
     }
@@ -8725,7 +8741,13 @@ impl Mux {
         expected_revision: Option<u64>,
         mutation: &WorkspaceMutation,
         fingerprint: &Value,
+        sequence_lock_held: bool,
     ) -> anyhow::Result<(ResourcePatchCommit, Option<AgentRecord>)> {
+        // Hook replay already owns this guard to serialize sequence checks and
+        // projection commits. Other report sources acquire it before the
+        // registry/state locks, so all paths use one lock order.
+        let sequence_guard =
+            (!sequence_lock_held).then(|| self.agent_hook_sequences.lock().unwrap());
         let mut registry = self.workspace_registry.lock().unwrap();
         if let Some(replay) =
             registry.replay_resource_patch(mutation, "agent.report", fingerprint)?
@@ -8778,10 +8800,9 @@ impl Mux {
             }) {
                 anyhow::bail!("reserved hook marker is invalid for non-hook agent source");
             }
-            self.agent_hook_sequences
-                .lock()
-                .unwrap()
-                .get(&terminal_id)
+            sequence_guard
+                .as_ref()
+                .and_then(|guard| guard.get(&terminal_id))
                 .map(|sequence| format!("cmux-hook-sequence:{sequence}"))
                 .or(source_session.clone())
         };
