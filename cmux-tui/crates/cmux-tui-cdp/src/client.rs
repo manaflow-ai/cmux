@@ -10,6 +10,7 @@ use std::sync::mpsc::{
 use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::time::{Duration, Instant};
 
+use anyhow::Context;
 use base64::Engine;
 use serde_json::{Value, json};
 use tungstenite::client::IntoClientRequest;
