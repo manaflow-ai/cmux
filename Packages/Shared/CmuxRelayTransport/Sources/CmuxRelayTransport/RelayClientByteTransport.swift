@@ -53,6 +53,12 @@ public actor RelayClientByteTransport: CmxByteTransport {
     }
 
     public func connect() async throws {
+        // A reconnect replaces the prior socket and pump. Without this,
+        // repeated lifecycle callbacks leak a live WebSocket and duplicate
+        // admissions onto the same RPC session.
+        if connection != nil || pumpTask != nil || inbound != nil {
+            await close()
+        }
         let ownDeviceID = try await deviceID()
         let token = try await accessToken()
         guard let url = relayURLOverride ?? RelayConnectAuth.defaultRelayURL() else {
@@ -71,6 +77,18 @@ public actor RelayClientByteTransport: CmxByteTransport {
         }
         self.connection = connection
 
+        let queue = RelayByteQueue()
+        inbound = queue
+        let events = await connection.events()
+        pumpTask = Task { [weak self] in
+            for await event in events {
+                guard let self else { return }
+                let open = await self.handle(event, queue: queue)
+                if !open { break }
+            }
+            await queue.finish()
+        }
+
         // End-to-end admission, guaranteed first on the stream because it is
         // written before this transport is handed to the RPC session. Fire
         // and forget: a rejected admission ends with the host closing the
@@ -82,19 +100,6 @@ public actor RelayClientByteTransport: CmxByteTransport {
                 data: try RelayAdmission.admitFrame(accessToken: token, deviceID: ownDeviceID)
             )
         )
-
-        let queue = RelayByteQueue()
-        inbound = queue
-
-        let events = await connection.events()
-        pumpTask = Task { [weak self] in
-            for await event in events {
-                guard let self else { return }
-                let open = await self.handle(event, queue: queue)
-                if !open { break }
-            }
-            await queue.finish()
-        }
         scheduleRefresh(deadline: Date(timeIntervalSince1970: welcome.deadline / 1000))
     }
 

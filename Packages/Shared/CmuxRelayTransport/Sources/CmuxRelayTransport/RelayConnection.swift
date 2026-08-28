@@ -149,13 +149,20 @@ public actor RelayConnection: RelayConnecting {
             switch message {
             case .string(let text):
                 if text == RelayProtocol.pongText { continue }
-                guard let decoded = RelayServerMessage.decode(Data(text.utf8)) else { continue }
+                guard let decoded = RelayServerMessage.decode(Data(text.utf8)) else {
+                    task.cancel(with: .protocolError, reason: Data("invalid control frame".utf8))
+                    break
+                }
                 eventContinuation?.yield(.control(decoded))
             case .data(let data):
-                guard let frame = RelayFrameCodec.decodeDataFrame(data) else { continue }
+                guard let frame = RelayFrameCodec.decodeDataFrame(data) else {
+                    task.cancel(with: .protocolError, reason: Data("invalid data frame".utf8))
+                    break
+                }
                 eventContinuation?.yield(.data(frame))
             @unknown default:
-                continue
+                task.cancel(with: .protocolError, reason: Data("unknown websocket message".utf8))
+                break
             }
         }
         eventContinuation?.finish()
