@@ -6,7 +6,11 @@ public struct SubrouterCodexResumeRouting: Sendable, Equatable {
     /// The metadata marker emitted by Subrouter for routed Codex children.
     public static let environmentKey = "SUBROUTER_CODEX_RESUME_COMMAND"
 
-    private static let expectedMarkerTokens = ["sr", "codex", "resume"]
+    private static let expectedMarkerTokens = [
+        ["sr", "codex", "resume"],
+        ["subrouter", "codex", "resume"],
+        ["cx", "codex", "resume"],
+    ]
 
     /// Creates a Subrouter Codex resume router.
     public init() {}
@@ -14,16 +18,16 @@ public struct SubrouterCodexResumeRouting: Sendable, Equatable {
     /// Returns the canonical marker when the captured environment contains the
     /// exact supported command, or `nil` for absent or untrusted values.
     public func capturedMarker(in environment: [String: String]?) -> String? {
-        guard let rawValue = environment?[Self.environmentKey],
-              rawValue.split(whereSeparator: \Character.isWhitespace).map(String.init)
-                == Self.expectedMarkerTokens else {
+        guard let rawValue = environment?[Self.environmentKey] else {
             return nil
         }
-        return Self.expectedMarkerTokens.joined(separator: " ")
+        let tokens = rawValue.split(whereSeparator: \Character.isWhitespace).map(String.init)
+        guard Self.expectedMarkerTokens.contains(tokens) else { return nil }
+        return tokens.joined(separator: " ")
     }
 
-    /// Builds `sr codex resume <id>` only when both the trusted marker and the
-    /// captured Codex routing config prove this process came through Subrouter.
+    /// Builds the captured Subrouter launcher resume argv only when both the
+    /// trusted marker and Codex routing config prove the routed invocation.
     public func resumeArguments(
         launcher: String?,
         sessionID: String,
@@ -34,11 +38,11 @@ public struct SubrouterCodexResumeRouting: Sendable, Equatable {
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
         guard normalizedLauncher == nil || normalizedLauncher == "codex",
-              capturedMarker(in: environment) != nil,
+              let marker = capturedMarker(in: environment),
               launchArgumentsContainSubrouterProvider(launchArguments) else {
             return nil
         }
-        return Self.expectedMarkerTokens + [sessionID]
+        return marker.split(separator: " ").map(String.init) + [sessionID]
     }
 
     private func launchArgumentsContainSubrouterProvider(_ arguments: [String]) -> Bool {
