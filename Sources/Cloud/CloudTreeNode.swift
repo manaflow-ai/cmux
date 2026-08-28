@@ -218,10 +218,11 @@ struct CloudTreeLocalWorkspace: Equatable {
 /// pointer rows; Browsers); ports stay out of the tree for now, and a machine
 /// without a connected link gets a placeholder child instead of the pools.
 enum CloudTreeNodeBuilder {
-    /// Whether the tree shows this Mac's own terminals and browsers. On by default:
-    /// every machine — this Mac included — shows the same shape. The gate stays so a
-    /// cloud-only tree remains one flip away.
-    nonisolated(unsafe) static var includesLocalMachine = true
+    /// Whether the tree shows this Mac's own terminals and browsers. Off (lawrence,
+    /// 2026-08-27): the Cloud panel is about cloud machines; this Mac's content is
+    /// already the rest of the app. The gate stays so the same-shape tree remains
+    /// one flip away.
+    nonisolated(unsafe) static var includesLocalMachine = false
 
     static func nodes(
         machines: [MachineSnapshot],
