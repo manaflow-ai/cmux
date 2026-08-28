@@ -141,6 +141,63 @@ final class TuiTerminalAttachBridge {
         )
     }
 
+    /// The bridge daemon session backing this app instance, for callers that
+    /// must recognize (and skip) it during discovery.
+    var currentSessionName: String { sessionName }
+
+    /// Harbor: creates one daemon terminal running `shellCommand` through the
+    /// daemon's default login shell, inside a shared "harbor" daemon
+    /// workspace (created on first use, found by name selector afterwards).
+    /// Returns the terminal id, or nil on any failure so the caller can fall
+    /// back or report. Same spike contract as `provisionTerminalForNewSurface`:
+    /// short bounded CLI calls on the main actor.
+    func provisionHarborTerminal(shellCommand: String, terminalName: String) -> String? {
+        let binary = Self.binaryPath
+        guard FileManager.default.isExecutableFile(atPath: binary) else {
+            logSpike("harbor.provision.skip binary-not-executable path=\(binary)")
+            return nil
+        }
+        guard ensureDaemonRunning(binary: binary) else { return nil }
+        let session = sessionName
+
+        func run(inWorkspace selector: String) -> String? {
+            guard let output = Self.runCLI(
+                binary: binary,
+                arguments: TuiTerminalAttachPolicy.harborRunArguments(
+                    sessionName: session,
+                    workspaceSelector: selector,
+                    terminalName: terminalName,
+                    shellCommand: shellCommand
+                ),
+                timeout: 10
+            ) else { return nil }
+            return TuiTerminalAttachPolicy.terminalID(fromWorkspaceCreateJSON: output)
+        }
+
+        // Reuse the shared harbor workspace when it already exists; create it
+        // only when the name selector fails to resolve.
+        if let terminalID = run(inWorkspace: TuiTerminalAttachPolicy.harborWorkspaceName) {
+            cachedTerminalIDs = nil
+            logSpike("harbor.provision.ok terminal=\(terminalID) session=\(session)")
+            return terminalID
+        }
+        guard let createOutput = Self.runCLI(
+            binary: binary,
+            arguments: TuiTerminalAttachPolicy.harborWorkspaceCreateArguments(sessionName: session),
+            timeout: 10
+        ), let workspaceID = TuiTerminalAttachPolicy.workspaceID(fromWorkspaceCreateJSON: createOutput) else {
+            logSpike("harbor.provision.fail workspace-create session=\(session)")
+            return nil
+        }
+        guard let terminalID = run(inWorkspace: workspaceID) else {
+            logSpike("harbor.provision.fail run session=\(session)")
+            return nil
+        }
+        cachedTerminalIDs = nil
+        logSpike("harbor.provision.ok terminal=\(terminalID) session=\(session)")
+        return terminalID
+    }
+
     /// Restore-side decision: reattach to a persisted daemon terminal, or
     /// fall back to a fresh spawn. Never starts the daemon: if it is not
     /// already running, the terminal it owned is gone anyway.

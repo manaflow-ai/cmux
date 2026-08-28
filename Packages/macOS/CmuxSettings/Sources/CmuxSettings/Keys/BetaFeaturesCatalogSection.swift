@@ -89,6 +89,19 @@ public struct BetaFeaturesCatalogSection: SettingCatalogSection {
         userDefaultsKey: "remoteTmux.beta.enabled"
     )
 
+    /// Right-sidebar Harbor: an experimental mode that lists every attachable
+    /// terminal session on this Mac and on user-added SSH hosts (cmux-tui,
+    /// tmux, zellij, screen, zmx, herdr) and attaches to one when its row is
+    /// dropped into the workspace. Defaults off; while off, the Harbor mode
+    /// is hidden from the switcher so the feature stays opt-in while it is
+    /// in beta. Best with `tuiTerminalBackendManualIO`: attach terminals are
+    /// then daemon-backed panes on the manual-IO data path.
+    public let rightSidebarHarbor = DefaultsKey<Bool>(
+        id: "rightSidebar.beta.harbor.enabled",
+        defaultValue: false,
+        userDefaultsKey: "rightSidebar.beta.harbor.enabled"
+    )
+
     /// cmux-tui terminal backend (tier-A spike): back each new main-grid
     /// terminal with a cmux-tui daemon terminal and run
     /// `cmux-tui attach --terminal <id>` as the Ghostty surface command, so

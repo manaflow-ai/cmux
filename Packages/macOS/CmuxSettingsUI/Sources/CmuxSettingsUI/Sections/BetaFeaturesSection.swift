@@ -10,6 +10,7 @@ public struct BetaFeaturesSection: View {
     @State private var feed: DefaultsValueModel<Bool>
     @State private var dock: DefaultsValueModel<Bool>
     @State private var cloudMachines: DefaultsValueModel<Bool>
+    @State private var harbor: DefaultsValueModel<Bool>
     @State private var extensions: DefaultsValueModel<Bool>
     @State private var customSidebars: DefaultsValueModel<Bool>
     @State private var remoteTmux: DefaultsValueModel<Bool>
@@ -22,6 +23,7 @@ public struct BetaFeaturesSection: View {
         _feed = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.rightSidebarFeed))
         _dock = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.rightSidebarDock))
         _cloudMachines = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.cloudMachines))
+        _harbor = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.rightSidebarHarbor))
         _extensions = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.extensions))
         _customSidebars = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.customSidebars))
         _remoteTmux = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.remoteTmux))
@@ -44,6 +46,8 @@ public struct BetaFeaturesSection: View {
                 dockRow
                 SettingsCardDivider()
                 cloudMachinesRow
+                SettingsCardDivider()
+                harborRow
                 SettingsCardDivider()
                 extensionsRow
                 SettingsCardDivider()
@@ -68,6 +72,7 @@ public struct BetaFeaturesSection: View {
             feed,
             dock,
             cloudMachines,
+            harbor,
             extensions,
             customSidebars,
             remoteTmux,
@@ -117,6 +122,23 @@ public struct BetaFeaturesSection: View {
             .labelsHidden()
             .pickerStyle(.segmented)
             .accessibilityIdentifier("SettingsBetaWorkspaceTodosChecklistStylePicker")
+        }
+    }
+
+    @ViewBuilder
+    private var harborRow: some View {
+        SettingsCardRow(
+            configurationReview: .settingsOnly,
+            searchAnchorID: "setting:betaFeatures:harbor",
+            String(localized: "settings.betaFeatures.harbor", defaultValue: "Harbor"),
+            subtitle: harbor.current
+                ? String(localized: "settings.betaFeatures.harbor.subtitleOn", defaultValue: "Shows Harbor in the right sidebar: attachable tmux, zellij, screen, zmx, herdr, and cmux-tui sessions, local and over SSH.")
+                : String(localized: "settings.betaFeatures.harbor.subtitleOff", defaultValue: "Hides Harbor from the right sidebar until you enable it here.")
+        ) {
+            Toggle("", isOn: Binding(get: { harbor.current }, set: { harbor.set($0) }))
+                .labelsHidden()
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsBetaHarborToggle")
         }
     }
 

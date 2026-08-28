@@ -10,6 +10,8 @@ struct PaneTransferSourceResolver {
         /// A Cloud tree row: catalog resources (terminals, screens, browsers) on this Mac or a
         /// machine — one, or a whole workspace's worth.
         case surfaceResources(SurfaceResourceGroup)
+        /// A Harbor row: an attachable multiplexer session (local or SSH).
+        case harborSession(HarborSession)
         case surface
     }
 
@@ -17,12 +19,14 @@ struct PaneTransferSourceResolver {
     typealias TabTransferRegistry = @MainActor () -> TabDragTransferRegistry?
     typealias FilePreviewLookup = @MainActor (UUID) -> FilePreviewDragEntry?
     typealias SurfaceResourceLookup = @MainActor (UUID) -> SurfaceResourceGroup?
+    typealias HarborSessionLookup = @MainActor (UUID) -> HarborSession?
     typealias LivenessLookup = @MainActor (UUID) -> Bool
 
     private let vaultSessionRegistry: VaultSessionRegistry
     private let tabTransferRegistry: TabTransferRegistry
     private let filePreview: FilePreviewLookup
     private let surfaceResource: SurfaceResourceLookup
+    private let harborSession: HarborSessionLookup
     private let surfaceIsLive: LivenessLookup
 
     init(
@@ -38,6 +42,9 @@ struct PaneTransferSourceResolver {
         surfaceResource: @escaping SurfaceResourceLookup = { id in
             SurfaceResourceDragRegistry.shared.group(id: id)
         },
+        harborSession: @escaping HarborSessionLookup = { id in
+            AppDelegate.shared?.harborSessionDragRegistry.session(id: id)
+        },
         surfaceIsLive: @escaping LivenessLookup = { id in
             AppDelegate.shared?.locateContainerSurface(tabId: id) != nil
         }
@@ -46,6 +53,7 @@ struct PaneTransferSourceResolver {
         self.tabTransferRegistry = tabTransferRegistry
         self.filePreview = filePreview
         self.surfaceResource = surfaceResource
+        self.harborSession = harborSession
         self.surfaceIsLive = surfaceIsLive
     }
 
@@ -91,6 +99,7 @@ struct PaneTransferSourceResolver {
         }
         if let entry = filePreview(id) { return .filePreview(entry) }
         if let group = surfaceResource(id) { return .surfaceResources(group) }
+        if let session = harborSession(id) { return .harborSession(session) }
         return nil
     }
 
@@ -104,6 +113,8 @@ struct PaneTransferSourceResolver {
             FilePreviewDragRegistry.shared.discard(id: id)
         case .surfaceResources:
             SurfaceResourceDragRegistry.shared.discard(id: id)
+        case .harborSession:
+            AppDelegate.shared?.harborSessionDragRegistry.discard(id: id)
         case .surface:
             break
         }
@@ -119,7 +130,7 @@ struct PaneTransferSourceResolver {
         switch source {
         case .surface:
             tabTransferRegistry()?.finish(from: pasteboard)
-        case .vaultSession, .filePreview, .surfaceResources:
+        case .vaultSession, .filePreview, .surfaceResources, .harborSession:
             finish(source, id: id)
         }
     }

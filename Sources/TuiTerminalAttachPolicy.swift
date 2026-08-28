@@ -264,6 +264,43 @@ enum TuiTerminalAttachPolicy {
             + [["server", "stop", "--session", sessionName]]
     }
 
+    /// Harbor: the CLI argument list that creates the shared empty daemon
+    /// workspace Harbor attach terminals run in. `--empty` avoids spawning a
+    /// default shell nobody attaches to.
+    static func harborWorkspaceCreateArguments(sessionName: String) -> [String] {
+        ["--session", sessionName, "--json", "workspace", "create", "--empty", "--name", harborWorkspaceName]
+    }
+
+    /// Harbor: the CLI argument list that runs one attach command as a new
+    /// daemon terminal. `shell` routes the command through the daemon's
+    /// default login shell so tool binaries resolve through the user's PATH.
+    static func harborRunArguments(
+        sessionName: String,
+        workspaceSelector: String,
+        terminalName: String,
+        shellCommand: String
+    ) -> [String] {
+        [
+            "--session", sessionName, "--json",
+            "workspace", workspaceSelector, "run",
+            "--name", terminalName,
+            "shell", shellCommand,
+        ]
+    }
+
+    static let harborWorkspaceName = "harbor"
+
+    /// Extracts the created workspace id from `workspace create --json`
+    /// output (shape: `{"value": {"workspace_id": "ws_..."}}`).
+    static func workspaceID(fromWorkspaceCreateJSON data: Data) -> String? {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let value = object["value"] as? [String: Any],
+              let workspaceID = value["workspace_id"] as? String,
+              !workspaceID.isEmpty
+        else { return nil }
+        return workspaceID
+    }
+
     private static func sanitizedSessionToken(_ raw: String) -> String {
         let token = raw
             .lowercased()

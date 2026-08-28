@@ -480,10 +480,12 @@ enum RightSidebarBetaFeatureSettings {
     static let feedEnabledKey = "rightSidebar.beta.feed.enabled"
     static let dockEnabledKey = "rightSidebar.beta.dock.enabled"
     static let cloudMachinesEnabledKey = "cloud.beta.machines.enabled"
+    static let harborEnabledKey = "rightSidebar.beta.harbor.enabled"
 
     static let defaultFeedEnabled = false
     static let defaultDockEnabled = false
     static let defaultCloudMachinesEnabled = false
+    static let defaultHarborEnabled = false
 
     nonisolated static func isFeedEnabled(defaults: UserDefaults = .standard) -> Bool {
         guard defaults.object(forKey: feedEnabledKey) != nil else { return defaultFeedEnabled }
@@ -498,6 +500,11 @@ enum RightSidebarBetaFeatureSettings {
     nonisolated static func isCloudMachinesEnabled(defaults: UserDefaults = .standard) -> Bool {
         guard defaults.object(forKey: cloudMachinesEnabledKey) != nil else { return defaultCloudMachinesEnabled }
         return defaults.bool(forKey: cloudMachinesEnabledKey)
+    }
+
+    nonisolated static func isHarborEnabled(defaults: UserDefaults = .standard) -> Bool {
+        guard defaults.object(forKey: harborEnabledKey) != nil else { return defaultHarborEnabled }
+        return defaults.bool(forKey: harborEnabledKey)
     }
 }
 

@@ -20,6 +20,7 @@ enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
     case feed
     case dock
     case machines
+    case harbor
     case customSidebar = "custom-sidebar"
 
     var label: String {
@@ -30,6 +31,7 @@ enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
         case .feed: return String(localized: "rightSidebar.mode.feed", defaultValue: "Feed")
         case .dock: return String(localized: "rightSidebar.mode.dock", defaultValue: "Dock")
         case .machines: return String(localized: "rightSidebar.mode.machines", defaultValue: "Cloud")
+        case .harbor: return String(localized: "rightSidebar.mode.harbor", defaultValue: "Harbor")
         case .customSidebar: return String(localized: "rightSidebar.mode.customSidebar", defaultValue: "Custom")
         }
     }
@@ -43,6 +45,7 @@ enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
         case .feed: return "dot.radiowaves.left.and.right"
         case .dock: return "dock.rectangle"
         case .machines: return "cloud"
+        case .harbor: return "sailboat"
         case .customSidebar: return "wand.and.stars"
         }
     }
@@ -55,6 +58,10 @@ enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
         case .feed: return .switchRightSidebarToFeed
         case .dock: return .switchRightSidebarToDock
         case .machines: return .switchRightSidebarToMachines
+        // Beta experiment: reachable via mode bar and command palette only;
+        // a dedicated shortcut lands with the full shortcut plumbing if the
+        // experiment graduates.
+        case .harbor: return nil
         case .customSidebar: return nil
         }
     }
@@ -80,7 +87,7 @@ enum FileExplorerRootSyncPolicy {
         switch mode {
         case .files, .find:
             return true
-        case .sessions, .feed, .dock, .machines, .customSidebar:
+        case .sessions, .feed, .dock, .machines, .harbor, .customSidebar:
             return false
         }
     }
@@ -143,6 +150,8 @@ struct RightSidebarPanelView: View {
     private var dockEnabled = RightSidebarBetaFeatureSettings.defaultDockEnabled
     @AppStorage(RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
     private var cloudMachinesBetaEnabled = RightSidebarBetaFeatureSettings.defaultCloudMachinesEnabled
+    @AppStorage(RightSidebarBetaFeatureSettings.harborEnabledKey)
+    private var harborEnabled = RightSidebarBetaFeatureSettings.defaultHarborEnabled
 
     // Re-reading the observable store inside modeBar causes SwiftUI to
     // track the pending count so the badge updates live when hooks push
@@ -155,7 +164,8 @@ struct RightSidebarPanelView: View {
         RightSidebarMode.availableModes(
             feedEnabled: feedEnabled,
             dockEnabled: dockEnabled,
-            machinesEnabled: CmuxFeatureFlags.shared.isCloudVMUIEnabled || cloudMachinesBetaEnabled
+            machinesEnabled: CmuxFeatureFlags.shared.isCloudVMUIEnabled || cloudMachinesBetaEnabled,
+            harborEnabled: harborEnabled
         )
     }
 
@@ -228,6 +238,7 @@ struct RightSidebarPanelView: View {
         .onChange(of: feedEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
         .onChange(of: dockEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
         .onChange(of: cloudMachinesBetaEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
+        .onChange(of: harborEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
     }
 
     private var modeBar: some View {
@@ -426,6 +437,11 @@ struct RightSidebarPanelView: View {
                 dockPanel(windowAppearance: windowAppearance)
             case .machines:
                 MachinesPanelView(
+                    chromeBackgroundColor: windowAppearance.resolvedChromeBackgroundColor
+                )
+            case .harbor:
+                HarborPanelView(
+                    tabManager: tabManager,
                     chromeBackgroundColor: windowAppearance.resolvedChromeBackgroundColor
                 )
             case .customSidebar:

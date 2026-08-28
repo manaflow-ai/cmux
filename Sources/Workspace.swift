@@ -12504,7 +12504,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         workingDirectory: String?,
         initialInput: String?,
         startupRestoreAgent: SessionRestorableAgentSnapshot? = nil,
-        remoteStartupCommand: String? = nil
+        remoteStartupCommand: String? = nil,
+        tuiManualIOReattachTerminalID: String? = nil
     ) -> TerminalPanel? {
         guard !isRetiredFromOwningTabManager else { return nil }
         var inheritedConfig = inheritedTerminalConfig(inPane: paneId)
@@ -12520,24 +12521,51 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             inheritedConfig = template
         }
 
-        let newPanel = TerminalPanel(
-            workspaceId: id,
-            context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
-            configTemplate: inheritedConfig,
-            workingDirectory: workingDirectory,
-            portOrdinal: portOrdinal,
-            initialCommand: startupCommand,
-            initialInput: initialInput,
-            additionalEnvironment: effectiveStartupEnvironment,
-            runtimeSpawnPolicy: terminalStartupRestoreCoordinator.runtimeSpawnPolicy(
-                requestedPolicy: .immediate,
-                willRunStartupCommand: false,
-                willRunStartupInput: startupRestoreAgent != nil && initialInput != nil
+        // Manual-IO split destination (Harbor drops): mirrors the reattach
+        // branch of `newTerminalSurfaceLocal` — the surface runs in Ghostty's
+        // manual-mirror IO mode and a pump relays the daemon terminal's bytes.
+        let newPanel: TerminalPanel
+        if let tuiManualIOReattachTerminalID {
+            let pump = TuiTerminalAttachBridge.shared.makeManualIOPump(terminalID: tuiManualIOReattachTerminalID)
+            let surface = TerminalSurface(
+                id: UUID(),
+                tabId: id,
+                context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+                configTemplate: inheritedConfig,
+                workingDirectory: workingDirectory,
+                portOrdinal: portOrdinal,
+                ioMode: .manualMirror,
+                manualInputHandler: pump.makeManualInputHandler()
             )
-        )
+            pump.start(surface: surface)
+            pump.onStateChange = { [weak surface] in
+                surface?.owningWorkspace()?.postRemoteConnectionPresentationDidChange()
+            }
+            TuiManualIOPumpRegistry.shared.register(pump, surfaceID: surface.id)
+            newPanel = TerminalPanel(workspaceId: id, surface: surface)
+        } else {
+            newPanel = TerminalPanel(
+                workspaceId: id,
+                context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+                configTemplate: inheritedConfig,
+                workingDirectory: workingDirectory,
+                portOrdinal: portOrdinal,
+                initialCommand: startupCommand,
+                initialInput: initialInput,
+                additionalEnvironment: effectiveStartupEnvironment,
+                runtimeSpawnPolicy: terminalStartupRestoreCoordinator.runtimeSpawnPolicy(
+                    requestedPolicy: .immediate,
+                    willRunStartupCommand: false,
+                    willRunStartupInput: startupRestoreAgent != nil && initialInput != nil
+                )
+            )
+        }
         configureNewTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel
         panelTitles[newPanel.id] = newPanel.displayTitle
+        if let tuiManualIOReattachTerminalID {
+            tuiTerminalIDsByPanelId[newPanel.id] = tuiManualIOReattachTerminalID
+        }
         if startupCommand != nil {
             trackRemoteTerminalSurface(newPanel.id)
         }
@@ -12559,6 +12587,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             removeSurfaceMapping(forSurfaceId: newTab.id)
             if startupCommand != nil {
                 untrackRemoteTerminalSurface(newPanel.id)
+            }
+            if tuiManualIOReattachTerminalID != nil {
+                TuiManualIOPumpRegistry.shared.stopAndRemove(surfaceID: newPanel.id)
+                tuiTerminalIDsByPanelId.removeValue(forKey: newPanel.id)
             }
             return nil
         }

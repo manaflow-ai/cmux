@@ -16,6 +16,8 @@ extension RightSidebarMode {
             return .dock
         case "cloud", "machines", "vms":
             return .machines
+        case "harbor":
+            return .harbor
         default:
             return nil
         }
@@ -25,16 +27,23 @@ extension RightSidebarMode {
         availableModes(
             feedEnabled: RightSidebarBetaFeatureSettings.isFeedEnabled(defaults: defaults),
             dockEnabled: RightSidebarBetaFeatureSettings.isDockEnabled(defaults: defaults),
-            machinesEnabled: CloudMachinesFeature.offMainIsEnabled(defaults: defaults)
+            machinesEnabled: CloudMachinesFeature.offMainIsEnabled(defaults: defaults),
+            harborEnabled: RightSidebarBetaFeatureSettings.isHarborEnabled(defaults: defaults)
         )
     }
 
-    static func availableModes(feedEnabled: Bool, dockEnabled: Bool, machinesEnabled: Bool) -> [RightSidebarMode] {
+    static func availableModes(
+        feedEnabled: Bool,
+        dockEnabled: Bool,
+        machinesEnabled: Bool,
+        harborEnabled: Bool
+    ) -> [RightSidebarMode] {
         allCases.filter {
             $0 != .customSidebar && $0.isAvailable(
                 feedEnabled: feedEnabled,
                 dockEnabled: dockEnabled,
-                machinesEnabled: machinesEnabled
+                machinesEnabled: machinesEnabled,
+                harborEnabled: harborEnabled
             )
         }
     }
@@ -43,11 +52,17 @@ extension RightSidebarMode {
         isAvailable(
             feedEnabled: RightSidebarBetaFeatureSettings.isFeedEnabled(defaults: defaults),
             dockEnabled: RightSidebarBetaFeatureSettings.isDockEnabled(defaults: defaults),
-            machinesEnabled: CloudMachinesFeature.offMainIsEnabled(defaults: defaults)
+            machinesEnabled: CloudMachinesFeature.offMainIsEnabled(defaults: defaults),
+            harborEnabled: RightSidebarBetaFeatureSettings.isHarborEnabled(defaults: defaults)
         )
     }
 
-    func isAvailable(feedEnabled: Bool, dockEnabled: Bool, machinesEnabled: Bool) -> Bool {
+    func isAvailable(
+        feedEnabled: Bool,
+        dockEnabled: Bool,
+        machinesEnabled: Bool,
+        harborEnabled: Bool
+    ) -> Bool {
         switch self {
         case .files, .find, .sessions:
             return true
@@ -57,6 +72,8 @@ extension RightSidebarMode {
             return dockEnabled
         case .machines:
             return machinesEnabled
+        case .harbor:
+            return harborEnabled
         case .customSidebar:
             return false
         }
