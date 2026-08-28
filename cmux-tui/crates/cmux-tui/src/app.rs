@@ -10371,6 +10371,7 @@ impl App {
             if self.quit {
                 break;
             }
+            // Keep a toast reintroduced by the timeout drain hook alive for one iteration.
             if !toast_expired_on_timeout && self.expire_toast() {
                 action = action.merge(RenderAction::Draw);
             }
