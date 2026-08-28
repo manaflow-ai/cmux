@@ -19,15 +19,21 @@ struct RenderNodeContextMenuOverlay: NSViewRepresentable {
 
     func makeNSView(context: Context) -> RenderNodeContextMenuView {
         let view = RenderNodeContextMenuView()
-        view.nodes = nodes
-        view.dispatch = dispatch
-        handle.view = view
+        apply(to: view, context: context)
         return view
     }
 
     func updateNSView(_ nsView: RenderNodeContextMenuView, context: Context) {
-        nsView.nodes = nodes
-        nsView.dispatch = dispatch
-        handle.view = nsView
+        apply(to: nsView, context: context)
+    }
+
+    private func apply(to view: RenderNodeContextMenuView, context: Context) {
+        view.nodes = nodes
+        view.dispatch = dispatch
+        // `.disabled(true)` on the row or an ancestor reaches the overlay as
+        // the SwiftUI `isEnabled` environment; a disabled row must not offer
+        // its context menu, matching native SwiftUI behavior.
+        view.isMenuEnabled = context.environment.isEnabled
+        handle.view = view
     }
 }
