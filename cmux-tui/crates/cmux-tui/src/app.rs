@@ -30910,8 +30910,22 @@ mod tests {
     #[test]
     fn pointer_routes_projection_rail_padding_to_projection_rail() {
         let rect = Rect { x: 4, y: 0, width: 20, height: 10 };
+        let pane = RenderedPaneRoute {
+            pane: 7,
+            surface: 9,
+            kind: Some(SurfaceKind::Pty),
+            rect,
+            bar: None,
+            omnibar: None,
+            omnibar_source_x: 0,
+            content: Rect { x: 5, y: 1, width: 18, height: 8 },
+            content_source_x: 0,
+            track: None,
+            terminal_input: None,
+        };
         let frame = RenderedPointerFrame {
             projection_rails: vec![(RailKind::Projection(0), rect)].into(),
+            panes: vec![pane].into(),
             ..Default::default()
         };
         let route = frame.route_for_mouse(&MouseEvent {
