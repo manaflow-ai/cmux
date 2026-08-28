@@ -32802,7 +32802,8 @@ export default CMUXSessionRestore;
         let entries = codexLabeledHookTrustEntries(
             hooks: hooks,
             hooksFilePath: hooksFilePath,
-            def: def
+            def: def,
+            includeLegacyOwnedCommands: true
         ).filter {
             $0.eventLabel == "pre_tool_use" || $0.eventLabel == "post_tool_use"
         }.map(\.trustEntry)
