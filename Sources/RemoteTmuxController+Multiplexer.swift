@@ -355,14 +355,19 @@ extension RemoteTmuxController {
             channel.sharedStream = shared
             configureMultiplexChannel(channel, host: host)
             channelsByHostSession[key] = channel
-            createMirrorWorkspace(
+            guard createMirrorWorkspace(
                 host: host,
                 sessionName: sessionView.sessionName,
                 sessionId: sessionView.sessionId,
                 connection: channel,
                 into: manager,
                 select: selectNewlyCreated
-            )
+            ) != nil else {
+                // A finalized window manager admits no workspace; drop the
+                // channel registration so a later reconcile can recreate it.
+                channelsByHostSession.removeValue(forKey: key)
+                continue
+            }
         }
     }
 
