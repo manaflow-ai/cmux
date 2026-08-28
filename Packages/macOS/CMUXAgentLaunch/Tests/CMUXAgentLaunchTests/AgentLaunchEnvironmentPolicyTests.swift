@@ -113,6 +113,30 @@ struct AgentLaunchEnvironmentPolicyTests {
         ])
     }
 
+    @Test("Shell replay retains routed Subrouter inputs without replaying its marker")
+    func shellReplayRetainsRoutedSubrouterInputsWithoutMarker() {
+        let selected = AgentLaunchEnvironmentPolicy().selectedReplayEnvironment(
+            from: [
+                "OPENAI_API_KEY": "secret-should-not-replay",
+                "SUBROUTER_CODEX_ACCOUNT_ID": "team-codex-1",
+                "SUBROUTER_CODEX_BASE_URL": "https://router.example.test/v1",
+                "SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
+                "SUBROUTER_CODEX_SERVER": "team",
+                "SUBROUTER_CODEX_USER_EMAIL": "operator@example.test",
+            ],
+            kind: "codex",
+            launcher: "codex",
+            arguments: ["codex", "-c", "model_provider=subrouter"]
+        )
+
+        #expect(selected == [
+            "SUBROUTER_CODEX_ACCOUNT_ID": "team-codex-1",
+            "SUBROUTER_CODEX_BASE_URL": "https://router.example.test/v1",
+            "SUBROUTER_CODEX_SERVER": "team",
+            "SUBROUTER_CODEX_USER_EMAIL": "operator@example.test",
+        ])
+    }
+
     @Test("Restore records reject unproved or noncanonical Subrouter metadata")
     func restoreRecordsRejectUntrustedSubrouterMetadata() {
         let policy = AgentLaunchEnvironmentPolicy()
