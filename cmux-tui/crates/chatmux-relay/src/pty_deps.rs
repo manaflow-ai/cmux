@@ -208,6 +208,20 @@ pub struct RealPtyDeps {
     shell: String,
 }
 
+struct CancelOnDrop(Arc<std::sync::atomic::AtomicBool>);
+
+impl CancelOnDrop {
+    fn disarm(self) {
+        std::mem::forget(self);
+    }
+}
+
+impl Drop for CancelOnDrop {
+    fn drop(&mut self) {
+        self.0.store(true, std::sync::atomic::Ordering::Release);
+    }
+}
+
 impl RealPtyDeps {
     pub fn new(env: HashMap<String, String>) -> RealPtyDeps {
         // SAFETY: getuid is always safe.
@@ -272,7 +286,10 @@ impl PtyControl for PipeControl {
     }
 }
 
-fn spawn_real_pty(spec: &SpawnSpec) -> anyhow::Result<PtyHandle> {
+fn spawn_real_pty(
+    spec: &SpawnSpec,
+    cancelled: &std::sync::atomic::AtomicBool,
+) -> anyhow::Result<PtyHandle> {
     let pair = cmux_pty::open(PtySize {
         rows: spec.rows,
         cols: spec.cols,
@@ -287,6 +304,14 @@ fn spawn_real_pty(spec: &SpawnSpec) -> anyhow::Result<PtyHandle> {
         command.env(key, value);
     }
     let spawned = pair.spawn(command)?;
+    // `spawn_blocking` cannot be aborted after it starts. If its async
+    // handoff was cancelled while the child was being created, terminate the
+    // child before handing any PTY resources to detached reader threads.
+    if cancelled.load(std::sync::atomic::Ordering::Acquire) {
+        let mut killer = spawned.child.clone_killer();
+        let _ = killer.kill();
+        return Err(anyhow::anyhow!("PTY spawn cancelled"));
+    }
     let reader = spawned.master.try_clone_reader()?;
     let writer = spawned.master.take_writer()?;
     let killer = spawned.child.clone_killer();
@@ -427,12 +452,20 @@ impl PtyDeps for RealPtyDeps {
         // On PTY allocation failure (ptmx exhaustion et al) degrade to a
         // pipe-mode shell so the terminal still functions, with a banner.
         let output = ThreadOutput::new();
-        tokio::task::spawn_blocking(move || match spawn_real_pty(&spec) {
+        let worker_output = Arc::clone(&output);
+        let cancelled = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let cancel_guard = CancelOnDrop(Arc::clone(&cancelled));
+        let result = tokio::task::spawn_blocking(move || match spawn_real_pty(&spec, &cancelled) {
             Ok(handle) => handle,
+            Err(error) if cancelled.load(std::sync::atomic::Ordering::Acquire) => {
+                worker_output.push_exit(1);
+                PtyHandle { control: Arc::new(DeadControl), output: worker_output, banner: None }
+            }
             Err(error) => spawn_pipe_mode(&spec, &error.to_string()),
         })
-        .await
-        .unwrap_or_else(|_| {
+        .await;
+        cancel_guard.disarm();
+        result.unwrap_or_else(|_| {
             output.push_exit(1);
             PtyHandle { control: Arc::new(DeadControl), output, banner: None }
         })
