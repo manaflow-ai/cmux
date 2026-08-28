@@ -8458,7 +8458,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func mouseDragged(with event: NSEvent) {
         if routeInputDuringClipboardRead(event) { return }
-        repairGhosttyMouseButtonsIfNeeded(reason: "mouseDragged")
         guard let surface = surface else { return }
         let mouseState = rememberGhosttyMouseState(from: event)
         let eventPoint = mouseState.localPoint
