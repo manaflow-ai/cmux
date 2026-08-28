@@ -31,6 +31,9 @@ protocol SurfaceProvider: AnyObject {
     func closeRemoteWorkspace(id: String) async throws
     /// Rename a remote workspace.
     func renameRemoteWorkspace(id: String, name: String) async throws
+    /// Rename a remote terminal: set the user label on its daemon tab view(s), which the
+    /// daemon persists and every client shows in place of the PTY title.
+    func renameTerminal(_ id: SurfaceResourceID, name: String) async throws
     /// Close a projection's pane: a materialization that lost a race with an existing
     /// projection, or a URL-backed pane whose machine was unregistered. The default
     /// implementation handles providers that use the shared pane factory; providers may
@@ -52,6 +55,9 @@ extension SurfaceProvider {
     }
     func renameRemoteWorkspace(id: String, name: String) async throws {
         throw SurfaceCatalogError.unsupported("workspaces on \(machine)")
+    }
+    func renameTerminal(_ id: SurfaceResourceID, name: String) async throws {
+        throw SurfaceCatalogError.unsupported("renaming terminals on \(machine)")
     }
     @discardableResult
     func discardMaterialization(_ projection: SurfaceProjection) -> Bool {

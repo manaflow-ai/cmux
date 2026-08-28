@@ -73,6 +73,26 @@ import Testing
         #expect(detached.lifecycle == .running)
     }
 
+    @Test func userTabNameLabelsTheTerminalOverItsPtyTitle() throws {
+        var snapshot = Self.sessionSnapshot
+        snapshot["tabs"] = [
+            ["id": "tab_1", "pane_id": "pane_1", "name": "build loop", "content_kind": "terminal", "content_id": "term_build"],
+            ["id": "tab_2", "pane_id": "pane_2", "name": "", "content_kind": "terminal", "content_id": "term_shell"],
+            ["id": "tab_3", "pane_id": "pane_1", "content_kind": "browser", "content_id": "browser_1"],
+            ["id": "tab_4", "pane_id": "pane_2", "content_kind": "terminal", "content_id": "term_build"],
+        ]
+        let resources = CmuxTuiSnapshotParser.terminals(fromSnapshot: snapshot, machine: Self.machine)
+
+        // `tab rename` (the tree's Rename…, any TUI client) sets the tab's `name`,
+        // which the daemon persists and broadcasts; it beats the PTY-derived title.
+        let build = try #require(resources.first { $0.id.key == "term_build" })
+        #expect(build.title == "build loop")
+
+        // An empty or absent name keeps the PTY title (here: none).
+        let shell = try #require(resources.first { $0.id.key == "term_shell" })
+        #expect(shell.title == "")
+    }
+
     @Test func snapshotBrowsersJoinTheirWorkspaces() throws {
         var snapshot = Self.sessionSnapshot
         snapshot["browsers"] = [
@@ -342,6 +362,8 @@ import Testing
             ["--socket", "/k.sock", "--json", "session", "current", "terminal", "defaults", "set", "--background", "#171b2e"])
         // No colors, no command: pushing an empty defaults update would be a no-op round trip.
         #expect(CloudTuiCommandLine.setDefaultColorsArguments(socketPath: "/k.sock", foreground: nil, background: nil) == nil)
+        #expect(CloudTuiCommandLine.renameTabArguments(socketPath: "/k.sock", tabID: "tab_1", name: "db shell") ==
+            ["--socket", "/k.sock", "--json", "tab", "tab_1", "rename", "--name", "db shell"])
     }
 
     @Test func clientPathsMirrorTheCLI() throws {

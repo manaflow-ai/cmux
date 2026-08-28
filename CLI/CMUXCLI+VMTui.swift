@@ -824,6 +824,7 @@ extension CMUXCLI {
           cmux vm terminal wait <machine> <terminal-id> --pattern <regex> [--timeout <seconds>]
                                                               Block until the screen matches (default 30 s); exit 1 on timeout.
           cmux vm terminal close <machine> <terminal-id>      End a terminal on the machine (the process and its tab).
+          cmux vm terminal rename <machine> <terminal-id> <name>   Rename a terminal (its daemon tab label), for every client.
 
         Terminal ids come from `cmux vm tree`. Add --json for the raw result.
         A typical headless loop: `send … 'bun test' --keys enter`, `wait … --pattern 'pass|fail'`, `read …`.
@@ -916,9 +917,8 @@ extension CMUXCLI {
         }
     }
 
-    /// `cmux vm terminal close|send|read|wait`: the sidebar's × over `vm.terminal_close`,
-    /// plus the headless agent primitives (`vm.terminal_write|read|wait`) that drive a
-    /// machine terminal without projecting a pane.
+    /// `cmux vm terminal close|rename|send|read|wait`: the sidebar's terminal verbs over
+    /// the shared socket methods, plus headless agent primitives that do not project a pane.
     func runVMTerminalCommand(rest: [String], client: SocketClient, jsonOutput: Bool) throws {
         if rest.contains("--help") || rest.contains("-h") || rest.isEmpty {
             print(Self.vmTerminalUsage)
@@ -992,6 +992,17 @@ extension CMUXCLI {
             if !matched {
                 throw CLIError(message: "timed out after \(seconds)s waiting for /\(pattern)/ on \(terminalID) (screen: \(((response["text"] as? String) ?? "").suffix(200)))")
             }
+        case "rename":
+            guard args.count >= 3 else { throw CLIError(message: Self.vmTerminalUsage) }
+            let name = Array(args.dropFirst(2)).joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !name.isEmpty else { throw CLIError(message: Self.vmTerminalUsage) }
+            let response = try client.sendV2(
+                method: "vm.terminal_rename",
+                params: ["id": machine, "terminal_id": terminalID, "name": name],
+                responseTimeout: 120
+            )
+            if jsonOutput { print(jsonString(response)); return }
+            print("OK renamed terminal \(terminalID) to \"\(name)\" on \(machine)")
         default:
             throw CLIError(message: "vm terminal: unknown verb '\(verb)'\n\n\(Self.vmTerminalUsage)")
         }
