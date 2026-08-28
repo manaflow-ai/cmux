@@ -419,6 +419,26 @@ struct AgentResumeArgvTests {
         )
     }
 
+    @Test("Subrouter routing proof survives prompt sanitization")
+    func subrouterRoutingProofSurvivesPromptSanitization() {
+        let router = SubrouterCodexResumeRouting()
+        let marker = ["SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume"]
+
+        #expect(router.retainingRoutingProof(
+            in: ["codex"],
+            from: ["codex", "fix this", "-c", "model_provider=subrouter"],
+            launcher: "codex",
+            environment: marker
+        ) == ["codex", "-c", "model_provider=subrouter"])
+
+        #expect(router.retainingRoutingProof(
+            in: ["codex", "--"],
+            from: ["codex", "fix this", "--", "-c", "model_provider=subrouter"],
+            launcher: "codex",
+            environment: marker
+        ) == ["codex", "--"])
+    }
+
     @Test("Codex wrapper rendering does not rewrite sr's codex subcommand")
     func renderedSubrouterResumeKeepsExplicitLauncher() {
         let quote: (String) -> String = { "'" + $0 + "'" }
