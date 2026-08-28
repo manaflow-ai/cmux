@@ -759,6 +759,7 @@ extension CMUXCLI {
           cmux vm workspace new <machine> [--name <name>]      Create a workspace on the machine (its ⌘N) and open it here.
           cmux vm workspace open <machine> <workspace-id>     Open a machine workspace as a new local workspace, one pane per terminal.
           cmux vm workspace close <machine> <workspace-id>    Close a machine workspace and every terminal in it.
+          cmux vm workspace rename <machine> <workspace-id> --name <name>   Rename a machine workspace, for every client.
 
         Workspace ids come from `cmux vm tree`. Add --json for the raw result.
         """
@@ -766,6 +767,7 @@ extension CMUXCLI {
     static let vmTerminalUsage = """
         Usage:
           cmux vm terminal close <machine> <terminal-id>      End a terminal on the machine (the process and its tab).
+          cmux vm terminal rename <machine> <terminal-id> --name <name>   Rename a terminal (its daemon tab label), for every client.
 
         Terminal ids come from `cmux vm tree`. Add --json for the raw result.
         """
@@ -802,22 +804,39 @@ extension CMUXCLI {
             let response = try client.sendV2(method: "vm.workspace_close", params: ["id": machine, "workspace_id": positional[1]], responseTimeout: 120)
             if jsonOutput { print(jsonString(response)); return }
             print("OK closed workspace \(positional[1]) on \(machine)")
+        case "rename":
+            guard positional.count >= 2, let nameOpt, !nameOpt.isEmpty else { throw CLIError(message: Self.vmWorkspaceUsage) }
+            let response = try client.sendV2(method: "vm.workspace_rename", params: ["id": machine, "workspace_id": positional[1], "name": nameOpt], responseTimeout: 120)
+            if jsonOutput { print(jsonString(response)); return }
+            print("OK renamed workspace \(positional[1]) to \(nameOpt) on \(machine)")
         default:
             throw CLIError(message: "vm workspace: unknown verb '\(verb)'\n\n\(Self.vmWorkspaceUsage)")
         }
     }
 
-    /// `cmux vm terminal close`: the sidebar's × over `vm.terminal_close`.
+    /// `cmux vm terminal close|rename`: the sidebar's verbs over `vm.terminal_close`
+    /// and `vm.terminal_rename`, so a row and an agent cannot disagree.
     func runVMTerminalCommand(rest: [String], client: SocketClient, jsonOutput: Bool) throws {
         if rest.contains("--help") || rest.contains("-h") || rest.isEmpty {
             print(Self.vmTerminalUsage)
             return
         }
-        let positional = rest.filter { !$0.hasPrefix("-") }
-        guard positional.count >= 3, positional[0] == "close" else { throw CLIError(message: Self.vmTerminalUsage) }
-        let response = try client.sendV2(method: "vm.terminal_close", params: ["id": positional[1], "terminal_id": positional[2]], responseTimeout: 120)
-        if jsonOutput { print(jsonString(response)); return }
-        print("OK closed terminal \(positional[2]) on \(positional[1])")
+        let (nameOpt, tail) = parseOption(rest, name: "--name")
+        let positional = tail.filter { !$0.hasPrefix("-") }
+        guard positional.count >= 3 else { throw CLIError(message: Self.vmTerminalUsage) }
+        switch positional[0] {
+        case "close":
+            let response = try client.sendV2(method: "vm.terminal_close", params: ["id": positional[1], "terminal_id": positional[2]], responseTimeout: 120)
+            if jsonOutput { print(jsonString(response)); return }
+            print("OK closed terminal \(positional[2]) on \(positional[1])")
+        case "rename":
+            guard let nameOpt, !nameOpt.isEmpty else { throw CLIError(message: Self.vmTerminalUsage) }
+            let response = try client.sendV2(method: "vm.terminal_rename", params: ["id": positional[1], "terminal_id": positional[2], "name": nameOpt], responseTimeout: 120)
+            if jsonOutput { print(jsonString(response)); return }
+            print("OK renamed terminal \(positional[2]) to \(nameOpt) on \(positional[1])")
+        default:
+            throw CLIError(message: Self.vmTerminalUsage)
+        }
     }
 
     func runVMTreeCommand(rest: [String], client: SocketClient, jsonOutput: Bool) throws {

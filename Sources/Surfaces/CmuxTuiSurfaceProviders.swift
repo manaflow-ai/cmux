@@ -411,6 +411,30 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         scheduleRefresh()
     }
 
+    /// `tab <id> rename --name <name>` on every view of the terminal. The name lives on
+    /// the daemon's tabs (persisted in its registry, broadcast to every client, shown in
+    /// the TUI tab bar), and the tree prefers it over the PTY title. A zero-view terminal
+    /// has no tab to carry a name.
+    func renameTerminal(_ id: SurfaceResourceID, name: String) async throws {
+        let connected = try await links.connected(machineID: machineID)
+        guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
+        let resource = catalog.snapshot.resources(on: machine).first { $0.id == id }
+        var tabIDs = resource?.remoteViews?.map(\.tabID) ?? []
+        if tabIDs.isEmpty, let fallback = tabByTerminal[id.key] { tabIDs = [fallback] }
+        guard !tabIDs.isEmpty else {
+            throw SurfaceCatalogError.unsupported("renaming a terminal with no view (\(id.key))")
+        }
+        for tabID in tabIDs {
+            _ = try await link.run(arguments: CloudTuiCommandLine.renameTabArguments(socketPath: connected.socketPath, tabID: tabID, name: name))
+        }
+        // Optimistic: show the new name now; the next snapshot re-sync is authoritative.
+        if var renamed = resource {
+            renamed.title = name
+            catalog.upsert(renamed)
+        }
+        scheduleRefresh()
+    }
+
     /// The terminal lives in the machine's session; only the local pane went away.
     func projectionDidEnd(_ projection: SurfaceProjection) {
         materializedPanels.remove(projection.panelID)

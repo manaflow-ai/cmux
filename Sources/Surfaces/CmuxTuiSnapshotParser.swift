@@ -7,8 +7,10 @@ import Foundation
 /// Snapshot keys (cmux-tui `crates/cmux-tui-core/src/resource_api.rs`,
 /// `public_session_snapshot_with_journal_head` / `public_terminal_snapshot`):
 /// `workspaces[{id,name,focused}]`, `screens[{id,workspace_id}]`, `panes[{id,screen_id}]`,
-/// `tabs[{id,pane_id,content_kind,content_id}]`,
+/// `tabs[{id,pane_id,name,content_kind,content_id}]`,
 /// `terminals[{id,tab_id,title,cwd?,lifecycle}]`, `agents[{terminal_id,state,source}]`.
+/// A tab's `name` is the user-set label (`tab.rename`, persisted in the daemon's
+/// registry); the terminal's `title` is PTY-derived. A named view wins over the title.
 struct CmuxTuiSnapshotParser: Sendable {
     /// Terminal resources in the daemon's workspace order, each carrying every view of it
     /// (`tab_ids` joined through tabs → panes → screens → workspaces). A terminal with no
@@ -34,9 +36,14 @@ struct CmuxTuiSnapshotParser: Sendable {
             }
         }
         var paneOfTab: [String: String] = [:]
+        var nameOfTab: [String: String] = [:]
         for tab in tabsRaw {
-            if let id = tab["id"] as? String, let paneID = tab["pane_id"] as? String {
+            guard let id = tab["id"] as? String else { continue }
+            if let paneID = tab["pane_id"] as? String {
                 paneOfTab[id] = paneID
+            }
+            if let name = tab["name"] as? String, !name.isEmpty {
+                nameOfTab[id] = name
             }
         }
         var agentByTerminal: [String: SurfaceAgentBadge] = [:]
@@ -61,6 +68,11 @@ struct CmuxTuiSnapshotParser: Sendable {
             // so it is not a surface. An exited terminal that still has a tab stays listed —
             // that one can be closed.
             if terminal.lifecycle == .exited, tabIDs.isEmpty { continue }
+            // A user-named view labels the terminal everywhere it shows; the PTY title
+            // is the fallback (first named tab in the daemon's canonical order).
+            if let name = tabIDs.compactMap({ nameOfTab[$0] }).first {
+                terminal.title = name
+            }
             terminal.remoteViews = tabIDs.compactMap { tabID in
                 guard let paneID = paneOfTab[tabID],
                       let screenID = screenOfPane[paneID],

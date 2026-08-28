@@ -65,6 +65,13 @@ struct CloudTuiCommandLine: Sendable {
         ["--socket", socketPath, "--json", "workspace", workspaceID, "rename", "--name", name]
     }
 
+    /// `tab <tab_id> rename --name <name>`: set the user label on one view of a
+    /// terminal (spec `tab.rename`). The daemon persists it in its registry and
+    /// broadcasts `tab-renamed`, so every attached client sees it.
+    static func renameTabArguments(socketPath: String, tabID: String, name: String) -> [String] {
+        ["--socket", socketPath, "--json", "tab", tabID, "rename", "--name", name]
+    }
+
     /// `attach --terminal <term_id>`: render exactly one remote terminal into this tty.
     static func attachArguments(socketPath: String, terminalID: String) -> [String] {
         ["--socket", socketPath, "attach", "--terminal", terminalID]

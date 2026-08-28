@@ -30,6 +30,9 @@ struct CloudTreeNodeActions {
     let deleteWorkspace: @MainActor (_ machine: SurfaceMachineID, _ workspace: SurfaceRemoteWorkspace) -> Void
     /// Rename a remote workspace via a text prompt.
     let renameWorkspace: @MainActor (_ machine: SurfaceMachineID, _ workspace: SurfaceRemoteWorkspace) -> Void
+    /// Rename a remote terminal via a text prompt (sets its daemon tab name; the PTY
+    /// title stays the fallback for unnamed terminals).
+    let renameTerminal: @MainActor (_ resource: SurfaceResource) -> Void
     /// Select a local workspace.
     let selectLocalWorkspace: @MainActor (_ workspaceID: UUID) -> Void
     let copyToPasteboard: @MainActor (_ text: String) -> Void
@@ -179,6 +182,17 @@ struct CloudTreeNodeActions {
                 run(String(format: String(localized: "cloudTree.operation.renameWorkspace", defaultValue: "Renaming %@\u{2026}"), workspace.name)) { catalog in
                     guard let provider = catalog.provider(for: machine) else { throw SurfaceCatalogError.noProvider(machine) }
                     try await provider.renameRemoteWorkspace(id: workspace.id, name: name)
+                }
+            },
+            renameTerminal: { resource in
+                let current = resource.title.isEmpty ? resource.id.key : resource.title
+                guard let name = promptForName(
+                    title: String(format: String(localized: "cloudTree.renameTerminal.title", defaultValue: "Rename \u{201C}%@\u{201D}"), current),
+                    current: resource.title
+                ), name != resource.title else { return }
+                run(String(format: String(localized: "cloudTree.operation.renameTerminal", defaultValue: "Renaming %@\u{2026}"), current)) { catalog in
+                    guard let provider = catalog.provider(for: resource.machine) else { throw SurfaceCatalogError.noProvider(resource.machine) }
+                    try await provider.renameTerminal(resource.id, name: name)
                 }
             },
             selectLocalWorkspace: selectLocalWorkspace,

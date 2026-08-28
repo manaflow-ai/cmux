@@ -318,6 +318,49 @@ extension TerminalController {
         }
     }
 
+    /// `vm.workspace_rename {id, workspace_id, name}` → renames the cmux-tui workspace on
+    /// the machine (persisted by its daemon, broadcast to every client). The tree's
+    /// "Rename…" runs the same provider path.
+    nonisolated func socketWorkerVMWorkspaceRenameResponse(id: Any?, params: [String: Any]) -> String {
+        guard let vmId = Self.surfaceString(params["id"]), !vmId.isEmpty,
+              let remoteWorkspaceID = Self.surfaceString(params["workspace_id"]), !remoteWorkspaceID.isEmpty else {
+            return v2Error(id: id, code: "invalid_params", message: "vm.workspace_rename requires `id` and `workspace_id`.")
+        }
+        guard let name = Self.surfaceString(params["name"])?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty else {
+            return v2Error(id: id, code: "invalid_params", message: "vm.workspace_rename requires a non-empty `name`.")
+        }
+        return v2VmCall(id: id, timeoutSeconds: 120) {
+            let machine = SurfaceMachineID.cloud(vmId)
+            let catalog = await SurfaceCatalog.shared
+            guard let provider = try await Self.surfaceProvider(for: machine, catalog: catalog) else {
+                throw SurfaceCatalogError.noProvider(machine)
+            }
+            try await provider.renameRemoteWorkspace(id: remoteWorkspaceID, name: name)
+            return ["machine": machine.rawValue, "remote_workspace_id": remoteWorkspaceID, "name": name, "renamed": true]
+        }
+    }
+
+    /// `vm.terminal_rename {id, terminal_id, name}` → names the terminal's daemon tab
+    /// view(s) on the machine; every client shows it in place of the PTY title.
+    nonisolated func socketWorkerVMTerminalRenameResponse(id: Any?, params: [String: Any]) -> String {
+        guard let vmId = Self.surfaceString(params["id"]), !vmId.isEmpty,
+              let terminalID = Self.surfaceString(params["terminal_id"]), !terminalID.isEmpty else {
+            return v2Error(id: id, code: "invalid_params", message: "vm.terminal_rename requires `id` and `terminal_id`.")
+        }
+        guard let name = Self.surfaceString(params["name"])?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty else {
+            return v2Error(id: id, code: "invalid_params", message: "vm.terminal_rename requires a non-empty `name`.")
+        }
+        return v2VmCall(id: id, timeoutSeconds: 120) {
+            let machine = SurfaceMachineID.cloud(vmId)
+            let catalog = await SurfaceCatalog.shared
+            guard let provider = try await Self.surfaceProvider(for: machine, catalog: catalog) else {
+                throw SurfaceCatalogError.noProvider(machine)
+            }
+            try await provider.renameTerminal(SurfaceResourceID(machine: machine, kind: .terminal, key: terminalID), name: name)
+            return ["machine": machine.rawValue, "terminal_id": terminalID, "name": name, "renamed": true]
+        }
+    }
+
     /// `vm.terminal_close {id, terminal_id}` → ends that terminal on the machine.
     nonisolated func socketWorkerVMTerminalCloseResponse(id: Any?, params: [String: Any]) -> String {
         guard let vmId = Self.surfaceString(params["id"]), !vmId.isEmpty,

@@ -334,8 +334,12 @@ extension TerminalController {
             return socketWorkerVMWorkspaceOpenResponse(id: id, params: params)
         case "vm.workspace_close":
             return socketWorkerVMWorkspaceCloseResponse(id: id, params: params)
+        case "vm.workspace_rename":
+            return socketWorkerVMWorkspaceRenameResponse(id: id, params: params)
         case "vm.terminal_close":
             return socketWorkerVMTerminalCloseResponse(id: id, params: params)
+        case "vm.terminal_rename":
+            return socketWorkerVMTerminalRenameResponse(id: id, params: params)
         default:
             return v2Error(id: id, code: "method_not_found", message: "Unknown method")
         }
