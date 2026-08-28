@@ -58,39 +58,63 @@ function resolveExecutable(name: string): string {
   for (const dir of pathEnv.split(path.delimiter)) {
     if (!dir) continue;
     const candidate = path.join(dir, name);
-    try {
-      fs.accessSync(candidate, fs.constants.X_OK);
+    if (isExecutableFile(candidate)) {
       return candidate;
-    } catch (_) {}
+    }
   }
   return name;
 }
 
+function hasCmuxTarget(): boolean {
+  return Boolean(process.env.CMUX_SURFACE_ID || process.env.CMUX_WORKSPACE_ID);
+}
+
+function isExecutableFile(candidate: string): boolean {
+  try {
+    if (!fs.statSync(candidate).isFile()) return false;
+    fs.accessSync(candidate, fs.constants.X_OK);
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
 function cmuxBin(): string {
   const override = firstString(process.env.CMUX_AMP_CMUX_BIN);
-  if (override) return override;
-  const bundled = firstString(process.env.CMUX_BUNDLED_CLI_PATH);
-  if (bundled) {
-    try {
-      fs.accessSync(bundled, fs.constants.X_OK);
-      return bundled;
-    } catch (_) {}
+  if (override) {
+    if (isExecutableFile(override)) return override;
+    // Preserve command-name overrides (for example `cmux`) by resolving them
+    // through PATH, while still rejecting invalid directory/path overrides.
+    if (!override.includes("/") && !override.includes("\\")) {
+      const resolved = resolveExecutable(override);
+      if (resolved !== override) return resolved;
+    }
   }
+  const bundled = firstString(process.env.CMUX_BUNDLED_CLI_PATH);
+  if (bundled && isExecutableFile(bundled)) return bundled;
   return resolveExecutable("cmux");
 }
 
 function looksLikeAmpExecutable(value: string): boolean {
-  return path.basename(value).toLowerCase() === "amp";
+  return path.basename(value.replaceAll("\\", "/")).toLowerCase() === "amp";
 }
 
 function looksLikeAmpScript(value: string): boolean {
   const normalized = value.replaceAll("\\", "/");
-  const base = path.basename(normalized).toLowerCase();
-  return normalized.includes("/@ampcode/") || (base === "cli.js" && normalized.includes("amp"));
+  const segments = normalized.split("/").filter(Boolean).map((segment) => segment.toLowerCase());
+  return segments.some((segment, index) => {
+    if (segments[index + 1] === "amp"
+      && (segment === "@ampcode" || segment === "@sourcegraph")) {
+      return true;
+    }
+    return segment === "@ampcode"
+      && segments[index + 1] === "cli"
+      && segments[index + 2] === "cli-wrapper.cjs";
+  });
 }
 
 function looksLikeJavaScriptRuntime(value: string): boolean {
-  const base = path.basename(value).toLowerCase();
+  const base = path.basename(value.replaceAll("\\", "/")).toLowerCase();
   return base === "node" || base === "bun" || base === "deno" || base === "tsx" || base === "ts-node";
 }
 
@@ -98,10 +122,16 @@ function normalizedLaunchArgv(): string[] {
   const raw = Array.isArray(process.argv) ? process.argv.map((value) => String(value)) : [];
   if (raw.length === 0) return [resolveExecutable("amp")];
   if (looksLikeAmpExecutable(raw[0])) return raw;
-  if (raw.length > 1 && (looksLikeAmpScript(raw[1]) || looksLikeJavaScriptRuntime(raw[0]))) {
+  if (looksLikeAmpScript(raw[0])) {
+    return [resolveExecutable("amp"), ...raw.slice(1)];
+  }
+  if (raw.length > 1 && looksLikeJavaScriptRuntime(raw[0])) {
+    if (!looksLikeAmpScript(raw[1])) return raw;
     return [resolveExecutable("amp"), ...raw.slice(2)];
   }
-  return [resolveExecutable("amp"), ...raw.slice(1)];
+  // An unrecognized argv is more trustworthy than a path heuristic. Preserve
+  // it verbatim so custom launchers and their arguments remain restorable.
+  return raw;
 }
 
 function base64NulSeparated(values: string[]): string {
@@ -144,7 +174,7 @@ function sendHook(
   extra: Record<string, unknown> = {},
 ): void {
   if (process.env.CMUX_AMP_HOOKS_DISABLED === "1") return;
-  if (!process.env.CMUX_SURFACE_ID || !sessionId) return;
+  if (!hasCmuxTarget() || !sessionId) return;
   const payload: Record<string, unknown> = {
     session_id: sessionId,
     cwd,
@@ -192,7 +222,7 @@ function workspaceArgs(): string[] {
 }
 
 function runCmux(args: string[]): void {
-  if (process.env.CMUX_AMP_HOOKS_DISABLED === "1" || !process.env.CMUX_SURFACE_ID) return;
+  if (process.env.CMUX_AMP_HOOKS_DISABLED === "1" || !hasCmuxTarget()) return;
   const env: NodeJS.ProcessEnv = { ...process.env };
   delete env.AMP_API_KEY;
   try {

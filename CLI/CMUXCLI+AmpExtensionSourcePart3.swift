@@ -9,12 +9,16 @@ extension CMUXCLI {
     for (const subscription of stateSubscriptions.values()) {
       try { subscription.unsubscribe?.(); } catch (_) {}
     }
+    for (const subscription of resumableStateSubscriptions.values()) {
+      try { subscription.unsubscribe?.(); } catch (_) {}
+    }
   });
 
   amp.on("session.start", async (event: SessionStartEvent, ctx) => {
     const sessionId = threadIdFrom(event, ctx);
     if (!sessionId) return;
     const lifecycle = lifecycleFor(sessionId);
+    if (!lifecycle) return;
     lifecycle.presentation = PRESENTATION.idle;
     const thread = threadFrom(event, ctx);
     watchThreadTitle(sessionId, thread);
@@ -29,6 +33,7 @@ extension CMUXCLI {
     const sessionId = threadIdFrom(event, ctx);
     if (!sessionId) return;
     const lifecycle = lifecycleFor(sessionId);
+    if (!lifecycle) return;
     lifecycle.observationVersion += 1;
     lifecycle.turnStateStartVersion = lifecycle.observationVersion;
     lifecycle.authoritativeState = "running";
@@ -55,7 +60,7 @@ extension CMUXCLI {
     const sessionId = firstString(event.thread?.id);
     if (sessionId) {
       const lifecycle = lifecycleFor(sessionId);
-      if (lifecycle.authoritativeState === "running") {
+      if (lifecycle?.authoritativeState === "running") {
         lifecycle.inFlightTools += 1;
         const { label, icon } = detailedToolStatus(event, helpers);
         updateThreadPresentation(sessionId, { label, icon, color: COLOR.active });
@@ -71,6 +76,7 @@ extension CMUXCLI {
     const sessionId = firstString(event.thread?.id);
     if (!sessionId) return;
     const lifecycle = lifecycleFor(sessionId);
+    if (!lifecycle) return;
     if (lifecycle.authoritativeState !== "running") return;
     lifecycle.inFlightTools = Math.max(0, lifecycle.inFlightTools - 1);
     if (lifecycle.inFlightTools === 0) {
@@ -82,6 +88,7 @@ extension CMUXCLI {
     const sessionId = threadIdFrom(event, ctx);
     if (!sessionId) return;
     const lifecycle = lifecycleFor(sessionId);
+    if (!lifecycle) return;
     lifecycle.inFlightTools = 0;
     lifecycle.pendingTurn = {
       outcome: normalizedTurnOutcome(event.status),
