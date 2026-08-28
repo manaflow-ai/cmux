@@ -25,6 +25,7 @@ use std::io::{BufRead, Write};
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, SyncSender};
+use std::time::Duration;
 
 use base64::Engine as _;
 use cmux_tui_core::SurfaceId;
@@ -46,6 +47,7 @@ const EVENT_QUEUE_CAPACITY: usize = 4096;
 /// reset plus erase-scrollback, so the replacement replay does not stack on
 /// top of the embedder's previous terminal state.
 const REPLAY_RESET: &[u8] = b"\x1bc\x1b[3J";
+const DAEMON_LOSS_PROBE_TIMEOUT: Duration = Duration::from_millis(500);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PipeIoExitReason {
@@ -161,10 +163,10 @@ fn classify_daemon_loss(
     terminal: &TerminalPublicId,
 ) -> PipeIoExitReason {
     let terminal_still_exists =
-        remote.refresh_tree().ok().map(|tree| tree.resolve_terminal(terminal).is_some()).or_else(
+        remote.refresh_tree_with_timeout(DAEMON_LOSS_PROBE_TIMEOUT).ok().map(|tree| tree.resolve_terminal(terminal).is_some()).or_else(
             || {
                 let probe = RemoteSession::connect_for_terminal_attach(socket_path).ok()?;
-                let tree = probe.refresh_tree().ok()?;
+                let tree = probe.refresh_tree_with_timeout(DAEMON_LOSS_PROBE_TIMEOUT).ok()?;
                 Some(tree.resolve_terminal(terminal).is_some())
             },
         );

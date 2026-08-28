@@ -3414,11 +3414,25 @@ impl RemoteSession {
         self.refresh_tree_inner(true)
     }
 
+    /// Refresh the workspace tree with a bounded request deadline. Used by
+    /// reconnect classification, where a stale daemon must not hold the relay.
+    pub fn refresh_tree_with_timeout(&self, timeout: Duration) -> anyhow::Result<TreeView> {
+        self.refresh_tree_inner_with_deadline(true, RequestDeadline::Fixed(timeout))
+    }
+
     pub fn refresh_tree_background(&self) -> anyhow::Result<TreeView> {
         self.refresh_tree_inner(false)
     }
 
     fn refresh_tree_inner(&self, identity_refresh: bool) -> anyhow::Result<TreeView> {
+        self.refresh_tree_inner_with_deadline(identity_refresh, RequestDeadline::Standard)
+    }
+
+    fn refresh_tree_inner_with_deadline(
+        &self,
+        identity_refresh: bool,
+        deadline: RequestDeadline,
+    ) -> anyhow::Result<TreeView> {
         let _refresh = self.tree_refresh.lock().unwrap();
         if identity_refresh {
             self.tree_stale.store(false, Ordering::Release);
@@ -3427,7 +3441,7 @@ impl RemoteSession {
             let cache = self.tree.lock().unwrap();
             (cache.title_generation(), cache.agent_generation())
         };
-        let data = match self.request(json!({"cmd": "list-workspaces"})) {
+        let data = match self.request_with_deadline(json!({"cmd": "list-workspaces"}), deadline) {
             Ok(data) => data,
             Err(e) => {
                 if identity_refresh {
@@ -3438,7 +3452,7 @@ impl RemoteSession {
             }
         };
         let agents = self
-            .request(json!({"cmd": "list-agents"}))
+            .request_with_deadline(json!({"cmd": "list-agents"}), deadline)
             .ok()
             .and_then(|data| {
                 data.get("agents")
