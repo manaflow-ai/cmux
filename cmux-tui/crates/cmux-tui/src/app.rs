@@ -5916,8 +5916,9 @@ impl RenderedPointerFrame {
                 };
             }
         }
+        let pane_content_owns_cell = self.panes.iter().any(|pane| pane.content.contains(x, y));
         for (kind, rect) in self.projection_rails.iter().copied() {
-            if rect.contains(x, y) {
+            if !pane_content_owns_cell && rect.contains(x, y) {
                 return PointerRouteIdentity::Rail {
                     kind,
                     rect,
@@ -30928,13 +30929,26 @@ mod tests {
             panes: vec![pane].into(),
             ..Default::default()
         };
-        let route = frame.route_for_mouse(&MouseEvent {
+        let padding_route = frame.route_for_mouse(&MouseEvent {
             kind: MouseEventKind::Down(MouseButton::Left),
             column: rect.x + rect.width - 1,
             row: rect.y + rect.height - 1,
             modifiers: KeyModifiers::NONE,
         });
-        assert!(matches!(route, PointerRouteIdentity::Rail { kind: RailKind::Projection(0), .. }));
+        assert!(matches!(
+            padding_route,
+            PointerRouteIdentity::Rail { kind: RailKind::Projection(0), .. }
+        ));
+
+        let content_route = frame.route_for_mouse(&MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: pane.content.x,
+            row: pane.content.y,
+            modifiers: KeyModifiers::NONE,
+        });
+        assert!(
+            matches!(content_route, PointerRouteIdentity::Pane { pane: routed, .. } if routed == pane)
+        );
     }
 
     #[test]
