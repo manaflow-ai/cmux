@@ -122,6 +122,11 @@ pub(crate) struct SessionMessages {
     mux_subscription_recovery_failed: &'static str,
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct PluginMessages {
+    pub operation_failed: &'static str,
+}
+
 impl SessionMessages {
     pub(crate) fn mux_subscription_recovery_failed(&self, error: &str) -> String {
         self.mux_subscription_recovery_failed.replace("{error}", error)
@@ -1096,6 +1101,7 @@ pub(crate) struct Catalog {
     pub graphics: GraphicsMessages,
     pub terminal: TerminalMessages,
     pub session: SessionMessages,
+    pub plugin: PluginMessages,
     pub session_reset: SessionResetMessages,
     pub machine_agent: MachineAgentMessages,
     pub menu: MenuMessages,
@@ -1235,6 +1241,7 @@ static ENGLISH: Catalog = Catalog {
         mux_subscription_recovered: "Mux event backlog overflowed; subscription recovered",
         mux_subscription_recovery_failed: "Mux event backlog recovery failed; queued input was discarded while retrying: {error}",
     },
+    plugin: PluginMessages { operation_failed: "Plugin operation failed; retry the command" },
     session_reset: SessionResetMessages {
         help: "  cmux session <name> reset-state [--force --confirm-reset <token>] [--state <path>]\n    Preview or confirm a scoped saved-state reset",
         exact_name_required: "session reset-state requires an exact session name",
@@ -1880,6 +1887,9 @@ static JAPANESE: Catalog = Catalog {
         operation_canceled: "セッション操作はキャンセルされました",
         mux_subscription_recovered: "Mux イベントの滞留が上限を超えました。購読を復旧しました",
         mux_subscription_recovery_failed: "Mux イベントの滞留から復旧できませんでした。再試行中のキュー入力を破棄しました: {error}",
+    },
+    plugin: PluginMessages {
+        operation_failed: "プラグイン操作に失敗しました。コマンドを再試行してください",
     },
     session_reset: SessionResetMessages {
         help: "  cmux session <name> reset-state [--force --confirm-reset <token>] [--state <path>]\n    スコープ付き保存状態のリセットをプレビューまたは確認実行",
