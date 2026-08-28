@@ -35,6 +35,7 @@ import {
   vmRequiresProResponse,
 } from "../../../../services/vms/routeHelpers";
 import { VmTimingRecorder } from "../../../../services/vms/timings";
+import { oversizedBodyResponse, readBoundedBodyText } from "../../../../services/vms/routeInput";
 import {
   openBaseVm,
   resetBaseVm,
@@ -97,12 +98,7 @@ export async function runBaseRoute(input: {
         action: described.action,
         reason: "Cloud VM image configuration is unavailable.",
         details: described.details,
-        diagnostics: {
-          provider,
-          image: err.image,
-          envVar: err.envVar,
-          configReason: err.reason,
-        },
+        diagnostics: described.operator,
         phase: "create",
         retryable: true,
       });
@@ -211,7 +207,17 @@ async function parseBaseRequest(
   | { readonly ok: false; readonly response: Response }
 > {
   let raw: unknown = {};
-  const rawText = await request.text();
+  const bounded = await readBoundedBodyText(request);
+  if (!bounded.ok) {
+    return {
+      ok: false,
+      response: oversizedBodyResponse({
+        operation: `Base ${operation}`,
+        action: "Send a smaller JSON object or omit the body.",
+      }),
+    };
+  }
+  const rawText = bounded.text;
   if (rawText.length > 0) {
     try {
       raw = JSON.parse(rawText) as unknown;

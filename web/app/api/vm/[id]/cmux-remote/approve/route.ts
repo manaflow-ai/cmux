@@ -26,7 +26,12 @@ export async function POST(
     "/api/vm/[id]/cmux-remote/approve failed",
     async ({ user, span }) => {
       const { id } = await params;
-      const body = await parseLenientObjectBody(request);
+      const parsedBody = await parseLenientObjectBody(request, {
+        operation: "cmux-remote approval",
+        action: "Send a small JSON object containing invitationId.",
+      });
+      if (!parsedBody.ok) return parsedBody.response;
+      const body = parsedBody.body;
       const raw = body.invitationId ?? body.invitation_id;
       const invitationId = typeof raw === "string" ? raw.trim() : "";
       if (!/^[A-Za-z0-9._-]{1,128}$/.test(invitationId)) {

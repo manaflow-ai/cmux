@@ -60,7 +60,12 @@ export async function POST(
     "/api/vm/[id]/sessions failed",
     async ({ user, span }) => {
       const { id } = await params;
-      const body = await parseLenientObjectBody(request);
+      const parsedBody = await parseLenientObjectBody(request, {
+        operation: "session",
+        action: "Send a small JSON object with the documented session fields.",
+      });
+      if (!parsedBody.ok) return parsedBody.response;
+      const body = parsedBody.body;
       let sessionId: string | undefined;
       let attachmentId: string | undefined;
       try {

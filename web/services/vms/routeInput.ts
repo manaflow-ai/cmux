@@ -14,12 +14,59 @@ export type ObjectBodyOptions = {
   readonly action: string;
 };
 
+/** Maximum bytes read from any JSON object body before parsing it. */
+export const MAX_OBJECT_BODY_BYTES = 64 * 1024;
+
+type BoundedBodyText =
+  | { readonly ok: true; readonly text: string }
+  | { readonly ok: false };
+
+/**
+ * Read a request body with a hard byte bound. Content-Length is only an early
+ * rejection hint. The stream is still counted because chunked requests can
+ * omit it or lie about it.
+ */
+export async function readBoundedBodyText(request: Request): Promise<BoundedBodyText> {
+  const declaredLength = request.headers.get("content-length")?.trim();
+  if (declaredLength && /^\d+$/.test(declaredLength) && Number(declaredLength) > MAX_OBJECT_BODY_BYTES) {
+    return { ok: false };
+  }
+  const body = request.body;
+  if (!body) return { ok: true, text: "" };
+
+  const reader = body.getReader();
+  const bytes = new Uint8Array(MAX_OBJECT_BODY_BYTES);
+  let total = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (!value || value.byteLength === 0) continue;
+    const next = total + value.byteLength;
+    if (next > MAX_OBJECT_BODY_BYTES) {
+      // A client can close the stream while we reject it. Preserve the
+      // deterministic 413 response even when cancellation reports that race.
+      try {
+        await reader.cancel();
+      } catch {
+        // The body is already over the hard limit. There is no useful
+        // recovery action for a cancellation failure.
+      }
+      return { ok: false };
+    }
+    bytes.set(value, total);
+    total = next;
+  }
+  return { ok: true, text: new TextDecoder().decode(bytes.subarray(0, total)) };
+}
+
 /** Parse an optional JSON object body. An empty body is the same as `{}`. */
 export async function parseOptionalObjectBody(
   request: Request,
   options: ObjectBodyOptions,
 ): Promise<ParsedOptionalObjectBody> {
-  const raw = await request.text();
+  const body = await readBoundedBodyText(request);
+  if (!body.ok) return { ok: false, response: oversizedBodyResponse(options) };
+  const raw = body.text;
   if (!raw.trim()) return { ok: true, body: {} };
 
   const parsed = parseJson(raw);
@@ -35,7 +82,9 @@ export async function parseRequiredObjectBody(
   request: Request,
   options: ObjectBodyOptions,
 ): Promise<ParsedRequiredObjectBody> {
-  const raw = await request.text();
+  const body = await readBoundedBodyText(request);
+  if (!body.ok) return { ok: false, response: oversizedBodyResponse(options) };
+  const raw = body.text;
   if (!raw.trim()) return { ok: true, body: null };
 
   const parsed = parseJson(raw);
@@ -47,12 +96,18 @@ export async function parseRequiredObjectBody(
 }
 
 /** Parse a best-effort JSON object body used by legacy attach/session endpoints. */
-export async function parseLenientObjectBody(request: Request): Promise<Record<string, unknown>> {
+export async function parseLenientObjectBody(
+  request: Request,
+  options: ObjectBodyOptions,
+): Promise<ParsedOptionalObjectBody> {
+  const body = await readBoundedBodyText(request);
+  if (!body.ok) return { ok: false, response: oversizedBodyResponse(options) };
+  if (!body.text.trim()) return { ok: true, body: {} };
   try {
-    const body = await request.json();
-    return isObjectRecord(body) ? body : {};
+    const parsed = JSON.parse(body.text) as unknown;
+    return { ok: true, body: isObjectRecord(parsed) ? parsed : {} };
   } catch {
-    return {};
+    return { ok: true, body: {} };
   }
 }
 
@@ -140,6 +195,15 @@ function expectedObjectResponse(options: ObjectBodyOptions): Response {
     error: "vm_expected_object",
     status: 400,
     message: `Cloud VM ${options.operation} expected a JSON object body.`,
+    action: options.action,
+  });
+}
+
+export function oversizedBodyResponse(options: ObjectBodyOptions): Response {
+  return vmErrorResponse({
+    error: "vm_request_body_too_large",
+    status: 413,
+    message: `Cloud VM ${options.operation} request body exceeds ${MAX_OBJECT_BODY_BYTES} bytes.`,
     action: options.action,
   });
 }
