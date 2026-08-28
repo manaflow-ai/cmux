@@ -482,7 +482,7 @@ import Testing
         controller.moveExistingMirrors(for: host, into: targetManager)
 
         #expect(Set(targetManager.tabs.map(\.id)) == Set([oneWorkspace.id, twoWorkspace.id]))
-        #expect(targetManager.tabs.allSatisfy(\.isRemoteTmuxMirror))
+        #expect(targetManager.tabs.allSatisfy { $0.isRemoteTmuxMirror })
         #expect(sourceManagerA.tabs.allSatisfy { !$0.isRemoteTmuxMirror })
         #expect(sourceManagerB.tabs.allSatisfy { !$0.isRemoteTmuxMirror })
         #expect(one.exited == false)
