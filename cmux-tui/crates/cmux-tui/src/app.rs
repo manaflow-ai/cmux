@@ -14532,11 +14532,7 @@ impl App {
             if let TerminalInput::Mouse(mouse) = input
                 && !pointer_has_capture
             {
-                let rendered_route = if Self::mouse_opens_cmux_context_menu(mouse) {
-                    self.rendered_pointer_frame.route_for_mouse(mouse).normalized_for_cmux_menu()
-                } else {
-                    self.rendered_pointer_frame.route_for_mouse(mouse)
-                };
+                let rendered_route = self.rendered_pointer_route_for_mouse(mouse);
                 let replayed_route_changed = replay_context
                     .as_ref()
                     .and_then(|context| context.pointer.as_ref())
@@ -15727,16 +15723,8 @@ impl App {
             Some(DeferredPointerInput {
                 focus_generation: self.pointer_focus_generation,
                 pointer_map_generation: self.rendered_pointer_frame.pointer_map_generation,
-                route: Self::mouse_requires_rendered_route(mouse.kind).then(|| {
-                    let route = self.rendered_pointer_frame.route_for_mouse(mouse);
-                    if Self::mouse_opens_cmux_context_menu(mouse) {
-                        // The menu press never enters the pane's application;
-                        // async output must not change its recorded route.
-                        route.normalized_for_cmux_menu()
-                    } else {
-                        route
-                    }
-                }),
+                route: Self::mouse_requires_rendered_route(mouse.kind)
+                    .then(|| self.rendered_pointer_route_for_mouse(mouse)),
             })
         } else {
             None
@@ -15914,6 +15902,17 @@ impl App {
     fn mouse_opens_cmux_context_menu(mouse: &MouseEvent) -> bool {
         mouse.kind == MouseEventKind::Down(MouseButton::Right)
             && mouse.modifiers.contains(KeyModifiers::SHIFT)
+    }
+
+    fn rendered_pointer_route_for_mouse(&self, mouse: &MouseEvent) -> PointerRouteIdentity {
+        let route = self.rendered_pointer_frame.route_for_mouse(mouse);
+        if Self::mouse_opens_cmux_context_menu(mouse) {
+            // The menu press never enters the pane's application; async output
+            // must not change its recorded route.
+            route.normalized_for_cmux_menu()
+        } else {
+            route
+        }
     }
 
     fn pointer_has_capture(&self, kind: MouseEventKind) -> bool {
