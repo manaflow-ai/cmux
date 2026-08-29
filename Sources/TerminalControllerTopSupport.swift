@@ -170,8 +170,9 @@ extension TerminalController {
     ) -> Set<Int> {
         var rootPIDs: Set<Int> = []
         var surfacePIDs: Set<Int> = []
+        let surfaceID = v2TopUUID(surface["id"])
 
-        if let surfaceID = v2TopUUID(surface["id"]) {
+        if let surfaceID {
             let cmuxPIDs = processSnapshot.pids(forCMUXSurfaceID: surfaceID)
             surface["cmux_process_pids"] = cmuxPIDs.sorted()
             rootPIDs.formUnion(cmuxPIDs)
@@ -180,13 +181,27 @@ extension TerminalController {
             surface["cmux_process_pids"] = []
         }
 
+        // Sharing the surface's TTY is not ownership. A process reparented to launchd
+        // keeps the terminal's controlling TTY, so promoting the whole TTY population to
+        // roots charges a detached REPL or dev server to cmux. Attribute only what the
+        // snapshot can prove, and report the rest separately. (#11004)
+        var unattributedRootPIDs: Set<Int> = []
         if let ttyName = surface["tty"] as? String {
-            let ttyPIDs = processSnapshot.pids(forTTYName: ttyName)
-            surface["tty_process_pids"] = ttyPIDs.sorted()
-            rootPIDs.formUnion(ttyPIDs)
-            surfacePIDs.formUnion(processSnapshot.expandedPIDs(rootPIDs: ttyPIDs))
+            let ownership = processSnapshot.ttyOwnership(
+                ttyPIDs: processSnapshot.pids(forTTYName: ttyName),
+                surfaceID: surfaceID,
+                provenPIDs: surfacePIDs
+            )
+            surface["tty_process_pids"] = ownership.provenPIDs.sorted()
+            surface["unattributed_tty_process_pids"] = ownership.unattributedPIDs.sorted()
+            surface["tty_ownership_reasons"] = ownership.reasonPayload()
+            rootPIDs.formUnion(ownership.provenPIDs)
+            surfacePIDs.formUnion(processSnapshot.expandedPIDs(rootPIDs: ownership.provenPIDs))
+            unattributedRootPIDs = ownership.unattributedPIDs
         } else {
             surface["tty_process_pids"] = []
+            surface["unattributed_tty_process_pids"] = []
+            surface["tty_ownership_reasons"] = [String: String]()
         }
 
         var webviews = surface["webviews"] as? [[String: Any]] ?? []
@@ -205,10 +220,20 @@ extension TerminalController {
         }
         surface["webviews"] = webviews
 
+        // Resolved once the webview roots are in, so a launchd-parented WebKit process is
+        // never mistaken for an unattributed TTY collision.
+        let unattributedPIDs = processSnapshot
+            .expandedPIDs(rootPIDs: unattributedRootPIDs)
+            .subtracting(surfacePIDs)
+
         surface["root_pids"] = rootPIDs.sorted()
         surface["top_level_pids"] = processSnapshot.topLevelPIDs(for: surfacePIDs).sorted()
         surface["foreground_pgids"] = processSnapshot.foregroundProcessGroupIDs(for: surfacePIDs).sorted()
         surface["resources"] = processSnapshot.summaryPayload(for: surfacePIDs, rootPIDs: rootPIDs)
+        surface["unattributed_resources"] = processSnapshot.summaryPayload(
+            for: unattributedPIDs,
+            rootPIDs: unattributedRootPIDs
+        )
         surface["processes"] = includeProcesses ? processSnapshot.processTreePayload(for: surfacePIDs, rootPIDs: rootPIDs) : []
         return surfacePIDs
     }
