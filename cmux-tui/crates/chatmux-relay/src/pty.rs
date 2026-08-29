@@ -793,17 +793,9 @@ impl PtyManager {
         };
         let _state = self.inner.tunnel_state.lock().expect("tunnel state lock");
         let mut opening = self.inner.opening_state.lock().expect("opening state lock");
-        // The attempt identity check is added in the follow-up fix commit.
-        // Keeping only the transport comparison here makes the regression
-        // test fail against the red commit when a pty id is reused.
-        if let Some(current) = opening
-            .reservations
-            .get(pty_id)
-            .filter(|current| current.owner == owner.owner)
-            .cloned()
-        {
+        if opening.reservations.get(pty_id) == Some(&owner) {
             opening.reservations.remove(pty_id);
-            opening.cancelled.insert(pty_id.to_owned(), current);
+            opening.cancelled.insert(pty_id.to_owned(), owner);
         }
     }
 
