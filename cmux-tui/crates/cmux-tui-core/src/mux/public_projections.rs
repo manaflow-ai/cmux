@@ -110,6 +110,7 @@ pub(super) fn restore_public_projections(
                 state,
                 source: agent_source(&agent.source)?,
                 session: (!internal_marker).then_some(agent.source_session).flatten(),
+                agent: None,
                 updated_at_ms: agent.updated_at_ms,
             },
         );
