@@ -317,12 +317,7 @@ impl ProcessOutputCompletion {
         output: Arc<ThreadOutput>,
         post_exit_grace: Option<Duration>,
     ) -> Arc<Self> {
-        Self::with_post_exit_grace_and_cancel(
-            readers_remaining,
-            output,
-            post_exit_grace,
-            None,
-        )
+        Self::with_post_exit_grace_and_cancel(readers_remaining, output, post_exit_grace, None)
     }
 
     fn with_pty_cancellation(
