@@ -1329,7 +1329,7 @@ fn replace_installed_plugin_with_fs<F: InstallFilesystem, C: FnOnce() -> anyhow:
         }
         if let (Some(snapshot), Some(expected)) =
             (&journal.config_snapshot, journal.expected_sidebar_plugin.as_ref())
-            && let Err(rollback_error) = restore_config_snapshot(snapshot, expected)
+            && let Err(rollback_error) = restore_config_snapshot(snapshot, Some(expected))
         {
             rollback_errors.push(format!("config restore: {rollback_error}"));
         }
