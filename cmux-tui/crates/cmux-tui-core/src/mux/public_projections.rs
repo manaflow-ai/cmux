@@ -140,6 +140,26 @@ fn notification_level(value: &str) -> anyhow::Result<NotificationLevel> {
     }
 }
 
+fn agent_state(value: &str) -> anyhow::Result<AgentState> {
+    match value {
+        "working" => Ok(AgentState::Working),
+        "blocked" => Ok(AgentState::Blocked),
+        "idle" => Ok(AgentState::Idle),
+        "done" => Ok(AgentState::Done),
+        "unknown" => Ok(AgentState::Unknown),
+        other => anyhow::bail!("invalid durable agent state {other:?}"),
+    }
+}
+
+fn agent_source(value: &str) -> anyhow::Result<AgentSource> {
+    match value {
+        "detected" => Ok(AgentSource::Detected),
+        "socket" => Ok(AgentSource::Socket),
+        "hook" => Ok(AgentSource::Hook),
+        other => anyhow::bail!("invalid durable agent source {other:?}"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -215,6 +235,7 @@ mod tests {
         state.terminal_catalog_by_runtime.insert(runtime.terminal_runtime_id().unwrap(), terminal);
         let restored = restore_public_projections(&state, projections).unwrap();
         let terminal = TerminalPublicId::parse("term_00000000000000000000000000000001").unwrap();
+        assert_eq!(restored.agent_records.get(&terminal).unwrap().state, AgentState::Working);
         assert_eq!(restored.notification_ledger[0].terminal_id.as_ref(), Some(&terminal));
         assert_eq!(restored.notification_ledger[0].surface, Some(runtime.id));
         assert!(restored.terminal_notifications[&terminal].unread);

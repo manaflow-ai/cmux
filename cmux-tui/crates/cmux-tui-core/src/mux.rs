@@ -9478,16 +9478,15 @@ impl Mux {
         // Hook and screen-detected state are stronger agent truth than a
         // direct socket report. Check the durable projection as well as the
         // in-memory cache so arbitration survives a restart.
-        let durable_stronger = registry
-            .public_agent_projections(Some(&terminal_id), None)?
-            .into_iter()
-            .next()
-            .filter(|projection| {
-                (projection.source == AgentSource::Hook.as_str()
-                    || projection.source == AgentSource::Detected.as_str())
-                    && projection.state != AgentState::Done.as_str()
-                    && source == AgentSource::Socket
-            });
+        let durable_stronger =
+            registry.public_agent_projections(Some(&terminal_id), None)?.into_iter().next().filter(
+                |projection| {
+                    (projection.source == AgentSource::Hook.as_str()
+                        || projection.source == AgentSource::Detected.as_str())
+                        && projection.state != AgentState::Done.as_str()
+                        && source == AgentSource::Socket
+                },
+            );
         let socket_report_ignored = source == AgentSource::Socket
             && !effective_hook_state.is_some_and(|state| state.ended)
             && (records.get(&terminal_id).is_some_and(|existing| {
