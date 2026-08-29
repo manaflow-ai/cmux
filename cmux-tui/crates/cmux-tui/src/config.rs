@@ -4962,7 +4962,9 @@ fn parse_ghostty_defaults_with_theme_dirs(text: &str, theme_dirs: &[PathBuf]) ->
 fn parse_ghostty_defaults_from_path(path: &Path, theme_dirs: &[PathBuf]) -> Option<DefaultColors> {
     match parse_ghostty_defaults_from_path_result(path, theme_dirs) {
         GhosttyConfigParseOutcome::Parsed(defaults) => Some(*defaults),
-        GhosttyConfigParseOutcome::Missing | GhosttyConfigParseOutcome::TimedOut => None,
+        GhosttyConfigParseOutcome::Partial(_)
+        | GhosttyConfigParseOutcome::Missing
+        | GhosttyConfigParseOutcome::TimedOut => None,
     }
 }
 
