@@ -612,9 +612,7 @@ fn resolved_run_command_for_target(
 }
 
 fn canonical_parent_with_name(path: &Path) -> anyhow::Result<PathBuf> {
-    let name = path
-        .file_name()
-        .ok_or_else(|| anyhow::anyhow!("path has no final component"))?;
+    let name = path.file_name().ok_or_else(|| anyhow::anyhow!("path has no final component"))?;
     let parent = path.parent().unwrap_or_else(|| Path::new("."));
     Ok(canonical_path(parent)?.join(name))
 }
