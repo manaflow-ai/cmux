@@ -4925,17 +4925,14 @@ fn parse_ghostty_config_file_until(
     theme_candidates: &mut Vec<GhosttyThemeCandidate>,
     deadline_at: Option<Instant>,
 ) -> GhosttyConfigParseOutcome {
-    // Keep the same breadth-first order as Ghostty's loadRecursiveFiles:
-    // finish a parent, then process its includes in declaration order, with
-    // nested includes queued after existing siblings.
-    let mut queue = VecDeque::from([PendingGhosttyConfig { path: path.to_path_buf(), depth: 0 }]);
+    let mut stack = vec![PendingGhosttyConfig { path: path.to_path_buf(), depth: 0 }];
     let mut loaded = HashSet::new();
     let mut files_loaded = 0usize;
     let mut bytes_loaded = 0u64;
     let mut loaded_root = false;
     let mut overrides = DefaultColors::default();
 
-    while let Some(pending) = queue.pop_front() {
+    while let Some(pending) = stack.pop() {
         if files_loaded > 0 && ghostty_config_deadline_expired(deadline_at) {
             return GhosttyConfigParseOutcome::TimedOut;
         }
@@ -4962,9 +4959,10 @@ fn parse_ghostty_config_file_until(
         let parsed = parse_ghostty_config_text(&text, Some(base_dir), theme_candidates);
         overlay_ghostty_defaults(&mut overrides, parsed.overrides);
 
-        for include in parsed.config_files.into_iter().filter_map(|include| include.resolve(base_dir))
+        for include in
+            parsed.config_files.into_iter().rev().filter_map(|include| include.resolve(base_dir))
         {
-            queue.push_back(PendingGhosttyConfig { path: include, depth: pending.depth + 1 });
+            stack.push(PendingGhosttyConfig { path: include, depth: pending.depth + 1 });
         }
         if ghostty_config_deadline_expired(deadline_at) {
             return GhosttyConfigParseOutcome::TimedOut;
