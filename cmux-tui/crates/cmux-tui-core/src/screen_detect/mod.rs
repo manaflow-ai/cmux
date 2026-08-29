@@ -13,7 +13,7 @@ pub(crate) mod manifest;
 pub(crate) mod scanner;
 
 use std::collections::HashMap;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use crate::AgentState;
 use manifest::{Detection, ScreenState};
@@ -27,6 +27,18 @@ pub(crate) const QUIESCENCE_DEBOUNCE_MS: u64 = 300;
 /// Without it, quiescence gating starves detection during the exact
 /// phase it exists to report.
 pub(crate) const MAX_EVAL_INTERVAL_MS: u64 = 1_000;
+
+/// A failed viewport read must not turn the scanner into a hot retry loop.
+/// Backoff is short enough to recover after a PTY transition and capped so a
+/// permanently inaccessible terminal has bounded work.
+const SCREEN_READ_RETRY_INITIAL_MS: u64 = 100;
+const SCREEN_READ_RETRY_MAX_MS: u64 = 2_000;
+
+/// Foreground process identity is sampled independently from output. A
+/// bounded interval prevents one terminal per 100 ms from becoming a procfs
+/// storm while still making process swaps visible promptly.
+const FOREGROUND_CHECK_INTERVAL_MS: u64 = 500;
+const FOREGROUND_CHECK_RETRY_MAX_MS: u64 = 2_000;
 
 /// The `native_event` value screen-detection journal events carry.
 pub(crate) const SCREEN_DETECT_NATIVE_EVENT: &str = "ScreenDetect";
@@ -50,9 +62,20 @@ struct TrackedTerminal {
     evaluated_revision: Option<u64>,
     /// When the screen was last evaluated (the max-interval pacer anchor).
     last_evaluated_at: Option<Instant>,
+    /// Earliest time at which a failed screen read may be retried.
+    retry_not_before: Option<Instant>,
+    /// Exponential retry delay, capped by `SCREEN_READ_RETRY_MAX_MS`.
+    retry_delay_ms: u64,
+    /// Earliest time at which foreground process identity may be sampled.
+    identity_check_not_before: Option<Instant>,
+    /// Exponential retry delay for inaccessible process metadata.
+    identity_check_delay_ms: u64,
     /// Agent the foreground process matched on the previous scan; identity
     /// edges trigger immediate evaluation, before any quiescence.
     foreground_agent: Option<String>,
+    /// Whether `foreground_agent` came from a successful process lookup. A
+    /// missing value can mean either a known shell or no sample yet.
+    foreground_identity_known: bool,
     /// Last (agent, state) journaled; emissions are edges over this.
     emitted: Option<(String, AgentState)>,
 }
@@ -62,6 +85,9 @@ struct TrackedTerminal {
 #[derive(Debug, Default)]
 pub(crate) struct ScreenDetectTracker {
     terminals: HashMap<String, TrackedTerminal>,
+    /// Start index for the next scan pass. The scanner uses this with its
+    /// fixed lookup budget so a large terminal set cannot starve the tail.
+    scan_cursor: usize,
 }
 
 impl ScreenDetectTracker {
@@ -85,6 +111,17 @@ impl ScreenDetectTracker {
         if entry.evaluated_revision == Some(entry.revision) {
             return false;
         }
+        if entry.retry_not_before.is_some_and(|not_before| now < not_before) {
+            return false;
+        }
+        // A failed viewport read explicitly arms a retry. Once that
+        // deadline is reached, retry the pending revision even when the
+        // terminal has not been quiet for the debounce window.
+        let retry_due = entry.retry_not_before.take().is_some();
+        if retry_due {
+            entry.last_evaluated_at = Some(now);
+            return true;
+        }
         let quiet_since = entry.quiet_since.expect("anchored above");
         let quiesced = now.duration_since(quiet_since).as_millis() as u64 >= QUIESCENCE_DEBOUNCE_MS;
         let overdue = entry.last_evaluated_at.is_none_or(|evaluated_at| {
@@ -95,6 +132,87 @@ impl ScreenDetectTracker {
             return true;
         }
         false
+    }
+
+    /// Record a failed viewport read. The revision remains unevaluated, but
+    /// retries follow an explicit bounded backoff instead of every scanner
+    /// tick.
+    pub(crate) fn note_evaluation_failure(&mut self, terminal_id: &str, now: Instant) {
+        let entry = self.terminals.entry(terminal_id.to_string()).or_default();
+        let delay_ms = if entry.retry_delay_ms == 0 {
+            SCREEN_READ_RETRY_INITIAL_MS
+        } else {
+            entry.retry_delay_ms.saturating_mul(2).min(SCREEN_READ_RETRY_MAX_MS)
+        };
+        entry.retry_delay_ms = delay_ms;
+        entry.retry_not_before = Some(now + Duration::from_millis(delay_ms));
+        entry.last_evaluated_at = Some(now);
+    }
+
+    /// Return whether the foreground process should be resolved now. The
+    /// first lookup is immediate; later lookups are paced per terminal.
+    pub(crate) fn foreground_check_due(&self, terminal_id: &str, now: Instant) -> bool {
+        self.terminals
+            .get(terminal_id)
+            .is_none_or(|entry| entry.identity_check_not_before.is_none_or(|at| now >= at))
+    }
+
+    /// Return the last successful identity lookup. `Some(None)` means a
+    /// known non-agent shell, while `None` means that no usable sample exists.
+    pub(crate) fn cached_foreground_identity(&self, terminal_id: &str) -> Option<Option<&str>> {
+        let entry = self.terminals.get(terminal_id)?;
+        entry.foreground_identity_known.then(|| entry.foreground_agent.as_deref())
+    }
+
+    pub(crate) fn clear_foreground_identity(&mut self, terminal_id: &str) {
+        if let Some(entry) = self.terminals.get_mut(terminal_id) {
+            entry.foreground_identity_known = false;
+            entry.foreground_agent = None;
+            entry.evaluated_revision = None;
+        }
+    }
+
+    /// Keep the last successful identity when platform metadata is
+    /// temporarily inaccessible, and schedule a bounded retry.
+    pub(crate) fn note_foreground_unavailable(&mut self, terminal_id: &str, now: Instant) {
+        self.note_foreground_check(terminal_id, now, true);
+    }
+
+    /// Arm the next foreground lookup. Inaccessible process metadata backs
+    /// off exponentially because the kernel can keep a process entry
+    /// unavailable for the lifetime of a terminal.
+    pub(crate) fn note_foreground_check(&mut self, terminal_id: &str, now: Instant, retry: bool) {
+        let entry = self.terminals.entry(terminal_id.to_string()).or_default();
+        let delay_ms = if retry {
+            if entry.identity_check_delay_ms == 0 {
+                FOREGROUND_CHECK_INTERVAL_MS
+            } else {
+                entry.identity_check_delay_ms.saturating_mul(2).min(FOREGROUND_CHECK_RETRY_MAX_MS)
+            }
+        } else {
+            FOREGROUND_CHECK_INTERVAL_MS
+        };
+        entry.identity_check_delay_ms = delay_ms;
+        entry.identity_check_not_before = Some(now + Duration::from_millis(delay_ms));
+    }
+
+    /// Reserve the next fair scan slice. A caller with no terminals receives
+    /// zero and starts over when a terminal appears.
+    pub(crate) fn scan_start(&mut self, terminal_count: usize) -> usize {
+        if terminal_count == 0 {
+            self.scan_cursor = 0;
+            return 0;
+        }
+        let start = self.scan_cursor % terminal_count;
+        start
+    }
+
+    pub(crate) fn advance_scan_cursor(&mut self, terminal_count: usize, processed: usize) {
+        if terminal_count == 0 {
+            self.scan_cursor = 0;
+        } else {
+            self.scan_cursor = (self.scan_cursor + processed.min(terminal_count)) % terminal_count;
+        }
     }
 
     /// True when this terminal previously journaled a screen-derived state
@@ -109,10 +227,28 @@ impl ScreenDetectTracker {
     /// appears the moment `codex` starts, not after its first quiet screen.
     pub(crate) fn note_foreground_agent(&mut self, terminal_id: &str, agent: Option<&str>) -> bool {
         let entry = self.terminals.entry(terminal_id.to_string()).or_default();
-        if entry.foreground_agent.as_deref() == agent {
+        let was_known = entry.foreground_identity_known;
+        if was_known && entry.foreground_agent.as_deref() == agent {
             return false;
         }
+        entry.foreground_identity_known = true;
         entry.foreground_agent = agent.map(str::to_string);
+        // A successful sample starts a fresh failure-backoff window. The
+        // next unavailable sample must wait one normal interval, not inherit
+        // a stale exponential delay from an earlier outage.
+        entry.identity_check_delay_ms = 0;
+        if !was_known && agent.is_none() {
+            // The initial shell/no-agent observation establishes the cache;
+            // it is not a process transition and must not force a screen read.
+            return false;
+        }
+        // The identity edge forces an immediate screen read. If that read
+        // fails, keep the revision pending so the next scan retries it even
+        // when the PTY produced no new bytes.
+        entry.evaluated_revision = None;
+        entry.last_evaluated_at = None;
+        entry.retry_not_before = None;
+        entry.retry_delay_ms = 0;
         true
     }
 
@@ -126,6 +262,8 @@ impl ScreenDetectTracker {
     ) -> Option<ScreenDetectEmission> {
         let entry = self.terminals.entry(terminal_id.to_string()).or_default();
         entry.evaluated_revision = Some(entry.revision);
+        entry.retry_not_before = None;
+        entry.retry_delay_ms = 0;
         let Some((agent, detection)) = detection else {
             let (agent, _) = entry.emitted.take()?;
             return Some(ScreenDetectEmission {
@@ -326,6 +464,67 @@ mod tests {
     }
 
     #[test]
+    fn screen_detect_tracker_backs_off_failed_screen_reads() {
+        let mut tracker = ScreenDetectTracker::default();
+        let t0 = Instant::now();
+
+        assert!(tracker.observe_revision("term_a", 1, t0));
+        tracker.note_evaluation_failure("term_a", t0);
+        assert!(!tracker.observe_revision("term_a", 1, t0 + Duration::from_millis(99)));
+        assert!(tracker.observe_revision("term_a", 1, t0 + Duration::from_millis(100)));
+
+        tracker.note_evaluation_failure("term_a", t0 + Duration::from_millis(100));
+        assert!(!tracker.observe_revision("term_a", 1, t0 + Duration::from_millis(299)));
+        assert!(tracker.observe_revision("term_a", 1, t0 + Duration::from_millis(300)));
+    }
+
+    #[test]
+    fn foreground_identity_cache_distinguishes_unknown_shells_and_paces_lookups() {
+        let mut tracker = ScreenDetectTracker::default();
+        let t0 = Instant::now();
+
+        assert!(tracker.foreground_check_due("term_a", t0));
+        tracker.note_foreground_check("term_a", t0, false);
+        tracker.note_foreground_agent("term_a", None);
+        assert_eq!(tracker.cached_foreground_identity("term_a"), Some(None));
+        assert!(!tracker.foreground_check_due("term_a", t0 + Duration::from_millis(499)));
+        assert!(tracker.foreground_check_due("term_a", t0 + Duration::from_millis(500)));
+
+        // A failed platform lookup keeps the last successful identity. It
+        // cannot spuriously close an agent row, and retries back off.
+        tracker.note_foreground_agent("term_a", Some("codex"));
+        tracker.note_foreground_check("term_a", t0 + Duration::from_millis(500), false);
+        tracker.note_foreground_unavailable("term_a", t0 + Duration::from_millis(500));
+        assert_eq!(tracker.cached_foreground_identity("term_a"), Some(Some("codex")));
+        assert!(!tracker.foreground_check_due("term_a", t0 + Duration::from_millis(999)));
+        assert!(tracker.foreground_check_due("term_a", t0 + Duration::from_millis(1_000)));
+    }
+
+    #[test]
+    fn scan_cursor_rotates_fairly_for_bounded_lookup_batches() {
+        let mut tracker = ScreenDetectTracker::default();
+        assert_eq!(tracker.scan_start(100), 0);
+        tracker.advance_scan_cursor(100, 64);
+        assert_eq!(tracker.scan_start(100), 64);
+        tracker.advance_scan_cursor(100, 64);
+        assert_eq!(tracker.scan_start(100), 28);
+        assert_eq!(tracker.scan_start(0), 0);
+        assert_eq!(tracker.scan_start(100), 0);
+    }
+
+    #[test]
+    fn identity_edge_stays_pending_when_screen_evaluation_fails() {
+        let mut tracker = ScreenDetectTracker::default();
+        let now = Instant::now();
+        assert!(tracker.observe_revision("term_a", 7, now));
+        // The scanner would normally call record_detection after a successful
+        // viewport read. Simulate the failed read by leaving it unevaluated.
+        assert!(tracker.note_foreground_agent("term_a", Some("codex")));
+        assert!(tracker.note_foreground_agent("term_a", Some("claude")));
+        assert!(tracker.observe_revision("term_a", 7, now + Duration::from_millis(1)));
+    }
+
+    #[test]
     fn screen_detect_tracker_emits_idle_presence_when_the_first_screen_asserts_nothing() {
         let mut tracker = ScreenDetectTracker::default();
         // First evaluation right after spawn hits a viewer/unknown screen:
@@ -375,7 +574,7 @@ mod tests {
         live.extend(live_ids.iter().map(String::as_str));
         builds.store(0, Ordering::Relaxed);
 
-        tracker.retain_terminals(&live);
+        tracker.retain_terminals(|terminal_id| live.contains(terminal_id));
 
         assert_eq!(
             builds.load(Ordering::Relaxed),
