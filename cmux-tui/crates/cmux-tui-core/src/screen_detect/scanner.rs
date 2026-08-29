@@ -127,6 +127,11 @@ pub(crate) fn scan(
                 }
                 ProcessNameResolution::Unavailable => {
                     tracker.note_foreground_unavailable(terminal_id, now);
+                    // Process metadata is no longer trustworthy. Clear the
+                    // cached identity so later screen output cannot be
+                    // attributed to a PID that may have exited or been
+                    // reused. A fresh successful lookup creates a new edge.
+                    tracker.clear_foreground_identity(terminal_id);
                     None
                 }
             }

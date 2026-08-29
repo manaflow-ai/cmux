@@ -164,6 +164,14 @@ impl ScreenDetectTracker {
         entry.foreground_identity_known.then(|| entry.foreground_agent.as_deref())
     }
 
+    pub(crate) fn clear_foreground_identity(&mut self, terminal_id: &str) {
+        if let Some(entry) = self.terminals.get_mut(terminal_id) {
+            entry.foreground_identity_known = false;
+            entry.foreground_agent = None;
+            entry.evaluated_revision = None;
+        }
+    }
+
     /// Keep the last successful identity when platform metadata is
     /// temporarily inaccessible, and schedule a bounded retry.
     pub(crate) fn note_foreground_unavailable(&mut self, terminal_id: &str, now: Instant) {
