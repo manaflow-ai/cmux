@@ -48,7 +48,7 @@ use base64::engine::general_purpose::STANDARD as BASE64;
 use serde_json::{Value, json};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::{mpsc, watch};
+use tokio::sync::{Notify, mpsc, watch};
 use tokio_util::sync::CancellationToken;
 
 use crate::pty::{
@@ -74,6 +74,9 @@ const OPEN_TIMEOUT: Duration = Duration::from_secs(10);
 /// manager's own 1 MiB output cap stays the hard boundary above this.
 const FLOW_PAUSE_BYTES: u64 = 262_144;
 const FLOW_RESUME_BYTES: u64 = 32_768;
+/// The flow worker is local and normally drains synchronously. Keep shutdown
+/// bounded if a future manager implementation blocks unexpectedly.
+const FLOW_DRAIN_TIMEOUT: Duration = Duration::from_secs(5);
 /// Admission is synchronous from the manager callback, so the writer queue
 /// uses non-blocking sends with both message and byte budgets. The byte cap
 /// leaves room for a maximum PTY frame and a follow-up control/error frame.
@@ -268,6 +271,11 @@ struct Connection {
     /// busy. Pause and resume are idempotent, so retaining only the newest
     /// state is the correct flow-control contract.
     flow_tx: watch::Sender<bool>,
+    /// Coalesced flow state and shutdown marker. The flow worker drains this
+    /// state before it exits, so a required pause cannot be lost to task
+    /// cancellation.
+    flow_state: Mutex<FlowState>,
+    flow_notify: Arc<Notify>,
     /// Bytes queued toward the socket and not yet written.
     pending_out: AtomicU64,
     paused: AtomicBool,
@@ -277,6 +285,18 @@ struct Connection {
     opened_seen: AtomicBool,
     finished: AtomicBool,
     done: CancellationToken,
+}
+
+#[derive(Debug, Default)]
+struct FlowState {
+    desired_pause: bool,
+    stopping: bool,
+}
+
+enum FlowAction {
+    Apply(bool),
+    Wait,
+    Stop,
 }
 
 impl Connection {
@@ -310,15 +330,46 @@ impl Connection {
     }
 
     fn publish_flow(&self, pause: bool) {
-        let _ = self.flow_tx.send(pause);
+        let changed = {
+            let mut state = self.flow_state.lock().expect("flow state lock");
+            if state.stopping || state.desired_pause == pause {
+                false
+            } else {
+                state.desired_pause = pause;
+                true
+            }
+        };
+        if changed {
+            let _ = self.flow_tx.send(pause);
+            self.flow_notify.notify_one();
+        }
     }
 
     /// Pause the source before closing when a stalled peer exhausts admission.
     fn reject_due_to_backpressure(&self) {
-        if !self.paused.swap(true, Ordering::SeqCst) {
-            self.publish_flow(true);
+        let notify_flow = {
+            let _gate = self.queue_gate.lock().expect("writer queue lock");
+            if self.finished.load(Ordering::SeqCst) {
+                false
+            } else {
+                self.paused.store(true, Ordering::SeqCst);
+                let mut state = self.flow_state.lock().expect("flow state lock");
+                let notify = !state.desired_pause;
+                state.desired_pause = true;
+                state.stopping = true;
+                self.finished.store(true, Ordering::SeqCst);
+                let _ = self.writer_tx.try_send(WriterMessage::End);
+                self.done.cancel();
+                notify
+            }
+        };
+        // The state transition and End marker are serialized by queue_gate.
+        // Notify after releasing it so the worker can observe the complete
+        // pause-before-stop state in one read.
+        if notify_flow {
+            let _ = self.flow_tx.send(true);
         }
-        self.finish();
+        self.flow_notify.notify_one();
     }
 
     fn enqueue(&self, message: WriterMessage) -> bool {
@@ -355,12 +406,21 @@ impl Connection {
     /// session lives on for a later re-attach, the same rule a dropped
     /// relay-socket viewer follows).
     fn finish(&self) {
-        let _gate = self.queue_gate.lock().expect("writer queue lock");
-        if self.finished.swap(true, Ordering::SeqCst) {
-            return;
+        let should_notify = {
+            let _gate = self.queue_gate.lock().expect("writer queue lock");
+            if self.finished.swap(true, Ordering::SeqCst) {
+                false
+            } else {
+                let mut state = self.flow_state.lock().expect("flow state lock");
+                state.stopping = true;
+                let _ = self.writer_tx.try_send(WriterMessage::End);
+                self.done.cancel();
+                true
+            }
+        };
+        if should_notify {
+            self.flow_notify.notify_one();
         }
-        let _ = self.writer_tx.try_send(WriterMessage::End);
-        self.done.cancel();
     }
 
     fn protocol_error(&self, code: &str, message: &str) {
@@ -516,17 +576,58 @@ async fn handle_client_frame(
     }
 }
 
+fn spawn_flow_worker(
+    connection: Arc<Connection>,
+    context: FrameContext,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        let mut applied_pause = false;
+        loop {
+            // Create the notification future before inspecting state. Tokio
+            // retains a notification permit, so a concurrent transition
+            // cannot be lost between the read and the await.
+            let notified = connection.flow_notify.notified();
+            let action = {
+                let state = connection.flow_state.lock().expect("flow state lock");
+                if state.desired_pause != applied_pause {
+                    FlowAction::Apply(state.desired_pause)
+                } else if state.stopping {
+                    FlowAction::Stop
+                } else {
+                    FlowAction::Wait
+                }
+            };
+            match action {
+                FlowAction::Apply(pause) => {
+                    let frame = json!({
+                        "version": PTY_PROTOCOL_VERSION,
+                        "type": "pty_flow",
+                        "ptyId": connection.pty_id,
+                        "pause": pause,
+                    });
+                    connection.manager.handle_frame(&frame, &context).await;
+                    applied_pause = pause;
+                }
+                FlowAction::Wait => notified.await,
+                FlowAction::Stop => break,
+            }
+        }
+    })
+}
+
 async fn serve_connection(stream: TcpStream, manager: Arc<PtyManager>, parent: CancellationToken) {
     let _ = stream.set_nodelay(true);
     let (mut read_half, mut write_half) = stream.into_split();
     let (writer_tx, mut writer_rx) = mpsc::channel::<WriterMessage>(WRITER_QUEUE_CAPACITY);
-    let (flow_tx, mut flow_rx) = watch::channel(false);
+    let (flow_tx, _flow_rx) = watch::channel(false);
     let connection = Arc::new(Connection {
         pty_id: format!("tunnel-{}", random_hex(8)),
         manager: Arc::clone(&manager),
         writer_tx,
         queue_gate: Mutex::new(()),
         flow_tx,
+        flow_state: Mutex::new(FlowState::default()),
+        flow_notify: Arc::new(Notify::new()),
         pending_out: AtomicU64::new(0),
         paused: AtomicBool::new(false),
         open_sent: AtomicBool::new(false),
@@ -573,32 +674,9 @@ async fn serve_connection(stream: TcpStream, manager: Arc<PtyManager>, parent: C
     };
 
     // Flow verbs need the async manager; drain them on their own task so a
-    // slow open never delays a pause.
-    let flow = {
-        let connection = Arc::clone(&connection);
-        let context = context.clone();
-        tokio::spawn(async move {
-            loop {
-                tokio::select! {
-                    biased;
-                    _ = connection.done.cancelled() => break,
-                    changed = flow_rx.changed() => {
-                        if changed.is_err() || connection.finished.load(Ordering::SeqCst) {
-                            break;
-                        }
-                        let pause = *flow_rx.borrow_and_update();
-                        let frame = json!({
-                            "version": PTY_PROTOCOL_VERSION,
-                            "type": "pty_flow",
-                            "ptyId": connection.pty_id,
-                            "pause": pause,
-                        });
-                        connection.manager.handle_frame(&frame, &context).await;
-                    }
-                }
-            }
-        })
-    };
+    // slow open never delays a pause. Its state is drained during shutdown
+    // before the attachment is released.
+    let mut flow = spawn_flow_worker(Arc::clone(&connection), context.clone());
 
     // Reader: strictly in arrival order, so input received while an open
     // settles lands after the attachment exists. Awaiting each frame is the
@@ -644,6 +722,13 @@ async fn serve_connection(stream: TcpStream, manager: Arc<PtyManager>, parent: C
         }
     }
     connection.finish();
+    // Drain the flow state before releasing the attachment. In particular,
+    // backpressure shutdown must deliver pty_flow(true) while authorization
+    // still sees this connection's live attachment.
+    if tokio::time::timeout(FLOW_DRAIN_TIMEOUT, &mut flow).await.is_err() {
+        flow.abort();
+        let _ = flow.await;
+    }
     // Detach, never kill: the owed close releases only this connection's
     // attachment (transport-fenced), and the session lives on.
     if connection.open_sent.load(Ordering::SeqCst) {
@@ -654,13 +739,12 @@ async fn serve_connection(stream: TcpStream, manager: Arc<PtyManager>, parent: C
         });
         manager.handle_frame(&close, &context).await;
     }
-    flow.abort();
     // A peer that stopped reading can wedge the final flush forever; the
     // attachment is already released above, so cap the flush and reap.
     if tokio::time::timeout(Duration::from_secs(30), &mut writer).await.is_err() {
         writer.abort();
+        let _ = writer.await;
     }
-    let _ = flow.await;
 }
 
 /// Start the loopback listener. Managed mode only — the caller's managed
@@ -724,6 +808,8 @@ mod tests {
         on_exit: Option<ExitSink>,
         written: Vec<Vec<u8>>,
         resized: Vec<(u16, u16)>,
+        pause_calls: usize,
+        resume_calls: usize,
         killed: bool,
     }
 
@@ -754,8 +840,12 @@ mod tests {
         fn resize(&self, cols: u16, rows: u16) {
             self.state.lock().unwrap().resized.push((cols, rows));
         }
-        fn pause(&self) {}
-        fn resume(&self) {}
+        fn pause(&self) {
+            self.state.lock().unwrap().pause_calls += 1;
+        }
+        fn resume(&self) {
+            self.state.lock().unwrap().resume_calls += 1;
+        }
         fn kill(&self) {
             self.state.lock().unwrap().killed = true;
         }
@@ -1011,6 +1101,8 @@ mod tests {
             writer_tx,
             queue_gate: Mutex::new(()),
             flow_tx,
+            flow_state: Mutex::new(FlowState::default()),
+            flow_notify: Arc::new(Notify::new()),
             pending_out: AtomicU64::new(0),
             paused: AtomicBool::new(false),
             open_sent: AtomicBool::new(false),
@@ -1019,6 +1111,21 @@ mod tests {
             done: CancellationToken::new(),
         });
         (connection, writer_rx, flow_rx)
+    }
+
+    async fn attach_test_pty(rig: &Rig, connection: &Arc<Connection>) -> FakePty {
+        connection.open_sent.store(true, Ordering::SeqCst);
+        let context = connection.frame_context();
+        let open = json!({
+            "version": PTY_PROTOCOL_VERSION,
+            "type": "pty_open",
+            "ptyId": connection.pty_id,
+            "session": "flow-test",
+            "cols": 80,
+            "rows": 24,
+        });
+        rig.manager.handle_frame(&open, &context).await;
+        spawned_pty(rig).await
     }
 
     #[tokio::test]
@@ -1040,6 +1147,33 @@ mod tests {
             WriterMessage::Frame(frame) => assert_eq!(frame[0], 2),
             WriterMessage::End => panic!("queue order changed"),
         }
+        rig.cancel.cancel();
+    }
+
+    #[tokio::test]
+    async fn backpressure_delivers_pause_before_flow_worker_stops() {
+        let rig = rig().await;
+        let (connection, _writer_rx, _flow_rx) = test_connection(&rig);
+        let pty = attach_test_pty(&rig, &connection).await;
+        let flow = spawn_flow_worker(Arc::clone(&connection), connection.frame_context());
+
+        connection.reject_due_to_backpressure();
+        tokio::time::timeout(FLOW_DRAIN_TIMEOUT, flow)
+            .await
+            .expect("flow worker drain")
+            .expect("flow worker join");
+
+        let state = pty.state.lock().unwrap();
+        assert_eq!(state.pause_calls, 1, "shutdown must pause the live attachment");
+        assert_eq!(state.resume_calls, 0);
+        assert!(connection.finished.load(Ordering::SeqCst));
+
+        let close = json!({
+            "version": PTY_PROTOCOL_VERSION,
+            "type": "pty_close",
+            "ptyId": connection.pty_id,
+        });
+        rig.manager.handle_frame(&close, &connection.frame_context()).await;
         rig.cancel.cancel();
     }
 
