@@ -302,8 +302,8 @@ public actor DotLeg {
             component: "leg", event: "connect-start",
             attributes: [
                 "role": configuration.role.rawValue,
-                "mac": String(configuration.macDeviceID.prefix(12)),
-                "relay": String(configuration.relayObjectID.prefix(12)),
+                "mac": DotJournal.redactedIdentifier(configuration.macDeviceID),
+                "relay": DotJournal.redactedIdentifier(configuration.relayObjectID),
             ]
         )
         let token = try await configuration.tokenProvider()
@@ -339,7 +339,8 @@ public actor DotLeg {
             component: "leg", event: "connect-url",
             attributes: [
                 "role": configuration.role.rawValue,
-                "url": wsURL.absoluteString,
+                "host": wsURL.host ?? "-",
+                "path": wsURL.path,
                 "resuming": String(wasResuming),
             ]
         )
@@ -398,7 +399,7 @@ public actor DotLeg {
                 component: "leg", event: "resume-failed",
                 attributes: ["reason": reason]
             )
-            throw DotTransportError.handshakeFailed("resume failed: (reason)")
+            throw DotTransportError.handshakeFailed("resume failed: \(reason)")
         default:
             configuration.journal.record(
                 component: "leg", event: "connect-failed",

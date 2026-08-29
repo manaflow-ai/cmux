@@ -256,7 +256,7 @@ public actor MobileDotRuntimeComposition {
         let session = try await auth.authenticatedSessionSnapshot()
         Self.journal.record(
             component: "client-runtime", event: "provision-auth-ready",
-            attributes: ["account": String(session.accountID.prefix(12))]
+            attributes: ["account": DotJournal.redactedIdentifier(session.accountID)]
         )
         // IDENTITY ADOPTION: same identity/device/app-instance as the legacy
         // stack, so every stored route and pair grant stays valid across the
@@ -270,7 +270,7 @@ public actor MobileDotRuntimeComposition {
         }
         Self.journal.record(
             component: "client-runtime", event: "provision-identity-ready",
-            attributes: ["device": String(adopted.deviceID.prefix(12))]
+            attributes: ["device": DotJournal.redactedIdentifier(adopted.deviceID)]
         )
         let identity = IrxIdentity(
             privateKeyData: adopted.material.secretKey.bytes,
@@ -372,7 +372,7 @@ public actor MobileDotRuntimeComposition {
         let broker = try await provisionedBrokerForDial()
         Self.journal.record(
             component: "client-dial", event: "broker-ready",
-            attributes: ["peer": String(peerHex.prefix(12))]
+            attributes: ["peer": DotJournal.redactedIdentifier(peerHex)]
         )
         guard let identity, let auth else { throw CompositionError.notSignedIn }
         let material: (
@@ -386,7 +386,7 @@ public actor MobileDotRuntimeComposition {
             Self.journal.record(
                 component: "client-dial", event: "admission-material-failed",
                 attributes: [
-                    "peer": String(peerHex.prefix(12)),
+                    "peer": DotJournal.redactedIdentifier(peerHex),
                     "error": String(describing: error),
                 ]
             )
@@ -396,7 +396,7 @@ public actor MobileDotRuntimeComposition {
         Self.journal.record(
             component: "client-dial", event: "target-resolved",
             attributes: [
-                "peer": String(peerHex.prefix(12)),
+                "peer": DotJournal.redactedIdentifier(peerHex),
                 "relay": relayBaseURL.host() ?? "-",
             ]
         )
@@ -533,11 +533,10 @@ public actor MobileDotRuntimeComposition {
         }
         guard let trust else { throw CompositionError.peerNotDiscovered }
         let keys = trust.verificationKeys.keys.compactMap { key -> Data? in
-            // Raw 32-byte Ed25519 key = SPKI DER minus its fixed prefix.
-            guard let der = Data(base64Encoded: key.spkiDerBase64),
-                der.count > 32
+            guard key.alg == "EdDSA",
+                let der = Data(base64Encoded: key.spkiDerBase64)
             else { return nil }
-            return Data(der.suffix(32))
+            return DotGrantVerifier.rawEd25519Key(fromSPKI: der)
         }
         guard !keys.isEmpty else { throw CompositionError.invalidGrant }
         return keys

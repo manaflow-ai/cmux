@@ -104,7 +104,7 @@ final class MobileHostDotRuntime {
         guard let accountID else { return }
         Self.journal.record(
             component: "host-runtime", event: "activating",
-            attributes: ["account": accountID]
+            attributes: ["account": DotJournal.redactedIdentifier(accountID)]
         )
         activationTask = Task { @MainActor [weak self] in
             await self?.activate(accountID: accountID)
@@ -255,8 +255,8 @@ final class MobileHostDotRuntime {
             Self.journal.record(
                 component: "host-runtime", event: "active",
                 attributes: [
-                    "identity": signer.identityHex,
-                    "device": deviceID,
+                    "identity": DotJournal.redactedIdentifier(signer.identityHex),
+                    "device": DotJournal.redactedIdentifier(deviceID),
                     "tag": tag,
                     "relay": relayBaseURL.absoluteString,
                 ]
@@ -321,7 +321,7 @@ final class MobileHostDotRuntime {
                         component: "host-runtime", event: "connection-admitted",
                         attributes: [
                             "session": session.sessionID,
-                            "device": session.peer.deviceID,
+                            "device": DotJournal.redactedIdentifier(session.peer.deviceID),
                         ]
                     )
                     Task { [weak self] in
@@ -331,7 +331,10 @@ final class MobileHostDotRuntime {
                 case .denied(let deviceID, let reason):
                     journal.record(
                         component: "host-runtime", event: "admission-denied",
-                        attributes: ["device": deviceID ?? "-", "reason": reason]
+                attributes: [
+                    "device": deviceID.map(DotJournal.redactedIdentifier) ?? "-",
+                    "reason": reason,
+                ]
                     )
                 case .legEvent(let legEvent):
                     // The leg journals its own lifecycle; surface the
@@ -430,7 +433,7 @@ final class MobileHostDotRuntime {
         artifactRegistry: MobileHostIrohArtifactTransferRegistry,
         journal: DotJournal
     ) async {
-        var terminalLaneCount = 0
+        let terminalQuota = DotTerminalLaneQuota(limit: 4)
         for await event in session.events {
             if Task.isCancelled { break }
             switch event {
@@ -449,11 +452,10 @@ final class MobileHostDotRuntime {
                 )
                 switch stream.descriptor.lane {
                 case "terminal":
-                    guard terminalLaneCount < 4 else {
+                    guard await terminalQuota.acquire() else {
                         await stream.close()
                         continue
                     }
-                    terminalLaneCount += 1
                     let resource = stream.descriptor.resource ?? ""
                     let cursor = stream.descriptor.cursor
                     Task {
@@ -463,6 +465,7 @@ final class MobileHostDotRuntime {
                             stream: Self.bidirectionalStream(stream),
                             journal: Self.laneServerJournal
                         )
+                        await terminalQuota.release()
                     }
                 case "artifact":
                     guard
@@ -520,23 +523,17 @@ final class MobileHostDotRuntime {
         )
     }
 
-    /// Raw 32-byte Ed25519 keys from the persisted trust snapshot's SPKI DER
-    /// entries (fixed 12-byte Ed25519 SPKI prefix + 32 key bytes), the same
-    /// parse `CmxIrohGrantVerifier` performs.
+    /// Raw 32-byte Ed25519 keys from the persisted trust snapshot's canonical
+    /// SPKI DER entries. The shared parser rejects suffix-only extraction.
     private nonisolated static func grantVerificationKeys(
         from snapshot: IrxTrustSnapshot?
     ) -> [Data] {
         guard let snapshot else { return [] }
-        let spkiPrefix = Data([
-            0x30, 0x2A, 0x30, 0x05, 0x06, 0x03, 0x2B, 0x65, 0x70, 0x03, 0x21, 0x00,
-        ])
         return snapshot.verificationKeys.keys.compactMap { key in
-            guard key.alg == "EdDSA",
-                let der = Data(base64Encoded: key.spkiDerBase64),
-                der.count == spkiPrefix.count + 32,
-                der.prefix(spkiPrefix.count) == spkiPrefix
+            guard key.alg == "EdDSA", let der = Data(base64Encoded: key.spkiDerBase64),
+                let raw = DotGrantVerifier.rawEd25519Key(fromSPKI: der)
             else { return nil }
-            return Data(der.suffix(32))
+            return raw
         }
     }
 
@@ -552,6 +549,25 @@ final class MobileHostDotRuntime {
 
 enum MobileHostDotRuntimeError: Error {
     case signedOut
+}
+
+private actor DotTerminalLaneQuota {
+    private let limit: Int
+    private var active = 0
+
+    init(limit: Int) {
+        self.limit = limit
+    }
+
+    func acquire() -> Bool {
+        guard active < limit else { return false }
+        active += 1
+        return true
+    }
+
+    func release() {
+        active = max(0, active - 1)
+    }
 }
 
 /// `DotIdentitySigning` over the adopted keychain identity's Ed25519 seed:
@@ -608,17 +624,22 @@ actor MobileHostDotControlRendezvous {
     func cancel() {
         guard state == .waiting else { return }
         state = .cancelled
+        let orphaned = pending
+        pending = nil
         waiter?.resume(returning: nil)
         waiter = nil
+        if let orphaned {
+            Task { await orphaned.close() }
+        }
     }
 
     func wait() async -> (any DotStream)? {
+        guard state == .waiting else { return nil }
         if let pending {
             self.pending = nil
             state = .delivered
             return pending
         }
-        guard state == .waiting else { return nil }
         return await withCheckedContinuation { continuation in
             waiter = continuation
         }

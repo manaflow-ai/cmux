@@ -70,6 +70,7 @@ describe("control frames", () => {
     expect(decodeControl(JSON.stringify({ t: "hello", proto: "dot/1" }))).toBeNull();
     expect(decodeControl(JSON.stringify({ t: "hello", proto: "dot/1", device: "", ack: -1 }))).toBeNull();
     expect(decodeControl(JSON.stringify({ t: "hello", proto: "dot/1", device: "d", acks: { "0": 1 } }))).toBeNull();
+    expect(decodeControl(JSON.stringify({ t: "hello", proto: "dot/1", device: "d", acks: { "01": 1 } }))).toBeNull();
     expect(decodeControl(JSON.stringify({ t: "pong", ts: 1 }))).toBeNull(); // server→client only
     expect(decodeControl(JSON.stringify({ t: "ack", seq: "1" }))).toBeNull();
     expect(decodeControl(JSON.stringify({ t: "auth.refresh", token: "" }))).toBeNull();

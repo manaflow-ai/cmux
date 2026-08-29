@@ -93,8 +93,8 @@ end-to-end through the peer.
 - E2E encryption over the relay: payloads are AEAD-sealed (ChaChaPoly via
   CryptoKit) under keys from an X25519 ECDH bound to the existing pairing
   trust, HKDF with hello transcript binding, so Cloudflare carries ciphertext
-  only — parity with iroh's E2E property. (Exact key-material binding depends
-  on the pairing artifacts; see implementation notes.)
+  only. Direction-specific keys and associated data bind the session, stream,
+  frame kind, and direction, preventing relay metadata tampering or reflection.
 
 ## Connect-time budget (≤2 s)
 

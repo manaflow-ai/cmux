@@ -1,5 +1,5 @@
 import CryptoKit
-import Foundation
+public import Foundation
 
 // The WebSocket relay only understands the leg header. Everything in this
 // file is an application envelope carried in the opaque payload, including
@@ -205,12 +205,8 @@ struct DotGrantClaims: Codable, Sendable {
     let acceptor: Peer
 }
 
-enum DotGrantVerifier {
+public enum DotGrantVerifier {
     private static let pairGrantLifetime: Int64 = 7 * 24 * 60 * 60
-    private static let uuidPattern = try! NSRegularExpression(
-        pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
-        options: [.caseInsensitive]
-    )
 
     static func verify(_ token: String, keys: [Data], now: Date = Date()) throws -> DotGrantClaims {
         let parts = token.split(separator: ".", omittingEmptySubsequences: false)
@@ -282,6 +278,21 @@ enum DotGrantVerifier {
         return claims
     }
 
+    /// Extract exactly one Ed25519 public key from the canonical SubjectPublic
+    /// Key Info encoding used by the broker trust snapshot. Suffix extraction
+    /// is deliberately rejected, otherwise malformed DER could smuggle an
+    /// arbitrary trailing key into the admission set.
+    public static func rawEd25519Key(fromSPKI der: Data) -> Data? {
+        let prefix = Data([
+            0x30, 0x2A, 0x30, 0x05, 0x06, 0x03, 0x2B, 0x65, 0x70,
+            0x03, 0x21, 0x00,
+        ])
+        guard der.count == prefix.count + 32, der.prefix(prefix.count) == prefix else {
+            return nil
+        }
+        return Data(der.suffix(32))
+    }
+
     private static func exactKeys(_ data: Data, allowed: [String]) -> Bool {
         guard let value = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               value.keys.count == allowed.count else { return false }
@@ -310,8 +321,24 @@ enum DotGrantVerifier {
     }
 
     private static func isUUID(_ value: String) -> Bool {
-        let range = NSRange(value.startIndex..<value.endIndex, in: value)
-        return uuidPattern.firstMatch(in: value, options: [], range: range) != nil
+        let parts = value.split(separator: "-", omittingEmptySubsequences: false)
+        guard parts.count == 5,
+              parts[0].count == 8,
+              parts[1].count == 4,
+              parts[2].count == 4,
+              parts[3].count == 4,
+              parts[4].count == 12,
+              parts[2].first.map({ "12345678".contains($0) }) == true,
+              parts[3].first.map({ "89abAB".contains($0) }) == true else {
+            return false
+        }
+        return parts.allSatisfy { part in
+            part.utf8.allSatisfy { byte in
+                (byte >= 48 && byte <= 57) ||
+                (byte >= 65 && byte <= 70) ||
+                (byte >= 97 && byte <= 102)
+            }
+        }
     }
 
     static func decodeBase64URL(_ value: String) -> Data? {
@@ -344,7 +371,8 @@ actor DotSecureSession: DotSecureSessionProtocol {
     private let admission: DotAdmissionMaterial
     private let judge: (@Sendable (DotAdmittedPeer) async throws -> Void)?
     private var continuation: AsyncStream<DotSessionEvent>.Continuation?
-    private var key: SymmetricKey?
+    private var sendKey: SymmetricKey?
+    private var receiveKey: SymmetricKey?
     /// Stream IDs are directional. The phone owns odd IDs and the host owns
     /// even IDs, so a host-opened lane can never collide with the phone's
     /// control stream (or any other phone-opened lane) in the shared mux.
@@ -352,6 +380,7 @@ actor DotSecureSession: DotSecureSessionProtocol {
     private var streams: [UInt32: DotStreamImpl] = [:]
     private var closed = false
     private var handshakeWaiter: CheckedContinuation<Void, any Error>?
+    private var handshakeTimeoutTask: Task<Void, Never>?
     private var handshakeComplete = false
     private var handshakeFailure: DotTransportError?
     private var clientNonce: Data?
@@ -501,28 +530,27 @@ actor DotSecureSession: DotSecureSessionProtocol {
         let frame = try DotSessionFrame(kind: .clientHello, streamID: 0, sessionID: sessionID, body: body).encoded()
         clientHelloFrame = frame
         try await leg.send(frame, to: destinationLegID)
-        do {
-            try await withThrowingTaskGroup(of: Void.self) { group in
-                group.addTask {
-                    try await withCheckedThrowingContinuation { continuation in
-                        Task { await self.setHandshakeWaiter(continuation) }
-                    }
-                }
-                group.addTask {
-                    try await Task.sleep(for: .seconds(5))
-                    throw DotTransportError.admissionFailed("handshake timeout")
-                }
-                _ = try await group.next()
-                group.cancelAll()
+        let timeoutTask = Task { [weak self] in
+            do {
+                try await Task.sleep(for: .seconds(5))
+            } catch {
+                return
             }
-        } catch {
-            handshakeFailure = (error as? DotTransportError)
-                ?? .admissionFailed("handshake failed")
-            handshakeWaiter?.resume(throwing: error)
-            handshakeWaiter = nil
-            throw error
+            await self?.failHandshake(.admissionFailed("handshake timeout"))
         }
-        clearHandshakeEphemeral()
+        handshakeTimeoutTask = timeoutTask
+        defer {
+            timeoutTask.cancel()
+            handshakeTimeoutTask = nil
+            clearHandshakeEphemeral()
+        }
+        try await withTaskCancellationHandler(operation: {
+            try await withCheckedThrowingContinuation { continuation in
+                self.setHandshakeWaiter(continuation)
+            }
+        }, onCancel: {
+            Task { await self.failHandshake(.stopped) }
+        })
     }
 
     private var clientEphemeral: Curve25519.KeyAgreement.PrivateKey?
@@ -535,6 +563,13 @@ actor DotSecureSession: DotSecureSessionProtocol {
         } else {
             handshakeWaiter = waiter
         }
+    }
+
+    private func failHandshake(_ error: DotTransportError) {
+        guard !handshakeComplete else { return }
+        handshakeFailure = error
+        handshakeWaiter?.resume(throwing: error)
+        handshakeWaiter = nil
     }
 
     private func clearHandshakeEphemeral() {
@@ -564,7 +599,9 @@ actor DotSecureSession: DotSecureSessionProtocol {
             throw DotTransportError.admissionFailed("invalid peer signature")
         }
         let shared = try serverEphemeral.sharedSecretFromKeyAgreement(with: clientEphemeral)
-        key = Self.deriveKey(shared: shared, transcript: transcript)
+        let keys = Self.deriveDirectionalKeys(shared: shared, transcript: transcript, role: role)
+        sendKey = keys.send
+        receiveKey = keys.receive
         try await judge?(peer)
         let signature = try await identity.sign(transcript)
         let response = DotServerHello(
@@ -611,7 +648,7 @@ actor DotSecureSession: DotSecureSessionProtocol {
             case .open:
                 try await receiveOpen(streamID: frame.streamID, body: frame.body)
             case .openAck:
-                break
+                _ = try openFrameBody(frame.body, kind: .openAck, streamID: frame.streamID)
             case .data:
                 try await receiveData(streamID: frame.streamID, body: frame.body)
             case .close:
@@ -625,7 +662,7 @@ actor DotSecureSession: DotSecureSessionProtocol {
     }
 
     private func finishClientHandshake(body: Data) async throws {
-        guard role == .phone, key == nil else { return }
+        guard role == .phone, sendKey == nil else { return }
         let hello = try JSONDecoder().decode(DotServerHello.self, from: body)
         guard let expected = admission.expectedPeerPublicKey,
               hello.sessionID == sessionID,
@@ -656,7 +693,9 @@ actor DotSecureSession: DotSecureSessionProtocol {
             throw DotTransportError.admissionFailed("missing client key")
         }
         let shared = try ephemeral.sharedSecretFromKeyAgreement(with: serverKey)
-        key = Self.deriveKey(shared: shared, transcript: transcript)
+        let keys = Self.deriveDirectionalKeys(shared: shared, transcript: transcript, role: role)
+        sendKey = keys.send
+        receiveKey = keys.receive
         handshakeComplete = true
         handshakeFailure = nil
         handshakeWaiter?.resume()
@@ -664,13 +703,14 @@ actor DotSecureSession: DotSecureSessionProtocol {
     }
 
     func openStream(_ descriptor: DotLaneDescriptor) async throws -> any DotStream {
-        guard key != nil, !closed else { throw DotTransportError.sessionEnded("session closed") }
+        guard sendKey != nil, !closed else { throw DotTransportError.sessionEnded("session closed") }
         let id = nextStreamID
         guard id > 0 else { throw DotTransportError.protocolViolation("stream id exhausted") }
         nextStreamID = id <= UInt32.max - 2 ? id + 2 : 0
         let stream = DotStreamImpl(id: id, descriptor: descriptor, session: self)
         streams[id] = stream
-        let body = try JSONEncoder().encode(DotOpenMessage(descriptor: descriptor))
+        let plaintext = try JSONEncoder().encode(DotOpenMessage(descriptor: descriptor))
+        let body = try sealFrameBody(plaintext, kind: .open, streamID: id)
         let frame = try DotSessionFrame(kind: .open, streamID: id, sessionID: sessionID, body: body).encoded()
         try await leg.send(frame, to: destinationLegID)
         return stream
@@ -695,16 +735,21 @@ actor DotSecureSession: DotSecureSessionProtocol {
     }
 
     func sendStreamData(id: UInt32, data: Data) async throws {
-        guard let key, !closed else { throw DotTransportError.sessionEnded("session closed") }
-        let sealed = try ChaChaPoly.seal(data, using: key).combined
+        guard sendKey != nil, !closed else { throw DotTransportError.sessionEnded("session closed") }
+        let sealed = try sealFrameBody(data, kind: .data, streamID: id)
         let frame = try DotSessionFrame(kind: .data, streamID: id, sessionID: sessionID, body: sealed).encoded()
         try await leg.send(frame, to: destinationLegID)
     }
 
     func closeStreamWrite(id: UInt32) async {
         guard !closed else { return }
-        let body = (try? JSONEncoder().encode(DotCloseMessage(writeOnly: true))) ?? Data()
-        if let frame = try? DotSessionFrame(kind: .close, streamID: id, sessionID: sessionID, body: body).encoded() {
+        guard sendKey != nil else { return }
+        let body = try? sealFrameBody(
+            JSONEncoder().encode(DotCloseMessage(writeOnly: true)),
+            kind: .close,
+            streamID: id
+        )
+        if let body, let frame = try? DotSessionFrame(kind: .close, streamID: id, sessionID: sessionID, body: body).encoded() {
             try? await leg.send(frame, to: destinationLegID)
         }
     }
@@ -712,14 +757,19 @@ actor DotSecureSession: DotSecureSessionProtocol {
     func closeStream(id: UInt32) async {
         guard !closed else { return }
         streams[id] = nil
-        let body = (try? JSONEncoder().encode(DotCloseMessage(writeOnly: false))) ?? Data()
-        if let frame = try? DotSessionFrame(kind: .close, streamID: id, sessionID: sessionID, body: body).encoded() {
+        guard sendKey != nil else { return }
+        let body = try? sealFrameBody(
+            JSONEncoder().encode(DotCloseMessage(writeOnly: false)),
+            kind: .close,
+            streamID: id
+        )
+        if let body, let frame = try? DotSessionFrame(kind: .close, streamID: id, sessionID: sessionID, body: body).encoded() {
             try? await leg.send(frame, to: destinationLegID)
         }
     }
 
     private func receiveOpen(streamID: UInt32, body: Data) async throws {
-        guard key != nil else { return }
+        guard receiveKey != nil else { return }
         // An inbound OPEN must come from the peer's half of the directional
         // namespace. Treat a reused local ID as a protocol error instead of
         // silently dropping the lane and leaving its consumer hung.
@@ -728,26 +778,28 @@ actor DotSecureSession: DotSecureSessionProtocol {
               streams[streamID] == nil else {
             throw DotTransportError.protocolViolation("invalid peer stream id")
         }
-        let open = try JSONDecoder().decode(DotOpenMessage.self, from: body)
+        let openBody = try openFrameBody(body, kind: .open, streamID: streamID)
+        let open = try JSONDecoder().decode(DotOpenMessage.self, from: openBody)
         let stream = DotStreamImpl(id: streamID, descriptor: open.descriptor, session: self)
         streams[streamID] = stream
-        let ackBody = try JSONEncoder().encode(DotOpenAckMessage(accepted: true, reason: nil))
+        let ackPlaintext = try JSONEncoder().encode(DotOpenAckMessage(accepted: true, reason: nil))
+        let ackBody = try sealFrameBody(ackPlaintext, kind: .openAck, streamID: streamID)
         let ack = try DotSessionFrame(kind: .openAck, streamID: streamID, sessionID: sessionID, body: ackBody).encoded()
         try await leg.send(ack, to: destinationLegID)
         continuation?.yield(.inboundStream(stream))
     }
 
     private func receiveData(streamID: UInt32, body: Data) async throws {
-        guard let key, let stream = streams[streamID] else { return }
-        let sealed = try ChaChaPoly.SealedBox(combined: body)
-        let plaintext = try ChaChaPoly.open(sealed, using: key)
+        guard receiveKey != nil, let stream = streams[streamID] else { return }
+        let plaintext = try openFrameBody(body, kind: .data, streamID: streamID)
         await stream.receive(plaintext)
     }
 
     private func receiveClose(streamID: UInt32, body: Data) async throws {
         guard let stream = streams[streamID] else { return }
         await stream.finishInbound()
-        let close = try JSONDecoder().decode(DotCloseMessage.self, from: body)
+        let closeBody = try openFrameBody(body, kind: .close, streamID: streamID)
+        let close = try JSONDecoder().decode(DotCloseMessage.self, from: closeBody)
         if !close.writeOnly { streams[streamID] = nil }
     }
 
@@ -755,6 +807,8 @@ actor DotSecureSession: DotSecureSessionProtocol {
         guard !closed else { return }
         closed = true
         handshakeFailure = .sessionEnded(reason)
+        handshakeTimeoutTask?.cancel()
+        handshakeTimeoutTask = nil
         handshakeWaiter?.resume(throwing: DotTransportError.sessionEnded(reason))
         handshakeWaiter = nil
         for stream in streams.values { await stream.finishInbound() }
@@ -798,13 +852,62 @@ actor DotSecureSession: DotSecureSessionProtocol {
         )
     }
 
+    private static func deriveDirectionalKeys(
+        shared: SharedSecret,
+        transcript: Data,
+        role: Role
+    ) -> (send: SymmetricKey, receive: SymmetricKey) {
+        let base = deriveKey(shared: shared, transcript: transcript)
+        let phoneToHost = HKDF<SHA256>.deriveKey(
+            inputKeyMaterial: base,
+            salt: Data(transcript),
+            info: Data("cmux-dot-frame-v1|phone-to-host".utf8),
+            outputByteCount: 32
+        )
+        let hostToPhone = HKDF<SHA256>.deriveKey(
+            inputKeyMaterial: base,
+            salt: Data(transcript),
+            info: Data("cmux-dot-frame-v1|host-to-phone".utf8),
+            outputByteCount: 32
+        )
+        return role == .phone
+            ? (send: phoneToHost, receive: hostToPhone)
+            : (send: hostToPhone, receive: phoneToHost)
+    }
+
+    private var outboundDirection: String {
+        role == .phone ? "phone-to-host" : "host-to-phone"
+    }
+
+    private var inboundDirection: String {
+        role == .phone ? "host-to-phone" : "phone-to-host"
+    }
+
+    private func frameAAD(kind: DotSessionKind, streamID: UInt32, direction: String) -> Data {
+        Data("cmux-dot-frame-v1|\(sessionID)|\(kind.rawValue)|\(streamID)|\(direction)".utf8)
+    }
+
+    private func sealFrameBody(_ plaintext: Data, kind: DotSessionKind, streamID: UInt32) throws -> Data {
+        guard let sendKey else { throw DotTransportError.sessionEnded("session key unavailable") }
+        return try ChaChaPoly.seal(
+            plaintext,
+            using: sendKey,
+            authenticating: frameAAD(kind: kind, streamID: streamID, direction: outboundDirection)
+        ).combined
+    }
+
+    private func openFrameBody(_ sealedBody: Data, kind: DotSessionKind, streamID: UInt32) throws -> Data {
+        guard let receiveKey else { throw DotTransportError.sessionEnded("session key unavailable") }
+        return try ChaChaPoly.open(
+            ChaChaPoly.SealedBox(combined: sealedBody),
+            using: receiveKey,
+            authenticating: frameAAD(kind: kind, streamID: streamID, direction: inboundDirection)
+        )
+    }
+
     private static func randomNonce() -> Data {
-        var bytes = Data(count: 32)
-        bytes.withUnsafeMutableBytes { buffer in
-            guard let base = buffer.baseAddress else { return }
-            for offset in 0..<buffer.count { base.storeBytes(of: UInt8.random(in: 0...255), toByteOffset: offset, as: UInt8.self) }
-        }
-        return bytes
+        let key = SymmetricKey(size: .bits256)
+        return key.withUnsafeBytes { Data($0) }
     }
 
     private static func hex(_ data: Data) -> String {

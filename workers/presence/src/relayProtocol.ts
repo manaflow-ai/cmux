@@ -121,7 +121,10 @@ export function decodeControl(text: string): ControlFrame | null {
         acks = {};
         for (const [key, value] of Object.entries(frame.acks as Record<string, unknown>)) {
           const legId = Number(key);
-          if (!Number.isSafeInteger(legId) || legId < 1 || !validSeq(value)) return null;
+          // JSON object keys are strings. Require the canonical decimal form
+          // so aliases such as "01" cannot create an ack entry that never
+          // matches the relay's numeric leg lookup.
+          if (key !== String(legId) || !Number.isSafeInteger(legId) || legId < 1 || !validSeq(value)) return null;
           acks[key] = value as number;
         }
         if (Object.keys(acks).length > MAX_PHONE_LEGS) return null;

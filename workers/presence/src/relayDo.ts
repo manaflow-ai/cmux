@@ -297,7 +297,9 @@ export class MacRelay extends DurableObject<RelayEnv> {
       legId,
       resumeKey,
       epoch: await this.epoch(),
-      peerOnline: att.role === "host" ? this.liveLegs("phone").length > 0 : this.hostSocket() !== null,
+      peerOnline: att.role === "host"
+        ? this.liveLegs("phone").some((phone) => attachment(phone)?.legId !== undefined)
+        : this.hostSocket() !== null,
       replayed,
     });
     // Tell the client when this authenticated leg must refresh. The refresh
@@ -388,6 +390,7 @@ export class MacRelay extends DurableObject<RelayEnv> {
           ws.send(data);
           replayed += 1;
         } catch {
+          ws.close(CLOSE_PROTOCOL_ERROR, "resume replay failed");
           return "failed";
         }
       }
@@ -418,6 +421,7 @@ export class MacRelay extends DurableObject<RelayEnv> {
             ws.send(data);
             replayed += 1;
           } catch {
+            ws.close(CLOSE_PROTOCOL_ERROR, "resume replay failed");
             return "failed";
           }
         }
@@ -533,8 +537,10 @@ export class MacRelay extends DurableObject<RelayEnv> {
       return;
     }
     const dest = this.socketFor(header.legId);
-    const destinationAttachment = dest ? attachment(dest) : await this.ctx.storage.get<LegMeta>(legKey(header.legId));
-    if (!destinationAttachment || destinationAttachment.role !== "phone") {
+    const destinationSocketAttachment = dest ? attachment(dest) : null;
+    const destinationStoredMeta = dest ? null : await this.ctx.storage.get<LegMeta>(legKey(header.legId));
+    const destinationRole = destinationSocketAttachment?.role ?? destinationStoredMeta?.role;
+    if (destinationRole !== "phone") {
       ws.close(CLOSE_PROTOCOL_ERROR, "unknown destination leg");
       return;
     }
@@ -595,7 +601,12 @@ export class MacRelay extends DurableObject<RelayEnv> {
       meta.detachedAt = Date.now();
       await this.ctx.storage.put(legKey(legId), meta);
       if (Object.keys(spillWrites).length > 0) {
-        await this.ctx.storage.put(spillWrites);
+        const entries = Object.entries(spillWrites);
+        // Durable Object batch puts are capped. Chunk spill rows so a burst
+        // of unacked frames cannot turn a disconnect into a storage error.
+        for (let offset = 0; offset < entries.length; offset += 100) {
+          await this.ctx.storage.put(Object.fromEntries(entries.slice(offset, offset + 100)));
+        }
       }
       await this.ensureAlarmAt(meta.detachedAt + RESUME_TTL_MS);
     }
@@ -671,7 +682,7 @@ export class MacRelay extends DurableObject<RelayEnv> {
           continue;
         }
         consider(gcAt);
-      } else if (this.socketFor(legId) === null && this.ctx.getWebSockets().length === 0) {
+      } else if (this.socketFor(legId) === null) {
         // Meta without a socket or detach marker: the DO restarted while the
         // leg was live. Start the GC clock now.
         meta.detachedAt = now;

@@ -74,18 +74,50 @@ def sim_journal_path():
         return None
 
 
-def read_events(path, since_index):
-    """Journal events after the given line index; tolerates partial lines."""
-    if path is None or not path.exists():
-        return [], since_index
-    lines = path.read_text(errors="replace").splitlines()
-    events = []
-    for line in lines[since_index:]:
+class JournalCursor:
+    """Incrementally read an append-only JSONL journal without rescanning it.
+
+    The trailing partial line is retained until the writer appends its newline,
+    so a sample cannot silently advance past an event that was mid-write.
+    Rotation or truncation resets the cursor and starts a new evidence stream.
+    """
+
+    def __init__(self, path):
+        self.path = path
+        self.offset = 0
+        self.buffer = b""
+        self.inode = None
+
+    def read(self):
+        if self.path is None or not self.path.exists():
+            return []
         try:
-            events.append(json.loads(line))
-        except json.JSONDecodeError:
-            continue
-    return events, len(lines)
+            stat = self.path.stat()
+            if self.inode != stat.st_ino or stat.st_size < self.offset:
+                self.offset = 0
+                self.buffer = b""
+                self.inode = stat.st_ino
+            with self.path.open("rb") as stream:
+                stream.seek(self.offset)
+                chunk = stream.read()
+                self.offset = stream.tell()
+        except OSError:
+            return []
+        if not chunk and not self.buffer:
+            return []
+        lines = (self.buffer + chunk).split(b"\n")
+        self.buffer = lines.pop()
+        events = []
+        for line in lines:
+            if not line.strip():
+                continue
+            try:
+                events.append(json.loads(line.decode("utf-8", errors="replace")))
+            except json.JSONDecodeError:
+                # Complete malformed lines remain evidence of a corrupt
+                # journal, but do not prevent later valid events being read.
+                continue
+        return events
 
 
 def screenshot(label):
@@ -171,8 +203,10 @@ print(f"[soak] sim journal: {sim_path} exists={sim_path.exists() if sim_path els
 
 # Anchor: skip pre-existing journal content; the soak judges only its window,
 # except establishment, which uses the newest admission before/at start.
-_, mac_index = read_events(mac_journal_path, 0)
-pre_client, sim_index = read_events(sim_path, 0)
+mac_cursor = JournalCursor(mac_journal_path)
+sim_cursor = JournalCursor(sim_path)
+pre_client = sim_cursor.read()
+mac_cursor.read()
 
 establish_ms = None
 for index in range(len(pre_client) - 1, -1, -1):
@@ -212,8 +246,8 @@ while time.time() < deadline:
     sample += 1
     now = time.time()
 
-    client_events, sim_index = read_events(sim_path, sim_index)
-    mac_events, mac_index = read_events(mac_journal_path, mac_index)
+    client_events = sim_cursor.read()
+    mac_events = mac_cursor.read()
 
     for event in client_events:
         key = (event.get("component"), event.get("event"))

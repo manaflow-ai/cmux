@@ -2,6 +2,7 @@
 // soak harness (scripts/irx-soak.py lineage) reads dot journals unchanged:
 // {ts, mono_ms, component, event, a_<attr>: value...}
 
+public import CryptoKit
 public import Foundation
 
 public struct DotJournal: Sendable {
@@ -33,6 +34,13 @@ public struct DotJournal: Sendable {
     }
 
     public static let discarding = DotJournal { _ in }
+
+    /// Stable, non-reversible identifier for correlating a journal session
+    /// without writing account, device, or endpoint identifiers to disk.
+    public static func redactedIdentifier(_ value: String) -> String {
+        let digest = SHA256.hash(data: Data(value.utf8))
+        return digest.prefix(8).map { String(format: "%02x", $0) }.joined()
+    }
 
     public func record(
         component: String,
