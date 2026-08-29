@@ -299,9 +299,8 @@ fn install_command(positionals: &[String], options: &CliOptions) -> Result<Value
         } else {
             None
         };
-        let expected_sidebar_plugin = selected_plugin
-            .as_ref()
-            .map(|(command, cwd)| json!({"command": command, "cwd": cwd}));
+        let expected_sidebar_plugin =
+            selected_plugin.as_ref().map(|(command, cwd)| json!({"command": command, "cwd": cwd}));
         replace_installed_plugin_with_config(
             &root,
             &name,
