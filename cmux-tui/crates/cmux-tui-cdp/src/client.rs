@@ -1447,8 +1447,8 @@ fn outbound_byte_budget_error() -> anyhow::Error {
         .context(CDP_CONNECTION_UNAVAILABLE_MESSAGE)
 }
 
-pub fn is_connection_unavailable(error: &anyhow::Error) -> bool {
-    error.chain().any(|cause| cause.to_string() == CDP_CONNECTION_UNAVAILABLE_MESSAGE)
+pub fn is_connection_unavailable(error: &str) -> bool {
+    error == CDP_CONNECTION_UNAVAILABLE_MESSAGE
 }
 
 fn outbound_bytes_sub(inner: &Inner, bytes: usize) {
