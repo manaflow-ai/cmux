@@ -39,7 +39,8 @@
 //! never run this listener: it starts from the managed branch only.
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use std::sync::Mutex;
 use std::time::Duration;
 
 use base64::engine::general_purpose::STANDARD as BASE64;
