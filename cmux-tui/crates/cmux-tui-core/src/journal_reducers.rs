@@ -213,7 +213,8 @@ impl AgentRoster {
             // A socket entry keeps any agent identity a hook already
             // established for this terminal.
             agent: if source == AgentSource::Socket {
-                agent.or_else(|| self.entries.get(terminal_id).and_then(|entry| entry.agent.clone()))
+                agent
+                    .or_else(|| self.entries.get(terminal_id).and_then(|entry| entry.agent.clone()))
             } else {
                 agent
             },
