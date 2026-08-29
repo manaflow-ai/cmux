@@ -854,6 +854,7 @@ pub enum MuxEvent {
         state: Arc<str>,
         source: Arc<str>,
         session: Option<Arc<str>>,
+        agent: Option<Arc<str>>,
         updated_at_ms: u64,
     },
     Bell(SurfaceId),
@@ -1111,6 +1112,7 @@ pub struct AgentRecord {
     pub state: AgentState,
     pub source: AgentSource,
     pub session: Option<String>,
+    pub agent: Option<String>,
     pub updated_at_ms: u64,
 }
 
@@ -1183,6 +1185,7 @@ struct TerminalAgentRecord {
     state: AgentState,
     source: AgentSource,
     session: Option<String>,
+    agent: Option<String>,
     updated_at_ms: u64,
 }
 
@@ -9176,6 +9179,7 @@ impl Mux {
                 state: agent_state,
                 source,
                 session: source_session,
+                agent: None,
                 updated_at_ms: now,
             },
         };
@@ -9264,6 +9268,7 @@ impl Mux {
             state: record.state,
             source: record.source,
             session: record.session,
+            agent: record.agent,
             updated_at_ms: record.updated_at_ms,
         };
         if !commit.replayed {
@@ -9273,6 +9278,7 @@ impl Mux {
                 state: Arc::from(agent.state.as_str()),
                 source: Arc::from(agent.source.as_str()),
                 session: agent.session.as_deref().map(Arc::from),
+                agent: agent.agent.as_deref().map(Arc::from),
                 updated_at_ms: agent.updated_at_ms,
             });
         }
@@ -9358,6 +9364,7 @@ impl Mux {
                     state: record.state,
                     source: record.source,
                     session: record.session,
+                    agent: record.agent,
                     updated_at_ms: record.updated_at_ms,
                 })
             })
