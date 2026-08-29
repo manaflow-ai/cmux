@@ -5073,6 +5073,10 @@ fn parse_ghostty_config_file_until_with_scrollback(
     let collect_scrollback = scrollback_limit_bytes.is_some();
     let root_identity = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
 
+    // Preserve cmux's existing depth-first precedence for colors and themes.
+    // Scrollback is replayed from this snapshot in Ghostty's declaration-order
+    // breadth-first traversal, so changing color precedence is out of scope.
+
     while let Some(pending) = stack.pop() {
         if files_loaded > 0 && ghostty_config_deadline_expired(deadline_at) {
             return if collect_scrollback {
@@ -6083,6 +6087,49 @@ mod tests {
             parse_scrollback_limit_from_root(&root, Instant::now() + Duration::from_secs(1)),
             ScrollbackConfigOutcome::Parsed(Some(Some(4)))
         );
+    }
+
+    #[test]
+    fn combined_snapshot_preserves_color_dfs_and_scrollback_bfs_precedence() {
+        let dir = TestDirectory::new("combined-include-precedence");
+        let root = dir.path.join("config");
+        let first = dir.path.join("first.conf");
+        let second = dir.path.join("second.conf");
+        let nested = dir.path.join("nested.conf");
+        std::fs::write(
+            &root,
+            "config-file = first.conf\nconfig-file = second.conf\n",
+        )
+        .unwrap();
+        std::fs::write(
+            &first,
+            "foreground = #010203\nscrollback-limit-bytes = 2\nconfig-file = nested.conf\n",
+        )
+        .unwrap();
+        std::fs::write(
+            &second,
+            "foreground = #040506\nscrollback-limit-bytes = 3\n",
+        )
+        .unwrap();
+        std::fs::write(
+            &nested,
+            "foreground = #070809\nscrollback-limit-bytes = 4\n",
+        )
+        .unwrap();
+
+        let mut scrollback = None;
+        let outcome = parse_ghostty_defaults_from_path_result_until_with_scrollback(
+            &root,
+            &[],
+            Some(Instant::now() + Duration::from_secs(1)),
+            Some(&mut scrollback),
+        );
+        let GhosttyConfigParseOutcome::Parsed(colors) = outcome else {
+            panic!("snapshot should parse");
+        };
+
+        assert_eq!(colors.fg, Some(Rgb { r: 4, g: 5, b: 6 }));
+        assert_eq!(scrollback, Some(Some(4)));
     }
 
     #[test]
