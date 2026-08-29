@@ -915,6 +915,69 @@ mod tests {
         }
     }
 
+    fn test_connection(
+        rig: &Rig,
+    ) -> (Arc<Connection>, mpsc::Receiver<WriterMessage>, mpsc::Receiver<bool>) {
+        let (writer_tx, writer_rx) = mpsc::channel(WRITER_QUEUE_CAPACITY);
+        let (flow_tx, flow_rx) = mpsc::channel(4);
+        let connection = Arc::new(Connection {
+            pty_id: "test-pty".to_owned(),
+            manager: Arc::clone(&rig.manager),
+            writer_tx,
+            queue_gate: Mutex::new(()),
+            flow_tx,
+            pending_out: AtomicU64::new(0),
+            paused: AtomicBool::new(false),
+            open_sent: AtomicBool::new(false),
+            opened_seen: AtomicBool::new(false),
+            finished: AtomicBool::new(false),
+            done: CancellationToken::new(),
+        });
+        (connection, writer_rx, flow_rx)
+    }
+
+    #[tokio::test]
+    async fn stalled_peer_hits_the_byte_budget_and_pauses_before_close() {
+        let rig = rig().await;
+        let (connection, mut writer_rx, mut flow_rx) = test_connection(&rig);
+        let frame_len = WRITER_QUEUE_BYTE_CAP as usize / 2;
+        assert!(connection.enqueue(WriterMessage::Frame(vec![1; frame_len])));
+        assert!(connection.enqueue(WriterMessage::Frame(vec![2; frame_len])));
+        assert!(!connection.enqueue(WriterMessage::Frame(vec![3])));
+        assert!(connection.finished.load(Ordering::SeqCst));
+        assert!(connection.pending_out.load(Ordering::SeqCst) <= WRITER_QUEUE_BYTE_CAP);
+        assert_eq!(flow_rx.try_recv(), Ok(true));
+        match writer_rx.recv().await.expect("first admitted frame") {
+            WriterMessage::Frame(frame) => assert_eq!(frame[0], 1),
+            WriterMessage::End => panic!("queue order changed"),
+        }
+        match writer_rx.recv().await.expect("second admitted frame") {
+            WriterMessage::Frame(frame) => assert_eq!(frame[0], 2),
+            WriterMessage::End => panic!("queue order changed"),
+        }
+        rig.cancel.cancel();
+    }
+
+    #[tokio::test]
+    async fn full_writer_queue_closes_without_growing_beyond_message_budget() {
+        let rig = rig().await;
+        let (connection, mut writer_rx, mut flow_rx) = test_connection(&rig);
+        for index in 0..WRITER_QUEUE_CAPACITY {
+            assert!(connection.enqueue(WriterMessage::Frame(vec![index as u8])));
+        }
+        assert!(!connection.enqueue(WriterMessage::Frame(vec![0])));
+        assert!(connection.finished.load(Ordering::SeqCst));
+        assert_eq!(flow_rx.try_recv(), Ok(true));
+        for index in 0..WRITER_QUEUE_CAPACITY {
+            match writer_rx.recv().await.expect("admitted frame") {
+                WriterMessage::Frame(frame) => assert_eq!(frame, vec![index as u8]),
+                WriterMessage::End => panic!("queue order changed"),
+            }
+        }
+        assert!(writer_rx.try_recv().is_err());
+        rig.cancel.cancel();
+    }
+
     // -- live listener ------------------------------------------------------
 
     #[tokio::test]
