@@ -5331,101 +5331,110 @@ impl Mux {
             AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION, RosterEvent,
             SOCKET_REPORT_ADAPTER,
         };
+        const FOLD_PAGE_SIZE: usize = 128;
+
         let _lifecycle = self.agent_roster_lifecycle.lock().unwrap();
         // A caller can reach this method out of order when two journal
-        // commits complete on different ingress threads. Read the durable
-        // prefix through this commit and fold it in sequence order. This
-        // makes live folding identical to restart replay.
-        let (pending, diagnostic) = {
-            let mut registry = self.workspace_registry.lock().unwrap();
-            let mut host = self.agent_roster.lock().unwrap();
-            if commit.sequence <= host.cursor && !host.snapshot_dirty {
-                (Vec::new(), None)
-            } else {
-                let mut records = Vec::new();
-                let mut reached_commit = commit.sequence <= host.cursor;
-                if commit.sequence > host.cursor {
-                    let mut read_cursor = host.cursor;
-                    'read: loop {
-                        let page = match registry.session_journal_after(read_cursor, 512) {
-                            Ok(page) => page,
-                            Err(_error) => {
-                                break 'read;
-                            }
-                        };
-                        if page.records.is_empty() {
-                            break;
-                        }
-                        let mut advanced = false;
+        // commits complete on different ingress threads. Read and fold the
+        // durable prefix through this commit in bounded pages. The lifecycle
+        // fence still serializes folds, but registry and roster locks are
+        // released after each page so a long hostile prefix cannot block all
+        // journal users or retain an unbounded record vector.
+        let mut read_failed = false;
+        let mut snapshot_failed = false;
+        let mut projection_failed = false;
+        loop {
+            let (deltas, reached_commit, page_read_failed, page_snapshot_failed) = {
+                let mut registry = self.workspace_registry.lock().unwrap();
+                let mut host = self.agent_roster.lock().unwrap();
+
+                if commit.sequence <= host.cursor {
+                    if !host.snapshot_dirty {
+                        (Vec::new(), true, false, false)
+                    } else {
+                        let cursor = host.cursor;
+                        let snapshot = host.roster.snapshot().to_string();
+                        let failed = registry
+                            .put_journal_reducer_state(
+                                AGENT_ROSTER_REDUCER_ID,
+                                AGENT_ROSTER_REDUCER_VERSION,
+                                cursor,
+                                &snapshot,
+                            )
+                            .is_err();
+                        host.snapshot_dirty = failed;
+                        (Vec::new(), true, false, failed)
+                    }
+                } else {
+                    let read_cursor = host.cursor;
+                    match registry.session_journal_after(read_cursor, FOLD_PAGE_SIZE) {
+                        Err(_error) => (Vec::new(), false, true, false),
+                        Ok(page) if page.records.is_empty() => (Vec::new(), false, true, false),
+                        Ok(page) => {
+                        let mut deltas = Vec::new();
+                        let mut next_cursor = read_cursor;
+                        let mut reached_commit = false;
                         for record in page.records {
                             if record.sequence > commit.sequence {
                                 reached_commit = true;
-                                break 'read;
+                                break;
                             }
-                            if record.sequence <= read_cursor {
+                            if record.sequence <= next_cursor {
                                 continue;
                             }
-                            let sequence = record.sequence;
-                            records.push(record);
-                            read_cursor = sequence;
-                            advanced = true;
-                            if sequence == commit.sequence {
+                            let event = RosterEvent::from_record(&record);
+                            let record_deltas = host.roster.apply(&event);
+                            let echo = record
+                                .payload
+                                .get("adapter")
+                                .and_then(|adapter| adapter.get("id"))
+                                .and_then(Value::as_str)
+                                == Some(SOCKET_REPORT_ADAPTER);
+                            if !echo {
+                                deltas.extend(record_deltas);
+                            }
+                            next_cursor = record.sequence;
+                            if next_cursor == commit.sequence {
                                 reached_commit = true;
-                                break 'read;
+                                break;
                             }
                         }
-                        if !advanced {
-                            break 'read;
+                        if next_cursor == read_cursor && !reached_commit {
+                            (Vec::new(), false, true, false)
+                        } else {
+                            host.cursor = next_cursor;
+                            let snapshot = host.roster.snapshot().to_string();
+                            let failed = registry
+                                .put_journal_reducer_state(
+                                    AGENT_ROSTER_REDUCER_ID,
+                                    AGENT_ROSTER_REDUCER_VERSION,
+                                    host.cursor,
+                                    &snapshot,
+                                )
+                                .is_err();
+                            host.snapshot_dirty = failed;
+                            (deltas, reached_commit, false, failed)
                         }
                     }
-                }
-                if !reached_commit {
-                    // The writer acknowledged a commit that the reader cannot
-                    // see yet, or the read failed. Leave the cursor and roster
-                    // unchanged so a later commit retries the prefix.
-                    (Vec::new(), Some("agent_roster.read_failed"))
-                } else {
-                    let mut deltas = Vec::new();
-                    for record in records {
-                        let event = RosterEvent::from_record(&record);
-                        let record_deltas = host.roster.apply(&event);
-                        let echo = record
-                            .payload
-                            .get("adapter")
-                            .and_then(|adapter| adapter.get("id"))
-                            .and_then(Value::as_str)
-                            == Some(SOCKET_REPORT_ADAPTER);
-                        if !echo {
-                            deltas.extend(record_deltas);
-                        }
-                        host.cursor = record.sequence;
                     }
-                    let cursor = host.cursor;
-                    let snapshot = host.roster.snapshot().to_string();
-                    let persisted = registry.put_journal_reducer_state(
-                        AGENT_ROSTER_REDUCER_ID,
-                        AGENT_ROSTER_REDUCER_VERSION,
-                        cursor,
-                        &snapshot,
-                    );
-                    let diagnostic = if persisted.is_err() {
-                        host.snapshot_dirty = true;
-                        Some("agent_roster.snapshot_failed")
-                    } else {
-                        host.snapshot_dirty = false;
-                        None
-                    };
-                    (deltas, diagnostic)
                 }
+            };
+
+            for delta in deltas {
+                projection_failed |= self.apply_roster_delta(delta);
             }
-        };
-        let mut projection_failed = false;
-        for delta in pending {
-            projection_failed |= self.apply_roster_delta(delta);
+            read_failed |= page_read_failed;
+            snapshot_failed |= page_snapshot_failed;
+            if page_read_failed || reached_commit {
+                break;
+            }
         }
         drop(_lifecycle);
-        if let Some(code) = diagnostic {
-            self.report_diagnostic_code(code);
+        if read_failed {
+            self.report_diagnostic_code("agent_roster.read_failed");
+        }
+        if snapshot_failed {
+            self.report_diagnostic_code("agent_roster.snapshot_failed");
         }
         if projection_failed {
             self.report_diagnostic_code("agent_roster.projection_failed");

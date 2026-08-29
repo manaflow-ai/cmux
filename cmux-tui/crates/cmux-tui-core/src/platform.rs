@@ -776,23 +776,40 @@ fn interpreter_script_path(pid: u32, executable: &Path) -> Option<String> {
         .split(|byte| *byte == 0)
         .filter(|argument| !argument.is_empty())
         .collect::<Vec<_>>();
-    for argument in arguments.into_iter().skip(1) {
-        if argument.first().is_some_and(|byte| *byte == b'-') {
-            continue;
-        }
-        let argument = std::str::from_utf8(argument).ok()?;
-        let candidate = Path::new(argument);
-        let candidate = if candidate.is_absolute() {
-            candidate.to_owned()
-        } else {
-            let cwd = std::fs::read_link(format!("/proc/{pid}/cwd")).ok()?;
-            cwd.join(candidate)
-        };
-        if candidate.is_file() && script_has_interpreter_shebang(&candidate, &interpreter) {
-            return Some(candidate.to_string_lossy().into_owned());
-        }
+    let argument = script_argument_for_interpreter(&arguments, &interpreter)?;
+    let argument = std::str::from_utf8(argument).ok()?;
+    let candidate = Path::new(argument);
+    let candidate = if candidate.is_absolute() {
+        candidate.to_owned()
+    } else {
+        let cwd = std::fs::read_link(format!("/proc/{pid}/cwd")).ok()?;
+        cwd.join(candidate)
+    };
+    (candidate.is_file() && script_has_interpreter_shebang(&candidate, &interpreter))
+        .then(|| candidate.to_string_lossy().into_owned())
+}
+
+/// Return the one argument that can name a script for a directly launched
+/// interpreter. Options are rejected instead of skipped because their
+/// operands differ by interpreter (`-c` is a command string, while a later
+/// argument may only be `$0` or data). Treating every later file-looking
+/// argument as a script creates false agent identities from attacker-controlled
+/// command lines. A caller that needs an option-specific form must add a
+/// parser for that interpreter with tests for its exact grammar.
+#[cfg(target_os = "linux")]
+fn script_argument_for_interpreter<'a>(arguments: &'a [&'a [u8]], interpreter: &str) -> Option<&'a [u8]> {
+    if interpreter == "env" {
+        // `env` normally execs the requested interpreter before this process
+        // can be observed. If it remains the executable, its option grammar
+        // is ambiguous, so fail closed.
+        return None;
     }
-    None
+    let argument = arguments.get(1)?;
+    if *argument == b"--" {
+        let script = arguments.get(2)?;
+        return (!script.is_empty() && !script.starts_with(b"-")).then_some(*script);
+    }
+    (!argument.is_empty() && !argument.starts_with(b"-")).then_some(*argument)
 }
 
 #[cfg(target_os = "linux")]
@@ -811,11 +828,7 @@ fn script_has_interpreter_shebang(path: &Path, interpreter: &str) -> bool {
     let Some(command) = Path::new(command).file_name().and_then(|name| name.to_str()) else {
         return false;
     };
-    let matches = |candidate: &str| {
-        candidate == interpreter
-            || (matches!(candidate, "sh" | "dash" | "bash")
-                && matches!(interpreter, "sh" | "dash" | "bash"))
-    };
+    let matches = |candidate: &str| interpreter_names_match(candidate, interpreter);
     matches(command)
         || (command == "env"
             && words.any(|word| {
@@ -825,6 +838,31 @@ fn script_has_interpreter_shebang(path: &Path, interpreter: &str) -> bool {
                 }
                 Path::new(word).file_name().and_then(|name| name.to_str()).is_some_and(matches)
             }))
+}
+
+#[cfg(target_os = "linux")]
+fn interpreter_names_match(candidate: &str, observed: &str) -> bool {
+    fn family(name: &str) -> Option<&'static str> {
+        const FAMILIES: &[&str] = &[
+            "python3", "python2", "python", "nodejs", "node", "bash", "dash", "zsh",
+            "sh", "ruby", "perl", "php", "bun", "deno",
+        ];
+        FAMILIES.iter().copied().find(|base| {
+            name == *base
+                || name.strip_prefix(base).is_some_and(|suffix| {
+                    !suffix.is_empty()
+                        && suffix
+                            .chars()
+                            .all(|character| character == '.' || character.is_ascii_digit())
+                })
+        })
+    }
+
+    match (family(candidate), family(observed)) {
+        (Some("bash" | "dash" | "sh"), Some("bash" | "dash" | "sh")) => true,
+        (Some(left), Some(right)) => left == right,
+        _ => candidate == observed,
+    }
 }
 
 #[cfg(target_os = "linux")]
@@ -1245,6 +1283,44 @@ mod tests {
         assert!(is_known_script_interpreter("node20"));
         assert!(!is_known_script_interpreter("python3.11-config"));
         assert!(!is_known_script_interpreter("node-wrapper"));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn script_identity_uses_only_the_interpreter_script_operand() {
+        let shell_command = [
+            b"/bin/sh".as_slice(),
+            b"-c".as_slice(),
+            b"sleep 30".as_slice(),
+            b"/tmp/codex".as_slice(),
+        ];
+        assert_eq!(script_argument_for_interpreter(&shell_command, "sh"), None);
+
+        let direct_script = [
+            b"/usr/bin/python3".as_slice(),
+            b"/tmp/codex".as_slice(),
+            b"--data-file".as_slice(),
+        ];
+        assert_eq!(
+            script_argument_for_interpreter(&direct_script, "python3"),
+            Some(b"/tmp/codex".as_slice())
+        );
+
+        let option_before_script = [
+            b"/usr/bin/python3".as_slice(),
+            b"-c".as_slice(),
+            b"run()".as_slice(),
+            b"/tmp/codex".as_slice(),
+        ];
+        assert_eq!(script_argument_for_interpreter(&option_before_script, "python3"), None);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn interpreter_shebang_matching_accepts_versioned_names_in_the_same_family() {
+        assert!(interpreter_names_match("python3", "python3.11"));
+        assert!(!interpreter_names_match("bash", "zsh"));
+        assert!(!interpreter_names_match("python3", "ruby3.3"));
     }
 
     fn position(candidates: &[GhosttyInstallation], expected: impl AsRef<Path>) -> usize {

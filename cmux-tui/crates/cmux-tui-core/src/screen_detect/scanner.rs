@@ -95,10 +95,13 @@ pub(crate) fn scan(
     // an avoidable O(tracked × live) pass on every tick.
     let live_terminal_ids = terminals.iter().map(|(id, _)| id.as_str()).collect::<HashSet<_>>();
     tracker.retain_terminals(|terminal_id| live_terminal_ids.contains(terminal_id));
-    let scan_count = terminals.len().min(MAX_FOREGROUND_LOOKUPS_PER_SCAN);
     let start = tracker.scan_start(terminals.len());
     let mut lookup_budget = MAX_FOREGROUND_LOOKUPS_PER_SCAN;
-    for offset in 0..scan_count {
+    // Revision reads are cheap atomic observations and must cover the full
+    // live catalog every tick. Only the process metadata lookup is globally
+    // budgeted. Limiting the outer loop would delay the quiescence anchor for
+    // terminals outside the lookup slice and make their screen state stale.
+    for offset in 0..terminals.len() {
         let index = (start + offset) % terminals.len();
         let (terminal_id, surface) = &terminals[index];
         let Ok(revision) = surface.terminal_stream_revision() else { continue };
@@ -178,5 +181,11 @@ pub(crate) fn scan(
             mux.append_screen_detect_event(&emission);
         }
     }
-    tracker.advance_scan_cursor(terminals.len(), scan_count);
+    // Rotate only the bounded lookup slice. The next pass starts where the
+    // previous process-identity budget ended while still observing every
+    // terminal's revision above.
+    tracker.advance_scan_cursor(
+        terminals.len(),
+        terminals.len().min(MAX_FOREGROUND_LOOKUPS_PER_SCAN),
+    );
 }
