@@ -1,7 +1,7 @@
 use anyhow::Context;
 
 use super::*;
-use crate::workspace_registry::RegistryPublicProjections;
+use crate::workspace_registry::{RegistryAgentProjection, RegistryPublicProjections};
 
 #[derive(Debug)]
 pub(super) struct RestoredPublicProjections {

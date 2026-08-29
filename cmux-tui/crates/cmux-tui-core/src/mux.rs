@@ -22236,7 +22236,7 @@ mod tests {
         let codex = |_: &Surface| {
             crate::screen_detect::scanner::ProcessNameResolution::Known("codex".to_string())
         };
-        let gone = |_| crate::screen_detect::scanner::ProcessNameResolution::Exited;
+        let gone = |_: &Surface| scanner::ProcessNameResolution::Exited;
 
         // A shell pane never enters the roster, quiesced or not.
         scanner::scan(&mux, &mut tracker, manifests, step(0), &shell);
@@ -22279,7 +22279,7 @@ mod tests {
 
         // A permission-denied process lookup is unknown, not an exit. It
         // must not erase the last screen-derived state.
-        let unknown = |_| crate::screen_detect::scanner::ProcessNameResolution::Unknown;
+        let unknown = |_: &Surface| scanner::ProcessNameResolution::Unknown;
         scanner::scan(&mux, &mut tracker, manifests, step(1_550), &unknown);
         assert_eq!(mux.list_agents(Some(surface_id), None).len(), 1);
 
