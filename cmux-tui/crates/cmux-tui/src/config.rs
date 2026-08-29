@@ -3265,9 +3265,10 @@ pub struct SidebarPluginConfig {
 pub fn load() -> Config {
     let mut config = Config::default();
 
-    let defaults = ghostty_defaults();
+    let application_defaults = ghostty_application_defaults();
+    let defaults = application_defaults.colors;
     config.terminal_defaults = defaults;
-    config.scrollback_limit_bytes = ghostty_scrollback_limit_bytes();
+    config.scrollback_limit_bytes = application_defaults.scrollback_limit_bytes;
     if let Some(bg) = defaults.selection_bg {
         config.theme.selection_bg = Color::Rgb(bg.r, bg.g, bg.b);
         config.theme_overrides.selection = true;
@@ -4340,17 +4341,34 @@ fn parse_color(s: &str) -> Option<Color> {
 /// The user's relevant Ghostty settings with non-optional application defaults
 /// resolved for values that the low-level terminal otherwise leaves unset.
 fn ghostty_defaults() -> DefaultColors {
+    ghostty_application_defaults().colors
+}
+
+#[derive(Default)]
+struct GhosttyApplicationDefaults {
+    colors: DefaultColors,
+    scrollback_limit_bytes: Option<usize>,
+}
+
+fn ghostty_application_defaults() -> GhosttyApplicationDefaults {
     let config_paths = platform::ghostty_config_paths();
     let theme_dirs = platform::ghostty_theme_dirs();
     #[cfg(not(test))]
     let helper_defaults = ghostty_defaults_from_helper();
     #[cfg(test)]
     let helper_defaults = GhosttyHelperDefaults::Unavailable;
-    ghostty_defaults_from_sources(config_paths, theme_dirs, helper_defaults)
+    match helper_defaults {
+        GhosttyHelperDefaults::Resolved(defaults) => *defaults,
+        GhosttyHelperDefaults::Unavailable => {
+            parse_ghostty_application_defaults_from_paths(config_paths, theme_dirs)
+                .unwrap_or_default()
+        }
+        GhosttyHelperDefaults::TimedOut => GhosttyApplicationDefaults::default(),
+    }
 }
 
 enum GhosttyHelperDefaults {
-    Resolved(Box<DefaultColors>),
+    Resolved(Box<GhosttyApplicationDefaults>),
     Unavailable,
     TimedOut,
 }
@@ -4361,7 +4379,7 @@ fn ghostty_defaults_from_sources(
     helper_defaults: GhosttyHelperDefaults,
 ) -> DefaultColors {
     let parsed = match helper_defaults {
-        GhosttyHelperDefaults::Resolved(defaults) => *defaults,
+        GhosttyHelperDefaults::Resolved(defaults) => defaults.colors,
         GhosttyHelperDefaults::Unavailable => {
             parse_ghostty_defaults_from_paths(config_paths, theme_dirs).unwrap_or_default()
         }
@@ -4545,16 +4563,15 @@ pub(crate) fn is_ghostty_config_helper_invocation(args: &[String]) -> bool {
 }
 
 pub(crate) fn run_ghostty_config_helper() -> i32 {
-    match parse_ghostty_defaults_from_paths_result(
+    match parse_ghostty_application_defaults_from_paths(
         platform::ghostty_config_paths(),
         platform::ghostty_theme_dirs(),
     ) {
-        GhosttyConfigParseOutcome::Parsed(defaults) => {
-            print!("{}", serialize_ghostty_defaults(*defaults));
+        Some(defaults) => {
+            print!("{}", serialize_ghostty_application_defaults(&defaults));
             0
         }
-        GhosttyConfigParseOutcome::Missing => 1,
-        GhosttyConfigParseOutcome::TimedOut => 2,
+        None => 1,
     }
 }
 
@@ -4612,9 +4629,10 @@ fn ghostty_defaults_from_helper_command(
         return GhosttyHelperDefaults::Unavailable;
     }
     match output_reader.wait() {
-        Some(output) => {
-            GhosttyHelperDefaults::Resolved(Box::new(parse_resolved_ghostty_defaults(&output)))
-        }
+        Some(output) => GhosttyHelperDefaults::Resolved(Box::new(GhosttyApplicationDefaults {
+            colors: parse_resolved_ghostty_defaults(&output),
+            scrollback_limit_bytes: parse_scrollback_limit_bytes(&output).flatten(),
+        })),
         None => GhosttyHelperDefaults::Unavailable,
     }
 }
@@ -4809,6 +4827,37 @@ fn parse_ghostty_defaults_from_paths(
     }
 }
 
+fn parse_ghostty_application_defaults_from_paths(
+    config_paths: Vec<PathBuf>,
+    theme_dirs: Vec<PathBuf>,
+) -> Option<GhosttyApplicationDefaults> {
+    let deadline_at = ghostty_config_deadline_from_now(GHOSTTY_CONFIG_PARSE_DEADLINE);
+    let mut resolved = None;
+    let mut scrollback_limit_bytes = None;
+    for path in config_paths {
+        if ghostty_config_deadline_expired(Some(deadline_at)) {
+            return None;
+        }
+        let mut path_scrollback = None;
+        match parse_ghostty_defaults_from_path_result_until_with_scrollback(
+            &path,
+            &theme_dirs,
+            Some(deadline_at),
+            &mut path_scrollback,
+        ) {
+            GhosttyConfigParseOutcome::Missing => {}
+            GhosttyConfigParseOutcome::TimedOut => return None,
+            GhosttyConfigParseOutcome::Parsed(defaults) => {
+                resolved.get_or_insert(*defaults);
+                if let Some(value) = path_scrollback {
+                    scrollback_limit_bytes = value;
+                }
+            }
+        }
+    }
+    resolved.map(|colors| GhosttyApplicationDefaults { colors, scrollback_limit_bytes })
+}
+
 enum GhosttyConfigParseOutcome {
     Parsed(Box<DefaultColors>),
     Missing,
@@ -4869,9 +4918,27 @@ fn parse_ghostty_defaults_from_path_result_until(
     theme_dirs: &[PathBuf],
     deadline_at: Option<Instant>,
 ) -> GhosttyConfigParseOutcome {
+    parse_ghostty_defaults_from_path_result_until_with_scrollback(
+        path,
+        theme_dirs,
+        deadline_at,
+        &mut None,
+    )
+}
+
+fn parse_ghostty_defaults_from_path_result_until_with_scrollback(
+    path: &Path,
+    theme_dirs: &[PathBuf],
+    deadline_at: Option<Instant>,
+    scrollback_limit_bytes: &mut Option<Option<usize>>,
+) -> GhosttyConfigParseOutcome {
     let mut theme_candidates = Vec::new();
-    let overrides = match parse_ghostty_config_file_until(path, &mut theme_candidates, deadline_at)
-    {
+    let overrides = match parse_ghostty_config_file_until_with_scrollback(
+        path,
+        &mut theme_candidates,
+        deadline_at,
+        scrollback_limit_bytes,
+    ) {
         GhosttyConfigParseOutcome::Parsed(overrides) => *overrides,
         outcome => return outcome,
     };
@@ -4923,6 +4990,15 @@ fn parse_ghostty_config_file_until(
     theme_candidates: &mut Vec<GhosttyThemeCandidate>,
     deadline_at: Option<Instant>,
 ) -> GhosttyConfigParseOutcome {
+    parse_ghostty_config_file_until_with_scrollback(path, theme_candidates, deadline_at, &mut None)
+}
+
+fn parse_ghostty_config_file_until_with_scrollback(
+    path: &Path,
+    theme_candidates: &mut Vec<GhosttyThemeCandidate>,
+    deadline_at: Option<Instant>,
+    scrollback_limit_bytes: &mut Option<Option<usize>>,
+) -> GhosttyConfigParseOutcome {
     let mut stack = vec![PendingGhosttyConfig { path: path.to_path_buf(), depth: 0 }];
     let mut loaded = HashSet::new();
     let mut files_loaded = 0usize;
@@ -4952,6 +5028,9 @@ fn parse_ghostty_config_file_until(
         bytes_loaded = bytes_loaded.saturating_add(text.len() as u64);
         files_loaded += 1;
         loaded_root |= pending.depth == 0;
+        if let Some(parsed) = parse_scrollback_limit_bytes(&text) {
+            *scrollback_limit_bytes = Some(parsed);
+        }
 
         let base_dir = pending.path.parent().unwrap_or_else(|| Path::new("."));
         let parsed = parse_ghostty_config_text(&text, Some(base_dir), theme_candidates);
@@ -5522,6 +5601,14 @@ fn serialize_ghostty_defaults(defaults: DefaultColors) -> String {
     out
 }
 
+fn serialize_ghostty_application_defaults(defaults: &GhosttyApplicationDefaults) -> String {
+    let mut out = serialize_ghostty_defaults(defaults.colors);
+    if let Some(limit) = defaults.scrollback_limit_bytes {
+        out.push_str(&format!("scrollback-limit-bytes = {limit}\n"));
+    }
+    out
+}
+
 fn format_ghostty_rgb(color: Rgb) -> String {
     format!("#{:02x}{:02x}{:02x}", color.r, color.g, color.b)
 }
@@ -5884,6 +5971,28 @@ mod tests {
     }
 
     #[test]
+    fn application_defaults_snapshot_resolves_colors_and_scrollback_together() {
+        let dir = TestDirectory::new("application-defaults-snapshot");
+        let root = dir.path.join("config");
+        let include = dir.path.join("scrollback.conf");
+        std::fs::write(&root, "foreground = #010203\nconfig-file = scrollback.conf\n").unwrap();
+        std::fs::write(&include, "scrollback-limit-bytes = 654321\n").unwrap();
+
+        let mut scrollback = None;
+        let outcome = parse_ghostty_defaults_from_path_result_until_with_scrollback(
+            &root,
+            &[],
+            Some(Instant::now() + Duration::from_secs(1)),
+            &mut scrollback,
+        );
+        let GhosttyConfigParseOutcome::Parsed(colors) = outcome else {
+            panic!("snapshot should parse");
+        };
+        assert_eq!(colors.fg, Some(Rgb { r: 1, g: 2, b: 3 }));
+        assert_eq!(scrollback, Some(Some(654321)));
+    }
+
+    #[test]
     fn resolves_ghostty_cursor_defaults_without_erasing_nullable_blink_semantics() {
         let absent = resolve_ghostty_application_defaults(parse_ghostty_defaults(""));
         assert_eq!(absent.cursor_style, Some(CursorShape::Block));
@@ -6016,7 +6125,7 @@ mod tests {
         let mut command = Command::new(&binary);
         command.stdout(Stdio::piped()).stderr(Stdio::null());
         let defaults = match ghostty_defaults_from_helper_command(command, Duration::from_secs(2)) {
-            GhosttyHelperDefaults::Resolved(defaults) => defaults,
+            GhosttyHelperDefaults::Resolved(defaults) => defaults.colors,
             GhosttyHelperDefaults::Unavailable => panic!("helper output was not parsed"),
             GhosttyHelperDefaults::TimedOut => panic!("helper output timed out"),
         };
@@ -7420,7 +7529,10 @@ mod tests {
         let defaults = ghostty_defaults_from_sources(
             vec![config],
             Vec::new(),
-            GhosttyHelperDefaults::Resolved(Box::new(helper)),
+            GhosttyHelperDefaults::Resolved(Box::new(GhosttyApplicationDefaults {
+                colors: helper,
+                scrollback_limit_bytes: None,
+            })),
         );
 
         let _ = std::fs::remove_dir_all(dir);
