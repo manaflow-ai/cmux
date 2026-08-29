@@ -1688,7 +1688,9 @@ mod unix {
     }
 
     pub fn terminal_host_root(state_root: &Path, session: &str) -> PathBuf {
-        state_root.join(format!("terminal-hosts-{}", stable_token(session)))
+        crate::platform::normalize_filesystem_path(
+            state_root.join(format!("terminal-hosts-{}", stable_token(session))),
+        )
     }
 
     /// Strip every descriptor except the private bootstrap stdio before the
@@ -9160,7 +9162,9 @@ pub(crate) use unix::{
 
 #[cfg(not(unix))]
 pub fn terminal_host_root(state_root: &Path, session: &str) -> PathBuf {
-    state_root.join(format!("{session}.terminal-hosts"))
+    crate::platform::normalize_filesystem_path(
+        state_root.join(format!("{session}.terminal-hosts")),
+    )
 }
 
 #[cfg(not(unix))]

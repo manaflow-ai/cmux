@@ -5668,6 +5668,12 @@ fn long_database_descendant_is_normalized_even_when_root_is_short() {
     let normalized_session = crate::platform::normalize_filesystem_path(session_dir);
     assert!(normalized_session.to_string_lossy().starts_with(r"\\?\C:\"));
 
+    let resetter_session =
+        PersistentSessionStateResetter::new(root.clone()).session_dir("session");
+    assert!(resetter_session.to_string_lossy().starts_with(r"\\?\C:\"));
+    let terminal_hosts = crate::terminal_host_runtime::terminal_host_root(&root, "session");
+    assert!(terminal_hosts.to_string_lossy().starts_with(r"\\?\C:\"));
+
     let database = root.join(session_storage_component("session")).join(WORKSPACE_REGISTRY_FILE);
     let normalized = crate::platform::normalize_filesystem_path(database);
     assert!(normalized.to_string_lossy().starts_with(r"\\?\C:\"));
