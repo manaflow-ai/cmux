@@ -6,8 +6,17 @@ import CmuxSwiftRender
 /// taps and drags pass through to the SwiftUI row underneath — the same
 /// event-filtered `hitTest` idiom as `MiddleClickCaptureView`.
 final class RenderNodeContextMenuView: NSView {
-    var nodes: [RenderNode] = []
+    var nodes: [RenderNode] = [] {
+        didSet {
+            // A new IR snapshot invalidates the one-pass presence result.
+            cachedMenuPresence = nil
+        }
+    }
     var dispatch: SidebarActionDispatch = .noop
+    /// Pure menu-presence result for the current `nodes` snapshot. Hit
+    /// testing can run more than once for one event, so keep the scan out of
+    /// repeated descendant ownership checks until the overlay updates.
+    private var cachedMenuPresence: Bool?
     /// Logical render-tree location of the row owning this overlay. The
     /// hosting view may flatten nested platform views into siblings, so this
     /// path is used to distinguish descendants from neighboring rows.
@@ -32,8 +41,7 @@ final class RenderNodeContextMenuView: NSView {
         // Ordinary pointer events are rejected above before walking the
         // render-tree menu IR. This keeps sidebar hit testing cheap while
         // moving, clicking, and dragging over rows.
-        let builder = RenderNodeContextMenuBuilder(dispatch: dispatch)
-        guard isMenuEnabled, builder.hasPresentableItems(nodes: nodes) else { return nil }
+        guard isMenuEnabled, hasPresentableMenuItems() else { return nil }
         // SwiftUI resolves the context menu of the view under the pointer,
         // so a nested `.contextMenu` inside this row must win over this
         // (topmost) overlay. Deferring lets AppKit's hit-test recursion
@@ -72,8 +80,21 @@ final class RenderNodeContextMenuView: NSView {
     /// nothing presentable (no nodes, or separators only).
     func menuForPresentation() -> NSMenu? {
         let builder = RenderNodeContextMenuBuilder(dispatch: dispatch)
-        guard isMenuEnabled, builder.hasPresentableItems(nodes: nodes) else { return nil }
-        return builder.makeMenu(nodes: nodes)
+        guard isMenuEnabled else { return nil }
+        // `append` returns the presence result while constructing each
+        // submenu, so presentation does not pre-scan the same tree.
+        return builder.makeMenuIfPresentable(nodes: nodes)
+    }
+
+    /// Returns the cached pure-data menu-presence result for this overlay.
+    func hasPresentableMenuItems() -> Bool {
+        if let cachedMenuPresence {
+            return cachedMenuPresence
+        }
+        let result = RenderNodeContextMenuBuilder(dispatch: dispatch)
+            .hasPresentableItems(nodes: nodes)
+        cachedMenuPresence = result
+        return result
     }
 
     /// Whether a descendant menu overlay also contains `point` (in the
@@ -111,8 +132,7 @@ private func subtreeContainsClaimingOverlay(
             if isStrictDescendant,
                overlay.bounds.contains(local),
                overlay.isMenuEnabled,
-               RenderNodeContextMenuBuilder(dispatch: overlay.dispatch)
-                .hasPresentableItems(nodes: overlay.nodes) {
+               overlay.hasPresentableMenuItems() {
                 return true
             }
             // An unrelated overlay can itself contain platform descendants;
