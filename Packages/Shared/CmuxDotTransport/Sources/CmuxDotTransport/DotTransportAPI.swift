@@ -371,9 +371,35 @@ public actor DotLeg {
             )
             throw error
         }
-        guard case .string(let text) = message,
-              case let .helloAck(id, key, _, peerOnline, replayed) = try decodeControl(text)
-        else {
+        guard case .string(let text) = message else {
+            configuration.journal.record(
+                component: "leg", event: "connect-failed",
+                attributes: ["error": "expected hello.ack"]
+            )
+            throw DotTransportError.handshakeFailed("expected hello.ack")
+        }
+        let control = try decodeControl(text)
+        let id: UInt32
+        let key: String
+        let peerOnline: Bool
+        let replayed: Int
+        switch control {
+        case let .helloAck(ackID, resume, _, online, replayCount):
+            id = ackID
+            key = resume
+            peerOnline = online
+            replayed = replayCount
+        case let .resumeFailed(reason):
+            // A dropped leg can outlive the relay's resume proof (for example
+            // after a DO restart). Clear the stale key before the next dial,
+            // otherwise every retry repeats the refused resume forever.
+            resumeKey = nil
+            configuration.journal.record(
+                component: "leg", event: "resume-failed",
+                attributes: ["reason": reason]
+            )
+            throw DotTransportError.handshakeFailed("resume failed: (reason)")
+        default:
             configuration.journal.record(
                 component: "leg", event: "connect-failed",
                 attributes: ["error": "expected hello.ack"]
