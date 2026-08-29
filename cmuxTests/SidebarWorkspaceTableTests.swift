@@ -74,8 +74,15 @@ struct SidebarWorkspaceTableTests {
         withExtendedLifetime(writer) {
             #expect(container.tableView.dataSource === controller)
             #expect(container.tableView.delegate === controller)
+
+            // `willBeginAt` can be the first callback after teardown. The
+            // controller must promote the provisional table to the native
+            // source owner before any published drag state can rebuild it.
+            controller.workspaceDragSessionDidBegin()
+            #expect(container.tableView.activeWorkspaceDragController === controller)
+            controller.workspaceDragSessionDidEnd()
         }
-        #expect(endWorkspaceDragCalls == 0)
+        #expect(endWorkspaceDragCalls == 1)
     }
 #endif
 
