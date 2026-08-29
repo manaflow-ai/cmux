@@ -3043,6 +3043,17 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn unknown_trust_refuses_before_a_pty_is_spawned() {
+        let h = harness(None, None);
+        h.open("p1", "main", Value::Null, "forged-trust", h.owner.clone()).await;
+        let sent = h.sent();
+        assert_eq!(sent.len(), 1);
+        assert_eq!(sent[0]["type"], "pty_error");
+        assert_eq!(sent[0]["code"], "trust_refused");
+        assert!(h.spawned().is_empty(), "malformed authority must not allocate a PTY");
+    }
+
+    #[tokio::test]
     async fn shell_open_output_input_resize_flow_round_trip() {
         let h = harness(None, None);
         h.open("p1", "main", Value::Null, "supervised", h.owner.clone()).await;
