@@ -1284,6 +1284,8 @@ mod liveness_tests {
 #[cfg(test)]
 mod cancellation_tests {
     use super::{shutdown_connection_tasks, wait_for_reconnect};
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
     use std::time::Duration;
 
     use tokio::task::JoinSet;
@@ -1313,6 +1315,26 @@ mod cancellation_tests {
 
         assert!(shutdown_connection_tasks(&mut tasks, &cancellation).await);
         assert!(cancellation.is_cancelled());
+        assert!(tasks.is_empty());
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn connection_shutdown_allows_cooperative_tasks_to_finish() {
+        let cancellation = CancellationToken::new();
+        let worker_cancellation = cancellation.clone();
+        let completed = Arc::new(AtomicBool::new(false));
+        let worker_completed = Arc::clone(&completed);
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let mut tasks = JoinSet::new();
+        tasks.spawn(async move {
+            started_tx.send(()).expect("test receiver is waiting");
+            worker_cancellation.cancelled().await;
+            worker_completed.store(true, Ordering::Release);
+        });
+        started_rx.await.expect("worker started");
+
+        assert!(shutdown_connection_tasks(&mut tasks, &cancellation).await);
+        assert!(completed.load(Ordering::Acquire));
         assert!(tasks.is_empty());
     }
 }
