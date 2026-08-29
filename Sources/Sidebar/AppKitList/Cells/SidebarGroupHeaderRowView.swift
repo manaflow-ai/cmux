@@ -44,7 +44,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
     }
 
     override func rightMouseDown(with event: NSEvent) {
-        if let menu = menu(for: event) {
+        if let menu = menu(for: event), !menu.items.isEmpty {
             NSMenu.popUpContextMenu(menu, with: event, for: self)
             return
         }
@@ -530,8 +530,8 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         return menu
     }
 
-    private func makePlusMenu() -> NSMenu {
-        guard let actions else { return NSMenu() }
+    private func makePlusMenu() -> NSMenu? {
+        guard model != nil, let actions else { return nil }
         let menu = trackedMenu()
         menu.addItem(menuItem(
             String(localized: "workspaceGroup.plus.contextMenu.newWorkspace", defaultValue: "New Workspace in Group"),
@@ -568,8 +568,8 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
         ))
     }
 
-    private func makeHeaderMenu() -> NSMenu {
-        guard let model, let actions else { return NSMenu() }
+    private func makeHeaderMenu() -> NSMenu? {
+        guard let model, let actions else { return nil }
         let menu = trackedMenu()
         menu.addItem(menuItem(
             String(localized: "workspaceGroup.plus.contextMenu.newWorkspace", defaultValue: "New Workspace in Group"),
