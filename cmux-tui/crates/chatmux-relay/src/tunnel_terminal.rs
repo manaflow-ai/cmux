@@ -664,7 +664,7 @@ async fn handle_client_frame(connection: &Arc<Connection>, frame: TunnelFrame) {
                 async move {
                     manager
                         .handle_frame_with_open_cancellation(&open, &context, Some(cancellation))
-                        .await
+                        .await;
                 }
             }));
             match tokio::time::timeout(OPEN_TIMEOUT, &mut open_task).await {
@@ -1173,7 +1173,7 @@ mod tests {
     fn control_reservation_accepts_reserved_tail() {
         let data_limit = queue_limit(false);
         assert!(data_limit + TUNNEL_CONTROL_QUEUE_RESERVE_BYTES <= queue_limit(true));
-        assert!(TUNNEL_CONTROL_QUEUE_RESERVE_BYTES > 0);
+        const { assert!(TUNNEL_CONTROL_QUEUE_RESERVE_BYTES > 0) };
     }
 
     #[test]
