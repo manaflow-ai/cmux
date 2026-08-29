@@ -16,7 +16,7 @@
 //! echo event after its direct projection commit), so the roster never has
 //! a second writer to diverge from.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -78,6 +78,9 @@ fn state_for_hook_kind(kind: &str) -> Option<AgentState> {
 /// `SessionJournalRecord`s during tail replay, with identical semantics so
 /// both paths fold to the same state.
 pub(crate) struct RosterEvent<'a> {
+    /// Monotonic journal sequence. Synthetic test events may use zero;
+    /// persisted records always carry their committed sequence.
+    pub(crate) sequence: u64,
     pub(crate) producer_id: &'a str,
     pub(crate) kind: &'a str,
     pub(crate) subjects: &'a [JournalSubject],
@@ -88,6 +91,7 @@ pub(crate) struct RosterEvent<'a> {
 impl<'a> RosterEvent<'a> {
     pub(crate) fn from_record(record: &'a SessionJournalRecord) -> Self {
         Self {
+            sequence: record.sequence,
             producer_id: &record.producer.id,
             kind: &record.kind,
             subjects: &record.subjects,
@@ -152,6 +156,11 @@ pub(crate) enum RosterDelta {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub(crate) struct AgentRoster {
     pub(crate) entries: HashMap<String, RosterEntry>,
+    /// Terminals removed from the resource tree remain fenced in the durable
+    /// reducer. The value is the highest committed journal cursor observed at
+    /// retirement, so delayed records from that terminal cannot recreate it.
+    #[serde(default)]
+    retired_terminals: BTreeMap<String, u64>,
 }
 
 impl AgentRoster {
@@ -163,6 +172,14 @@ impl AgentRoster {
             return Vec::new();
         }
         let Some(terminal_id) = event.terminal_id() else { return Vec::new() };
+        if let Some(retired_at) = self.retired_terminals.get(terminal_id).copied() {
+            // A terminal can only become live again through a newer explicit
+            // session start. All other delayed records remain fenced forever.
+            if event.kind != "agent.session.started" || event.sequence <= retired_at {
+                return Vec::new();
+            }
+            self.retired_terminals.remove(terminal_id);
+        }
         let (state, source, session, agent, updated_at_ms) =
             if event.adapter_id() == Some(SOCKET_REPORT_ADAPTER) {
                 // Socket echo: explicit state and timestamp carried in the
@@ -200,6 +217,10 @@ impl AgentRoster {
             // An ended agent leaves the roster entirely; the done state is
             // still committed to the durable projection by the host so
             // history and remote caches converge.
+            self.retired_terminals
+                .entry(terminal_id.to_string())
+                .and_modify(|retired_at| *retired_at = (*retired_at).max(event.sequence))
+                .or_insert(event.sequence);
             return if self.entries.remove(terminal_id).is_some() {
                 vec![RosterDelta::Remove { terminal_id: terminal_id.to_string() }]
             } else {
@@ -236,8 +257,24 @@ impl AgentRoster {
     /// Drop a terminal that left the session (tab closed, terminal
     /// tombstoned). Terminal lifecycle does not flow through `agent.*`
     /// events yet, so the host retires entries explicitly.
-    pub(crate) fn retire_terminal(&mut self, terminal_id: &str) -> bool {
-        self.entries.remove(terminal_id).is_some()
+    pub(crate) fn retire_terminal(&mut self, terminal_id: &str, retired_at: u64) -> bool {
+        let removed_entry = self.entries.remove(terminal_id).is_some();
+        match self.retired_terminals.entry(terminal_id.to_string()) {
+            std::collections::btree_map::Entry::Occupied(mut entry) => {
+                let previous = *entry.get();
+                let effective = previous.max(retired_at);
+                entry.insert(effective);
+                removed_entry || effective != previous
+            }
+            std::collections::btree_map::Entry::Vacant(entry) => {
+                entry.insert(retired_at);
+                true
+            }
+        }
+    }
+
+    pub(crate) fn is_retired(&self, terminal_id: &str) -> bool {
+        self.retired_terminals.contains_key(terminal_id)
     }
 
     pub(crate) fn snapshot(&self) -> Value {
@@ -261,6 +298,7 @@ mod tests {
         payload: &'a Value,
     ) -> RosterEvent<'a> {
         RosterEvent {
+            sequence,
             producer_id: AGENT_HOOK_PRODUCER_ID,
             kind,
             subjects,
@@ -405,5 +443,47 @@ mod tests {
         };
         assert!(roster.apply(&foreign).is_empty());
         assert!(!roster.entries.is_empty());
+    }
+
+    #[test]
+    fn retired_terminal_rejects_late_events_until_a_new_session_starts() {
+        let subjects = terminal_subject("term_a");
+        let payload = json!({});
+        let mut roster = AgentRoster::default();
+
+        roster.apply(&hook_event(1, "agent.session.started", &subjects, &payload));
+        assert!(roster.retire_terminal("term_a", 1));
+
+        // Events from the retired terminal cannot recreate a live entry,
+        // including events committed after the retirement cursor.
+        assert!(roster.apply(&hook_event(2, "agent.turn.started", &subjects, &payload)).is_empty());
+        assert!(!roster.entries.contains_key("term_a"));
+
+        // Only a newer explicit session start clears the tombstone.
+        assert!(
+            roster.apply(&hook_event(1, "agent.session.started", &subjects, &payload)).is_empty()
+        );
+        let deltas = roster.apply(&hook_event(2, "agent.session.started", &subjects, &payload));
+        assert_eq!(deltas.len(), 1);
+        assert_eq!(roster.entries["term_a"].state, "idle");
+    }
+
+    #[test]
+    fn retirement_cursor_only_moves_forward() {
+        let subjects = terminal_subject("term_a");
+        let payload = json!({});
+        let mut roster = AgentRoster::default();
+
+        roster.apply(&hook_event(1, "agent.session.started", &subjects, &payload));
+        assert!(roster.retire_terminal("term_a", 9));
+        assert!(!roster.retire_terminal("term_a", 4));
+
+        assert!(roster.apply(&hook_event(8, "agent.turn.started", &subjects, &payload)).is_empty());
+        assert!(
+            roster.apply(&hook_event(10, "agent.turn.started", &subjects, &payload)).is_empty()
+        );
+        let deltas = roster.apply(&hook_event(10, "agent.session.started", &subjects, &payload));
+        assert_eq!(deltas.len(), 1);
+        assert!(!roster.is_retired("term_a"));
     }
 }

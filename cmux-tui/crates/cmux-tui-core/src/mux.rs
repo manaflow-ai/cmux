@@ -5698,6 +5698,61 @@ impl Mux {
         }
     }
 
+    /// Return a stable echo receipt for a semantic socket-state transition.
+    /// Repeated polls of the same state do not append another journal row;
+    /// the prior reducer state and cursor distinguish a later transition back
+    /// to that state from a duplicate poll.
+    fn agent_report_echo_key(
+        &self,
+        terminal_id: &TerminalPublicId,
+        state: AgentState,
+        source: AgentSource,
+        session: Option<&str>,
+    ) -> Option<String> {
+        let (cursor, previous) = {
+            let host = self.agent_roster.lock().unwrap();
+            let previous = host.roster.entries.get(terminal_id.as_str()).map(|entry| {
+                (
+                    entry.state.clone(),
+                    entry.source.clone(),
+                    entry.session.clone(),
+                    entry.agent.clone(),
+                    entry.updated_at_ms,
+                )
+            });
+            (host.cursor, previous)
+        };
+        let unchanged = previous.as_ref().is_some_and(
+            |(previous_state, previous_source, previous_session, _, _)| {
+                previous_state == state.as_str()
+                    && previous_source == source.as_str()
+                    && previous_session.as_deref() == session
+            },
+        );
+        if unchanged {
+            return None;
+        }
+        let previous = previous
+            .map(|(state, source, session, agent, updated_at_ms)| {
+                format!("{state}|{source}|{:?}|{:?}|{updated_at_ms}", session, agent)
+            })
+            .unwrap_or_default();
+        let material = format!(
+            "agent-report-echo-v1|{terminal_id}|{}|{}|{:?}|{cursor}|{previous}",
+            state.as_str(),
+            source.as_str(),
+            session,
+        );
+        let digest = Sha256::digest(material.as_bytes());
+        let mut key = String::with_capacity("agent-report-echo-".len() + digest.len() * 2);
+        key.push_str("agent-report-echo-");
+        for byte in digest {
+            use std::fmt::Write as _;
+            write!(key, "{byte:02x}").expect("writing to a String cannot fail");
+        }
+        Some(key)
+    }
+
     /// Echo direct reports into the journal so a restart can rebuild the
     /// socket-owned roster entry from the same durable event stream.
     fn append_agent_report_echo(
@@ -5707,6 +5762,7 @@ impl Mux {
         source: AgentSource,
         session: Option<&str>,
         updated_at_ms: u64,
+        idempotency_key: &str,
     ) {
         use crate::journal_reducers::{SOCKET_REPORT_ADAPTER, SOCKET_REPORT_NATIVE_EVENT};
         let ingress = crate::JournalIngress {
@@ -5735,10 +5791,7 @@ impl Mux {
             causation_id: None,
             correlation_id: None,
         };
-        let idempotency_key =
-            format!("agent-report-echo-{}", crate::workspace_registry::new_uuid_v4());
-        if let Err(error) = self.append_journal_ingress(&ingress, "agent-report", &idempotency_key)
-        {
+        if let Err(error) = self.append_journal_ingress(&ingress, "agent-report", idempotency_key) {
             eprintln!("cmux-tui: journaling an agent report for {terminal_id} failed: {error}");
         }
     }
@@ -9397,6 +9450,9 @@ impl Mux {
                 (surface, (*terminal_id).clone())
             }
         };
+        if self.agent_roster.lock().unwrap().roster.is_retired(terminal_id.as_str()) {
+            anyhow::bail!("terminal {terminal_id} has been retired");
+        }
         let mut direct_hook_state = None;
         if source != AgentSource::Hook {
             let ended_fence = sequence_guard
@@ -9584,13 +9640,22 @@ impl Mux {
                 agent: agent.agent.as_deref().map(Arc::from),
                 updated_at_ms: agent.updated_at_ms,
             });
-            if origin == AgentReportOrigin::Direct && agent.source == AgentSource::Socket {
+            if origin == AgentReportOrigin::Direct
+                && agent.source == AgentSource::Socket
+                && let Some(idempotency_key) = self.agent_report_echo_key(
+                    &agent.terminal_id,
+                    agent.state,
+                    agent.source,
+                    agent.session.as_deref(),
+                )
+            {
                 self.append_agent_report_echo(
                     &agent.terminal_id,
                     agent.state,
                     agent.source,
                     agent.session.as_deref(),
                     agent.updated_at_ms,
+                    &idempotency_key,
                 );
             }
         }
@@ -9614,36 +9679,51 @@ impl Mux {
     }
 
     fn purge_terminal_side_tables(&self, terminal_id: &TerminalPublicId) {
-        let pending_cleanup = {
+        // Retirement and journal folding share one lifecycle gate. This keeps
+        // a concurrent fold from installing a candidate snapshot after the
+        // terminal has been removed. The tombstone is persisted before the
+        // compatibility cache is cleared.
+        let _fold = self.agent_roster_fold.lock().unwrap();
+        let (journal_cursor, pending_cleanup) = {
             let mut registry = self.workspace_registry.lock().unwrap();
-            registry.purge_agent_hook_pending_for_terminal(terminal_id)
+            let pending_cleanup = registry.purge_agent_hook_pending_for_terminal(terminal_id);
+            let journal_cursor = match registry.session_journal_after(0, 1) {
+                Ok(page) => page.head_sequence,
+                Err(error) => {
+                    eprintln!(
+                        "cmux-tui: reading the journal head before terminal retirement failed: {error}"
+                    );
+                    return;
+                }
+            };
+            (journal_cursor, pending_cleanup)
         };
         if pending_cleanup.is_err() {
             self.report_internal_diagnostic("terminal agent hook cleanup deferred");
         }
-        // The registry guard is dropped before acquiring the fence guard.
-        self.agent_hook_fences.lock().unwrap().remove(terminal_id);
-        self.agent_records.lock().unwrap().remove(terminal_id);
-        // Retirement and journal folding share one lifecycle gate. This keeps
-        // a concurrent fold from installing a candidate snapshot after the
-        // terminal has been removed.
-        let _fold = self.agent_roster_fold.lock().unwrap();
         let retired = {
             let mut host = self.agent_roster.lock().unwrap();
-            host.roster
-                .retire_terminal(terminal_id.as_str())
-                .then(|| (host.cursor, host.roster.snapshot().to_string()))
+            let previous = host.roster.clone();
+            let retired = host.roster.retire_terminal(terminal_id.as_str(), journal_cursor);
+            retired.then(|| (previous, host.cursor, host.roster.snapshot().to_string()))
         };
-        if let Some((cursor, snapshot)) = retired
-            && let Err(error) = self.workspace_registry.lock().unwrap().put_journal_reducer_state(
+        if let Some((previous, cursor, snapshot)) = retired {
+            let persisted = self.workspace_registry.lock().unwrap().put_journal_reducer_state(
                 crate::journal_reducers::AGENT_ROSTER_REDUCER_ID,
                 crate::journal_reducers::AGENT_ROSTER_REDUCER_VERSION,
                 cursor,
                 &snapshot,
-            )
-        {
-            eprintln!("cmux-tui: persisting the agent roster snapshot failed: {error}");
+            );
+            if let Err(error) = persisted {
+                // Keep the live/cache state intact until the tombstone is
+                // durable. A later close/retry can then persist it safely.
+                self.agent_roster.lock().unwrap().roster = previous;
+                eprintln!("cmux-tui: persisting the agent roster tombstone failed: {error}");
+                return;
+            }
         }
+        self.agent_hook_fences.lock().unwrap().remove(terminal_id);
+        self.agent_records.lock().unwrap().remove(terminal_id);
         self.terminal_notifications.lock().unwrap().remove(terminal_id);
     }
 
@@ -22685,6 +22765,96 @@ mod tests {
         let restored = restore_agent_roster(&registry).unwrap();
         assert_eq!(restored.cursor, sequence);
         assert_eq!(restored.roster.entries[terminal_id.as_str()].agent.as_deref(), Some("claude"));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn retired_terminal_cannot_be_resurrected_by_a_delayed_journal_event() {
+        let root = std::env::temp_dir()
+            .join(format!("cmux-roster-retired-{}", crate::workspace_registry::new_uuid_v4()));
+        let session = "roster-retired";
+        let mux = Mux::open_persistent(session, SurfaceOptions::default(), &root).unwrap();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+        let event = crate::JournalIngress {
+            producer_id: crate::agent_hooks::AGENT_HOOK_PRODUCER_ID.into(),
+            manifest_version: crate::agent_hooks::AGENT_HOOK_MANIFEST_VERSION,
+            kind: "agent.turn.started".into(),
+            schema_version: 1,
+            occurred_at_ms: None,
+            subjects: vec![crate::JournalSubject {
+                kind: "terminal".into(),
+                id: terminal_id.to_string(),
+            }],
+            sensitivity: Some(crate::JournalSensitivity::Sensitive),
+            payload: serde_json::json!({
+                "format": crate::agent_hooks::AGENT_HOOK_FORMAT,
+                "adapter": {"id": "claude", "version": 1},
+                "native_event": "UserPromptSubmit",
+                "normalized": {},
+                "native": {},
+            }),
+            causation_id: None,
+            correlation_id: None,
+        };
+        let validated = mux.journal_kernel.validate_ingress(&event).unwrap();
+        let commit = mux
+            .workspace_registry
+            .lock()
+            .unwrap()
+            .append_journal_ingress(&event, &validated, "retired-test", "retired-event")
+            .unwrap();
+
+        // Simulate terminal teardown before the delayed reducer callback.
+        mux.purge_terminal_side_tables(&terminal_id);
+        mux.fold_agent_roster(&event, &commit);
+        assert!(mux.list_agents(None, None).is_empty());
+        assert!(mux.agent_roster.lock().unwrap().roster.entries.is_empty());
+
+        mux.shutdown();
+        drop(mux);
+        let reopened = Mux::open_persistent(session, SurfaceOptions::default(), &root).unwrap();
+        assert!(reopened.list_agents(None, None).is_empty());
+        reopened.shutdown();
+        drop(reopened);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn repeated_socket_reports_coalesce_identical_journal_echoes() {
+        let root = std::env::temp_dir()
+            .join(format!("cmux-roster-echo-{}", crate::workspace_registry::new_uuid_v4()));
+        let mux = Mux::open_persistent("roster-echo", SurfaceOptions::default(), &root).unwrap();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let socket_echoes = || {
+            mux.session_journal_after(0, 1024)
+                .unwrap()
+                .records
+                .into_iter()
+                .filter(|record| {
+                    record
+                        .payload
+                        .get("adapter")
+                        .and_then(|adapter| adapter.get("id"))
+                        .and_then(Value::as_str)
+                        == Some(crate::journal_reducers::SOCKET_REPORT_ADAPTER)
+                })
+                .count()
+        };
+
+        assert_eq!(socket_echoes(), 0);
+        mux.report_agent(surface.id, AgentState::Working, AgentSource::Socket, Some("poll".into()))
+            .unwrap();
+        assert_eq!(socket_echoes(), 1);
+        mux.report_agent(surface.id, AgentState::Working, AgentSource::Socket, Some("poll".into()))
+            .unwrap();
+        assert_eq!(socket_echoes(), 1);
+        mux.report_agent(surface.id, AgentState::Blocked, AgentSource::Socket, Some("poll".into()))
+            .unwrap();
+        assert_eq!(socket_echoes(), 2);
+
+        mux.shutdown();
+        drop(mux);
         std::fs::remove_dir_all(root).unwrap();
     }
 
