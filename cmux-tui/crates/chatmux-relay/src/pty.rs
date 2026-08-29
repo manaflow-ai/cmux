@@ -1067,9 +1067,10 @@ impl Inner {
         };
         let env = pty_env(&self.env);
 
+        let cancellation_token = cancellation.token();
         let cmux_tui = tokio::select! {
-            _ = cancellation.token().cancelled() => return,
-            resolved = self.deps.resolve_cmux_tui(cancellation.token()) => resolved,
+            _ = cancellation_token.cancelled() => return,
+            resolved = self.deps.resolve_cmux_tui(cancellation_token.clone()) => resolved,
         };
         if cancellation.is_cancelled() {
             return;
@@ -1668,15 +1669,16 @@ impl Inner {
         cancellation: &OpenCancellation,
     ) -> Result<Opened, String> {
         let socket_dir = self.deps.socket_dir();
+        let cancellation_token = cancellation.token();
         let ensured = tokio::select! {
-            _ = cancellation.token().cancelled() => return Err("terminal open cancelled".to_owned()),
+            _ = cancellation_token.cancelled() => return Err("terminal open cancelled".to_owned()),
             result = self.deps.ensure_daemon(
                 cmux_tui,
                 session,
                 &socket_dir,
                 cwd,
                 env,
-                cancellation.token(),
+                cancellation_token.clone(),
             ) => result,
         }?;
         let roots_scoped = context.local_roots.as_deref().is_some_and(|r| !r.is_empty())
