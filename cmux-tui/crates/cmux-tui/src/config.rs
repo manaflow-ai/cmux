@@ -146,6 +146,8 @@ use cmux_tui_core::TRANSPORT_SAFE_CAPTURE_MEGAPIXELS;
 use cmux_tui_core::platform;
 use cmux_tui_core::{CursorShape, DefaultColors, Rgb};
 use cmux_tui_core::{DEFAULT_SCROLLBACK_LIMIT_BYTES, SurfaceOptions};
+
+const MAX_SCROLLBACK_LIMIT_BYTES: usize = 1_000_000_000;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::style::Color;
 use serde::{Deserialize, Deserializer};
@@ -3243,7 +3245,9 @@ impl Config {
     /// surface API uses bytes, so this value must never be interpreted as a
     /// line count by callers.
     pub fn scrollback_limit_bytes(&self) -> usize {
-        self.scrollback_limit_bytes.unwrap_or(DEFAULT_SCROLLBACK_LIMIT_BYTES)
+        self.scrollback_limit_bytes
+            .unwrap_or(DEFAULT_SCROLLBACK_LIMIT_BYTES)
+            .min(MAX_SCROLLBACK_LIMIT_BYTES)
     }
 
     pub fn apply_chrome_defaults(&mut self, chrome: ChromeTheme) {
@@ -4344,10 +4348,18 @@ fn ghostty_defaults() -> DefaultColors {
     ghostty_application_defaults().colors
 }
 
-#[derive(Default)]
 struct GhosttyApplicationDefaults {
     colors: DefaultColors,
     scrollback_limit_bytes: Option<usize>,
+}
+
+impl Default for GhosttyApplicationDefaults {
+    fn default() -> Self {
+        Self {
+            colors: resolve_ghostty_application_defaults(DefaultColors::default()),
+            scrollback_limit_bytes: None,
+        }
+    }
 }
 
 fn ghostty_application_defaults() -> GhosttyApplicationDefaults {
@@ -4383,9 +4395,9 @@ fn ghostty_defaults_from_sources(
         GhosttyHelperDefaults::Unavailable => {
             parse_ghostty_application_defaults_from_paths(config_paths, theme_dirs)
                 .map(|defaults| defaults.colors)
-                .unwrap_or_default()
+                .unwrap_or_else(|| GhosttyApplicationDefaults::default().colors)
         }
-        GhosttyHelperDefaults::TimedOut => DefaultColors::default(),
+        GhosttyHelperDefaults::TimedOut => GhosttyApplicationDefaults::default().colors,
     }
 }
 
@@ -6067,6 +6079,18 @@ mod tests {
         assert_eq!(defaults.colors.fg, Some(Rgb { r: 7, g: 8, b: 9 }));
         assert_eq!(defaults.colors.bg, Some(Rgb { r: 4, g: 5, b: 6 }));
         assert_eq!(defaults.colors.cursor_style, Some(CursorShape::Block));
+    }
+
+    #[test]
+    fn effective_scrollback_limit_is_bounded() {
+        let mut config = Config::default();
+        assert_eq!(config.scrollback_limit_bytes(), DEFAULT_SCROLLBACK_LIMIT_BYTES);
+
+        config.scrollback_limit_bytes = Some(usize::MAX);
+        assert_eq!(config.scrollback_limit_bytes(), MAX_SCROLLBACK_LIMIT_BYTES);
+
+        config.scrollback_limit_bytes = Some(0);
+        assert_eq!(config.scrollback_limit_bytes(), 0);
     }
 
     #[test]
