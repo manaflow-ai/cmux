@@ -486,8 +486,10 @@ mod tests {
     fn scan_cursor_rotates_fairly_for_bounded_lookup_batches() {
         let mut tracker = ScreenDetectTracker::default();
         assert_eq!(tracker.scan_start(100), 0);
-        assert_eq!(tracker.scan_start(100), 1);
-        assert_eq!(tracker.scan_start(100), 2);
+        tracker.advance_scan_cursor(100, 64);
+        assert_eq!(tracker.scan_start(100), 64);
+        tracker.advance_scan_cursor(100, 64);
+        assert_eq!(tracker.scan_start(100), 28);
         assert_eq!(tracker.scan_start(0), 0);
         assert_eq!(tracker.scan_start(100), 0);
     }

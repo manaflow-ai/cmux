@@ -131,12 +131,14 @@ pub(crate) fn scan(
                 }
             }
         } else {
-            // A cached process name is only advisory until the next kernel
-            // sample. Do not reuse it across a process switch or PID reuse.
-            // Failing closed leaves the current roster entry unchanged until
-            // fresh identity data arrives, rather than attributing new output
-            // to a stale agent.
-            None
+            // The tracker stores the immutable manifest id, not the mutable
+            // process label. Resolve that id directly between paced kernel
+            // samples; passing it through identify() would treat it as an
+            // executable path and silently lose detection for aliased agents.
+            match tracker.cached_foreground_identity(terminal_id) {
+                Some(Some(id)) => manifests.identify_id(id),
+                Some(None) | None => None,
+            }
         };
         // Observe after the identity edge so the immediate evaluation also
         // records its pacer timestamp before later output is debounced.
