@@ -8930,8 +8930,11 @@ impl Mux {
         }
         let had_runtime = runtime.is_some();
         if let Some(runtime) = runtime {
-            self.purge_terminal_runtime_side_tables(&runtime);
+            let purge_result = self.purge_terminal_runtime_side_tables(&runtime);
             self.terminate_terminal_runtime(&runtime);
+            if purge_result.is_err() {
+                self.report_internal_diagnostic("terminal agent retirement deferred after close");
+            }
         }
         if target.is_some() {
             self.emit(MuxEvent::TreeChanged);
@@ -8969,7 +8972,7 @@ impl Mux {
             for placement in removed {
                 self.purge_surface_side_tables(placement.id);
             }
-            self.purge_terminal_runtime_side_tables(surface);
+            self.purge_terminal_runtime_side_tables(surface)?;
             if !surface.is_dead() {
                 surface.kill();
             }
@@ -8987,7 +8990,7 @@ impl Mux {
         for placement in removed {
             self.purge_surface_side_tables(placement.id);
         }
-        self.purge_terminal_runtime_side_tables(surface);
+        self.purge_terminal_runtime_side_tables(surface)?;
         if !surface.is_dead() {
             surface.kill();
         }
@@ -9678,7 +9681,7 @@ impl Mux {
         self.placement_notifications.lock().unwrap().remove(&surface);
     }
 
-    fn purge_terminal_side_tables(&self, terminal_id: &TerminalPublicId) {
+    fn purge_terminal_side_tables(&self, terminal_id: &TerminalPublicId) -> anyhow::Result<()> {
         // Retirement and journal folding share one lifecycle gate. This keeps
         // a concurrent fold from installing a candidate snapshot after the
         // terminal has been removed. The tombstone is persisted before the
@@ -9690,10 +9693,10 @@ impl Mux {
             let journal_cursor = match registry.session_journal_after(0, 1) {
                 Ok(page) => page.head_sequence,
                 Err(error) => {
-                    eprintln!(
-                        "cmux-tui: reading the journal head before terminal retirement failed: {error}"
+                    self.report_internal_diagnostic(
+                        "terminal agent retirement deferred before journal fence",
                     );
-                    return;
+                    return Err(error).context("read journal head before terminal retirement");
                 }
             };
             (journal_cursor, pending_cleanup)
@@ -9718,8 +9721,10 @@ impl Mux {
                 // Keep the live/cache state intact until the tombstone is
                 // durable. A later close/retry can then persist it safely.
                 self.agent_roster.lock().unwrap().roster = previous;
-                eprintln!("cmux-tui: persisting the agent roster tombstone failed: {error}");
-                return;
+                self.report_internal_diagnostic(
+                    "terminal agent retirement deferred before snapshot",
+                );
+                return Err(error).context("persist agent roster tombstone");
             }
         }
         self.agent_hook_fences.lock().unwrap().remove(terminal_id);
@@ -9727,7 +9732,13 @@ impl Mux {
         self.terminal_notifications.lock().unwrap().remove(terminal_id);
     }
 
-    fn purge_terminal_runtime_side_tables(&self, runtime: &Surface) {
+    fn purge_terminal_runtime_side_tables(&self, runtime: &Surface) -> anyhow::Result<()> {
+        if let Some(terminal_id) = runtime.terminal_public_id() {
+            // Persist the terminal tombstone before clearing any runtime cache.
+            // A failed journal read or snapshot write must leave all side tables
+            // available for a later retry.
+            self.purge_terminal_side_tables(terminal_id)?;
+        }
         if let Some(runtime_id) = runtime.terminal_runtime_id() {
             self.reserved_in_process_terminals.lock().unwrap().remove(&runtime_id);
             let _cell_pixel_lifecycle = self.cell_pixel_lifecycle.lock().unwrap();
@@ -9741,9 +9752,7 @@ impl Mux {
                 }
             }
         }
-        if let Some(terminal_id) = runtime.terminal_public_id() {
-            self.purge_terminal_side_tables(terminal_id);
-        }
+        Ok(())
     }
 
     pub fn list_agents(
@@ -12422,9 +12431,14 @@ impl Mux {
                 for placement in rollback_removed {
                     self.purge_surface_side_tables(placement.id);
                 }
-                self.purge_terminal_runtime_side_tables(&surface);
+                let purge_result = self.purge_terminal_runtime_side_tables(&surface);
                 if !surface.is_dead() {
                     surface.kill();
+                }
+                if purge_result.is_err() {
+                    self.report_internal_diagnostic(
+                        "terminal agent retirement deferred after attach rollback",
+                    );
                 }
                 return Err(error);
             }
@@ -15511,7 +15525,11 @@ impl Mux {
             self.purge_surface_side_tables(placement.id);
         }
         for surface in spawned {
-            self.purge_terminal_runtime_side_tables(&surface);
+            if let Err(_error) = self.purge_terminal_runtime_side_tables(&surface) {
+                self.report_internal_diagnostic(
+                    "terminal agent retirement deferred after layout rollback",
+                );
+            }
             if !surface.is_dead() {
                 surface.kill();
             }
@@ -22806,7 +22824,7 @@ mod tests {
             .unwrap();
 
         // Simulate terminal teardown before the delayed reducer callback.
-        mux.purge_terminal_side_tables(&terminal_id);
+        mux.purge_terminal_side_tables(&terminal_id).unwrap();
         mux.fold_agent_roster(&event, &commit);
         assert!(mux.list_agents(None, None).is_empty());
         assert!(mux.agent_roster.lock().unwrap().roster.entries.is_empty());
@@ -23768,6 +23786,7 @@ mod tests {
         mux.apply_agent_hook_record(&ingress("SessionStart", Some("ended-session")), 1).unwrap();
         mux.apply_agent_hook_record(&ingress("SessionEnd", Some("ended-session")), 2).unwrap();
         assert!(mux.list_agents(Some(surface.id), None).is_empty());
+        drop(surface);
         mux.shutdown();
         drop(mux);
 
@@ -23854,7 +23873,7 @@ mod tests {
                 crate::workspace_registry::AgentHookRetryClass::Transient,
             )
             .unwrap();
-        mux.purge_terminal_side_tables(&terminal_id);
+        mux.purge_terminal_side_tables(&terminal_id).unwrap();
         assert!(
             mux.workspace_registry
                 .lock()

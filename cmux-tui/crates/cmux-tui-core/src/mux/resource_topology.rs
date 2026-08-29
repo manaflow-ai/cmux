@@ -2544,7 +2544,11 @@ impl Mux {
             self.purge_surface_side_tables(*target);
         }
         if let Some(runtime) = effects.runtime.as_ref() {
-            self.purge_terminal_runtime_side_tables(runtime);
+            if let Err(_error) = self.purge_terminal_runtime_side_tables(runtime) {
+                self.report_internal_diagnostic(
+                    "terminal agent retirement deferred for exited terminal",
+                );
+            }
             runtime.kill();
         }
         drop(effects.removed);
@@ -2719,8 +2723,13 @@ impl Mux {
             }
         }
         if let Some(runtime) = effects.terminal_runtime {
-            self.purge_terminal_runtime_side_tables(&runtime);
+            let purge_result = self.purge_terminal_runtime_side_tables(&runtime);
             self.terminate_terminal_runtime(&runtime);
+            if purge_result.is_err() {
+                self.report_internal_diagnostic(
+                    "terminal agent retirement deferred after resource close",
+                );
+            }
         }
         match effects.tree_publication {
             ResourceCloseTreePublication::PendingDelta(delta) => {
