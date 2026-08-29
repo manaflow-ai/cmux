@@ -1163,8 +1163,7 @@ fn restore_agent_roster(registry: &WorkspaceRegistry) -> anyhow::Result<AgentRos
                         // snapshot untouched and fail closed so the caller can
                         // surface the recovery failure and preserve evidence.
                         return Err(anyhow::anyhow!(
-                            "cannot restore agent roster: journal history before sequence {first_retained} "
-                                "was compacted (snapshot cursor {requested}); a complete reducer snapshot is required",
+                            "cannot restore agent roster: journal history before sequence {first_retained} was compacted (snapshot cursor {requested}); a complete reducer snapshot is required",
                         ));
                     }
                 }
