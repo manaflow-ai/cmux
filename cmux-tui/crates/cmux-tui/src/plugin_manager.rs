@@ -1664,9 +1664,8 @@ fn replace_installed_plugin_with_fs<F: InstallFilesystem, C: FnOnce() -> anyhow:
         // so the next operation can retry cleanup.
         let journal_parent = journal_path.parent().unwrap_or_else(|| Path::new("."));
         let registry = install_root.join(".registry");
-        let cleanup_durable = sync_directory(install_root)
-            .and_then(|()| sync_directory(&registry))
-            .is_ok();
+        let cleanup_durable =
+            sync_directory(install_root).and_then(|()| sync_directory(&registry)).is_ok();
         if cleanup_durable {
             let journal_removed = match filesystem.remove_file(&journal_path) {
                 Ok(()) => true,
