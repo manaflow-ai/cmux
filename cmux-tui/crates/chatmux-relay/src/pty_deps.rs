@@ -1097,8 +1097,8 @@ impl PtyDeps for RealPtyDeps {
         let worker_handoff = Arc::clone(&handoff);
         let worker_output = Arc::clone(&output);
         let mut cancel_guard = CancelOnDrop::new(handoff);
-        let mut worker = tokio::task::spawn_blocking(move || {
-            match spawn_real_pty(&spec, &worker_handoff) {
+        let mut worker =
+            tokio::task::spawn_blocking(move || match spawn_real_pty(&spec, &worker_handoff) {
                 Ok(handle) => handle,
                 Err(error) if worker_handoff.is_cancelled() => {
                     let _ = error;
@@ -1110,8 +1110,7 @@ impl PtyDeps for RealPtyDeps {
                     }
                 }
                 Err(error) => spawn_pipe_mode(&spec, &error.to_string(), &worker_handoff),
-            }
-        });
+            });
         let result = tokio::select! {
             result = &mut worker => result,
             _ = cancellation.cancelled() => {
