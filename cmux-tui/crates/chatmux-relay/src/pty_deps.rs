@@ -1271,30 +1271,27 @@ impl PtyDeps for RealPtyDeps {
                         process_guard.cleanup().await;
                         return Err("terminal open cancelled".to_owned());
                     }
-                    match tokio::select! {
+                    if let Ok(control) = tokio::select! {
                         _ = cancellation.cancelled() => {
                             process_guard.cleanup().await;
                             return Err("terminal open cancelled".to_owned());
                         }
                         result = connect_control(&socket_path, CONTROL_TIMEOUT_MS) => result,
                     } {
-                        Ok(control) => {
-                            let mut guard = ControlEndGuard::new(Arc::clone(&control));
-                            let ready = tokio::select! {
-                                _ = cancellation.cancelled() => {
-                                    process_guard.cleanup().await;
-                                    return Err("terminal open cancelled".to_owned());
-                                }
-                                result = control_ready(&control, session) => result,
-                            };
-                            control.end();
-                            guard.disarm();
-                            if ready {
-                                process_guard.disarm();
-                                return Ok(EnsureDaemon { created: true, socket_path });
+                        let mut guard = ControlEndGuard::new(Arc::clone(&control));
+                        let ready = tokio::select! {
+                            _ = cancellation.cancelled() => {
+                                process_guard.cleanup().await;
+                                return Err("terminal open cancelled".to_owned());
                             }
+                            result = control_ready(&control, session) => result,
+                        };
+                        control.end();
+                        guard.disarm();
+                        if ready {
+                            process_guard.disarm();
+                            return Ok(EnsureDaemon { created: true, socket_path });
                         }
-                        Err(_) => {}
                     }
                     tokio::select! {
                         _ = cancellation.cancelled() => {
