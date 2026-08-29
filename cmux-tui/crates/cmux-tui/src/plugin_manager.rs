@@ -141,6 +141,11 @@ enum InstallJournalPhase {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct InstallJournal {
+    // Journals written before the v2 format carry an owner token and a
+    // commit marker. Keep the field so an interrupted old transaction can be
+    // recovered after an upgrade.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    owner_token: Option<String>,
     name: String,
     target_backup: PathBuf,
     metadata_backup: PathBuf,
@@ -161,7 +166,11 @@ struct InstallJournal {
 #[serde(deny_unknown_fields)]
 struct ConfigSnapshot {
     path: PathBuf,
+    #[serde(default)]
+    config_existed: bool,
     sidebar_plugin: Option<Value>,
+    #[serde(default)]
+    original_non_object: Option<Value>,
 }
 
 const INVALID_INSTALL_JOURNAL_DIR: &str = ".invalid-install-journals";
@@ -801,10 +810,17 @@ fn read_install_journal(path: &Path) -> anyhow::Result<Vec<u8>> {
     anyhow::ensure!(metadata.is_file(), "install journal is not a regular file");
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt as _;
+        use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
+        // v1 journals were created with the process umask and are commonly
+        // 0644. Accept those files only when they are not writable by another
+        // uid or group. New journals remain 0600.
         anyhow::ensure!(
-            metadata.permissions().mode() & 0o7777 == 0o600,
-            "install journal permissions are not private"
+            metadata.permissions().mode() & 0o022 == 0,
+            "install journal is writable by another user"
+        );
+        anyhow::ensure!(
+            metadata.uid() == unsafe { libc::geteuid() },
+            "install journal is not owned by the current user"
         );
     }
     let mut bytes = Vec::new();
@@ -814,6 +830,19 @@ fn read_install_journal(path: &Path) -> anyhow::Result<Vec<u8>> {
         "install journal exceeds {MAX_INSTALL_JOURNAL_BYTES} bytes"
     );
     Ok(bytes)
+}
+
+fn install_commit_marker_path(install_root: &Path, name: &str) -> PathBuf {
+    install_root.join(format!(".{name}.install-commit"))
+}
+
+fn commit_marker_matches(path: &Path, owner_token: &str) -> anyhow::Result<bool> {
+    let contents = match fs::read_to_string(path) {
+        Ok(contents) => contents,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(error.into()),
+    };
+    Ok(contents.trim() == owner_token)
 }
 
 #[cfg(unix)]
@@ -991,43 +1020,66 @@ fn reconcile_install_transactions(install_root: &Path) -> anyhow::Result<()> {
             quarantine_install_journal(install_root, &path)?;
             continue;
         }
-        match journal.phase {
-            InstallJournalPhase::Committed => {
-                remove_path_if_present(&journal.target_backup)?;
-                remove_path_if_present(&journal.metadata_backup)?;
-                remove_path_if_present(&journal.temp_dir)?;
-                remove_path_if_present(&journal.metadata_temp)?;
+        let marker_path = install_commit_marker_path(install_root, &journal.name);
+        let legacy_marker_committed = journal
+            .owner_token
+            .as_deref()
+            .map(|token| commit_marker_matches(&marker_path, token))
+            .transpose()?
+            .unwrap_or(false);
+        let committed =
+            matches!(&journal.phase, InstallJournalPhase::Committed) || legacy_marker_committed;
+        if committed {
+            remove_path_if_present(&journal.target_backup)?;
+            remove_path_if_present(&journal.metadata_backup)?;
+            remove_path_if_present(&journal.temp_dir)?;
+            remove_path_if_present(&journal.metadata_temp)?;
+        } else {
+            // A v1 journal did not always persist the compare-and-swap
+            // value. Derive it from the installed target when possible,
+            // so stale recovery cannot overwrite a newer selection.
+            let legacy_expected = (journal.owner_token.is_some()
+                && journal.expected_sidebar_plugin.is_none())
+                .then(|| expected_sidebar_plugin_for_target(install_root, &journal.name))
+                .flatten();
+            let expected = journal.expected_sidebar_plugin.as_ref().or(legacy_expected.as_ref());
+            if let Some(snapshot) = &journal.config_snapshot {
+                restore_config_snapshot(snapshot, expected)?;
             }
-            InstallJournalPhase::Prepared => {
-                if let (Some(snapshot), Some(expected)) =
-                    (&journal.config_snapshot, journal.expected_sidebar_plugin.as_ref())
-                {
-                    restore_config_snapshot(snapshot, expected)?;
-                }
-                if journal.target_existed {
-                    if path_entry_exists(&journal.target_backup)? {
-                        remove_path_if_present(&install_root.join(&journal.name))?;
-                        fs::rename(&journal.target_backup, install_root.join(&journal.name))?;
-                    }
-                } else {
+            if journal.target_existed {
+                if path_entry_exists(&journal.target_backup)? {
                     remove_path_if_present(&install_root.join(&journal.name))?;
+                    fs::rename(&journal.target_backup, install_root.join(&journal.name))?;
                 }
-                if journal.metadata_existed {
-                    let metadata_path = registry_metadata_path(install_root, &journal.name);
-                    if path_entry_exists(&journal.metadata_backup)? {
-                        remove_path_if_present(&metadata_path)?;
-                        fs::rename(&journal.metadata_backup, metadata_path)?;
-                    }
-                } else {
-                    remove_path_if_present(&registry_metadata_path(install_root, &journal.name))?;
-                }
-                remove_path_if_present(&journal.temp_dir)?;
-                remove_path_if_present(&journal.metadata_temp)?;
+            } else {
+                remove_path_if_present(&install_root.join(&journal.name))?;
             }
+            if journal.metadata_existed {
+                let metadata_path = registry_metadata_path(install_root, &journal.name);
+                if path_entry_exists(&journal.metadata_backup)? {
+                    remove_path_if_present(&metadata_path)?;
+                    fs::rename(&journal.metadata_backup, metadata_path)?;
+                }
+            } else {
+                remove_path_if_present(&registry_metadata_path(install_root, &journal.name))?;
+            }
+            remove_path_if_present(&journal.temp_dir)?;
+            remove_path_if_present(&journal.metadata_temp)?;
         }
         remove_path_if_present(&path)?;
+        if legacy_marker_committed || path_entry_exists(&marker_path)? {
+            remove_path_if_present(&marker_path)?;
+        }
     }
     Ok(())
+}
+
+fn expected_sidebar_plugin_for_target(install_root: &Path, name: &str) -> Option<Value> {
+    let target = install_root.join(name);
+    let manifest = read_manifest(&target).ok()?;
+    let command = resolved_run_command(&manifest, &target).ok()?;
+    let cwd = canonical_path(&target).ok()?;
+    Some(json!({"command": command, "cwd": cwd.display().to_string()}))
 }
 
 fn restore_config_snapshot(
@@ -1047,6 +1099,9 @@ fn restore_config_snapshot(
             // this transaction started. Leave that newer state untouched.
             return Ok(());
         }
+    }
+    if let Some(original) = &snapshot.original_non_object {
+        return write_config_value_atomic_local(&snapshot.path, original);
     }
     let Some(root_object) = root.as_object_mut() else {
         anyhow::bail!("{} must contain a JSON object", snapshot.path.display());
@@ -1069,6 +1124,13 @@ fn restore_config_snapshot(
                 sidebar_object.remove("plugin");
             }
         }
+    }
+    if !snapshot.config_existed && snapshot.sidebar_plugin.is_none() {
+        return match fs::remove_file(&snapshot.path) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(error.into()),
+        };
     }
     write_config_value_atomic_local(&snapshot.path, &root)
 }
@@ -1143,16 +1205,22 @@ fn replace_installed_plugin_with_config<C: FnOnce() -> anyhow::Result<()>>(
 
 fn capture_config_snapshot() -> anyhow::Result<ConfigSnapshot> {
     let path = config::config_path()?;
-    let sidebar_plugin = match fs::read_to_string(&path) {
-        Ok(text) if text.trim().is_empty() => None,
-        Ok(text) => serde_json::from_str::<Value>(&text)?
-            .get("sidebar")
-            .and_then(|sidebar| sidebar.get("plugin"))
-            .cloned(),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+    let (config_existed, sidebar_plugin, original_non_object) = match fs::read_to_string(&path) {
+        Ok(text) if text.trim().is_empty() => (true, None, None),
+        Ok(text) => {
+            let value: Value = serde_json::from_str(&text)?;
+            let sidebar_plugin = value
+                .as_object()
+                .and_then(|root| root.get("sidebar"))
+                .and_then(|sidebar| sidebar.get("plugin"))
+                .cloned();
+            let original_non_object = (!value.is_object()).then_some(value);
+            (true, sidebar_plugin, original_non_object)
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => (false, None, None),
         Err(error) => return Err(error.into()),
     };
-    Ok(ConfigSnapshot { path, sidebar_plugin })
+    Ok(ConfigSnapshot { path, config_existed, sidebar_plugin, original_non_object })
 }
 
 fn replace_installed_plugin_with_fs<F: InstallFilesystem, C: FnOnce() -> anyhow::Result<()>>(
@@ -1162,6 +1230,7 @@ fn replace_installed_plugin_with_fs<F: InstallFilesystem, C: FnOnce() -> anyhow:
     temp_dir: &Path,
     metadata_temp: &Path,
     config_snapshot: Option<ConfigSnapshot>,
+    expected_sidebar_plugin: Option<Value>,
     after_install: C,
 ) -> anyhow::Result<()> {
     ensure_real_directory(install_root)?;
@@ -1178,6 +1247,7 @@ fn replace_installed_plugin_with_fs<F: InstallFilesystem, C: FnOnce() -> anyhow:
     let metadata_exists = path_entry_exists(&metadata_path)?;
     let journal_path = install_journal_path(install_root, name);
     let journal = InstallJournal {
+        owner_token: None,
         name: name.to_string(),
         target_backup: target_backup.clone(),
         metadata_backup: metadata_backup.clone(),
@@ -1416,6 +1486,54 @@ mod tests {
         assert!(!rendered.contains("injected detail"));
         assert!(!details.contains("/private/plugin-state/secret.toml"));
         assert!(!details.contains("injected detail"));
+    }
+
+    #[test]
+    fn legacy_install_journal_shape_remains_readable() {
+        let journal: InstallJournal = serde_json::from_value(json!({
+            "owner_token": "legacy-owner",
+            "name": "demo",
+            "target_backup": "/state/.demo.backup.plugin-backup",
+            "metadata_backup": "/state/.registry/.demo.backup.metadata-backup.json",
+            "temp_dir": "/state/.install-1-2",
+            "metadata_temp": "/state/.registry/.demo.1-2.tmp",
+            "target_existed": true,
+            "metadata_existed": true,
+            "config_snapshot": {
+                "path": "/config/cmux.json",
+                "config_existed": true,
+                "sidebar_plugin": {"command": ["old"]},
+                "original_non_object": null
+            },
+            "phase": "prepared"
+        }))
+        .unwrap();
+        assert_eq!(journal.owner_token.as_deref(), Some("legacy-owner"));
+        let snapshot = journal.config_snapshot.unwrap();
+        assert!(snapshot.config_existed);
+        assert_eq!(snapshot.sidebar_plugin, Some(json!({"command": ["old"]})));
+    }
+
+    #[test]
+    fn config_restore_preserves_legacy_non_object_value() {
+        let path = std::env::temp_dir().join(format!(
+            "cmux-plugin-config-legacy-{}-{}",
+            std::process::id(),
+            now_nanos()
+        ));
+        fs::write(&path, "{\"sidebar\":{\"plugin\":{\"command\":[\"new\"]}}}").unwrap();
+        let snapshot = ConfigSnapshot {
+            path: path.clone(),
+            config_existed: true,
+            sidebar_plugin: None,
+            original_non_object: Some(json!("legacy")),
+        };
+        restore_config_snapshot(&snapshot, Some(&json!({
+            "command": ["new"]
+        })))
+        .unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap().trim(), "\"legacy\"");
+        fs::remove_file(path).unwrap();
     }
 
     #[test]
@@ -1748,6 +1866,7 @@ mod tests {
         write_install_journal(
             &journal_path,
             &InstallJournal {
+                owner_token: None,
                 name: "demo".into(),
                 target_backup: target_backup.clone(),
                 metadata_backup: metadata_backup.clone(),
@@ -1791,6 +1910,7 @@ mod tests {
         write_install_journal(
             &journal_path,
             &InstallJournal {
+                owner_token: None,
                 name: "demo".into(),
                 target_backup: outside.clone(),
                 metadata_backup: registry.join(".demo.recovery.metadata-backup.json"),
@@ -1825,7 +1945,9 @@ mod tests {
         .unwrap();
         let snapshot = ConfigSnapshot {
             path: config_path.clone(),
+            config_existed: true,
             sidebar_plugin: Some(json!({"command": ["old"]})),
+            original_non_object: None,
         };
         let expected = json!({"command": ["new"]});
         let error = replace_installed_plugin_with_fs(
@@ -1869,7 +1991,9 @@ mod tests {
         .unwrap();
         let snapshot = ConfigSnapshot {
             path: config_path.clone(),
+            config_existed: true,
             sidebar_plugin: Some(json!({"command": ["old"]})),
+            original_non_object: None,
         };
         let error = replace_installed_plugin_with_fs(
             &StandardInstallFilesystem,
