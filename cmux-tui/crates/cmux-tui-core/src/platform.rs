@@ -320,8 +320,7 @@ fn has_windows_device_prefix(path: &[u16]) -> bool {
 
 #[cfg(windows)]
 fn has_windows_parent_component(path: &[u16]) -> bool {
-    path.split(|unit| *unit == b'\\' as u16)
-        .any(|segment| segment == [b'.' as u16, b'.' as u16])
+    path.split(|unit| *unit == b'\\' as u16).any(|segment| segment == [b'.' as u16, b'.' as u16])
 }
 
 #[cfg(any(windows, test))]
