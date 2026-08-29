@@ -225,6 +225,7 @@ impl AgentRoster {
                 && existing.source == entry.source
                 && existing.session == entry.session
                 && existing.agent == entry.agent
+                && existing.updated_at_ms == entry.updated_at_ms
         }) {
             return Vec::new();
         }
