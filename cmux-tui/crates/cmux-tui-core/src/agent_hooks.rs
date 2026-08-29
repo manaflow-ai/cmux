@@ -17,6 +17,10 @@ const MAX_AGENT_REDACTION_DEPTH: usize = 32;
 const MAX_AGENT_REDACTION_NODES: usize = 4_096;
 const REDACTED_AGENT_VALUE: &str = "[redacted]";
 const STRUCTURE_LIMIT_REASON: &str = "structure_limit";
+// The socket report path writes this adapter directly after committing its
+// projection. Hook ingress must not be able to impersonate that internal
+// record and bypass source arbitration.
+const RESERVED_SOCKET_ADAPTER: &str = "socket";
 
 const AGENT_EVENT_KINDS: [&str; 12] = [
     "agent.session.started",
@@ -255,12 +259,14 @@ pub(crate) fn built_in_agent_producer_manifest() -> JournalProducerManifest {
 
 fn validate_agent_source(source: &str) -> anyhow::Result<()> {
     anyhow::ensure!(
+        source != RESERVED_SOCKET_ADAPTER
+            &&
         !source.is_empty()
             && source.len() <= MAX_AGENT_SOURCE_BYTES
             && source.bytes().all(|byte| {
                 byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'_' | b'-')
             }),
-        "agent source must contain 1 to {MAX_AGENT_SOURCE_BYTES} lowercase ASCII letters, digits, hyphens, or underscores"
+        "agent source must contain 1 to {MAX_AGENT_SOURCE_BYTES} lowercase ASCII letters, digits, hyphens, or underscores and cannot be reserved"
     );
     Ok(())
 }
@@ -823,6 +829,12 @@ fn semantic_key(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn socket_adapter_is_reserved_for_internal_projection_echoes() {
+        let error = agent_hook_journal_ingress("socket", "Stop", None, json!({})).unwrap_err();
+        assert!(error.to_string().contains("reserved"));
+    }
 
     #[test]
     fn completion_hooks_share_one_semantic_kind_and_keep_native_payload() {
