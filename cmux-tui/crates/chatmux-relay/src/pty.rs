@@ -249,8 +249,11 @@ pub struct EnsureDaemon {
 
 #[async_trait]
 pub trait PtyDeps: Send + Sync {
-    async fn spawn_pty(&self, spec: SpawnSpec) -> PtyHandle;
-    async fn resolve_cmux_tui(&self) -> Option<CmuxTui>;
+    /// Start a PTY while observing the lifetime of its open operation. An
+    /// implementation must reclaim any process or descriptor it creates when
+    /// the token is cancelled before ownership is returned.
+    async fn spawn_pty(&self, spec: SpawnSpec, cancellation: CancellationToken) -> PtyHandle;
+    async fn resolve_cmux_tui(&self, cancellation: CancellationToken) -> Option<CmuxTui>;
     async fn ensure_daemon(
         &self,
         cmux_tui: &CmuxTui,
@@ -258,8 +261,13 @@ pub trait PtyDeps: Send + Sync {
         socket_dir: &Path,
         cwd: &Path,
         env: &HashMap<String, String>,
+        cancellation: CancellationToken,
     ) -> Result<EnsureDaemon, String>;
-    async fn connect_control(&self, socket_path: &Path) -> Result<Arc<dyn ControlHandle>, String>;
+    async fn connect_control(
+        &self,
+        socket_path: &Path,
+        cancellation: CancellationToken,
+    ) -> Result<Arc<dyn ControlHandle>, String>;
     async fn read_dir(&self, path: &Path) -> Result<Vec<String>, ()>;
     fn socket_dir(&self) -> PathBuf;
     fn shell(&self) -> String;
@@ -500,6 +508,10 @@ impl OpenCancellation {
 
     fn is_cancelled(&self) -> bool {
         self.token.is_cancelled()
+    }
+
+    fn token(&self) -> CancellationToken {
+        self.token.clone()
     }
 
     fn attempt_id(&self) -> u64 {
@@ -1055,7 +1067,10 @@ impl Inner {
         };
         let env = pty_env(&self.env);
 
-        let cmux_tui = self.deps.resolve_cmux_tui().await;
+        let cmux_tui = tokio::select! {
+            _ = cancellation.token().cancelled() => return,
+            resolved = self.deps.resolve_cmux_tui(cancellation.token()) => resolved,
+        };
         if cancellation.is_cancelled() {
             return;
         }
@@ -1075,6 +1090,7 @@ impl Inner {
                     &pty_id,
                     server_roots.as_deref(),
                     context,
+                    &cancellation,
                 )
                 .await
             {
@@ -1103,6 +1119,7 @@ impl Inner {
                             &pty_id,
                             server_roots.as_deref(),
                             context,
+                            &cancellation,
                         )
                         .await
                 } else {
@@ -1116,6 +1133,7 @@ impl Inner {
                             &pty_id,
                             server_roots.as_deref(),
                             context,
+                            &cancellation,
                         )
                         .await
                 };
@@ -1534,6 +1552,31 @@ struct Opened {
     cleanup_on_drop: bool,
 }
 
+/// Control sockets use an explicit `end()` operation. Own every probe until
+/// its async handshake has completed so cancellation cannot leave a reader or
+/// writer task attached to a timed-out terminal open.
+struct ControlEndOnDrop {
+    control: Option<Arc<dyn ControlHandle>>,
+}
+
+impl ControlEndOnDrop {
+    fn new(control: Arc<dyn ControlHandle>) -> Self {
+        Self { control: Some(control) }
+    }
+
+    fn disarm(&mut self) {
+        self.control = None;
+    }
+}
+
+impl Drop for ControlEndOnDrop {
+    fn drop(&mut self) {
+        if let Some(control) = self.control.take() {
+            control.end();
+        }
+    }
+}
+
 impl Drop for Opened {
     fn drop(&mut self) {
         if self.cleanup_on_drop {
@@ -1622,17 +1665,32 @@ impl Inner {
         pty_id: &str,
         server_roots: Option<&[String]>,
         context: &FrameContext,
+        cancellation: &OpenCancellation,
     ) -> Result<Opened, String> {
         let socket_dir = self.deps.socket_dir();
-        let ensured = self.deps.ensure_daemon(cmux_tui, session, &socket_dir, cwd, env).await?;
+        let ensured = tokio::select! {
+            _ = cancellation.token().cancelled() => return Err("terminal open cancelled".to_owned()),
+            result = self.deps.ensure_daemon(
+                cmux_tui,
+                session,
+                &socket_dir,
+                cwd,
+                env,
+                cancellation.token(),
+            ) => result,
+        }?;
         let roots_scoped = context.local_roots.as_deref().is_some_and(|r| !r.is_empty())
             || server_roots.is_some_and(|r| !r.is_empty());
         if roots_scoped {
             let control = self
                 .deps
-                .connect_control(&ensured.socket_path)
+                .connect_control(&ensured.socket_path, cancellation.token())
                 .await
                 .map_err(|_| "cannot inspect existing daemon cwd".to_owned())?;
+            let mut control_guard = ControlEndOnDrop::new(Arc::clone(&control));
+            if cancellation.is_cancelled() {
+                return Err("terminal open cancelled".to_owned());
+            }
             let Some(listed) = control.request("list-workspaces", json!({})).await else {
                 control.end();
                 return Err("cannot inspect existing daemon surfaces".to_owned());
@@ -1665,6 +1723,9 @@ impl Inner {
                 return Err("cannot prove existing daemon cwd is within allowed roots".to_owned());
             }
             for tab in tabs {
+                if cancellation.is_cancelled() {
+                    return Err("terminal open cancelled".to_owned());
+                }
                 let Some(info) =
                     control.request("process-info", json!({ "surface": tab.surface_id })).await
                 else {
@@ -1702,6 +1763,7 @@ impl Inner {
                 }
             }
             control.end();
+            control_guard.disarm();
         }
         let mut args = cmux_tui.prefix.clone();
         args.extend([
@@ -1720,7 +1782,7 @@ impl Inner {
                 rows,
                 cwd: cwd.to_path_buf(),
                 env: env.clone(),
-            })
+            }, cancellation.token())
             .await;
         let control = Arc::clone(&handle.control);
         let output = Arc::clone(&handle.output);
@@ -1749,6 +1811,7 @@ impl Inner {
         pty_id: &str,
         server_roots: Option<&[String]>,
         context: &FrameContext,
+        cancellation: &OpenCancellation,
     ) -> Result<Opened, String> {
         let mut created = false;
         let shell_session = loop {
@@ -1804,7 +1867,7 @@ impl Inner {
                         rows,
                         cwd: cwd.to_path_buf(),
                         env: env.clone(),
-                    })
+                    }, cancellation.token())
                     .await;
                 let PtyHandle { control, output, banner } = handle;
                 let shell_session = Arc::new(ShellSession {
@@ -2119,6 +2182,14 @@ struct ControlTerminalControl {
     surface_id: i64,
 }
 
+impl Drop for ControlTerminalControl {
+    fn drop(&mut self) {
+        // A cancelled open can drop this proxy before it reaches the
+        // attachment map. Explicitly close the underlying control stream.
+        self.control.end();
+    }
+}
+
 impl PtyControl for ControlTerminalControl {
     fn write(&self, data: &[u8]) {
         self.control
@@ -2306,18 +2377,30 @@ impl Inner {
         pty_id: &str,
         server_roots: Option<&[String]>,
         context: &FrameContext,
+        cancellation: &OpenCancellation,
     ) -> Result<Option<Opened>, (RelayPtyErrorCode, String)> {
         let socket_dir = self.deps.socket_dir();
         let ensured = self
             .deps
-            .ensure_daemon(cmux_tui, session, &socket_dir, cwd, env)
+            .ensure_daemon(
+                cmux_tui,
+                session,
+                &socket_dir,
+                cwd,
+                env,
+                cancellation.token(),
+            )
             .await
             .map_err(|message| (RelayPtyErrorCode::Failed, message))?;
-        let control = match self.deps.connect_control(&ensured.socket_path).await {
+        let control = match self.deps.connect_control(&ensured.socket_path, cancellation.token()).await {
             Ok(control) => control,
             Err(_) => return Ok(None), // degrade to the whole-session attach
         };
+        let mut control_guard = ControlEndOnDrop::new(Arc::clone(&control));
 
+        if cancellation.is_cancelled() {
+            return Err((RelayPtyErrorCode::Failed, "terminal open cancelled".to_owned()));
+        }
         let identify = control.request("identify", json!({})).await;
         let info = identify.as_ref().filter(|v| v.get("ok").and_then(Value::as_bool) == Some(true));
         let protocol = info
@@ -2344,6 +2427,9 @@ impl Inner {
             None
         };
         if surface_id.is_none() {
+            if cancellation.is_cancelled() {
+                return Err((RelayPtyErrorCode::Failed, "terminal open cancelled".to_owned()));
+            }
             let listed = control.request("list-workspaces", json!({})).await;
             let tabs = listed
                 .as_ref()
@@ -2371,6 +2457,9 @@ impl Inner {
         let roots_scoped = context.local_roots.as_deref().is_some_and(|r| !r.is_empty())
             || server_roots.is_some_and(|r| !r.is_empty());
         if roots_scoped {
+            if cancellation.is_cancelled() {
+                return Err((RelayPtyErrorCode::Failed, "terminal open cancelled".to_owned()));
+            }
             let info = control.request("process-info", json!({ "surface": surface_id })).await;
             let actual = info
                 .as_ref()
@@ -2404,6 +2493,9 @@ impl Inner {
         }
 
         let stream = Arc::new(TerminalStream::new());
+        if cancellation.is_cancelled() {
+            return Err((RelayPtyErrorCode::Failed, "terminal open cancelled".to_owned()));
+        }
         let event_stream = Arc::clone(&stream);
         control.on_event(Box::new(move |event| {
             if event.get("surface").and_then(Value::as_i64) != Some(surface_id) {
@@ -2449,6 +2541,7 @@ impl Inner {
         }
 
         let proxy = Arc::new(ControlTerminalControl { control, surface_id });
+        control_guard.disarm();
         let (on_data, _) = self.sinks(pty_id, context);
         let relay = Arc::clone(&self);
         let context_for_exit = context.clone();
@@ -2564,9 +2657,12 @@ impl Inner {
         socket_path: &Path,
         home: &str,
     ) -> Vec<(String, String)> {
-        let Ok(control) = self.deps.connect_control(socket_path).await else {
+        let Ok(control) =
+            self.deps.connect_control(socket_path, CancellationToken::new()).await
+        else {
             return Vec::new();
         };
+        let mut control_guard = ControlEndOnDrop::new(Arc::clone(&control));
         let identify = control.request("identify", json!({})).await;
         let protocol = identify
             .as_ref()
@@ -2631,6 +2727,7 @@ impl Inner {
             out.push((reference, title.chars().take(200).collect()));
         }
         control.end();
+        control_guard.disarm();
         out
     }
 }
@@ -2781,7 +2878,11 @@ mod tests {
 
     #[async_trait]
     impl PtyDeps for FakeDeps {
-        async fn spawn_pty(&self, spec: SpawnSpec) -> PtyHandle {
+        async fn spawn_pty(
+            &self,
+            spec: SpawnSpec,
+            _cancellation: CancellationToken,
+        ) -> PtyHandle {
             let pty = FakePty {
                 state: Arc::new(StdMutex::new(FakeState::default())),
                 spawn_file: spec.file.clone(),
@@ -2793,7 +2894,10 @@ mod tests {
             let output: Arc<dyn PtyOutput> = Arc::new(pty);
             PtyHandle { control, output, banner: None }
         }
-        async fn resolve_cmux_tui(&self) -> Option<CmuxTui> {
+        async fn resolve_cmux_tui(
+            &self,
+            _cancellation: CancellationToken,
+        ) -> Option<CmuxTui> {
             self.resolve.clone()
         }
         async fn ensure_daemon(
@@ -2803,6 +2907,7 @@ mod tests {
             socket_dir: &Path,
             _cwd: &Path,
             _env: &HashMap<String, String>,
+            _cancellation: CancellationToken,
         ) -> Result<EnsureDaemon, String> {
             self.recorded
                 .lock()
@@ -2818,6 +2923,7 @@ mod tests {
         async fn connect_control(
             &self,
             socket_path: &Path,
+            _cancellation: CancellationToken,
         ) -> Result<Arc<dyn ControlHandle>, String> {
             self.recorded.lock().unwrap().connected.push(socket_path.to_path_buf());
             match &self.control {

@@ -38,9 +38,12 @@
 //! already attach terminals through the cmux CLI. Paired human machines
 //! never run this listener: it starts from the managed branch only.
 
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::RwLock;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
+use std::task::{Context, Poll};
 use std::time::Duration;
 
 use base64::Engine as _;
@@ -345,6 +348,53 @@ struct Connection {
     done: CancellationToken,
 }
 
+/// Keep an in-flight open task owned by the connection. Dropping a Tokio
+/// `JoinHandle` detaches the task, which would let it retain the manager's
+/// open permit after the protocol deadline. Aborting and joining gives the
+/// cancellation token and resource guards a defined cleanup boundary.
+struct AbortOnDrop<T> {
+    handle: Option<tokio::task::JoinHandle<T>>,
+}
+
+impl<T> AbortOnDrop<T> {
+    fn new(handle: tokio::task::JoinHandle<T>) -> Self {
+        Self { handle: Some(handle) }
+    }
+
+    fn abort(&self) {
+        if let Some(handle) = &self.handle {
+            handle.abort();
+        }
+    }
+}
+
+impl<T> Unpin for AbortOnDrop<T> {}
+
+impl<T> Future for AbortOnDrop<T> {
+    type Output = Result<T, tokio::task::JoinError>;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let result = {
+            let handle = self.handle.as_mut().expect("open task polled after completion");
+            Pin::new(handle).poll(cx)
+        };
+        if let Poll::Ready(result) = result {
+            self.handle = None;
+            Poll::Ready(result)
+        } else {
+            result
+        }
+    }
+}
+
+impl<T> Drop for AbortOnDrop<T> {
+    fn drop(&mut self) {
+        if let Some(handle) = &self.handle {
+            handle.abort();
+        }
+    }
+}
+
 impl Connection {
     fn send_control(&self, frame: &Value) {
         let Some(encoded) = encode_control_frame(frame) else {
@@ -602,48 +652,41 @@ async fn handle_client_frame(connection: &Arc<Connection>, frame: TunnelFrame) {
             if let Some(surface) = surface {
                 open["surface"] = Value::from(surface);
             }
-            // Keep the manager future owned after the protocol deadline. A
-            // direct timeout would drop `handle_frame` while its blocking PTY
-            // spawn could still be running, leaving a late child with no
-            // owner. The detached task retains the opening reservation; its
-            // capability fences a task that has not reached the reservation
-            // yet and names this exact attempt if the pty id is reused.
-            // Cleanup marks any installed reservation cancelled, and `Opened`
-            // kills a handle that arrives late.
-            let open_cancellation = connection.open_cancellation.clone();
-            let mut open_task = tokio::spawn({
+            // Keep the manager future owned through the protocol deadline.
+            // The cancellation capability fences a task that has not reached
+            // the reservation yet and names this exact attempt if the pty id
+            // is reused. Provider guards reclaim resources when it is aborted.
+            let mut open_task = AbortOnDrop::new(tokio::spawn({
                 let manager = Arc::clone(&connection.manager);
                 let open = open.clone();
                 let context = context.clone();
+                let cancellation = connection.open_cancellation.clone();
                 async move {
                     manager
                         .handle_frame_with_open_cancellation(
                             &open,
                             &context,
-                            Some(open_cancellation),
+                            Some(cancellation),
                         )
                         .await
                 }
-            });
+            }));
             match tokio::time::timeout(OPEN_TIMEOUT, &mut open_task).await {
                 Ok(Ok(())) => {}
                 Ok(Err(_)) => connection.protocol_error("failed"),
                 Err(_) => {
-                    // Remove the reservation at the protocol deadline while
-                    // keeping an owner-specific tombstone. The supervised
-                    // manager task still owns its semaphore permit and any
-                    // late PTY result, so it cannot install a resource for a
-                    // connection that has already timed out.
+                    // Fence the exact attempt, then abort and join the task.
+                    // Provider implementations receive the same token and
+                    // own guards for any child, control socket, or PTY they
+                    // create, so no permit or process survives the deadline.
                     connection.manager.cancel_open(
                         &connection.pty_id,
                         &context,
                         &connection.open_cancellation,
                     );
+                    open_task.abort();
+                    let _ = (&mut open_task).await;
                     connection.protocol_error("failed");
-                    // Dropping a JoinHandle detaches the task. The bounded
-                    // open permit above prevents a permanently stalled
-                    // provider from creating unbounded tasks or reservations.
-                    drop(open_task);
                 }
             }
         }
@@ -995,7 +1038,11 @@ mod tests {
 
     #[async_trait]
     impl PtyDeps for FakeDeps {
-        async fn spawn_pty(&self, _spec: SpawnSpec) -> PtyHandle {
+        async fn spawn_pty(
+            &self,
+            _spec: SpawnSpec,
+            _cancellation: CancellationToken,
+        ) -> PtyHandle {
             let pty = FakePty { state: Arc::new(StdMutex::new(FakeState::default())) };
             self.spawned.lock().unwrap().push(pty.clone());
             PtyHandle {
@@ -1004,7 +1051,10 @@ mod tests {
                 banner: self.banner.clone(),
             }
         }
-        async fn resolve_cmux_tui(&self) -> Option<CmuxTui> {
+        async fn resolve_cmux_tui(
+            &self,
+            _cancellation: CancellationToken,
+        ) -> Option<CmuxTui> {
             None
         }
         async fn ensure_daemon(
@@ -1014,12 +1064,14 @@ mod tests {
             _socket_dir: &Path,
             _cwd: &Path,
             _env: &HashMap<String, String>,
+            _cancellation: CancellationToken,
         ) -> Result<EnsureDaemon, String> {
             Err("no daemon in tunnel tests".to_owned())
         }
         async fn connect_control(
             &self,
             _socket_path: &Path,
+            _cancellation: CancellationToken,
         ) -> Result<Arc<dyn crate::control::ControlHandle>, String> {
             Err("no control in tunnel tests".to_owned())
         }
