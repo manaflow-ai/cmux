@@ -4454,13 +4454,16 @@ fn parse_scrollback_limit_from_root(path: &Path, deadline_at: Instant) -> Scroll
             return ScrollbackConfigOutcome::TimedOut;
         }
         if pending.depth > GHOSTTY_CONFIG_MAX_DEPTH || files_loaded >= GHOSTTY_CONFIG_MAX_FILES {
-            continue;
+            return ScrollbackConfigOutcome::TimedOut;
         }
         let identity = pending.path.canonicalize().unwrap_or_else(|_| pending.path.clone());
         if !loaded.insert(identity.clone()) {
             continue;
         }
         let remaining_bytes = GHOSTTY_CONFIG_MAX_BYTES.saturating_sub(bytes_loaded);
+        if ghostty_regular_file_exceeds_limit(&pending.path, remaining_bytes) {
+            return ScrollbackConfigOutcome::TimedOut;
+        }
         let Some(text) = read_ghostty_regular_file(&pending.path, remaining_bytes) else {
             if pending.depth == 0 && files_loaded == 0 {
                 return ScrollbackConfigOutcome::Missing;
@@ -5056,6 +5059,9 @@ fn parse_ghostty_config_file_until_with_scrollback(
             return GhosttyConfigParseOutcome::TimedOut;
         }
         if pending.depth > GHOSTTY_CONFIG_MAX_DEPTH || files_loaded >= GHOSTTY_CONFIG_MAX_FILES {
+            if collect_scrollback {
+                return GhosttyConfigParseOutcome::TimedOut;
+            }
             continue;
         }
         let identity = pending.path.canonicalize().unwrap_or_else(|_| pending.path.clone());
@@ -5063,6 +5069,10 @@ fn parse_ghostty_config_file_until_with_scrollback(
             continue;
         }
         let remaining_bytes = GHOSTTY_CONFIG_MAX_BYTES.saturating_sub(bytes_loaded);
+        if collect_scrollback && ghostty_regular_file_exceeds_limit(&pending.path, remaining_bytes)
+        {
+            return GhosttyConfigParseOutcome::TimedOut;
+        }
         let text = match read_ghostty_regular_file(&pending.path, remaining_bytes) {
             Some(text) => text,
             None if pending.depth == 0 && files_loaded == 0 => {
@@ -5768,6 +5778,11 @@ fn read_ghostty_regular_file(path: &Path, max_bytes: u64) -> Option<String> {
     read_ghostty_limited_string(file, max_bytes)
 }
 
+fn ghostty_regular_file_exceeds_limit(path: &Path, max_bytes: u64) -> bool {
+    std::fs::metadata(path)
+        .is_ok_and(|metadata| metadata.file_type().is_file() && metadata.len() > max_bytes)
+}
+
 fn read_ghostty_limited_string(reader: impl Read, max_bytes: u64) -> Option<String> {
     let mut text = String::new();
     reader.take(max_bytes.saturating_add(1)).read_to_string(&mut text).ok()?;
@@ -6041,6 +6056,35 @@ mod tests {
             parse_scrollback_limit_from_root(&root, Instant::now() + Duration::from_secs(1)),
             ScrollbackConfigOutcome::Parsed(Some(Some(4)))
         );
+    }
+
+    #[test]
+    fn scrollback_config_rejects_truncated_include_snapshot() {
+        let dir = TestDirectory::new("scrollback-truncated-include");
+        for depth in 0..=GHOSTTY_CONFIG_MAX_DEPTH + 1 {
+            let path = dir.path.join(format!("config-{depth}"));
+            let include = if depth <= GHOSTTY_CONFIG_MAX_DEPTH {
+                format!("config-file = config-{}\n", depth + 1)
+            } else {
+                "scrollback-limit-bytes = 999999\n".to_owned()
+            };
+            std::fs::write(path, include).unwrap();
+        }
+        let root = dir.path.join("config-0");
+
+        assert_eq!(
+            parse_scrollback_limit_from_root(&root, Instant::now() + Duration::from_secs(1)),
+            ScrollbackConfigOutcome::TimedOut
+        );
+
+        let mut scrollback = None;
+        let outcome = parse_ghostty_defaults_from_path_result_until_with_scrollback(
+            &root,
+            &[],
+            Some(Instant::now() + Duration::from_secs(1)),
+            Some(&mut scrollback),
+        );
+        assert!(matches!(outcome, GhosttyConfigParseOutcome::TimedOut));
     }
 
     #[test]
