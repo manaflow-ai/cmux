@@ -59,6 +59,9 @@ extension TerminalController {
         for index in windows.indices {
             var workspaces = windows[index]["workspaces"] as? [[String: Any]] ?? []
             let appProcessPIDs = Set(v2TopIntArray(windows[index]["app_process_pids"]))
+            // Launch evidence for TTY ownership: a process the app forked onto a surface
+            // TTY is the surface's, an arbitrary off-TTY parent proves nothing. (#11004)
+            let cmuxOwnedPIDs = processSnapshot.expandedPIDs(rootPIDs: appProcessPIDs)
             var windowPIDs = appProcessPIDs
             var windowTopLevelPIDs: Set<Int> = []
             var windowForegroundProcessGroupIDs: Set<Int> = []
@@ -68,6 +71,7 @@ extension TerminalController {
                         &workspaces[workspaceIndex],
                         processSnapshot: processSnapshot,
                         browserPIDOccurrences: browserPIDOccurrences,
+                        cmuxOwnedPIDs: cmuxOwnedPIDs,
                         includeProcesses: includeProcesses
                     )
                 )
@@ -92,6 +96,7 @@ extension TerminalController {
         _ workspace: inout [String: Any],
         processSnapshot: CmuxTopProcessSnapshot,
         browserPIDOccurrences: [Int: Int],
+        cmuxOwnedPIDs: Set<Int>,
         includeProcesses: Bool
     ) -> Set<Int> {
         var workspacePIDs: Set<Int> = []
@@ -105,6 +110,7 @@ extension TerminalController {
                     &panes[paneIndex],
                     processSnapshot: processSnapshot,
                     browserPIDOccurrences: browserPIDOccurrences,
+                    cmuxOwnedPIDs: cmuxOwnedPIDs,
                     includeProcesses: includeProcesses
                 )
             )
@@ -137,6 +143,7 @@ extension TerminalController {
         _ pane: inout [String: Any],
         processSnapshot: CmuxTopProcessSnapshot,
         browserPIDOccurrences: [Int: Int],
+        cmuxOwnedPIDs: Set<Int>,
         includeProcesses: Bool
     ) -> Set<Int> {
         var panePIDs: Set<Int> = []
@@ -149,6 +156,7 @@ extension TerminalController {
                     &surfaces[surfaceIndex],
                     processSnapshot: processSnapshot,
                     browserPIDOccurrences: browserPIDOccurrences,
+                    cmuxOwnedPIDs: cmuxOwnedPIDs,
                     includeProcesses: includeProcesses
                 )
             )
@@ -166,6 +174,7 @@ extension TerminalController {
         _ surface: inout [String: Any],
         processSnapshot: CmuxTopProcessSnapshot,
         browserPIDOccurrences: [Int: Int],
+        cmuxOwnedPIDs: Set<Int>,
         includeProcesses: Bool
     ) -> Set<Int> {
         var rootPIDs: Set<Int> = []
@@ -190,6 +199,7 @@ extension TerminalController {
             let ownership = processSnapshot.ttyOwnership(
                 ttyPIDs: processSnapshot.pids(forTTYName: ttyName),
                 surfaceID: surfaceID,
+                cmuxOwnedPIDs: cmuxOwnedPIDs,
                 provenPIDs: surfacePIDs
             )
             surface["tty_process_pids"] = ownership.provenPIDs.sorted()

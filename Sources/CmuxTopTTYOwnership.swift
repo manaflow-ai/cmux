@@ -15,8 +15,8 @@ enum CmuxTopTTYOwnershipReason: String, Sendable, CaseIterable {
     /// The process was already proven through the surface's cmux-scoped process tree.
     case surfaceProcessTree = "surface-process-tree"
 
-    /// The process entered this TTY from outside it — its parent is alive and off the TTY,
-    /// which is how the shell cmux forked for the surface looks.
+    /// The process was launched onto this TTY by a cmux-owned process off the TTY, which
+    /// is how the shell cmux forks for a surface looks.
     case ttySessionRoot = "tty-session-root"
 
     /// The process descends from a proven owner on this TTY.
@@ -33,11 +33,17 @@ enum CmuxTopTTYOwnershipReason: String, Sendable, CaseIterable {
 
 /// The minimum a process has to expose for TTY ownership to be decidable.
 struct CmuxTopTTYOwnershipProcess: Sendable, Equatable {
+    /// The process identifier.
     let pid: Int
+    /// The parent process identifier. `1` means launchd, i.e. the process was reparented
+    /// and its parent link no longer says who started it.
     let parentPID: Int
+    /// The process group identifier, when the snapshot could read one.
     let processGroupID: Int?
+    /// The cmux surface named by the process's `CMUX_*` environment scope, when present.
     let cmuxSurfaceID: UUID?
 
+    /// Creates the process facts used to decide TTY ownership.
     init(pid: Int, parentPID: Int, processGroupID: Int?, cmuxSurfaceID: UUID?) {
         self.pid = pid
         self.parentPID = parentPID
@@ -69,8 +75,26 @@ struct CmuxTopTTYOwnership: Sendable {
     }
 }
 
-enum CmuxTopTTYOwnershipResolver {
+/// Decides which processes on a surface's TTY the surface actually owns.
+///
+/// Attribution fails closed: a PID is charged to the surface only when the snapshot
+/// carries positive evidence for it, so an unrelated detached workload that merely
+/// inherited the TTY is reported rather than summed into cmux's memory.
+struct CmuxTopTTYOwnershipResolver {
+    /// PIDs known to belong to cmux — the window's app processes and their descendants.
+    /// A process launched onto the TTY by one of these is a surface root; without this
+    /// evidence an off-TTY parent proves nothing.
+    private let cmuxOwnedPIDs: Set<Int>
+
+    /// Creates a resolver that trusts `cmuxOwnedPIDs` as launch evidence.
+    init(cmuxOwnedPIDs: Set<Int>) {
+        self.cmuxOwnedPIDs = cmuxOwnedPIDs
+    }
+
     /// Splits `candidates` into proven owners of `surfaceID` and same-TTY collisions.
+    ///
+    /// Runs in time linear in the candidate count: parent and process-group indexes are
+    /// built once, then each newly proven PID is visited exactly once from a work queue.
     ///
     /// - Parameters:
     ///   - candidates: every PID sharing the surface's TTY device.
@@ -78,7 +102,8 @@ enum CmuxTopTTYOwnershipResolver {
     ///   - surfaceID: the surface being annotated, when it has an identifier.
     ///   - provenPIDs: PIDs already proven by a stronger path, such as the expanded
     ///     cmux-scoped process tree for this surface.
-    static func resolve(
+    /// - Returns: the proven set, the unattributed set, and the reason for each PID.
+    func resolve(
         candidates: Set<Int>,
         processes: [Int: CmuxTopTTYOwnershipProcess],
         surfaceID: UUID?,
@@ -88,14 +113,29 @@ enum CmuxTopTTYOwnershipResolver {
         let livePIDs = candidates.filter { $0 > 0 }
         guard !livePIDs.isEmpty else { return ownership }
 
+        // Built once so propagation never rescans the candidate set.
+        var childrenByParentPID: [Int: [Int]] = [:]
+        var membersByProcessGroupID: [Int: [Int]] = [:]
+        for pid in livePIDs {
+            guard let process = processes[pid] else { continue }
+            if process.parentPID > 1 {
+                childrenByParentPID[process.parentPID, default: []].append(pid)
+            }
+            if let processGroupID = process.processGroupID, processGroupID != pid {
+                membersByProcessGroupID[processGroupID, default: []].append(pid)
+            }
+        }
+
         var proven: Set<Int> = []
+        var queue: [Int] = []
 
         func prove(_ pid: Int, _ reason: CmuxTopTTYOwnershipReason) {
             guard proven.insert(pid).inserted else { return }
             ownership.reasonByPID[pid] = reason
+            queue.append(pid)
         }
 
-        for pid in livePIDs.sorted() {
+        for pid in livePIDs {
             guard let process = processes[pid] else { continue }
 
             if let surfaceID, process.cmuxSurfaceID == surfaceID {
@@ -106,33 +146,23 @@ enum CmuxTopTTYOwnershipResolver {
                 prove(pid, .surfaceProcessTree)
                 continue
             }
-            // PID 1 is launchd. A process it owns was reparented, so its parent link no
-            // longer says anything about who started it.
-            if process.parentPID > 1 && !livePIDs.contains(process.parentPID) {
+            // An off-TTY parent only proves ownership when that parent is cmux's. PID 1 is
+            // launchd, and an arbitrary third-party parent says nothing about this surface.
+            if process.parentPID > 1,
+               !livePIDs.contains(process.parentPID),
+               cmuxOwnedPIDs.contains(process.parentPID) {
                 prove(pid, .ttySessionRoot)
             }
         }
 
         // Ownership is transitive: a child of a proven owner is proven, and so is a member
-        // of a process group whose leader is proven. Both need a fixpoint because a chain
-        // can be proven in any order.
-        var changed = true
-        while changed {
-            changed = false
-            for pid in livePIDs.sorted() where !proven.contains(pid) {
-                guard let process = processes[pid] else { continue }
-
-                if proven.contains(process.parentPID) {
-                    prove(pid, .ttyDescendant)
-                    changed = true
-                    continue
-                }
-                if let processGroupID = process.processGroupID,
-                   processGroupID != pid,
-                   proven.contains(processGroupID) {
-                    prove(pid, .ttyProcessGroup)
-                    changed = true
-                }
+        // of a process group whose leader is proven. Each proven PID is expanded once.
+        while let pid = queue.popLast() {
+            for child in childrenByParentPID[pid] ?? [] {
+                prove(child, .ttyDescendant)
+            }
+            for member in membersByProcessGroupID[pid] ?? [] {
+                prove(member, .ttyProcessGroup)
             }
         }
 

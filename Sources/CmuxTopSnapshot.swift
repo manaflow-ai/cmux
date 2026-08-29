@@ -264,9 +264,18 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
     /// controlling TTY of the terminal it was launched from, so a detached REPL or dev
     /// server would otherwise be summed into the surface's memory.
     /// See https://github.com/manaflow-ai/cmux/issues/11004.
+    ///
+    /// - Parameters:
+    ///   - ttyPIDs: every PID sharing the surface's TTY device.
+    ///   - surfaceID: the surface being annotated, when it has an identifier.
+    ///   - cmuxOwnedPIDs: the window's app processes and their descendants, used as launch
+    ///     evidence for a process whose parent sits off the TTY.
+    ///   - provenPIDs: PIDs already proven through the cmux-scoped process tree.
+    /// - Returns: the proven set, the unattributed set, and the reason for each PID.
     func ttyOwnership(
         ttyPIDs: Set<Int>,
         surfaceID: UUID?,
+        cmuxOwnedPIDs: Set<Int>,
         provenPIDs: Set<Int> = []
     ) -> CmuxTopTTYOwnership {
         var ownershipProcesses: [Int: CmuxTopTTYOwnershipProcess] = [:]
@@ -280,7 +289,7 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
                 cmuxSurfaceID: process.cmuxSurfaceID
             )
         }
-        return CmuxTopTTYOwnershipResolver.resolve(
+        return CmuxTopTTYOwnershipResolver(cmuxOwnedPIDs: cmuxOwnedPIDs).resolve(
             candidates: ttyPIDs,
             processes: ownershipProcesses,
             surfaceID: surfaceID,
