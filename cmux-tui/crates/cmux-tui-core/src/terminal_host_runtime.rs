@@ -9162,9 +9162,7 @@ pub(crate) use unix::{
 
 #[cfg(not(unix))]
 pub fn terminal_host_root(state_root: &Path, session: &str) -> PathBuf {
-    crate::platform::normalize_filesystem_path(
-        state_root.join(format!("{session}.terminal-hosts")),
-    )
+    crate::platform::normalize_filesystem_path(state_root.join(format!("{session}.terminal-hosts")))
 }
 
 #[cfg(not(unix))]
