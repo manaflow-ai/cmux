@@ -797,7 +797,12 @@ fn interpreter_script_path(pid: u32, executable: &Path) -> Option<String> {
 
 #[cfg(target_os = "linux")]
 fn script_has_interpreter_shebang(path: &Path, interpreter: &str) -> bool {
-    let Ok(bytes) = std::fs::read(path) else { return false };
+    const MAX_SHEBANG_BYTES: u64 = 512;
+    let Ok(mut file) = File::open(path) else { return false };
+    let mut bytes = Vec::new();
+    if file.take(MAX_SHEBANG_BYTES).read_to_end(&mut bytes).is_err() {
+        return false;
+    }
     let Some(line) = bytes.split(|byte| *byte == b'\n').next() else { return false };
     let Some(rest) = line.strip_prefix(b"#!") else { return false };
     let mut words = rest.split(|byte| byte.is_ascii_whitespace());
@@ -806,13 +811,19 @@ fn script_has_interpreter_shebang(path: &Path, interpreter: &str) -> bool {
     let Some(command) = Path::new(command).file_name().and_then(|name| name.to_str()) else {
         return false;
     };
-    command == interpreter
+    let matches = |candidate: &str| {
+        candidate == interpreter
+            || (matches!(candidate, "sh" | "dash" | "bash")
+                && matches!(interpreter, "sh" | "dash" | "bash"))
+    };
+    matches(command)
         || (command == "env"
             && words.any(|word| {
-                Path::new(std::str::from_utf8(word).ok().unwrap_or_default())
-                    .file_name()
-                    .and_then(|name| name.to_str())
-                    == Some(interpreter)
+                let Ok(word) = std::str::from_utf8(word) else { return false };
+                if word.starts_with('-') {
+                    return false;
+                }
+                Path::new(word).file_name().and_then(|name| name.to_str()).is_some_and(matches)
             }))
 }
 
