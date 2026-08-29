@@ -755,6 +755,44 @@ import Testing
         #expect(store.selectedTerminalID?.rawValue == "a1")
     }
 
+    @Test func lastOpenedTabIsRestoredAcrossStoreInstances() {
+        let suiteName = "MobileShellCompositeLastTabTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let workspaceA = MobileWorkspacePreview(
+            id: "ws-a",
+            name: "A",
+            terminals: [
+                MobileTerminalPreview(id: "a1", name: "First", isFocused: true),
+                MobileTerminalPreview(id: "a2", name: "Second"),
+            ]
+        )
+        let workspaceB = MobileWorkspacePreview(
+            id: "ws-b",
+            name: "B",
+            terminals: [MobileTerminalPreview(id: "b1", name: "Other")]
+        )
+
+        let first = MobileShellComposite.preview(
+            lastTabStore: MobileWorkspaceLastTabStore(defaults: defaults)
+        )
+        first.signIn()
+        first.replaceForegroundWorkspaceState([workspaceA, workspaceB])
+        first.selectedWorkspaceID = workspaceA.id
+        first.selectTerminalFromChrome("a2")
+
+        // A relaunch constructs a fresh store over the same defaults; opening
+        // the workspace restores the tab the previous session last opened.
+        let second = MobileShellComposite.preview(
+            lastTabStore: MobileWorkspaceLastTabStore(defaults: defaults)
+        )
+        second.signIn()
+        second.replaceForegroundWorkspaceState([workspaceA, workspaceB])
+        second.selectedWorkspaceID = workspaceA.id
+        #expect(second.selectedTerminalID?.rawValue == "a2")
+    }
+
     @Test func anonymousForegroundRowsDoNotExposeAggregateSentinel() {
         let store = MobileShellComposite.preview()
         store.signIn()

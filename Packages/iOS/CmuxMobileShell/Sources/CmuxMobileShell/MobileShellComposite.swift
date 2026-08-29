@@ -483,6 +483,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Mac, then phone-owned. `@ObservationIgnored` (views read `workspaceGroups`);
     /// injected so tests/previews can pass a suite-scoped `UserDefaults`.
     @ObservationIgnored var groupCollapseStore: MobileWorkspaceGroupCollapseStore
+    /// Device-local last-opened-tab memory per workspace, so opening a
+    /// workspace restores the tab the phone last showed there instead of
+    /// re-deriving from the Mac's moving focus. `@ObservationIgnored` (views
+    /// read the selection properties); injected so tests/previews can pass a
+    /// suite-scoped `UserDefaults` or ``MobileWorkspaceLastTabStore/inMemory``.
+    @ObservationIgnored var lastTabStore: MobileWorkspaceLastTabStore
     /// Device-local sort preference for the aggregated All Computers list
     /// (mode + user computer order). `@ObservationIgnored`: views read the
     /// observable ``workspaceSortMode`` / ``workspaceComputerPriority``
@@ -857,7 +863,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// terminal, or nil when the terminal is visible. Independent of
     /// ``selectedTerminalID`` (so dismissing the surface returns to the same
     /// terminal and composer draft) and cleared when the workspace changes.
-    public var selectedMacSurfaceID: MobileSurfacePreview.ID?
+    public var selectedMacSurfaceID: MobileSurfacePreview.ID? {
+        didSet {
+            guard selectedMacSurfaceID != oldValue, let selectedMacSurfaceID else { return }
+            recordLastOpenedMacSurfaceTab(selectedMacSurfaceID)
+        }
+    }
     /// The terminal whose surface (and composer draft) is currently shown.
     ///
     /// Changing it swaps the composer draft: `willSet` captures the outgoing
@@ -879,6 +890,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     .surfaceFocused,
                     correlationID: selectedTerminalID.rawValue
                 )
+                recordLastOpenedTerminalTab(selectedTerminalID)
             }
             swapDraft(from: draftedOutgoingTerminalID, outgoingText: draftedOutgoingText, to: selectedTerminalID)
             draftedOutgoingTerminalID = nil
@@ -1689,6 +1701,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         feedbackStampProvider: @escaping @MainActor () -> MobileFeedbackStamp = { MobileShellComposite.emptyFeedbackStamp },
         draftStore: (any TerminalDraftStoring)? = nil,
         groupCollapseStore: MobileWorkspaceGroupCollapseStore = MobileWorkspaceGroupCollapseStore(),
+        // In-memory by default so tests and previews that construct the
+        // composite directly never leak last-tab state through `.standard`
+        // (persisted restore would make selection tests history-dependent);
+        // the app's composition root injects the persistent store.
+        lastTabStore: MobileWorkspaceLastTabStore = .inMemory,
         workspaceSortStore: MobileWorkspaceSortStore = MobileWorkspaceSortStore(),
         workspaceChangesHintDismissalStore: MobileWorkspaceChangesHintDismissalStore = MobileWorkspaceChangesHintDismissalStore(),
         workspaceChangesSchedulingClock: any Clock<Duration> = ContinuousClock(),
@@ -1705,6 +1722,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.runtime = runtime
         self.draftStore = draftStore
         self.groupCollapseStore = groupCollapseStore
+        self.lastTabStore = lastTabStore
         self.workspaceSortStore = workspaceSortStore
         self.workspaceSortMode = workspaceSortStore.mode
         self.workspaceComputerPriority = workspaceSortStore.computerPriority
@@ -1912,6 +1930,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     public static func preview(
         runtime: (any MobileSyncRuntime)? = nil,
+        // In-memory so previews and package tests never share persisted
+        // last-tab state through `.standard` (the app injects a persistent
+        // store through the composite initializer instead).
+        lastTabStore: MobileWorkspaceLastTabStore = .inMemory,
         terminalInputAckResubscribeClock: any Clock<Duration> = ContinuousClock(),
         controlPlaneSchedulingClock: any Clock<Duration> = ContinuousClock()
     ) -> CMUXMobileShellStore {
@@ -1919,6 +1941,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             runtime: runtime,
             workspaces: PreviewMobileHost.workspaces,
             deliveredNotificationClearer: NoopDeliveredNotificationClearer(),
+            lastTabStore: lastTabStore,
             controlPlaneSchedulingClock: controlPlaneSchedulingClock,
             terminalInputAckResubscribeClock: terminalInputAckResubscribeClock
         )
@@ -8002,6 +8025,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if id != selectedTerminalID {
             terminalAutoFocusSuppressedSurfaceIDs.insert(id.rawValue)
         }
+        // Re-confirming the already-selected terminal is still an explicit tab
+        // open (returning from a Mac surface to the terminal picker's checked
+        // row), so the last-opened-tab memory must move off the surface even
+        // though the selection below is unchanged.
+        recordLastOpenedTerminalTab(id)
         guard selectedTerminalID != id else { return }
         selectedTerminalID = id
         recordAppEvent(
@@ -11181,6 +11209,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if let selectedTerminalID,
            let selectedTerminal = selectedWorkspace.terminals.first(where: { $0.id == selectedTerminalID }),
            selectedTerminal.isReady || !selectedWorkspace.hasReadyTerminal {
+            // A held valid selection is the workspace's displayed tab; keep the
+            // last-opened-tab memory tracking it (selections that landed before
+            // the workspace id, like push deep links, only become attributable
+            // here). Skip while a stream or Mac surface owns the frame: the
+            // terminal selection is then background state, not the shown tab.
+            if !nonTerminalTabOwnsFrame(in: selectedWorkspace) {
+                recordLastOpenedTerminalTab(selectedTerminalID)
+            }
+            return
+        }
+        // The workspace needs a fresh tab decision (it was just opened, or its
+        // held tab disappeared): the tab this device last opened there wins
+        // over every Mac-focus heuristic below.
+        if restoreLastOpenedTab(in: selectedWorkspace) {
             return
         }
         // Clear stale Mac selections and promote an active or Mac-focused
@@ -11265,6 +11307,83 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
            let browserPanelID = browserStore.panels(in: workspaceID).first?.panelID {
             _ = browserStore.activate(panelID: browserPanelID, in: workspaceID)
             return
+        }
+    }
+
+    // MARK: - Last opened tab per workspace
+
+    /// True when a live stream or still-valid Mac surface owns the workspace
+    /// frame, so the selected terminal is background state rather than the
+    /// displayed tab.
+    private func nonTerminalTabOwnsFrame(in workspace: MobileWorkspacePreview) -> Bool {
+        let workspaceID = workspace.rpcWorkspaceID.rawValue
+        if simulatorStreamStore?.activeState(in: workspaceID) != nil { return true }
+        if let browserStore = browserStreamEvents as? BrowserStreamStore,
+           browserStore.activeState(in: workspaceID) != nil {
+            return true
+        }
+        if let selectedMacSurfaceID,
+           workspace.surfaces.contains(where: { $0.id == selectedMacSurfaceID && !$0.kind.isTerminal }) {
+            return true
+        }
+        return false
+    }
+
+    /// Records `terminalID` as the last opened tab of the explicitly selected
+    /// workspace. Every selection entrypoint (picker, push deep link, create
+    /// flows, the open-workspace synchronizer) funnels here through the
+    /// selection property observers, so the memory always tracks the tab the
+    /// user actually saw. Membership is checked so a selection that races a
+    /// workspace switch can never stamp another workspace's memory.
+    private func recordLastOpenedTerminalTab(_ terminalID: MobileTerminalPreview.ID) {
+        guard let workspace = explicitlySelectedWorkspace,
+              workspace.terminals.contains(where: { $0.id == terminalID }) else { return }
+        lastTabStore.set(
+            MobileWorkspaceLastTab(kind: .terminal, tabID: terminalID.rawValue),
+            for: workspace.lastTabStateID
+        )
+    }
+
+    /// Records `surfaceID` as the last opened tab of the explicitly selected
+    /// workspace; the Mac-surface sibling of ``recordLastOpenedTerminalTab(_:)``.
+    private func recordLastOpenedMacSurfaceTab(_ surfaceID: MobileSurfacePreview.ID) {
+        guard let workspace = explicitlySelectedWorkspace,
+              workspace.surfaces.contains(where: { $0.id == surfaceID && !$0.kind.isTerminal }) else { return }
+        lastTabStore.set(
+            MobileWorkspaceLastTab(kind: .macSurface, tabID: surfaceID.rawValue),
+            for: workspace.lastTabStateID
+        )
+    }
+
+    /// Restores the workspace's remembered last-opened tab, if it still
+    /// exists there. Called only from ``syncSelectedTerminalForWorkspace()``
+    /// after the keep-current check, so it runs exactly when a workspace
+    /// needs a fresh tab decision (open/reopen, or the held tab disappeared)
+    /// and never yanks a live stream or still-valid Mac surface the user is
+    /// looking at. Returns false when nothing restorable is remembered, so
+    /// the caller falls back to the Mac-focus heuristics.
+    private func restoreLastOpenedTab(in workspace: MobileWorkspacePreview) -> Bool {
+        guard !nonTerminalTabOwnsFrame(in: workspace),
+              let remembered = lastTabStore.lastTab(for: workspace.lastTabStateID) else { return false }
+        switch remembered.kind {
+        case .terminal:
+            let id = MobileTerminalPreview.ID(rawValue: remembered.tabID)
+            // Same readiness policy as the keep-current check above: a
+            // remembered tab that is not ready loses to a ready sibling.
+            guard let terminal = workspace.terminals.first(where: { $0.id == id }),
+                  terminal.isReady || !workspace.hasReadyTerminal else { return false }
+            if selectedTerminalID != id {
+                // Restoring is chrome navigation, not a typing intent: the
+                // surface must not grab the keyboard when it attaches.
+                suppressTerminalAutoFocusOnNextAttach(for: id)
+                selectedTerminalID = id
+            }
+            return true
+        case .macSurface:
+            let id = MobileSurfacePreview.ID(rawValue: remembered.tabID)
+            guard workspace.surfaces.contains(where: { $0.id == id && !$0.kind.isTerminal }) else { return false }
+            selectedMacSurfaceID = id
+            return true
         }
     }
 
