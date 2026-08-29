@@ -1280,6 +1280,11 @@ fn cleanup_orphan_metadata_temps(
     protected: &HashSet<PathBuf>,
 ) -> anyhow::Result<()> {
     let registry = install_root.join(".registry");
+    match fs::symlink_metadata(&registry) {
+        Ok(_) => ensure_real_directory(&registry)?,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error.into()),
+    }
     let entries = match fs::read_dir(&registry) {
         Ok(entries) => entries,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
@@ -2179,6 +2184,33 @@ mod tests {
         assert!(unrelated.exists());
         assert!(directory.exists());
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn reconciliation_rejects_registry_symlink_before_orphan_cleanup() {
+        use std::os::unix::fs::symlink;
+
+        let root = std::env::temp_dir().join(format!(
+            "cmux-plugin-registry-symlink-{}-{}",
+            std::process::id(),
+            now_nanos()
+        ));
+        let outside =
+            root.with_file_name(format!("{}-outside", root.file_name().unwrap().to_string_lossy()));
+        fs::create_dir_all(&root).unwrap();
+        fs::create_dir_all(&outside).unwrap();
+        let outside_temp = outside.join(".demo.123-456.tmp");
+        fs::write(&outside_temp, b"keep").unwrap();
+        symlink(&outside, root.join(".registry")).unwrap();
+
+        let error = reconcile_install_transactions(&root).unwrap_err();
+        assert!(error.to_string().contains("real directory"));
+        assert_eq!(fs::read(&outside_temp).unwrap(), b"keep");
+
+        fs::remove_file(root.join(".registry")).unwrap();
+        fs::remove_dir_all(root).unwrap();
+        fs::remove_dir_all(outside).unwrap();
     }
 
     #[test]
