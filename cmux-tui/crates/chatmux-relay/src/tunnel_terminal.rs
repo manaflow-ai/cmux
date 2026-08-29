@@ -1027,7 +1027,6 @@ mod tests {
             WRITER_QUEUE_BYTE_CAP
         );
         assert!(writer_queue_byte_limit(false) < writer_queue_byte_limit(true));
-        assert!(WRITER_CONTROL_BYTE_RESERVE > 0);
     }
 
     /// Wait until the fake spawn landed (open settles asynchronously).
@@ -1196,7 +1195,7 @@ mod tests {
     #[tokio::test]
     async fn stalled_peer_hits_the_byte_budget_and_pauses_before_close() {
         let rig = rig().await;
-        let (connection, mut writer_rx, mut flow_rx) = test_connection(&rig);
+        let (connection, mut writer_rx, flow_rx) = test_connection(&rig);
         let frame_len = (WRITER_QUEUE_BYTE_CAP - WRITER_CONTROL_BYTE_RESERVE) as usize / 2;
         assert!(connection.enqueue(WriterMessage::Frame(vec![1; frame_len])));
         assert!(connection.enqueue(WriterMessage::Frame(vec![2; frame_len])));
@@ -1207,7 +1206,7 @@ mod tests {
             (frame_len * 2) as u64,
             "a rejected frame must release its byte reservation"
         );
-        assert_eq!(*flow_rx.borrow(), true);
+        assert!(*flow_rx.borrow());
         assert!(connection.done.is_cancelled());
         match writer_rx.recv().await.expect("first admitted frame") {
             WriterMessage::Frame(frame) => assert_eq!(frame[0], 1),
@@ -1296,9 +1295,11 @@ mod tests {
             .expect("flow worker drain")
             .expect("flow worker join");
 
-        let state = pty.state.lock().unwrap();
-        assert_eq!(state.pause_calls, 1, "shutdown must pause the live attachment");
-        assert_eq!(state.resume_calls, 0);
+        {
+            let state = pty.state.lock().unwrap();
+            assert_eq!(state.pause_calls, 1, "shutdown must pause the live attachment");
+            assert_eq!(state.resume_calls, 0);
+        }
         assert!(connection.finished.load(Ordering::SeqCst));
 
         let close = json!({
@@ -1327,14 +1328,14 @@ mod tests {
     #[tokio::test]
     async fn full_writer_queue_closes_without_growing_beyond_message_budget() {
         let rig = rig().await;
-        let (connection, mut writer_rx, mut flow_rx) = test_connection(&rig);
+        let (connection, mut writer_rx, flow_rx) = test_connection(&rig);
         let data_capacity = WRITER_QUEUE_CAPACITY - WRITER_CONTROL_MESSAGE_RESERVE - 1;
         for index in 0..data_capacity {
             assert!(connection.enqueue(WriterMessage::Frame(vec![index as u8])));
         }
         assert!(!connection.enqueue(WriterMessage::Frame(vec![0])));
         assert!(connection.finished.load(Ordering::SeqCst));
-        assert_eq!(*flow_rx.borrow(), true);
+        assert!(*flow_rx.borrow());
         assert!(connection.done.is_cancelled());
         for index in 0..data_capacity {
             match writer_rx.recv().await.expect("admitted frame") {
