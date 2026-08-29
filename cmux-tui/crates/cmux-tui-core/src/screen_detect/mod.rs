@@ -227,11 +227,21 @@ impl ScreenDetectTracker {
     /// appears the moment `codex` starts, not after its first quiet screen.
     pub(crate) fn note_foreground_agent(&mut self, terminal_id: &str, agent: Option<&str>) -> bool {
         let entry = self.terminals.entry(terminal_id.to_string()).or_default();
-        if entry.foreground_identity_known && entry.foreground_agent.as_deref() == agent {
+        let was_known = entry.foreground_identity_known;
+        if was_known && entry.foreground_agent.as_deref() == agent {
             return false;
         }
         entry.foreground_identity_known = true;
         entry.foreground_agent = agent.map(str::to_string);
+        // A successful sample starts a fresh failure-backoff window. The
+        // next unavailable sample must wait one normal interval, not inherit
+        // a stale exponential delay from an earlier outage.
+        entry.identity_check_delay_ms = 0;
+        if !was_known && agent.is_none() {
+            // The initial shell/no-agent observation establishes the cache;
+            // it is not a process transition and must not force a screen read.
+            return false;
+        }
         // The identity edge forces an immediate screen read. If that read
         // fails, keep the revision pending so the next scan retries it even
         // when the PTY produced no new bytes.
