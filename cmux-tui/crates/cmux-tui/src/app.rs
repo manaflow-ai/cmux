@@ -57,7 +57,7 @@ use crate::browser_input::{
 };
 use crate::config::{
     Action, ChromeTheme, Config, ScrollbarPosition, SidebarColumn, SidebarColumnKind,
-    SidebarResourceKind, SidebarView,
+    SidebarLayoutNode, SidebarResourceKind, SidebarView, SidebarViewScope, SidebarViewSpec,
 };
 use crate::keys;
 use crate::localization;
@@ -85,6 +85,7 @@ use crate::session::{
 use crate::sidebar_files::{FileBrowser, FileCommand, file_url, shell_single_quote};
 use crate::sidebar_projection::{
     ProjectionBranch, ProjectionRailState, ProjectionRow, ProjectionTarget,
+    selected_workspace_cache_key,
 };
 use crate::ui::graphics::{
     GraphicPlacement, GraphicSourceRect, kitty_graphic_image, kitty_graphic_placement,
@@ -100,6 +101,145 @@ use crate::ui::{
 };
 
 const DEFERRED_INPUT_CAPACITY: usize = 512;
+const MAX_PROJECTION_ROWS_CACHE_ENTRIES: usize = 8;
+
+/// Session-local divider shares, keyed by split group and stable child id.
+/// Child ids keep a drag ratio attached to its rail when visibility pruning
+/// or layout reordering changes the current child vector.
+type SidebarSplitFractions = HashMap<String, HashMap<String, f32>>;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct ProjectionFocusKey {
+    workspace_id: Option<WorkspaceId>,
+    screen_id: Option<ScreenId>,
+    pane_id: Option<PaneId>,
+    tab_index: Option<usize>,
+    surface_id: Option<SurfaceId>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ProjectionSurfaceChange {
+    Agent,
+    Title,
+}
+
+/// The part of the sidebar configuration that changes the meaning of cached
+/// projection rows. Keep this identity separate from the full config so a
+/// profile switch cannot reuse rows for a view with the same id but a new
+/// level or action definition.
+#[derive(Clone, PartialEq, Eq)]
+struct SidebarProjectionSpec {
+    profile_id: String,
+    views: Vec<SidebarViewSpec>,
+    layout: Vec<SidebarLayoutNode>,
+}
+
+impl SidebarProjectionSpec {
+    fn from_config(config: &Config) -> Self {
+        Self {
+            profile_id: config.sidebar.active_profile.clone(),
+            views: config.sidebar.views.clone(),
+            layout: config.sidebar.layout.clone(),
+        }
+    }
+}
+
+#[derive(Clone)]
+struct ProjectionRowsCache {
+    view_id: String,
+    workspace_revision: u64,
+    pane_revision: Option<u64>,
+    invalidation_revision: u64,
+    selected_workspace: Option<usize>,
+    focus: ProjectionFocusKey,
+    /// All surfaces that can contribute an agent row to this snapshot. This
+    /// includes currently hidden/filtered rows so an agent state transition
+    /// cannot leave an old empty snapshot cached.
+    agent_surfaces: Arc<HashSet<SurfaceId>>,
+    /// Surfaces whose title can affect a visible row in this snapshot.
+    title_surfaces: Arc<HashSet<SurfaceId>>,
+    rows: Arc<[ProjectionRow]>,
+}
+
+fn projection_focus_key(tree: &TreeView) -> ProjectionFocusKey {
+    let Some(workspace) = tree.active_workspace() else { return ProjectionFocusKey::default() };
+    let Some(screen) = workspace.active_screen_ref() else {
+        return ProjectionFocusKey {
+            workspace_id: Some(workspace.id),
+            ..ProjectionFocusKey::default()
+        };
+    };
+    let pane = screen.pane(screen.active_pane);
+    ProjectionFocusKey {
+        workspace_id: Some(workspace.id),
+        screen_id: Some(screen.id),
+        pane_id: Some(screen.active_pane),
+        tab_index: pane.map(|pane| pane.active_tab),
+        surface_id: pane.and_then(|pane| pane.active_surface()),
+    }
+}
+
+fn projection_cache_dependencies(
+    spec: &SidebarViewSpec,
+    tree: &TreeView,
+    rows: &[ProjectionRow],
+    selected_workspace: usize,
+) -> (HashSet<SurfaceId>, HashSet<SurfaceId>) {
+    let selected_workspace = selected_workspace.min(tree.workspaces.len().saturating_sub(1));
+    let mut agent_surfaces = HashSet::new();
+    if spec.includes(SidebarResourceKind::Agents) {
+        // A nested agent level below Workspaces contributes rows from every
+        // workspace. A flat workspace-scoped level follows the selected one.
+        let agent_depth = spec.levels.iter().position(|kind| *kind == SidebarResourceKind::Agents);
+        let all_workspaces = spec.scope == SidebarViewScope::All
+            || agent_depth.is_some_and(|depth| {
+                spec.levels[..depth].contains(&SidebarResourceKind::Workspaces)
+            });
+        for (workspace_index, workspace) in tree.workspaces.iter().enumerate() {
+            if !all_workspaces && workspace_index != selected_workspace {
+                continue;
+            }
+            for screen in &workspace.screens {
+                for pane in &screen.panes {
+                    agent_surfaces.extend(pane.tabs.iter().map(|tab| tab.surface));
+                }
+            }
+        }
+    }
+
+    let active_surfaces_by_pane = if spec.includes(SidebarResourceKind::Panes) {
+        tree.workspaces
+            .iter()
+            .flat_map(|workspace| workspace.screens.iter())
+            .flat_map(|screen| screen.panes.iter())
+            .filter_map(|pane| pane.active_surface().map(|surface| (pane.id, surface)))
+            .collect::<HashMap<_, _>>()
+    } else {
+        HashMap::new()
+    };
+    let mut title_surfaces = HashSet::new();
+    for row in rows {
+        match (row.resource, row.target) {
+            (
+                SidebarResourceKind::Tabs | SidebarResourceKind::Agents,
+                ProjectionTarget::Surface { surface, .. },
+            ) => {
+                title_surfaces.insert(surface);
+            }
+            (SidebarResourceKind::Panes, ProjectionTarget::Pane { pane, .. }) => {
+                if let Some(surface) = active_surfaces_by_pane.get(&pane) {
+                    title_surfaces.insert(*surface);
+                }
+            }
+            _ => {}
+        }
+    }
+    (agent_surfaces, title_surfaces)
+}
+
+// Projection rows are a render snapshot. Keep only the most recently used
+// view snapshots so a large all-workspaces projection cannot retain unbounded
+// memory when configuration contains many views.
 
 fn read_crossterm_event(
     timeout: Option<Duration>,
@@ -3936,6 +4076,11 @@ pub enum Hit {
     RailPad(RailKind),
     /// A rail's right border.
     RailResize(RailKind),
+    /// A draggable divider between two panes of a sidebar split group.
+    SidebarSplitDivider {
+        group: usize,
+        index: usize,
+    },
     /// Pane border resize handle.
     PaneResize {
         horizontal: Option<(PaneId, PaneEdge)>,
@@ -4034,18 +4179,62 @@ pub struct RailPlacement {
     pub rect: Rect,
 }
 
+/// One top-level sidebar column. A column holds one rail, or a split group
+/// of rails; width drag and the packing solver operate on columns.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SidebarColumnPlacement {
+    /// Width-override key: the leaf view id, or the split group id.
+    pub key: String,
+    pub rect: Rect,
+    pub max_width: u16,
+    /// Rails inside this column, tree order.
+    pub rails: Vec<RailKind>,
+}
+
+/// A rendered split group: the region its children partition. Divider drags
+/// convert pointer positions into new child fractions through this record.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SidebarSplitGroupPlacement {
+    pub id: String,
+    pub dir: crate::config::SidebarSplitDir,
+    pub children: Vec<Rect>,
+    /// Stable child ids in the same order as `children`. Drag state uses
+    /// these ids so a layout refresh cannot retarget a divider by index.
+    pub child_keys: Vec<String>,
+}
+
+/// A draggable boundary between two children of a split group. A vertical
+/// split renders its divider as a dedicated row; a horizontal split reuses
+/// the left child's border column.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SidebarDividerPlacement {
+    /// Index into `SidebarLayout::split_groups`.
+    pub group: usize,
+    /// The divider sits between child `index` and child `index + 1`.
+    pub index: usize,
+    pub rect: Rect,
+    pub dir: crate::config::SidebarSplitDir,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SidebarLayout {
     pub machine: Option<Rect>,
     pub workspace: Option<Rect>,
     pub tabs: Option<Rect>,
     pub ordered: Vec<RailPlacement>,
+    pub columns: Vec<SidebarColumnPlacement>,
+    pub split_groups: Vec<SidebarSplitGroupPlacement>,
+    pub dividers: Vec<SidebarDividerPlacement>,
     pub content: Rect,
 }
 
 impl SidebarLayout {
     pub fn total_width(&self) -> u16 {
         self.content.x
+    }
+
+    fn has_column(&self, key: &str) -> bool {
+        self.columns.iter().any(|column| column.key == key)
     }
 
     pub fn rail(&self, kind: RailKind) -> Option<Rect> {
@@ -5491,6 +5680,9 @@ enum Drag {
     },
     /// Independent rail width override drag.
     RailResize(RailKind),
+    /// Sidebar split-group divider drag: re-shares the group's children.
+    /// Stable group and child ids survive layout pruning and reordering.
+    SidebarSplit { group: String, first_child: String, second_child: String },
     /// Pane split resize drag.
     ResizeSplit { horizontal: Option<PaneResizeDragTarget>, vertical: Option<PaneResizeDragTarget> },
 }
@@ -5768,26 +5960,6 @@ impl PointerRouteIdentity {
             _ => None,
         }
     }
-
-    /// A press that opens the cmux-owned context menu never enters the pane's
-    /// application, so the surface's content generation and encoder semantics
-    /// are not part of that press's route identity. Only the geometry (which
-    /// pane, which region) decides where the menu opens.
-    fn normalized_for_cmux_menu(mut self) -> Self {
-        if let Self::Pane { region, .. } = &mut self {
-            match region {
-                PanePointerRegion::TerminalCell { semantics, content_generation, .. } => {
-                    *semantics = None;
-                    *content_generation = None;
-                }
-                PanePointerRegion::BrowserCell { content_generation, .. } => {
-                    *content_generation = None;
-                }
-                PanePointerRegion::ContentPadding | PanePointerRegion::Chrome => {}
-            }
-        }
-        self
-    }
 }
 
 #[derive(Clone, Default)]
@@ -5800,7 +5972,6 @@ struct RenderedPointerFrame {
     machine_rail: Option<Rect>,
     workspace_rail: Option<Rect>,
     tabs_rail: Option<Rect>,
-    projection_rails: Arc<[(RailKind, Rect)]>,
     hits: Arc<[RenderedHitRoute]>,
     panes: Arc<[RenderedPaneRoute]>,
     terminal_pointer_semantics: Arc<HashMap<SurfaceId, TerminalPointerSemanticSnapshot>>,
@@ -5909,18 +6080,6 @@ impl RenderedPointerFrame {
             (RailKind::Tabs, self.tabs_rail),
         ] {
             if let Some(rect) = rect.filter(|rect| rect.contains(x, y)) {
-                return PointerRouteIdentity::Rail {
-                    kind,
-                    rect,
-                    column: x.saturating_sub(rect.x),
-                    row: y.saturating_sub(rect.y),
-                };
-            }
-        }
-        if let Some((kind, rect)) =
-            self.projection_rails.iter().copied().find(|(_, rect)| rect.contains(x, y))
-        {
-            if !self.panes.iter().any(|pane| pane.content.contains(x, y)) {
                 return PointerRouteIdentity::Rail {
                     kind,
                     rect,
@@ -6919,6 +7078,22 @@ pub struct App {
     pub(crate) tabs_rail_scroll: usize,
     pub(crate) tabs_footer_scroll: usize,
     projection_rails: HashMap<String, ProjectionRailState>,
+    projection_rows_cache: VecDeque<ProjectionRowsCache>,
+    projection_rows_revision: u64,
+    /// Projection surfaces seen by the most recent rendered snapshots. These
+    /// sets cover caches evicted by the bounded LRU, so an update still wakes
+    /// a visible rail even when its snapshot is not retained. They are pruned
+    /// against the current tab locations after every cache/index update, so a
+    /// retired surface cannot accumulate or trigger future fanout.
+    projection_agent_surfaces: HashSet<SurfaceId>,
+    projection_title_surfaces: HashSet<SurfaceId>,
+    /// Dependencies are retained per active view, not only in a global union.
+    /// This lets hidden views be removed without losing dependencies for a
+    /// visible view whose bounded row snapshot was evicted.
+    projection_agent_surfaces_by_view: HashMap<String, Arc<HashSet<SurfaceId>>>,
+    projection_title_surfaces_by_view: HashMap<String, Arc<HashSet<SurfaceId>>>,
+    /// Coalesce surface updates until the next successful rendered frame.
+    projection_paint_pending: bool,
     pub(crate) machine_rail_follow_selection: bool,
     pub(crate) workspace_rail_follow_selection: bool,
     pub(crate) tabs_rail_follow_selection: bool,
@@ -6936,6 +7111,11 @@ pub struct App {
     machine_sidebar_width_override: Option<u16>,
     tabs_sidebar_width_override: Option<u16>,
     projection_sidebar_width_overrides: HashMap<String, u16>,
+    /// Session-local divider drags inside sidebar split groups for the active
+    /// profile. Values are keyed by stable child id, and a profile switch
+    /// clears them so a reused group id cannot apply another profile's
+    /// geometry.
+    sidebar_split_fractions: SidebarSplitFractions,
     /// Session-local visibility overrides, keyed by profile and stable view id.
     hidden_sidebar_views: HashMap<String, HashSet<String>>,
     /// Pane region of the current frame (screen minus sidebar/status).
@@ -7006,7 +7186,7 @@ pub struct App {
     active_pointer_buttons: HashSet<MouseButton>,
     ignored_pty_mouse_buttons: HashSet<MouseButton>,
     #[cfg(test)]
-    timeout_drain_hook: Option<Box<dyn FnOnce(&mut Self) + Send>>,
+    timeout_drain_hook: Option<Box<dyn FnOnce() + Send>>,
     encoder: KeyEncoder,
     encode_buf: Vec<u8>,
     quit: bool,
@@ -7141,6 +7321,9 @@ fn preserve_client_view(previous: &TreeView, next: &mut TreeView) {
 
 const MIN_RAIL_WIDTH: u16 = 10;
 const MIN_CONTENT_WIDTH: u16 = 40;
+/// Minimum rows for a rail stacked inside a vertical sidebar split: the top
+/// pad, one full entry, and a row of slack so the list stays usable.
+const MIN_SPLIT_RAIL_HEIGHT: u16 = 4;
 const MIN_TABBED_PANE_HEIGHT: u16 = 3;
 const RAIL_REVEAL_HYSTERESIS: u16 = 4;
 
@@ -7812,9 +7995,262 @@ fn sidebar_layout_for(
         overrides.machine,
         overrides.tabs,
         &HashMap::new(),
+        &HashMap::new(),
         &HashSet::new(),
         None,
     )
+}
+
+/// One top-level sidebar column after visibility pruning: hidden views and
+/// an absent machine provider drop leaves, empty splits collapse away.
+#[derive(Clone)]
+enum SidebarColumnNode {
+    Leaf {
+        view_index: usize,
+        kind: RailKind,
+        key: String,
+        priority: u16,
+    },
+    Split {
+        id: String,
+        dir: crate::config::SidebarSplitDir,
+        priority: u16,
+        children: Vec<(u16, SidebarColumnNode)>,
+    },
+}
+
+impl SidebarColumnNode {
+    fn key(&self) -> &str {
+        match self {
+            SidebarColumnNode::Leaf { key, .. } | SidebarColumnNode::Split { id: key, .. } => key,
+        }
+    }
+
+    fn priority(&self) -> u16 {
+        match self {
+            SidebarColumnNode::Leaf { priority, .. }
+            | SidebarColumnNode::Split { priority, .. } => *priority,
+        }
+    }
+
+    fn collect_rails(&self, rails: &mut Vec<RailKind>) {
+        match self {
+            SidebarColumnNode::Leaf { kind, .. } => rails.push(*kind),
+            SidebarColumnNode::Split { children, .. } => {
+                for (_, child) in children {
+                    child.collect_rails(rails);
+                }
+            }
+        }
+    }
+}
+
+fn prune_sidebar_layout_node(
+    node: &crate::config::SidebarLayoutNode,
+    views: &[SidebarViewSpec],
+    hidden_views: &HashSet<String>,
+    machine_visible: bool,
+) -> Option<SidebarColumnNode> {
+    use crate::config::SidebarLayoutNode;
+    match node {
+        SidebarLayoutNode::Leaf(view_index) => {
+            let view = views.get(*view_index)?;
+            if hidden_views.contains(&view.id) {
+                return None;
+            }
+            if view.includes(SidebarResourceKind::Machines) && !machine_visible {
+                return None;
+            }
+            let kind = match view.legacy_kind() {
+                Some(SidebarColumnKind::Machines) => RailKind::Machine,
+                Some(SidebarColumnKind::Workspaces) => RailKind::Workspace,
+                Some(SidebarColumnKind::Tabs) => RailKind::Tabs,
+                None => RailKind::Projection(*view_index),
+            };
+            Some(SidebarColumnNode::Leaf {
+                view_index: *view_index,
+                kind,
+                key: view.id.clone(),
+                priority: view.collapse_priority,
+            })
+        }
+        SidebarLayoutNode::Split(split) => {
+            let children: Vec<(u16, SidebarColumnNode)> = split
+                .children
+                .iter()
+                .enumerate()
+                .filter_map(|(index, child)| {
+                    prune_sidebar_layout_node(child, views, hidden_views, machine_visible)
+                        .map(|node| (split.weights.get(index).copied().unwrap_or(1).max(1), node))
+                })
+                .collect();
+            match children.len() {
+                0 => None,
+                1 => children.into_iter().next().map(|(_, child)| child),
+                _ => Some(SidebarColumnNode::Split {
+                    id: split.id.clone(),
+                    dir: split.dir,
+                    priority: split.collapse_priority,
+                    children,
+                }),
+            }
+        }
+    }
+}
+
+/// Lay out one pruned column node inside `rect`, appending rail placements,
+/// split-group records, and divider handles. Children that no longer fit at
+/// their minimum size collapse away lowest-priority-first, exactly like
+/// columns do when the terminal narrows.
+fn place_sidebar_column_node(
+    node: &SidebarColumnNode,
+    rect: Rect,
+    layout: &mut SidebarLayout,
+    split_fractions: &SidebarSplitFractions,
+) {
+    use crate::config::SidebarSplitDir;
+    if rect.width == 0 || rect.height == 0 {
+        return;
+    }
+    match node {
+        SidebarColumnNode::Leaf { view_index, kind, .. } => {
+            match kind {
+                RailKind::Machine => layout.machine = Some(rect),
+                RailKind::Workspace => layout.workspace = Some(rect),
+                RailKind::Tabs => layout.tabs = Some(rect),
+                RailKind::Projection(_) => {}
+            }
+            layout.ordered.push(RailPlacement { kind: *kind, view_index: *view_index, rect });
+        }
+        SidebarColumnNode::Split { id, dir, children, .. } => {
+            let (total, min_each, divider_size) = match dir {
+                SidebarSplitDir::Vertical => (rect.height, MIN_SPLIT_RAIL_HEIGHT, 1u16),
+                SidebarSplitDir::Horizontal => (rect.width, MIN_RAIL_WIDTH, 0u16),
+            };
+            let mut kept: Vec<&(u16, SidebarColumnNode)> = children.iter().collect();
+            while kept.len() > 1 {
+                let dividers = divider_size.saturating_mul(kept.len().saturating_sub(1) as u16);
+                let needed = min_each.saturating_mul(kept.len() as u16).saturating_add(dividers);
+                if total >= needed {
+                    break;
+                }
+                let Some((drop_index, _)) =
+                    kept.iter().enumerate().min_by_key(|(_, (_, child))| child.priority())
+                else {
+                    break;
+                };
+                kept.remove(drop_index);
+            }
+            if kept.len() == 1 {
+                place_sidebar_column_node(&kept[0].1, rect, layout, split_fractions);
+                return;
+            }
+            let dividers = divider_size.saturating_mul(kept.len().saturating_sub(1) as u16);
+            let available = total.saturating_sub(dividers);
+            if available < min_each.saturating_mul(kept.len() as u16) {
+                place_sidebar_column_node(&kept[0].1, rect, layout, split_fractions);
+                return;
+            }
+            // A committed divider drag overrides the configured weights while
+            // each child keeps its own stable share. A newly visible child
+            // falls back to its configured weight, while a hidden child does
+            // not force every surviving ratio back to defaults.
+            let child_keys =
+                kept.iter().map(|(_, child)| child.key().to_owned()).collect::<Vec<_>>();
+            let shares: Vec<f32> = kept
+                .iter()
+                .map(|(weight, child)| {
+                    split_fractions
+                        .get(id)
+                        .and_then(|fractions| fractions.get(child.key()).copied())
+                        .filter(|value| value.is_finite() && *value > 0.0)
+                        .unwrap_or_else(|| f32::from(*weight))
+                })
+                .collect();
+            let sum: f32 = shares.iter().sum();
+            let mut sizes: Vec<u16> = shares
+                .iter()
+                .map(|share| {
+                    (((share / sum) * f32::from(available)) as u16).clamp(min_each, available)
+                })
+                .collect();
+            let mut used: u16 = sizes.iter().fold(0, |sum, size| sum.saturating_add(*size));
+            while used > available {
+                let Some((largest, _)) = sizes
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, size)| **size > min_each)
+                    .max_by_key(|(_, size)| **size)
+                else {
+                    break;
+                };
+                sizes[largest] -= 1;
+                used -= 1;
+            }
+            let mut round_robin = 0usize;
+            let share_count = sizes.len();
+            while used < available {
+                sizes[round_robin % share_count] += 1;
+                used += 1;
+                round_robin += 1;
+            }
+            let group_index = layout.split_groups.len();
+            layout.split_groups.push(SidebarSplitGroupPlacement {
+                id: id.clone(),
+                dir: *dir,
+                children: Vec::new(),
+                child_keys,
+            });
+            let mut offset = 0u16;
+            for (child_index, (_, child)) in kept.iter().enumerate() {
+                let child_rect = match dir {
+                    SidebarSplitDir::Vertical => Rect {
+                        x: rect.x,
+                        y: rect.y + offset,
+                        width: rect.width,
+                        height: sizes[child_index],
+                    },
+                    SidebarSplitDir::Horizontal => Rect {
+                        x: rect.x + offset,
+                        y: rect.y,
+                        width: sizes[child_index],
+                        height: rect.height,
+                    },
+                };
+                layout.split_groups[group_index].children.push(child_rect);
+                place_sidebar_column_node(child, child_rect, layout, split_fractions);
+                offset = offset.saturating_add(sizes[child_index]);
+                if child_index + 1 < kept.len() {
+                    let divider_rect = match dir {
+                        SidebarSplitDir::Vertical => {
+                            let divider = Rect {
+                                x: rect.x,
+                                y: rect.y + offset,
+                                width: rect.width,
+                                height: 1,
+                            };
+                            offset = offset.saturating_add(1);
+                            divider
+                        }
+                        // The horizontal handle overlays the left child's
+                        // border column; no extra cell is carved out.
+                        SidebarSplitDir::Horizontal => Rect {
+                            x: (rect.x + offset).saturating_sub(1),
+                            y: rect.y,
+                            width: 1,
+                            height: rect.height,
+                        },
+                    };
+                    layout.dividers.push(SidebarDividerPlacement {
+                        group: group_index,
+                        index: child_index,
+                        rect: divider_rect,
+                        dir: *dir,
+                    });
+                }
+            }
+        }
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -7828,6 +8264,7 @@ fn sidebar_layout_for_state(
     machine_override: Option<u16>,
     tabs_override: Option<u16>,
     projection_overrides: &HashMap<String, u16>,
+    split_fractions: &SidebarSplitFractions,
     hidden_views: &HashSet<String>,
     previous: Option<&SidebarLayout>,
 ) -> SidebarLayout {
@@ -7842,63 +8279,82 @@ fn sidebar_layout_for_state(
         };
     }
 
-    #[derive(Clone, Copy)]
     struct Spec {
-        kind: RailKind,
-        view_index: usize,
+        node: SidebarColumnNode,
+        key: String,
         desired: u16,
         max_width: u16,
         priority: u16,
     }
 
-    let mut specs = config
-        .sidebar
-        .views
+    let views = &config.sidebar.views;
+    // The resolved layout always covers every view exactly once. Anything
+    // else means `views` was replaced without its layout (tests and older
+    // call sites do this), so fall back to one column per view.
+    let identity: Vec<crate::config::SidebarLayoutNode>;
+    let layout_nodes: &[crate::config::SidebarLayoutNode] = {
+        let mut leaves: Vec<usize> =
+            config.sidebar.layout.iter().flat_map(|node| node.leaves()).collect();
+        leaves.sort_unstable();
+        if leaves == (0..views.len()).collect::<Vec<_>>() {
+            &config.sidebar.layout
+        } else {
+            identity = crate::config::sidebar_layout_of_columns(views);
+            &identity
+        }
+    };
+    let mut specs = layout_nodes
         .iter()
-        .enumerate()
-        .filter_map(|(view_index, view)| {
-            if hidden_views.contains(&view.id) {
-                return None;
-            }
-            if view.includes(SidebarResourceKind::Machines) && !machine_visible {
-                return None;
-            }
-            let kind = match view.legacy_kind() {
-                Some(SidebarColumnKind::Machines) => RailKind::Machine,
-                Some(SidebarColumnKind::Workspaces) => RailKind::Workspace,
-                Some(SidebarColumnKind::Tabs) => RailKind::Tabs,
-                None => RailKind::Projection(view_index),
-            };
-            let width_override = match kind {
-                RailKind::Machine => machine_override,
-                RailKind::Workspace => workspace_override,
-                RailKind::Tabs => tabs_override,
-                RailKind::Projection(_) => projection_overrides.get(&view.id).copied(),
-            };
-            let legacy_width = match kind {
-                RailKind::Machine => config.machine_sidebar.width,
-                RailKind::Workspace => config.sidebar.width,
-                RailKind::Tabs | RailKind::Projection(_) => view.width,
-            };
-            let desired = if compact && kind == RailKind::Workspace {
-                config.sidebar.compact_width
-            } else {
-                width_override.unwrap_or(if config.sidebar.views_explicit {
-                    view.width
-                } else {
-                    legacy_width
-                })
-            };
-            let max_width = if config.sidebar.views_explicit {
-                view.max_width
-            } else {
-                match kind {
-                    RailKind::Machine => config.machine_sidebar.max_width,
-                    RailKind::Workspace => config.sidebar.max_width,
-                    RailKind::Tabs | RailKind::Projection(_) => view.max_width,
+        .filter_map(|layout_node| {
+            let node =
+                prune_sidebar_layout_node(layout_node, views, hidden_views, machine_visible)?;
+            let (key, desired, max_width, priority) = match &node {
+                SidebarColumnNode::Leaf { view_index, kind, priority, .. } => {
+                    let view = views.get(*view_index)?;
+                    let width_override = match kind {
+                        RailKind::Machine => machine_override,
+                        RailKind::Workspace => workspace_override,
+                        RailKind::Tabs => tabs_override,
+                        RailKind::Projection(_) => projection_overrides.get(&view.id).copied(),
+                    };
+                    let legacy_width = match kind {
+                        RailKind::Machine => config.machine_sidebar.width,
+                        RailKind::Workspace => config.sidebar.width,
+                        RailKind::Tabs | RailKind::Projection(_) => view.width,
+                    };
+                    let desired = if compact && *kind == RailKind::Workspace {
+                        config.sidebar.compact_width
+                    } else {
+                        width_override.unwrap_or(if config.sidebar.views_explicit {
+                            view.width
+                        } else {
+                            legacy_width
+                        })
+                    };
+                    let max_width = if config.sidebar.views_explicit {
+                        view.max_width
+                    } else {
+                        match kind {
+                            RailKind::Machine => config.machine_sidebar.max_width,
+                            RailKind::Workspace => config.sidebar.max_width,
+                            RailKind::Tabs | RailKind::Projection(_) => view.max_width,
+                        }
+                    };
+                    (view.id.clone(), desired, max_width, *priority)
+                }
+                SidebarColumnNode::Split { id, priority, .. } => {
+                    // A pruned single-child split resolves as a leaf above,
+                    // so this arm always covers a real multi-pane column.
+                    let split = sidebar_split_spec(&config.sidebar.layout, id);
+                    let desired = projection_overrides
+                        .get(id)
+                        .copied()
+                        .or(split.map(|split| split.width))
+                        .unwrap_or(22);
+                    (id.clone(), desired, split.map_or(0, |split| split.max_width), *priority)
                 }
             };
-            Some(Spec { kind, view_index, desired, max_width, priority: view.collapse_priority })
+            Some(Spec { node, key, desired, max_width, priority })
         })
         .collect::<Vec<_>>();
 
@@ -7913,7 +8369,7 @@ fn sidebar_layout_for_state(
     }
 
     if let Some(previous) = previous {
-        while specs.iter().any(|spec| previous.rail(spec.kind).is_none())
+        while specs.iter().any(|spec| !previous.has_column(&spec.key))
             && width
                 < MIN_CONTENT_WIDTH
                     .saturating_add(MIN_RAIL_WIDTH.saturating_mul(specs.len() as u16))
@@ -7922,7 +8378,7 @@ fn sidebar_layout_for_state(
             let Some((index, _)) = specs
                 .iter()
                 .enumerate()
-                .filter(|(_, spec)| previous.rail(spec.kind).is_none())
+                .filter(|(_, spec)| !previous.has_column(&spec.key))
                 .min_by_key(|(_, spec)| spec.priority)
             else {
                 break;
@@ -7943,42 +8399,87 @@ fn sidebar_layout_for_state(
             continue;
         };
         let rect = Rect { x, y: 0, width: rail_width, height };
-        match spec.kind {
-            RailKind::Machine => layout.machine = Some(rect),
-            RailKind::Workspace => layout.workspace = Some(rect),
-            RailKind::Tabs => layout.tabs = Some(rect),
-            RailKind::Projection(_) => {}
-        }
-        layout.ordered.push(RailPlacement { kind: spec.kind, view_index: spec.view_index, rect });
+        let mut rails = Vec::new();
+        spec.node.collect_rails(&mut rails);
+        layout.columns.push(SidebarColumnPlacement {
+            key: spec.key.clone(),
+            rect,
+            max_width: spec.max_width,
+            rails,
+        });
+        place_sidebar_column_node(&spec.node, rect, &mut layout, split_fractions);
         x = x.saturating_add(rail_width);
     }
     layout.content = Rect { x, y: 0, width: width.saturating_sub(x), height: content_height };
     layout
 }
 
+/// Ids of every split group in the layout forest, depth first.
+fn collect_sidebar_split_ids(nodes: &[crate::config::SidebarLayoutNode], ids: &mut Vec<String>) {
+    use crate::config::SidebarLayoutNode;
+    for node in nodes {
+        if let SidebarLayoutNode::Split(split) = node {
+            ids.push(split.id.clone());
+            collect_sidebar_split_ids(&split.children, ids);
+        }
+    }
+}
+
+/// Find a split group's config spec by id anywhere in the layout forest.
+fn sidebar_split_spec<'a>(
+    nodes: &'a [crate::config::SidebarLayoutNode],
+    id: &str,
+) -> Option<&'a crate::config::SidebarSplitSpec> {
+    use crate::config::SidebarLayoutNode;
+    for node in nodes {
+        if let SidebarLayoutNode::Split(split) = node {
+            if split.id == id {
+                return Some(split);
+            }
+            if let Some(found) = sidebar_split_spec(&split.children, id) {
+                return Some(found);
+            }
+        }
+    }
+    None
+}
+
+/// A rail's width drag resizes its whole column: stacked rails share their
+/// column's width, so the drag target is the column, not the one rail.
 fn rail_drag_width(config: &Config, layout: &SidebarLayout, kind: RailKind, x: u16) -> Option<u16> {
-    let rail = layout.rail(kind)?;
+    let column_index = sidebar_column_for_rail(layout, kind)?;
+    let column = &layout.columns[column_index];
     let terminal_width = layout.content.x.saturating_add(layout.content.width);
     let other_width = layout
-        .ordered
+        .columns
         .iter()
-        .filter(|placement| placement.kind != kind)
-        .map(|placement| placement.rect.width)
+        .enumerate()
+        .filter(|(index, _)| *index != column_index)
+        .map(|(_, column)| column.rect.width)
         .fold(0u16, u16::saturating_add);
     let available = terminal_width.saturating_sub(MIN_CONTENT_WIDTH).saturating_sub(other_width);
-    let view_index = layout.ordered.iter().find(|placement| placement.kind == kind)?.view_index;
-    let view = config.sidebar.views.get(view_index)?;
-    let configured_max = if config.sidebar.views_explicit {
-        view.max_width
+    let configured_max = if column.rails.len() > 1 {
+        column.max_width
     } else {
-        match kind {
-            RailKind::Machine => config.machine_sidebar.max_width,
-            RailKind::Workspace => config.sidebar.max_width,
-            RailKind::Tabs | RailKind::Projection(_) => view.max_width,
+        let view_index = layout.ordered.iter().find(|placement| placement.kind == kind)?.view_index;
+        let view = config.sidebar.views.get(view_index)?;
+        if config.sidebar.views_explicit {
+            view.max_width
+        } else {
+            match kind {
+                RailKind::Machine => config.machine_sidebar.max_width,
+                RailKind::Workspace => config.sidebar.max_width,
+                RailKind::Tabs | RailKind::Projection(_) => view.max_width,
+            }
         }
     };
-    let desired = x.saturating_sub(rail.x).saturating_add(1);
+    let desired = x.saturating_sub(column.rect.x).saturating_add(1);
     clamp_rail_width(desired, configured_max, available)
+}
+
+/// The index of the column holding `kind`, in `layout.columns`.
+fn sidebar_column_for_rail(layout: &SidebarLayout, kind: RailKind) -> Option<usize> {
+    layout.columns.iter().position(|column| column.rails.contains(&kind))
 }
 
 fn content_size_for_rect(
@@ -9118,6 +9619,13 @@ fn run_with_machine_updates_inner(
         tabs_rail_scroll: 0,
         tabs_footer_scroll: 0,
         projection_rails: HashMap::new(),
+        projection_rows_cache: VecDeque::new(),
+        projection_rows_revision: 0,
+        projection_agent_surfaces: HashSet::new(),
+        projection_title_surfaces: HashSet::new(),
+        projection_agent_surfaces_by_view: HashMap::new(),
+        projection_title_surfaces_by_view: HashMap::new(),
+        projection_paint_pending: false,
         machine_rail_follow_selection: true,
         workspace_rail_follow_selection: true,
         tabs_rail_follow_selection: true,
@@ -9134,6 +9642,7 @@ fn run_with_machine_updates_inner(
         machine_sidebar_width_override: None,
         tabs_sidebar_width_override: None,
         projection_sidebar_width_overrides: HashMap::new(),
+        sidebar_split_fractions: HashMap::new(),
         hidden_sidebar_views: HashMap::new(),
         content_area: Rect::default(),
         hits: Vec::new(),
@@ -9205,7 +9714,14 @@ fn run_with_machine_updates_inner(
     }
 
     if let Err(error) = app.restart_machine_updates() {
-        app.shutdown_runtime_components();
+        app.shutdown_background_workers();
+        app.cancel_pointer_interaction();
+        app.session.begin_shutdown();
+        let _ = app.pty_input.shutdown(Duration::from_secs(3));
+        if let Some(writer) = app.graphics_writer.as_mut() {
+            writer.shutdown(Duration::from_millis(200));
+        }
+        let _ = std::panic::take_hook();
         return Err(terminal_restore.restore_after_error(error));
     }
 
@@ -9214,7 +9730,14 @@ fn run_with_machine_updates_inner(
     }
 
     let result = app.event_loop(&mut terminal, rx);
-    app.shutdown_runtime_components();
+    app.shutdown_background_workers();
+    app.cancel_pointer_interaction();
+    app.session.begin_shutdown();
+    let _ = app.pty_input.shutdown(Duration::from_secs(3));
+    if let Some(writer) = app.graphics_writer.as_mut() {
+        writer.shutdown(Duration::from_millis(200));
+    }
+    let _ = std::panic::take_hook();
     let restore_result = terminal_restore.restore();
     match (result, restore_result) {
         (Ok(()), Ok(())) => {}
@@ -9578,14 +10101,6 @@ fn should_claim_clear_history_shortcut(
     surface_kind == SurfaceKind::Pty && supports_atomic_fallback
 }
 
-fn adjust_active_tab_after_removal(pane: &mut PaneView, removed_tab_index: usize) {
-    if pane.active_tab > removed_tab_index {
-        pane.active_tab -= 1;
-    } else if pane.active_tab >= pane.tabs.len() {
-        pane.active_tab = pane.tabs.len().saturating_sub(1);
-    }
-}
-
 impl App {
     pub fn is_surface_only(&self) -> bool {
         self.surface_only.is_some()
@@ -9859,32 +10374,320 @@ impl App {
         self.focus == FocusTarget::ProjectionRail(index)
     }
 
-    pub(crate) fn projection_rows(&self, index: usize) -> Vec<ProjectionRow> {
-        let Some(spec) = self.config.sidebar.views.get(index) else { return Vec::new() };
-        let empty_collapsed = HashSet::new();
+    pub(crate) fn projection_rows(&mut self, index: usize) -> Arc<[ProjectionRow]> {
+        let Some(spec) = self.config.sidebar.views.get(index).cloned() else {
+            return Arc::<[ProjectionRow]>::from(Vec::new());
+        };
         let collapsed = self
             .projection_rails
             .get(&spec.id)
-            .map(|state| &state.collapsed)
-            .unwrap_or(&empty_collapsed);
-        let agents = if spec.includes(SidebarResourceKind::Agents) {
-            // Finished reports are historical records, not active agents.
-            // Otherwise detached "surface..." rows remain forever after exit.
-            self.session
-                .agents()
-                .into_iter()
-                .filter(|agent| !matches!(agent.state.as_str(), "done" | "unknown"))
-                .collect::<Vec<_>>()
+            .map(|state| state.collapsed.clone())
+            .unwrap_or_default();
+        let selected_workspace = self.sidebar_workspace_selection;
+        let selected_workspace_key = selected_workspace_cache_key(&spec, selected_workspace)
+            .map(|selected| selected.min(self.tree.workspaces.len().saturating_sub(1)));
+        let workspace_revision = self.tree.workspace_revision;
+        let pane_revision = self.tree.pane_revision;
+        let invalidation_revision = self.projection_rows_revision;
+        let focus = projection_focus_key(&self.tree);
+        let cache_index = self.projection_rows_cache.iter().position(|cache| {
+            cache.view_id == spec.id
+                && cache.workspace_revision == workspace_revision
+                && cache.pane_revision == pane_revision
+                && cache.invalidation_revision == invalidation_revision
+                && cache.selected_workspace == selected_workspace_key
+                && cache.focus == focus
+        });
+        let rows = if let Some(cache_index) = cache_index {
+            let cache = self
+                .projection_rows_cache
+                .remove(cache_index)
+                .expect("projection cache index came from the cache");
+            self.set_projection_surface_dependencies(
+                &cache.view_id,
+                cache.agent_surfaces.clone(),
+                cache.title_surfaces.clone(),
+            );
+            let rows = cache.rows.clone();
+            self.projection_rows_cache.push_front(cache);
+            rows
         } else {
-            Vec::new()
+            let agents = if spec.includes(SidebarResourceKind::Agents) {
+                // Finished reports are historical records, not active agents.
+                // Otherwise detached "surface..." rows remain forever after exit.
+                // An `all`-scoped view is a chronological status board, so it
+                // keeps done agents; unknown stays out everywhere.
+                let keep_done = spec.scope == crate::config::SidebarViewScope::All;
+                self.session
+                    .agents()
+                    .into_iter()
+                    .filter(|agent| match agent.state.as_str() {
+                        "unknown" => false,
+                        "done" => keep_done,
+                        _ => true,
+                    })
+                    .collect::<Vec<_>>()
+            } else {
+                Vec::new()
+            };
+            let rows = crate::sidebar_projection::rows(
+                &spec,
+                &self.tree,
+                &agents,
+                selected_workspace,
+                &collapsed,
+            );
+            let (agent_surfaces, title_surfaces) =
+                projection_cache_dependencies(&spec, &self.tree, &rows, selected_workspace);
+            let agent_surfaces = Arc::new(agent_surfaces);
+            let title_surfaces = Arc::new(title_surfaces);
+            let rows: Arc<[ProjectionRow]> = Arc::from(rows);
+            self.projection_rows_cache.push_front(ProjectionRowsCache {
+                view_id: spec.id.clone(),
+                workspace_revision,
+                pane_revision,
+                invalidation_revision,
+                selected_workspace: selected_workspace_key,
+                focus,
+                agent_surfaces: agent_surfaces.clone(),
+                title_surfaces: title_surfaces.clone(),
+                rows: rows.clone(),
+            });
+            self.projection_rows_cache.truncate(MAX_PROJECTION_ROWS_CACHE_ENTRIES);
+            self.set_projection_surface_dependencies(&spec.id, agent_surfaces, title_surfaces);
+            rows
         };
-        crate::sidebar_projection::rows(
-            spec,
-            &self.tree,
-            &agents,
-            self.sidebar_workspace_selection,
-            collapsed,
-        )
+        self.projection_rail_state_mut(index).reconcile_selection(&rows);
+        rows
+    }
+
+    fn invalidate_projection_rows_cache(&mut self) {
+        self.projection_rows_revision = self.projection_rows_revision.wrapping_add(1);
+        self.projection_rows_cache.clear();
+        self.projection_agent_surfaces.clear();
+        self.projection_title_surfaces.clear();
+        self.projection_agent_surfaces_by_view.clear();
+        self.projection_title_surfaces_by_view.clear();
+        self.projection_paint_pending = false;
+    }
+
+    fn projection_view_is_visible(&self, view_id: &str) -> bool {
+        if !self.sidebar_visible || self.surface_only.is_some() {
+            return false;
+        }
+        if self
+            .hidden_sidebar_views
+            .get(&self.config.sidebar.active_profile)
+            .is_some_and(|hidden| hidden.contains(view_id))
+        {
+            return false;
+        }
+        // Before the first frame there is no layout yet, but direct input and
+        // tests may still build a projection snapshot. Treat active views as
+        // visible until the first concrete layout is available.
+        if self.outer_size == (0, 0) {
+            return self.config.sidebar.views.iter().any(|view| view.id == view_id);
+        }
+        let Some(index) = self.config.sidebar.views.iter().position(|view| view.id == view_id)
+        else {
+            return false;
+        };
+        self.sidebar_layout
+            .ordered
+            .iter()
+            .any(|placement| placement.kind == RailKind::Projection(index))
+    }
+
+    /// Replace one view's dependency snapshot and rebuild the global wake
+    /// union only when that snapshot changes. Per-view storage prevents a
+    /// hidden view from keeping a retired dependency alive while retaining
+    /// wake coverage for visible views whose LRU row snapshot was evicted.
+    fn set_projection_surface_dependencies(
+        &mut self,
+        view_id: &str,
+        agent_surfaces: Arc<HashSet<SurfaceId>>,
+        title_surfaces: Arc<HashSet<SurfaceId>>,
+    ) {
+        if !self.projection_view_is_visible(view_id) {
+            return;
+        }
+        let agent_changed = self
+            .projection_agent_surfaces_by_view
+            .get(view_id)
+            .is_none_or(|previous| !Arc::ptr_eq(previous, &agent_surfaces));
+        let title_changed = self
+            .projection_title_surfaces_by_view
+            .get(view_id)
+            .is_none_or(|previous| !Arc::ptr_eq(previous, &title_surfaces));
+        self.projection_agent_surfaces_by_view.insert(view_id.to_owned(), agent_surfaces);
+        self.projection_title_surfaces_by_view.insert(view_id.to_owned(), title_surfaces);
+        if agent_changed || title_changed {
+            self.rebuild_projection_surface_indexes();
+        }
+    }
+
+    /// Keep wake indexes bounded to active, visible view ids and live tab
+    /// surfaces. The operation touches only the small per-view dependency
+    /// maps, never the workspace tree.
+    fn rebuild_projection_surface_indexes(&mut self) {
+        let visible_view_ids = self
+            .config
+            .sidebar
+            .views
+            .iter()
+            .map(|view| view.id.clone())
+            .filter(|view_id| self.projection_view_is_visible(view_id))
+            .collect::<HashSet<_>>();
+        self.projection_agent_surfaces_by_view
+            .retain(|view_id, _| visible_view_ids.contains(view_id));
+        self.projection_title_surfaces_by_view
+            .retain(|view_id, _| visible_view_ids.contains(view_id));
+
+        let live_surfaces = &self.tab_locations;
+        self.projection_agent_surfaces = self
+            .projection_agent_surfaces_by_view
+            .values()
+            .flat_map(|dependencies| {
+                dependencies.iter().filter(|surface| live_surfaces.contains_key(surface)).copied()
+            })
+            .collect();
+        self.projection_title_surfaces = self
+            .projection_title_surfaces_by_view
+            .values()
+            .flat_map(|dependencies| {
+                dependencies.iter().filter(|surface| live_surfaces.contains_key(surface)).copied()
+            })
+            .collect();
+    }
+
+    fn prune_projection_surface_indexes(&mut self) {
+        {
+            let live_surfaces = &self.tab_locations;
+            for cache in &mut self.projection_rows_cache {
+                Arc::make_mut(&mut cache.agent_surfaces)
+                    .retain(|surface| live_surfaces.contains_key(surface));
+                Arc::make_mut(&mut cache.title_surfaces)
+                    .retain(|surface| live_surfaces.contains_key(surface));
+            }
+            for dependencies in self.projection_agent_surfaces_by_view.values_mut() {
+                let filtered = dependencies
+                    .iter()
+                    .filter(|surface| live_surfaces.contains_key(surface))
+                    .copied()
+                    .collect::<HashSet<_>>();
+                if filtered.len() != dependencies.len() {
+                    *dependencies = Arc::new(filtered);
+                }
+            }
+            for dependencies in self.projection_title_surfaces_by_view.values_mut() {
+                let filtered = dependencies
+                    .iter()
+                    .filter(|surface| live_surfaces.contains_key(surface))
+                    .copied()
+                    .collect::<HashSet<_>>();
+                if filtered.len() != dependencies.len() {
+                    *dependencies = Arc::new(filtered);
+                }
+            }
+        }
+        self.rebuild_projection_surface_indexes();
+    }
+
+    fn invalidate_projection_rows_if_sidebar_spec_changed(
+        &mut self,
+        previous: SidebarProjectionSpec,
+    ) {
+        if previous != SidebarProjectionSpec::from_config(&self.config) {
+            self.invalidate_projection_rows_cache();
+            self.cancel_sidebar_layout_drag();
+        }
+    }
+
+    fn cancel_sidebar_layout_drag(&mut self) {
+        if matches!(self.drag, Some(Drag::RailResize(_) | Drag::SidebarSplit { .. })) {
+            self.drag = None;
+        }
+    }
+
+    /// Width and divider overrides are local to the active profile. Drop both
+    /// maps together whenever a profile replacement changes that owner.
+    fn clear_profile_sidebar_geometry(&mut self) {
+        self.projection_sidebar_width_overrides.clear();
+        self.sidebar_split_fractions.clear();
+    }
+
+    /// Replace the active profile's projection specification and invalidate
+    /// snapshots in one place. View ids are profile-local, so a reused id may
+    /// describe a different resource tree after the replacement.
+    fn replace_sidebar_projection(
+        &mut self,
+        profile_id: String,
+        views: Vec<SidebarViewSpec>,
+        layout: Vec<SidebarLayoutNode>,
+    ) {
+        let previous = SidebarProjectionSpec::from_config(&self.config);
+        let profile_changed = self.config.sidebar.active_profile != profile_id;
+        self.config.sidebar.active_profile = profile_id;
+        self.config.sidebar.views = views;
+        self.config.sidebar.layout = layout;
+        if profile_changed {
+            self.clear_profile_sidebar_geometry();
+        }
+        self.invalidate_projection_rows_if_sidebar_spec_changed(previous);
+    }
+
+    /// Drop only snapshots that depend on the changed surface. The event
+    /// stream can deliver several updates before the next frame, so return
+    /// whether this surface needs to schedule the first paint boundary.
+    fn invalidate_projection_rows_for_surface(
+        &mut self,
+        surface: SurfaceId,
+        change: ProjectionSurfaceChange,
+    ) -> bool {
+        let was_affected = self.projection_rows_cache.iter().any(|cache| {
+            self.projection_view_is_visible(&cache.view_id)
+                && match change {
+                    ProjectionSurfaceChange::Agent => cache.agent_surfaces.contains(&surface),
+                    ProjectionSurfaceChange::Title => cache.title_surfaces.contains(&surface),
+                }
+        });
+        self.projection_rows_cache.retain(|cache| match change {
+            ProjectionSurfaceChange::Agent => !cache.agent_surfaces.contains(&surface),
+            ProjectionSurfaceChange::Title => !cache.title_surfaces.contains(&surface),
+        });
+        let visible = match change {
+            ProjectionSurfaceChange::Agent => self.projection_agent_surfaces.contains(&surface),
+            ProjectionSurfaceChange::Title => self.projection_title_surfaces.contains(&surface),
+        };
+        if !(was_affected || visible) || self.projection_paint_pending {
+            return false;
+        }
+        self.projection_paint_pending = true;
+        true
+    }
+
+    fn schedule_projection_paint(&mut self) -> bool {
+        if self.projection_paint_pending {
+            return false;
+        }
+        self.projection_paint_pending = true;
+        true
+    }
+
+    fn clear_pending_projection_paint(&mut self) {
+        self.projection_paint_pending = false;
+    }
+
+    fn invalidate_projection_rows_for_surfaces(
+        &mut self,
+        surfaces: impl IntoIterator<Item = SurfaceId>,
+        change: ProjectionSurfaceChange,
+    ) -> bool {
+        let mut paint_requested = false;
+        for surface in surfaces {
+            paint_requested |= self.invalidate_projection_rows_for_surface(surface, change);
+        }
+        paint_requested
     }
 
     pub(crate) fn sidebar_action_rows(&self, index: usize) -> Vec<SidebarActionRow> {
@@ -10155,6 +10958,7 @@ impl App {
             self.machine_sidebar_width_override,
             self.tabs_sidebar_width_override,
             &self.projection_sidebar_width_overrides,
+            &self.sidebar_split_fractions,
             &hidden_views,
             None,
         )
@@ -10204,16 +11008,63 @@ impl App {
     }
 
     fn focus_adjacent_rail(&mut self, kind: RailKind, delta: isize) -> bool {
-        let order = self.visible_rail_order();
-        let Some(index) = order.iter().position(|candidate| *candidate == kind) else {
+        let direction = if delta < 0 { Direction::Left } else { Direction::Right };
+        let Some(next) = self.adjacent_rail(kind, direction) else {
             return false;
         };
-        let next = index as isize + delta;
-        let Some(next) = usize::try_from(next).ok().filter(|next| *next < order.len()) else {
-            return false;
-        };
-        self.focus_rail(order[next]);
+        self.focus_rail(next);
         true
+    }
+
+    /// The rail geometrically next to `kind`. With stacked rails, left and
+    /// right mean the neighboring column (preferring the vertically closest
+    /// rail there), and up and down move within the column.
+    fn adjacent_rail(&self, kind: RailKind, direction: Direction) -> Option<RailKind> {
+        let placements = &self.sidebar_layout.ordered;
+        let rect = placements.iter().find(|placement| placement.kind == kind)?.rect;
+        let overlap = |low_a: u16, len_a: u16, low_b: u16, len_b: u16| -> u16 {
+            let high = (low_a.saturating_add(len_a)).min(low_b.saturating_add(len_b));
+            let low = low_a.max(low_b);
+            high.saturating_sub(low)
+        };
+        placements
+            .iter()
+            .filter(|placement| placement.kind != kind)
+            .filter_map(|placement| {
+                let candidate = placement.rect;
+                let (distance, alignment) = match direction {
+                    Direction::Left if candidate.x.saturating_add(candidate.width) <= rect.x => (
+                        rect.x - candidate.x.saturating_add(candidate.width),
+                        overlap(rect.y, rect.height, candidate.y, candidate.height),
+                    ),
+                    Direction::Right if candidate.x >= rect.x.saturating_add(rect.width) => (
+                        candidate.x - rect.x.saturating_add(rect.width),
+                        overlap(rect.y, rect.height, candidate.y, candidate.height),
+                    ),
+                    Direction::Up
+                        if candidate.y.saturating_add(candidate.height) <= rect.y
+                            && overlap(rect.x, rect.width, candidate.x, candidate.width) > 0 =>
+                    {
+                        (
+                            rect.y - candidate.y.saturating_add(candidate.height),
+                            overlap(rect.x, rect.width, candidate.x, candidate.width),
+                        )
+                    }
+                    Direction::Down
+                        if candidate.y >= rect.y.saturating_add(rect.height)
+                            && overlap(rect.x, rect.width, candidate.x, candidate.width) > 0 =>
+                    {
+                        (
+                            candidate.y - rect.y.saturating_add(rect.height),
+                            overlap(rect.x, rect.width, candidate.x, candidate.width),
+                        )
+                    }
+                    _ => return None,
+                };
+                Some((distance, std::cmp::Reverse(alignment), placement.kind))
+            })
+            .min_by_key(|(distance, alignment, _)| (*distance, *alignment))
+            .map(|(_, _, kind)| kind)
     }
 
     fn move_focus_between_sidebar_rails(&mut self, direction: Direction) -> bool {
@@ -10229,8 +11080,28 @@ impl App {
                 }
                 true
             }
-            Direction::Up | Direction::Down => false,
+            Direction::Up | Direction::Down => {
+                if let Some(next) = self.adjacent_rail(kind, direction) {
+                    self.focus_rail(next);
+                    true
+                } else {
+                    false
+                }
+            }
         }
+    }
+
+    /// At a rail's first or last row, Up/Down continues into the stacked
+    /// neighbor rail. Returns whether focus moved.
+    fn continue_past_rail_boundary(&mut self, kind: RailKind, key: &KeyEvent) -> bool {
+        let direction = match key.code {
+            KeyCode::Up | KeyCode::Char('k') => Direction::Up,
+            KeyCode::Down | KeyCode::Char('j') => Direction::Down,
+            _ => return false,
+        };
+        let Some(next) = self.adjacent_rail(kind, direction) else { return false };
+        self.focus_rail(next);
+        true
     }
 
     fn focus_rightmost_sidebar_rail(&mut self) -> bool {
@@ -10354,7 +11225,6 @@ impl App {
                 Duration::from_millis(250)
             };
             let timeout = terminal_paints.wait_timeout(timeout, Instant::now());
-            let mut toast_expired_on_timeout = false;
             let first = match rx.recv_timeout(timeout) {
                 Ok(event) => Some(event),
                 Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
@@ -10365,7 +11235,6 @@ impl App {
                         action = action.merge(RenderAction::Draw);
                     }
                     if self.expire_toast() {
-                        toast_expired_on_timeout = true;
                         action = action.merge(RenderAction::Draw);
                     }
                     if self.tick_sidebar_files() {
@@ -10388,7 +11257,7 @@ impl App {
             if first.is_none()
                 && let Some(hook) = self.timeout_drain_hook.take()
             {
-                hook(self);
+                hook();
             }
             if let Some(event) = first {
                 action = self.handle_event_and_process_machine_requests(event, action)?;
@@ -10418,8 +11287,7 @@ impl App {
             if self.quit {
                 break;
             }
-            // Keep a toast reintroduced by the timeout drain hook alive for one iteration.
-            if !toast_expired_on_timeout && self.expire_toast() {
+            if self.expire_toast() {
                 action = action.merge(RenderAction::Draw);
             }
             action = action.merge(self.advance_viewport_animation(Instant::now()));
@@ -10517,17 +11385,6 @@ impl App {
         if let Some(mut owner_reload) = self.owner_reload_worker.take() {
             owner_reload.stop_and_join();
         }
-    }
-
-    fn shutdown_runtime_components(&mut self) {
-        self.shutdown_background_workers();
-        self.cancel_pointer_interaction();
-        self.session.begin_shutdown();
-        let _ = self.pty_input.shutdown(Duration::from_secs(3));
-        if let Some(writer) = self.graphics_writer.as_mut() {
-            writer.shutdown(Duration::from_millis(200));
-        }
-        let _ = std::panic::take_hook();
     }
 
     fn process_machine_requests(&mut self) -> RenderAction {
@@ -11520,6 +12377,7 @@ impl App {
             self.browser_input.forget_surface(surface);
         }
         self.tree = tree;
+        self.invalidate_projection_rows_cache();
         self.tab_locations.clear();
         self.rebuild_tab_locations();
         self.render_states.clear();
@@ -11935,6 +12793,7 @@ impl App {
             | Hit::HorizontalScrollbar { .. }
             | Hit::WorkspaceScrollbar { .. }
             | Hit::RailResize(_)
+            | Hit::SidebarSplitDivider { .. }
             | Hit::PaneResize { .. }
             | Hit::TabScroll { .. } => None,
         }
@@ -12089,16 +12948,6 @@ impl App {
         let machine_rail = self.sidebar_layout.machine;
         let workspace_rail = self.sidebar_layout.workspace;
         let tabs_rail = self.sidebar_layout.tabs;
-        let projection_rails = self
-            .sidebar_layout
-            .ordered
-            .iter()
-            .filter_map(|placement| match placement.kind {
-                RailKind::Projection(_) => Some((placement.kind, placement.rect)),
-                _ => None,
-            })
-            .collect::<Vec<_>>()
-            .into();
         let pointer_map_generation = self.session.pointer_map_generation();
         let reuse_owners = action == RenderAction::Paint
             && self.rendered_pointer_frame.pointer_map_generation == pointer_map_generation;
@@ -12182,7 +13031,6 @@ impl App {
             machine_rail,
             workspace_rail,
             tabs_rail,
-            projection_rails,
             hits,
             panes,
             terminal_pointer_semantics,
@@ -12431,12 +13279,6 @@ impl App {
         if self.pointer_route_is_globally_stale() {
             return true;
         }
-        if Self::mouse_opens_cmux_context_menu(mouse) {
-            // The menu is owned by cmux rather than the browser bitmap or a
-            // graphics scene. Keep global and layout barriers above, but do
-            // not wait for content admission this press never enters.
-            return false;
-        }
         if self.pending_graphics_changes_cell(mouse.column, mouse.row) {
             return true;
         }
@@ -12444,6 +13286,12 @@ impl App {
             self.pointer_route_phase,
             PointerRoutePhase::GraphicsRenderPending | PointerRoutePhase::GraphicsProcessingPending
         ) {
+            return false;
+        }
+        if Self::mouse_opens_cmux_context_menu(mouse) {
+            // The menu is owned by cmux rather than the browser bitmap. Keep
+            // geometry barriers above, but do not wait for browser content
+            // admission that this press never enters.
             return false;
         }
         let route = self.rendered_pointer_frame.route_for_mouse(mouse);
@@ -12724,21 +13572,29 @@ impl App {
         RenderAction::Draw
     }
 
-    fn apply_mux_titles(&mut self) -> bool {
+    fn apply_mux_titles(&mut self) -> (bool, bool) {
         let titles = self.mux_titles.take_dirty();
-        self.apply_mux_title_snapshot(titles)
+        let changed = self.apply_mux_title_snapshot(titles);
+        let changed_any = !changed.is_empty();
+        let projection_paint_requested =
+            self.invalidate_projection_rows_for_surfaces(changed, ProjectionSurfaceChange::Title);
+        (changed_any, projection_paint_requested)
     }
 
-    fn reapply_mux_titles(&mut self) -> bool {
+    fn reapply_mux_titles(&mut self) -> (bool, bool) {
         let titles = self.mux_titles.snapshot();
-        self.apply_mux_title_snapshot(titles)
+        let changed = self.apply_mux_title_snapshot(titles);
+        let changed_any = !changed.is_empty();
+        let projection_paint_requested =
+            self.invalidate_projection_rows_for_surfaces(changed, ProjectionSurfaceChange::Title);
+        (changed_any, projection_paint_requested)
     }
 
-    fn apply_mux_title_snapshot(&mut self, titles: HashMap<SurfaceId, Arc<str>>) -> bool {
-        if titles.is_empty() {
-            return false;
-        }
-        let mut changed = false;
+    fn apply_mux_title_snapshot(
+        &mut self,
+        titles: HashMap<SurfaceId, Arc<str>>,
+    ) -> HashSet<SurfaceId> {
+        let mut changed = HashSet::new();
         for (surface, title) in titles {
             let Some([workspace, screen, pane, tab]) = self.tab_locations.get(&surface).copied()
             else {
@@ -12756,7 +13612,7 @@ impl App {
             };
             if tab.title.as_str() != title.as_ref() {
                 tab.title = title.to_string();
-                changed = true;
+                changed.insert(surface);
             }
         }
         changed
@@ -12816,6 +13672,7 @@ impl App {
         self.viewport_states.retain(|screen, _| live_screens.contains(screen));
         self.pane_focus_history.sync_membership(&tree);
         self.tree = tree;
+        self.invalidate_projection_rows_cache();
         self.sidebar_workspace_selection = selected_workspace
             .and_then(|selected| {
                 self.tree.workspaces.iter().position(|workspace| workspace.id == selected)
@@ -12919,58 +13776,13 @@ impl App {
                 }
             }
         }
+        self.prune_projection_surface_indexes();
     }
 
     /// Remove a retired view from the client cache before the authoritative
     /// topology refresh arrives. The backend projection still owns parent
     /// pane, screen, and workspace collapse.
     fn remove_surface_from_cached_tree(&mut self, surface: SurfaceId) {
-        let Some([workspace_index, screen_index, pane_index, tab_index]) =
-            self.tab_locations.get(&surface).copied()
-        else {
-            self.remove_surface_from_cached_tree_scan_and_rebuild_locations(surface);
-            return;
-        };
-
-        let location_is_current = self
-            .tree
-            .workspaces
-            .get(workspace_index)
-            .and_then(|workspace| workspace.screens.get(screen_index))
-            .and_then(|screen| screen.panes.get(pane_index))
-            .and_then(|pane| pane.tabs.get(tab_index))
-            .is_some_and(|tab| tab.surface == surface);
-        if !location_is_current {
-            self.remove_surface_from_cached_tree_scan_and_rebuild_locations(surface);
-            return;
-        }
-
-        let shifted_tabs = {
-            let pane =
-                &mut self.tree.workspaces[workspace_index].screens[screen_index].panes[pane_index];
-            pane.tabs.remove(tab_index);
-            adjust_active_tab_after_removal(pane, tab_index);
-            pane.tabs
-                .iter()
-                .enumerate()
-                .skip(tab_index)
-                .map(|(tab_index, tab)| (tab.surface, tab_index))
-                .collect::<Vec<_>>()
-        };
-
-        self.tab_locations.remove(&surface);
-        for (shifted_surface, shifted_index) in shifted_tabs {
-            self.tab_locations.insert(
-                shifted_surface,
-                [workspace_index, screen_index, pane_index, shifted_index],
-            );
-        }
-    }
-
-    /// Repair the cache from the tree and rebuild `tab_locations` if the index was missing or stale.
-    /// This path is defensive only. Normal surface exits use the indexed path
-    /// above and touch one pane instead of scanning the entire topology.
-    fn remove_surface_from_cached_tree_scan_and_rebuild_locations(&mut self, surface: SurfaceId) {
         for workspace in &mut self.tree.workspaces {
             for screen in &mut workspace.screens {
                 for pane in &mut screen.panes {
@@ -12979,7 +13791,11 @@ impl App {
                         continue;
                     };
                     pane.tabs.remove(index);
-                    adjust_active_tab_after_removal(pane, index);
+                    if pane.active_tab > index {
+                        pane.active_tab -= 1;
+                    } else if pane.active_tab >= pane.tabs.len() {
+                        pane.active_tab = pane.tabs.len().saturating_sub(1);
+                    }
                 }
             }
         }
@@ -13070,6 +13886,7 @@ impl App {
                 crate::ui::draw(self, frame);
             })
         })??;
+        self.clear_pending_projection_paint();
         if self.graphics_host_scene_reset_pending {
             if let Some(writer) = &self.graphics_writer {
                 writer.invalidate_host_scene();
@@ -13341,12 +14158,14 @@ impl App {
         let context_changed = self.graphics_scene_cache.context.as_ref() != Some(&context);
         let full_scan = !dirty_only || context_changed;
         self.mark_graphics_clean((!full_scan).then_some(&dirty_surfaces));
+        let areas = self
+            .pane_areas
+            .iter()
+            .copied()
+            .filter(|area| full_scan || dirty_surfaces.contains(&area.surface))
+            .collect::<Vec<_>>();
         let mut updates = Vec::new();
-        for index in 0..self.pane_areas.len() {
-            let area = self.pane_areas[index];
-            if !full_scan && !dirty_surfaces.contains(&area.surface) {
-                continue;
-            }
+        for area in areas {
             let surface = self.session.surface(area.surface);
             let key = self.graphics_pane_scene_key(area, surface.as_ref());
             let unchanged = !context_changed
@@ -13669,6 +14488,8 @@ impl App {
         {
             self.config_reload_applications += 1;
         }
+        let previous_projection = SidebarProjectionSpec::from_config(&self.config);
+        let previous_profile = self.config.sidebar.active_profile.clone();
         let focused_projection_id = match self.focus {
             FocusTarget::ProjectionRail(index) => {
                 self.config.sidebar.views.get(index).map(|view| view.id.clone())
@@ -13687,9 +14508,18 @@ impl App {
         self.session.apply_config(config.clone());
         self.sidebar_view = config.sidebar.view;
         self.config = config;
-        let valid_view_ids =
+        if previous_profile != self.config.sidebar.active_profile {
+            self.clear_profile_sidebar_geometry();
+        }
+        self.invalidate_projection_rows_if_sidebar_spec_changed(previous_projection);
+        let mut valid_view_ids =
             self.config.sidebar.views.iter().map(|view| view.id.clone()).collect::<HashSet<_>>();
         self.projection_rails.retain(|id, _| valid_view_ids.contains(id));
+        let mut group_ids = Vec::new();
+        collect_sidebar_split_ids(&self.config.sidebar.layout, &mut group_ids);
+        self.sidebar_split_fractions.retain(|id, _| group_ids.contains(id));
+        // Split-group column widths share the projection override map.
+        valid_view_ids.extend(group_ids);
         self.projection_sidebar_width_overrides.retain(|id, _| valid_view_ids.contains(id));
         if let Some(id) = focused_projection_id {
             if let Some((index, view)) =
@@ -14093,6 +14923,7 @@ impl App {
                 self.machine_sidebar_width_override,
                 self.tabs_sidebar_width_override,
                 &self.projection_sidebar_width_overrides,
+                &self.sidebar_split_fractions,
                 &hidden_views,
                 previous,
             )
@@ -14628,7 +15459,7 @@ impl App {
             if let TerminalInput::Mouse(mouse) = input
                 && !pointer_has_capture
             {
-                let rendered_route = self.rendered_pointer_route_for_mouse(mouse);
+                let rendered_route = self.rendered_pointer_frame.route_for_mouse(mouse);
                 let replayed_route_changed = replay_context
                     .as_ref()
                     .and_then(|context| context.pointer.as_ref())
@@ -14810,7 +15641,16 @@ impl App {
             AppEvent::HostInputReady => Ok(RenderAction::None),
             AppEvent::GraphicsWriterReady => Ok(self.apply_graphics_completion()),
             AppEvent::MuxTitlesReady => {
-                Ok(if self.apply_mux_titles() { RenderAction::Paint } else { RenderAction::None })
+                let (changed_any, projection_paint_requested) = self.apply_mux_titles();
+                Ok(
+                    if changed_any
+                        && (projection_paint_requested || self.schedule_projection_paint())
+                    {
+                        RenderAction::Paint
+                    } else {
+                        RenderAction::None
+                    },
+                )
             }
             AppEvent::StatusCommandsUpdated => {
                 self.status_poke_pending.store(false, Ordering::Release);
@@ -15041,6 +15881,24 @@ impl App {
                     Ok(RenderAction::Paint)
                 }
             }
+            AppEvent::Mux(MuxEvent::AgentChanged { surface, .. }) => Ok(
+                if self
+                    .invalidate_projection_rows_for_surface(surface, ProjectionSurfaceChange::Agent)
+                {
+                    RenderAction::Paint
+                } else {
+                    RenderAction::None
+                },
+            ),
+            AppEvent::Mux(MuxEvent::TitleChanged { surface, .. }) => Ok(
+                if self
+                    .invalidate_projection_rows_for_surface(surface, ProjectionSurfaceChange::Title)
+                {
+                    RenderAction::Paint
+                } else {
+                    RenderAction::None
+                },
+            ),
             AppEvent::Mux(MuxEvent::PairingRequested(challenge)) => {
                 let duplicate = self
                     .pairing_dialog
@@ -15536,6 +16394,7 @@ impl App {
                 Ok(RenderAction::Draw)
             }
             TerminalInput::FocusLost => {
+                self.prefix_armed = false;
                 let action = if self.cancel_pointer_interaction() {
                     RenderAction::Draw
                 } else {
@@ -15840,7 +16699,7 @@ impl App {
                 focus_generation: self.pointer_focus_generation,
                 pointer_map_generation: self.rendered_pointer_frame.pointer_map_generation,
                 route: Self::mouse_requires_rendered_route(mouse.kind)
-                    .then(|| self.rendered_pointer_route_for_mouse(mouse)),
+                    .then(|| self.rendered_pointer_frame.route_for_mouse(mouse)),
             })
         } else {
             None
@@ -16021,17 +16880,6 @@ impl App {
                 || mouse.modifiers.contains(KeyModifiers::ALT))
     }
 
-    fn rendered_pointer_route_for_mouse(&self, mouse: &MouseEvent) -> PointerRouteIdentity {
-        let route = self.rendered_pointer_frame.route_for_mouse(mouse);
-        if Self::mouse_opens_cmux_context_menu(mouse) {
-            // The menu press never enters the pane's application; async output
-            // must not change its recorded route.
-            route.normalized_for_cmux_menu()
-        } else {
-            route
-        }
-    }
-
     fn pointer_has_capture(&self, kind: MouseEventKind) -> bool {
         match kind {
             MouseEventKind::Drag(button) | MouseEventKind::Up(button) => {
@@ -16076,14 +16924,6 @@ impl App {
         mouse: &MouseEvent,
         missing_surface: Option<SurfaceId>,
     ) -> TerminalPointerAdmissionResult {
-        if Self::mouse_opens_cmux_context_menu(mouse) {
-            // The menu is owned by cmux rather than the terminal
-            // application: the press never forwards bytes, so encoder
-            // semantics and content-generation admission cannot gate it.
-            // Geometry barriers (pending paints, pointer-map mutations)
-            // still defer it through the route staleness checks.
-            return TerminalPointerAdmissionResult::NotTerminal;
-        }
         let Some((surface, input_rect, expected_snapshot)) =
             rendered_route.terminal_pointer_snapshot()
         else {
@@ -17666,6 +18506,7 @@ impl App {
             self.machine_rail_follow_selection = true;
         }
         let page = rail_page_size(self.sidebar_layout.machine);
+        let mut continue_past_boundary = false;
         let command = {
             let Some(machine) = self.machine_ui.as_mut() else {
                 self.focus = FocusTarget::Pane;
@@ -17686,6 +18527,8 @@ impl App {
                 // j, k, h, l, or an arrow key.
                 Some(MachineRailCommand::ProviderMenu)
             } else if let Some(next) = rail_navigation_index(key, current, targets.len(), page) {
+                continue_past_boundary = next == current
+                    && matches!(key.code, KeyCode::Up | KeyCode::Down | KeyCode::Char('j' | 'k'));
                 if let Some(target) = targets.get(next).copied() {
                     machine.select_rail_target(target);
                 }
@@ -17742,6 +18585,9 @@ impl App {
                 None
             }
         };
+        if continue_past_boundary && self.continue_past_rail_boundary(RailKind::Machine, key) {
+            return RenderAction::Draw;
+        }
         match command {
             Some(MachineRailCommand::Activate(machine)) => {
                 self.activate_machine(machine);
@@ -17800,6 +18646,7 @@ impl App {
                 && selected.as_ref().is_some_and(|row| row.expanded)
             {
                 self.projection_rail_state_mut(view_index).collapsed.insert(branch);
+                self.invalidate_projection_rows_cache();
             } else {
                 self.focus_adjacent_rail(RailKind::Projection(view_index), -1);
             }
@@ -17811,6 +18658,7 @@ impl App {
                 && selected.as_ref().is_some_and(|row| !row.expanded)
             {
                 self.projection_rail_state_mut(view_index).collapsed.remove(&branch);
+                self.invalidate_projection_rows_cache();
             } else if !self.focus_adjacent_rail(RailKind::Projection(view_index), 1) {
                 self.focus = FocusTarget::Pane;
             }
@@ -17820,9 +18668,15 @@ impl App {
             .projection_sidebar_area(view_index)
             .map_or(1, |area| usize::from(area.height.saturating_sub(2)).max(1));
         if let Some(next) = rail_navigation_index(key, current, selectable_rows, page) {
+            if next == current
+                && self.continue_past_rail_boundary(RailKind::Projection(view_index), key)
+            {
+                return Ok(RenderAction::Draw);
+            }
             let state = self.projection_rail_state_mut(view_index);
             if next < rows.len() {
                 state.selected = next;
+                state.selected_target = rows.get(next).map(|row| row.target);
                 state.selected_action = None;
             } else {
                 state.selected_action = Some(next.saturating_sub(rows.len()));
@@ -17833,10 +18687,13 @@ impl App {
         if matches!(key.code, KeyCode::Char(' '))
             && let Some(branch) = selected.as_ref().and_then(|row| row.branch)
         {
-            let state = self.projection_rail_state_mut(view_index);
-            if !state.collapsed.remove(&branch) {
-                state.collapsed.insert(branch);
+            {
+                let state = self.projection_rail_state_mut(view_index);
+                if !state.collapsed.remove(&branch) {
+                    state.collapsed.insert(branch);
+                }
             }
+            self.invalidate_projection_rows_cache();
             return Ok(RenderAction::Draw);
         }
         if key.code == KeyCode::Enter {
@@ -18233,6 +19090,10 @@ impl App {
                     .unwrap_or_default();
                 let page = rail_page_size(self.sidebar_layout.workspace);
                 if let Some(next) = rail_navigation_index(key, current, targets.len(), page) {
+                    if next == current && self.continue_past_rail_boundary(RailKind::Workspace, key)
+                    {
+                        return Ok(RenderAction::Draw);
+                    }
                     if let Some(target) = targets.get(next).cloned() {
                         self.select_workspace_rail_target(target);
                     }
@@ -18294,6 +19155,11 @@ impl App {
         if let Some(next) =
             rail_navigation_index(key, self.tabs_rail_selection, targets.len(), page)
         {
+            if next == self.tabs_rail_selection
+                && self.continue_past_rail_boundary(RailKind::Tabs, key)
+            {
+                return Ok(RenderAction::Draw);
+            }
             self.tabs_rail_selection = next;
         } else if key.code == KeyCode::Enter
             && let Some(target) = targets.get(self.tabs_rail_selection)
@@ -20794,7 +21660,8 @@ impl App {
                 | Drag::Scrollbar { .. }
                 | Drag::HorizontalScrollbar { .. }
                 | Drag::WorkspaceScrollbar { .. }
-                | Drag::RailResize(_),
+                | Drag::RailResize(_)
+                | Drag::SidebarSplit { .. },
             )
             | None => {}
             Some(Drag::PtyMouse { .. }) => unreachable!("PTY drag returned before take"),
@@ -21632,14 +22499,18 @@ impl App {
                     }
                 }
                 Hit::ProjectionToggle { view, branch } => {
-                    let state = self.projection_rail_state_mut(view);
-                    if !state.collapsed.remove(&branch) {
-                        state.collapsed.insert(branch);
+                    {
+                        let state = self.projection_rail_state_mut(view);
+                        if !state.collapsed.remove(&branch) {
+                            state.collapsed.insert(branch);
+                        }
                     }
+                    self.invalidate_projection_rows_cache();
                 }
                 Hit::ProjectionRow { view, row, target } => {
                     let state = self.projection_rail_state_mut(view);
                     state.selected = row;
+                    state.selected_target = Some(target);
                     state.selected_action = None;
                     state.follow_selection = true;
                     self.activate_projection_target(target)?;
@@ -21753,7 +22624,32 @@ impl App {
                     self.start_workspace_scrollbar_drag(track, total_rows, visible_rows, y);
                 }
                 Hit::RailResize(kind) => {
-                    self.drag = Some(Drag::RailResize(kind));
+                    // A horizontal split divider shares the left child's
+                    // border column; a press there re-shares the split
+                    // instead of resizing the whole column.
+                    if let Some(divider) = self
+                        .sidebar_layout
+                        .dividers
+                        .iter()
+                        .find(|divider| divider.rect.contains(x, y))
+                        .copied()
+                    {
+                        if let Some((group, first_child, second_child)) =
+                            self.sidebar_split_drag_target(divider.group, divider.index)
+                        {
+                            self.drag =
+                                Some(Drag::SidebarSplit { group, first_child, second_child });
+                        }
+                    } else {
+                        self.drag = Some(Drag::RailResize(kind));
+                    }
+                }
+                Hit::SidebarSplitDivider { group, index } => {
+                    if let Some((group, first_child, second_child)) =
+                        self.sidebar_split_drag_target(group, index)
+                    {
+                        self.drag = Some(Drag::SidebarSplit { group, first_child, second_child });
+                    }
                 }
                 Hit::PaneResize { horizontal, vertical } => {
                     let horizontal = horizontal
@@ -21996,21 +22892,41 @@ impl App {
             Some(Drag::RailResize(kind)) => {
                 let kind = *kind;
                 if let Some(width) = rail_drag_width(&self.config, &self.sidebar_layout, kind, x) {
-                    match kind {
-                        RailKind::Machine => self.machine_sidebar_width_override = Some(width),
-                        RailKind::Workspace => {
-                            self.sidebar_compact = false;
-                            self.sidebar_width_override = Some(width);
-                        }
-                        RailKind::Tabs => self.tabs_sidebar_width_override = Some(width),
-                        RailKind::Projection(index) => {
-                            if let Some(id) =
-                                self.config.sidebar.views.get(index).map(|view| view.id.clone())
-                            {
-                                self.projection_sidebar_width_overrides.insert(id, width);
+                    // Stacked rails share their column's width, so the drag
+                    // commits to the column key instead of the one rail.
+                    let shared_column = sidebar_column_for_rail(&self.sidebar_layout, kind)
+                        .map(|index| &self.sidebar_layout.columns[index])
+                        .filter(|column| column.rails.len() > 1)
+                        .map(|column| column.key.clone());
+                    if let Some(key) = shared_column {
+                        self.projection_sidebar_width_overrides.insert(key, width);
+                    } else {
+                        match kind {
+                            RailKind::Machine => self.machine_sidebar_width_override = Some(width),
+                            RailKind::Workspace => {
+                                self.sidebar_compact = false;
+                                self.sidebar_width_override = Some(width);
+                            }
+                            RailKind::Tabs => self.tabs_sidebar_width_override = Some(width),
+                            RailKind::Projection(index) => {
+                                if let Some(id) =
+                                    self.config.sidebar.views.get(index).map(|view| view.id.clone())
+                                {
+                                    self.projection_sidebar_width_overrides.insert(id, width);
+                                }
                             }
                         }
                     }
+                }
+                Ok(RenderAction::Draw)
+            }
+            Some(Drag::SidebarSplit { group, first_child, second_child }) => {
+                let (group, first_child, second_child) =
+                    (group.clone(), first_child.clone(), second_child.clone());
+                if !self.drag_sidebar_split_divider(&group, &first_child, &second_child, x, y) {
+                    // The split topology changed while the pointer was down.
+                    // Do not apply the old divider to a new child pair.
+                    self.drag = None;
                 }
                 Ok(RenderAction::Draw)
             }
@@ -22026,6 +22942,92 @@ impl App {
             }
             None => Ok(RenderAction::None),
         }
+    }
+
+    /// Capture stable ids for the two children flanking a divider.
+    fn sidebar_split_drag_target(
+        &self,
+        group_index: usize,
+        child_index: usize,
+    ) -> Option<(String, String, String)> {
+        let group = self.sidebar_layout.split_groups.get(group_index)?;
+        let first_child = group.child_keys.get(child_index)?.clone();
+        let second_child = group.child_keys.get(child_index + 1)?.clone();
+        Some((group.id.clone(), first_child, second_child))
+    }
+
+    /// Convert a divider drag into new share fractions for its split group.
+    /// Return false when the split topology no longer contains the same
+    /// adjacent child pair captured at mouse-down.
+    fn drag_sidebar_split_divider(
+        &mut self,
+        group: &str,
+        first_child: &str,
+        second_child: &str,
+        x: u16,
+        y: u16,
+    ) -> bool {
+        use crate::config::SidebarSplitDir;
+        let Some(placement) =
+            self.sidebar_layout.split_groups.iter().find(|placement| placement.id == group)
+        else {
+            return false;
+        };
+        let Some(index) = placement.child_keys.iter().position(|key| key == first_child) else {
+            return false;
+        };
+        let Some(second_index) = placement.child_keys.iter().position(|key| key == second_child)
+        else {
+            return false;
+        };
+        if second_index != index + 1 {
+            return false;
+        }
+        let Some(first) = placement.children.get(index).copied() else { return false };
+        let Some(second) = placement.children.get(second_index).copied() else { return false };
+        let mut sizes: Vec<u16> = placement
+            .children
+            .iter()
+            .map(|child| match placement.dir {
+                SidebarSplitDir::Vertical => child.height,
+                SidebarSplitDir::Horizontal => child.width,
+            })
+            .collect();
+        let (combined, min_each, desired_first) = match placement.dir {
+            SidebarSplitDir::Vertical => (
+                first.height.saturating_add(second.height),
+                MIN_SPLIT_RAIL_HEIGHT,
+                // The divider row sits below the first child, so the row
+                // under the pointer becomes the first child's height.
+                y.saturating_sub(first.y),
+            ),
+            SidebarSplitDir::Horizontal => (
+                first.width.saturating_add(second.width),
+                MIN_RAIL_WIDTH,
+                // The border column belongs to the first child, matching
+                // column-width drags.
+                x.saturating_sub(first.x).saturating_add(1),
+            ),
+        };
+        if combined < min_each.saturating_mul(2) {
+            return true;
+        }
+        let desired_first = desired_first.clamp(min_each, combined - min_each);
+        sizes[index] = desired_first;
+        sizes[index + 1] = combined - desired_first;
+        let total: f32 = sizes.iter().map(|size| f32::from(*size)).sum();
+        if total <= 0.0 {
+            return true;
+        }
+        let id = placement.id.clone();
+        let child_keys = placement.child_keys.clone();
+        let fractions = child_keys
+            .into_iter()
+            .zip(sizes)
+            .map(|(child, size)| (child, f32::from(size) / total))
+            .collect::<HashMap<_, _>>();
+        self.sidebar_split_fractions.entry(id).or_default().extend(fractions);
+        true
     }
 
     fn handle_left_up(&mut self, x: u16, y: u16) -> anyhow::Result<RenderAction> {
@@ -22711,26 +23713,28 @@ impl App {
         let Some(view) = self.config.sidebar.views.get(index) else { return };
         let view_id = view.id.clone();
         let hides_focused = !visible && self.focused_sidebar_view_id().as_deref() == Some(&view_id);
-        let hidden = self
-            .hidden_sidebar_views
-            .entry(self.config.sidebar.active_profile.clone())
-            .or_default();
-        if visible {
-            hidden.remove(&view_id);
-            self.sidebar_visible = true;
-        } else {
-            hidden.insert(view_id);
-            if hides_focused {
-                self.focus = FocusTarget::Pane;
+        {
+            let hidden = self
+                .hidden_sidebar_views
+                .entry(self.config.sidebar.active_profile.clone())
+                .or_default();
+            if visible {
+                hidden.remove(&view_id);
+                self.sidebar_visible = true;
+            } else {
+                hidden.insert(view_id);
+                if hides_focused {
+                    self.focus = FocusTarget::Pane;
+                }
             }
         }
+        self.rebuild_projection_surface_indexes();
     }
 
     fn activate_sidebar_profile(&mut self, index: usize) {
         let Some(profile) = self.config.sidebar.profiles.get(index).cloned() else { return };
         let focused_view = self.focused_sidebar_view_id();
-        self.config.sidebar.active_profile = profile.id;
-        self.config.sidebar.views = profile.views;
+        self.replace_sidebar_projection(profile.id, profile.views, profile.layout);
         self.config.sidebar.columns = self
             .config
             .sidebar
@@ -23827,17 +24831,18 @@ mod tests {
         Prompt, PromptTarget, PtyFailureIngress, PtyMousePressResult, RailKind, RenderAction,
         RenderedMenuLevel, RenderedPaneRoute, RenderedPointerFrame, Selection, SessionCompletion,
         SessionCompletionAction, SessionEventSender, ShortcutHelp, SidebarActionTarget,
-        SidebarLayout, SidebarPluginSyncClaim, SidebarPluginSyncState, SidebarWidthOverrides,
-        StatusTemplateValues, StatusWorkerStop, StdoutLock, SurfaceAttachClaimState,
-        SurfaceResizeDecision, SurfaceResizeOwnership, TERMINAL_PAINT_CADENCE, TerminalInput,
-        TerminalPaintPacer, TerminalPointerAdmission, TerminalPointerAdmissionResult,
-        TerminalPointerEncoding, TextInput, Toast, VIEWPORT_ANIMATION_DURATION, ViewportMotion,
-        ViewportPaneAreaProjection, WorkspaceRailSelection, action_available_in_mode,
-        browser_content_size_for_rect, browser_frame_source_crop, browser_hover_forward_allowed,
-        browser_source_crop, canonical_terminal_content, catch_renderer_panic,
-        clamp_split_ratio_for_tab_bars, client_menu_item, clip_horizontal_rect,
-        content_size_for_rect, disable_host_keyboard_protocol, enable_host_keyboard_protocol,
-        expand_status_tokens, forward_host_input, forward_mux_event, forward_mux_events,
+        SidebarLayout, SidebarPluginSyncClaim, SidebarPluginSyncState, SidebarSplitGroupPlacement,
+        SidebarWidthOverrides, StatusTemplateValues, StatusWorkerStop, StdoutLock,
+        SurfaceAttachClaimState, SurfaceResizeDecision, SurfaceResizeOwnership,
+        TERMINAL_PAINT_CADENCE, TerminalInput, TerminalPaintPacer, TerminalPointerAdmission,
+        TerminalPointerAdmissionResult, TerminalPointerEncoding, TextInput,
+        VIEWPORT_ANIMATION_DURATION, ViewportMotion, ViewportPaneAreaProjection,
+        WorkspaceRailSelection, action_available_in_mode, browser_content_size_for_rect,
+        browser_frame_source_crop, browser_hover_forward_allowed, browser_source_crop,
+        canonical_terminal_content, catch_renderer_panic, clamp_split_ratio_for_tab_bars,
+        client_menu_item, clip_horizontal_rect, content_size_for_rect,
+        disable_host_keyboard_protocol, enable_host_keyboard_protocol, expand_status_tokens,
+        forward_host_input, forward_mux_event, forward_mux_events,
         host_mouse_capture_escape_if_changed, host_startup_input_modes,
         initial_applied_outer_cursor, initial_host_mouse_capture, keyboard_protocol_accepts,
         layout_undo_error_completion, negotiate_host_keyboard_protocol_with, outer_cursor_escape,
@@ -23883,7 +24888,7 @@ mod tests {
     use crate::browser_input::{BrowserInputDispatcher, BrowserInputEvent, BrowserInputKind};
     use crate::config::{
         Action, ChromeTheme, Config, ScrollbarPosition, SidebarColumnKind, SidebarProfileSpec,
-        SidebarResourceKind, SidebarView, SidebarViewSpec, action_definitions,
+        SidebarResourceKind, SidebarSplitDir, SidebarView, SidebarViewSpec, action_definitions,
     };
     use crate::localization;
     use crate::machine::{
@@ -24563,6 +25568,17 @@ mod tests {
         assert!(!app.prefix_armed);
         assert!(!app.quit);
         assert!(app.pty_input.shutdown(Duration::from_secs(1)));
+    }
+
+    #[test]
+    fn focus_loss_clears_a_pending_prefix() {
+        let mux = Mux::new("focus-loss-prefix-reset", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.prefix_armed = true;
+
+        app.handle(AppEvent::Input(Event::FocusLost)).unwrap();
+
+        assert!(!app.prefix_armed);
     }
 
     #[test]
@@ -26291,12 +27307,19 @@ mod tests {
             width: 30,
             max_width: 0,
             collapse_priority: 30,
+            scope: crate::config::SidebarViewScope::Workspace,
         }];
         app.config.sidebar.profiles = vec![
-            SidebarProfileSpec { id: "full".into(), name: "Full".into(), views: full.clone() },
+            SidebarProfileSpec {
+                id: "full".into(),
+                name: "Full".into(),
+                layout: crate::config::sidebar_layout_of_columns(&full),
+                views: full.clone(),
+            },
             SidebarProfileSpec {
                 id: "focused".into(),
                 name: "Focused".into(),
+                layout: crate::config::sidebar_layout_of_columns(&focused),
                 views: focused.clone(),
             },
         ];
@@ -26328,6 +27351,115 @@ mod tests {
     }
 
     #[test]
+    fn profile_switch_rebuilds_projection_when_view_id_is_reused() {
+        let (mux, surface) = test_mux("sidebar-profile-projection-cache-test", None);
+        mux.report_agent(
+            surface.id,
+            AgentState::Working,
+            AgentSource::Hook,
+            Some("agent-session".into()),
+        )
+        .unwrap();
+
+        let tabs_view = SidebarViewSpec {
+            id: "shared-view".into(),
+            levels: vec![SidebarResourceKind::Tabs],
+            actions: Vec::new(),
+            actions_position: crate::config::ActionsPosition::Bottom,
+            width: 30,
+            max_width: 0,
+            collapse_priority: 30,
+            scope: crate::config::SidebarViewScope::Workspace,
+        };
+        let agents_view = SidebarViewSpec {
+            id: "shared-view".into(),
+            levels: vec![SidebarResourceKind::Agents],
+            actions: vec![crate::config::SidebarActionSpec::plain(Action::NewWorkspace)],
+            actions_position: crate::config::ActionsPosition::Bottom,
+            width: 30,
+            max_width: 0,
+            collapse_priority: 30,
+            scope: crate::config::SidebarViewScope::Workspace,
+        };
+        let tabs_profile = SidebarProfileSpec {
+            id: "tabs".into(),
+            name: "Tabs".into(),
+            layout: crate::config::sidebar_layout_of_columns(std::slice::from_ref(&tabs_view)),
+            views: vec![tabs_view],
+        };
+        let agents_profile = SidebarProfileSpec {
+            id: "agents".into(),
+            name: "Agents".into(),
+            layout: crate::config::sidebar_layout_of_columns(std::slice::from_ref(&agents_view)),
+            views: vec![agents_view],
+        };
+
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.config.sidebar.columns.clear();
+        app.config.sidebar.profiles = vec![tabs_profile.clone(), agents_profile.clone()];
+        app.config.sidebar.active_profile = tabs_profile.id.clone();
+        app.config.sidebar.views = tabs_profile.views.clone();
+        app.config.sidebar.layout = tabs_profile.layout.clone();
+        app.config.sidebar.views_explicit = true;
+        app.replace_tree(app.session.tree());
+
+        let tabs_rows = app.projection_rows(0);
+        assert!(tabs_rows.iter().any(|row| row.resource == SidebarResourceKind::Tabs));
+
+        app.activate_sidebar_profile(1);
+
+        let agent_rows = app.projection_rows(0);
+        assert!(agent_rows.iter().any(|row| row.resource == SidebarResourceKind::Agents));
+        assert!(
+            app.sidebar_action_rows(0)
+                .iter()
+                .any(|row| row.target == SidebarActionTarget::CreateWorkspace(None))
+        );
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn profile_switch_does_not_reuse_split_fractions_for_a_reused_group() {
+        let mux = Mux::new("sidebar-profile-split-fractions-test", SurfaceOptions::default());
+        let mut first = split_sidebar_config();
+        let mut second_layout = first.sidebar.layout.clone();
+        if let Some(crate::config::SidebarLayoutNode::Split(split)) = second_layout.first_mut() {
+            split.weights = vec![3, 1];
+        }
+        let first_profile = SidebarProfileSpec {
+            id: "first".into(),
+            name: "First".into(),
+            views: first.sidebar.views.clone(),
+            layout: first.sidebar.layout.clone(),
+        };
+        let second_profile = SidebarProfileSpec {
+            id: "second".into(),
+            name: "Second".into(),
+            views: first.sidebar.views.clone(),
+            layout: second_layout,
+        };
+        first.sidebar.profiles = vec![first_profile.clone(), second_profile];
+        first.sidebar.active_profile = first_profile.id.clone();
+
+        let mut app = test_app(Session::Local(mux));
+        app.config = first;
+        app.sidebar_split_fractions.insert(
+            "left".into(),
+            HashMap::from([("workspaces".to_string(), 0.8), ("all-agents".to_string(), 0.2)]),
+        );
+        app.sync_layout((120, 31));
+        assert_eq!(app.sidebar_layout.ordered[0].rect.height, 24);
+        app.projection_sidebar_width_overrides.insert("left".into(), 50);
+
+        app.activate_sidebar_profile(1);
+        assert!(app.sidebar_split_fractions.is_empty());
+        assert!(app.projection_sidebar_width_overrides.is_empty());
+        app.sync_layout((120, 31));
+        assert_eq!(app.sidebar_layout.ordered[0].rect.height, 23);
+    }
+
+    #[test]
     fn collapsed_rail_requires_hysteresis_before_reappearing() {
         let mut config = Config::default();
         config.sidebar.views = vec![
@@ -26347,6 +27479,7 @@ mod tests {
             None,
             None,
             &overrides,
+            &HashMap::new(),
             &HashSet::new(),
             None,
         );
@@ -26362,6 +27495,7 @@ mod tests {
             None,
             None,
             &overrides,
+            &HashMap::new(),
             &HashSet::new(),
             Some(&collapsed),
         );
@@ -26376,10 +27510,419 @@ mod tests {
             None,
             None,
             &overrides,
+            &HashMap::new(),
             &HashSet::new(),
             Some(&at_boundary),
         );
         assert!(revealed.machine.is_some());
+    }
+
+    #[test]
+    fn split_hysteresis_tracks_column_after_inner_child_pruning() {
+        let mut config = split_sidebar_config();
+        // The first child is pruned by the split's minimum height, while the
+        // top-level split column itself remains rendered.
+        config.sidebar.views[0].collapse_priority = 10;
+        config.sidebar.views[1].collapse_priority = 20;
+
+        let previous = sidebar_layout_for_state(
+            &config,
+            true,
+            false,
+            false,
+            (50, 8),
+            None,
+            None,
+            None,
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashSet::new(),
+            None,
+        );
+        assert!(previous.has_column("left"));
+        assert!(previous.rail(RailKind::Workspace).is_none());
+        assert!(previous.rail(RailKind::Projection(1)).is_some());
+
+        let current = sidebar_layout_for_state(
+            &config,
+            true,
+            false,
+            false,
+            (50, 8),
+            None,
+            None,
+            None,
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashSet::new(),
+            Some(&previous),
+        );
+        assert!(current.has_column("left"));
+        assert!(current.rail(RailKind::Projection(1)).is_some());
+    }
+
+    fn split_sidebar_config() -> Config {
+        use crate::config::{
+            SidebarLayoutNode, SidebarSplitDir, SidebarSplitSpec, SidebarViewScope,
+        };
+        let mut config = Config::default();
+        config.sidebar.views = vec![
+            SidebarViewSpec::legacy(SidebarColumnKind::Workspaces, 26, 0),
+            SidebarViewSpec {
+                id: "all-agents".into(),
+                levels: vec![SidebarResourceKind::Agents],
+                actions: Vec::new(),
+                actions_position: crate::config::ActionsPosition::Bottom,
+                width: 26,
+                max_width: 0,
+                collapse_priority: 20,
+                scope: SidebarViewScope::All,
+            },
+        ];
+        config.sidebar.views_explicit = true;
+        config.sidebar.layout = vec![SidebarLayoutNode::Split(SidebarSplitSpec {
+            id: "left".into(),
+            dir: SidebarSplitDir::Vertical,
+            weights: vec![1, 1],
+            children: vec![SidebarLayoutNode::Leaf(0), SidebarLayoutNode::Leaf(1)],
+            width: 26,
+            max_width: 0,
+            collapse_priority: 30,
+        })];
+        config
+    }
+
+    #[test]
+    fn vertical_split_column_stacks_rails_around_a_divider_row() {
+        let config = split_sidebar_config();
+        let layout = sidebar_layout_for_state(
+            &config,
+            true,
+            false,
+            false,
+            (120, 31),
+            None,
+            None,
+            None,
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashSet::new(),
+            None,
+        );
+        assert_eq!(layout.columns.len(), 1);
+        assert_eq!(layout.ordered.len(), 2);
+        let top = layout.ordered[0].rect;
+        let bottom = layout.ordered[1].rect;
+        assert_eq!(layout.workspace, Some(top));
+        assert_eq!(layout.ordered[1].kind, RailKind::Projection(1));
+        assert_eq!((top.x, bottom.x), (0, 0));
+        assert_eq!(top.width, bottom.width);
+        assert_eq!(layout.dividers.len(), 1);
+        let divider = layout.dividers[0];
+        assert_eq!(divider.rect.y, top.y + top.height);
+        assert_eq!(bottom.y, divider.rect.y + 1);
+        assert_eq!(top.height + bottom.height + 1, 31, "children partition the full column");
+        assert_eq!(layout.content.x, top.width, "one column, one column width");
+    }
+
+    #[test]
+    fn split_fraction_overrides_replace_configured_weights() {
+        let config = split_sidebar_config();
+        let mut fractions = HashMap::new();
+        fractions.insert(
+            "left".to_string(),
+            HashMap::from([("workspaces".to_string(), 0.2f32), ("all-agents".to_string(), 0.8f32)]),
+        );
+        let layout = sidebar_layout_for_state(
+            &config,
+            true,
+            false,
+            false,
+            (120, 31),
+            None,
+            None,
+            None,
+            &HashMap::new(),
+            &fractions,
+            &HashSet::new(),
+            None,
+        );
+        let top = layout.ordered[0].rect;
+        let bottom = layout.ordered[1].rect;
+        assert_eq!(top.height, 6, "0.2 of the 30 shared rows");
+        assert_eq!(bottom.height, 24);
+    }
+
+    #[test]
+    fn split_fraction_overrides_follow_child_ids_after_reordering() {
+        let mut config = split_sidebar_config();
+        if let Some(crate::config::SidebarLayoutNode::Split(split)) =
+            config.sidebar.layout.first_mut()
+        {
+            split.children.reverse();
+            split.weights.reverse();
+        }
+        let mut fractions = HashMap::new();
+        fractions.insert(
+            "left".to_string(),
+            HashMap::from([("workspaces".to_string(), 0.2f32), ("all-agents".to_string(), 0.8f32)]),
+        );
+        let layout = sidebar_layout_for_state(
+            &config,
+            true,
+            false,
+            false,
+            (120, 31),
+            None,
+            None,
+            None,
+            &HashMap::new(),
+            &fractions,
+            &HashSet::new(),
+            None,
+        );
+
+        assert_eq!(layout.rail(RailKind::Workspace).unwrap().height, 6);
+        assert_eq!(layout.rail(RailKind::Projection(1)).unwrap().height, 24);
+    }
+
+    #[test]
+    fn split_fraction_overrides_keep_surviving_child_ratios_after_pruning() {
+        use crate::config::{SidebarLayoutNode, SidebarSplitDir, SidebarSplitSpec};
+
+        let mut config = split_sidebar_config();
+        let mut third = config.sidebar.views[1].clone();
+        third.id = "third".into();
+        config.sidebar.views.push(third);
+        config.sidebar.views[0].collapse_priority = 1;
+        config.sidebar.views[1].collapse_priority = 20;
+        config.sidebar.views[2].collapse_priority = 30;
+        config.sidebar.layout = vec![SidebarLayoutNode::Split(SidebarSplitSpec {
+            id: "left".into(),
+            dir: SidebarSplitDir::Vertical,
+            weights: vec![1, 1, 1],
+            children: vec![
+                SidebarLayoutNode::Leaf(0),
+                SidebarLayoutNode::Leaf(1),
+                SidebarLayoutNode::Leaf(2),
+            ],
+            width: 26,
+            max_width: 0,
+            collapse_priority: 30,
+        })];
+        let mut fractions = HashMap::new();
+        fractions.insert(
+            "left".to_string(),
+            HashMap::from([
+                ("workspaces".to_string(), 0.2f32),
+                ("all-agents".to_string(), 0.6f32),
+                ("third".to_string(), 0.2f32),
+            ]),
+        );
+
+        // The first child is pruned at this height. The two surviving
+        // children retain their 3:1 saved ratio instead of falling back to
+        // equal configured weights.
+        let layout = sidebar_layout_for_state(
+            &config,
+            true,
+            false,
+            false,
+            (120, 16),
+            None,
+            None,
+            None,
+            &HashMap::new(),
+            &fractions,
+            &HashSet::new(),
+            None,
+        );
+        assert_eq!(layout.split_groups[0].child_keys, vec!["all-agents", "third"]);
+        assert_eq!(layout.rail(RailKind::Projection(1)).unwrap().height, 10);
+        assert_eq!(layout.rail(RailKind::Projection(2)).unwrap().height, 5);
+    }
+
+    #[test]
+    fn hidden_split_pane_gives_the_column_to_the_remaining_rail() {
+        let config = split_sidebar_config();
+        let mut hidden = HashSet::new();
+        hidden.insert("all-agents".to_string());
+        let layout = sidebar_layout_for_state(
+            &config,
+            true,
+            false,
+            false,
+            (120, 31),
+            None,
+            None,
+            None,
+            &HashMap::new(),
+            &HashMap::new(),
+            &hidden,
+            None,
+        );
+        assert_eq!(layout.ordered.len(), 1);
+        assert!(layout.dividers.is_empty());
+        assert_eq!(layout.ordered[0].rect.height, 31);
+    }
+
+    #[test]
+    fn sidebar_split_divider_drag_re_shares_the_column() {
+        let mux = Mux::new("sidebar-split-drag-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.config = split_sidebar_config();
+        app.sync_layout((120, 31));
+        assert_eq!(app.sidebar_layout.dividers.len(), 1);
+
+        app.drag_sidebar_split_divider("left", "workspaces", "all-agents", 0, 9);
+        app.sync_layout((120, 31));
+        let top = app.sidebar_layout.ordered[0].rect;
+        let bottom = app.sidebar_layout.ordered[1].rect;
+        assert_eq!(top.height, 9, "the dragged divider row becomes the boundary");
+        assert_eq!(top.height + bottom.height, 30);
+
+        // The two rails clamp at their minimum height.
+        app.drag_sidebar_split_divider("left", "workspaces", "all-agents", 0, 0);
+        app.sync_layout((120, 31));
+        assert_eq!(app.sidebar_layout.ordered[0].rect.height, super::MIN_SPLIT_RAIL_HEIGHT);
+    }
+
+    #[test]
+    fn sidebar_split_divider_drag_resolves_group_by_stable_id() {
+        let mux = Mux::new("sidebar-split-stable-id-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.sidebar_layout.split_groups = vec![
+            SidebarSplitGroupPlacement {
+                id: "other".into(),
+                dir: SidebarSplitDir::Vertical,
+                children: vec![
+                    Rect { x: 0, y: 0, width: 20, height: 10 },
+                    Rect { x: 0, y: 11, width: 20, height: 10 },
+                ],
+                child_keys: vec!["other-first".into(), "other-second".into()],
+            },
+            SidebarSplitGroupPlacement {
+                id: "left".into(),
+                dir: SidebarSplitDir::Vertical,
+                children: vec![
+                    Rect { x: 0, y: 0, width: 20, height: 10 },
+                    Rect { x: 0, y: 11, width: 20, height: 10 },
+                ],
+                child_keys: vec!["first".into(), "second".into()],
+            },
+        ];
+
+        app.drag_sidebar_split_divider("left", "first", "second", 0, 9);
+
+        assert!(app.sidebar_split_fractions.contains_key("left"));
+        assert!(!app.sidebar_split_fractions.contains_key("other"));
+        let fractions = app.sidebar_split_fractions.get("left").unwrap();
+        assert!(fractions.contains_key("first"));
+        assert!(fractions.contains_key("second"));
+    }
+
+    #[test]
+    fn sidebar_split_drag_keeps_the_same_children_after_layout_pruning() {
+        use crate::config::{SidebarLayoutNode, SidebarSplitDir, SidebarSplitSpec};
+
+        let mux = Mux::new("sidebar-split-drag-pruning-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let mut config = split_sidebar_config();
+        let mut third = config.sidebar.views[1].clone();
+        third.id = "third".into();
+        let mut fourth = third.clone();
+        fourth.id = "fourth".into();
+        config.sidebar.views.extend([third, fourth]);
+        config.sidebar.views[0].collapse_priority = 1;
+        config.sidebar.views[1].collapse_priority = 20;
+        config.sidebar.views[2].collapse_priority = 30;
+        config.sidebar.views[3].collapse_priority = 40;
+        config.sidebar.layout = vec![SidebarLayoutNode::Split(SidebarSplitSpec {
+            id: "left".into(),
+            dir: SidebarSplitDir::Vertical,
+            weights: vec![1; 4],
+            children: (0..4).map(SidebarLayoutNode::Leaf).collect(),
+            width: 26,
+            max_width: 0,
+            collapse_priority: 30,
+        })];
+        config.sidebar.views_explicit = true;
+        app.config = config;
+
+        // Capture the divider between the second and third children while all
+        // four children fit.
+        app.sync_layout((120, 23));
+        let (group, first_child, second_child) =
+            app.sidebar_split_drag_target(0, 1).expect("second split divider exists");
+        assert_eq!((first_child.as_str(), second_child.as_str()), ("all-agents", "third"));
+        app.drag = Some(Drag::SidebarSplit { group, first_child, second_child });
+
+        // A shorter frame prunes only the first child. The captured pair is
+        // now at indexes 0 and 1, so an index-only drag would target the wrong
+        // pair (or fail when the old index is out of range).
+        app.sync_layout((120, 18));
+        assert_eq!(
+            app.sidebar_layout.split_groups[0].child_keys,
+            vec!["all-agents", "third", "fourth"]
+        );
+        app.handle_left_drag(0, 6).unwrap();
+        app.sync_layout((120, 18));
+
+        let fourth_height = app
+            .sidebar_layout
+            .ordered
+            .iter()
+            .find(|placement| placement.kind == RailKind::Projection(3))
+            .map(|placement| placement.rect.height)
+            .expect("fourth child remains visible");
+        assert_eq!(fourth_height, 5, "the captured pair, not the stale index, was resized");
+        assert!(matches!(app.drag, Some(Drag::SidebarSplit { .. })));
+    }
+
+    #[test]
+    fn focus_moves_vertically_between_stacked_rails() {
+        let mux = Mux::new("sidebar-split-focus-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.config = split_sidebar_config();
+        app.sync_layout((120, 31));
+
+        app.focus = FocusTarget::WorkspaceRail;
+        assert!(app.move_focus_between_sidebar_rails(Direction::Down));
+        assert_eq!(app.focus, FocusTarget::ProjectionRail(1));
+        assert!(app.move_focus_between_sidebar_rails(Direction::Up));
+        assert_eq!(app.focus, FocusTarget::WorkspaceRail);
+        assert!(
+            !app.move_focus_between_sidebar_rails(Direction::Up),
+            "no rail above the top of the column"
+        );
+    }
+
+    #[test]
+    fn rail_width_drag_on_a_stacked_rail_resizes_the_whole_column() {
+        let mux = Mux::new("sidebar-split-width-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.config = split_sidebar_config();
+        app.sync_layout((120, 31));
+
+        app.drag = Some(Drag::RailResize(RailKind::Projection(1)));
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Drag(MouseButton::Left),
+            column: 33,
+            row: 25,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        app.sync_layout((120, 31));
+        assert_eq!(
+            app.projection_sidebar_width_overrides.get("left").copied(),
+            Some(34),
+            "the override commits under the split group id"
+        );
+        let top = app.sidebar_layout.ordered[0].rect;
+        let bottom = app.sidebar_layout.ordered[1].rect;
+        assert_eq!(top.width, 34);
+        assert_eq!(bottom.width, 34);
+        app.drag = None;
     }
 
     #[test]
@@ -26877,20 +28420,6 @@ mod tests {
         assert_eq!(app.status_message.as_deref(), Some("SSH connection failed"));
         app.run_action(Action::ToggleSidebarCompact).unwrap();
         assert_eq!(app.status_message.as_deref(), Some("SSH connection failed"));
-    }
-
-    #[test]
-    fn expired_toast_is_consumed_once() {
-        let mux = Mux::new("expired-toast-once-test", SurfaceOptions::default());
-        let mut app = test_app(Session::Local(mux));
-        app.toast = Some(Toast {
-            text: "expired".to_string(),
-            deadline: Instant::now() - Duration::from_millis(1),
-        });
-
-        assert!(app.expire_toast());
-        assert!(!app.expire_toast());
-        assert!(app.toast.is_none());
     }
 
     #[test]
@@ -30590,100 +32119,6 @@ mod tests {
     }
 
     #[test]
-    fn immediate_menu_press_survives_content_changed_before_surface_output() {
-        let (mux, surface) = test_mux("immediate-menu-content-test", None);
-        surface.with_terminal(|terminal| {
-            for index in 0..100 {
-                terminal.vt_write(format!("line {index}\r\n").as_bytes());
-            }
-        });
-        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
-        app.replace_tree(app.session.tree());
-        app.sidebar_visible = false;
-        app.sync_layout((40, 15));
-        while app.session.has_pending_mutations() {
-            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
-        }
-        let mut terminal = Terminal::new(TestBackend::new(40, 15)).unwrap();
-        app.render_action(&mut terminal, RenderAction::Draw).unwrap();
-        let content = app.pane_areas[0].content;
-        assert_eq!(app.pointer_route_phase, PointerRoutePhase::Fresh);
-
-        // Terminal content moves after the frame committed, exactly like PTY
-        // output landing between a paint and the user's press.
-        surface.scroll_delta(-3).unwrap();
-        assert_eq!(
-            app.pointer_route_phase,
-            PointerRoutePhase::Fresh,
-            "the queued output event has not marked the rendered route stale yet"
-        );
-
-        app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
-            kind: MouseEventKind::Down(MouseButton::Right),
-            column: content.x + 4,
-            row: content.y + 2,
-            modifiers: KeyModifiers::SHIFT,
-        })))
-        .unwrap();
-
-        assert!(
-            app.menu.is_some(),
-            "a cmux-owned context menu press must not be swallowed by terminal content \
-             admission: it never forwards bytes to the terminal application"
-        );
-        assert!(app.deferred_input.is_empty());
-        mux.close_surface(surface.id).unwrap();
-    }
-
-    #[test]
-    fn deferred_menu_press_survives_content_repaint_before_replay() {
-        let (mux, surface) = test_mux("deferred-menu-content-test", None);
-        surface.with_terminal(|terminal| {
-            for index in 0..100 {
-                terminal.vt_write(format!("line {index}\r\n").as_bytes());
-            }
-        });
-        let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
-        app.replace_tree(app.session.tree());
-        app.sidebar_visible = false;
-        app.sync_layout((40, 15));
-        while app.session.has_pending_mutations() {
-            app.handle(events.recv_timeout(Duration::from_secs(1)).unwrap()).unwrap();
-        }
-        let mut terminal = Terminal::new(TestBackend::new(40, 15)).unwrap();
-        app.render_action(&mut terminal, RenderAction::Draw).unwrap();
-        let content = app.pane_areas[0].content;
-
-        app.pointer_route_phase = PointerRoutePhase::DrawPending;
-        app.handle(AppEvent::Input(Event::Mouse(MouseEvent {
-            kind: MouseEventKind::Down(MouseButton::Right),
-            column: content.x + 4,
-            row: content.y + 2,
-            modifiers: KeyModifiers::SHIFT,
-        })))
-        .unwrap();
-        assert_eq!(app.deferred_input.len(), 1);
-        assert!(app.menu.is_none());
-
-        // Content changes while the press waits for its paint, so the
-        // repainted frame carries a newer terminal content generation than
-        // the one recorded when the press was deferred.
-        surface.scroll_delta(-3).unwrap();
-        let repaint = app.handle(AppEvent::Mux(MuxEvent::SurfaceOutput(surface.id))).unwrap();
-        app.render_action(&mut terminal, repaint).unwrap();
-        assert_eq!(app.pointer_route_phase, PointerRoutePhase::Fresh);
-        app.replay_deferred_input().unwrap();
-
-        assert!(app.deferred_input.is_empty());
-        assert!(
-            app.menu.is_some(),
-            "a replayed cmux-owned context menu press must not be dropped because terminal \
-             content changed under it while it waited for the paint"
-        );
-        mux.close_surface(surface.id).unwrap();
-    }
-
-    #[test]
     fn immediate_untracked_wheel_fails_closed_before_surface_output_marks_route_stale() {
         let (mux, surface) = test_mux("immediate-wheel-semantics-test", None);
         let (mut app, events) = test_app_with_events(Session::Local(mux.clone()));
@@ -30994,49 +32429,6 @@ mod tests {
     }
 
     #[test]
-    fn pointer_routes_projection_rail_padding_to_projection_rail() {
-        let rect = Rect { x: 4, y: 0, width: 20, height: 10 };
-        let pane = PaneArea {
-            pane: 7,
-            surface: 9,
-            rect,
-            bar: None,
-            omnibar: None,
-            content: Rect { x: 5, y: 1, width: 18, height: 8 },
-            track: None,
-            viewport: None,
-        };
-        let mux = Mux::new("projection-rail-pointer-frame-test", SurfaceOptions::default());
-        let mut app = test_app(Session::Local(mux));
-        app.outer_size = (40, 10);
-        app.sidebar_layout.ordered =
-            vec![super::RailPlacement { kind: RailKind::Projection(0), view_index: 0, rect }];
-        app.pane_areas = vec![pane];
-        app.commit_rendered_pointer_frame();
-
-        let padding_route = app.rendered_pointer_frame.route_for_mouse(&MouseEvent {
-            kind: MouseEventKind::Down(MouseButton::Left),
-            column: rect.x + rect.width - 1,
-            row: rect.y + rect.height - 1,
-            modifiers: KeyModifiers::NONE,
-        });
-        assert!(matches!(
-            padding_route,
-            PointerRouteIdentity::Rail { kind: RailKind::Projection(0), .. }
-        ));
-
-        let content_route = app.rendered_pointer_frame.route_for_mouse(&MouseEvent {
-            kind: MouseEventKind::Down(MouseButton::Left),
-            column: pane.content.x,
-            row: pane.content.y,
-            modifiers: KeyModifiers::NONE,
-        });
-        assert!(
-            matches!(content_route, PointerRouteIdentity::Pane { pane: routed, .. } if routed.pane == pane.pane)
-        );
-    }
-
-    #[test]
     fn graphics_only_repaint_is_a_pointer_replay_barrier() {
         assert_eq!(
             PointerRoutePhase::Fresh.with_action(RenderAction::Graphics),
@@ -31134,15 +32526,6 @@ mod tests {
         assert!(
             app.pointer_route_is_stale_for_mouse(&covered),
             "the old browser image still owns this cell until deletion is processed"
-        );
-        let menu = MouseEvent {
-            kind: MouseEventKind::Down(MouseButton::Right),
-            modifiers: KeyModifiers::SHIFT,
-            ..covered
-        };
-        assert!(
-            !app.pointer_route_is_stale_for_mouse(&menu),
-            "a cmux-owned menu press must not wait for a graphics image it never enters"
         );
 
         app.pending_graphics_snapshot = Some(vec![GraphicIdentity {
@@ -33364,68 +34747,6 @@ mod tests {
         assert!(!app.render_states.contains_key(&42));
         assert!(!app.tab_locations.contains_key(&42));
         assert!(!app.mux_titles.snapshot().contains_key(&42));
-    }
-
-    #[test]
-    fn cached_surface_exit_updates_tab_index_without_rebuilding_unrelated_tabs() {
-        let mux = Mux::new("cached-surface-exit-index-test", SurfaceOptions::default());
-        let mut app = test_app(Session::Local(mux));
-        let mut tree = notify_tree(41, false);
-        let pane = &mut tree.workspaces[0].screens[0].panes[0];
-        let mut second = pane.tabs[0].clone();
-        second.surface = 41;
-        let mut third = pane.tabs[0].clone();
-        third.surface = 43;
-        pane.tabs[0].surface = 40;
-        pane.tabs.push(second);
-        pane.tabs.push(third);
-        pane.active_tab = 1;
-        app.replace_tree(tree);
-
-        app.remove_surface_from_cached_tree(40);
-
-        let pane = &app.tree.workspaces[0].screens[0].panes[0];
-        assert_eq!(pane.tabs.iter().map(|tab| tab.surface).collect::<Vec<_>>(), vec![41, 43]);
-        assert_eq!(pane.active_tab, 0);
-        assert!(!app.tab_locations.contains_key(&40));
-        assert_eq!(app.tab_locations.get(&41), Some(&[0, 0, 0, 0]));
-        assert_eq!(app.tab_locations.get(&43), Some(&[0, 0, 0, 1]));
-    }
-
-    #[test]
-    fn stale_surface_exit_index_falls_back_to_tree_scan_and_rebuilds_locations() {
-        let mux = Mux::new("stale-surface-exit-index-test", SurfaceOptions::default());
-        let mut app = test_app(Session::Local(mux));
-        let mut tree = notify_tree(41, false);
-        let pane = &mut tree.workspaces[0].screens[0].panes[0];
-        let mut second = pane.tabs[0].clone();
-        second.surface = 41;
-        let mut third = pane.tabs[0].clone();
-        third.surface = 43;
-        pane.tabs[0].surface = 40;
-        pane.tabs.push(second);
-        pane.tabs.push(third);
-        pane.active_tab = 2;
-        app.replace_tree(tree);
-
-        // Force the defensive dispatch path by making the cached location stale.
-        app.tab_locations.insert(40, [0, 0, 0, 1]);
-        app.remove_surface_from_cached_tree(40);
-
-        let pane = &app.tree.workspaces[0].screens[0].panes[0];
-        assert_eq!(pane.tabs.iter().map(|tab| tab.surface).collect::<Vec<_>>(), vec![41, 43]);
-        assert_eq!(pane.active_tab, 1);
-        assert_eq!(app.tab_locations.get(&41), Some(&[0, 0, 0, 0]));
-        assert_eq!(app.tab_locations.get(&43), Some(&[0, 0, 0, 1]));
-        assert!(!app.tab_locations.contains_key(&40));
-
-        // The fallback must repair the index so the next exit uses the
-        // indexed path instead of scanning the whole tree again.
-        app.remove_surface_from_cached_tree(41);
-        let pane = &app.tree.workspaces[0].screens[0].panes[0];
-        assert_eq!(pane.tabs.iter().map(|tab| tab.surface).collect::<Vec<_>>(), vec![43]);
-        assert_eq!(app.tab_locations.get(&43), Some(&[0, 0, 0, 0]));
-        assert!(!app.tab_locations.contains_key(&41));
     }
 
     #[test]
@@ -36761,7 +38082,7 @@ mod tests {
         app.shake_frames = 2;
         let (timeout_started_tx, timeout_started_rx) = std::sync::mpsc::channel();
         let (pointer_queued_tx, pointer_queued_rx) = std::sync::mpsc::channel();
-        app.timeout_drain_hook = Some(Box::new(move |_| {
+        app.timeout_drain_hook = Some(Box::new(move || {
             timeout_started_tx.send(()).unwrap();
             pointer_queued_rx.recv().unwrap();
         }));
@@ -36787,33 +38108,6 @@ mod tests {
             app.deferred_input_sequence, 1,
             "pointer input drained after a timeout-triggered draw must cross the rendered-frame barrier"
         );
-    }
-
-    #[test]
-    fn event_loop_expires_toast_on_idle_timeout() {
-        let mux = Mux::new("toast-timeout-test", SurfaceOptions::default());
-        let mut app = test_app(Session::Local(mux));
-        app.toast = Some(Toast {
-            text: "expired".to_string(),
-            deadline: Instant::now() - Duration::from_millis(1),
-        });
-        let timeout_seen = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let timeout_seen_in_hook = timeout_seen.clone();
-        let (events, receiver) = crossbeam_channel::unbounded();
-        app.timeout_drain_hook = Some(Box::new(move |app| {
-            timeout_seen_in_hook.store(true, std::sync::atomic::Ordering::Relaxed);
-            app.toast = Some(Toast {
-                text: "reintroduced".to_string(),
-                deadline: Instant::now() - Duration::from_millis(1),
-            });
-            drop(events);
-        }));
-        let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
-
-        app.event_loop(&mut terminal, receiver).unwrap();
-
-        assert!(timeout_seen.load(std::sync::atomic::Ordering::Relaxed));
-        assert_eq!(app.toast.as_ref().map(|toast| toast.text.as_str()), Some("reintroduced"));
     }
 
     #[test]
@@ -41691,6 +42985,7 @@ mod tests {
             width: 40,
             max_width: 0,
             collapse_priority: 30,
+            scope: crate::config::SidebarViewScope::Workspace,
         }];
         app.config.sidebar.views_explicit = true;
         app.replace_tree(app.session.tree());
@@ -41769,6 +43064,7 @@ mod tests {
             width: 40,
             max_width: 0,
             collapse_priority: 30,
+            scope: crate::config::SidebarViewScope::Workspace,
         }];
         app.config.sidebar.views_explicit = true;
         app.replace_tree(app.session.tree());
@@ -41782,6 +43078,413 @@ mod tests {
         assert_eq!(app.focus, FocusTarget::Pane);
 
         mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn projection_agent_update_keeps_an_unrelated_workspace_cache() {
+        let (mux, first) = test_mux("projection-agent-cache-scope-test", None);
+        let second = mux.new_workspace(Some("second".into()), Some((20, 8))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.config.sidebar.columns.clear();
+        app.config.sidebar.views = vec![
+            SidebarViewSpec {
+                id: "agents-first".into(),
+                levels: vec![SidebarResourceKind::Agents],
+                actions: Vec::new(),
+                actions_position: crate::config::ActionsPosition::Bottom,
+                width: 40,
+                max_width: 0,
+                collapse_priority: 30,
+                scope: crate::config::SidebarViewScope::Workspace,
+            },
+            SidebarViewSpec {
+                id: "agents-second".into(),
+                levels: vec![SidebarResourceKind::Agents],
+                actions: Vec::new(),
+                actions_position: crate::config::ActionsPosition::Bottom,
+                width: 40,
+                max_width: 0,
+                collapse_priority: 30,
+                scope: crate::config::SidebarViewScope::Workspace,
+            },
+        ];
+        app.config.sidebar.views_explicit = true;
+        app.replace_tree(app.session.tree());
+        app.sidebar_workspace_selection = 0;
+        app.projection_rows(0);
+        app.sidebar_workspace_selection = 1;
+        app.projection_rows(1);
+
+        assert_eq!(
+            app.handle(AppEvent::Mux(MuxEvent::AgentChanged {
+                surface: SurfaceId::MAX,
+                state: "working".into(),
+                source: "hook".into(),
+                session: None,
+                updated_at_ms: 1,
+            }))
+            .unwrap(),
+            RenderAction::None,
+            "an agent outside every projected scope must not schedule a paint"
+        );
+        assert_eq!(app.projection_rows_cache.len(), 2);
+
+        let action = app
+            .handle(AppEvent::Mux(MuxEvent::AgentChanged {
+                surface: first.id,
+                state: "working".into(),
+                source: "hook".into(),
+                session: None,
+                updated_at_ms: 1,
+            }))
+            .unwrap();
+        assert_eq!(action, RenderAction::Paint);
+        assert_eq!(
+            app.projection_rows_cache
+                .iter()
+                .map(|cache| cache.view_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["agents-second"],
+            "an agent update must retain caches for other workspace scopes"
+        );
+        assert_eq!(
+            app.handle(AppEvent::Mux(MuxEvent::AgentChanged {
+                surface: first.id,
+                state: "working".into(),
+                source: "hook".into(),
+                session: None,
+                updated_at_ms: 2,
+            }))
+            .unwrap(),
+            RenderAction::None,
+            "repeated updates for one surface share one paint boundary"
+        );
+
+        mux.close_surface(first.id).unwrap();
+        mux.close_surface(second.id).unwrap();
+    }
+
+    #[test]
+    fn all_scope_projection_cache_ignores_workspace_highlight_moves() {
+        let (mux, first) = test_mux("projection-all-scope-selection-cache-test", None);
+        let second = mux.new_workspace(Some("second".into()), Some((20, 8))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.config.sidebar.columns.clear();
+        app.config.sidebar.views = vec![SidebarViewSpec {
+            id: "all-agents".into(),
+            levels: vec![SidebarResourceKind::Agents],
+            actions: Vec::new(),
+            actions_position: crate::config::ActionsPosition::Bottom,
+            width: 40,
+            max_width: 0,
+            collapse_priority: 30,
+            scope: crate::config::SidebarViewScope::All,
+        }];
+        app.config.sidebar.views_explicit = true;
+        app.replace_tree(app.session.tree());
+
+        app.sidebar_workspace_selection = 0;
+        let first_rows = app.projection_rows(0);
+        app.sidebar_workspace_selection = 1;
+        let second_rows = app.projection_rows(0);
+
+        assert!(Arc::ptr_eq(&first_rows, &second_rows));
+        assert_eq!(app.projection_rows_cache.len(), 1);
+
+        mux.close_surface(first.id).unwrap();
+        mux.close_surface(second.id).unwrap();
+    }
+
+    #[test]
+    fn projection_title_update_keeps_an_unrelated_workspace_cache() {
+        let (mux, first) = test_mux("projection-title-cache-scope-test", None);
+        let second = mux.new_workspace(Some("second".into()), Some((20, 8))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.config.sidebar.columns.clear();
+        app.config.sidebar.views = vec![
+            SidebarViewSpec {
+                id: "tabs-first".into(),
+                levels: vec![SidebarResourceKind::Tabs],
+                actions: Vec::new(),
+                actions_position: crate::config::ActionsPosition::Bottom,
+                width: 40,
+                max_width: 0,
+                collapse_priority: 30,
+                scope: crate::config::SidebarViewScope::Workspace,
+            },
+            SidebarViewSpec {
+                id: "tabs-second".into(),
+                levels: vec![SidebarResourceKind::Tabs],
+                actions: Vec::new(),
+                actions_position: crate::config::ActionsPosition::Bottom,
+                width: 40,
+                max_width: 0,
+                collapse_priority: 30,
+                scope: crate::config::SidebarViewScope::Workspace,
+            },
+        ];
+        app.config.sidebar.views_explicit = true;
+        app.replace_tree(app.session.tree());
+        app.sidebar_workspace_selection = 0;
+        app.projection_rows(0);
+        app.sidebar_workspace_selection = 1;
+        app.projection_rows(1);
+
+        assert_eq!(
+            app.handle(AppEvent::Mux(MuxEvent::TitleChanged {
+                surface: SurfaceId::MAX,
+                title: "unrelated".into(),
+            }))
+            .unwrap(),
+            RenderAction::None,
+            "a title outside every projected scope must not schedule a paint"
+        );
+        assert_eq!(app.projection_rows_cache.len(), 2);
+
+        let action = app
+            .handle(AppEvent::Mux(MuxEvent::TitleChanged {
+                surface: first.id,
+                title: "renamed".into(),
+            }))
+            .unwrap();
+        assert_eq!(action, RenderAction::Paint);
+        assert_eq!(
+            app.projection_rows_cache
+                .iter()
+                .map(|cache| cache.view_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["tabs-second"],
+            "a title update must retain caches for other workspace scopes"
+        );
+
+        mux.close_surface(first.id).unwrap();
+        mux.close_surface(second.id).unwrap();
+    }
+
+    #[test]
+    fn projection_surface_indexes_drop_retired_surfaces() {
+        let (mux, surface) = test_mux("projection-surface-index-prune-test", None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.config.sidebar.columns.clear();
+        app.config.sidebar.views = vec![SidebarViewSpec {
+            id: "agents".into(),
+            levels: vec![SidebarResourceKind::Agents],
+            actions: Vec::new(),
+            actions_position: crate::config::ActionsPosition::Bottom,
+            width: 40,
+            max_width: 0,
+            collapse_priority: 30,
+            scope: crate::config::SidebarViewScope::Workspace,
+        }];
+        app.config.sidebar.views_explicit = true;
+        app.replace_tree(app.session.tree());
+        app.projection_rows(0);
+
+        assert!(app.projection_agent_surfaces.contains(&surface.id));
+        app.handle(AppEvent::Mux(MuxEvent::SurfaceExited(surface.id))).unwrap();
+        assert!(!app.projection_agent_surfaces.contains(&surface.id));
+
+        // A retained cache entry may still be hit before the authoritative
+        // topology refresh. It must not reintroduce the retired id.
+        app.projection_rows(0);
+        assert!(!app.projection_agent_surfaces.contains(&surface.id));
+    }
+
+    #[test]
+    fn hidden_projection_view_drops_wake_dependencies() {
+        let (mux, surface) = test_mux("projection-hidden-view-wake-test", None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.config.sidebar.columns.clear();
+        app.config.sidebar.views = vec![SidebarViewSpec {
+            id: "agents".into(),
+            levels: vec![SidebarResourceKind::Agents],
+            actions: Vec::new(),
+            actions_position: crate::config::ActionsPosition::Bottom,
+            width: 40,
+            max_width: 0,
+            collapse_priority: 30,
+            scope: crate::config::SidebarViewScope::Workspace,
+        }];
+        app.config.sidebar.views_explicit = true;
+        app.replace_tree(app.session.tree());
+        app.projection_rows(0);
+        assert!(app.projection_agent_surfaces.contains(&surface.id));
+
+        app.set_sidebar_view_visible(0, false);
+        assert!(!app.projection_agent_surfaces.contains(&surface.id));
+        assert_eq!(
+            app.handle(AppEvent::Mux(MuxEvent::AgentChanged {
+                surface: surface.id,
+                state: "working".into(),
+                source: "hook".into(),
+                session: None,
+                updated_at_ms: 1,
+            }))
+            .unwrap(),
+            RenderAction::None,
+            "updates for a hidden projection must not schedule a paint"
+        );
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn projection_title_wake_paints_after_invalidating_cached_rows() {
+        let (mux, surface) = test_mux("projection-title-paint-test", None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.config.sidebar.columns.clear();
+        app.config.sidebar.views = vec![SidebarViewSpec {
+            id: "tabs".into(),
+            levels: vec![SidebarResourceKind::Tabs],
+            actions: Vec::new(),
+            actions_position: crate::config::ActionsPosition::Bottom,
+            width: 40,
+            max_width: 0,
+            collapse_priority: 30,
+            scope: crate::config::SidebarViewScope::Workspace,
+        }];
+        app.config.sidebar.views_explicit = true;
+        app.replace_tree(app.session.tree());
+        app.projection_rows(0);
+
+        assert!(app.mux_titles.push(surface.id, "renamed"));
+        assert_eq!(app.handle(AppEvent::MuxTitlesReady).unwrap(), RenderAction::Paint);
+        assert_eq!(
+            app.tree
+                .workspaces
+                .iter()
+                .flat_map(|workspace| workspace.screens.iter())
+                .flat_map(|screen| screen.panes.iter())
+                .flat_map(|pane| pane.tabs.iter())
+                .find(|tab| tab.surface == surface.id)
+                .map(|tab| tab.title.as_str()),
+            Some("renamed")
+        );
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn projection_cache_hit_reuses_a_shared_rows_snapshot() {
+        let (mux, surface) = test_mux("projection-shared-rows-cache-test", None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.config.sidebar.columns.clear();
+        app.config.sidebar.views = vec![SidebarViewSpec {
+            id: "tabs".into(),
+            levels: vec![SidebarResourceKind::Tabs],
+            actions: Vec::new(),
+            actions_position: crate::config::ActionsPosition::Bottom,
+            width: 40,
+            max_width: 0,
+            collapse_priority: 30,
+            scope: crate::config::SidebarViewScope::Workspace,
+        }];
+        app.config.sidebar.views_explicit = true;
+        app.replace_tree(app.session.tree());
+
+        let first = app.projection_rows(0);
+        let second = app.projection_rows(0);
+        assert!(Arc::ptr_eq(&first, &second));
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn reapply_mux_titles_invalidates_cached_projection_rows() {
+        let (mux, surface) = test_mux("projection-title-reapply-cache-test", None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.config.sidebar.columns.clear();
+        app.config.sidebar.views = vec![SidebarViewSpec {
+            id: "tabs".into(),
+            levels: vec![SidebarResourceKind::Tabs],
+            actions: Vec::new(),
+            actions_position: crate::config::ActionsPosition::Bottom,
+            width: 40,
+            max_width: 0,
+            collapse_priority: 30,
+            scope: crate::config::SidebarViewScope::Workspace,
+        }];
+        app.config.sidebar.views_explicit = true;
+        app.replace_tree(app.session.tree());
+        app.projection_rows(0);
+        assert_eq!(app.projection_rows_cache.len(), 1);
+
+        assert!(app.mux_titles.push(surface.id, "reapplied"));
+        let (changed, projection_paint_requested) = app.reapply_mux_titles();
+        assert!(changed);
+        assert!(projection_paint_requested);
+        assert!(app.projection_rows_cache.is_empty());
+
+        let rows = app.projection_rows(0);
+        assert!(rows.iter().any(|row| {
+            matches!(
+                row.target,
+                crate::sidebar_projection::ProjectionTarget::Surface { surface: id, .. }
+                    if id == surface.id
+            ) && row.name == "reapplied"
+        }));
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn projection_cache_refreshes_active_tab_after_focus_changes() {
+        let (mux, first) = test_mux("projection-active-focus-cache-test", None);
+        let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let second = mux.new_tab(Some(pane), None, Some((20, 8))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.config.sidebar.columns.clear();
+        app.config.sidebar.views = vec![SidebarViewSpec {
+            id: "tabs".into(),
+            levels: vec![SidebarResourceKind::Tabs],
+            actions: Vec::new(),
+            actions_position: crate::config::ActionsPosition::Bottom,
+            width: 40,
+            max_width: 0,
+            collapse_priority: 30,
+            scope: crate::config::SidebarViewScope::Workspace,
+        }];
+        app.config.sidebar.views_explicit = true;
+        app.replace_tree(app.session.tree());
+
+        let before = app.projection_rows(0);
+        let before_active = app.tree.active_surface().unwrap();
+        let after_active = if before_active == first.id { second.id } else { first.id };
+        let after_index = app
+            .tree
+            .pane(pane)
+            .unwrap()
+            .tabs
+            .iter()
+            .position(|tab| tab.surface == after_active)
+            .unwrap();
+        app.select_tab_for_client(Some(pane), Some(after_index), None);
+        let after = app.projection_rows(0);
+
+        assert!(before.iter().any(|row| {
+            matches!(
+                row.target,
+                crate::sidebar_projection::ProjectionTarget::Surface { surface, .. }
+                    if surface == before_active && row.active
+            )
+        }));
+        assert!(after.iter().any(|row| {
+            matches!(
+                row.target,
+                crate::sidebar_projection::ProjectionTarget::Surface { surface, .. }
+                    if surface == after_active && row.active
+            )
+        }));
+        assert!(after.iter().any(|row| {
+            matches!(
+                row.target,
+                crate::sidebar_projection::ProjectionTarget::Surface { surface, .. }
+                    if surface == before_active && !row.active
+            )
+        }));
+
+        mux.close_surface(first.id).unwrap();
+        mux.close_surface(second.id).unwrap();
     }
 
     #[test]
@@ -41804,6 +43507,7 @@ mod tests {
             width: 40,
             max_width: 0,
             collapse_priority: 30,
+            scope: crate::config::SidebarViewScope::Workspace,
         }];
         app.config.sidebar.views_explicit = true;
         app.replace_tree(app.session.tree());
@@ -41842,6 +43546,7 @@ mod tests {
             width: 40,
             max_width: 0,
             collapse_priority: 30,
+            scope: crate::config::SidebarViewScope::Workspace,
         }];
         app.config.sidebar.views_explicit = true;
         app.replace_tree(app.session.tree());
@@ -41993,6 +43698,7 @@ mod tests {
             width: 40,
             max_width: 0,
             collapse_priority: 30,
+            scope: crate::config::SidebarViewScope::Workspace,
         }];
         app.config.sidebar.views_explicit = true;
         app.replace_tree(app.session.tree());
@@ -42092,6 +43798,7 @@ mod tests {
             width: 40,
             max_width: 0,
             collapse_priority: 30,
+            scope: crate::config::SidebarViewScope::Workspace,
         }];
         app.config.sidebar.views_explicit = true;
         app.sync_layout((100, 12));
@@ -43997,6 +45704,13 @@ mod tests {
             tabs_rail_scroll: 0,
             tabs_footer_scroll: 0,
             projection_rails: HashMap::new(),
+            projection_rows_cache: VecDeque::new(),
+            projection_rows_revision: 0,
+            projection_agent_surfaces: HashSet::new(),
+            projection_title_surfaces: HashSet::new(),
+            projection_agent_surfaces_by_view: HashMap::new(),
+            projection_title_surfaces_by_view: HashMap::new(),
+            projection_paint_pending: false,
             machine_rail_follow_selection: true,
             workspace_rail_follow_selection: true,
             tabs_rail_follow_selection: true,
@@ -44013,6 +45727,7 @@ mod tests {
             machine_sidebar_width_override: None,
             tabs_sidebar_width_override: None,
             projection_sidebar_width_overrides: HashMap::new(),
+            sidebar_split_fractions: HashMap::new(),
             hidden_sidebar_views: HashMap::new(),
             content_area: Rect::default(),
             hits: Vec::new(),

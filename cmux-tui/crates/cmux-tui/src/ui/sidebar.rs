@@ -409,6 +409,35 @@ pub fn draw_projection(app: &mut App, frame: &mut Frame, view_index: usize) {
     app.hits.push((rail::divider(area), Hit::RailResize(RailKind::Projection(view_index))));
 }
 
+/// Draw the horizontal rule of every vertical split divider and register
+/// its drag handle. Horizontal splits need no extra drawing: their handle
+/// is the left child's border column, rerouted at press time.
+pub fn draw_split_dividers(app: &mut App, frame: &mut Frame) {
+    if app.sidebar_layout.dividers.is_empty() {
+        return;
+    }
+    let palette = rail::RailPalette::for_app(app, false);
+    for divider in app.sidebar_layout.dividers.clone() {
+        if divider.dir != crate::config::SidebarSplitDir::Vertical || divider.rect.width == 0 {
+            continue;
+        }
+        {
+            let buf = frame.buffer_mut();
+            let y = divider.rect.y;
+            let last = divider.rect.x + divider.rect.width - 1;
+            for x in divider.rect.x..last {
+                buf[(x, y)].set_symbol("─").set_style(palette.border);
+            }
+            // The rail border column stays continuous through the divider.
+            buf[(last, y)].set_symbol(palette.border_symbol).set_style(palette.border);
+        }
+        app.hits.push((
+            divider.rect,
+            Hit::SidebarSplitDivider { group: divider.group, index: divider.index },
+        ));
+    }
+}
+
 fn draw_plugin(app: &mut App, frame: &mut Frame) {
     let Some(area) = app.workspace_sidebar_area(frame.area().height) else { return };
     let width = area.width;

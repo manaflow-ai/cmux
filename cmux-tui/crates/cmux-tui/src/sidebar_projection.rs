@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 
 use cmux_tui_core::{PaneId, SurfaceId, WorkspaceId};
 
-use crate::config::{SidebarResourceKind, SidebarViewSpec};
+use crate::config::{SidebarResourceKind, SidebarViewScope, SidebarViewSpec};
 use crate::session::{AgentInfo, TreeView};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -34,6 +34,22 @@ pub(crate) enum ProjectionTarget {
     },
 }
 
+impl ProjectionTarget {
+    /// Compare the projected resource identity while ignoring positions that
+    /// can change when a fresh tree snapshot is rebuilt.
+    pub(crate) fn same_resource(self, other: Self) -> bool {
+        match (self, other) {
+            (Self::Workspace { id: left, .. }, Self::Workspace { id: right, .. }) => left == right,
+            (Self::Pane { pane: left, .. }, Self::Pane { pane: right, .. }) => left == right,
+            (
+                Self::Surface { surface: left, agent: left_agent, .. },
+                Self::Surface { surface: right, agent: right_agent, .. },
+            ) => left == right && left_agent == right_agent,
+            _ => false,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ProjectionRow {
     pub resource: SidebarResourceKind,
@@ -52,6 +68,8 @@ pub(crate) struct ProjectionRailState {
     /// Selected resource-row index. Action selection is tracked separately so
     /// live resource insertions cannot retarget a pinned action.
     pub selected: usize,
+    /// Stable resource identity for preserving selection when rows reorder.
+    pub selected_target: Option<ProjectionTarget>,
     pub selected_action: Option<usize>,
     pub scroll: usize,
     pub footer_scroll: usize,
@@ -63,12 +81,52 @@ impl Default for ProjectionRailState {
     fn default() -> Self {
         Self {
             selected: 0,
+            selected_target: None,
             selected_action: None,
             scroll: 0,
             footer_scroll: 0,
             follow_selection: true,
             collapsed: HashSet::new(),
         }
+    }
+}
+
+impl ProjectionRailState {
+    pub(crate) fn reconcile_selection(&mut self, rows: &[ProjectionRow]) {
+        if rows.is_empty() {
+            self.selected = 0;
+            self.selected_target = None;
+            return;
+        }
+        if let Some(target) = self.selected_target
+            && let Some((index, row)) =
+                rows.iter().enumerate().find(|(_, row)| row.target.same_resource(target))
+        {
+            self.selected = index;
+            self.selected_target = Some(row.target);
+            return;
+        }
+        self.selected = self.selected.min(rows.len().saturating_sub(1));
+        self.selected_target = rows.get(self.selected).map(|row| row.target);
+    }
+}
+
+/// Return the workspace-selection component that can affect this projection.
+/// Flat all-scoped tab/agent views enumerate every workspace themselves, and
+/// workspace rows do the same. Keeping those views independent of the current
+/// highlight lets their snapshots survive a highlight-only move.
+pub(crate) fn selected_workspace_cache_key(
+    spec: &SidebarViewSpec,
+    selected_workspace: usize,
+) -> Option<usize> {
+    match spec.levels.first().copied() {
+        Some(SidebarResourceKind::Panes) => Some(selected_workspace),
+        Some(SidebarResourceKind::Tabs | SidebarResourceKind::Agents)
+            if spec.scope != SidebarViewScope::All =>
+        {
+            Some(selected_workspace)
+        }
+        _ => None,
     }
 }
 
@@ -95,6 +153,7 @@ pub(crate) fn rows(
     append_level(
         &mut rows,
         &spec.levels,
+        spec.scope,
         0,
         None,
         tree,
@@ -109,6 +168,7 @@ pub(crate) fn rows(
 fn append_level(
     output: &mut Vec<ProjectionRow>,
     levels: &[SidebarResourceKind],
+    scope: SidebarViewScope,
     depth: usize,
     context: Option<ProjectionContext>,
     tree: &TreeView,
@@ -142,6 +202,7 @@ fn append_level(
                     append_level(
                         output,
                         levels,
+                        scope,
                         depth + 1,
                         Some(ProjectionContext {
                             workspace: workspace_index,
@@ -193,6 +254,7 @@ fn append_level(
                         append_level(
                             output,
                             levels,
+                            scope,
                             depth + 1,
                             Some(ProjectionContext {
                                 workspace: workspace_index,
@@ -210,67 +272,114 @@ fn append_level(
         }
         SidebarResourceKind::Tabs | SidebarResourceKind::Agents => {
             let agent_only = resource == SidebarResourceKind::Agents;
-            let workspace_index = context.map_or(selected_workspace, |context| context.workspace);
-            let Some(workspace) = tree.workspaces.get(workspace_index) else { return };
-            for (screen_index, screen) in workspace.screens.iter().enumerate() {
-                if context.is_some_and(|context| {
-                    context.screen.is_some_and(|candidate| candidate != screen_index)
-                }) {
-                    continue;
-                }
-                for pane in &screen.panes {
+            // A flat `all`-scoped view sweeps every workspace; the historical
+            // behavior scopes the flat view to the selected workspace and a
+            // nested view to its parent context.
+            let all_workspaces = context.is_none() && scope == SidebarViewScope::All;
+            let workspace_indices: Vec<usize> = if all_workspaces {
+                (0..tree.workspaces.len()).collect()
+            } else {
+                vec![context.map_or(selected_workspace, |context| context.workspace)]
+            };
+            let order_by_recency = all_workspaces && agent_only;
+            // Complexity note: this is the only O(A log A) projection path,
+            // where A is the all-scope agent-row count. The sort preserves the
+            // user-visible updated_at order; every other path appends in O(A).
+            // The ignored 1000-workspace fixture below is the measurement hook
+            // for this intentional tradeoff, without claiming a local timing.
+            // (last status change, insertion order) so an `all`-scoped agents
+            // view reads chronologically, newest first. `u64::MAX - ...`
+            // inverts recency while the tree-order index breaks ties.
+            let mut entries: Vec<((u64, usize), ProjectionRow)> = Vec::new();
+            for workspace_index in workspace_indices {
+                let Some(workspace) = tree.workspaces.get(workspace_index) else { continue };
+                for (screen_index, screen) in workspace.screens.iter().enumerate() {
                     if context.is_some_and(|context| {
-                        context.pane.is_some_and(|candidate| candidate != pane.id)
+                        context.screen.is_some_and(|candidate| candidate != screen_index)
                     }) {
                         continue;
                     }
-                    for (tab_index, tab) in pane.tabs.iter().enumerate() {
-                        let agent = agents.get(&tab.surface).copied();
-                        if agent_only && agent.is_none() {
+                    for pane in &screen.panes {
+                        if context.is_some_and(|context| {
+                            context.pane.is_some_and(|candidate| candidate != pane.id)
+                        }) {
                             continue;
                         }
-                        let name = tab
-                            .name
-                            .as_deref()
-                            .filter(|name| !name.is_empty())
-                            .or_else(|| (!tab.title.is_empty()).then_some(tab.title.as_str()))
-                            .unwrap_or(tab.short_id.as_str())
-                            .to_string();
-                        let subtitle = if let Some(agent) = agent.filter(|_| agent_only) {
-                            agent
-                                .session
+                        for (tab_index, tab) in pane.tabs.iter().enumerate() {
+                            let agent = agents.get(&tab.surface).copied();
+                            if agent_only
+                                && (agent.is_none()
+                                    || agent.is_some_and(|agent| agent.state == "unknown"))
+                            {
+                                continue;
+                            }
+                            let name = tab
+                                .name
                                 .as_deref()
-                                .filter(|session| !session.is_empty())
-                                .unwrap_or(pane.short_id.as_str())
-                                .to_string()
-                        } else {
-                            pane.short_id.clone()
-                        };
-                        output.push(ProjectionRow {
-                            resource,
-                            depth: depth as u16,
-                            name,
-                            subtitle,
-                            agent_state: agent
-                                .filter(|_| agent_only)
-                                .map(|agent| agent.state.clone()),
-                            active: workspace_index == tree.active_workspace
-                                && screen_index == workspace.active_screen
-                                && pane.id == screen.active_pane
-                                && pane.active_tab == tab_index,
-                            branch: None,
-                            expanded: false,
-                            target: ProjectionTarget::Surface {
-                                workspace: workspace_index,
-                                screen: screen_index,
-                                pane: pane.id,
-                                index: tab_index,
-                                surface: tab.surface,
-                                agent: agent_only,
-                            },
-                        });
+                                .filter(|name| !name.is_empty())
+                                .or_else(|| (!tab.title.is_empty()).then_some(tab.title.as_str()))
+                                .unwrap_or(tab.short_id.as_str())
+                                .to_string();
+                            let subtitle = if let Some(agent) = agent.filter(|_| agent_only) {
+                                agent
+                                    .session
+                                    .as_deref()
+                                    .filter(|session| !session.is_empty())
+                                    .unwrap_or_else(|| {
+                                        // In an all-workspaces sweep the
+                                        // workspace locates the agent better
+                                        // than a pane short id.
+                                        if all_workspaces {
+                                            workspace.name.as_str()
+                                        } else {
+                                            pane.short_id.as_str()
+                                        }
+                                    })
+                                    .to_string()
+                            } else {
+                                pane.short_id.clone()
+                            };
+                            let recency = if order_by_recency {
+                                u64::MAX
+                                    - agent.map(|agent| agent.updated_at_ms).unwrap_or_default()
+                            } else {
+                                0
+                            };
+                            let row = ProjectionRow {
+                                resource,
+                                depth: depth as u16,
+                                name,
+                                subtitle,
+                                agent_state: agent
+                                    .filter(|_| agent_only)
+                                    .map(|agent| agent.state.clone()),
+                                active: workspace_index == tree.active_workspace
+                                    && screen_index == workspace.active_screen
+                                    && pane.id == screen.active_pane
+                                    && pane.active_tab == tab_index,
+                                branch: None,
+                                expanded: false,
+                                target: ProjectionTarget::Surface {
+                                    workspace: workspace_index,
+                                    screen: screen_index,
+                                    pane: pane.id,
+                                    index: tab_index,
+                                    surface: tab.surface,
+                                    agent: agent_only,
+                                },
+                            };
+                            if order_by_recency {
+                                entries.push(((recency, entries.len()), row));
+                            } else {
+                                output.push(row);
+                            }
+                        }
                     }
                 }
+            }
+            if order_by_recency {
+                entries.sort_by_key(|(key, _)| *key);
+                output.extend(entries.into_iter().map(|(_, row)| row));
             }
         }
     }
@@ -280,6 +389,7 @@ fn append_level(
 mod tests {
     use super::*;
     use cmux_tui_core::{Node, SurfaceKind};
+    use std::time::Instant;
 
     use crate::session::tree::{PaneView, ScreenView, TabView, WorkspaceView};
 
@@ -345,6 +455,7 @@ mod tests {
             width: 22,
             max_width: 0,
             collapse_priority: 20,
+            scope: SidebarViewScope::Workspace,
         }
     }
 
@@ -429,5 +540,266 @@ mod tests {
     fn flat_agent_view_is_empty_when_no_agents_are_running() {
         let rows = rows(&spec(vec![SidebarResourceKind::Agents]), &tree(), &[], 0, &HashSet::new());
         assert!(rows.is_empty());
+    }
+
+    #[test]
+    fn agent_projection_hides_unknown_records_at_its_boundary() {
+        let agents = vec![AgentInfo {
+            surface: 5,
+            state: "unknown".into(),
+            source: "hook".into(),
+            session: None,
+            updated_at_ms: 1,
+        }];
+        let rows =
+            rows(&spec(vec![SidebarResourceKind::Agents]), &tree(), &agents, 0, &HashSet::new());
+        assert!(rows.is_empty());
+    }
+
+    fn workspace(
+        id: WorkspaceId,
+        name: &str,
+        pane: PaneId,
+        surfaces: [SurfaceId; 2],
+    ) -> WorkspaceView {
+        WorkspaceView {
+            id,
+            resource_id: None,
+            key: format!("workspace-{id}"),
+            short_id: format!("w{id}"),
+            name: name.into(),
+            screens: vec![ScreenView {
+                id: id + 100,
+                resource_id: None,
+                short_id: format!("s{id}"),
+                name: None,
+                layout: Node::Leaf(pane),
+                active_pane: pane,
+                zoomed_pane: None,
+                viewport_base_width: None,
+                viewport_splits: Default::default(),
+                panes: vec![PaneView {
+                    id: pane,
+                    resource_id: None,
+                    short_id: format!("p{pane}"),
+                    name: None,
+                    tabs: vec![tab(surfaces[0], "claude"), tab(surfaces[1], "codex")],
+                    active_tab: 0,
+                    focused_at: 0,
+                }],
+            }],
+            active_screen: 0,
+        }
+    }
+
+    #[test]
+    fn all_scope_agents_sweep_workspaces_newest_first() {
+        let tree = TreeView {
+            workspaces: vec![
+                workspace(1, "alpha", 10, [11, 12]),
+                workspace(2, "beta", 20, [21, 22]),
+            ],
+            workspace_revision: 1,
+            pane_revision: Some(1),
+            active_workspace: 0,
+        };
+        let agents = vec![
+            AgentInfo {
+                surface: 11,
+                state: "idle".into(),
+                source: "hook".into(),
+                session: Some("older task".into()),
+                updated_at_ms: 100,
+            },
+            AgentInfo {
+                surface: 22,
+                state: "working".into(),
+                source: "hook".into(),
+                session: None,
+                updated_at_ms: 900,
+            },
+            AgentInfo {
+                surface: 12,
+                state: "done".into(),
+                source: "hook".into(),
+                session: Some("finished task".into()),
+                updated_at_ms: 500,
+            },
+        ];
+        let mut all_spec = spec(vec![SidebarResourceKind::Agents]);
+        all_spec.scope = SidebarViewScope::All;
+        // The selected workspace must not scope the sweep.
+        let rows = rows(&all_spec, &tree, &agents, 1, &HashSet::new());
+
+        assert_eq!(rows.len(), 3, "agents from every workspace appear");
+        let order: Vec<u64> = rows
+            .iter()
+            .map(|row| match row.target {
+                ProjectionTarget::Surface { surface, .. } => surface,
+                _ => panic!("agent rows target surfaces"),
+            })
+            .collect();
+        assert_eq!(order, vec![22, 12, 11], "newest status change first");
+        assert_eq!(rows[0].agent_state.as_deref(), Some("working"));
+        assert_eq!(
+            rows[0].subtitle, "beta",
+            "a session-less agent names its workspace in an all sweep"
+        );
+        assert_eq!(rows[1].agent_state.as_deref(), Some("done"));
+    }
+
+    #[test]
+    fn workspace_scope_keeps_the_selected_workspace_filter() {
+        let tree = TreeView {
+            workspaces: vec![
+                workspace(1, "alpha", 10, [11, 12]),
+                workspace(2, "beta", 20, [21, 22]),
+            ],
+            workspace_revision: 1,
+            pane_revision: Some(1),
+            active_workspace: 0,
+        };
+        let agents = vec![
+            AgentInfo {
+                surface: 11,
+                state: "working".into(),
+                source: "hook".into(),
+                session: None,
+                updated_at_ms: 100,
+            },
+            AgentInfo {
+                surface: 22,
+                state: "working".into(),
+                source: "hook".into(),
+                session: None,
+                updated_at_ms: 900,
+            },
+        ];
+        let rows =
+            rows(&spec(vec![SidebarResourceKind::Agents]), &tree, &agents, 1, &HashSet::new());
+        assert_eq!(rows.len(), 1);
+        assert!(matches!(rows[0].target, ProjectionTarget::Surface { surface: 22, .. }));
+    }
+
+    #[test]
+    fn workspace_scoped_agents_keep_tree_order() {
+        let tree = tree();
+        let agents = vec![
+            AgentInfo {
+                surface: 4,
+                state: "working".into(),
+                source: "hook".into(),
+                session: None,
+                updated_at_ms: 900,
+            },
+            AgentInfo {
+                surface: 5,
+                state: "working".into(),
+                source: "hook".into(),
+                session: None,
+                updated_at_ms: 100,
+            },
+        ];
+        let rows =
+            rows(&spec(vec![SidebarResourceKind::Agents]), &tree, &agents, 0, &HashSet::new());
+        let surfaces = rows
+            .iter()
+            .map(|row| match row.target {
+                ProjectionTarget::Surface { surface, .. } => surface,
+                _ => panic!("agent rows target surfaces"),
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(surfaces, vec![4, 5]);
+    }
+
+    #[test]
+    fn selection_reconciles_by_surface_when_agent_recency_reorders_rows() {
+        let tree = TreeView {
+            workspaces: vec![
+                workspace(1, "alpha", 10, [11, 12]),
+                workspace(2, "beta", 20, [21, 22]),
+            ],
+            workspace_revision: 1,
+            pane_revision: Some(1),
+            active_workspace: 0,
+        };
+        let mut all_spec = spec(vec![SidebarResourceKind::Agents]);
+        all_spec.scope = SidebarViewScope::All;
+        let initial_agents = vec![
+            AgentInfo {
+                surface: 11,
+                state: "working".into(),
+                source: "hook".into(),
+                session: None,
+                updated_at_ms: 100,
+            },
+            AgentInfo {
+                surface: 22,
+                state: "working".into(),
+                source: "hook".into(),
+                session: None,
+                updated_at_ms: 900,
+            },
+        ];
+        let initial = rows(&all_spec, &tree, &initial_agents, 0, &HashSet::new());
+        let selected_target = initial[1].target;
+        let mut state = ProjectionRailState {
+            selected: 1,
+            selected_target: Some(selected_target),
+            ..ProjectionRailState::default()
+        };
+
+        let updated_agents = vec![
+            AgentInfo { updated_at_ms: 1_000, ..initial_agents[0].clone() },
+            initial_agents[1].clone(),
+        ];
+        let reordered = rows(&all_spec, &tree, &updated_agents, 0, &HashSet::new());
+        assert_ne!(reordered[1].target, selected_target);
+        state.reconcile_selection(&reordered);
+        assert_eq!(state.selected_target, Some(selected_target));
+        assert_eq!(reordered[state.selected].target, selected_target);
+    }
+
+    /// Manual performance fixture for the intentional all-scope agent sort.
+    /// Run with `--ignored --nocapture` when a hosted or local timing sample is
+    /// needed. This test records no threshold and makes no timing claim.
+    #[test]
+    #[ignore = "manual projection performance measurement"]
+    fn benchmark_all_scope_agents_at_thousand_workspaces() {
+        let tree = TreeView {
+            workspaces: (0..1_000)
+                .map(|index| {
+                    workspace(
+                        index as WorkspaceId + 1,
+                        "workspace",
+                        index as PaneId + 10,
+                        [index as SurfaceId + 100, index as SurfaceId + 10_100],
+                    )
+                })
+                .collect(),
+            workspace_revision: 1,
+            pane_revision: Some(1),
+            active_workspace: 0,
+        };
+        let agents = (0..1_000)
+            .map(|index| AgentInfo {
+                surface: index as SurfaceId + 100,
+                state: "working".into(),
+                source: "fixture".into(),
+                session: None,
+                updated_at_ms: index as u64,
+            })
+            .collect::<Vec<_>>();
+        let mut all_spec = spec(vec![SidebarResourceKind::Agents]);
+        all_spec.scope = SidebarViewScope::All;
+
+        let started = Instant::now();
+        let projected = rows(&all_spec, &tree, &agents, 0, &HashSet::new());
+        eprintln!(
+            "all-scope agent projection: {} rows in {:?}",
+            projected.len(),
+            started.elapsed()
+        );
+        assert_eq!(projected.len(), 1_000);
     }
 }

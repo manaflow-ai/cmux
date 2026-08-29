@@ -70,7 +70,22 @@ The built-in sidebar defaults to the workspace list. Set `"sidebar": {"view": "f
 
 Actions use the same stable IDs and execution path as keyboard commands, including `new-workspace`, `new-tab`, and `new-pane-smart`. An entry may also be an object `{"action": "new-workspace", "label": "new"}` to rename its button, and `"command:<id>"` pins a user command from the top-level `commands` section as a button. `actions_position: "top"` mounts the buttons at the view's top instead of the bottom edge. A view rooted at `workspaces` inherits `new-workspace`, including provider-specific isolated and shared choices. Set `"actions": []` to hide every pinned action, or provide an ordered list to replace the preset. Machine creation and connection actions remain capability-driven by the selected provider.
 
-Every view has an independent width and drag handle. Lower `collapse_priority` values hide first when the terminal must preserve 40 pane columns. A hidden view needs four additional columns before it returns, which prevents resize-boundary flicker. `sidebar.columns` remains a compatibility alias for one-level machine, workspace, and tab views; `sidebar.views` wins when both are present.
+A top-level entry can also be a split group instead of a view: `{"id": "left", "split": "vertical", "panes": [ ... ]}` stacks its panes top to bottom in one column, `"split": "horizontal"` places them side by side, and groups nest up to three levels. Each pane is a view (same schema) or another split, with an optional `weight` (default `1`) setting its share. The divider between stacked panes drags with the mouse; from a rail's first or last row, `Up`/`Down` (or `k`/`j`) moves focus into the stacked neighbor. A split column keeps one width: the group's `width`, `max_width`, and `collapse_priority` default to the largest among its panes, and a width drag on any of its rails resizes the whole column.
+
+Flat one-level `tabs` and `agents` views accept `"scope": "all"`. An `all`-scoped view sweeps every workspace instead of following the highlighted one; agents hide `unknown` records, order chronologically by their last status change, newest first, keep `done` agents visible, and show their workspace name when the agent has no session title. This is how a status board like *workspaces on top, all agents below* is built:
+
+```json
+"sidebar": {
+  "views": [
+    {"id": "left", "split": "vertical", "panes": [
+      {"id": "workspaces", "levels": ["workspaces"]},
+      {"id": "all-agents", "levels": ["agents"], "scope": "all", "weight": 2}
+    ]}
+  ]
+}
+```
+
+Every view has an independent width and drag handle. Lower `collapse_priority` values hide first when the terminal must preserve 40 pane columns. A hidden view needs four additional columns before it returns, which prevents resize-boundary flicker. Panes of a split behave the same way vertically: when a column gets too short, its lowest-priority panes hide until space returns. `sidebar.columns` remains a compatibility alias for one-level machine, workspace, and tab views; `sidebar.views` wins when both are present.
 
 | Key | Type | Default | Effect |
 | --- | --- | --- | --- |
@@ -91,6 +106,10 @@ Every view has an independent width and drag handle. Lower `collapse_priority` v
 | `sidebar.views[].max_width` | integer | `0` | Maximum live drag width; `0` means no configured maximum |
 | `sidebar.views[].collapse_priority` | integer | resource default | Lower priorities hide first on narrow terminals |
 | `sidebar.views[].actions_position` | `"top"` or `"bottom"` | `"bottom"` | Where the view's pinned action buttons render |
+| `sidebar.views[].scope` | `"workspace"` or `"all"` | `"workspace"` | For flat `tabs`/`agents` views: follow the highlighted workspace, or sweep all workspaces (agents order newest status change first) |
+| `sidebar.views[].split` | `"vertical"` or `"horizontal"` | unset | Turns the entry into a split group of `panes` instead of a leaf view |
+| `sidebar.views[].panes` | array of entries | required with `split` | Child views or nested splits of a split group |
+| `sidebar.views[].panes[].weight` | integer | `1` | Relative share of the parent split |
 | `sidebar.row_height` | `1` or `2` | `2` | Rows per rail entry; `1` drops the subtitle line |
 | `sidebar.row_gap` | integer | `1` | Blank rows between rail entries, `0` through `2` |
 | `sidebar.rail_glyph` | string | `"▎"` | Accent glyph on active rail rows; `"none"` removes it |

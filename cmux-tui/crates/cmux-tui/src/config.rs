@@ -550,13 +550,25 @@ struct RawSidebarProfile {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawSidebarView {
-    id: String,
-    levels: Vec<String>,
+    id: Option<String>,
+    levels: Option<Vec<String>>,
     actions: Option<Vec<RawSidebarAction>>,
     actions_position: Option<ActionsPosition>,
     width: Option<u16>,
     max_width: Option<u16>,
     collapse_priority: Option<u16>,
+    /// Resource scope for flat tabs/agents views: `"workspace"` (default)
+    /// follows the selected workspace; `"all"` lists every workspace, and
+    /// agents order chronologically by their last status change.
+    scope: Option<String>,
+    /// Turns this entry into a split group instead of a leaf view:
+    /// `"vertical"` stacks `panes` top to bottom, `"horizontal"` places them
+    /// side by side. Split groups nest.
+    split: Option<String>,
+    /// Child entries of a split group, each a view or another split.
+    panes: Option<Vec<RawSidebarView>>,
+    /// Relative share of the parent split (default 1).
+    weight: Option<u16>,
 }
 
 /// One pinned action: an action name, or an object that also renames its
@@ -1014,6 +1026,9 @@ pub struct Sidebar {
     /// list behavior; multiple levels render as one native tree column.
     pub views: Vec<SidebarViewSpec>,
     pub views_explicit: bool,
+    /// Column arrangement over `views`: one node per top-level column, where
+    /// a node is a leaf view or a nested split group.
+    pub layout: Vec<SidebarLayoutNode>,
     /// Named native layouts. `views` is always the currently selected
     /// profile's resolved rail list so older consumers remain compatible.
     pub profiles: Vec<SidebarProfileSpec>,
@@ -1045,11 +1060,13 @@ impl Default for Sidebar {
                 SidebarColumn { kind: SidebarColumnKind::Workspaces, width: 22, max_width: 0 },
             ],
             columns_explicit: false,
+            layout: sidebar_layout_of_columns(&views),
             views: views.clone(),
             views_explicit: false,
             profiles: vec![SidebarProfileSpec {
                 id: "default".to_string(),
                 name: "Default".to_string(),
+                layout: sidebar_layout_of_columns(&views),
                 views,
             }],
             active_profile: "default".to_string(),
@@ -1067,6 +1084,7 @@ pub struct SidebarProfileSpec {
     pub id: String,
     pub name: String,
     pub views: Vec<SidebarViewSpec>,
+    pub layout: Vec<SidebarLayoutNode>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -1105,6 +1123,74 @@ pub struct SidebarViewSpec {
     pub max_width: u16,
     /// Lower values collapse first when pane space becomes constrained.
     pub collapse_priority: u16,
+    /// Resource scope for flat tabs/agents views. `All` lists every
+    /// workspace; agents then order chronologically by last status change.
+    pub scope: SidebarViewScope,
+}
+
+/// Which workspaces feed a flat tabs/agents view.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SidebarViewScope {
+    /// Follow the selected workspace (the historical behavior).
+    #[default]
+    Workspace,
+    /// Every workspace in the session.
+    All,
+}
+
+/// Split orientation for a sidebar split group. `Vertical` stacks children
+/// top to bottom (a vertical arrangement), `Horizontal` places them side by
+/// side, matching tmux's `-v`/`-h` convention.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SidebarSplitDir {
+    Vertical,
+    Horizontal,
+}
+
+/// One top-level sidebar column, or a node inside a split group: either a
+/// leaf view (an index into the resolved flat view list) or a nested split.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SidebarLayoutNode {
+    Leaf(usize),
+    Split(SidebarSplitSpec),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SidebarSplitSpec {
+    pub id: String,
+    pub dir: SidebarSplitDir,
+    /// Relative share per child; same length as `children`.
+    pub weights: Vec<u16>,
+    pub children: Vec<SidebarLayoutNode>,
+    /// Column sizing when this split is a top-level entry.
+    pub width: u16,
+    pub max_width: u16,
+    pub collapse_priority: u16,
+}
+
+impl SidebarLayoutNode {
+    /// Leaf view indices in tree order.
+    pub fn leaves(&self) -> Vec<usize> {
+        let mut leaves = Vec::new();
+        self.collect_leaves(&mut leaves);
+        leaves
+    }
+
+    fn collect_leaves(&self, leaves: &mut Vec<usize>) {
+        match self {
+            SidebarLayoutNode::Leaf(index) => leaves.push(*index),
+            SidebarLayoutNode::Split(split) => {
+                for child in &split.children {
+                    child.collect_leaves(leaves);
+                }
+            }
+        }
+    }
+}
+
+/// The identity layout for a flat view list: one top-level column per view.
+pub fn sidebar_layout_of_columns(views: &[SidebarViewSpec]) -> Vec<SidebarLayoutNode> {
+    (0..views.len()).map(SidebarLayoutNode::Leaf).collect()
 }
 
 /// One pinned sidebar action and its optional label override.
@@ -1194,10 +1280,17 @@ impl SidebarViewSpec {
             width,
             max_width,
             collapse_priority,
+            scope: SidebarViewScope::Workspace,
         }
     }
 
     pub fn legacy_kind(&self) -> Option<SidebarColumnKind> {
+        // An `all`-scoped view never maps to a legacy rail: the legacy
+        // renderers follow the selected workspace, so scope must route
+        // through the projection path.
+        if self.scope != SidebarViewScope::Workspace {
+            return None;
+        }
         match self.levels.as_slice() {
             [SidebarResourceKind::Machines] => Some(SidebarColumnKind::Machines),
             [SidebarResourceKind::Workspaces] => Some(SidebarColumnKind::Workspaces),
@@ -1410,6 +1503,211 @@ fn parse_sidebar_action(value: &str, command_ids: &[String]) -> Result<Action, S
         .ok_or_else(|| format!("cmux-tui: ignoring unknown sidebar action {value:?}"))
 }
 
+/// Flat view list plus the column/split arrangement over it.
+#[derive(Debug, Default)]
+struct ResolvedSidebarViews {
+    views: Vec<SidebarViewSpec>,
+    layout: Vec<SidebarLayoutNode>,
+}
+
+/// The deepest allowed split nesting. Splits inside splits inside splits
+/// cover every practical arrangement; deeper trees are almost certainly a
+/// config mistake and each level costs a validation pass per frame.
+const MAX_SIDEBAR_SPLIT_DEPTH: usize = 3;
+
+fn parse_sidebar_split_dir(value: &str) -> Result<SidebarSplitDir, String> {
+    match value {
+        "vertical" => Ok(SidebarSplitDir::Vertical),
+        "horizontal" => Ok(SidebarSplitDir::Horizontal),
+        _ => Err(format!(
+            "cmux-tui: ignoring unknown sidebar split {value:?}; expected \"vertical\" (top/bottom) or \"horizontal\" (side by side)"
+        )),
+    }
+}
+
+fn parse_sidebar_view_scope(value: &str) -> Result<SidebarViewScope, String> {
+    match value {
+        "workspace" => Ok(SidebarViewScope::Workspace),
+        "all" => Ok(SidebarViewScope::All),
+        _ => Err(format!(
+            "cmux-tui: ignoring unknown sidebar view scope {value:?}; expected \"workspace\" or \"all\""
+        )),
+    }
+}
+
+/// Shared mutable state across one resolution pass: id/legacy dedup and the
+/// flat leaf list the layout tree indexes into.
+struct SidebarViewResolution<'a> {
+    ids: HashSet<String>,
+    /// Explicit IDs in the complete raw tree. Generated split IDs must avoid
+    /// these even when the user entry appears later in configuration order.
+    reserved_ids: HashSet<String>,
+    legacy_kinds: HashSet<SidebarColumnKind>,
+    views: Vec<SidebarViewSpec>,
+    split_counter: usize,
+    machine_width: u16,
+    machine_max_width: u16,
+    workspace_width: u16,
+    workspace_max_width: u16,
+    owner: &'a str,
+    command_ids: &'a [String],
+}
+
+/// Column sizing of a resolved node, for bottom-up split-group defaults.
+/// A zero maximum means that the node is unbounded.
+fn sidebar_node_metrics(node: &SidebarLayoutNode, views: &[SidebarViewSpec]) -> (u16, u16, u16) {
+    match node {
+        SidebarLayoutNode::Leaf(index) => views
+            .get(*index)
+            .map_or((22, 0, 20), |view| (view.width, view.max_width, view.collapse_priority)),
+        SidebarLayoutNode::Split(split) => (split.width, split.max_width, split.collapse_priority),
+    }
+}
+
+fn resolve_sidebar_view_entry(
+    view: &RawSidebarView,
+    depth: usize,
+    state: &mut SidebarViewResolution<'_>,
+) -> Option<SidebarLayoutNode> {
+    let owner = state.owner;
+    if let Some(split) = view.split.as_deref() {
+        let dir = match parse_sidebar_split_dir(split.trim()) {
+            Ok(dir) => dir,
+            Err(warning) => {
+                crate::client_log::stderr_log!("config", "{warning} in {owner}");
+                return None;
+            }
+        };
+        if view.levels.is_some() {
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: ignoring {owner} split group with levels; a split holds panes, not resources"
+            );
+            return None;
+        }
+        if depth >= MAX_SIDEBAR_SPLIT_DEPTH {
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: ignoring {owner} split group nested deeper than {MAX_SIDEBAR_SPLIT_DEPTH} levels"
+            );
+            return None;
+        }
+        if view.actions.is_some() || view.actions_position.is_some() || view.scope.is_some() {
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: ignoring actions/scope on an {owner} split group; set them on its panes"
+            );
+        }
+        let id = match view.id.as_deref().map(str::trim) {
+            Some(id) if !id.is_empty() => {
+                if state.ids.contains(id) {
+                    crate::client_log::stderr_log!(
+                        "config",
+                        "cmux-tui: ignoring {owner} split group with a duplicate id"
+                    );
+                    return None;
+                }
+                id.to_string()
+            }
+            _ => loop {
+                state.split_counter += 1;
+                let candidate = format!("split-{}", state.split_counter);
+                if !state.ids.contains(&candidate) && !state.reserved_ids.contains(&candidate) {
+                    break candidate;
+                }
+            },
+        };
+        let panes = view.panes.as_deref().unwrap_or_default();
+        if panes.is_empty() {
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: ignoring {owner} split group without panes"
+            );
+            return None;
+        }
+        state.ids.insert(id.clone());
+        let mut children = Vec::new();
+        let mut weights = Vec::new();
+        for pane in panes {
+            if let Some(child) = resolve_sidebar_view_entry(pane, depth + 1, state) {
+                weights.push(pane.weight.unwrap_or(1).max(1));
+                children.push(child);
+            }
+        }
+        match children.len() {
+            0 => {
+                state.ids.remove(&id);
+                crate::client_log::stderr_log!(
+                    "config",
+                    "cmux-tui: ignoring {owner} split group with no usable panes"
+                );
+                None
+            }
+            1 => {
+                state.ids.remove(&id);
+                crate::client_log::stderr_log!(
+                    "config",
+                    "cmux-tui: {owner} split group has one usable pane; using it directly"
+                );
+                children.pop()
+            }
+            _ => {
+                let mut default_width = 10u16;
+                let mut default_max_width = 0u16;
+                let mut has_unlimited_child = false;
+                let mut default_priority = 0u16;
+                for child in &children {
+                    let (child_width, child_max_width, child_priority) =
+                        sidebar_node_metrics(child, &state.views);
+                    default_width = default_width.max(child_width);
+                    default_priority = default_priority.max(child_priority);
+                    if child_max_width == 0 {
+                        has_unlimited_child = true;
+                    } else {
+                        default_max_width = default_max_width.max(child_max_width);
+                    }
+                }
+                if has_unlimited_child {
+                    default_max_width = 0;
+                }
+                Some(SidebarLayoutNode::Split(SidebarSplitSpec {
+                    id,
+                    dir,
+                    weights,
+                    children,
+                    width: view.width.map_or(default_width, |width| width.clamp(10, 60)),
+                    max_width: view.max_width.unwrap_or(default_max_width),
+                    collapse_priority: view.collapse_priority.unwrap_or(default_priority),
+                }))
+            }
+        }
+    } else {
+        if view.panes.is_some() {
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: ignoring {owner} view with panes but no split direction"
+            );
+            return None;
+        }
+        resolve_sidebar_leaf_view(view, state).map(SidebarLayoutNode::Leaf)
+    }
+}
+
+fn collect_sidebar_view_ids(views: &[RawSidebarView], ids: &mut HashSet<String>) {
+    let mut pending = views.iter().map(|view| (view, 0usize)).collect::<Vec<_>>();
+    while let Some((view, depth)) = pending.pop() {
+        if let Some(id) = view.id.as_deref().map(str::trim).filter(|id| !id.is_empty()) {
+            ids.insert(id.to_string());
+        }
+        if depth >= MAX_SIDEBAR_SPLIT_DEPTH {
+            continue;
+        }
+        if let Some(panes) = view.panes.as_deref() {
+            pending.extend(panes.iter().rev().map(|pane| (pane, depth + 1)));
+        }
+    }
+}
+
 fn resolve_sidebar_view_specs(
     views: &[RawSidebarView],
     machine_width: u16,
@@ -1418,116 +1716,173 @@ fn resolve_sidebar_view_specs(
     workspace_max_width: u16,
     owner: &str,
     command_ids: &[String],
-) -> Vec<SidebarViewSpec> {
-    let mut ids = HashSet::new();
-    let mut legacy_kinds = HashSet::new();
-    let mut resolved = Vec::new();
+) -> ResolvedSidebarViews {
+    let mut reserved_ids = HashSet::new();
+    collect_sidebar_view_ids(views, &mut reserved_ids);
+    let mut state = SidebarViewResolution {
+        ids: HashSet::new(),
+        reserved_ids,
+        legacy_kinds: HashSet::new(),
+        views: Vec::new(),
+        split_counter: 0,
+        machine_width,
+        machine_max_width,
+        workspace_width,
+        workspace_max_width,
+        owner,
+        command_ids,
+    };
+    let mut layout = Vec::new();
     for view in views {
-        let id = view.id.trim();
-        if id.is_empty() || ids.contains(id) {
+        if view.weight.is_some() {
             crate::client_log::stderr_log!(
                 "config",
-                "cmux-tui: ignoring {owner} view with an empty or duplicate id"
+                "cmux-tui: ignoring weight on a top-level {owner} entry; weights apply inside a split group"
             );
-            continue;
         }
-        let mut levels = Vec::with_capacity(view.levels.len());
-        let mut valid = true;
-        for level in &view.levels {
-            match parse_sidebar_resource_kind(level.trim()) {
-                Ok(level) => levels.push(level),
-                Err(warning) => {
-                    crate::client_log::stderr_log!("config", "{warning}");
-                    valid = false;
-                    break;
-                }
+        if let Some(node) = resolve_sidebar_view_entry(view, 0, &mut state) {
+            layout.push(node);
+        }
+    }
+    ResolvedSidebarViews { views: state.views, layout }
+}
+
+fn resolve_sidebar_leaf_view(
+    view: &RawSidebarView,
+    state: &mut SidebarViewResolution<'_>,
+) -> Option<usize> {
+    let owner = state.owner;
+    let (machine_width, machine_max_width) = (state.machine_width, state.machine_max_width);
+    let (workspace_width, workspace_max_width) = (state.workspace_width, state.workspace_max_width);
+    let command_ids = state.command_ids;
+    let id = view.id.as_deref().map(str::trim).unwrap_or_default();
+    if id.is_empty() || state.ids.contains(id) {
+        crate::client_log::stderr_log!(
+            "config",
+            "cmux-tui: ignoring {owner} view with an empty or duplicate id"
+        );
+        return None;
+    }
+    let Some(raw_levels) = view.levels.as_ref() else {
+        crate::client_log::stderr_log!(
+            "config",
+            "cmux-tui: ignoring {owner} view {id:?} without levels"
+        );
+        return None;
+    };
+    let mut levels = Vec::with_capacity(raw_levels.len());
+    for level in raw_levels {
+        match parse_sidebar_resource_kind(level.trim()) {
+            Ok(level) => levels.push(level),
+            Err(warning) => {
+                crate::client_log::stderr_log!("config", "{warning}");
+                return None;
             }
         }
-        if !valid {
-            continue;
-        }
-        if let Err(reason) = validate_sidebar_levels(&levels) {
-            crate::client_log::stderr_log!(
-                "config",
-                "cmux-tui: ignoring {owner} view {id:?}: {reason}"
-            );
-            continue;
-        }
-        let legacy_kind = SidebarViewSpec {
-            id: id.to_string(),
-            levels: levels.clone(),
-            actions: Vec::new(),
-            actions_position: ActionsPosition::Bottom,
-            width: 0,
-            max_width: 0,
-            collapse_priority: 0,
-        }
-        .legacy_kind();
-        if legacy_kind.is_some_and(|kind| !legacy_kinds.insert(kind)) {
-            crate::client_log::stderr_log!(
-                "config",
-                "cmux-tui: ignoring {owner} view {id:?}: a one-level view for that resource already exists"
-            );
-            continue;
-        }
-        ids.insert(id.to_string());
-        let (default_width, default_max_width) = match legacy_kind {
-            Some(SidebarColumnKind::Machines) => (machine_width, machine_max_width),
-            Some(SidebarColumnKind::Workspaces) => (workspace_width, workspace_max_width),
-            Some(SidebarColumnKind::Tabs) | None => (22, 0),
-        };
-        let actions = if levels == [SidebarResourceKind::Machines]
-            && view.actions.as_ref().is_some_and(|actions| !actions.is_empty())
-        {
-            crate::client_log::stderr_log!(
-                "config",
-                "cmux-tui: ignoring sidebar actions in {owner} machine view {id:?}; machine actions come from provider capabilities"
-            );
-            Vec::new()
-        } else if let Some(raw_actions) = view.actions.as_ref() {
-            let mut seen = HashSet::new();
-            raw_actions
-                .iter()
-                .filter_map(|raw_action| {
-                    match parse_sidebar_action(raw_action.action().trim(), command_ids) {
-                        Ok(action) if seen.insert(action) => Some(SidebarActionSpec {
-                            action,
-                            label: raw_action
-                                .label()
-                                .map(str::trim)
-                                .filter(|label| !label.is_empty())
-                                .map(str::to_string),
-                        }),
-                        Ok(_) => {
-                            crate::client_log::stderr_log!("config", 
-                                "cmux-tui: ignoring duplicate sidebar action {:?} in {owner} view {id:?}",
-                                raw_action.action().trim()
-                            );
-                            None
-                        }
-                        Err(warning) => {
-                            crate::client_log::stderr_log!("config", "{warning} in {owner} view {id:?}");
-                            None
-                        }
-                    }
-                })
-                .collect()
-        } else {
-            default_sidebar_actions(&levels)
-        };
-        resolved.push(SidebarViewSpec {
-            id: id.to_string(),
-            collapse_priority: view
-                .collapse_priority
-                .unwrap_or_else(|| default_sidebar_collapse_priority(&levels)),
-            levels,
-            actions,
-            actions_position: view.actions_position.unwrap_or_default(),
-            width: view.width.unwrap_or(default_width).clamp(10, 60),
-            max_width: view.max_width.unwrap_or(default_max_width),
-        });
     }
-    resolved
+    if let Err(reason) = validate_sidebar_levels(&levels) {
+        crate::client_log::stderr_log!(
+            "config",
+            "cmux-tui: ignoring {owner} view {id:?}: {reason}"
+        );
+        return None;
+    }
+    let scope = match view.scope.as_deref().map(str::trim) {
+        None | Some("") => SidebarViewScope::Workspace,
+        Some(value) => match parse_sidebar_view_scope(value) {
+            Ok(SidebarViewScope::All)
+                if levels != [SidebarResourceKind::Tabs]
+                    && levels != [SidebarResourceKind::Agents] =>
+            {
+                crate::client_log::stderr_log!(
+                    "config",
+                    "cmux-tui: ignoring scope \"all\" in {owner} view {id:?}; it applies to one-level tabs or agents views"
+                );
+                SidebarViewScope::Workspace
+            }
+            Ok(scope) => scope,
+            Err(warning) => {
+                crate::client_log::stderr_log!("config", "{warning} in {owner} view {id:?}");
+                SidebarViewScope::Workspace
+            }
+        },
+    };
+    let legacy_kind = SidebarViewSpec {
+        id: id.to_string(),
+        levels: levels.clone(),
+        actions: Vec::new(),
+        actions_position: ActionsPosition::Bottom,
+        width: 0,
+        max_width: 0,
+        collapse_priority: 0,
+        scope,
+    }
+    .legacy_kind();
+    if legacy_kind.is_some_and(|kind| !state.legacy_kinds.insert(kind)) {
+        crate::client_log::stderr_log!(
+            "config",
+            "cmux-tui: ignoring {owner} view {id:?}: a one-level view for that resource already exists"
+        );
+        return None;
+    }
+    state.ids.insert(id.to_string());
+    let (default_width, default_max_width) = match legacy_kind {
+        Some(SidebarColumnKind::Machines) => (machine_width, machine_max_width),
+        Some(SidebarColumnKind::Workspaces) => (workspace_width, workspace_max_width),
+        Some(SidebarColumnKind::Tabs) | None => (22, 0),
+    };
+    let actions = if levels == [SidebarResourceKind::Machines]
+        && view.actions.as_ref().is_some_and(|actions| !actions.is_empty())
+    {
+        crate::client_log::stderr_log!(
+            "config",
+            "cmux-tui: ignoring sidebar actions in {owner} machine view {id:?}; machine actions come from provider capabilities"
+        );
+        Vec::new()
+    } else if let Some(raw_actions) = view.actions.as_ref() {
+        let mut seen = HashSet::new();
+        raw_actions
+            .iter()
+            .filter_map(|raw_action| {
+                match parse_sidebar_action(raw_action.action().trim(), command_ids) {
+                    Ok(action) if seen.insert(action) => Some(SidebarActionSpec {
+                        action,
+                        label: raw_action
+                            .label()
+                            .map(str::trim)
+                            .filter(|label| !label.is_empty())
+                            .map(str::to_string),
+                    }),
+                    Ok(_) => {
+                        crate::client_log::stderr_log!("config",
+                            "cmux-tui: ignoring duplicate sidebar action {:?} in {owner} view {id:?}",
+                            raw_action.action().trim()
+                        );
+                        None
+                    }
+                    Err(warning) => {
+                        crate::client_log::stderr_log!("config", "{warning} in {owner} view {id:?}");
+                        None
+                    }
+                }
+            })
+            .collect()
+    } else {
+        default_sidebar_actions(&levels)
+    };
+    state.views.push(SidebarViewSpec {
+        id: id.to_string(),
+        collapse_priority: view
+            .collapse_priority
+            .unwrap_or_else(|| default_sidebar_collapse_priority(&levels)),
+        levels,
+        actions,
+        actions_position: view.actions_position.unwrap_or_default(),
+        width: view.width.unwrap_or(default_width).clamp(10, 60),
+        max_width: view.max_width.unwrap_or(default_max_width),
+        scope,
+    });
+    Some(state.views.len() - 1)
 }
 
 #[derive(Debug, Clone)]
@@ -3507,6 +3862,7 @@ pub fn load() -> Config {
         .iter()
         .map(|column| SidebarViewSpec::legacy(column.kind, column.width, column.max_width))
         .collect();
+    config.sidebar.layout = sidebar_layout_of_columns(&config.sidebar.views);
     config.sidebar.views_explicit = config.sidebar.columns_explicit;
     // User commands resolve before sidebar views so pinned buttons can
     // reference them as `command:<id>`; their chords bind after `keys`.
@@ -3534,13 +3890,14 @@ pub fn load() -> Config {
             "sidebar",
             &command_ids,
         );
-        if resolved.is_empty() {
+        if resolved.views.is_empty() {
             crate::client_log::stderr_log!(
                 "config",
                 "cmux-tui: sidebar.views had no usable entries; keeping defaults"
             );
         } else {
             config.sidebar.columns = resolved
+                .views
                 .iter()
                 .filter_map(|view| {
                     view.legacy_kind().map(|kind| SidebarColumn {
@@ -3550,12 +3907,14 @@ pub fn load() -> Config {
                     })
                 })
                 .collect();
-            config.sidebar.views = resolved;
+            config.sidebar.views = resolved.views;
+            config.sidebar.layout = resolved.layout;
             config.sidebar.columns_explicit = false;
             config.sidebar.views_explicit = true;
         }
     }
     config.sidebar.profiles[0].views.clone_from(&config.sidebar.views);
+    config.sidebar.profiles[0].layout.clone_from(&config.sidebar.layout);
     if let Some(raw_profiles) = raw.sidebar.profiles.as_ref() {
         if raw.sidebar.views.is_some() || raw.sidebar.columns.is_some() {
             crate::client_log::stderr_log!(
@@ -3575,7 +3934,7 @@ pub fn load() -> Config {
                 continue;
             }
             let owner = format!("sidebar profile {id:?}");
-            let views = resolve_sidebar_view_specs(
+            let resolved = resolve_sidebar_view_specs(
                 &raw_profile.views,
                 config.machine_sidebar.width,
                 config.machine_sidebar.max_width,
@@ -3584,7 +3943,7 @@ pub fn load() -> Config {
                 &owner,
                 &command_ids,
             );
-            if views.is_empty() {
+            if resolved.views.is_empty() {
                 crate::client_log::stderr_log!(
                     "config",
                     "cmux-tui: ignoring sidebar profile {id:?} with no usable views"
@@ -3598,7 +3957,12 @@ pub fn load() -> Config {
                 .filter(|name| !name.is_empty())
                 .unwrap_or(id)
                 .to_string();
-            profiles.push(SidebarProfileSpec { id: id.to_string(), name, views });
+            profiles.push(SidebarProfileSpec {
+                id: id.to_string(),
+                name,
+                views: resolved.views,
+                layout: resolved.layout,
+            });
         }
         if profiles.is_empty() {
             crate::client_log::stderr_log!(
@@ -3620,6 +3984,7 @@ pub fn load() -> Config {
                 });
             config.sidebar.active_profile = profiles[selected].id.clone();
             config.sidebar.views = profiles[selected].views.clone();
+            config.sidebar.layout = profiles[selected].layout.clone();
             config.sidebar.columns = config
                 .sidebar
                 .views
@@ -9127,8 +9492,8 @@ mod tests {
     #[test]
     fn sidebar_buttons_accept_labels_positions_and_command_references() {
         let views = vec![RawSidebarView {
-            id: "ws".to_string(),
-            levels: vec!["workspaces".to_string()],
+            id: Some("ws".to_string()),
+            levels: Some(vec!["workspaces".to_string()]),
             actions: Some(vec![
                 RawSidebarAction::Detailed {
                     action: "new-workspace".to_string(),
@@ -9142,9 +9507,14 @@ mod tests {
             width: None,
             max_width: None,
             collapse_priority: None,
+            scope: None,
+            split: None,
+            panes: None,
+            weight: None,
         }];
         let command_ids = vec!["lazygit".to_string()];
-        let resolved = resolve_sidebar_view_specs(&views, 22, 0, 22, 0, "sidebar", &command_ids);
+        let resolved =
+            resolve_sidebar_view_specs(&views, 22, 0, 22, 0, "sidebar", &command_ids).views;
         assert_eq!(resolved.len(), 1);
         assert_eq!(resolved[0].actions_position, ActionsPosition::Top);
         assert_eq!(
@@ -9156,6 +9526,175 @@ mod tests {
             ],
             "unknown command references drop, known ones bind by id"
         );
+    }
+
+    fn raw_leaf(id: &str, levels: &[&str]) -> RawSidebarView {
+        RawSidebarView {
+            id: Some(id.to_string()),
+            levels: Some(levels.iter().map(|level| level.to_string()).collect()),
+            actions: None,
+            actions_position: None,
+            width: None,
+            max_width: None,
+            collapse_priority: None,
+            scope: None,
+            split: None,
+            panes: None,
+            weight: None,
+        }
+    }
+
+    #[test]
+    fn sidebar_split_groups_resolve_scope_weights_and_layout() {
+        let mut agents = raw_leaf("all-agents", &["agents"]);
+        agents.scope = Some("all".to_string());
+        agents.weight = Some(2);
+        let mut group = raw_leaf("left", &[]);
+        group.levels = None;
+        group.split = Some("vertical".to_string());
+        group.panes = Some(vec![raw_leaf("ws", &["workspaces"]), agents]);
+        let views = vec![group, raw_leaf("tabs", &["tabs"])];
+        let resolved = resolve_sidebar_view_specs(&views, 22, 0, 22, 0, "sidebar", &[]);
+
+        assert_eq!(resolved.views.len(), 3);
+        assert_eq!(resolved.views[0].id, "ws");
+        assert_eq!(resolved.views[1].id, "all-agents");
+        assert_eq!(resolved.views[1].scope, SidebarViewScope::All);
+        assert_eq!(resolved.views[2].scope, SidebarViewScope::Workspace);
+        assert_eq!(resolved.layout.len(), 2);
+        match &resolved.layout[0] {
+            SidebarLayoutNode::Split(split) => {
+                assert_eq!(split.id, "left");
+                assert_eq!(split.dir, SidebarSplitDir::Vertical);
+                assert_eq!(split.weights, vec![1, 2]);
+                assert_eq!(
+                    split.children,
+                    vec![SidebarLayoutNode::Leaf(0), SidebarLayoutNode::Leaf(1)]
+                );
+                assert_eq!(split.width, 22, "defaults to the widest pane");
+                assert_eq!(split.max_width, 0, "an unbounded pane keeps the group unbounded");
+                assert_eq!(split.collapse_priority, 30, "defaults to the highest pane priority");
+            }
+            node => panic!("expected a split column, got {node:?}"),
+        }
+        assert_eq!(resolved.layout[1], SidebarLayoutNode::Leaf(2));
+    }
+
+    #[test]
+    fn sidebar_split_grammar_parses_from_json() {
+        let raw: RawConfig = serde_json::from_value(json!({
+            "sidebar": {
+                "views": [
+                    {"id": "left", "split": "vertical", "panes": [
+                        {"id": "ws", "levels": ["workspaces"]},
+                        {"id": "all-agents", "levels": ["agents"], "scope": "all"}
+                    ]}
+                ]
+            }
+        }))
+        .unwrap();
+        let views = raw.sidebar.views.unwrap();
+        assert_eq!(views.len(), 1);
+        assert_eq!(views[0].split.as_deref(), Some("vertical"));
+        assert_eq!(views[0].panes.as_ref().map(Vec::len), Some(2));
+    }
+
+    #[test]
+    fn generated_split_ids_reserve_explicit_ids_from_later_entries() {
+        let mut group = raw_leaf("", &[]);
+        group.levels = None;
+        group.split = Some("vertical".to_string());
+        group.panes = Some(vec![raw_leaf("ws", &["workspaces"]), raw_leaf("ag", &["agents"])]);
+        let later = raw_leaf("split-1", &["tabs"]);
+        let resolved = resolve_sidebar_view_specs(&[group, later], 22, 0, 22, 0, "sidebar", &[]);
+
+        assert_eq!(resolved.views.len(), 3);
+        match &resolved.layout[0] {
+            SidebarLayoutNode::Split(split) => assert_eq!(split.id, "split-2"),
+            node => panic!("expected generated split, got {node:?}"),
+        }
+        assert_eq!(resolved.layout[1], SidebarLayoutNode::Leaf(2));
+        assert_eq!(resolved.views[2].id, "split-1");
+    }
+
+    #[test]
+    fn sidebar_split_rejects_bad_shapes_and_unwraps_single_panes() {
+        // scope "all" needs a flat tabs/agents view.
+        let mut scoped = raw_leaf("tree", &["workspaces", "agents"]);
+        scoped.scope = Some("all".to_string());
+        let resolved = resolve_sidebar_view_specs(&[scoped], 22, 0, 22, 0, "sidebar", &[]);
+        assert_eq!(resolved.views[0].scope, SidebarViewScope::Workspace);
+
+        // A split with one usable pane flattens to that pane.
+        let mut group = raw_leaf("left", &[]);
+        group.levels = None;
+        group.split = Some("vertical".to_string());
+        group.panes = Some(vec![raw_leaf("ws", &["workspaces"]), raw_leaf("", &["agents"])]);
+        let resolved = resolve_sidebar_view_specs(&[group], 22, 0, 22, 0, "sidebar", &[]);
+        assert_eq!(resolved.views.len(), 1);
+        assert_eq!(resolved.layout, vec![SidebarLayoutNode::Leaf(0)]);
+
+        // An unknown split direction drops the group and its panes.
+        let mut group = raw_leaf("left", &[]);
+        group.levels = None;
+        group.split = Some("diagonal".to_string());
+        group.panes = Some(vec![raw_leaf("ws", &["workspaces"]), raw_leaf("ag", &["agents"])]);
+        let resolved = resolve_sidebar_view_specs(&[group], 22, 0, 22, 0, "sidebar", &[]);
+        assert!(resolved.views.is_empty());
+        assert!(resolved.layout.is_empty());
+
+        // A split group with levels is ambiguous and drops.
+        let mut group = raw_leaf("left", &["workspaces"]);
+        group.split = Some("vertical".to_string());
+        group.panes = Some(vec![raw_leaf("ws", &["workspaces"]), raw_leaf("ag", &["agents"])]);
+        let resolved = resolve_sidebar_view_specs(&[group], 22, 0, 22, 0, "sidebar", &[]);
+        assert!(resolved.views.is_empty());
+    }
+
+    #[test]
+    fn split_group_defaults_max_width_to_largest_finite_child() {
+        let mut narrow = raw_leaf("narrow", &["workspaces"]);
+        narrow.max_width = Some(31);
+        let mut wide = raw_leaf("wide", &["agents"]);
+        wide.max_width = Some(47);
+        let mut group = raw_leaf("group", &[]);
+        group.levels = None;
+        group.split = Some("horizontal".to_string());
+        group.panes = Some(vec![narrow, wide]);
+
+        let resolved = resolve_sidebar_view_specs(&[group], 22, 0, 22, 0, "sidebar", &[]);
+        match &resolved.layout[0] {
+            SidebarLayoutNode::Split(split) => assert_eq!(split.max_width, 47),
+            node => panic!("expected a split column, got {node:?}"),
+        }
+    }
+
+    #[test]
+    fn sidebar_view_id_prepass_stops_at_the_split_depth_limit() {
+        let mut nested = raw_leaf("leaf-too-deep", &["tabs"]);
+        for depth in (0..=MAX_SIDEBAR_SPLIT_DEPTH).rev() {
+            let mut group = raw_leaf(&format!("split-{depth}"), &[]);
+            group.levels = None;
+            group.split = Some("vertical".to_string());
+            group.panes = Some(vec![nested]);
+            nested = group;
+        }
+
+        let mut ids = HashSet::new();
+        collect_sidebar_view_ids(&[nested], &mut ids);
+        for depth in 0..=MAX_SIDEBAR_SPLIT_DEPTH {
+            assert!(ids.contains(&format!("split-{depth}")));
+        }
+        assert!(!ids.contains("leaf-too-deep"));
+    }
+
+    #[test]
+    fn all_scoped_tabs_view_never_maps_to_the_legacy_tabs_rail() {
+        let mut tabs = raw_leaf("tabs-everywhere", &["tabs"]);
+        tabs.scope = Some("all".to_string());
+        let resolved = resolve_sidebar_view_specs(&[tabs], 22, 0, 22, 0, "sidebar", &[]);
+        assert_eq!(resolved.views[0].scope, SidebarViewScope::All);
+        assert_eq!(resolved.views[0].legacy_kind(), None);
     }
 
     #[test]
