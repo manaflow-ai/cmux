@@ -807,12 +807,13 @@ fn script_has_interpreter_shebang(path: &Path, interpreter: &str) -> bool {
         return false;
     };
     command == interpreter
-        || (command == "env" && words.any(|word| {
-            Path::new(std::str::from_utf8(word).ok().unwrap_or_default())
-                .file_name()
-                .and_then(|name| name.to_str())
-                == Some(interpreter)
-        }))
+        || (command == "env"
+            && words.any(|word| {
+                Path::new(std::str::from_utf8(word).ok().unwrap_or_default())
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    == Some(interpreter)
+            }))
 }
 
 #[cfg(target_os = "linux")]
