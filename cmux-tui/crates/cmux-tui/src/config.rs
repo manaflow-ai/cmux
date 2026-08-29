@@ -4372,16 +4372,41 @@ fn ghostty_defaults_from_sources(
 /// make the byte unit explicit, so both spellings are accepted.
 fn ghostty_scrollback_limit_bytes() -> Option<usize> {
     let deadline_at = ghostty_config_deadline_from_now(GHOSTTY_CONFIG_PARSE_DEADLINE);
+    let mut resolved = None;
     for path in platform::ghostty_config_paths() {
-        let Some(value) = parse_scrollback_limit_from_root(&path, deadline_at) else {
-            continue;
-        };
-        return value;
+        if ghostty_config_deadline_expired(Some(deadline_at)) {
+            // A partial traversal is not an authoritative configuration
+            // result. Falling back to the shared default avoids making
+            // startup timing change the selected security and memory limit.
+            return None;
+        }
+        match parse_scrollback_limit_from_root(&path, deadline_at) {
+            ScrollbackConfigOutcome::Missing => {}
+            ScrollbackConfigOutcome::TimedOut => return None,
+            ScrollbackConfigOutcome::Parsed(setting) => {
+                // A file with no setting does not mask another candidate.
+                // An explicit empty setting is represented as Some(None) and
+                // intentionally resets the accumulated value to the default.
+                if let Some(setting) = setting {
+                    resolved = setting;
+                }
+            }
+        }
     }
-    None
+    resolved
 }
 
-fn parse_scrollback_limit_from_root(path: &Path, deadline_at: Instant) -> Option<Option<usize>> {
+#[derive(Debug, PartialEq, Eq)]
+enum ScrollbackConfigOutcome {
+    Missing,
+    Parsed(Option<Option<usize>>),
+    TimedOut,
+}
+
+fn parse_scrollback_limit_from_root(
+    path: &Path,
+    deadline_at: Instant,
+) -> ScrollbackConfigOutcome {
     let mut stack = vec![PendingGhosttyConfig { path: path.to_path_buf(), depth: 0 }];
     let mut loaded = HashSet::new();
     let mut files_loaded = 0usize;
@@ -4390,8 +4415,8 @@ fn parse_scrollback_limit_from_root(path: &Path, deadline_at: Instant) -> Option
     let mut loaded_root = false;
 
     while let Some(pending) = stack.pop() {
-        if files_loaded > 0 && Instant::now() >= deadline_at {
-            break;
+        if Instant::now() >= deadline_at {
+            return ScrollbackConfigOutcome::TimedOut;
         }
         if pending.depth > GHOSTTY_CONFIG_MAX_DEPTH || files_loaded >= GHOSTTY_CONFIG_MAX_FILES {
             continue;
@@ -4403,7 +4428,7 @@ fn parse_scrollback_limit_from_root(path: &Path, deadline_at: Instant) -> Option
         let remaining_bytes = GHOSTTY_CONFIG_MAX_BYTES.saturating_sub(bytes_loaded);
         let Some(text) = read_ghostty_regular_file(&pending.path, remaining_bytes) else {
             if pending.depth == 0 && files_loaded == 0 {
-                return None;
+                return ScrollbackConfigOutcome::Missing;
             }
             continue;
         };
@@ -4422,12 +4447,22 @@ fn parse_scrollback_limit_from_root(path: &Path, deadline_at: Instant) -> Option
         {
             stack.push(PendingGhosttyConfig { path: include, depth: pending.depth + 1 });
         }
+        if Instant::now() >= deadline_at {
+            return ScrollbackConfigOutcome::TimedOut;
+        }
     }
 
-    loaded_root.then_some(value)
+    if loaded_root {
+        ScrollbackConfigOutcome::Parsed(value)
+    } else {
+        ScrollbackConfigOutcome::Missing
+    }
 }
 
-fn parse_scrollback_limit_bytes(text: &str) -> Option<usize> {
+/// Return the last scrollback setting in a file. The outer `Option` says
+/// whether a setting was present; the inner `Option` represents an explicit
+/// empty reset to the shared default.
+fn parse_scrollback_limit_bytes(text: &str) -> Option<Option<usize>> {
     text.lines()
         .filter_map(|line| {
             let (key, value) = line.trim().split_once('=')?;
@@ -4435,7 +4470,11 @@ fn parse_scrollback_limit_bytes(text: &str) -> Option<usize> {
                 return None;
             }
             let value = value.split('#').next().unwrap_or(value).trim();
-            value.trim_matches('"').replace('_', "").parse::<usize>().ok()
+            let value = value.trim_matches('"').trim();
+            if value.is_empty() {
+                return Some(None);
+            }
+            value.replace('_', "").parse::<usize>().ok().map(Some)
         })
         .last()
 }
@@ -5755,8 +5794,9 @@ mod tests {
                  scrollback-limit = invalid\n\
                  scrollback-limit-bytes = 8_000_000\n"
             ),
-            Some(8_000_000)
+            Some(Some(8_000_000))
         );
+        assert_eq!(parse_scrollback_limit_bytes("scrollback-limit = \"\"\n"), Some(None));
         assert_eq!(parse_scrollback_limit_bytes("scrollback-limit-lines = 12\n"), None);
 
         let invalid = parse_ghostty_defaults(
@@ -5777,6 +5817,34 @@ mod tests {
 
         let hollow = parse_ghostty_defaults("cursor-style = block_hollow\n");
         assert_eq!(hollow.cursor_style, Some(CursorShape::BlockHollow));
+    }
+
+    #[test]
+    fn scrollback_config_outcomes_preserve_precedence_and_timeout() {
+        let dir = TestDirectory::new("scrollback-outcomes");
+        let value_path = dir.path.join("value.conf");
+        let empty_path = dir.path.join("empty.conf");
+        let absent_path = dir.path.join("absent.conf");
+        std::fs::write(&value_path, "scrollback-limit = 123_456\n").unwrap();
+        std::fs::write(&empty_path, "scrollback-limit = \"\"\n").unwrap();
+        std::fs::write(&absent_path, "foreground = #010203\n").unwrap();
+
+        assert_eq!(
+            parse_scrollback_limit_from_root(&value_path, Instant::now() + Duration::from_secs(1)),
+            ScrollbackConfigOutcome::Parsed(Some(Some(123_456)))
+        );
+        assert_eq!(
+            parse_scrollback_limit_from_root(&absent_path, Instant::now() + Duration::from_secs(1)),
+            ScrollbackConfigOutcome::Parsed(None)
+        );
+        assert_eq!(
+            parse_scrollback_limit_from_root(&empty_path, Instant::now() + Duration::from_secs(1)),
+            ScrollbackConfigOutcome::Parsed(Some(None))
+        );
+        assert_eq!(
+            parse_scrollback_limit_from_root(&value_path, Instant::now() - Duration::from_secs(1)),
+            ScrollbackConfigOutcome::TimedOut
+        );
     }
 
     #[test]

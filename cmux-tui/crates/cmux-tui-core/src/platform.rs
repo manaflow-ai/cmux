@@ -378,18 +378,25 @@ pub fn chrome_candidates() -> Vec<PathBuf> {
 pub fn ghostty_config_paths() -> Vec<PathBuf> {
     let mut candidates = Vec::new();
     if let Some(config_home) = env_path("XDG_CONFIG_HOME") {
-        push_unique(&mut candidates, config_home.join("ghostty").join("config"));
+        let dir = config_home.join("ghostty");
+        // Ghostty loads the legacy name first, then the current name when
+        // both exist. Keep that order so later current-file settings win.
+        push_unique(&mut candidates, dir.join("config"));
+        push_unique(&mut candidates, dir.join("config.ghostty"));
     }
     if let Some(home) = home_dir() {
-        push_unique(&mut candidates, home.join(".config").join("ghostty").join("config"));
+        let dir = home.join(".config").join("ghostty");
+        push_unique(&mut candidates, dir.join("config"));
+        push_unique(&mut candidates, dir.join("config.ghostty"));
         #[cfg(target_os = "macos")]
-        push_unique(
-            &mut candidates,
-            home.join("Library")
+        {
+            let dir = home
+                .join("Library")
                 .join("Application Support")
-                .join("com.mitchellh.ghostty")
-                .join("config"),
-        );
+                .join("com.mitchellh.ghostty");
+            push_unique(&mut candidates, dir.join("config"));
+            push_unique(&mut candidates, dir.join("config.ghostty"));
+        }
     }
     candidates
 }
