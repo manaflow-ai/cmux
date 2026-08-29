@@ -106,6 +106,8 @@ pub struct SurfaceOptions {
     pub term: String,
     pub cols: u16,
     pub rows: u16,
+    /// Maximum retained scrollback storage in bytes, matching Ghostty's
+    /// `max_scrollback` API. This is not a line count.
     pub scrollback: usize,
     /// Extra environment for children (e.g. CMUX_TUI_SOCKET).
     pub extra_env: Vec<(String, String)>,

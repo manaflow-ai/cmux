@@ -127,7 +127,7 @@
 //! deliberate non-goal because they conflict with shell/editor control
 //! keys.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs::OpenOptions;
 use std::io::{Read, Write};
 use std::ops::Deref;
@@ -3239,6 +3239,9 @@ pub struct ThemeOverrides {
 }
 
 impl Config {
+    /// Effective Ghostty scrollback storage limit in bytes. Ghostty's VT
+    /// surface API uses bytes, so this value must never be interpreted as a
+    /// line count by callers.
     pub fn scrollback_limit_bytes(&self) -> usize {
         self.scrollback_limit_bytes.unwrap_or(DEFAULT_SCROLLBACK_LIMIT_BYTES)
     }
@@ -4407,14 +4410,18 @@ fn parse_scrollback_limit_from_root(
     path: &Path,
     deadline_at: Instant,
 ) -> ScrollbackConfigOutcome {
-    let mut stack = vec![PendingGhosttyConfig { path: path.to_path_buf(), depth: 0 }];
+    // Ghostty parses the complete parent file first, then loads its
+    // config-file entries in declaration order. Nested entries are appended
+    // after the already queued siblings. A FIFO queue preserves that
+    // precedence while keeping the traversal bounded below.
+    let mut queue = VecDeque::from([PendingGhosttyConfig { path: path.to_path_buf(), depth: 0 }]);
     let mut loaded = HashSet::new();
     let mut files_loaded = 0usize;
     let mut bytes_loaded = 0u64;
     let mut value = None;
     let mut loaded_root = false;
 
-    while let Some(pending) = stack.pop() {
+    while let Some(pending) = queue.pop_front() {
         if Instant::now() >= deadline_at {
             return ScrollbackConfigOutcome::TimedOut;
         }
@@ -4442,10 +4449,9 @@ fn parse_scrollback_limit_from_root(
         let base_dir = pending.path.parent().unwrap_or_else(|| Path::new("."));
         let mut theme_candidates = Vec::new();
         let parsed = parse_ghostty_config_text(&text, Some(base_dir), &mut theme_candidates);
-        for include in
-            parsed.config_files.into_iter().rev().filter_map(|include| include.resolve(base_dir))
+        for include in parsed.config_files.into_iter().filter_map(|include| include.resolve(base_dir))
         {
-            stack.push(PendingGhosttyConfig { path: include, depth: pending.depth + 1 });
+            queue.push_back(PendingGhosttyConfig { path: include, depth: pending.depth + 1 });
         }
         if Instant::now() >= deadline_at {
             return ScrollbackConfigOutcome::TimedOut;
@@ -4469,8 +4475,15 @@ fn parse_scrollback_limit_bytes(text: &str) -> Option<Option<usize>> {
             if !matches!(key.trim(), "scrollback-limit" | "scrollback-limit-bytes") {
                 return None;
             }
-            let value = value.split('#').next().unwrap_or(value).trim();
-            let value = value.trim_matches('"').trim();
+            // Ghostty treats comments as whole lines. Do not truncate a
+            // numeric value at '#', because that would accept malformed input
+            // that Ghostty rejects.
+            let value = value.trim();
+            let value = value
+                .strip_prefix('"')
+                .and_then(|value| value.strip_suffix('"'))
+                .unwrap_or(value)
+                .trim();
             if value.is_empty() {
                 return Some(None);
             }
@@ -4912,14 +4925,17 @@ fn parse_ghostty_config_file_until(
     theme_candidates: &mut Vec<GhosttyThemeCandidate>,
     deadline_at: Option<Instant>,
 ) -> GhosttyConfigParseOutcome {
-    let mut stack = vec![PendingGhosttyConfig { path: path.to_path_buf(), depth: 0 }];
+    // Keep the same breadth-first order as Ghostty's loadRecursiveFiles:
+    // finish a parent, then process its includes in declaration order, with
+    // nested includes queued after existing siblings.
+    let mut queue = VecDeque::from([PendingGhosttyConfig { path: path.to_path_buf(), depth: 0 }]);
     let mut loaded = HashSet::new();
     let mut files_loaded = 0usize;
     let mut bytes_loaded = 0u64;
     let mut loaded_root = false;
     let mut overrides = DefaultColors::default();
 
-    while let Some(pending) = stack.pop() {
+    while let Some(pending) = queue.pop_front() {
         if files_loaded > 0 && ghostty_config_deadline_expired(deadline_at) {
             return GhosttyConfigParseOutcome::TimedOut;
         }
@@ -4946,10 +4962,9 @@ fn parse_ghostty_config_file_until(
         let parsed = parse_ghostty_config_text(&text, Some(base_dir), theme_candidates);
         overlay_ghostty_defaults(&mut overrides, parsed.overrides);
 
-        for include in
-            parsed.config_files.into_iter().rev().filter_map(|include| include.resolve(base_dir))
+        for include in parsed.config_files.into_iter().filter_map(|include| include.resolve(base_dir))
         {
-            stack.push(PendingGhosttyConfig { path: include, depth: pending.depth + 1 });
+            queue.push_back(PendingGhosttyConfig { path: include, depth: pending.depth + 1 });
         }
         if ghostty_config_deadline_expired(deadline_at) {
             return GhosttyConfigParseOutcome::TimedOut;
@@ -5798,6 +5813,7 @@ mod tests {
         );
         assert_eq!(parse_scrollback_limit_bytes("scrollback-limit = \"\"\n"), Some(None));
         assert_eq!(parse_scrollback_limit_bytes("scrollback-limit-lines = 12\n"), None);
+        assert_eq!(parse_scrollback_limit_bytes("scrollback-limit = 4096#note\n"), None);
 
         let invalid = parse_ghostty_defaults(
             "cursor-style = underline\n\
@@ -5844,6 +5860,30 @@ mod tests {
         assert_eq!(
             parse_scrollback_limit_from_root(&value_path, Instant::now() - Duration::from_secs(1)),
             ScrollbackConfigOutcome::TimedOut
+        );
+    }
+
+    #[test]
+    fn scrollback_include_order_matches_ghostty_recursive_loading() {
+        let dir = TestDirectory::new("scrollback-include-order");
+        let root = dir.path.join("config");
+        let first = dir.path.join("first.conf");
+        let second = dir.path.join("second.conf");
+        let nested = dir.path.join("nested.conf");
+        std::fs::write(
+            &root,
+            "config-file = first.conf\n\
+             scrollback-limit = 1\n\
+             config-file = second.conf\n",
+        )
+        .unwrap();
+        std::fs::write(&first, "scrollback-limit = 2\nconfig-file = nested.conf\n").unwrap();
+        std::fs::write(&second, "scrollback-limit = 3\n").unwrap();
+        std::fs::write(&nested, "scrollback-limit = 4\n").unwrap();
+
+        assert_eq!(
+            parse_scrollback_limit_from_root(&root, Instant::now() + Duration::from_secs(1)),
+            ScrollbackConfigOutcome::Parsed(Some(Some(4)))
         );
     }
 
