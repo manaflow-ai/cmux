@@ -1775,14 +1775,17 @@ impl Inner {
         ]);
         let handle = self
             .deps
-            .spawn_pty(SpawnSpec {
-                file: cmux_tui.file.clone(),
-                args,
-                cols,
-                rows,
-                cwd: cwd.to_path_buf(),
-                env: env.clone(),
-            }, cancellation.token())
+            .spawn_pty(
+                SpawnSpec {
+                    file: cmux_tui.file.clone(),
+                    args,
+                    cols,
+                    rows,
+                    cwd: cwd.to_path_buf(),
+                    env: env.clone(),
+                },
+                cancellation.token(),
+            )
             .await;
         let control = Arc::clone(&handle.control);
         let output = Arc::clone(&handle.output);
@@ -1860,14 +1863,17 @@ impl Inner {
                 let shell = self.deps.shell();
                 let handle = self
                     .deps
-                    .spawn_pty(SpawnSpec {
-                        file: shell,
-                        args: Vec::new(),
-                        cols,
-                        rows,
-                        cwd: cwd.to_path_buf(),
-                        env: env.clone(),
-                    }, cancellation.token())
+                    .spawn_pty(
+                        SpawnSpec {
+                            file: shell,
+                            args: Vec::new(),
+                            cols,
+                            rows,
+                            cwd: cwd.to_path_buf(),
+                            env: env.clone(),
+                        },
+                        cancellation.token(),
+                    )
                     .await;
                 let PtyHandle { control, output, banner } = handle;
                 let shell_session = Arc::new(ShellSession {
@@ -2382,20 +2388,14 @@ impl Inner {
         let socket_dir = self.deps.socket_dir();
         let ensured = self
             .deps
-            .ensure_daemon(
-                cmux_tui,
-                session,
-                &socket_dir,
-                cwd,
-                env,
-                cancellation.token(),
-            )
+            .ensure_daemon(cmux_tui, session, &socket_dir, cwd, env, cancellation.token())
             .await
             .map_err(|message| (RelayPtyErrorCode::Failed, message))?;
-        let control = match self.deps.connect_control(&ensured.socket_path, cancellation.token()).await {
-            Ok(control) => control,
-            Err(_) => return Ok(None), // degrade to the whole-session attach
-        };
+        let control =
+            match self.deps.connect_control(&ensured.socket_path, cancellation.token()).await {
+                Ok(control) => control,
+                Err(_) => return Ok(None), // degrade to the whole-session attach
+            };
         let mut control_guard = ControlEndOnDrop::new(Arc::clone(&control));
 
         if cancellation.is_cancelled() {
@@ -2657,8 +2657,7 @@ impl Inner {
         socket_path: &Path,
         home: &str,
     ) -> Vec<(String, String)> {
-        let Ok(control) =
-            self.deps.connect_control(socket_path, CancellationToken::new()).await
+        let Ok(control) = self.deps.connect_control(socket_path, CancellationToken::new()).await
         else {
             return Vec::new();
         };
@@ -2878,11 +2877,7 @@ mod tests {
 
     #[async_trait]
     impl PtyDeps for FakeDeps {
-        async fn spawn_pty(
-            &self,
-            spec: SpawnSpec,
-            _cancellation: CancellationToken,
-        ) -> PtyHandle {
+        async fn spawn_pty(&self, spec: SpawnSpec, _cancellation: CancellationToken) -> PtyHandle {
             let pty = FakePty {
                 state: Arc::new(StdMutex::new(FakeState::default())),
                 spawn_file: spec.file.clone(),
@@ -2894,10 +2889,7 @@ mod tests {
             let output: Arc<dyn PtyOutput> = Arc::new(pty);
             PtyHandle { control, output, banner: None }
         }
-        async fn resolve_cmux_tui(
-            &self,
-            _cancellation: CancellationToken,
-        ) -> Option<CmuxTui> {
+        async fn resolve_cmux_tui(&self, _cancellation: CancellationToken) -> Option<CmuxTui> {
             self.resolve.clone()
         }
         async fn ensure_daemon(
