@@ -361,8 +361,13 @@ impl Connection {
                 let control = is_encoded_control_frame(&frame);
                 self.enqueue_frame(frame, control)
             }
-            // End is sent only through its reserved permit in `finish`.
-            WriterMessage::End => false,
+            // Preserve the old End-shaped call site while routing the marker
+            // through the reserved permit and the idempotent shutdown path.
+            WriterMessage::End => {
+                let was_finished = self.finished.load(Ordering::SeqCst);
+                self.finish();
+                !was_finished
+            }
         }
     }
 
