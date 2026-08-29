@@ -159,14 +159,9 @@ impl ScreenDetectTracker {
 
     /// Return the last successful identity lookup. `Some(None)` means a
     /// known non-agent shell, while `None` means that no usable sample exists.
-    pub(crate) fn cached_foreground_identity(
-        &self,
-        terminal_id: &str,
-    ) -> Option<Option<&str>> {
+    pub(crate) fn cached_foreground_identity(&self, terminal_id: &str) -> Option<Option<&str>> {
         let entry = self.terminals.get(terminal_id)?;
-        entry
-            .foreground_identity_known
-            .then(|| entry.foreground_agent.as_deref())
+        entry.foreground_identity_known.then(|| entry.foreground_agent.as_deref())
     }
 
     /// Keep the last successful identity when platform metadata is
@@ -184,10 +179,7 @@ impl ScreenDetectTracker {
             if entry.identity_check_delay_ms == 0 {
                 FOREGROUND_CHECK_INTERVAL_MS
             } else {
-                entry
-                    .identity_check_delay_ms
-                    .saturating_mul(2)
-                    .min(FOREGROUND_CHECK_RETRY_MAX_MS)
+                entry.identity_check_delay_ms.saturating_mul(2).min(FOREGROUND_CHECK_RETRY_MAX_MS)
             }
         } else {
             FOREGROUND_CHECK_INTERVAL_MS
@@ -478,10 +470,7 @@ mod tests {
         tracker.note_foreground_agent("term_a", Some("codex"));
         tracker.note_foreground_check("term_a", t0 + Duration::from_millis(500), false);
         tracker.note_foreground_unavailable("term_a", t0 + Duration::from_millis(500));
-        assert_eq!(
-            tracker.cached_foreground_identity("term_a"),
-            Some(Some("codex"))
-        );
+        assert_eq!(tracker.cached_foreground_identity("term_a"), Some(Some("codex")));
         assert!(!tracker.foreground_check_due("term_a", t0 + Duration::from_millis(999)));
         assert!(tracker.foreground_check_due("term_a", t0 + Duration::from_millis(1_000)));
     }

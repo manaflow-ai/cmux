@@ -112,10 +112,8 @@ pub(crate) fn scan(
                 ProcessNameResolution::Name(name) => {
                     let manifest = manifests.identify(&name);
                     tracker.note_foreground_check(terminal_id, now, false);
-                    tracker.note_foreground_agent(
-                        terminal_id,
-                        manifest.map(|manifest| manifest.id()),
-                    );
+                    tracker
+                        .note_foreground_agent(terminal_id, manifest.map(|manifest| manifest.id()));
                     closes_identity = manifest.is_none();
                     manifest
                 }
