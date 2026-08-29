@@ -1601,7 +1601,6 @@ impl WorkspaceRegistry {
         u64::try_from(count).context("resource agent projection count is negative")
     }
 
-
     #[cfg(test)]
     pub(crate) fn agent_hook_pending_retry_state_for_test(
         &self,

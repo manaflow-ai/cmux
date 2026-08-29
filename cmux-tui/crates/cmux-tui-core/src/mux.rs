@@ -9244,14 +9244,14 @@ impl Mux {
             && let (Some(direct_state), Some(sequence_guard)) =
                 (direct_hook_state.as_ref(), sequence_guard.as_mut())
         {
-                sequence_guard.insert(
-                    terminal_id.clone(),
-                    HookFence {
-                        session_id: direct_state.agent_session_id.clone(),
-                        sequence: direct_state.applied_sequence,
-                        ended: false,
-                    },
-                );
+            sequence_guard.insert(
+                terminal_id.clone(),
+                HookFence {
+                    session_id: direct_state.agent_session_id.clone(),
+                    sequence: direct_state.applied_sequence,
+                    ended: false,
+                },
+            );
         }
         state.resource_revision = commit.revision;
         if !commit.replayed {
