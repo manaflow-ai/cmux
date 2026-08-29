@@ -6096,26 +6096,14 @@ mod tests {
         let first = dir.path.join("first.conf");
         let second = dir.path.join("second.conf");
         let nested = dir.path.join("nested.conf");
-        std::fs::write(
-            &root,
-            "config-file = first.conf\nconfig-file = second.conf\n",
-        )
-        .unwrap();
+        std::fs::write(&root, "config-file = first.conf\nconfig-file = second.conf\n").unwrap();
         std::fs::write(
             &first,
             "foreground = #010203\nscrollback-limit-bytes = 2\nconfig-file = nested.conf\n",
         )
         .unwrap();
-        std::fs::write(
-            &second,
-            "foreground = #040506\nscrollback-limit-bytes = 3\n",
-        )
-        .unwrap();
-        std::fs::write(
-            &nested,
-            "foreground = #070809\nscrollback-limit-bytes = 4\n",
-        )
-        .unwrap();
+        std::fs::write(&second, "foreground = #040506\nscrollback-limit-bytes = 3\n").unwrap();
+        std::fs::write(&nested, "foreground = #070809\nscrollback-limit-bytes = 4\n").unwrap();
 
         let mut scrollback = None;
         let outcome = parse_ghostty_defaults_from_path_result_until_with_scrollback(
