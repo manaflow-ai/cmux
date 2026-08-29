@@ -54,6 +54,7 @@ url.workspace = true
 async-trait.workspace = true
 
 [target.'cfg(windows)'.dependencies]
+tokio.workspace = true
 windows-sys.workspace = true
 
 [dev-dependencies]

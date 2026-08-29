@@ -4417,11 +4417,8 @@ fn parse_scrollback_limit_from_root(path: &Path, deadline_at: Instant) -> Option
         let base_dir = pending.path.parent().unwrap_or_else(|| Path::new("."));
         let mut theme_candidates = Vec::new();
         let parsed = parse_ghostty_config_text(&text, Some(base_dir), &mut theme_candidates);
-        for include in parsed
-            .config_files
-            .into_iter()
-            .rev()
-            .filter_map(|include| include.resolve(base_dir))
+        for include in
+            parsed.config_files.into_iter().rev().filter_map(|include| include.resolve(base_dir))
         {
             stack.push(PendingGhosttyConfig { path: include, depth: pending.depth + 1 });
         }
