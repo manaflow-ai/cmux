@@ -44,7 +44,7 @@ const CDP_OUTBOUND_QUEUE_MAX_BYTES: usize = 8 * 1024 * 1024;
 // Include tungstenite's default 128 KiB staging buffer and frame overhead in
 // addition to the largest message admitted by the outbound byte budget.
 const CDP_SOCKET_WRITE_BUFFER_MAX_BYTES: usize = CDP_OUTBOUND_QUEUE_MAX_BYTES + 256 * 1024;
-const CDP_CONNECTION_UNAVAILABLE_MESSAGE: &str =
+pub const CDP_CONNECTION_UNAVAILABLE_MESSAGE: &str =
     "browser connection unavailable; retry the command";
 const CDP_OUTBOUND_QUEUE_BYTE_BUDGET_DETAIL: &str = "CDP outbound queue byte budget exceeded";
 const MAX_ENCODED_FRAME_BYTES: usize = 16 * 1024 * 1024;

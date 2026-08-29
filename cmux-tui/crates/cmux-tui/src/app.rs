@@ -17,7 +17,7 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use base64::Engine;
-use cmux_tui_cdp::is_connection_unavailable;
+use cmux_tui_cdp::CDP_CONNECTION_UNAVAILABLE_MESSAGE;
 use cmux_tui_core::resource::FrontendProjectionPublicId;
 use cmux_tui_core::{
     BrowserFrame, BrowserSource, BrowserStatus, ClearHistoryDelivery, ClearHistoryFailure,
@@ -8843,10 +8843,18 @@ fn run_with_machine_updates_inner(
         },
         move |error| {
             crate::client_log::error("browser-control", &error);
-            let message = if is_connection_unavailable(&error) {
+            // The dispatcher exposes only a string. Match the one stable CDP
+            // classification and discard every other internal detail before
+            // creating a user-facing status event.
+            let browser = &localization::catalog().browser;
+            let message = if error == CDP_CONNECTION_UNAVAILABLE_MESSAGE {
                 localization::catalog().browser.control_unavailable()
+            } else if error == browser.attach_unsupported {
+                browser.control_failed(browser.attach_unsupported)
             } else {
-                localization::catalog().browser.control_failed(&error.to_string())
+                // Keep the failure category stable. The raw error is already
+                // in the private diagnostic log and must not cross this UI boundary.
+                browser.control_failed("browser operation failed")
             };
             let _ = browser_control_tx.send(AppEvent::Mux(MuxEvent::Status(message)));
         },
