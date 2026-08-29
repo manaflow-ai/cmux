@@ -4,6 +4,8 @@ use std::fs::File;
 #[cfg(windows)]
 use std::fs::OpenOptions;
 use std::io;
+#[cfg(target_os = "linux")]
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
@@ -734,18 +736,80 @@ pub fn foreground_process_name(pid: u32) -> Option<String> {
 
 #[cfg(target_os = "linux")]
 fn process_name(pid: u32) -> Option<String> {
-    // argv[0]'s basename beats /proc/<pid>/comm: comm truncates to 15
-    // bytes and wrapper launchers exec with a meaningful argv[0].
-    let argv0 = std::fs::read(format!("/proc/{pid}/cmdline")).ok().and_then(|cmdline| {
-        let argv0 = cmdline.split(|byte| *byte == 0).next()?;
-        let argv0 = std::str::from_utf8(argv0).ok()?.trim();
-        (!argv0.is_empty()).then(|| argv0.to_string())
-    });
-    argv0.or_else(|| {
-        let comm = std::fs::read_to_string(format!("/proc/{pid}/comm")).ok()?;
-        let comm = comm.trim();
-        (!comm.is_empty()).then(|| comm.to_string())
-    })
+    // argv[0] and comm are process-controlled labels. Use the kernel's
+    // executable link instead, so a process cannot claim to be a known agent
+    // by changing its command-line label. A missing or inaccessible link is a
+    // safe false negative for this advisory detector.
+    let executable = std::fs::read_link(format!("/proc/{pid}/exe")).ok()?;
+    if let Some(script) = interpreter_script_path(pid, &executable) {
+        return Some(script);
+    }
+    let executable = executable.to_string_lossy();
+    (!executable.is_empty()).then(|| executable.into_owned())
+}
+
+/// Linux reports the interpreter (for example, `dash` or `node`) as the
+/// executable of a script launched with a shebang. Recover the script path
+/// from the kernel-owned command-line record only for a known interpreter,
+/// with a strict byte cap and a regular-file check. This keeps native binary
+/// identity anchored to `/proc/<pid>/exe` while allowing wrapped agent CLIs to
+/// match their manifest id.
+#[cfg(target_os = "linux")]
+fn interpreter_script_path(pid: u32, executable: &Path) -> Option<String> {
+    let interpreter = executable.file_name()?.to_str()?.to_ascii_lowercase();
+    if !is_known_script_interpreter(&interpreter) {
+        return None;
+    }
+
+    const MAX_CMDLINE_BYTES: usize = 4096;
+    let mut command_line = Vec::new();
+    let path = format!("/proc/{pid}/cmdline");
+    File::open(path)
+        .ok()?
+        .take((MAX_CMDLINE_BYTES + 1) as u64)
+        .read_to_end(&mut command_line)
+        .ok()?;
+    if command_line.len() > MAX_CMDLINE_BYTES {
+        return None;
+    }
+    let arguments = command_line
+        .split(|byte| *byte == 0)
+        .filter(|argument| !argument.is_empty())
+        .collect::<Vec<_>>();
+    for argument in arguments.into_iter().skip(1) {
+        if argument.first().is_some_and(|byte| *byte == b'-') {
+            continue;
+        }
+        let argument = std::str::from_utf8(argument).ok()?;
+        let candidate = Path::new(argument);
+        let candidate = if candidate.is_absolute() {
+            candidate.to_owned()
+        } else {
+            let cwd = std::fs::read_link(format!("/proc/{pid}/cwd")).ok()?;
+            cwd.join(candidate)
+        };
+        if candidate.is_file() {
+            return Some(candidate.to_string_lossy().into_owned());
+        }
+    }
+    None
+}
+
+#[cfg(target_os = "linux")]
+fn is_known_script_interpreter(interpreter: &str) -> bool {
+    const INTERPRETERS: &[&str] = &[
+        "bash", "bun", "dash", "deno", "env", "node", "nodejs", "perl", "php", "python", "python2",
+        "python3", "ruby", "sh", "zsh",
+    ];
+    INTERPRETERS.contains(&interpreter)
+        || INTERPRETERS.iter().any(|name| {
+            interpreter.strip_prefix(name).is_some_and(|suffix| {
+                !suffix.is_empty()
+                    && suffix
+                        .chars()
+                        .all(|character| character == '.' || character.is_ascii_digit())
+            })
+        })
 }
 
 #[cfg(target_os = "macos")]
@@ -1110,6 +1174,45 @@ mod tests {
         child.wait().unwrap();
         assert_eq!(observed, None);
         assert_eq!(foreground_cwd(u32::MAX), None);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn interpreter_wrapped_process_reports_the_script_name() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root =
+            std::env::temp_dir().join(format!("cmux-screen-detect-script-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let script = root.join("codex");
+        std::fs::write(&script, "#!/bin/sh\nsleep 30\n").unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        let mut child = std::process::Command::new("/bin/sh")
+            .arg(&script)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        let observed = process_name(child.id());
+        child.kill().unwrap();
+        child.wait().unwrap();
+        let _ = std::fs::remove_dir_all(&root);
+
+        let expected = script.to_string_lossy().into_owned();
+        assert_eq!(observed.as_deref(), Some(expected.as_str()));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn versioned_script_interpreters_are_recognized_without_broad_prefixes() {
+        assert!(is_known_script_interpreter("python3.11"));
+        assert!(is_known_script_interpreter("ruby3.3"));
+        assert!(is_known_script_interpreter("node20"));
+        assert!(!is_known_script_interpreter("python3.11-config"));
+        assert!(!is_known_script_interpreter("node-wrapper"));
     }
 
     fn position(candidates: &[GhosttyInstallation], expected: impl AsRef<Path>) -> usize {
