@@ -13,13 +13,14 @@ import {
   requireEnvKeys,
 } from "./projects.mjs";
 
-const usage = "Usage: smoke-vm-api.mjs [web-dir] <staging|production> [--create] [--provider e2b|freestyle|daytona|blaxel|default] [--url https://preview.example] [--vercel-curl] [--skip-attach]";
+const usage = "Usage: smoke-vm-api.mjs [web-dir] <staging|production> [--create] [--provider e2b|freestyle|daytona|blaxel|default] [--image <manifest image id or version>] [--url https://preview.example] [--vercel-curl] [--skip-attach]";
 const args = process.argv.slice(2);
 const { webDir, target, project, rest } = parseWebDirAndTarget(args, usage);
 const shouldCreate = rest.includes("--create");
 const useVercelCurl = rest.includes("--vercel-curl");
 const skipAttach = rest.includes("--skip-attach");
 const provider = optionValue(rest, "--provider") ?? "e2b";
+const image = optionValue(rest, "--image");
 const targetUrl = optionValue(rest, "--url") ?? project.url;
 const REQUEST_TIMEOUT_MS = 45_000;
 
@@ -162,7 +163,10 @@ try {
     const create = await fetchWithTimeout(`${targetUrl}/api/vm`, {
       method: "POST",
       headers: { ...authHeaders, "content-type": "application/json", "idempotency-key": `smoke-${suffix}` },
-      body: JSON.stringify(provider === "default" ? {} : { provider }),
+      body: JSON.stringify({
+        ...(provider === "default" ? {} : { provider }),
+        ...(image ? { image } : {}),
+      }),
     });
     const createDurationMs = Math.round(performance.now() - createStartedAt);
     const createText = await create.text();
