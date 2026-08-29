@@ -2206,7 +2206,10 @@ fn parse_scrollback_limit_bytes(text: &str) -> Option<usize> {
     text.lines()
         .filter_map(|line| {
             let (key, value) = line.trim().split_once('=')?;
-            (key.trim() == "scrollback-limit")
+            // Ghostty 1.4 renamed the byte-based setting to make its units
+            // explicit. Keep accepting the legacy spelling for older
+            // installations and configs.
+            matches!(key.trim(), "scrollback-limit" | "scrollback-limit-bytes")
                 .then(|| value.trim().trim_matches('"').replace('_', "").parse::<usize>().ok())
                 .flatten()
         })
@@ -2498,6 +2501,21 @@ mod tests {
         );
         assert_eq!(parse_scrollback_limit_bytes("scrollback-limit = -1\n"), None);
         assert_eq!(Config::default().scrollback_limit_bytes(), DEFAULT_SCROLLBACK_LIMIT_BYTES);
+    }
+
+    #[test]
+    fn parses_canonical_scrollback_limit_bytes_without_line_limit_conversion() {
+        assert_eq!(
+            parse_scrollback_limit_bytes(
+                "scrollback-limit-lines = 12\n\
+                 scrollback-limit-bytes = 8_000_000\n"
+            ),
+            Some(8_000_000)
+        );
+        assert_eq!(
+            parse_scrollback_limit_bytes("scrollback-limit-lines = 12\n"),
+            None
+        );
     }
 
     #[test]
