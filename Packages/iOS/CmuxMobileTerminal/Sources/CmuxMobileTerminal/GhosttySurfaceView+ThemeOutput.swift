@@ -25,19 +25,27 @@ extension GhosttySurfaceView {
     /// - Parameters:
     ///   - data: VT or PTY bytes to feed into the surface.
     ///   - terminalConfigTheme: Raw Ghostty defaults captured with these bytes.
+    ///   - pushesLocalScrollbackRows: Rows this chunk's scroll prologue pushes
+    ///     into local scrollback (a screen-anchored delta's `scrolledRows`),
+    ///     accounted into the view's cumulative push counter as the bytes apply.
     /// - Returns: `true` when the operation reached the current surface generation,
     ///   or `false` when the caller should reset its delivery queue and replay.
     @discardableResult
     public func processOutputAndWait(
         _ data: Data,
-        terminalConfigTheme: TerminalTheme?
+        terminalConfigTheme: TerminalTheme?,
+        pushesLocalScrollbackRows: Int = 0
     ) async -> Bool {
         await withCheckedContinuation { continuation in
             let operationID = registerPendingOutputApply(
                 byteCount: data.count,
                 continuation: continuation
             )
-            processOutput(data, terminalConfigTheme: terminalConfigTheme) { [weak self] applied in
+            processOutput(
+                data,
+                terminalConfigTheme: terminalConfigTheme,
+                pushesLocalScrollbackRows: pushesLocalScrollbackRows
+            ) { [weak self] applied in
                 self?.completePendingOutputApply(id: operationID, returning: applied)
             }
         }

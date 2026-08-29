@@ -76,6 +76,13 @@ public struct VerifiedReplayViewportAnchor: Equatable, Sendable {
     /// Computes the post-replay top row that preserves the captured content,
     /// including content the scrollback cap evicted while rows were pushed.
     ///
+    /// Every row pushed through the grid either grows the row space (below the
+    /// cap) or evicts a retained row from the top (at the cap), so the total
+    /// drift between capture and restore is `max(growth, rowsPushed)`. A row
+    /// space that shrank below the captured total was rebuilt (hydration), and
+    /// local push accounting cannot place content in it; that case keeps the
+    /// growth-canceled distance-from-bottom fallback.
+    ///
     /// - Parameters:
     ///   - postReplayTotalRows: Total row-space size after replay.
     ///   - postReplayVisibleRows: Number of rows visible after replay.
@@ -92,9 +99,13 @@ public struct VerifiedReplayViewportAnchor: Equatable, Sendable {
         let maximumTopRow = postReplayTotalRows > postReplayVisibleRows
             ? postReplayTotalRows - postReplayVisibleRows
             : 0
-        let drift = postReplayTotalRows > totalRows
-            ? postReplayTotalRows - totalRows
-            : 0
+        let drift: UInt64
+        if postReplayTotalRows >= totalRows {
+            let growth = postReplayTotalRows - totalRows
+            drift = max(growth, rowsPushedSinceCapture)
+        } else {
+            drift = 0
+        }
 
         guard topRowDistanceFromBottom <= postReplayTotalRows else { return 0 }
         let topRowBeforeDrift = postReplayTotalRows - topRowDistanceFromBottom

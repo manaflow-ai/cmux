@@ -23,7 +23,7 @@ struct ScrollTopRevealClearTests {
         let staleEpoch = view.localPixelScrollState.withLock { state -> UInt64 in
             state.topRevealPx = 240
             state.remainderPx = 3
-            state.lastApplied = (row: 0, remainderPx: 0, positionPx: 0, revision: 7, total: 90)
+            state.lastApplied = (row: 0, remainderPx: 0, positionPx: 0, revision: 7, total: 90, rowsPushed: 0)
             return state.epoch
         }
 
@@ -49,7 +49,7 @@ struct ScrollTopRevealClearTests {
 
         let seeded = view.localPixelScrollState.withLock { state -> UInt64 in
             state.remainderPx = 5
-            state.lastApplied = (row: 12, remainderPx: 5, positionPx: 245, revision: 7, total: 90)
+            state.lastApplied = (row: 12, remainderPx: 5, positionPx: 245, revision: 7, total: 90, rowsPushed: 0)
             return state.epoch
         }
 

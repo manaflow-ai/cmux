@@ -36,7 +36,19 @@ extension GhosttySurfaceView.LocalPixelScrollState {
         rowsPushedNow: UInt64,
         cellHeightPx: Double
     ) -> Double? {
-        nil
+        guard cellHeightPx > 0 else { return nil }
+        // A shrunk total means the row space was rebuilt (hydration, reset);
+        // held row numbers do not survive it. A rewound counter means the
+        // held value belongs to another counting epoch.
+        guard scrollbarTotal >= heldTotal else { return nil }
+        guard rowsPushedNow >= heldRowsPushed else { return nil }
+        let growth = scrollbarTotal - heldTotal
+        let pushed = rowsPushedNow - heldRowsPushed
+        // Pushes absorbed as growth leave top offsets unchanged; only the
+        // remainder evicted retained rows and shifted content upward.
+        guard pushed > growth else { return heldPositionPx }
+        let evicted = pushed - growth
+        return max(0, heldPositionPx - Double(evicted) * cellHeightPx)
     }
 }
 #endif
