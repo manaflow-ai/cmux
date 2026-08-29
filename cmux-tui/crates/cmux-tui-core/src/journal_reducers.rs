@@ -217,10 +217,6 @@ impl AgentRoster {
             // An ended agent leaves the roster entirely; the done state is
             // still committed to the durable projection by the host so
             // history and remote caches converge.
-            self.retired_terminals
-                .entry(terminal_id.to_string())
-                .and_modify(|retired_at| *retired_at = (*retired_at).max(event.sequence))
-                .or_insert(event.sequence);
             return if self.entries.remove(terminal_id).is_some() {
                 vec![RosterDelta::Remove { terminal_id: terminal_id.to_string() }]
             } else {
