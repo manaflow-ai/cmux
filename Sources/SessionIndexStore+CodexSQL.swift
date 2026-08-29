@@ -132,6 +132,58 @@ extension SessionIndexStore {
         return entries
     }
 
+    /// Codex's own natively-generated title for `sessionId`, straight from
+    /// `~/.codex/state_5.sqlite`'s `threads.title` column — the same column
+    /// ``loadCodexEntriesViaSQL`` already reads for the Vault index, narrowed
+    /// to one session. Codex computes this title itself; nothing here
+    /// re-summarizes or infers a title from cwd/rollout content. Returns nil
+    /// (a silent no-op for the caller) when the database is missing, the
+    /// session has no row, or its title is empty.
+    nonisolated static func codexNativeTitle(
+        forSessionId sessionId: String,
+        dbPath: String = ("~/.codex/state_5.sqlite" as NSString).expandingTildeInPath
+    ) -> String? {
+        guard !sessionId.isEmpty else { return nil }
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: dbPath) else { return nil }
+
+        let snapshotDir = fm.temporaryDirectory.appendingPathComponent(
+            "cmux-codex-native-title-\(UUID().uuidString)", isDirectory: true
+        )
+        do { try fm.createDirectory(at: snapshotDir, withIntermediateDirectories: true) } catch { return nil }
+        defer { try? fm.removeItem(at: snapshotDir) }
+        let snapshotDB = snapshotDir.appendingPathComponent("state.db")
+        do { try fm.copyItem(atPath: dbPath, toPath: snapshotDB.path) } catch { return nil }
+        for sidecar in ["-wal", "-shm"] {
+            let src = dbPath + sidecar
+            let dst = snapshotDB.path + sidecar
+            if fm.fileExists(atPath: src) { try? fm.copyItem(atPath: src, toPath: dst) }
+        }
+
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(snapshotDB.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, let db else {
+            sqlite3_close(db)
+            return nil
+        }
+        defer { sqlite3_close(db) }
+
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(
+            db, "SELECT title FROM threads WHERE id = ?1 AND archived = 0 LIMIT 1", -1, &stmt, nil
+        ) == SQLITE_OK, let stmt else {
+            sqlite3_finalize(stmt)
+            return nil
+        }
+        defer { sqlite3_finalize(stmt) }
+
+        let SQLITE_TRANSIENT_FN = unsafeBitCast(OpaquePointer(bitPattern: -1), to: sqlite3_destructor_type.self)
+        sqlite3_bind_text(stmt, 1, sessionId, -1, SQLITE_TRANSIENT_FN)
+
+        guard sqlite3_step(stmt) == SQLITE_ROW else { return nil }
+        let title = sqliteText(stmt, 0)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return (title?.isEmpty ?? true) ? nil : title
+    }
+
     #if DEBUG
     nonisolated static func loadCodexEntriesForTesting(
         stateDBPath: String,

@@ -33334,6 +33334,16 @@ export default CMUXSessionRestore;
             return
         }
 
+        if def.name == "codex", subcommand == "sync-native-title" {
+            // Detached re-invocation spawned from the codex Stop hook (see
+            // spawnDetachedCodexNativeTitleSync): mirrors Codex's own native
+            // thread title onto the panel's raw title. Not gated on the
+            // opt-in auto-naming setting and never reads a transcript.
+            runCodexNativeTitleSyncHook(commandArgs: hookArgs, client: client, telemetry: telemetry)
+            print("OK")
+            return
+        }
+
         if subcommand == "auto-name", autoNamingSource(for: def) != nil {
             // Detached re-invocation spawned from the codex Stop hook (see
             // spawnDetachedAgentAutoName): runs the full naming pass without
@@ -35607,6 +35617,23 @@ export default CMUXSessionRestore;
                 cursorLifecycleLease?.release()
                 cursorLifecycleLease = nil
                 sendAgentFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
+            }
+
+            // Mirror Codex's own native thread title onto the panel's raw
+            // title, the same tier OSC title updates already use for Claude
+            // (cmux #11144). Unlike the opt-in auto-naming pass below, this
+            // runs unconditionally — parity with OSC, which is not
+            // setting-gated either — and never calls a summarizer: Codex
+            // already computed this title itself in ~/.codex/state_5.sqlite.
+            if def.name == "codex", !suppressVisibleMutations, !sessionId.isEmpty,
+               !workspaceId.isEmpty, !surfaceId.isEmpty {
+                spawnDetachedCodexNativeTitleSync(
+                    sessionId: sessionId,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    env: env,
+                    telemetry: telemetry
+                )
             }
 
             // Opt-in auto-naming for generic-agent sessions: a detached pass so the

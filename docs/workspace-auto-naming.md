@@ -42,6 +42,10 @@ The other hook integrations are intentionally skipped for now:
 - Gemini has hook payload text, but the available non-interactive CLI invocation has not been verified to disable tools/project access, so it is skipped rather than running untrusted transcript text through a tool-capable summarizer.
 - Cursor, Antigravity, Kiro, Rovo Dev, Hermes Agent, Copilot, CodeBuddy, Factory, and Qoder have cmux Stop/notification hooks, but this branch does not yet have both a verified transcript source and a safe cheap non-interactive summarizer invocation that disables tools/project access.
 
+## Codex's native tab title (independent of this feature)
+
+Separately from opt-in auto-naming above, cmux mirrors Codex's own natively-generated thread title (`~/.codex/state_5.sqlite`, `threads.title`) onto the panel's raw terminal tab title at every turn end — the same precedence tier OSC terminal-title updates already write to, and any existing custom title (auto or user) is left untouched exactly as it already is for OSC. This runs unconditionally, is not gated by the `automation.workspaceAutoNaming` setting, and never calls a summarizer, because Codex already computed the title itself. It exists because Codex's CLI does not emit OSC title updates tracking its live conversation title the way Claude Code's CLI does, so without this a Codex tab's title would silently lag Claude's (cmux #11144).
+
 ## Mechanics
 
 The Claude Code wrapper registers an async `Stop` hook (`cmux hooks claude auto-name`); other supported agents spawn an equivalent detached pass from their turn-end hook. Each pass reads the adapter's transcript source, evaluates the throttle against per-session state in `~/.cmuxterm/<agent>-hook-sessions.json`, and applies the title through the `workspace.set_auto_title` socket method, which enforces the setting and the user-provenance rule app-side.

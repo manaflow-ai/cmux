@@ -290,6 +290,82 @@ extension CMUXCLI {
         }
     }
 
+    /// `cmux hooks codex sync-native-title`: a detached re-invocation spawned
+    /// from the Codex Stop hook (see ``spawnDetachedCodexNativeTitleSync``),
+    /// mirroring how `auto-name` is spawned from the same site. Tells the app
+    /// to mirror Codex's own native thread title (`~/.codex/state_5.sqlite`)
+    /// onto the panel's raw terminal title — cmux #11144. No transcript is
+    /// read and no summarizer runs: Codex already computed this title itself.
+    func runCodexNativeTitleSyncHook(
+        commandArgs: [String],
+        client: SocketClient,
+        telemetry: CLISocketSentryTelemetry
+    ) {
+        guard let sessionId = optionValue(commandArgs, name: "--session"),
+              let workspaceId = optionValue(commandArgs, name: "--workspace"),
+              let surfaceId = optionValue(commandArgs, name: "--surface"),
+              !sessionId.isEmpty, !workspaceId.isEmpty, !surfaceId.isEmpty else {
+            return
+        }
+        _ = try? client.sendV2(method: "surface.sync_codex_native_title", params: [
+            "session_id": sessionId,
+            "workspace_id": workspaceId,
+            "panel_id": surfaceId
+        ])
+        telemetry.breadcrumb("codex-hook.native-title-sync.sent")
+    }
+
+    /// Spawns the native-title-sync pass detached, mirroring
+    /// ``spawnDetachedAgentAutoName``'s spawn-and-briefly-wait shape so this
+    /// short synchronous Stop hook never blocks on it. Unlike the auto-naming
+    /// spawn, this is not gated on the opt-in Workspace Auto-Naming setting —
+    /// it runs unconditionally at every Codex turn end, matching Claude's
+    /// unconditional OSC-driven tab title updates.
+    func spawnDetachedCodexNativeTitleSync(
+        sessionId: String,
+        workspaceId: String,
+        surfaceId: String,
+        env: [String: String],
+        telemetry: CLISocketSentryTelemetry
+    ) {
+        guard !sessionId.isEmpty, !workspaceId.isEmpty, !surfaceId.isEmpty else { return }
+        let selfPath: String = {
+            if let first = ProcessInfo.processInfo.arguments.first,
+               first.hasPrefix("/"),
+               FileManager.default.isExecutableFile(atPath: first) {
+                return first
+            }
+            if let bundled = normalizedHookValue(env["CMUX_BUNDLED_CLI_PATH"]),
+               FileManager.default.isExecutableFile(atPath: bundled) {
+                return bundled
+            }
+            return "cmux"
+        }()
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = [
+            "-c",
+            "\"$0\" hooks codex sync-native-title --session \"$1\" --workspace \"$2\" --surface \"$3\" </dev/null >/dev/null 2>&1 &",
+            selfPath,
+            sessionId,
+            workspaceId,
+            surfaceId
+        ]
+        process.environment = env
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+        } catch {
+            telemetry.breadcrumb("codex-hook.native-title-sync.spawn-failed")
+            return
+        }
+        if ((try? waitForProcessExit(process, timeout: 1)) ?? false) == false {
+            process.terminate()
+        }
+    }
+
     static func codexFireAndForgetAgentHookShellCommand(_ command: String, for def: AgentHookDef) -> String {
         let routedArguments = command.hasPrefix("cmux ") ? String(command.dropFirst("cmux ".count)) : command
         let runner = "payload=\"$1\"; shift; \"$@\" <\"$payload\" >/dev/null 2>&1 & child=\"$!\"; ( timer=; trap \"kill \\$timer 2>/dev/null || true; wait \\$timer 2>/dev/null || true; exit 0\" HUP INT TERM; sleep 30 & timer=\"$!\"; wait \"$timer\" 2>/dev/null || true; timer=; kill \"$child\" 2>/dev/null || true ) & watchdog=\"$!\"; wait \"$child\" 2>/dev/null || true; kill \"$watchdog\" 2>/dev/null || true; wait \"$watchdog\" 2>/dev/null || true; rm -f \"$payload\""
