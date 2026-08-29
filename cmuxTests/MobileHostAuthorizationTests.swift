@@ -835,7 +835,7 @@ struct MobileHostAuthorizationTests {
         )
         terminalController.debugResetMobileViewportReportsForTesting()
     }
-    @Test func testMobileHostIgnoresStaleListenerStateCallbacks() {
+    @Test func testMobileHostIgnoresStaleListenerCancelledCallbacks() {
         let service = MobileHostService.shared
         let currentGeneration = UUID()
         let staleGeneration = UUID()
@@ -845,34 +845,41 @@ struct MobileHostAuthorizationTests {
             usesEphemeralFallback: true,
             port: 61234
         )
-        service.debugHandleListenerStateForTesting(
-            .failed(.posix(.ECONNRESET)),
-            generation: staleGeneration
-        )
-        #expect(service.debugListenerGenerationForTesting() == currentGeneration)
-        #expect(service.debugListenerUsesEphemeralFallbackForTesting())
-        #expect(service.debugListenerPortForTesting() == 61234)
-        service.debugHandleListenerStateForTesting(.cancelled, generation: staleGeneration)
+        service.debugHandleListenerCancelledForTesting(generation: staleGeneration)
         #expect(service.debugListenerGenerationForTesting() == currentGeneration)
         #expect(service.debugListenerUsesEphemeralFallbackForTesting())
         #expect(service.debugListenerPortForTesting() == 61234)
     }
-    @Test func testMobileHostWaitingListenerDoesNotPublishRoutes() {
+    @Test func testMobileHostFallsBackToEphemeralWhenPreferredPortIsInUse() throws {
         let service = MobileHostService.shared
-        let generation = UUID()
         service.stop()
         service.debugResetMobileLifecycleStateForTesting()
-        service.debugSetListenerStateForTesting(
-            generation: generation,
-            usesEphemeralFallback: false,
-            port: 61234
+
+        // Occupy a real port so the service's preferred-port bind must fail.
+        let blocker = try MobileHostPOSIXListener(
+            preferredPort: nil,
+            queue: DispatchQueue(label: "dev.cmux.mobile.test-port-blocker")
         )
-        service.debugHandleListenerStateForTesting(.waiting(.posix(.EADDRINUSE)), generation: generation)
+        let blockedPort = Int(blocker.boundPort)
+        let originalPort = UserDefaults.standard.object(forKey: MobileHostService.portDefaultsKey)
+        UserDefaults.standard.set(blockedPort, forKey: MobileHostService.portDefaultsKey)
+        defer {
+            if let originalPort {
+                UserDefaults.standard.set(originalPort, forKey: MobileHostService.portDefaultsKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: MobileHostService.portDefaultsKey)
+            }
+            service.stop()
+            blocker.cancel()
+        }
+
+        service.debugStartListenerForTesting(usePreferredPort: true)
+
         let status = service.statusSnapshot()
-        #expect(!status.isRunning)
-        #expect(status.port == nil)
-        #expect(status.routes.isEmpty)
-        #expect(service.debugListenerPortForTesting() == nil)
+        #expect(status.isRunning)
+        #expect(status.port != blockedPort)
+        #expect(service.debugListenerUsesEphemeralFallbackForTesting())
+        #expect(service.debugListenerPortForTesting() == status.port)
     }
     private func scopedAttachTicket(workspaceID: String, terminalID: String?) throws -> CmxAttachTicket {
         let route = try CmxAttachRoute(id: "debug", kind: .debugLoopback, endpoint: .hostPort(host: "127.0.0.1", port: 58465))
