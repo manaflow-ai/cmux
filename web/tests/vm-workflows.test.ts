@@ -2629,9 +2629,12 @@ describe("VM Effect workflows", () => {
   dbTest("resumes a paused VM before minting SSH credentials", async () => {
     if (!sql) throw new Error("test database not initialized");
     await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+    // A paid plan: the free plan's active-VM limit is 0 since #10948, which
+    // would fail the resume reservation before the SSH mechanics under test
+    // ever run.
     await sql`
       insert into cloud_vms (user_id, billing_team_id, billing_plan_id, provider, provider_vm_id, image_id, status)
-      values ('user-workflow-resume-ssh', 'team-workflow-resume-ssh', 'free', 'freestyle', 'provider-vm-resume-ssh', 'snapshot-test', 'paused')
+      values ('user-workflow-resume-ssh', 'team-workflow-resume-ssh', 'pro', 'freestyle', 'provider-vm-resume-ssh', 'snapshot-test', 'paused')
     `;
 
     let resumeCalls = 0;
@@ -2890,9 +2893,12 @@ describe("VM Effect workflows", () => {
   dbTest("rolls back a paused resume reservation when provider resume fails", async () => {
     if (!sql) throw new Error("test database not initialized");
     await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+    // A paid plan: the free plan's active-VM limit is 0 since #10948, which
+    // would fail the resume reservation before the rollback path under test
+    // ever runs.
     await sql`
       insert into cloud_vms (user_id, billing_team_id, billing_plan_id, provider, provider_vm_id, image_id, status)
-      values ('user-workflow-resume-fail', 'team-workflow-resume-fail', 'free', 'freestyle', 'provider-vm-resume-fail', 'snapshot-test', 'paused')
+      values ('user-workflow-resume-fail', 'team-workflow-resume-fail', 'pro', 'freestyle', 'provider-vm-resume-fail', 'snapshot-test', 'paused')
     `;
 
     const resumeError = new VmProviderOperationError({
@@ -4141,6 +4147,65 @@ describe("VM Effect workflows", () => {
     expect(rows).toHaveLength(1);
   });
 
+  dbTest("a transient provider create failure does not poison the idempotency key", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+
+    // The HTTP layer reports every provider create failure as
+    // vm_cloud_service_unavailable with retryable: true and retryAfterSeconds
+    // ~5, so a client retrying the SAME stable idempotency key (the CLI's
+    // pinned-slot flow) must reach the provider again, not get the stored
+    // failure replayed as vm_create_failed for FAILED_CREATE_RETRY_WINDOW_MS.
+    let createCalls = 0;
+    const flakyProvider: VmProviderGatewayShape = {
+      create: () => {
+        createCalls += 1;
+        if (createCalls === 1) {
+          return Effect.fail(new VmProviderOperationError({
+            provider: "freestyle",
+            operation: "create",
+            cause: new Error("VM setup failed: agent connection lost"),
+          }));
+        }
+        return Effect.succeed({
+          provider: "freestyle" as const,
+          providerVmId: "provider-vm-transient-recovered",
+          status: "running" as const,
+          image: "snapshot-transient",
+          createdAt: Date.now(),
+        });
+      },
+      destroy: () => Effect.void,
+      exec: () => Effect.succeed({ exitCode: 0, stdout: "", stderr: "" }),
+      openAttach: () => Effect.fail(new Error("unused") as never),
+      openSSH: () => Effect.fail(new Error("unused") as never),
+      revokeSSHIdentity: () => Effect.void,
+    };
+
+    const createInput = {
+      userId: "user-workflow-transient",
+      billingCustomerType: "team" as const,
+      billingTeamId: "team-workflow-transient",
+      billingPlanId: "free",
+      maxActiveVms: 1,
+      provider: "freestyle" as const,
+      image: "snapshot-transient",
+      idempotencyKey: "stable-slot-1",
+    };
+
+    const firstError = await Effect.runPromise(
+      createVm(createInput).pipe(Effect.flip, Effect.provide(providerLayer(flakyProvider))),
+    );
+    expect(firstError).toBeInstanceOf(VmProviderOperationError);
+    expect(createCalls).toBe(1);
+
+    const retried = await Effect.runPromise(
+      createVm(createInput).pipe(Effect.provide(providerLayer(flakyProvider))),
+    );
+    expect(createCalls).toBe(2);
+    expect(retried.providerVmId).toBe("provider-vm-transient-recovered");
+  });
+
   dbTest("retries a stale failed create record after the retry window", async () => {
     if (!sql) throw new Error("test database not initialized");
     await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
@@ -4311,12 +4376,12 @@ describe("VM Effect workflows", () => {
         Effect.provide(providerLayer(provider, billing)),
       ),
     );
-    expect(retryError).toBeInstanceOf(VmCreateFailedError);
-    expect(retryError).toMatchObject({
-      code: "create",
-      message: "provider unavailable",
-    });
-    expect(createCalls).toBe(1);
+    // Provider create failures are reported to the caller as retryable, so a
+    // same-key retry reaches the provider again (and fails again here, since
+    // this provider always fails) instead of replaying vm_create_failed.
+    expect(retryError).toBeInstanceOf(VmProviderOperationError);
+    expect(createCalls).toBe(2);
+    expect(refundCalls).toBe(2);
 
     const usageEvents = await sql<{ eventType: string }[]>`
       select event_type as "eventType" from cloud_vm_usage_events
@@ -4325,8 +4390,12 @@ describe("VM Effect workflows", () => {
     `;
     expect(usageEvents.map((event) => event.eventType).sort()).toEqual([
       "vm.create.credit.refunded",
+      "vm.create.credit.refunded",
+      "vm.create.credit.reserved",
       "vm.create.credit.reserved",
       "vm.create.failed",
+      "vm.create.failed",
+      "vm.create.requested",
       "vm.create.requested",
     ]);
   });

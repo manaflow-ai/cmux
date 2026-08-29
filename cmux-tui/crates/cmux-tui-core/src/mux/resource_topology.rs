@@ -14,8 +14,8 @@ use crate::resource_mutation::ResourceMutationPlan;
 use crate::server::MAX_CREATION_SELECTOR_FALLBACKS;
 use crate::workspace_registry::{
     RegistryPane, RegistryScreen, RegistryViewportColumn, ResourceCreationPreparation,
-    ResourceCreationRecovery, ResourcePatchCommit, ResourceWorkspaceClose, TerminalLifecycle,
-    TerminalOnExit, TerminalResourceCloseCommit,
+    ResourceCreationRecovery, ResourcePatchCommit, ResourceWorkspaceClose, ResourceWorkspaceLedger,
+    TerminalLifecycle, TerminalOnExit, TerminalResourceCloseCommit,
 };
 use crate::{ResolvedResourcePath, ResourceSelectors, ResourceTarget, SurfaceKind};
 
@@ -386,17 +386,20 @@ impl Mux {
             true,
         ));
         let created_path = json!({"kind":"workspace","workspace_id":public_id});
+        let durable = RegistryWorkspace {
+            id: workspace.id,
+            public_id: public_id.clone(),
+            key: key.clone(),
+            name: name.clone(),
+            group_key: self.session.clone(),
+        };
+        let mut desired = self.registry_projection(&state);
+        desired.push(durable.clone());
         let plan = ResourceMutationPlan::new(
             ResourcePatch {
                 changes: vec![
                     ResourceChange::UpsertWorkspace {
-                        workspace: RegistryWorkspace {
-                            id: workspace.id,
-                            public_id: public_id.clone(),
-                            key,
-                            name: name.clone(),
-                            group_key: self.session.clone(),
-                        },
+                        workspace: durable,
                         position: index,
                         active_screen: None,
                     },
@@ -413,9 +416,18 @@ impl Mux {
             move |state| {
                 state.push_workspace(workspace);
                 state.active_workspace = index;
-                state.workspace_revision = state.workspace_revision.saturating_add(1);
             },
         )
+        .with_workspace_ledger(ResourceWorkspaceLedger {
+            event_kind: "workspace-added",
+            workspace_key: key,
+            workspaces: desired,
+            legacy_result: json!({
+                "workspace":public_id,
+                "name":name,
+                "index":index,
+            }),
+        })
         .with_metrics(ResourceMutationMetrics {
             touched_resources: 1,
             order_entries: index + 1,
@@ -426,7 +438,7 @@ impl Mux {
         {
             *self.resource_mutation_metrics.lock().unwrap() = Some(plan.metrics);
         }
-        let commit = registry.commit_resource_creation_patch(
+        let (commit, workspace_revision) = registry.commit_resource_creation_patch(
             correlation_key,
             mutation,
             "workspace.create",
@@ -435,8 +447,9 @@ impl Mux {
             &plan.result,
             &created_path,
             &plan.deltas,
+            plan.workspace_ledger.as_ref(),
         )?;
-        plan.apply(&mut state, &commit);
+        plan.apply(&mut state, &commit, workspace_revision);
         drop(state);
         drop(registry);
         self.publish_resource_event();

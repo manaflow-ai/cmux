@@ -376,20 +376,32 @@ pub fn chrome_candidates() -> Vec<PathBuf> {
 
 /// Candidate Ghostty config files used to seed selection colors.
 pub fn ghostty_config_paths() -> Vec<PathBuf> {
+    ghostty_config_paths_from(env_path("XDG_CONFIG_HOME"), home_dir())
+}
+
+fn ghostty_config_paths_from(
+    xdg_config_home: Option<PathBuf>,
+    home: Option<PathBuf>,
+) -> Vec<PathBuf> {
     let mut candidates = Vec::new();
-    if let Some(config_home) = env_path("XDG_CONFIG_HOME") {
-        push_unique(&mut candidates, config_home.join("ghostty").join("config"));
+    // Ghostty resolves XDG_CONFIG_HOME to the user's XDG config root. When
+    // it is unset, that root is HOME/.config. Do not search both roots: doing
+    // so would make an unrelated legacy file override the active XDG file.
+    #[cfg(target_os = "macos")]
+    let has_xdg_config_home = xdg_config_home.is_some();
+    let config_root = xdg_config_home.or_else(|| home.as_ref().map(|home| home.join(".config")));
+    if let Some(config_root) = config_root {
+        let dir = config_root.join("ghostty");
+        // Ghostty loads the legacy name first, then the current name when
+        // both exist. Keep that order so later current-file settings win.
+        push_unique(&mut candidates, dir.join("config"));
+        push_unique(&mut candidates, dir.join("config.ghostty"));
     }
-    if let Some(home) = home_dir() {
-        push_unique(&mut candidates, home.join(".config").join("ghostty").join("config"));
-        #[cfg(target_os = "macos")]
-        push_unique(
-            &mut candidates,
-            home.join("Library")
-                .join("Application Support")
-                .join("com.mitchellh.ghostty")
-                .join("config"),
-        );
+    #[cfg(target_os = "macos")]
+    if !has_xdg_config_home && let Some(home) = home {
+        let dir = home.join("Library").join("Application Support").join("com.mitchellh.ghostty");
+        push_unique(&mut candidates, dir.join("config"));
+        push_unique(&mut candidates, dir.join("config.ghostty"));
     }
     candidates
 }
@@ -992,6 +1004,16 @@ fn restrict_permissions(_path: &Path, _mode: u32) -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn explicit_xdg_ghostty_config_does_not_add_application_support_candidates() {
+        let xdg = PathBuf::from("/tmp/cmux-test-xdg");
+        let home = PathBuf::from("/tmp/cmux-test-home");
+        let paths = ghostty_config_paths_from(Some(xdg.clone()), Some(home));
+
+        assert_eq!(paths, vec![xdg.join("ghostty/config"), xdg.join("ghostty/config.ghostty")]);
+    }
 
     #[test]
     fn default_terminal_cwd_prefers_a_live_launch_directory() {

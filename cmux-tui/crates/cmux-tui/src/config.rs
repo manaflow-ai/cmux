@@ -127,12 +127,13 @@
 //! deliberate non-goal because they conflict with shell/editor control
 //! keys.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::fs::OpenOptions;
 use std::io::{Read, Write};
 use std::ops::Deref;
 #[cfg(unix)]
 use std::os::unix::process::CommandExt;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::process::Child;
 use std::process::Command;
 use std::process::Stdio;
@@ -141,10 +142,12 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use cmux_tui_core::BrowserMode;
 use cmux_tui_core::SidebarPluginOptions;
-use cmux_tui_core::SurfaceOptions;
 use cmux_tui_core::TRANSPORT_SAFE_CAPTURE_MEGAPIXELS;
 use cmux_tui_core::platform;
 use cmux_tui_core::{CursorShape, DefaultColors, Rgb};
+use cmux_tui_core::{DEFAULT_SCROLLBACK_LIMIT_BYTES, SurfaceOptions};
+
+const MAX_SCROLLBACK_LIMIT_BYTES: usize = 1_000_000_000;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::style::Color;
 use serde::{Deserialize, Deserializer};
@@ -3020,6 +3023,7 @@ pub struct Config {
     pub terminal_defaults: DefaultColors,
     pub cursor_style: Option<CursorShape>,
     pub cursor_blink: Option<bool>,
+    scrollback_limit_bytes: Option<usize>,
     pub chrome: ChromeMode,
     pub tabs: Tabs,
     pub sidebar: Sidebar,
@@ -3237,6 +3241,15 @@ pub struct ThemeOverrides {
 }
 
 impl Config {
+    /// Effective Ghostty scrollback storage limit in bytes. Ghostty's VT
+    /// surface API uses bytes, so this value must never be interpreted as a
+    /// line count by callers.
+    pub fn scrollback_limit_bytes(&self) -> usize {
+        self.scrollback_limit_bytes
+            .unwrap_or(DEFAULT_SCROLLBACK_LIMIT_BYTES)
+            .min(MAX_SCROLLBACK_LIMIT_BYTES)
+    }
+
     pub fn apply_chrome_defaults(&mut self, chrome: ChromeTheme) {
         if !self.theme_overrides.selection {
             self.theme.selection_bg = chrome.selection_bg;
@@ -3256,8 +3269,10 @@ pub struct SidebarPluginConfig {
 pub fn load() -> Config {
     let mut config = Config::default();
 
-    let defaults = ghostty_defaults();
+    let application_defaults = ghostty_application_defaults();
+    let defaults = application_defaults.colors;
     config.terminal_defaults = defaults;
+    config.scrollback_limit_bytes = application_defaults.scrollback_limit_bytes;
     if let Some(bg) = defaults.selection_bg {
         config.theme.selection_bg = Color::Rgb(bg.r, bg.g, bg.b);
         config.theme_overrides.selection = true;
@@ -4058,16 +4073,44 @@ pub fn config_path() -> anyhow::Result<PathBuf> {
     platform::config_path().ok_or_else(|| anyhow::anyhow!("could not resolve mux config path"))
 }
 
-pub fn write_sidebar_plugin(plugin: Option<&SidebarPluginConfig>) -> anyhow::Result<PathBuf> {
-    let path = config_path()?;
-    write_sidebar_plugin_at_path(&path, plugin)?;
-    Ok(path)
+/// The result of replacing the config file. A committed replacement is a
+/// successful operation even when the parent directory could not be synced.
+#[must_use = "inspect config durability after a committed write"]
+#[derive(Debug)]
+pub(crate) enum ConfigWriteOutcome {
+    /// The replacement and all relevant directory entries were synced.
+    Committed,
+    /// The replacement committed, but this platform does not support syncing
+    /// directory entries. The staged file itself was synced before rename.
+    CommittedWithoutDirectorySync,
+    /// The replacement committed, but a supported directory sync failed.
+    CommittedButUnsynced { error: anyhow::Error },
 }
 
-pub fn write_sidebar_plugin_at_path(
+impl ConfigWriteOutcome {
+    /// Takes the parent-sync error, if the replacement committed without a
+    /// durability confirmation.
+    pub(crate) fn into_unsynced_error(self) -> Option<anyhow::Error> {
+        match self {
+            Self::Committed | Self::CommittedWithoutDirectorySync => None,
+            Self::CommittedButUnsynced { error } => Some(error),
+        }
+    }
+}
+
+/// Writes the sidebar plugin selection to the configured path.
+pub(crate) fn write_sidebar_plugin(
+    plugin: Option<&SidebarPluginConfig>,
+) -> anyhow::Result<ConfigWriteOutcome> {
+    let path = config_path()?;
+    write_sidebar_plugin_at_path(&path, plugin)
+}
+
+/// Writes the sidebar plugin selection to an explicit path.
+pub(crate) fn write_sidebar_plugin_at_path(
     path: &Path,
     plugin: Option<&SidebarPluginConfig>,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<ConfigWriteOutcome> {
     let mut root = read_config_value(path)?;
     let Some(root_object) = root.as_object_mut() else {
         anyhow::bail!("{} must contain a JSON object", path.display());
@@ -4106,16 +4149,75 @@ fn read_config_value(path: &Path) -> anyhow::Result<Value> {
     }
 }
 
-fn write_config_value_atomic(path: &Path, value: &Value) -> anyhow::Result<()> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+/// Serializes a config value to a private staging file before atomically
+/// replacing the destination and durably syncing its parent directories. An
+/// `Err` means that replacement did not commit. A
+/// [`ConfigWriteOutcome::CommittedWithoutDirectorySync`] means the rename
+/// committed on a platform without directory-sync support. A
+/// [`ConfigWriteOutcome::CommittedButUnsynced`] value means a supported
+/// directory sync failed.
+fn write_config_value_atomic(path: &Path, value: &Value) -> anyhow::Result<ConfigWriteOutcome> {
+    write_config_value_atomic_with_sync(path, value, &sync_config_parent_directory)
+}
+
+fn write_config_value_atomic_with_sync(
+    path: &Path,
+    value: &Value,
+    sync_parent: &dyn Fn(&Path) -> anyhow::Result<ConfigParentSyncOutcome>,
+) -> anyhow::Result<ConfigWriteOutcome> {
+    let parent = config_parent_directory(path);
     let file_name = path.file_name().and_then(|name| name.to_str()).unwrap_or("cmux-tui.json");
     let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos();
-    let tmp_path = parent.join(format!(".{file_name}.{}.{}.tmp", std::process::id(), stamp));
+    let process_id = std::process::id();
+    let staging_path = move |parent: &Path, attempt: usize| {
+        let suffix = if attempt == 0 {
+            format!(".{file_name}.{process_id}.{stamp}.tmp")
+        } else {
+            format!(".{file_name}.{process_id}.{stamp}.{attempt}.tmp")
+        };
+        parent.join(suffix)
+    };
+    write_config_value_atomic_with_sync_and_staging(path, value, sync_parent, &staging_path)
+}
+
+const CONFIG_STAGING_ATTEMPTS: usize = 16;
+
+fn write_config_value_atomic_with_sync_and_staging(
+    path: &Path,
+    value: &Value,
+    sync_parent: &dyn Fn(&Path) -> anyhow::Result<ConfigParentSyncOutcome>,
+    staging_path: &dyn Fn(&Path, usize) -> PathBuf,
+) -> anyhow::Result<ConfigWriteOutcome> {
+    let parent = config_parent_directory(path);
+    let created_directories = ensure_config_parent_directory(parent)?;
+    let mut staged = None;
+    for attempt in 0..CONFIG_STAGING_ATTEMPTS {
+        let tmp_path = staging_path(parent, attempt);
+        let mut options = OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+
+            // The config can contain the server authentication token. Create
+            // the staging file private from the start, independent of umask,
+            // and reject a pre-existing symlink if a concurrent writer races
+            // with this process before open(2).
+            options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
+        }
+        match options.open(&tmp_path) {
+            Ok(file) => {
+                staged = Some((tmp_path, file));
+                break;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error.into()),
+        }
+    }
+    let Some((tmp_path, mut file)) = staged else {
+        anyhow::bail!("could not create a unique config staging file")
+    };
     let result = (|| -> anyhow::Result<()> {
-        let mut file = std::fs::File::create(&tmp_path)?;
         serde_json::to_writer_pretty(&mut file, value)?;
         file.write_all(b"\n")?;
         file.sync_all()?;
@@ -4123,10 +4225,101 @@ fn write_config_value_atomic(path: &Path, value: &Value) -> anyhow::Result<()> {
         std::fs::rename(&tmp_path, path)?;
         Ok(())
     })();
-    if result.is_err() {
+    if let Err(error) = result {
         let _ = std::fs::remove_file(&tmp_path);
+        return Err(error);
     }
-    result
+
+    #[cfg(unix)]
+    {
+        Ok(match sync_config_parent_directories(parent, &created_directories, sync_parent) {
+            Ok(ConfigParentSyncOutcome::Synced) => ConfigWriteOutcome::Committed,
+            Ok(ConfigParentSyncOutcome::Unsupported) => {
+                ConfigWriteOutcome::CommittedWithoutDirectorySync
+            }
+            Err(error) => ConfigWriteOutcome::CommittedButUnsynced { error },
+        })
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (created_directories, sync_parent);
+        Ok(ConfigWriteOutcome::CommittedWithoutDirectorySync)
+    }
+}
+
+fn ensure_config_parent_directory(parent: &Path) -> anyhow::Result<Vec<PathBuf>> {
+    let mut created_directories = Vec::new();
+    let mut current = PathBuf::new();
+    for component in parent.components() {
+        current.push(component.as_os_str());
+        // Prefix, root, and navigation components establish path syntax;
+        // only normal components identify directory entries to create.
+        if !matches!(component, Component::Normal(_)) {
+            continue;
+        }
+        match std::fs::create_dir(&current) {
+            Ok(()) => created_directories.push(current.clone()),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                if !std::fs::metadata(&current)?.is_dir() {
+                    anyhow::bail!(
+                        "config parent component {} is not a directory",
+                        current.display()
+                    );
+                }
+            }
+            Err(error) => return Err(error.into()),
+        }
+    }
+    Ok(created_directories)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ConfigParentSyncOutcome {
+    Synced,
+    Unsupported,
+}
+
+#[cfg(unix)]
+fn sync_config_parent_directory(parent: &Path) -> anyhow::Result<ConfigParentSyncOutcome> {
+    let result = std::fs::File::open(parent).and_then(|directory| directory.sync_all());
+    #[cfg(target_os = "macos")]
+    if let Err(error) = &result {
+        if matches!(error.raw_os_error(), Some(code) if code == libc::EINVAL || code == libc::ENOTSUP)
+        {
+            return Ok(ConfigParentSyncOutcome::Unsupported);
+        }
+    }
+    result.map(|()| ConfigParentSyncOutcome::Synced).map_err(Into::into)
+}
+
+#[cfg(not(unix))]
+fn sync_config_parent_directory(_parent: &Path) -> anyhow::Result<ConfigParentSyncOutcome> {
+    Ok(ConfigParentSyncOutcome::Unsupported)
+}
+
+#[cfg(unix)]
+fn sync_config_parent_directories(
+    parent: &Path,
+    created_directories: &[PathBuf],
+    sync_parent: &dyn Fn(&Path) -> anyhow::Result<ConfigParentSyncOutcome>,
+) -> anyhow::Result<ConfigParentSyncOutcome> {
+    let mut unsupported = false;
+    for directory in std::iter::once(parent)
+        .chain(created_directories.iter().rev().map(|directory| config_parent_directory(directory)))
+    {
+        if matches!(sync_parent(directory)?, ConfigParentSyncOutcome::Unsupported) {
+            unsupported = true;
+        }
+    }
+    Ok(if unsupported {
+        ConfigParentSyncOutcome::Unsupported
+    } else {
+        ConfigParentSyncOutcome::Synced
+    })
+}
+
+fn config_parent_directory(path: &Path) -> &Path {
+    path.parent().filter(|parent| !parent.as_os_str().is_empty()).unwrap_or_else(|| Path::new("."))
 }
 
 /// `#rrggbb`, `#rgb`, or an xterm-256 index in a string.
@@ -4152,17 +4345,42 @@ fn parse_color(s: &str) -> Option<Color> {
 /// The user's relevant Ghostty settings with non-optional application defaults
 /// resolved for values that the low-level terminal otherwise leaves unset.
 fn ghostty_defaults() -> DefaultColors {
+    ghostty_application_defaults().colors
+}
+
+struct GhosttyApplicationDefaults {
+    colors: DefaultColors,
+    scrollback_limit_bytes: Option<usize>,
+}
+
+impl Default for GhosttyApplicationDefaults {
+    fn default() -> Self {
+        Self {
+            colors: resolve_ghostty_application_defaults(DefaultColors::default()),
+            scrollback_limit_bytes: None,
+        }
+    }
+}
+
+fn ghostty_application_defaults() -> GhosttyApplicationDefaults {
     let config_paths = platform::ghostty_config_paths();
     let theme_dirs = platform::ghostty_theme_dirs();
     #[cfg(not(test))]
     let helper_defaults = ghostty_defaults_from_helper();
     #[cfg(test)]
     let helper_defaults = GhosttyHelperDefaults::Unavailable;
-    ghostty_defaults_from_sources(config_paths, theme_dirs, helper_defaults)
+    match helper_defaults {
+        GhosttyHelperDefaults::Resolved(defaults) => *defaults,
+        GhosttyHelperDefaults::Unavailable => {
+            parse_ghostty_application_defaults_from_paths(config_paths, theme_dirs)
+                .unwrap_or_default()
+        }
+        GhosttyHelperDefaults::TimedOut => GhosttyApplicationDefaults::default(),
+    }
 }
 
 enum GhosttyHelperDefaults {
-    Resolved(Box<DefaultColors>),
+    Resolved(Box<GhosttyApplicationDefaults>),
     Unavailable,
     TimedOut,
 }
@@ -4172,14 +4390,138 @@ fn ghostty_defaults_from_sources(
     theme_dirs: Vec<PathBuf>,
     helper_defaults: GhosttyHelperDefaults,
 ) -> DefaultColors {
-    let parsed = match helper_defaults {
-        GhosttyHelperDefaults::Resolved(defaults) => *defaults,
+    match helper_defaults {
+        GhosttyHelperDefaults::Resolved(defaults) => defaults.colors,
         GhosttyHelperDefaults::Unavailable => {
-            parse_ghostty_defaults_from_paths(config_paths, theme_dirs).unwrap_or_default()
+            parse_ghostty_application_defaults_from_paths(config_paths, theme_dirs)
+                .map(|defaults| defaults.colors)
+                .unwrap_or_else(|| GhosttyApplicationDefaults::default().colors)
         }
-        GhosttyHelperDefaults::TimedOut => DefaultColors::default(),
-    };
-    resolve_ghostty_application_defaults(parsed)
+        GhosttyHelperDefaults::TimedOut => GhosttyApplicationDefaults::default().colors,
+    }
+}
+
+/// Read Ghostty's scrollback setting with the same bounded include traversal
+/// used for the other file-based defaults. Ghostty 1.4 renamed the setting to
+/// make the byte unit explicit, so both spellings are accepted.
+fn ghostty_scrollback_limit_bytes() -> Option<usize> {
+    let deadline_at = ghostty_config_deadline_from_now(GHOSTTY_CONFIG_PARSE_DEADLINE);
+    let mut resolved = None;
+    for path in platform::ghostty_config_paths() {
+        if ghostty_config_deadline_expired(Some(deadline_at)) {
+            // A partial traversal is not an authoritative configuration
+            // result. Falling back to the shared default avoids making
+            // startup timing change the selected security and memory limit.
+            return None;
+        }
+        match parse_scrollback_limit_from_root(&path, deadline_at) {
+            ScrollbackConfigOutcome::Missing => {}
+            ScrollbackConfigOutcome::TimedOut => return None,
+            ScrollbackConfigOutcome::Parsed(setting) => {
+                // A file with no setting does not mask another candidate.
+                // An explicit empty setting is represented as Some(None) and
+                // intentionally resets the accumulated value to the default.
+                if let Some(setting) = setting {
+                    resolved = setting;
+                }
+            }
+        }
+    }
+    resolved
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum ScrollbackConfigOutcome {
+    Missing,
+    Parsed(Option<Option<usize>>),
+    TimedOut,
+}
+
+fn parse_scrollback_limit_from_root(path: &Path, deadline_at: Instant) -> ScrollbackConfigOutcome {
+    // Ghostty parses the complete parent file first, then loads its
+    // config-file entries in declaration order. Nested entries are appended
+    // after the already queued siblings. A FIFO queue preserves that
+    // precedence while keeping the traversal bounded below.
+    let mut queue = VecDeque::from([PendingGhosttyConfig { path: path.to_path_buf(), depth: 0 }]);
+    let mut loaded = HashSet::new();
+    let mut files_loaded = 0usize;
+    let mut bytes_loaded = 0u64;
+    let mut value = None;
+    let mut loaded_root = false;
+
+    while let Some(pending) = queue.pop_front() {
+        if Instant::now() >= deadline_at {
+            return ScrollbackConfigOutcome::TimedOut;
+        }
+        if pending.depth > GHOSTTY_CONFIG_MAX_DEPTH || files_loaded >= GHOSTTY_CONFIG_MAX_FILES {
+            return ScrollbackConfigOutcome::TimedOut;
+        }
+        let identity = pending.path.canonicalize().unwrap_or_else(|_| pending.path.clone());
+        if !loaded.insert(identity.clone()) {
+            continue;
+        }
+        let remaining_bytes = GHOSTTY_CONFIG_MAX_BYTES.saturating_sub(bytes_loaded);
+        if ghostty_regular_file_exceeds_limit(&pending.path, remaining_bytes) {
+            return ScrollbackConfigOutcome::TimedOut;
+        }
+        let Some(text) = read_ghostty_regular_file(&pending.path, remaining_bytes) else {
+            if pending.depth == 0 && files_loaded == 0 {
+                return ScrollbackConfigOutcome::Missing;
+            }
+            continue;
+        };
+        bytes_loaded = bytes_loaded.saturating_add(text.len() as u64);
+        files_loaded += 1;
+        loaded_root |= pending.depth == 0;
+        if let Some(parsed) = parse_scrollback_limit_bytes(&text) {
+            value = Some(parsed);
+        }
+
+        let base_dir = pending.path.parent().unwrap_or_else(|| Path::new("."));
+        let mut theme_candidates = Vec::new();
+        let parsed = parse_ghostty_config_text(&text, Some(base_dir), &mut theme_candidates);
+        for include in
+            parsed.config_files.into_iter().filter_map(|include| include.resolve(base_dir))
+        {
+            queue.push_back(PendingGhosttyConfig { path: include, depth: pending.depth + 1 });
+        }
+        if Instant::now() >= deadline_at {
+            return ScrollbackConfigOutcome::TimedOut;
+        }
+    }
+
+    if loaded_root {
+        ScrollbackConfigOutcome::Parsed(value)
+    } else {
+        ScrollbackConfigOutcome::Missing
+    }
+}
+
+/// Return the last scrollback setting in a file. The outer `Option` says
+/// whether a setting was present; the inner `Option` represents an explicit
+/// empty reset to the shared default.
+fn parse_scrollback_limit_bytes(text: &str) -> Option<Option<usize>> {
+    text.lines()
+        .filter_map(|line| {
+            let (key, value) = line.trim().split_once('=')?;
+            if !matches!(key.trim(), "scrollback-limit" | "scrollback-limit-bytes") {
+                return None;
+            }
+            // Ghostty treats comments as whole lines. Do not truncate a
+            // numeric value at '#', because that would accept malformed input
+            // that Ghostty rejects.
+            let value = value.trim();
+            let value = value
+                .strip_prefix('"')
+                .and_then(|value| value.strip_suffix('"'))
+                .unwrap_or(value)
+                .trim();
+            if value.is_empty() {
+                return Some(None);
+            }
+            value.replace('_', "").parse::<usize>().ok().map(Some)
+        })
+        .last()
 }
 
 fn resolve_ghostty_application_defaults(mut defaults: DefaultColors) -> DefaultColors {
@@ -4237,16 +4579,17 @@ pub(crate) fn is_ghostty_config_helper_invocation(args: &[String]) -> bool {
 }
 
 pub(crate) fn run_ghostty_config_helper() -> i32 {
-    match parse_ghostty_defaults_from_paths_result(
+    match parse_ghostty_application_defaults_from_paths_result(
         platform::ghostty_config_paths(),
         platform::ghostty_theme_dirs(),
     ) {
-        GhosttyConfigParseOutcome::Parsed(defaults) => {
-            print!("{}", serialize_ghostty_defaults(*defaults));
+        GhosttyApplicationDefaultsParseOutcome::Parsed(defaults) => {
+            print!("{}", serialize_ghostty_application_defaults(&defaults));
             0
         }
-        GhosttyConfigParseOutcome::Missing => 1,
-        GhosttyConfigParseOutcome::TimedOut => 2,
+        GhosttyApplicationDefaultsParseOutcome::Partial(_) => 2,
+        GhosttyApplicationDefaultsParseOutcome::Missing => 1,
+        GhosttyApplicationDefaultsParseOutcome::TimedOut => 2,
     }
 }
 
@@ -4304,9 +4647,10 @@ fn ghostty_defaults_from_helper_command(
         return GhosttyHelperDefaults::Unavailable;
     }
     match output_reader.wait() {
-        Some(output) => {
-            GhosttyHelperDefaults::Resolved(Box::new(parse_resolved_ghostty_defaults(&output)))
-        }
+        Some(output) => GhosttyHelperDefaults::Resolved(Box::new(GhosttyApplicationDefaults {
+            colors: parse_resolved_ghostty_defaults(&output),
+            scrollback_limit_bytes: parse_scrollback_limit_bytes(&output).flatten(),
+        })),
         None => GhosttyHelperDefaults::Unavailable,
     }
 }
@@ -4497,12 +4841,87 @@ fn parse_ghostty_defaults_from_paths(
 ) -> Option<DefaultColors> {
     match parse_ghostty_defaults_from_paths_result(config_paths, theme_dirs) {
         GhosttyConfigParseOutcome::Parsed(defaults) => Some(*defaults),
-        GhosttyConfigParseOutcome::Missing | GhosttyConfigParseOutcome::TimedOut => None,
+        GhosttyConfigParseOutcome::Partial(_)
+        | GhosttyConfigParseOutcome::Missing
+        | GhosttyConfigParseOutcome::TimedOut => None,
+    }
+}
+
+fn parse_ghostty_application_defaults_from_paths(
+    config_paths: Vec<PathBuf>,
+    theme_dirs: Vec<PathBuf>,
+) -> Option<GhosttyApplicationDefaults> {
+    match parse_ghostty_application_defaults_from_paths_result(config_paths, theme_dirs) {
+        GhosttyApplicationDefaultsParseOutcome::Parsed(defaults) => Some(defaults),
+        GhosttyApplicationDefaultsParseOutcome::Partial(defaults) => Some(defaults),
+        GhosttyApplicationDefaultsParseOutcome::Missing
+        | GhosttyApplicationDefaultsParseOutcome::TimedOut => None,
+    }
+}
+
+enum GhosttyApplicationDefaultsParseOutcome {
+    Parsed(GhosttyApplicationDefaults),
+    Partial(GhosttyApplicationDefaults),
+    Missing,
+    TimedOut,
+}
+
+fn parse_ghostty_application_defaults_from_paths_result(
+    config_paths: Vec<PathBuf>,
+    theme_dirs: Vec<PathBuf>,
+) -> GhosttyApplicationDefaultsParseOutcome {
+    let deadline_at = ghostty_config_deadline_from_now(GHOSTTY_CONFIG_PARSE_DEADLINE);
+    let mut resolved = None;
+    let mut scrollback_limit_bytes = None;
+    let mut incomplete = false;
+    for path in config_paths {
+        if ghostty_config_deadline_expired(Some(deadline_at)) {
+            return GhosttyApplicationDefaultsParseOutcome::TimedOut;
+        }
+        let mut path_scrollback = None;
+        match parse_ghostty_defaults_from_path_result_until_with_scrollback(
+            &path,
+            &theme_dirs,
+            Some(deadline_at),
+            Some(&mut path_scrollback),
+        ) {
+            GhosttyConfigParseOutcome::Missing => {}
+            GhosttyConfigParseOutcome::TimedOut => {
+                return GhosttyApplicationDefaultsParseOutcome::TimedOut;
+            }
+            GhosttyConfigParseOutcome::Parsed(defaults) => {
+                let merged = resolved.get_or_insert_with(DefaultColors::default);
+                overlay_ghostty_defaults(merged, *defaults);
+                if let Some(value) = path_scrollback {
+                    scrollback_limit_bytes = value;
+                }
+            }
+            GhosttyConfigParseOutcome::Partial(defaults) => {
+                let merged = resolved.get_or_insert_with(DefaultColors::default);
+                overlay_ghostty_defaults(merged, *defaults);
+                incomplete = true;
+            }
+        }
+    }
+    match resolved {
+        Some(colors) => {
+            let defaults = GhosttyApplicationDefaults {
+                colors: resolve_ghostty_application_defaults(colors),
+                scrollback_limit_bytes: if incomplete { None } else { scrollback_limit_bytes },
+            };
+            if incomplete {
+                GhosttyApplicationDefaultsParseOutcome::Partial(defaults)
+            } else {
+                GhosttyApplicationDefaultsParseOutcome::Parsed(defaults)
+            }
+        }
+        None => GhosttyApplicationDefaultsParseOutcome::Missing,
     }
 }
 
 enum GhosttyConfigParseOutcome {
     Parsed(Box<DefaultColors>),
+    Partial(Box<DefaultColors>),
     Missing,
     TimedOut,
 }
@@ -4543,7 +4962,9 @@ fn parse_ghostty_defaults_with_theme_dirs(text: &str, theme_dirs: &[PathBuf]) ->
 fn parse_ghostty_defaults_from_path(path: &Path, theme_dirs: &[PathBuf]) -> Option<DefaultColors> {
     match parse_ghostty_defaults_from_path_result(path, theme_dirs) {
         GhosttyConfigParseOutcome::Parsed(defaults) => Some(*defaults),
-        GhosttyConfigParseOutcome::Missing | GhosttyConfigParseOutcome::TimedOut => None,
+        GhosttyConfigParseOutcome::Partial(_)
+        | GhosttyConfigParseOutcome::Missing
+        | GhosttyConfigParseOutcome::TimedOut => None,
     }
 }
 
@@ -4561,9 +4982,27 @@ fn parse_ghostty_defaults_from_path_result_until(
     theme_dirs: &[PathBuf],
     deadline_at: Option<Instant>,
 ) -> GhosttyConfigParseOutcome {
+    parse_ghostty_defaults_from_path_result_until_with_scrollback(
+        path,
+        theme_dirs,
+        deadline_at,
+        None,
+    )
+}
+
+fn parse_ghostty_defaults_from_path_result_until_with_scrollback(
+    path: &Path,
+    theme_dirs: &[PathBuf],
+    deadline_at: Option<Instant>,
+    mut scrollback_limit_bytes: Option<&mut Option<Option<usize>>>,
+) -> GhosttyConfigParseOutcome {
     let mut theme_candidates = Vec::new();
-    let overrides = match parse_ghostty_config_file_until(path, &mut theme_candidates, deadline_at)
-    {
+    let overrides = match parse_ghostty_config_file_until_with_scrollback(
+        path,
+        &mut theme_candidates,
+        deadline_at,
+        scrollback_limit_bytes,
+    ) {
         GhosttyConfigParseOutcome::Parsed(overrides) => *overrides,
         outcome => return outcome,
     };
@@ -4615,25 +5054,52 @@ fn parse_ghostty_config_file_until(
     theme_candidates: &mut Vec<GhosttyThemeCandidate>,
     deadline_at: Option<Instant>,
 ) -> GhosttyConfigParseOutcome {
+    parse_ghostty_config_file_until_with_scrollback(path, theme_candidates, deadline_at, None)
+}
+
+fn parse_ghostty_config_file_until_with_scrollback(
+    path: &Path,
+    theme_candidates: &mut Vec<GhosttyThemeCandidate>,
+    deadline_at: Option<Instant>,
+    mut scrollback_limit_bytes: Option<&mut Option<Option<usize>>>,
+) -> GhosttyConfigParseOutcome {
     let mut stack = vec![PendingGhosttyConfig { path: path.to_path_buf(), depth: 0 }];
     let mut loaded = HashSet::new();
+    let mut snapshot = Vec::new();
     let mut files_loaded = 0usize;
     let mut bytes_loaded = 0u64;
     let mut loaded_root = false;
     let mut overrides = DefaultColors::default();
+    let collect_scrollback = scrollback_limit_bytes.is_some();
+    let root_identity = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+
+    // Preserve cmux's existing depth-first precedence for colors and themes.
+    // Scrollback is replayed from this snapshot in Ghostty's declaration-order
+    // breadth-first traversal, so changing color precedence is out of scope.
 
     while let Some(pending) = stack.pop() {
         if files_loaded > 0 && ghostty_config_deadline_expired(deadline_at) {
-            return GhosttyConfigParseOutcome::TimedOut;
+            return if collect_scrollback {
+                GhosttyConfigParseOutcome::Partial(Box::new(overrides))
+            } else {
+                GhosttyConfigParseOutcome::TimedOut
+            };
         }
         if pending.depth > GHOSTTY_CONFIG_MAX_DEPTH || files_loaded >= GHOSTTY_CONFIG_MAX_FILES {
+            if collect_scrollback {
+                return GhosttyConfigParseOutcome::Partial(Box::new(overrides));
+            }
             continue;
         }
         let identity = pending.path.canonicalize().unwrap_or_else(|_| pending.path.clone());
-        if !loaded.insert(identity) {
+        if !loaded.insert(identity.clone()) {
             continue;
         }
         let remaining_bytes = GHOSTTY_CONFIG_MAX_BYTES.saturating_sub(bytes_loaded);
+        if collect_scrollback && ghostty_regular_file_exceeds_limit(&pending.path, remaining_bytes)
+        {
+            return GhosttyConfigParseOutcome::Partial(Box::new(overrides));
+        }
         let text = match read_ghostty_regular_file(&pending.path, remaining_bytes) {
             Some(text) => text,
             None if pending.depth == 0 && files_loaded == 0 => {
@@ -4644,22 +5110,57 @@ fn parse_ghostty_config_file_until(
         bytes_loaded = bytes_loaded.saturating_add(text.len() as u64);
         files_loaded += 1;
         loaded_root |= pending.depth == 0;
-
         let base_dir = pending.path.parent().unwrap_or_else(|| Path::new("."));
         let parsed = parse_ghostty_config_text(&text, Some(base_dir), theme_candidates);
         overlay_ghostty_defaults(&mut overrides, parsed.overrides);
 
-        for include in
-            parsed.config_files.into_iter().rev().filter_map(|include| include.resolve(base_dir))
-        {
+        let includes: Vec<PathBuf> = parsed
+            .config_files
+            .into_iter()
+            .filter_map(|include| include.resolve(base_dir))
+            .collect();
+        if collect_scrollback {
+            snapshot.push((identity, includes.clone(), parse_scrollback_limit_bytes(&text)));
+        }
+        for include in includes.into_iter().rev() {
             stack.push(PendingGhosttyConfig { path: include, depth: pending.depth + 1 });
         }
         if ghostty_config_deadline_expired(deadline_at) {
-            return GhosttyConfigParseOutcome::TimedOut;
+            return if collect_scrollback {
+                GhosttyConfigParseOutcome::Partial(Box::new(overrides))
+            } else {
+                GhosttyConfigParseOutcome::TimedOut
+            };
         }
     }
 
     if loaded_root {
+        if let Some(scrollback_limit_bytes) = scrollback_limit_bytes.as_deref_mut() {
+            let mut snapshot_by_identity = HashMap::new();
+            for (index, (identity, _, _)) in snapshot.iter().enumerate() {
+                snapshot_by_identity.insert(identity, index);
+            }
+            let mut queue = VecDeque::from([(root_identity, 0usize)]);
+            let mut seen = HashSet::new();
+            let mut resolved = None;
+            while let Some((identity, depth)) = queue.pop_front() {
+                if depth > GHOSTTY_CONFIG_MAX_DEPTH || !seen.insert(identity.clone()) {
+                    continue;
+                }
+                let Some(&index) = snapshot_by_identity.get(&identity) else {
+                    continue;
+                };
+                let (_, includes, value) = &snapshot[index];
+                if let Some(value) = value {
+                    resolved = Some(*value);
+                }
+                for include in includes {
+                    let identity = include.canonicalize().unwrap_or_else(|_| include.clone());
+                    queue.push_back((identity, depth + 1));
+                }
+            }
+            *scrollback_limit_bytes = resolved;
+        }
         GhosttyConfigParseOutcome::Parsed(Box::new(overrides))
     } else {
         GhosttyConfigParseOutcome::Missing
@@ -5214,6 +5715,14 @@ fn serialize_ghostty_defaults(defaults: DefaultColors) -> String {
     out
 }
 
+fn serialize_ghostty_application_defaults(defaults: &GhosttyApplicationDefaults) -> String {
+    let mut out = serialize_ghostty_defaults(defaults.colors);
+    if let Some(limit) = defaults.scrollback_limit_bytes {
+        out.push_str(&format!("scrollback-limit-bytes = {limit}\n"));
+    }
+    out
+}
+
 fn format_ghostty_rgb(color: Rgb) -> String {
     format!("#{:02x}{:02x}{:02x}", color.r, color.g, color.b)
 }
@@ -5298,6 +5807,11 @@ fn read_ghostty_regular_file(path: &Path, max_bytes: u64) -> Option<String> {
         return None;
     }
     read_ghostty_limited_string(file, max_bytes)
+}
+
+fn ghostty_regular_file_exceeds_limit(path: &Path, max_bytes: u64) -> bool {
+    std::fs::metadata(path)
+        .is_ok_and(|metadata| metadata.file_type().is_file() && metadata.len() > max_bytes)
 }
 
 fn read_ghostty_limited_string(reader: impl Read, max_bytes: u64) -> Option<String> {
@@ -5397,7 +5911,7 @@ fn overlay_ghostty_defaults(defaults: &mut DefaultColors, overrides: DefaultColo
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::cell::Cell;
+    use std::cell::{Cell, RefCell};
 
     #[test]
     fn config_diagnostics_do_not_echo_parser_details() {
@@ -5462,6 +5976,15 @@ mod tests {
         }
     }
 
+    fn assert_committed(outcome: ConfigWriteOutcome) {
+        assert!(matches!(
+            outcome,
+            ConfigWriteOutcome::Committed
+                | ConfigWriteOutcome::CommittedWithoutDirectorySync
+                | ConfigWriteOutcome::CommittedButUnsynced { .. }
+        ));
+    }
+
     #[test]
     fn parses_hex_and_indexed_colors() {
         assert_eq!(parse_color("#3a3a3a"), Some(Color::Rgb(0x3a, 0x3a, 0x3a)));
@@ -5482,6 +6005,18 @@ mod tests {
         assert_eq!(defaults.cursor_style, Some(CursorShape::Bar));
         assert_eq!(defaults.cursor_blink, Some(false));
 
+        assert_eq!(
+            parse_scrollback_limit_bytes(
+                "scrollback-limit-lines = 12\n\
+                 scrollback-limit = invalid\n\
+                 scrollback-limit-bytes = 8_000_000\n"
+            ),
+            Some(Some(8_000_000))
+        );
+        assert_eq!(parse_scrollback_limit_bytes("scrollback-limit = \"\"\n"), Some(None));
+        assert_eq!(parse_scrollback_limit_bytes("scrollback-limit-lines = 12\n"), None);
+        assert_eq!(parse_scrollback_limit_bytes("scrollback-limit = 4096#note\n"), None);
+
         let invalid = parse_ghostty_defaults(
             "cursor-style = underline\n\
              cursor-style-blink = true\n\
@@ -5500,6 +6035,178 @@ mod tests {
 
         let hollow = parse_ghostty_defaults("cursor-style = block_hollow\n");
         assert_eq!(hollow.cursor_style, Some(CursorShape::BlockHollow));
+    }
+
+    #[test]
+    fn scrollback_config_outcomes_preserve_precedence_and_timeout() {
+        let dir = TestDirectory::new("scrollback-outcomes");
+        let value_path = dir.path.join("value.conf");
+        let empty_path = dir.path.join("empty.conf");
+        let absent_path = dir.path.join("absent.conf");
+        std::fs::write(&value_path, "scrollback-limit = 123_456\n").unwrap();
+        std::fs::write(&empty_path, "scrollback-limit = \"\"\n").unwrap();
+        std::fs::write(&absent_path, "foreground = #010203\n").unwrap();
+
+        assert_eq!(
+            parse_scrollback_limit_from_root(&value_path, Instant::now() + Duration::from_secs(1)),
+            ScrollbackConfigOutcome::Parsed(Some(Some(123_456)))
+        );
+        assert_eq!(
+            parse_scrollback_limit_from_root(&absent_path, Instant::now() + Duration::from_secs(1)),
+            ScrollbackConfigOutcome::Parsed(None)
+        );
+        assert_eq!(
+            parse_scrollback_limit_from_root(&empty_path, Instant::now() + Duration::from_secs(1)),
+            ScrollbackConfigOutcome::Parsed(Some(None))
+        );
+        assert_eq!(
+            parse_scrollback_limit_from_root(&value_path, Instant::now() - Duration::from_secs(1)),
+            ScrollbackConfigOutcome::TimedOut
+        );
+    }
+
+    #[test]
+    fn scrollback_include_order_matches_ghostty_recursive_loading() {
+        let dir = TestDirectory::new("scrollback-include-order");
+        let root = dir.path.join("config");
+        let first = dir.path.join("first.conf");
+        let second = dir.path.join("second.conf");
+        let nested = dir.path.join("nested.conf");
+        std::fs::write(
+            &root,
+            "config-file = first.conf\n\
+             scrollback-limit = 1\n\
+             config-file = second.conf\n",
+        )
+        .unwrap();
+        std::fs::write(&first, "scrollback-limit = 2\nconfig-file = nested.conf\n").unwrap();
+        std::fs::write(&second, "scrollback-limit = 3\n").unwrap();
+        std::fs::write(&nested, "scrollback-limit = 4\n").unwrap();
+
+        assert_eq!(
+            parse_scrollback_limit_from_root(&root, Instant::now() + Duration::from_secs(1)),
+            ScrollbackConfigOutcome::Parsed(Some(Some(4)))
+        );
+    }
+
+    #[test]
+    fn combined_snapshot_preserves_color_dfs_and_scrollback_bfs_precedence() {
+        let dir = TestDirectory::new("combined-include-precedence");
+        let root = dir.path.join("config");
+        let first = dir.path.join("first.conf");
+        let second = dir.path.join("second.conf");
+        let nested = dir.path.join("nested.conf");
+        std::fs::write(&root, "config-file = first.conf\nconfig-file = second.conf\n").unwrap();
+        std::fs::write(
+            &first,
+            "foreground = #010203\nscrollback-limit-bytes = 2\nconfig-file = nested.conf\n",
+        )
+        .unwrap();
+        std::fs::write(&second, "foreground = #040506\nscrollback-limit-bytes = 3\n").unwrap();
+        std::fs::write(&nested, "foreground = #070809\nscrollback-limit-bytes = 4\n").unwrap();
+
+        let mut scrollback = None;
+        let outcome = parse_ghostty_defaults_from_path_result_until_with_scrollback(
+            &root,
+            &[],
+            Some(Instant::now() + Duration::from_secs(1)),
+            Some(&mut scrollback),
+        );
+        let GhosttyConfigParseOutcome::Parsed(colors) = outcome else {
+            panic!("snapshot should parse");
+        };
+
+        assert_eq!(colors.fg, Some(Rgb { r: 4, g: 5, b: 6 }));
+        assert_eq!(scrollback, Some(Some(4)));
+    }
+
+    #[test]
+    fn scrollback_config_rejects_truncated_include_snapshot() {
+        let dir = TestDirectory::new("scrollback-truncated-include");
+        for depth in 0..=GHOSTTY_CONFIG_MAX_DEPTH + 1 {
+            let path = dir.path.join(format!("config-{depth}"));
+            let include = if depth <= GHOSTTY_CONFIG_MAX_DEPTH {
+                format!("config-file = config-{}\n", depth + 1)
+            } else {
+                "scrollback-limit-bytes = 999999\n".to_owned()
+            };
+            std::fs::write(path, include).unwrap();
+        }
+        let root = dir.path.join("config-0");
+        std::fs::write(&root, "foreground = #010203\nconfig-file = config-1\n").unwrap();
+
+        assert_eq!(
+            parse_scrollback_limit_from_root(&root, Instant::now() + Duration::from_secs(1)),
+            ScrollbackConfigOutcome::TimedOut
+        );
+
+        let mut scrollback = None;
+        let outcome = parse_ghostty_defaults_from_path_result_until_with_scrollback(
+            &root,
+            &[],
+            Some(Instant::now() + Duration::from_secs(1)),
+            Some(&mut scrollback),
+        );
+        let GhosttyConfigParseOutcome::Partial(colors) = outcome else {
+            panic!("truncated snapshot should preserve parsed colors");
+        };
+        assert_eq!(colors.fg, Some(Rgb { r: 1, g: 2, b: 3 }));
+
+        let outcome = parse_ghostty_application_defaults_from_paths_result(vec![root], Vec::new());
+        let GhosttyApplicationDefaultsParseOutcome::Partial(defaults) = outcome else {
+            panic!("truncated application snapshot should remain explicitly partial");
+        };
+        assert_eq!(defaults.scrollback_limit_bytes, None);
+    }
+
+    #[test]
+    fn application_defaults_snapshot_resolves_colors_and_scrollback_together() {
+        let dir = TestDirectory::new("application-defaults-snapshot");
+        let root = dir.path.join("config");
+        let include = dir.path.join("scrollback.conf");
+        std::fs::write(&root, "foreground = #010203\nconfig-file = scrollback.conf\n").unwrap();
+        std::fs::write(&include, "scrollback-limit-bytes = 654321\n").unwrap();
+
+        let mut scrollback = None;
+        let outcome = parse_ghostty_defaults_from_path_result_until_with_scrollback(
+            &root,
+            &[],
+            Some(Instant::now() + Duration::from_secs(1)),
+            Some(&mut scrollback),
+        );
+        let GhosttyConfigParseOutcome::Parsed(colors) = outcome else {
+            panic!("snapshot should parse");
+        };
+        assert_eq!(colors.fg, Some(Rgb { r: 1, g: 2, b: 3 }));
+        assert_eq!(scrollback, Some(Some(654321)));
+    }
+
+    #[test]
+    fn application_defaults_overlay_later_config_and_resolve_fallbacks() {
+        let dir = TestDirectory::new("application-defaults-overlay");
+        let legacy = dir.path.join("config");
+        let current = dir.path.join("config.ghostty");
+        std::fs::write(&legacy, "foreground = #010203\n").unwrap();
+        std::fs::write(&current, "foreground = #070809\nbackground = #040506\n").unwrap();
+
+        let defaults =
+            parse_ghostty_application_defaults_from_paths(vec![legacy, current], Vec::new())
+                .expect("config files should parse");
+        assert_eq!(defaults.colors.fg, Some(Rgb { r: 7, g: 8, b: 9 }));
+        assert_eq!(defaults.colors.bg, Some(Rgb { r: 4, g: 5, b: 6 }));
+        assert_eq!(defaults.colors.cursor_style, Some(CursorShape::Block));
+    }
+
+    #[test]
+    fn effective_scrollback_limit_is_bounded() {
+        let mut config = Config::default();
+        assert_eq!(config.scrollback_limit_bytes(), DEFAULT_SCROLLBACK_LIMIT_BYTES);
+
+        config.scrollback_limit_bytes = Some(usize::MAX);
+        assert_eq!(config.scrollback_limit_bytes(), MAX_SCROLLBACK_LIMIT_BYTES);
+
+        config.scrollback_limit_bytes = Some(0);
+        assert_eq!(config.scrollback_limit_bytes(), 0);
     }
 
     #[test]
@@ -5635,7 +6342,7 @@ mod tests {
         let mut command = Command::new(&binary);
         command.stdout(Stdio::piped()).stderr(Stdio::null());
         let defaults = match ghostty_defaults_from_helper_command(command, Duration::from_secs(2)) {
-            GhosttyHelperDefaults::Resolved(defaults) => defaults,
+            GhosttyHelperDefaults::Resolved(defaults) => defaults.colors,
             GhosttyHelperDefaults::Unavailable => panic!("helper output was not parsed"),
             GhosttyHelperDefaults::TimedOut => panic!("helper output timed out"),
         };
@@ -6818,8 +7525,8 @@ mod tests {
         let GhosttyHelperDefaults::Resolved(defaults) = defaults else {
             panic!("helper should resolve within parent startup margin");
         };
-        assert_eq!(defaults.fg, Some(Rgb { r: 0x01, g: 0x02, b: 0x03 }));
-        assert_eq!(defaults.bg, Some(Rgb { r: 0x04, g: 0x05, b: 0x06 }));
+        assert_eq!(defaults.colors.fg, Some(Rgb { r: 0x01, g: 0x02, b: 0x03 }));
+        assert_eq!(defaults.colors.bg, Some(Rgb { r: 0x04, g: 0x05, b: 0x06 }));
     }
 
     #[cfg(all(unix, not(target_os = "macos")))]
@@ -7039,7 +7746,10 @@ mod tests {
         let defaults = ghostty_defaults_from_sources(
             vec![config],
             Vec::new(),
-            GhosttyHelperDefaults::Resolved(Box::new(helper)),
+            GhosttyHelperDefaults::Resolved(Box::new(GhosttyApplicationDefaults {
+                colors: helper,
+                scrollback_limit_bytes: None,
+            })),
         );
 
         let _ = std::fs::remove_dir_all(dir);
@@ -8796,14 +9506,20 @@ mod tests {
         )
         .unwrap();
 
-        write_sidebar_plugin_at_path(
-            &path,
-            Some(&SidebarPluginConfig {
-                command: vec!["/tmp/plugin".to_string(), "--mode".to_string(), "test".to_string()],
-                cwd: Some("/tmp".to_string()),
-            }),
-        )
-        .unwrap();
+        assert_committed(
+            write_sidebar_plugin_at_path(
+                &path,
+                Some(&SidebarPluginConfig {
+                    command: vec![
+                        "/tmp/plugin".to_string(),
+                        "--mode".to_string(),
+                        "test".to_string(),
+                    ],
+                    cwd: Some("/tmp".to_string()),
+                }),
+            )
+            .unwrap(),
+        );
         let value: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
         assert_eq!(value["theme"]["sidebar_rail"], json!(42));
         assert_eq!(value["sidebar"]["width"], json!(31));
@@ -8811,11 +9527,173 @@ mod tests {
         assert_eq!(value["sidebar"]["plugin"]["command"][0], json!("/tmp/plugin"));
         assert_eq!(value["sidebar"]["plugin"]["cwd"], json!("/tmp"));
 
-        write_sidebar_plugin_at_path(&path, None).unwrap();
+        assert_committed(write_sidebar_plugin_at_path(&path, None).unwrap());
         let value: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
         assert_eq!(value["sidebar"]["width"], json!(31));
         assert!(value["sidebar"].get("plugin").is_none());
         assert_eq!(value["future"]["unknown"], json!(true));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn sidebar_plugin_write_replaces_config_with_private_permissions() {
+        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+
+        let dir = TestDirectory::new("private-permissions");
+        let path = dir.path.join("cmux-tui.json");
+        let mut options = OpenOptions::new();
+        options.write(true).create_new(true).mode(0o644);
+        let file = options.open(&path).unwrap();
+        drop(file);
+
+        assert_committed(
+            write_sidebar_plugin_at_path(
+                &path,
+                Some(&SidebarPluginConfig { command: vec!["/tmp/plugin".to_string()], cwd: None }),
+            )
+            .unwrap(),
+        );
+
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600, "config permissions must not expose server.ws_token");
+    }
+
+    #[test]
+    fn config_write_failure_cleans_staging_file() {
+        let dir = TestDirectory::new("failure-cleanup");
+        let path = dir.path.join("cmux-tui.json");
+        std::fs::create_dir(&path).unwrap();
+
+        let error = write_config_value_atomic(&path, &json!({"server": {"ws_token": "secret"}}))
+            .expect_err("replacing a directory must fail");
+        assert!(!error.to_string().is_empty());
+
+        let entries = std::fs::read_dir(&dir.path).unwrap().collect::<Result<Vec<_>, _>>().unwrap();
+        assert_eq!(entries.len(), 1, "failed writes must remove their staging file");
+        assert_eq!(entries[0].path(), path);
+    }
+
+    #[test]
+    fn config_write_collision_preserves_existing_staging_file() {
+        let dir = TestDirectory::new("staging-collision");
+        let path = dir.path.join("cmux-tui.json");
+        let collision = dir.path.join("collision.tmp");
+        let replacement = dir.path.join("replacement.tmp");
+        std::fs::write(&collision, b"owned by another writer").unwrap();
+        let staging_paths = [collision.clone(), replacement.clone()];
+        let staging_path = |_: &Path, attempt: usize| staging_paths[attempt].clone();
+        let sync_parent = |_parent: &Path| -> anyhow::Result<ConfigParentSyncOutcome> {
+            Ok(ConfigParentSyncOutcome::Synced)
+        };
+
+        assert_committed(
+            write_config_value_atomic_with_sync_and_staging(
+                &path,
+                &json!({"server": {"ws_token": "secret"}}),
+                &sync_parent,
+                &staging_path,
+            )
+            .expect("a colliding staging path should be retried"),
+        );
+        assert_eq!(std::fs::read(&collision).unwrap(), b"owned by another writer");
+        assert!(!replacement.exists(), "the successful staging file must be renamed");
+    }
+
+    #[test]
+    fn config_parent_creation_handles_absolute_path_syntax() {
+        let dir = TestDirectory::new("absolute-parent");
+        let parent = dir.path.join("nested").join("config");
+
+        let created = ensure_config_parent_directory(&parent).unwrap();
+
+        assert!(parent.is_dir());
+        assert!(created.iter().any(|directory| directory == &parent));
+    }
+
+    #[test]
+    fn config_parent_directory_normalizes_relative_path() {
+        assert_eq!(config_parent_directory(Path::new("cmux-tui.json")), Path::new("."));
+        assert_eq!(config_parent_directory(Path::new("nested/cmux-tui.json")), Path::new("nested"));
+    }
+
+    #[test]
+    fn config_write_succeeds_after_parent_directory_sync() {
+        let dir = TestDirectory::new("parent-sync");
+        let path = dir.path.join("cmux-tui.json");
+        assert_committed(
+            write_config_value_atomic(&path, &json!({"server": {"ws_token": "secret"}})).unwrap(),
+        );
+
+        let value: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        assert_eq!(value["server"]["ws_token"], json!("secret"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn config_write_does_not_report_failure_after_parent_sync_error() {
+        let dir = TestDirectory::new("parent-sync-failure");
+        let path = dir.path.join("cmux-tui.json");
+        let sync_parent = |_parent: &Path| -> anyhow::Result<ConfigParentSyncOutcome> {
+            Err(anyhow::anyhow!("injected parent directory sync failure"))
+        };
+
+        let result = write_config_value_atomic_with_sync(
+            &path,
+            &json!({"server": {"ws_token": "secret"}}),
+            &sync_parent,
+        );
+
+        assert!(matches!(
+            result.expect("a committed rename must not be reported as a write failure"),
+            ConfigWriteOutcome::CommittedButUnsynced { .. }
+        ));
+        let value: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(value["server"]["ws_token"], json!("secret"));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn config_write_does_not_warn_for_unsupported_parent_sync() {
+        let dir = TestDirectory::new("unsupported-parent-sync");
+        let path = dir.path.join("cmux-tui.json");
+        let sync_parent = |_parent: &Path| -> anyhow::Result<ConfigParentSyncOutcome> {
+            Ok(ConfigParentSyncOutcome::Unsupported)
+        };
+
+        let outcome = write_config_value_atomic_with_sync(
+            &path,
+            &json!({"server": {"ws_token": "secret"}}),
+            &sync_parent,
+        )
+        .expect("a committed rename must not be reported as a write failure");
+        assert!(matches!(&outcome, ConfigWriteOutcome::CommittedWithoutDirectorySync));
+        assert!(outcome.into_unsynced_error().is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn config_write_syncs_parents_of_new_directories() {
+        let dir = TestDirectory::new("created-parent-sync");
+        let parent = dir.path.join("new").join("nested");
+        let path = parent.join("cmux-tui.json");
+        let synced = RefCell::new(Vec::new());
+        let sync_parent = |directory: &Path| -> anyhow::Result<ConfigParentSyncOutcome> {
+            synced.borrow_mut().push(directory.to_path_buf());
+            Ok(ConfigParentSyncOutcome::Synced)
+        };
+
+        assert_committed(
+            write_config_value_atomic_with_sync(
+                &path,
+                &json!({"server": {"ws_token": "secret"}}),
+                &sync_parent,
+            )
+            .unwrap(),
+        );
+
+        let synced = synced.into_inner();
+        assert!(synced.iter().any(|directory| directory == &parent));
+        assert!(synced.iter().any(|directory| directory == &dir.path));
     }
 }

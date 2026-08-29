@@ -3,6 +3,16 @@ import Foundation
 
 /// Bounds one config include traversal by path count and decoded bytes.
 nonisolated struct GitConfigTraversalBudget: Sendable {
+    var remainingPathCount: Int
+    var remainingFileCount: Int
+    var remainingByteCount: Int
+    var didEncounterOversizedFile = false
+    var didEncounterUnsafeFile = false
+    var didExhaustBudget = false
+    let reader: GitConfigFileReader
+    let maximumFileByteCount: Int
+    let deadline: DispatchTime?
+
     init(
         remainingPathCount: Int,
         remainingFileCount: Int,
@@ -18,16 +28,6 @@ nonisolated struct GitConfigTraversalBudget: Sendable {
         self.maximumFileByteCount = maximumFileByteCount
         self.deadline = deadline
     }
-
-    var remainingPathCount: Int
-    var remainingFileCount: Int
-    var remainingByteCount: Int
-    var didEncounterOversizedFile = false
-    var didEncounterUnsafeFile = false
-    var didExhaustBudget = false
-    let reader: GitConfigFileReader
-    let maximumFileByteCount: Int
-    let deadline: DispatchTime?
 
     var isExpired: Bool {
         if WorkspaceChangesCancellationSignal.isCurrentCancelled {
