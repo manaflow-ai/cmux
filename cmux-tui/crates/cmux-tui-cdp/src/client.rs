@@ -2204,7 +2204,7 @@ mod tests {
         assert!(!public.contains("ws://"));
         assert!(!public.contains("CDP outbound queue byte budget exceeded"));
         assert!(format!("{error:#}").contains("CDP outbound queue byte budget exceeded"));
-        assert!(is_connection_unavailable(&error));
+        assert!(is_connection_unavailable(&public));
     }
 
     #[test]
@@ -2218,7 +2218,7 @@ mod tests {
     #[test]
     fn protocol_errors_are_not_classified_as_connection_failures() {
         let error = anyhow::anyhow!("browser failed: invalid target");
-        assert!(!is_connection_unavailable(&error));
+        assert!(!is_connection_unavailable(&error.to_string()));
     }
 
     struct BlockingOutboundWriter {
