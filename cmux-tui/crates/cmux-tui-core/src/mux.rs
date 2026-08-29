@@ -22209,6 +22209,9 @@ mod tests {
         // The codex process leaves the pane: session-ended-equivalent
         // removal, immediately (exit is an identity edge).
         scanner::scan(&mux, &mut tracker, manifests, step(1_600), &gone);
+        let journal_after_exit = mux.workspace_registry.lock().unwrap().session_journal_after(0, 512).unwrap();
+        eprintln!("screen-detect exit journal: {:?}", journal_after_exit.records.iter().map(|r| (&r.kind, &r.payload)).collect::<Vec<_>>());
+        eprintln!("screen-detect exit roster: {:?}", mux.agent_roster.lock().unwrap().roster.entries);
         assert!(mux.list_agents(Some(surface_id), None).is_empty());
     }
 
