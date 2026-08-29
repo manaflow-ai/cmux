@@ -27,6 +27,7 @@ use cmux_tui_core::{
     },
 };
 use cmux_tui_machine_protocol::BearerToken;
+use crossbeam_channel::Sender as EventSender;
 use ghostty_vt::{
     Callbacks, CursorShape, KeyInput, KittyGraphicsLimits, KittyImageIdCursors, KittyReplayState,
     MouseEncoders, MouseInput, RenderState, Terminal, TerminalColorOverrides,
@@ -1554,7 +1555,9 @@ pub enum PipeIoEvent {
 
 struct PipeIoTap {
     surface: SurfaceId,
-    sender: std::sync::mpsc::SyncSender<PipeIoEvent>,
+    sender: EventSender<PipeIoEvent>,
+    lifecycle_sender: EventSender<PipeIoEvent>,
+    token: Arc<u8>,
 }
 
 pub(super) enum RemoteSurfaceAttach {
@@ -3061,13 +3064,12 @@ impl RemoteSession {
             };
         }
         drop(state);
+        // Signal the pipe-io relay before shutdown waits on any in-flight
+        // writer. The lifecycle channel is separate from the bounded byte
+        // queue, so this wake cannot be dropped behind queued output.
+        self.signal_pipe_io_event(None, None, PipeIoEvent::TransportLost);
         self.begin_shutdown();
         self.interactive_writer.close();
-        // A pipe-io relay learns about every terminal-connection loss here
-        // (reader-thread EOF and every protocol-error disconnect path).
-        if let Some(tap) = self.pipe_io_tap.lock().unwrap().as_ref() {
-            let _ = tap.sender.try_send(PipeIoEvent::TransportLost);
-        }
     }
 
     /// Routes one scoped surface's raw byte stream to a `--pipe-io` relay.
@@ -3075,9 +3077,51 @@ impl RemoteSession {
     pub fn install_pipe_io_tap(
         &self,
         surface: SurfaceId,
-        sender: std::sync::mpsc::SyncSender<PipeIoEvent>,
-    ) {
-        *self.pipe_io_tap.lock().unwrap() = Some(PipeIoTap { surface, sender });
+        sender: EventSender<PipeIoEvent>,
+        lifecycle_sender: EventSender<PipeIoEvent>,
+    ) -> Arc<u8> {
+        // A non-zero-sized allocation gives each tap a stable identity. A
+        // zero-sized Arc token could share the allocator's dangling pointer.
+        let token = Arc::new(0u8);
+        *self.pipe_io_tap.lock().unwrap() =
+            Some(PipeIoTap { surface, sender, lifecycle_sender, token: token.clone() });
+        token
+    }
+
+    pub fn clear_pipe_io_tap(&self, token: &Arc<u8>) {
+        let mut slot = self.pipe_io_tap.lock().unwrap();
+        if slot.as_ref().is_some_and(|tap| Arc::ptr_eq(&tap.token, token)) {
+            slot.take();
+        }
+    }
+
+    fn signal_pipe_io_event(
+        &self,
+        surface: Option<SurfaceId>,
+        token: Option<&Arc<u8>>,
+        event: PipeIoEvent,
+    ) -> bool {
+        let tap = {
+            let mut slot = self.pipe_io_tap.lock().unwrap();
+            if (surface.is_none() || slot.as_ref().is_some_and(|tap| Some(tap.surface) == surface))
+                && token.is_none_or(|token| {
+                    slot.as_ref().is_some_and(|tap| Arc::ptr_eq(&tap.token, token))
+                })
+            {
+                slot.take()
+            } else {
+                None
+            }
+        };
+        if let Some(tap) = tap {
+            // A second lifecycle event is redundant. If the one-slot signal
+            // channel is already occupied, the first event remains the
+            // authoritative reason and still wakes the relay.
+            let _ = tap.lifecycle_sender.try_send(event);
+            true
+        } else {
+            false
+        }
     }
 
     /// Forwards one tap event, treating a full or dropped queue as a lost
@@ -3085,20 +3129,32 @@ impl RemoteSession {
     /// would corrupt the embedder's terminal state (bounded-backpressure
     /// policy; never wedge the session reader thread).
     fn pipe_io_forward(&self, surface: SurfaceId, event: impl FnOnce() -> PipeIoEvent) {
-        use std::sync::mpsc::TrySendError;
-        let stalled = {
+        use crossbeam_channel::TrySendError;
+        let event = event();
+        if matches!(&event, PipeIoEvent::SurfaceExited | PipeIoEvent::TransportLost) {
+            self.signal_pipe_io_event(Some(surface), None, event);
+            return;
+        }
+        let stalled_token = {
             let tap = self.pipe_io_tap.lock().unwrap();
             let Some(tap) = tap.as_ref() else { return };
             if tap.surface != surface {
                 return;
             }
-            match tap.sender.try_send(event()) {
-                Ok(()) => false,
-                Err(TrySendError::Full(_) | TrySendError::Disconnected(_)) => true,
+            match tap.sender.try_send(event) {
+                Ok(()) => None,
+                Err(TrySendError::Full(_) | TrySendError::Disconnected(_)) => {
+                    Some(tap.token.clone())
+                }
             }
         };
-        if stalled {
-            self.disconnect_transport();
+        if let Some(token) = stalled_token {
+            // Signal only the tap that observed the stall. A replacement tap
+            // may have been installed while this reader thread released the
+            // mutex; it must not be torn down by an older relay.
+            if self.signal_pipe_io_event(Some(surface), Some(&token), PipeIoEvent::TransportLost) {
+                self.disconnect_transport();
+            }
         }
     }
 
@@ -6456,6 +6512,56 @@ mod tests {
 
         assert!(session.shutdown.load(Ordering::Acquire));
         assert!(closed.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn full_pipe_io_queue_signals_loss_on_the_reserved_lifecycle_channel() {
+        let session = test_session(Box::new(CloseTrackingWriter {
+            closed: Arc::new(AtomicBool::new(false)),
+        }));
+        let (sender, receiver) = crossbeam_channel::bounded(1);
+        let (lifecycle_sender, lifecycle_receiver) = crossbeam_channel::bounded(1);
+        let _token = session.install_pipe_io_tap(7, sender, lifecycle_sender);
+
+        session.pipe_io_forward(7, || PipeIoEvent::Output(b"first".to_vec()));
+        // The byte queue is full. The second event must force a transport
+        // loss, and that lifecycle signal must remain observable even though
+        // no byte-queue slot is available.
+        session.pipe_io_forward(7, || PipeIoEvent::Output(b"second".to_vec()));
+
+        assert_eq!(
+            lifecycle_receiver.recv_timeout(Duration::from_secs(1)).unwrap(),
+            PipeIoEvent::TransportLost
+        );
+        assert!(session.pipe_io_tap.lock().unwrap().is_none());
+        assert!(session.shutdown.load(Ordering::Acquire));
+        assert_eq!(receiver.try_recv().unwrap(), PipeIoEvent::Output(b"first".to_vec()));
+    }
+
+    #[test]
+    fn stale_pipe_io_tap_cleanup_cannot_remove_a_replacement() {
+        let session = test_session(Box::new(CloseTrackingWriter {
+            closed: Arc::new(AtomicBool::new(false)),
+        }));
+        let (first_sender, _first_receiver) = crossbeam_channel::bounded(1);
+        let (first_lifecycle_sender, _first_lifecycle_receiver) = crossbeam_channel::bounded(1);
+        let first_token = session.install_pipe_io_tap(7, first_sender, first_lifecycle_sender);
+
+        let (second_sender, second_receiver) = crossbeam_channel::bounded(1);
+        let (second_lifecycle_sender, _second_lifecycle_receiver) = crossbeam_channel::bounded(1);
+        let second_token = session.install_pipe_io_tap(7, second_sender, second_lifecycle_sender);
+
+        session.clear_pipe_io_tap(&first_token);
+        session.pipe_io_forward(7, || PipeIoEvent::Output(b"replacement".to_vec()));
+
+        assert!(Arc::ptr_eq(
+            &session.pipe_io_tap.lock().unwrap().as_ref().unwrap().token,
+            &second_token
+        ));
+        assert_eq!(
+            second_receiver.try_recv().unwrap(),
+            PipeIoEvent::Output(b"replacement".to_vec())
+        );
     }
 
     #[test]
