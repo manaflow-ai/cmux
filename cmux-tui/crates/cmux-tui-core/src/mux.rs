@@ -5622,6 +5622,7 @@ impl Mux {
 
             let mut next_cursor = cursor;
             let mut deltas = Vec::new();
+            let mut reached_target = false;
             for record in page.records {
                 if record.sequence <= next_cursor {
                     continue;
@@ -5633,8 +5634,12 @@ impl Mux {
                 }
                 deltas.extend(candidate.apply(&RosterEvent::from_record(&record)));
                 next_cursor = record.sequence;
+                if next_cursor == commit.sequence {
+                    reached_target = true;
+                    break;
+                }
             }
-            if next_cursor == cursor {
+            if !reached_target {
                 // The writer acknowledged a commit that the reader cannot see
                 // yet. Keep the cursor unchanged so another callback retries.
                 return;
