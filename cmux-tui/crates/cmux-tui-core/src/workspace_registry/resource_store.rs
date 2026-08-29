@@ -794,8 +794,7 @@ impl WorkspaceRegistry {
                 producer_id,
                 origin,
                 idempotency_key: key,
-                sequence: u64::try_from(sequence)
-                    .context("pending hook sequence is negative")?,
+                sequence: u64::try_from(sequence).context("pending hook sequence is negative")?,
                 ingress,
             });
         }
@@ -845,11 +844,8 @@ impl WorkspaceRegistry {
         let mut next_cursor = None;
         for (rowid, producer_id, origin, key, sequence, ingress_json) in rows {
             let sequence = u64::try_from(sequence).context("pending hook sequence is negative")?;
-            next_cursor = Some(AgentHookPendingCursor {
-                sequence,
-                idempotency_key: key.clone(),
-                rowid,
-            });
+            next_cursor =
+                Some(AgentHookPendingCursor { sequence, idempotency_key: key.clone(), rowid });
             let ingress = match serde_json::from_str(&ingress_json) {
                 Ok(ingress) => ingress,
                 Err(_) => {

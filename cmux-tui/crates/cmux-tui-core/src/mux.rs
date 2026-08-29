@@ -60,13 +60,13 @@ use crate::terminal_host_runtime::TerminalHostIdentity;
 #[cfg(unix)]
 use crate::terminal_host_runtime::TerminalHostLiveness;
 use crate::workspace_registry::{
-    AgentHookPendingProjection,
-    FrontendProjection, ProjectionCommit, RESOURCE_API_FRONTEND_PROJECTION_SCHEMA_VERSION,
-    RegistryBrowser, RegistryBrowserReconnect, RegistryCommit, RegistryLayoutNode,
-    RegistrySnapshot, RegistryTab, RegistryTerminal, RegistryViewport, RegistryWorkspace,
-    ResourceChange, ResourceEffectOutcome, ResourceEffectPreparation, ResourcePatch,
-    ResourcePatchCommit, ResourceTopologySnapshot, ResourceWorkspaceLedger, TerminalLifecycle,
-    TerminalOnExit, TerminalRegistrySnapshot, WorkspaceMutation, WorkspaceRegistry,
+    AgentHookPendingProjection, FrontendProjection, ProjectionCommit,
+    RESOURCE_API_FRONTEND_PROJECTION_SCHEMA_VERSION, RegistryBrowser, RegistryBrowserReconnect,
+    RegistryCommit, RegistryLayoutNode, RegistrySnapshot, RegistryTab, RegistryTerminal,
+    RegistryViewport, RegistryWorkspace, ResourceChange, ResourceEffectOutcome,
+    ResourceEffectPreparation, ResourcePatch, ResourcePatchCommit, ResourceTopologySnapshot,
+    ResourceWorkspaceLedger, TerminalLifecycle, TerminalOnExit, TerminalRegistrySnapshot,
+    WorkspaceMutation, WorkspaceRegistry,
 };
 use crate::{
     PairingChallenge, PairingDecision, PairingError, PaneId, ScreenId, SplitDir, SplitId,
@@ -22498,10 +22498,7 @@ mod tests {
         let pending =
             mux.workspace_registry.lock().unwrap().pending_agent_hook_projections().unwrap();
         assert_eq!(pending.len(), 1);
-        assert_eq!(
-            pending[0].producer_id,
-            crate::agent_hooks::AGENT_HOOK_PRODUCER_ID
-        );
+        assert_eq!(pending[0].producer_id, crate::agent_hooks::AGENT_HOOK_PRODUCER_ID);
         assert!(
             mux.workspace_registry
                 .lock()
