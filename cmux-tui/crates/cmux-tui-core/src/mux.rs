@@ -22512,6 +22512,118 @@ mod tests {
     }
 
     #[test]
+    fn roster_fold_replays_the_committed_prefix_before_advancing_cursor() {
+        let root = std::env::temp_dir()
+            .join(format!("cmux-roster-prefix-{}", crate::workspace_registry::new_uuid_v4()));
+        let mux = Mux::open_persistent("roster-prefix", SurfaceOptions::default(), &root).unwrap();
+        let first = mux.new_workspace(None, None).unwrap();
+        let second = mux.new_workspace(None, None).unwrap();
+        let first_terminal = first.terminal_public_id().cloned().expect("first terminal");
+        let second_terminal = second.terminal_public_id().cloned().expect("second terminal");
+        let socket_event =
+            |terminal_id: &TerminalPublicId, state: AgentState| crate::JournalIngress {
+                producer_id: crate::agent_hooks::AGENT_HOOK_PRODUCER_ID.into(),
+                manifest_version: crate::agent_hooks::AGENT_HOOK_MANIFEST_VERSION,
+                kind: "agent.state.changed".into(),
+                schema_version: 1,
+                occurred_at_ms: None,
+                subjects: vec![crate::JournalSubject {
+                    kind: "terminal".into(),
+                    id: terminal_id.to_string(),
+                }],
+                sensitivity: Some(crate::JournalSensitivity::Sensitive),
+                payload: serde_json::json!({
+                    "format": crate::agent_hooks::AGENT_HOOK_FORMAT,
+                    "adapter": {"id": crate::journal_reducers::SOCKET_REPORT_ADAPTER, "version": 1},
+                    "native_event": crate::journal_reducers::SOCKET_REPORT_NATIVE_EVENT,
+                    "normalized": {
+                        "state": state.as_str(),
+                        "source": "socket",
+                        "source_session": "prefix-test",
+                        "updated_at_ms": "42",
+                    },
+                    "native": {},
+                }),
+                causation_id: None,
+                correlation_id: None,
+            };
+        let first_event = socket_event(&first_terminal, AgentState::Working);
+        let second_event = socket_event(&second_terminal, AgentState::Blocked);
+        let first_commit = {
+            let validated = mux.journal_kernel.validate_ingress(&first_event).unwrap();
+            mux.workspace_registry
+                .lock()
+                .unwrap()
+                .append_journal_ingress(&first_event, &validated, "test", "roster-prefix-1")
+                .unwrap()
+        };
+        let second_commit = {
+            let validated = mux.journal_kernel.validate_ingress(&second_event).unwrap();
+            mux.workspace_registry
+                .lock()
+                .unwrap()
+                .append_journal_ingress(&second_event, &validated, "test", "roster-prefix-2")
+                .unwrap()
+        };
+
+        mux.fold_agent_roster(&second_event, &second_commit);
+        let host = mux.agent_roster.lock().unwrap();
+        assert_eq!(host.cursor, second_commit.sequence);
+        assert!(host.roster.entries.contains_key(first_terminal.as_str()));
+        assert!(host.roster.entries.contains_key(second_terminal.as_str()));
+        assert!(second_commit.sequence > first_commit.sequence);
+        drop(host);
+        mux.shutdown();
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn malformed_roster_snapshot_replays_from_the_journal_head() {
+        let root = std::env::temp_dir()
+            .join(format!("cmux-roster-corrupt-{}", crate::workspace_registry::new_uuid_v4()));
+        let session = "roster-corrupt";
+        let (terminal_id, sequence) = {
+            let registry = WorkspaceRegistry::open(&root, session).unwrap();
+            let mux = Mux::from_workspace_registry(
+                session.into(),
+                SurfaceOptions::default(),
+                registry,
+                ProviderWorkspaceState::default(),
+                true,
+            )
+            .unwrap();
+            let surface = mux.new_workspace(None, None).unwrap();
+            let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+            let ingress = crate::agent_hooks::agent_hook_journal_ingress(
+                "claude",
+                "UserPromptSubmit",
+                Some(&terminal_id.to_string()),
+                serde_json::json!({"session_id":"corrupt-snapshot"}),
+            )
+            .unwrap();
+            let commit = mux.append_journal_ingress(&ingress, "test", "corrupt-snapshot").unwrap();
+            mux.shutdown();
+            drop(mux);
+            (terminal_id, commit.sequence)
+        };
+
+        let registry = WorkspaceRegistry::open(&root, session).unwrap();
+        registry
+            .put_journal_reducer_state(
+                crate::journal_reducers::AGENT_ROSTER_REDUCER_ID,
+                crate::journal_reducers::AGENT_ROSTER_REDUCER_VERSION,
+                sequence,
+                "{malformed",
+            )
+            .unwrap();
+        let restored = restore_agent_roster(&registry).unwrap();
+        assert_eq!(restored.cursor, sequence);
+        assert_eq!(restored.roster.entries[terminal_id.as_str()].agent.as_deref(), Some("claude"));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn stale_same_terminal_hook_sequence_cannot_overwrite_newer_state() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, None).unwrap();
