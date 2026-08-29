@@ -375,6 +375,19 @@ mod tests {
     }
 
     #[test]
+    fn same_state_event_with_new_commit_time_refreshes_roster() {
+        let subjects = terminal_subject("term_a");
+        let payload = json!({});
+        let mut roster = AgentRoster::default();
+
+        roster.apply(&hook_event(1, "agent.turn.started", &subjects, &payload));
+        let deltas = roster.apply(&hook_event(2, "agent.turn.started", &subjects, &payload));
+
+        assert_eq!(deltas.len(), 1);
+        assert_eq!(roster.entries["term_a"].updated_at_ms, 1_002);
+    }
+
+    #[test]
     fn snapshot_round_trips_and_foreign_producers_are_ignored() {
         let subjects = terminal_subject("term_a");
         let payload = json!({});

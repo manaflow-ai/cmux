@@ -22165,6 +22165,86 @@ mod tests {
     }
 
     #[test]
+    fn committed_hook_event_persists_roster_identity() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+        let ingress = crate::agent_hooks::agent_hook_journal_ingress(
+            "claude",
+            "UserPromptSubmit",
+            Some(&terminal_id.to_string()),
+            serde_json::json!({"session_id":"native-1"}),
+        )
+        .unwrap();
+
+        let commit = mux.append_journal_ingress(&ingress, "test", "roster-identity").unwrap();
+        let records = mux.list_agents(Some(surface.id), None);
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].agent.as_deref(), Some("claude"));
+
+        let (version, cursor, snapshot) = mux
+            .workspace_registry
+            .lock()
+            .unwrap()
+            .journal_reducer_state(crate::journal_reducers::AGENT_ROSTER_REDUCER_ID)
+            .unwrap()
+            .expect("the committed event has a persisted roster fold");
+        assert_eq!(version, crate::journal_reducers::AGENT_ROSTER_REDUCER_VERSION);
+        assert_eq!(cursor, commit.sequence);
+        let snapshot: Value = serde_json::from_str(&snapshot).unwrap();
+        assert_eq!(snapshot["entries"][terminal_id.as_str()]["agent"], "claude");
+    }
+
+    #[test]
+    fn roster_identity_restores_from_the_journal_snapshot() {
+        let root = std::env::temp_dir()
+            .join(format!("cmux-roster-restore-{}", crate::workspace_registry::new_uuid_v4()));
+        let session = "roster-restore";
+        let terminal_id = {
+            let registry = WorkspaceRegistry::open(&root, session).unwrap();
+            let mux = Mux::from_workspace_registry(
+                session.into(),
+                SurfaceOptions::default(),
+                registry,
+                ProviderWorkspaceState::default(),
+                true,
+            )
+            .unwrap();
+            let surface = mux.new_workspace(None, None).unwrap();
+            let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
+            let ingress = crate::agent_hooks::agent_hook_journal_ingress(
+                "claude",
+                "UserPromptSubmit",
+                Some(&terminal_id.to_string()),
+                serde_json::json!({"session_id":"native-1"}),
+            )
+            .unwrap();
+            mux.append_journal_ingress(&ingress, "test", "roster-restore").unwrap();
+            assert_eq!(mux.list_agents(Some(surface.id), None)[0].agent.as_deref(), Some("claude"));
+            mux.shutdown();
+            drop(mux);
+            terminal_id
+        };
+
+        let registry = WorkspaceRegistry::open(&root, session).unwrap();
+        let reopened = Mux::from_workspace_registry(
+            session.into(),
+            SurfaceOptions::default(),
+            registry,
+            ProviderWorkspaceState::default(),
+            true,
+        )
+        .unwrap();
+        let surface = reopened.resource_surface_for_terminal(&terminal_id).unwrap();
+        let records = reopened.list_agents(Some(surface.id), None);
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].agent.as_deref(), Some("claude"));
+        reopened.shutdown();
+        drop(reopened);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn stale_same_terminal_hook_sequence_cannot_overwrite_newer_state() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, None).unwrap();
