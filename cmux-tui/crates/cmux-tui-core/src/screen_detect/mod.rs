@@ -192,11 +192,7 @@ impl ScreenDetectTracker {
         let Some(emission) = emission else { return };
         debug_assert_eq!(emission.terminal_id, terminal_id);
         if emission.state == AgentState::Done {
-            if entry
-                .emitted
-                .as_ref()
-                .is_some_and(|(agent, _)| agent == &emission.agent)
-            {
+            if entry.emitted.as_ref().is_some_and(|(agent, _)| agent == &emission.agent) {
                 entry.emitted = None;
             }
         } else {
@@ -293,19 +289,15 @@ mod tests {
     #[test]
     fn prepared_emission_is_retryable_until_the_journal_append_commits() {
         let mut tracker = ScreenDetectTracker::default();
-        let first = tracker.prepare_detection(
-            "term_a",
-            Some(("codex", detection(ScreenState::Working))),
-        );
+        let first =
+            tracker.prepare_detection("term_a", Some(("codex", detection(ScreenState::Working))));
         assert!(first.is_some());
         assert!(!tracker.has_live_emission("term_a"));
 
         // A failed append does not consume the edge. The next scan can make
         // the same proposal again.
-        let retry = tracker.prepare_detection(
-            "term_a",
-            Some(("codex", detection(ScreenState::Working))),
-        );
+        let retry =
+            tracker.prepare_detection("term_a", Some(("codex", detection(ScreenState::Working))));
         assert_eq!(retry, first);
 
         tracker.commit_detection("term_a", retry.as_ref());

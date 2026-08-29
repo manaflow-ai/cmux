@@ -5437,7 +5437,8 @@ impl Mux {
                     continue;
                 }
                 for (delta_index, delta) in deltas.iter().cloned().enumerate() {
-                    if let Err(error) = self.apply_roster_delta(delta, kind, *sequence, delta_index) {
+                    if let Err(error) = self.apply_roster_delta(delta, kind, *sequence, delta_index)
+                    {
                         eprintln!(
                             "cmux-tui: agent projection update ({kind}) failed; reducer retry remains pending: {error}"
                         );
@@ -22483,10 +22484,9 @@ mod tests {
             .join(format!("cmux-roster-legacy-{}", crate::workspace_registry::new_uuid_v4()));
         let registry = WorkspaceRegistry::open(&root, "roster-legacy").unwrap();
         let terminal_id = TerminalPublicId::parse("term_00000000000000000000000000000011").unwrap();
-        let agent_id = crate::resource::AgentPublicId::parse(
-            "agent_00000000000000000000000000000011",
-        )
-        .unwrap();
+        let agent_id =
+            crate::resource::AgentPublicId::parse("agent_00000000000000000000000000000011")
+                .unwrap();
         let projections = vec![crate::workspace_registry::RegistryAgentProjection {
             id: agent_id,
             terminal_id: terminal_id.clone(),
@@ -22501,11 +22501,12 @@ mod tests {
         assert_eq!(entry.state, "working");
         assert_eq!(entry.source, "hook");
         assert_eq!(entry.session.as_deref(), Some("legacy-session"));
-        assert!(registry.journal_reducer_state(
-            crate::journal_reducers::AGENT_ROSTER_REDUCER_ID
-        )
-        .unwrap()
-        .is_some());
+        assert!(
+            registry
+                .journal_reducer_state(crate::journal_reducers::AGENT_ROSTER_REDUCER_ID)
+                .unwrap()
+                .is_some()
+        );
 
         std::fs::remove_dir_all(root).unwrap();
     }
