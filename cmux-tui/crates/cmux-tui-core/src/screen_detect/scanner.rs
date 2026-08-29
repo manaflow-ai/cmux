@@ -106,20 +106,21 @@ pub(crate) fn scan(
         // budget. A stalled or very large terminal catalog cannot turn this
         // fixed-cadence thread into an unbounded procfs fan-out.
         let mut closes_identity = false;
+        let mut identity_edge = false;
         let manifest = if lookup_budget > 0 && tracker.foreground_check_due(terminal_id, now) {
             lookup_budget -= 1;
             match resolver(surface) {
                 ProcessNameResolution::Name(name) => {
                     let manifest = manifests.identify(&name);
                     tracker.note_foreground_check(terminal_id, now, false);
-                    tracker
+                    identity_edge = tracker
                         .note_foreground_agent(terminal_id, manifest.map(|manifest| manifest.id()));
                     closes_identity = manifest.is_none();
                     manifest
                 }
                 ProcessNameResolution::Exited => {
                     tracker.note_foreground_check(terminal_id, now, false);
-                    tracker.note_foreground_agent(terminal_id, None);
+                    identity_edge = tracker.note_foreground_agent(terminal_id, None);
                     closes_identity = true;
                     None
                 }
@@ -145,7 +146,7 @@ pub(crate) fn scan(
                 tracker.record_detection(terminal_id, None)
             }
             None => None,
-            Some(manifest) if quiesced => {
+            Some(manifest) if quiesced || identity_edge => {
                 let Ok(Ok(screen)) = surface.try_with_terminal(|terminal| terminal.viewport_text())
                 else {
                     tracker.note_evaluation_failure(terminal_id, now);

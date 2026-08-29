@@ -788,11 +788,31 @@ fn interpreter_script_path(pid: u32, executable: &Path) -> Option<String> {
             let cwd = std::fs::read_link(format!("/proc/{pid}/cwd")).ok()?;
             cwd.join(candidate)
         };
-        if candidate.is_file() {
+        if candidate.is_file() && script_has_interpreter_shebang(&candidate, &interpreter) {
             return Some(candidate.to_string_lossy().into_owned());
         }
     }
     None
+}
+
+#[cfg(target_os = "linux")]
+fn script_has_interpreter_shebang(path: &Path, interpreter: &str) -> bool {
+    let Ok(bytes) = std::fs::read(path) else { return false };
+    let Some(line) = bytes.split(|byte| *byte == b'\n').next() else { return false };
+    let Some(rest) = line.strip_prefix(b"#!") else { return false };
+    let mut words = rest.split(|byte| byte.is_ascii_whitespace());
+    let Some(command) = words.next().filter(|word| !word.is_empty()) else { return false };
+    let Ok(command) = std::str::from_utf8(command) else { return false };
+    let Some(command) = Path::new(command).file_name().and_then(|name| name.to_str()) else {
+        return false;
+    };
+    command == interpreter
+        || (command == "env" && words.any(|word| {
+            Path::new(std::str::from_utf8(word).ok().unwrap_or_default())
+                .file_name()
+                .and_then(|name| name.to_str())
+                == Some(interpreter)
+        }))
 }
 
 #[cfg(target_os = "linux")]

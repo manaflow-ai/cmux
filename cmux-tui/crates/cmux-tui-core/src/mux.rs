@@ -5345,8 +5345,9 @@ impl Mux {
                 let mut records = Vec::new();
                 let mut reached_commit = commit.sequence <= host.cursor;
                 if commit.sequence > host.cursor {
+                    let mut read_cursor = host.cursor;
                     'read: loop {
-                        let page = match registry.session_journal_after(host.cursor, 512) {
+                        let page = match registry.session_journal_after(read_cursor, 512) {
                             Ok(page) => page,
                             Err(_error) => {
                                 break 'read;
@@ -5355,20 +5356,26 @@ impl Mux {
                         if page.records.is_empty() {
                             break;
                         }
+                        let mut advanced = false;
                         for record in page.records {
                             if record.sequence > commit.sequence {
                                 reached_commit = true;
                                 break 'read;
                             }
-                            if record.sequence <= host.cursor {
+                            if record.sequence <= read_cursor {
                                 continue;
                             }
                             let sequence = record.sequence;
                             records.push(record);
+                            read_cursor = sequence;
+                            advanced = true;
                             if sequence == commit.sequence {
                                 reached_commit = true;
                                 break 'read;
                             }
+                        }
+                        if !advanced {
+                            break 'read;
                         }
                     }
                 }
