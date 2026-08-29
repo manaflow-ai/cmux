@@ -5759,8 +5759,10 @@ impl Mux {
         if echo {
             return;
         }
+        let screen_detect = record.payload.get("native_event").and_then(Value::as_str)
+            == Some(crate::screen_detect::SCREEN_DETECT_NATIVE_EVENT);
         for delta in deltas {
-            self.apply_roster_delta(delta, &ingress.kind);
+            self.apply_roster_delta(delta, &ingress.kind, screen_detect);
         }
     }
 
@@ -5768,7 +5770,12 @@ impl Mux {
     /// commit and the agent-changed broadcast remote frontends converge on.
     /// A removal commits the done state (history keeps the exit; the roster
     /// already dropped the live entry).
-    fn apply_roster_delta(&self, delta: crate::journal_reducers::RosterDelta, kind: &str) {
+    fn apply_roster_delta(
+        &self,
+        delta: crate::journal_reducers::RosterDelta,
+        kind: &str,
+        screen_detect: bool,
+    ) {
         use crate::journal_reducers::RosterDelta;
         let (terminal_id, state, source, session, agent_adapter) = match delta {
             RosterDelta::Upsert { terminal_id, entry } => (
@@ -5779,7 +5786,8 @@ impl Mux {
                 entry.agent,
             ),
             RosterDelta::Remove { terminal_id } => {
-                (terminal_id, AgentState::Done, AgentSource::Hook, None, None)
+                let source = if screen_detect { AgentSource::Detected } else { AgentSource::Hook };
+                (terminal_id, AgentState::Done, source, None, None)
             }
         };
         let Ok(terminal_id) = TerminalPublicId::parse(&terminal_id) else { return };
@@ -23607,6 +23615,7 @@ mod tests {
         let mux = test_mux();
         let surface = mux.new_workspace(None, None).unwrap();
         let surface_id = surface.id;
+        let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
         let mut tracker = ScreenDetectTracker::default();
         let manifests = ManifestSet::bundled();
         let t0 = Instant::now();
@@ -23666,6 +23675,16 @@ mod tests {
         // removal, immediately (exit is an identity edge).
         scanner::scan(&mux, &mut tracker, manifests, step(1_600), &gone);
         assert!(mux.list_agents(Some(surface_id), None).is_empty());
+        assert!(mux.agent_hook_fences.lock().unwrap().is_empty());
+        let projection = mux
+            .workspace_registry
+            .lock()
+            .unwrap()
+            .public_agent_projections(Some(&terminal_id), None)
+            .unwrap();
+        assert_eq!(projection.len(), 1);
+        assert_eq!(projection[0].source, "detected");
+        assert_eq!(projection[0].state, "done");
     }
 
     #[test]
