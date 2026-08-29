@@ -51,14 +51,24 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     // deferred reorder waiting for its target bridge after the representable is
     // dismantled; retaining only the table would lose that pending operation.
     private var activeWorkspaceDragContainerView: SidebarWorkspaceTableContainerView?
+    // AppKit asks for pasteboard writers before it creates the native session.
+    // The writer owns the table/controller pair during that provisional window;
+    // keep a weak marker here so teardown can distinguish a live writer from an
+    // ordinary, already-finished table update without retaining a second cycle.
+    private weak var pendingWorkspaceDragWriter: SidebarWorkspaceDragPasteboardWriter?
     private var activeWorkspaceDragSessionId: UUID?
     private var activeWorkspaceDragCapabilityValue: String?
+    // Retain and identity-check the exact AppKit session. A late callback from
+    // an older session must never finish a newer drag on the same controller.
+    private var activeWorkspaceDraggingSession: NSDraggingSession?
+    private var activeWorkspaceDragSequenceNumber: Int?
     private var workspaceDragSourceCompletionReceived = false
     private var pendingWorkspaceDragSessionId: UUID?
     private var pendingWorkspaceDragWorkspaceId: UUID?
     private var hasPendingOrActiveWorkspaceDrag: Bool {
         isWorkspaceDragSourceActive
             || pendingWorkspaceDragSessionId != nil
+            || pendingWorkspaceDragWriter != nil
             || activeWorkspaceDragContainerView?.reorderDropView.hasPendingDrop == true
     }
     private weak var unreadSource: SidebarUnreadModel?
@@ -188,6 +198,12 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     func dismantleContainerView(_ container: SidebarWorkspaceTableContainerView) {
         guard containerView === container else { return }
         let preserveNativeDragPresentation = hasPendingOrActiveWorkspaceDrag
+        // The writer can outlive this representable before AppKit calls
+        // `willBeginAt`. Keep the row/action snapshot intact for that callback;
+        // an active session has already captured its identity and may still use
+        // the normal cell-retirement path.
+        let preserveProvisionalWorkspaceDrag = !isWorkspaceDragSourceActive
+            && pendingWorkspaceDragWriter != nil
         if preserveNativeDragPresentation, activeWorkspaceDragContainerView == nil {
             activeWorkspaceDragContainerView = container
             installDeferredDropLifecycle(on: container)
@@ -199,7 +215,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         previewBailoutTask = nil
         widthRemeasureTask?.cancel()
         widthRemeasureTask = nil
-        let postUpdateActions = detachLoadedCells()
+        let postUpdateActions = preserveProvisionalWorkspaceDrag ? [] : detachLoadedCells()
         // A representable can be dismantled while AppKit still owns the native
         // drag session (fullscreen/display reconstruction). Keep the action
         // graph and table delegate alive until the terminal source callback.
@@ -223,11 +239,13 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         appliedUnreadSnapshot = SidebarUnreadSnapshot()
         hasPendingContentRefresh = false
         pumpHeightOverrides.removeAll(keepingCapacity: false)
-        rows.removeAll(keepingCapacity: false)
-        workspaceIds.removeAll(keepingCapacity: false)
-        selectedScrollTargetWorkspaceId = nil
-        hoveredRowId = nil
-        contextMenuRowId = nil
+        if !preserveProvisionalWorkspaceDrag {
+            rows.removeAll(keepingCapacity: false)
+            workspaceIds.removeAll(keepingCapacity: false)
+            selectedScrollTargetWorkspaceId = nil
+            hoveredRowId = nil
+            contextMenuRowId = nil
+        }
         cancelSelectionIntent()
         if !preserveNativeDragPresentation {
             clearDropViewActions(in: container)
@@ -402,7 +420,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             if previousRowIds != rows.map(\.id) {
                 mutationScheduler.stageTableReload()
             }
-        } else if let containerView, previousRowIds != rows.map(\.id) {
+        } else if previousRowIds != rows.map(\.id) {
             // A retained native source still owns the old drop callbacks. The
             // row snapshot may change while hidden, but clearing those callbacks
             // would erase a deferred drop before AppKit completes the source.
@@ -905,10 +923,14 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             pendingWorkspaceDragWorkspaceId = workspaceId
         }
         let payloadWorkspaceId = pendingWorkspaceDragWorkspaceId ?? workspaceId
-        return SidebarTabDragPayload(
-            tabId: payloadWorkspaceId,
-            sessionId: pendingWorkspaceDragSessionId
-        ).pasteboardItem()
+        let writer = SidebarWorkspaceDragPasteboardWriter(
+            workspaceId: payloadWorkspaceId,
+            sessionId: pendingWorkspaceDragSessionId,
+            sourceView: tableView,
+            controller: self
+        )
+        pendingWorkspaceDragWriter = writer
+        return writer
     }
 
     /// Retains the table/controller pair once AppKit has created the native
@@ -928,16 +950,54 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     ) {
         _ = screenPoint
         let draggedRows = Array(rowIndexes)
-        if let sourceRow = draggedRows.first, rows.indices.contains(sourceRow) {
+        let sourceWorkspaceId: UUID? = {
+            guard let sourceRow = draggedRows.first else {
+                return pendingWorkspaceDragWorkspaceId
+            }
+            guard rows.indices.contains(sourceRow) else {
+                // A representable may have been dismantled after AppKit asked
+                // for the writer. The writer's identity is still authoritative
+                // until this callback establishes the native session.
+                return pendingWorkspaceDragWorkspaceId
+            }
             let rowConfiguration = rows[sourceRow]
-            let workspaceId = actions?.workspaceIdForDrag?(
+            return actions?.workspaceIdForDrag?(
                 rowConfiguration.id,
                 rowConfiguration.workspaceId
             ) ?? rowConfiguration.workspaceId
-            let currentSessionId = actions?.nativeWorkspaceDragLifecycle?.currentSessionId()
-            if pendingWorkspaceDragSessionId == nil || pendingWorkspaceDragSessionId != currentSessionId {
-                actions?.beginWorkspaceDrag(workspaceId)
-                pendingWorkspaceDragSessionId = actions?.nativeWorkspaceDragLifecycle?.currentSessionId()
+        }()
+        guard let workspaceId = sourceWorkspaceId else {
+            // There is no source identity to bind. AppKit will still deliver
+            // its terminal callback, but this controller must not manufacture a
+            // process-wide session from a stale table row.
+            return
+        }
+        guard !isWorkspaceDragSourceActive else {
+            // AppKit can repeat the begin notification while a reconstructed
+            // table is still handing off the same native session. The first
+            // notification owns the generation; a duplicate must not restart
+            // or supersede it.
+            return
+        }
+
+        // Establish table ownership before the first action closure can publish
+        // SwiftUI state. A publish may synchronously dismantle this
+        // representable; the exact table/session pair must already be retained
+        // for AppKit's eventual terminal callback.
+        retainWorkspaceDragSource(tableView)
+        activeWorkspaceDraggingSession = session
+        activeWorkspaceDragSequenceNumber = session.draggingSequenceNumber
+        workspaceDragSessionDidBegin(sourceTableView: tableView)
+
+        let actionBundle = actions
+        if let actionBundle {
+            let currentSessionId = actionBundle.nativeWorkspaceDragLifecycle?.currentSessionId()
+            let pendingBelongsToWorkspace = pendingWorkspaceDragWorkspaceId == workspaceId
+            if pendingWorkspaceDragSessionId == nil
+                || pendingWorkspaceDragSessionId != currentSessionId
+                || !pendingBelongsToWorkspace {
+                actionBundle.beginWorkspaceDrag(workspaceId)
+                pendingWorkspaceDragSessionId = actionBundle.nativeWorkspaceDragLifecycle?.currentSessionId()
                 pendingWorkspaceDragWorkspaceId = workspaceId
             }
             let payloadWorkspaceId = pendingWorkspaceDragWorkspaceId ?? workspaceId
@@ -955,9 +1015,10 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
                     capabilityValue,
                     forType: NSPasteboard.PasteboardType(SidebarTabDragPayload.typeIdentifier)
                 )
+                pendingWorkspaceDragWriter?.bind(to: activeWorkspaceDragSessionId)
             }
-            workspaceDragSessionDidBegin()
         }
+        pendingWorkspaceDragWriter = nil
         session.enumerateDraggingItems(
             options: [],
             for: tableView,
@@ -1041,10 +1102,10 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         endedAt screenPoint: NSPoint,
         operation: NSDragOperation
     ) {
-        workspaceDragSessionDidEnd()
+        workspaceDragSessionDidEnd(session: session)
     }
 
-    func workspaceDragSessionDidBegin() {
+    func workspaceDragSessionDidBegin(sourceTableView: NSTableView? = nil) {
         guard !isWorkspaceDragSourceActive else { return }
         if workspaceDragSourceCompletionReceived,
            let retainedContainer = activeWorkspaceDragContainerView {
@@ -1057,6 +1118,15 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         }
         isWorkspaceDragSourceActive = true
         workspaceDragSourceCompletionReceived = false
+        if let sourceTableView {
+            retainWorkspaceDragSource(sourceTableView)
+        } else if let provisionalSourceView = pendingWorkspaceDragWriter?.sourceViewForDrag
+            as? SidebarWorkspaceTableViewImpl {
+            // A provisional writer can be the only object that survived a
+            // representable teardown. Promote its table before any later
+            // state publication can dismantle it again.
+            retainWorkspaceDragSource(provisionalSourceView)
+        }
         if let containerView {
             activeWorkspaceDragContainerView = containerView
             retainWorkspaceDragSource(containerView.tableView)
@@ -1083,7 +1153,18 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         pendingWorkspaceDragWorkspaceId = nil
     }
 
-    func workspaceDragSessionDidEnd() {
+    /// Completes the exact native table session that AppKit reports.
+    ///
+    /// The no-argument form remains available for deterministic tests and for
+    /// compatibility callers that already know they own the active session.
+    func workspaceDragSessionDidEnd(session: NSDraggingSession? = nil) {
+        if let session,
+           let activeWorkspaceDragSequenceNumber,
+           session.draggingSequenceNumber != activeWorkspaceDragSequenceNumber {
+            // A stale callback from an older table source must not finish a
+            // newer session that has already replaced this controller's state.
+            return
+        }
         // AppKit may deliver a duplicate terminal callback while a deferred
         // drop is still waiting for its target bridge. The first callback owns
         // source completion; a later callback must not fall back to the
@@ -1122,8 +1203,11 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         }
         activeWorkspaceDragSessionId = nil
         activeWorkspaceDragCapabilityValue = nil
+        activeWorkspaceDraggingSession = nil
+        activeWorkspaceDragSequenceNumber = nil
         pendingWorkspaceDragSessionId = nil
         pendingWorkspaceDragWorkspaceId = nil
+        pendingWorkspaceDragWriter = nil
         reorderDragWindowPoint = nil
         reorderDragPayloadWorkspaceId = nil
         retireReorderIndicator()

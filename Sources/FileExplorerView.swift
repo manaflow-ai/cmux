@@ -538,7 +538,26 @@ struct FileExplorerPanelView: NSViewRepresentable {
         func outlineView(_ outlineView: NSOutlineView, pasteboardWriterForItem item: Any) -> (any NSPasteboardWriting)? {
             guard let node = item as? FileExplorerNode, !node.isDirectory else { return nil }
             guard store.provider is LocalFileExplorerProvider else { return nil }
-            return FilePreviewDragPasteboardWriter(filePath: node.path, displayTitle: node.name)
+            return FilePreviewDragPasteboardWriter(
+                filePath: node.path,
+                displayTitle: node.name,
+                nativeSourceView: outlineView,
+                nativeSourceOwner: self
+            )
+        }
+
+        func outlineView(
+            _ outlineView: NSOutlineView,
+            draggingSession session: NSDraggingSession,
+            willBeginAt screenPoint: NSPoint,
+            forItems draggedItems: [Any]
+        ) {
+            _ = screenPoint
+            _ = draggedItems
+            if let outlineView = outlineView as? FileExplorerNSOutlineView {
+                outlineView.activeNativeDragOwner = self
+                outlineView.activeNativeDragSession = session
+            }
         }
 
         func outlineView(
@@ -547,6 +566,13 @@ struct FileExplorerPanelView: NSViewRepresentable {
             endedAt screenPoint: NSPoint,
             operation: NSDragOperation
         ) {
+            defer {
+                if let outlineView = outlineView as? FileExplorerNSOutlineView,
+                   outlineView.activeNativeDragSession === session {
+                    outlineView.activeNativeDragOwner = nil
+                    outlineView.activeNativeDragSession = nil
+                }
+            }
             FilePreviewDragPasteboardWriter.discardRegisteredDrag(from: session)
         }
 
@@ -1598,8 +1624,23 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
         let result = searchSnapshot.results[row]
         return FilePreviewDragPasteboardWriter(
             filePath: result.path,
-            displayTitle: (result.relativePath as NSString).lastPathComponent
+            displayTitle: (result.relativePath as NSString).lastPathComponent,
+            nativeSourceView: tableView,
+            nativeSourceOwner: coordinator
         )
+    }
+
+    func tableView(
+        _ tableView: NSTableView,
+        draggingSession session: NSDraggingSession,
+        willBeginAt screenPoint: NSPoint,
+        forRowIndexes rowIndexes: IndexSet
+    ) {
+        _ = screenPoint
+        _ = rowIndexes
+        guard tableView === searchResultsView else { return }
+        searchResultsView.activeNativeDragOwner = coordinator
+        searchResultsView.activeNativeDragSession = session
     }
 
     func tableView(
@@ -1609,6 +1650,12 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
         operation: NSDragOperation
     ) {
         guard tableView === searchResultsView else { return }
+        defer {
+            if searchResultsView.activeNativeDragSession === session {
+                searchResultsView.activeNativeDragOwner = nil
+                searchResultsView.activeNativeDragSession = nil
+            }
+        }
         FilePreviewDragPasteboardWriter.discardRegisteredDrag(from: session)
     }
 

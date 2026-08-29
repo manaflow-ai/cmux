@@ -7,6 +7,12 @@ import CmuxFoundation
 final class CloudTreeNSOutlineView: NSOutlineView {
     static let leadingMargin: CGFloat = 8
 
+    /// Keeps the outline delegate/source graph alive while AppKit owns a
+    /// native surface drag, including reconstruction between writer creation
+    /// and `willBeginAt`.
+    var activeNativeDragOwner: AnyObject?
+    var activeNativeDragSession: NSDraggingSession?
+
     /// The active visual preset; the coordinator keeps this in step with the
     /// style it lays rows out with (chevron centering depends on it).
     var treeStyle: CloudTreeStyle = CloudTreeStyleStore.current

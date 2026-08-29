@@ -15,6 +15,8 @@ final class SessionDragSessionSource: NSObject, NSDraggingSource {
     private let transferRegistry: TabDragTransferRegistry
     private let onFinish: @MainActor (UUID) -> Void
     private var phase: Phase = .active
+    private var nativeSession: NSDraggingSession?
+    private var sourceView: NSView?
 
     init(
         dragID: UUID,
@@ -50,7 +52,13 @@ final class SessionDragSessionSource: NSObject, NSDraggingSource {
         finishDrag()
         // AppKit can retain the tab-transfer UTI after the source ends. Clear
         // only this registration's capability so a newer drag is untouched.
-        transferRegistration.clearResidualCapability(from: NSPasteboard(name: .drag))
+        transferRegistration.clearResidualCapability(from: session.draggingPasteboard)
+    }
+
+    func bind(nativeSession: NSDraggingSession, sourceView: NSView) {
+        guard case .active = phase else { return }
+        self.nativeSession = nativeSession
+        self.sourceView = sourceView
     }
 
     func finishDrag() {
@@ -59,5 +67,7 @@ final class SessionDragSessionSource: NSObject, NSDraggingSource {
         transferRegistry.end(transferRegistration)
         registry.discard(id: dragID)
         onFinish(dragID)
+        nativeSession = nil
+        sourceView = nil
     }
 }

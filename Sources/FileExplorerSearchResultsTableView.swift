@@ -2,6 +2,9 @@ import AppKit
 
 final class FileExplorerSearchResultsTableView: NSTableView {
     var fileExplorerPanelPlacement: FileExplorerPanelPlacement = .rightSidebar
+    /// Retains the table delegate until AppKit reports native drag completion.
+    var activeNativeDragOwner: AnyObject?
+    var activeNativeDragSession: NSDraggingSession?
     var onCancel: (() -> Void)?
     var onMoveSelection: ((Int) -> Void)?
     var onCommit: (() -> Void)?

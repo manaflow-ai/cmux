@@ -27,6 +27,7 @@ final class DraggableFolderNSView: NSView, NSDraggingSource {
     private var imageView: FolderIconImageView!
     private var pendingDragEvent: NSEvent?
     private var pendingDragStartPoint: NSPoint?
+    private var activeDraggingSession: NSDraggingSession?
     private let dragStartThresholdSquared: CGFloat = 9
 
     private func formatPoint(_ point: NSPoint) -> String {
@@ -113,6 +114,7 @@ final class DraggableFolderNSView: NSView, NSDraggingSource {
         let windowOrigin = window.map { formatPoint($0.frame.origin) } ?? "nil"
         cmuxDebugLog("folder.dragEnd dirBytes=\(directory.utf8.count) operation=\(operation.rawValue) screen=\(formatPoint(screenPoint)) nowMovable=\(nowMovable) windowOrigin=\(windowOrigin)")
         #endif
+        activeDraggingSession = nil
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
@@ -185,6 +187,7 @@ final class DraggableFolderNSView: NSView, NSDraggingSource {
         draggingItem.setDraggingFrame(bounds, contents: iconImage)
 
         let session = beginDraggingSession(with: [draggingItem], event: event, source: self)
+        activeDraggingSession = session
         #if DEBUG
         let itemCount = session.draggingPasteboard.pasteboardItems?.count ?? 0
         cmuxDebugLog("folder.dragStart dirBytes=\(directory.utf8.count) pasteboardItems=\(itemCount)")

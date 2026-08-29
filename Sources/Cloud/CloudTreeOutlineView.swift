@@ -68,6 +68,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         private var selectedNodeID: String?
         private var isUpdatingProgrammatically = false
         private var activeDrag: (id: UUID, registration: TabDragTransferRegistration)?
+        private var activeDragSequenceNumber: Int?
         /// A drag session owns the outline until it ends: no reloads, no in-place
         /// updates. The latest tree handed in meanwhile is applied once at drag end.
         private(set) var isDragging = false
@@ -553,6 +554,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 SurfaceResourceDragRegistry.shared.discard(id: dragID)
                 return nil
             }
+            (outlineView as? CloudTreeNSOutlineView)?.activeNativeDragOwner = self
             activeDrag = (dragID, registration)
 #if DEBUG
             cmuxDebugLog("surfaces.drag.begin drag=\(dragID.uuidString.prefix(5)) group=\(group.title) count=\(group.resources.count) lead=\(lead)")
@@ -561,11 +563,32 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         }
 
         func outlineView(_ outlineView: NSOutlineView, draggingSession session: NSDraggingSession, willBeginAt screenPoint: NSPoint, forItems draggedItems: [Any]) {
+            _ = screenPoint
+            _ = draggedItems
+            if let outlineView = outlineView as? CloudTreeNSOutlineView {
+                outlineView.activeNativeDragOwner = self
+                outlineView.activeNativeDragSession = session
+            }
+            activeDragSequenceNumber = session.draggingSequenceNumber
             setDragging(true)
         }
 
         func outlineView(_ outlineView: NSOutlineView, draggingSession session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
-            defer { setDragging(false) }
+            if let activeDragSequenceNumber,
+               session.draggingSequenceNumber != activeDragSequenceNumber {
+                // A late callback from an older outline source must not revoke
+                // the registration for a newer surface drag.
+                return
+            }
+            defer {
+                if let outlineView = outlineView as? CloudTreeNSOutlineView,
+                   outlineView.activeNativeDragSession === session {
+                    outlineView.activeNativeDragOwner = nil
+                    outlineView.activeNativeDragSession = nil
+                }
+                activeDragSequenceNumber = nil
+                setDragging(false)
+            }
             guard let activeDrag else { return }
 #if DEBUG
             cmuxDebugLog("surfaces.drag.end drag=\(activeDrag.id.uuidString.prefix(5)) operation=\(operation.rawValue)")
@@ -601,8 +624,10 @@ final class CloudTreeMenuItem: NSMenuItem {
 final class CloudTreeContainerView: NSView {
     private let scrollView = NSScrollView()
     private let outlineView = CloudTreeNSOutlineView()
+    private let coordinator: CloudTreeOutlineView.Coordinator
 
     init(coordinator: CloudTreeOutlineView.Coordinator) {
+        self.coordinator = coordinator
         super.init(frame: .zero)
         outlineView.headerView = nil
         outlineView.usesAlternatingRowBackgroundColors = false

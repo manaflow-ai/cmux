@@ -534,6 +534,12 @@ final class FilePreviewDragPasteboardWriter: NSObject, @preconcurrency NSPastebo
     private let filePath: String
     private let displayTitle: String
     private let tabDragTransferRegistry: TabDragTransferRegistry?
+    // AppKit asks for this writer before it delivers the table/outline
+    // `willBeginAt` callback. Retain the native source graph through that
+    // provisional interval so a SwiftUI reconstruction cannot drop the only
+    // delegate that receives `endedAt`.
+    private let nativeSourceView: NSView?
+    private let nativeSourceOwner: AnyObject?
     private var transferData: Data?
     private var bonsplitRegistration: TabDragTransferRegistration?
     private var didMirrorTransferDataToDragPasteboard = false
@@ -541,11 +547,15 @@ final class FilePreviewDragPasteboardWriter: NSObject, @preconcurrency NSPastebo
     init(
         filePath: String,
         displayTitle: String,
-        tabDragTransferRegistry: TabDragTransferRegistry? = nil
+        tabDragTransferRegistry: TabDragTransferRegistry? = nil,
+        nativeSourceView: NSView? = nil,
+        nativeSourceOwner: AnyObject? = nil
     ) {
         self.filePath = filePath
         self.displayTitle = displayTitle
         self.tabDragTransferRegistry = tabDragTransferRegistry ?? AppDelegate.shared?.tabDragTransferRegistry
+        self.nativeSourceView = nativeSourceView
+        self.nativeSourceOwner = nativeSourceOwner
         super.init()
     }
 

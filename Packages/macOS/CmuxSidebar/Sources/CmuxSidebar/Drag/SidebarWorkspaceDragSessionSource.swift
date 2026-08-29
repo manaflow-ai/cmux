@@ -7,6 +7,8 @@ final class SidebarWorkspaceDragSessionSource: NSObject, NSDraggingSource {
     private let capabilityValue: String
     private weak var registry: SidebarWorkspaceDragRegistry?
     private var didFinish = false
+    private var nativeSession: NSDraggingSession?
+    private var sourceView: NSView?
 
     deinit {}
 
@@ -36,6 +38,12 @@ final class SidebarWorkspaceDragSessionSource: NSObject, NSDraggingSource {
         finishDrag()
     }
 
+    func bind(nativeSession: NSDraggingSession, sourceView: NSView) {
+        guard !didFinish else { return }
+        self.nativeSession = nativeSession
+        self.sourceView = sourceView
+    }
+
     private func finishDrag() {
         guard !didFinish else { return }
         didFinish = true
@@ -43,5 +51,7 @@ final class SidebarWorkspaceDragSessionSource: NSObject, NSDraggingSource {
             sessionId: sessionId,
             capabilityValue: capabilityValue
         )
+        nativeSession = nil
+        sourceView = nil
     }
 }
