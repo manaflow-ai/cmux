@@ -376,6 +376,56 @@ struct SessionIndexViewTests {
         #expect(outcome.entries.map(\.sessionId) == ["codex-transcript-match"])
     }
 
+    // Codex's own natively-generated thread title (cmux #11144): `threads.title`
+    // in `state_5.sqlite` is Codex's authoritative conversation title, already
+    // read for the Vault index above. `codexNativeTitle` is the same read,
+    // narrowed to one session id, that the live tab-title sync uses.
+    @Test
+    func codexNativeTitleReadsThreadTitleForSession() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-session-index-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let rolloutURL = tempDir.appendingPathComponent("rollout-native-title.jsonl")
+        try "".write(to: rolloutURL, atomically: true, encoding: .utf8)
+
+        let stateDB = tempDir.appendingPathComponent("state_5.sqlite")
+        try makeCodexStateDatabase(
+            at: stateDB,
+            rolloutURL: rolloutURL,
+            sessionId: "codex-native-title-session",
+            title: "測試 cmux 與 codex Tab 同步"
+        )
+
+        let title = SessionIndexStore.codexNativeTitle(
+            forSessionId: "codex-native-title-session",
+            dbPath: stateDB.path
+        )
+        #expect(title == "測試 cmux 與 codex Tab 同步")
+    }
+
+    @Test
+    func codexNativeTitleReturnsNilForUnknownSessionOrMissingDatabase() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-session-index-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let rolloutURL = tempDir.appendingPathComponent("rollout-native-title-missing.jsonl")
+        try "".write(to: rolloutURL, atomically: true, encoding: .utf8)
+
+        let stateDB = tempDir.appendingPathComponent("state_5.sqlite")
+        try makeCodexStateDatabase(at: stateDB, rolloutURL: rolloutURL, sessionId: "some-other-session")
+
+        // Unknown session id in an existing database.
+        #expect(SessionIndexStore.codexNativeTitle(forSessionId: "unknown-session", dbPath: stateDB.path) == nil)
+
+        // No database at the given path at all.
+        let missingDB = tempDir.appendingPathComponent("does-not-exist.sqlite")
+        #expect(SessionIndexStore.codexNativeTitle(forSessionId: "some-other-session", dbPath: missingDB.path) == nil)
+    }
+
     // Regression for https://github.com/manaflow-ai/cmux/issues/6302.
     // The always-visible sidebar list is built from `scanAll()`, which loads
     // only each agent's 30 most-recent sessions across ALL folders and then
@@ -564,7 +614,8 @@ struct SessionIndexViewTests {
     private func makeCodexStateDatabase(
         at url: URL,
         rolloutURL: URL,
-        sessionId: String
+        sessionId: String,
+        title: String = "unrelated title"
     ) throws {
         var db: OpaquePointer?
         guard sqlite3_open(url.path, &db) == SQLITE_OK, let db else {
@@ -609,7 +660,7 @@ struct SessionIndexViewTests {
         sqlite3_bind_text(stmt, 1, sessionId, -1, transient)
         sqlite3_bind_text(stmt, 2, rolloutURL.path, -1, transient)
         sqlite3_bind_text(stmt, 3, "/tmp/project", -1, transient)
-        sqlite3_bind_text(stmt, 4, "unrelated title", -1, transient)
+        sqlite3_bind_text(stmt, 4, title, -1, transient)
         sqlite3_bind_text(stmt, 5, "gpt-5.5", -1, transient)
         sqlite3_bind_text(stmt, 6, "main", -1, transient)
         sqlite3_bind_text(stmt, 7, "never", -1, transient)
