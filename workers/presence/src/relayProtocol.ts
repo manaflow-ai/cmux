@@ -257,8 +257,9 @@ export function validOpaqueId(value: string, maximum = 128): boolean {
 }
 
 /** Stable account-owned relay name. Keep this in one helper so every route
- * derives the same object id from verified identity and never from a caller's
- * team or endpoint metadata. */
-export function relayObjectName(userId: string, macDeviceID: string): string {
-  return `relay:user:${userId}:mac:${macDeviceID}`;
+ * derives the same object id from verified identity and the Mac's adopted
+ * endpoint identity. Physical device IDs are not unique across tagged app
+ * instances and therefore must not own a relay slot. */
+export function relayObjectName(userId: string, relayObjectID: string): string {
+  return `relay:user:${userId}:relay:${relayObjectID}`;
 }

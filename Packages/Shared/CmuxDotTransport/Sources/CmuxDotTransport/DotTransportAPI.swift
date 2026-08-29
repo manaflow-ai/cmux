@@ -87,8 +87,13 @@ public enum DotLegRole: String, Sendable {
 public struct DotLegConfiguration: Sendable {
     /// Relay service base (the presence worker origin); ws(s) derived from it.
     public let relayBaseURL: URL
-    /// The Mac device id the relay object is named for.
+    /// The physical Mac device id pinned by the pair grant. This is kept
+    /// separate from `relayObjectID`: multiple tagged app instances can share
+    /// one physical Mac without sharing a relay or host leg.
     public let macDeviceID: String
+    /// Stable app-instance identity used to address the account-owned relay
+    /// object. On both sides this is the Mac's adopted endpoint identity.
+    public let relayObjectID: String
     /// This device's own id (== macDeviceID on the host leg).
     public let selfDeviceID: String
     public let role: DotLegRole
@@ -106,6 +111,7 @@ public struct DotLegConfiguration: Sendable {
     public init(
         relayBaseURL: URL,
         macDeviceID: String,
+        relayObjectID: String,
         selfDeviceID: String,
         role: DotLegRole,
         tokenProvider: @escaping @Sendable () async throws -> String,
@@ -113,6 +119,7 @@ public struct DotLegConfiguration: Sendable {
     ) {
         self.relayBaseURL = relayBaseURL
         self.macDeviceID = macDeviceID
+        self.relayObjectID = relayObjectID
         self.selfDeviceID = selfDeviceID
         self.role = role
         self.tokenProvider = tokenProvider
@@ -295,6 +302,7 @@ public actor DotLeg {
             attributes: [
                 "role": configuration.role.rawValue,
                 "mac": String(configuration.macDeviceID.prefix(12)),
+                "relay": String(configuration.relayObjectID.prefix(12)),
             ]
         )
         let token = try await configuration.tokenProvider()
@@ -313,6 +321,7 @@ public actor DotLeg {
         components?.path = "/\(path.isEmpty ? "" : path + "/")v1/relay/\(endpoint)"
         var items = components?.queryItems ?? []
         items.append(URLQueryItem(name: "mac", value: configuration.macDeviceID))
+        items.append(URLQueryItem(name: "relay", value: configuration.relayObjectID))
         items.append(URLQueryItem(name: "device", value: configuration.selfDeviceID))
         components?.queryItems = items
         guard let url = components?.url else { throw DotTransportError.invalidURL }

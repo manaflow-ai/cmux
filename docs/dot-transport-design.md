@@ -24,13 +24,16 @@ presence DO WebSocket opened at t=0) to the data plane.
 
 ## Topology
 
-One `MacRelay` DO instance per (account user, Mac device):
-`relay:user:<userId>:mac:<macDeviceId>`, hosted in `workers/presence`
-alongside `TeamPresence` (new binding + appended migration; auth code shared).
+One `MacRelay` DO instance per (account user, adopted Mac app identity):
+`relay:user:<userId>:relay:<acceptorEndpointIdentity>`, hosted in
+`workers/presence` alongside `TeamPresence` (new binding + appended migration;
+auth code shared). The physical Mac device ID remains a grant/admission claim,
+but does not own the relay slot, so tagged app instances on one Mac cannot
+supersede each other.
 
 - The Mac keeps ONE standing "host leg" WebSocket to its own relay DO.
 - Each phone opens one "client leg" to the same DO id (it already knows the
-  Mac's device id from stored Macs / pairing).
+  Mac's adopted endpoint identity from the stored route / pair grant).
 - The DO forwards binary frames between the host leg and client legs; it
   routes on a fixed header and never reads payloads.
 - A fresh leg announces its new leg id. A dropped socket emits no offline event

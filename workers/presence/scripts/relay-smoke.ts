@@ -29,6 +29,7 @@ if (!Number.isFinite(SOAK_INTERVAL_MS) || SOAK_INTERVAL_MS < 1000) {
 }
 
 const MAC = `smoke-mac-${Date.now()}`;
+const RELAY = `smoke-relay-${Date.now()}`;
 const PHONE = "smoke-phone-1";
 const DATA_HEADER_BYTES = 14;
 
@@ -82,7 +83,7 @@ async function openLeg(
   token: string,
   resume?: { key: string; ack?: number; acks?: Record<string, number> },
 ): Promise<Leg> {
-  const url = `${BASE.replace(/^http/, "ws")}/v1/relay/${role}?mac=${MAC}&device=${device}`;
+  const url = `${BASE.replace(/^http/, "ws")}/v1/relay/${role}?mac=${MAC}&relay=${RELAY}&device=${device}`;
   const started = performance.now();
   const ws = new WebSocket(url, { headers: { authorization: `Bearer ${token}` } } as never);
   ws.binaryType = "arraybuffer";

@@ -367,7 +367,11 @@ public actor MobileDotRuntimeComposition {
             attributes: ["peer": String(peerHex.prefix(12))]
         )
         guard let identity, let auth else { throw CompositionError.notSignedIn }
-        let material: (macDeviceID: String, admission: DotAdmissionMaterial)
+        let material: (
+            macDeviceID: String,
+            relayObjectID: String,
+            admission: DotAdmissionMaterial
+        )
         do {
             material = try await admissionMaterial(peerHex: peerHex, broker: broker)
         } catch {
@@ -380,7 +384,7 @@ public actor MobileDotRuntimeComposition {
             )
             throw error
         }
-        let (macDeviceID, admission) = material
+        let (macDeviceID, relayObjectID, admission) = material
         Self.journal.record(
             component: "client-dial", event: "target-resolved",
             attributes: [
@@ -391,6 +395,7 @@ public actor MobileDotRuntimeComposition {
         let leg = DotLegConfiguration(
             relayBaseURL: relayBaseURL,
             macDeviceID: macDeviceID,
+            relayObjectID: relayObjectID,
             selfDeviceID: identity.deviceID,
             role: .phone,
             tokenProvider: { [weak auth] in
@@ -444,8 +449,9 @@ public actor MobileDotRuntimeComposition {
 
     /// The dial input is the Mac's identity hex (what `.iroh` routes carry).
     /// Everything else comes from the CACHED pair grant minted for this
-    /// phone: `acceptor.deviceID` names the per-Mac relay DO,
-    /// `acceptor.endpointID` pins the E2E handshake peer, and the persisted
+    /// phone: `acceptor.deviceID` names the physical Mac in the grant,
+    /// `acceptor.endpointID` pins both the E2E handshake peer and the relay DO,
+    /// and the persisted
     /// trust snapshot supplies the grant-verification keys. Claims are
     /// decoded here for ROUTING only; cryptographic verification stays inside
     /// the dot handshake (the phone pins the acceptor key, the Mac verifies
@@ -453,7 +459,11 @@ public actor MobileDotRuntimeComposition {
     private func admissionMaterial(
         peerHex: String,
         broker: IrxBrokerService
-    ) async throws -> (macDeviceID: String, admission: DotAdmissionMaterial) {
+    ) async throws -> (
+        macDeviceID: String,
+        relayObjectID: String,
+        admission: DotAdmissionMaterial
+    ) {
         let grant = try await resolvedGrant(peerHex: peerHex, broker: broker)
         let claims: CmxIrohPairGrantClaims
         do {
@@ -474,6 +484,7 @@ public actor MobileDotRuntimeComposition {
         let keys = try await grantVerificationKeys(broker: broker)
         return (
             claims.acceptor.deviceID,
+            peerHex,
             DotAdmissionMaterial(
                 grantJWS: grant.grantJWS,
                 grantVerificationKeys: keys,

@@ -173,9 +173,9 @@ describe("resume keys and identifiers", () => {
     expect(validOpaqueId("bad id with spaces")).toBe(false);
   });
 
-  test("relay object names are isolated by verified account and Mac", () => {
-    expect(relayObjectName("user-a", "mac-1")).toBe("relay:user:user-a:mac:mac-1");
-    expect(relayObjectName("user-a", "mac-1")).not.toBe(relayObjectName("user-b", "mac-1"));
-    expect(relayObjectName("user-a", "mac-1")).not.toBe(relayObjectName("user-a", "mac-2"));
+  test("relay object names are isolated by account and app identity", () => {
+    expect(relayObjectName("user-a", "identity-1")).toBe("relay:user:user-a:relay:identity-1");
+    expect(relayObjectName("user-a", "identity-1")).not.toBe(relayObjectName("user-b", "identity-1"));
+    expect(relayObjectName("user-a", "identity-1")).not.toBe(relayObjectName("user-a", "identity-2"));
   });
 });

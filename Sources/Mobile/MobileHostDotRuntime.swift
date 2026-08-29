@@ -132,7 +132,8 @@ final class MobileHostDotRuntime {
             // existing pair grant pins (refresh-in-place; stored routes on
             // phones keep working with zero re-pairing). This deviceID is the
             // one broker registration binds — the same value that appears as
-            // `acceptor.deviceID` in grants — and it names the relay DO.
+            // `acceptor.deviceID` in grants. The adopted endpoint identity
+            // separately names the relay DO, keeping tagged instances apart.
             let legacy = MobileHostIrohRuntime.shared
             let appInstanceID = try await legacy.appInstances.appInstanceID(
                 accountID: accountID, tag: tag)
@@ -221,6 +222,7 @@ final class MobileHostDotRuntime {
             let legConfiguration = DotLegConfiguration(
                 relayBaseURL: relayBaseURL,
                 macDeviceID: deviceID,
+                relayObjectID: signer.identityHex,
                 selfDeviceID: deviceID,
                 role: .host,
                 tokenProvider: { [weak auth] in

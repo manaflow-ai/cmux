@@ -97,8 +97,9 @@ export default {
 
     // dot/1 data-plane relay: the Mac parks a standing "host" leg on its own
     // relay DO; phones connect legs to the same object. Auth happens HERE, at
-    // the edge, and the DO id is derived from the VERIFIED user id, so an
-    // unauthenticated caller can never materialize (or even address) a relay.
+    // the edge, and the DO id is derived from the VERIFIED user id plus the
+    // adopted Mac endpoint identity, so an unauthenticated caller can never
+    // materialize (or even address) a relay.
     if (url.pathname === "/v1/relay/host" || url.pathname === "/v1/relay/connect") {
       if (request.method !== "GET") return json({ error: "method_not_allowed" }, 405);
       if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
@@ -107,13 +108,15 @@ export default {
       const user = await verifyRequest(request, env);
       if (!user) return unauthorized();
       const mac = url.searchParams.get("mac")?.trim() ?? "";
+      const relay = url.searchParams.get("relay")?.trim() ?? "";
       const device = url.searchParams.get("device")?.trim() ?? "";
-      if (!validOpaqueId(mac) || !validOpaqueId(device)) {
+      if (!validOpaqueId(mac) || !validOpaqueId(relay) || !validOpaqueId(device)) {
         return json({ error: "invalid_request" }, 400);
       }
       const role = url.pathname.endsWith("/host") ? "host" : "phone";
-      // The host leg's own device IS the Mac the relay is named for; a host
-      // claiming someone else's slot within the account is refused.
+      // The host leg's own device must still be the physical Mac in its
+      // authenticated grant tuple. Relay identity is separate so tagged
+      // app instances on one physical Mac cannot claim the same host slot.
       if (role === "host" && device !== mac) {
         return json({ error: "host_device_mismatch" }, 403);
       }
@@ -129,7 +132,7 @@ export default {
       headers.set("x-relay-device", device);
       headers.set("x-relay-expires-at", String(Math.floor(expiresAt)));
       const stub = env.MAC_RELAY.get(
-        env.MAC_RELAY.idFromName(relayObjectName(user.id, mac)),
+        env.MAC_RELAY.idFromName(relayObjectName(user.id, relay)),
       );
       return stub.fetch(new Request(request.url, { method: "GET", headers }));
     }
