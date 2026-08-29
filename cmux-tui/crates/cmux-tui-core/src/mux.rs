@@ -22222,10 +22222,11 @@ mod tests {
         let first_surface = mux.new_workspace(None, None).unwrap();
         let second_surface = mux.new_workspace(None, None).unwrap();
         let terminal_id = |surface: &Surface| {
-            mux.with_state(|state| match state.resource_indexes.content_ids.get(&surface.id).unwrap()
-            {
-                ContentPublicId::Terminal(terminal_id) => terminal_id.clone(),
-                ContentPublicId::Browser(_) => panic!("workspace opened a browser"),
+            mux.with_state(|state| {
+                match state.resource_indexes.content_ids.get(&surface.id).unwrap() {
+                    ContentPublicId::Terminal(terminal_id) => terminal_id.clone(),
+                    ContentPublicId::Browser(_) => panic!("workspace opened a browser"),
+                }
             })
         };
         let first_terminal = terminal_id(&first_surface);
@@ -22679,10 +22680,8 @@ mod tests {
 
         let error = restore_agent_roster(&registry).unwrap_err();
         assert!(error.to_string().contains("complete reducer snapshot"));
-        let (_, cursor, _) = registry
-            .journal_reducer_state(AGENT_ROSTER_REDUCER_ID)
-            .unwrap()
-            .unwrap();
+        let (_, cursor, _) =
+            registry.journal_reducer_state(AGENT_ROSTER_REDUCER_ID).unwrap().unwrap();
         assert_eq!(cursor, 0, "failed recovery must leave the durable snapshot untouched");
     }
 

@@ -1150,16 +1150,13 @@ pub(super) fn query_session_journal_after(
 fn first_retained_journal_sequence(connection: &Connection) -> anyhow::Result<Option<u64>> {
     // Keep each MIN over its indexed column. Wrapping both tables in one
     // UNION makes SQLite materialize the full history for every page read.
-    let active = connection.query_row(
-        "SELECT MIN(sequence) FROM session_journal",
-        [],
-        |row| row.get::<_, Option<i64>>(0),
-    )?;
-    let archived = connection.query_row(
-        "SELECT MIN(start_sequence) FROM journal_segments",
-        [],
-        |row| row.get::<_, Option<i64>>(0),
-    )?;
+    let active = connection.query_row("SELECT MIN(sequence) FROM session_journal", [], |row| {
+        row.get::<_, Option<i64>>(0)
+    })?;
+    let archived =
+        connection.query_row("SELECT MIN(start_sequence) FROM journal_segments", [], |row| {
+            row.get::<_, Option<i64>>(0)
+        })?;
     active
         .into_iter()
         .chain(archived)
