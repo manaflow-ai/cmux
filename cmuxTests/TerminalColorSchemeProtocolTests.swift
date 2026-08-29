@@ -12,6 +12,24 @@ import Testing
 @MainActor
 @Suite("Terminal color-scheme protocol", .serialized)
 struct TerminalColorSchemeProtocolTests {
+    private final class ManualWriteCapture: @unchecked Sendable {
+        private let lock = NSLock()
+        private var values: [Data] = []
+
+        func append(_ input: TerminalManualInput) {
+            guard case let .bytes(data) = input else { return }
+            lock.lock()
+            values.append(data)
+            lock.unlock()
+        }
+
+        var snapshot: [Data] {
+            lock.lock()
+            defer { lock.unlock() }
+            return values
+        }
+    }
+
     private struct HostedTerminal {
         let surface: TerminalSurface
         let window: NSWindow
@@ -43,6 +61,7 @@ struct TerminalColorSchemeProtocolTests {
         ghostty_surface_set_color_scheme(runtimeSurface, GHOSTTY_COLOR_SCHEME_DARK)
         try sendProbe("enable", to: terminal)
         #expect(try waitForReport("initial=1b5b3f3939373b316e", from: terminal))
+        #expect(try waitForReport("enable-status=ready", from: terminal))
 
         try sendProbe("await-transition", to: terminal)
         #expect(try waitForReport("await-transition=ready", from: terminal))
@@ -50,7 +69,7 @@ struct TerminalColorSchemeProtocolTests {
         #expect(try waitForReport("transition=1b5b3f3939373b326e", from: terminal))
 
         try sendProbe("disable", to: terminal)
-        #expect(try waitForReport("disable=ready", from: terminal))
+        #expect(try waitForReport("disable-status=ready", from: terminal))
         try sendProbe("await-disabled-transition", to: terminal)
         #expect(try waitForReport("await-disabled-transition=ready", from: terminal))
         ghostty_surface_set_color_scheme(runtimeSurface, GHOSTTY_COLOR_SCHEME_DARK)
@@ -71,12 +90,42 @@ struct TerminalColorSchemeProtocolTests {
         ghostty_surface_set_color_scheme(try #require(first.surface.surface), GHOSTTY_COLOR_SCHEME_DARK)
         try sendProbe("first", to: first)
         #expect(try waitForReport("first=1b5b3f3939373b316e", from: first))
+        try sendProbe("enable", to: first)
+        #expect(try waitForReport("initial=1b5b3f3939373b316e", from: first))
+        #expect(try waitForReport("enable-status=ready", from: first))
+        try sendProbe("await-transition", to: first)
+        #expect(try waitForReport("await-transition=ready", from: first))
+        ghostty_surface_set_color_scheme(try #require(first.surface.surface), GHOSTTY_COLOR_SCHEME_LIGHT)
+        #expect(try waitForReport("transition=1b5b3f3939373b326e", from: first))
         let secondLines = try String(contentsOf: second.outputURL, encoding: .utf8)
             .split(whereSeparator: \.isNewline)
         #expect(secondLines == ["ready"])
     }
 
-    private func makeHostedTerminal() throws -> HostedTerminal {
+    @Test("Manual-mirror surfaces suppress parser protocol responses")
+    func manualMirrorSuppressesParserResponses() throws {
+        let writes = ManualWriteCapture()
+        let terminal = try makeHostedTerminal(
+            ioMode: .manualMirror,
+            manualInputHandler: { input in writes.append(input) }
+        )
+        defer { tearDown(terminal) }
+        let runtimeSurface = try #require(terminal.surface.surface)
+
+        processOutput("\u{1b}[?996n\u{1b}[?2031h", on: runtimeSurface)
+        ghostty_surface_set_color_scheme(runtimeSurface, GHOSTTY_COLOR_SCHEME_LIGHT)
+        processOutput("\u{1b}[?2031l", on: runtimeSurface)
+
+        #expect(
+            writes.snapshot.isEmpty,
+            "A manual-mirror surface must not duplicate parser replies owned by its remote terminal core"
+        )
+    }
+
+    private func makeHostedTerminal(
+        ioMode: TerminalSurfaceIOMode = .exec,
+        manualInputHandler: (@Sendable (TerminalManualInput) -> Void)? = nil
+    ) throws -> HostedTerminal {
         _ = NSApplication.shared
         let outputURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-color-scheme-protocol-\(UUID().uuidString).txt")
@@ -105,6 +154,19 @@ struct TerminalColorSchemeProtocolTests {
                         break
             return data.hex() if data else 'none'
 
+        def read_until(expected, timeout):
+            data = bytearray()
+            deadline = time.monotonic() + timeout
+            while time.monotonic() < deadline:
+                if select.select([fd], [], [], 0.02)[0]:
+                    chunk = os.read(fd, 64)
+                    if not chunk:
+                        break
+                    data.extend(chunk)
+                    if expected in data:
+                        return True
+            return False
+
         def record(value):
             with open(output_path, 'a', encoding='utf-8') as handle:
                 handle.write(value + '\\n')
@@ -120,18 +182,33 @@ struct TerminalColorSchemeProtocolTests {
                 elif command == 'enable':
                     os.write(fd, b'\\x1b[?2031h')
                     record('initial=' + read_report(1.0))
+                    os.write(fd, b'\\x1b[?2031$p')
+                    enabled = read_until(b'\\x1b[?2031;1$y', 1.0)
+                    record('enable-status=' + ('ready' if enabled else 'none'))
                 elif command == 'await-transition':
                     record('await-transition=ready')
                     record('transition=' + read_report(2.0))
                 elif command == 'disable':
                     os.write(fd, b'\\x1b[?2031l')
-                    record('disable=ready')
+                    os.write(fd, b'\\x1b[?2031$p')
+                    disabled = read_until(b'\\x1b[?2031;2$y', 1.0)
+                    record('disable-status=' + ('ready' if disabled else 'none'))
                 elif command == 'await-disabled-transition':
                     record('await-disabled-transition=ready')
                     record('disabled=' + read_report(0.35))
         finally:
             termios.tcsetattr(fd, termios.TCSADRAIN, old)
         """
+        var hostedTerminal: HostedTerminal?
+        defer {
+            if let hostedTerminal {
+                tearDown(hostedTerminal)
+            } else {
+                try? FileManager.default.removeItem(at: outputURL)
+                try? FileManager.default.removeItem(at: scriptURL)
+            }
+        }
+
         try script.write(to: scriptURL, atomically: true, encoding: .utf8)
         try Data().write(to: outputURL)
 
@@ -139,7 +216,11 @@ struct TerminalColorSchemeProtocolTests {
             tabId: UUID(),
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: nil,
-            initialCommand: "/usr/bin/python3 \(shellSingleQuoted(scriptURL.path)) \(shellSingleQuoted(outputURL.path))"
+            initialCommand: ioMode == .exec
+                ? "/usr/bin/python3 \(shellSingleQuoted(scriptURL.path)) \(shellSingleQuoted(outputURL.path))"
+                : nil,
+            ioMode: ioMode,
+            manualInputHandler: manualInputHandler
         )
         let hostedView = surface.hostedView
         let window = NSWindow(
@@ -163,11 +244,19 @@ struct TerminalColorSchemeProtocolTests {
             outputURL: outputURL,
             scriptURL: scriptURL
         )
-        guard try waitForReport("ready", from: terminal) else {
-            tearDown(terminal)
-            Issue.record("Terminal color-scheme probe did not become ready")
-            throw ProbeError.notReady
+        hostedTerminal = terminal
+        if ioMode == .exec {
+            guard try waitForReport("ready", from: terminal) else {
+                Issue.record("Terminal color-scheme probe did not become ready")
+                throw ProbeError.notReady
+            }
+        } else {
+            guard waitForLiveSurface(surface) else {
+                Issue.record("Manual-mirror Ghostty surface did not become live")
+                throw ProbeError.notReady
+            }
         }
+        hostedTerminal = nil
         return terminal
     }
 
@@ -190,8 +279,27 @@ struct TerminalColorSchemeProtocolTests {
         return false
     }
 
+    private func waitForLiveSurface(_ surface: TerminalSurface, timeout: TimeInterval = 3) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            if surface.hasLiveSurface { return true }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        } while Date() < deadline
+        return surface.hasLiveSurface
+    }
+
+    private func processOutput(_ value: String, on surface: ghostty_surface_t) {
+        Data(value.utf8).withUnsafeBytes { rawBuffer in
+            guard let baseAddress = rawBuffer.baseAddress?.assumingMemoryBound(to: CChar.self) else {
+                return
+            }
+            ghostty_surface_process_output(surface, baseAddress, UInt(rawBuffer.count))
+        }
+    }
+
     private func tearDown(_ terminal: HostedTerminal) {
-        terminal.window.orderOut(nil)
+        terminal.window.contentView = nil
+        terminal.window.close()
         terminal.surface.releaseSurfaceForTesting()
         try? FileManager.default.removeItem(at: terminal.outputURL)
         try? FileManager.default.removeItem(at: terminal.scriptURL)

@@ -12,13 +12,39 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `3da10da73`, the head of
-https://github.com/manaflow-ai/ghostty/pull/200. It reports a terminal outcome
-for every accepted tokened iOS render, rejects renderer-thread requests that
-iOS external-drain mode cannot consume, and exposes a nonblocking prompt reveal
-operation. The pin includes the prior fork changes below, including VT
+The submodule pinned by this branch is `23df1f4d0`, a published descendant of
+fork `origin/main` `3d7453474` on
+https://github.com/manaflow-ai/ghostty/tree/fix/5490-color-scheme-protocol. It
+reports a terminal outcome for every accepted tokened iOS render, rejects
+renderer-thread requests that iOS external-drain mode cannot consume, and
+exposes a nonblocking prompt reveal operation. The pin includes the prior fork
+changes below, including VT
 formatter cursor restoration at `f76c132e5`, VT stream-boundary visibility at
 `9513174f2`, and Hangul canonical font resolution at `3fbdd078d`.
+
+### Kitty color-scheme Mode 2031 reporting
+
+- Commits:
+  - `d97343a37` (reapply the contributor's initial Mode 2031 report)
+  - `23df1f4d0` (restore per-surface conditional state for reports)
+- Files:
+  - `src/termio/stream_handler.zig`
+  - `src/Surface.zig`
+- Summary:
+  - Enabling private Mode 2031 queues the current `CSI ? 997;N n` report
+    immediately, while non-forced reports remain gated by the mode.
+  - Termio color reports inherit the surface's current conditional state even
+    when `Config.changeConditionalState` returns `null`, so direct queries and
+    unsolicited transitions cannot fall back to the app-level theme.
+  - The existing PTY write path and `suppress_terminal_responses` guard remain
+    per-surface, including manual-mirror/replay surfaces.
+- Conflict note:
+  - The initial-report case existed in historical fork commit `74709c29b` but
+    disappeared during later upstream reconciliation. Keep it alongside the
+    current `setMode` implementation; do not select the contributor's old
+    `9fd00e0e4` pointer because it is not on current fork main. Keep the
+    conditional-state assignment with `Surface.updateConfig` when that method
+    is reconciled again.
 
 ### iOS tokened render disposition and nonblocking prompt reveal
 
