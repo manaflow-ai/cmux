@@ -2630,6 +2630,7 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
     use std::sync::{Arc as TestArc, Barrier, Mutex as StdMutex, mpsc::sync_channel};
     use std::thread;
+    use std::time::Duration;
 
     static NEXT_TEST_DIRECTORY: AtomicU64 = AtomicU64::new(0);
 
@@ -3577,9 +3578,9 @@ mod tests {
         entered.wait();
 
         let (done_tx, done_rx) = sync_channel(1);
-        let revoke_inner = Arc::clone(&inner);
+        let revoke_manager = PtyManager { inner: Arc::clone(&inner) };
         let revoke = thread::spawn(move || {
-            revoke_inner.detach_tunnel_transports();
+            revoke_manager.detach_tunnel_transports();
             done_tx.send(()).unwrap();
         });
         let completed_without_waiting = done_rx.recv_timeout(Duration::from_millis(250)).is_ok();
@@ -3695,8 +3696,8 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn cancelled_open_is_fenced_before_its_task_is_first_polled() {
         let h = harness(None, None);
-        let manager = Arc::new(h.manager);
         let context = h.context_with_transport("supervised", h.owner.clone(), Some("tunnel-a"));
+        let manager = Arc::new(h.manager);
         let frame = serde_json::json!({
             "version": 4,
             "type": "pty_open",
