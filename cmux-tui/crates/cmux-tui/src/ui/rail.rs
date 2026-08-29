@@ -315,53 +315,139 @@ pub fn button(
 /// Dense one-line row used by configurable resource trees. The returned
 /// rectangle is the disclosure target when the row has children.
 #[allow(clippy::too_many_arguments)]
+/// Status glyph painted in the disclosure slot of a leaf tree row: a bold
+/// colored dot for states that need attention, a dim open circle for an
+/// at-rest state (herdr's idle marker).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TreeRowIndicator {
+    Dot(Color),
+    Circle,
+}
+
+/// One projected tree row. `second_line` renders dim under the name and
+/// makes the row two terminal lines tall (herdr-style agent rows).
+pub struct TreeRow<'a> {
+    pub depth: u16,
+    pub name: &'a str,
+    pub detail: &'a str,
+    pub second_line: Option<&'a str>,
+    pub branch: Option<bool>,
+    pub indicator: Option<TreeRowIndicator>,
+    pub highlighted: bool,
+    pub active: bool,
+}
+
 pub fn tree_row(
     frame: &mut Frame,
     area: Rect,
     y: u16,
-    depth: u16,
-    name: &str,
-    detail: &str,
-    branch: Option<bool>,
-    highlighted: bool,
-    active: bool,
+    row: TreeRow<'_>,
     palette: RailPalette,
 ) -> Option<Rect> {
     if y >= area.y.saturating_add(area.height) || area.width < 3 {
         return None;
     }
+    let rows =
+        if row.second_line.is_some() && y.saturating_add(1) < area.y.saturating_add(area.height) {
+            2u16
+        } else {
+            1u16
+        };
     let content_width = area.width.saturating_sub(1);
-    let style = if highlighted { palette.active } else { palette.base };
+    let style = if row.highlighted { palette.active } else { palette.base };
     let detail_style =
-        if highlighted { palette.active.add_modifier(Modifier::DIM) } else { palette.dim };
+        if row.highlighted { palette.active.add_modifier(Modifier::DIM) } else { palette.dim };
     let buf = frame.buffer_mut();
-    if highlighted {
-        for x in area.x..area.x.saturating_add(content_width) {
-            buf[(x, y)].set_symbol(" ").set_style(style);
+    if row.highlighted {
+        for line in 0..rows {
+            for x in area.x..area.x.saturating_add(content_width) {
+                buf[(x, y + line)].set_symbol(" ").set_style(style);
+            }
         }
     }
-    if active && let Some(glyph) = palette.rail_glyph {
+    if row.active
+        && let Some(glyph) = palette.rail_glyph
+    {
         let mut encoded = [0u8; 4];
-        buf[(area.x, y)]
-            .set_symbol(glyph.encode_utf8(&mut encoded))
-            .set_style(style.fg(palette.rail));
+        let symbol: &str = glyph.encode_utf8(&mut encoded);
+        for line in 0..rows {
+            buf[(area.x, y + line)].set_symbol(symbol).set_style(style.fg(palette.rail));
+        }
     }
     let disclosure_x = area
         .x
         .saturating_add(1)
-        .saturating_add(depth.saturating_mul(2))
+        .saturating_add(row.depth.saturating_mul(2))
         .min(area.x.saturating_add(content_width.saturating_sub(1)));
-    let disclosure = branch.map(|expanded| {
+    let disclosure = row.branch.map(|expanded| {
         buf[(disclosure_x, y)].set_symbol(if expanded { "▾" } else { "▸" }).set_style(detail_style);
         Rect { x: disclosure_x, y, width: 1, height: 1 }
     });
+    // Leaf rows reuse the disclosure slot for the state glyph.
+    if disclosure.is_none() {
+        match row.indicator {
+            Some(TreeRowIndicator::Dot(color)) => {
+                buf[(disclosure_x, y)]
+                    .set_symbol("●")
+                    .set_style(style.fg(color).add_modifier(Modifier::BOLD));
+            }
+            Some(TreeRowIndicator::Circle) => {
+                buf[(disclosure_x, y)].set_symbol("○").set_style(detail_style);
+            }
+            None => {}
+        }
+    }
     let name_x = disclosure_x.saturating_add(2);
     let available = area.x.saturating_add(content_width).saturating_sub(name_x) as usize;
     if available > 0 {
-        let label = if detail.is_empty() { name.to_string() } else { format!("{name}  {detail}") };
+        let label = if row.detail.is_empty() {
+            row.name.to_string()
+        } else {
+            format!("{}  {}", row.name, row.detail)
+        };
         buf.set_stringn(name_x, y, truncate(&label, available), available, style);
+        if rows == 2
+            && let Some(second_line) = row.second_line
+        {
+            buf.set_stringn(
+                name_x,
+                y + 1,
+                truncate(second_line, available),
+                available,
+                detail_style,
+            );
+        }
     }
     disclosure
+}
+
+/// One-line view header: a title on the left, a dim mode label on the
+/// right (herdr's "agents ... priority" bar).
+pub fn view_header(
+    frame: &mut Frame,
+    area: Rect,
+    y: u16,
+    title: &str,
+    mode: &str,
+    palette: RailPalette,
+) {
+    if y >= area.y.saturating_add(area.height) || area.width < 3 {
+        return;
+    }
+    let content_width = area.width.saturating_sub(1);
+    let buf = frame.buffer_mut();
+    let title_style = palette.base.add_modifier(Modifier::BOLD);
+    let available = content_width.saturating_sub(1) as usize;
+    if available == 0 {
+        return;
+    }
+    buf.set_stringn(area.x + 1, y, truncate(title, available), available, title_style);
+    let mode = truncate(mode, available.saturating_sub(title.chars().count() + 2));
+    let mode_width = mode.chars().count() as u16;
+    if mode_width > 0 {
+        let mode_x = area.x.saturating_add(content_width).saturating_sub(mode_width);
+        buf.set_stringn(mode_x, y, &mode, mode_width as usize, palette.dim);
+    }
 }
 
 pub fn row(area: Rect, y: u16) -> Rect {

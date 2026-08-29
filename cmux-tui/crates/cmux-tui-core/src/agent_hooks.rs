@@ -9,11 +9,14 @@ use crate::{
 
 pub const AGENT_HOOK_PRODUCER_ID: &str = "cmux_agent";
 pub const AGENT_HOOK_MANIFEST_VERSION: u32 = 1;
-const AGENT_HOOK_FORMAT: &str = "cmux.agent-hook.v1";
+pub(crate) const AGENT_HOOK_FORMAT: &str = "cmux.agent-hook.v1";
 const MAX_AGENT_SOURCE_BYTES: usize = 64;
 const MAX_NATIVE_EVENT_BYTES: usize = 128;
 const NORMALIZED_TEXT_BYTES: usize = 8 * 1024;
+const MAX_AGENT_REDACTION_DEPTH: usize = 32;
+const MAX_AGENT_REDACTION_NODES: usize = 4_096;
 const REDACTED_AGENT_VALUE: &str = "[redacted]";
+const STRUCTURE_LIMIT_REASON: &str = "structure_limit";
 
 const AGENT_EVENT_KINDS: [&str; 12] = [
     "agent.session.started",
@@ -85,34 +88,73 @@ fn redact_agent_native(native_event: &str, mut native: Value) -> Value {
 }
 
 fn redact_agent_fields(value: &mut Value) {
+    let mut budget = MAX_AGENT_REDACTION_NODES;
+    redact_agent_value(value, false, 0, &mut budget);
+}
+
+/// Redact untrusted hook JSON with explicit structural limits. Returning
+/// `false` makes the nearest containing value one bounded marker, which also
+/// stops walking a hostile wide object or array after the budget is spent.
+fn redact_agent_value(
+    value: &mut Value,
+    preserve_strings: bool,
+    depth: usize,
+    budget: &mut usize,
+) -> bool {
+    if depth > MAX_AGENT_REDACTION_DEPTH || *budget == 0 {
+        *value = structure_limit_value();
+        return false;
+    }
+    *budget -= 1;
+
+    let mut complete = true;
     match value {
         Value::Object(fields) => {
-            for (field, value) in fields {
+            for (field, child) in fields.iter_mut() {
                 if agent_field_is_sensitive(field) {
-                    *value = Value::String(REDACTED_AGENT_VALUE.into());
-                } else {
-                    redact_agent_value(value, agent_string_field_is_structural(field));
+                    // Sensitive leaves bypass recursive traversal, so charge
+                    // them explicitly. Otherwise an attacker can submit an
+                    // arbitrarily wide object of credential-shaped fields
+                    // without consuming the structural budget.
+                    if *budget == 0 {
+                        complete = false;
+                        break;
+                    }
+                    *budget -= 1;
+                    *child = Value::String(REDACTED_AGENT_VALUE.into());
+                } else if !redact_agent_value(
+                    child,
+                    agent_string_field_is_structural(field),
+                    depth + 1,
+                    budget,
+                ) {
+                    complete = false;
+                    break;
                 }
             }
         }
         Value::Array(values) => {
-            for value in values {
-                redact_agent_value(value, false);
+            for child in values.iter_mut() {
+                if !redact_agent_value(child, false, depth + 1, budget) {
+                    complete = false;
+                    break;
+                }
             }
         }
-        Value::String(_) => *value = Value::String(REDACTED_AGENT_VALUE.into()),
-        _ => {}
-    }
-}
-
-fn redact_agent_value(value: &mut Value, preserve_strings: bool) {
-    match value {
         Value::String(_) if !preserve_strings => {
             *value = Value::String(REDACTED_AGENT_VALUE.into());
         }
-        Value::Object(_) | Value::Array(_) => redact_agent_fields(value),
         _ => {}
     }
+
+    if !complete {
+        *value = structure_limit_value();
+    }
+    complete
+}
+
+fn structure_limit_value() -> Value {
+    json!({"redacted":true,"reason":STRUCTURE_LIMIT_REASON})
 }
 
 fn agent_string_field_is_structural(field: &str) -> bool {
@@ -838,6 +880,25 @@ mod tests {
         assert!(!encoded.contains("do not persist this credential"));
         assert!(!encoded.contains("do not persist this tool input"));
         assert!(encoded.contains(REDACTED_AGENT_VALUE));
+    }
+
+    #[test]
+    fn hostile_agent_structure_is_bounded_during_redaction() {
+        let mut deeply_nested = json!("secret-leaf");
+        for _ in 0..64 {
+            deeply_nested = json!({"nested": deeply_nested});
+        }
+        let wide = (0..8_192).map(|_| json!({"value":"secret"})).collect::<Vec<_>>();
+        let ingress = agent_hook_journal_ingress(
+            "codex",
+            "Stop",
+            None,
+            json!({"deep": deeply_nested, "wide": wide}),
+        )
+        .unwrap();
+        let encoded = serde_json::to_string(&ingress.payload).unwrap();
+        assert!(encoded.contains("\"reason\":\"structure_limit\""));
+        assert!(!encoded.contains("secret-leaf"));
     }
 
     #[test]

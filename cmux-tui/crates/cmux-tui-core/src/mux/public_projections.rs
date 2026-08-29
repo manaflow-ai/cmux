@@ -1,16 +1,18 @@
 use anyhow::Context;
 
 use super::*;
-use crate::workspace_registry::RegistryPublicProjections;
+use crate::workspace_registry::{RegistryAgentProjection, RegistryPublicProjections};
 
 #[derive(Debug)]
 pub(super) struct RestoredPublicProjections {
     pub(super) default_colors: DefaultColors,
     pub(super) has_terminal_defaults: bool,
     pub(super) next_notification_id: u64,
-    pub(super) agent_records: HashMap<TerminalPublicId, TerminalAgentRecord>,
     pub(super) terminal_notifications: HashMap<TerminalPublicId, SurfaceNotification>,
     pub(super) notification_ledger: VecDeque<ResourceNotification>,
+    /// Agent projections written before the journal reducer existed. They
+    /// are used only as a migration seed when no reducer snapshot is valid.
+    pub(super) legacy_agents: Vec<RegistryAgentProjection>,
 }
 
 pub(super) fn restore_public_projections(
@@ -58,31 +60,13 @@ pub(super) fn restore_public_projections(
         .context("notification count exceeds uint64")?
         .saturating_add(1);
 
-    let mut agent_records = HashMap::with_capacity(projections.agents.len());
-    for agent in projections.agents {
-        let previous = agent_records.insert(
-            agent.terminal_id.clone(),
-            TerminalAgentRecord {
-                state: agent_state(&agent.state)?,
-                source: agent_source(&agent.source)?,
-                session: agent.source_session,
-                updated_at_ms: agent.updated_at_ms,
-            },
-        );
-        anyhow::ensure!(
-            previous.is_none(),
-            "multiple durable agents resolve to terminal {}",
-            agent.terminal_id
-        );
-    }
-
     Ok(RestoredPublicProjections {
         default_colors,
         has_terminal_defaults,
         next_notification_id,
-        agent_records,
         terminal_notifications,
         notification_ledger,
+        legacy_agents: projections.agents,
     })
 }
 
@@ -92,26 +76,6 @@ fn notification_level(value: &str) -> anyhow::Result<NotificationLevel> {
         "warning" => Ok(NotificationLevel::Warning),
         "error" => Ok(NotificationLevel::Error),
         other => anyhow::bail!("invalid durable notification level {other:?}"),
-    }
-}
-
-fn agent_state(value: &str) -> anyhow::Result<AgentState> {
-    match value {
-        "working" => Ok(AgentState::Working),
-        "blocked" => Ok(AgentState::Blocked),
-        "idle" => Ok(AgentState::Idle),
-        "done" => Ok(AgentState::Done),
-        "unknown" => Ok(AgentState::Unknown),
-        other => anyhow::bail!("invalid durable agent state {other:?}"),
-    }
-}
-
-fn agent_source(value: &str) -> anyhow::Result<AgentSource> {
-    match value {
-        "detected" => Ok(AgentSource::Detected),
-        "socket" => Ok(AgentSource::Socket),
-        "hook" => Ok(AgentSource::Hook),
-        other => anyhow::bail!("invalid durable agent source {other:?}"),
     }
 }
 
@@ -185,7 +149,6 @@ mod tests {
         state.terminal_catalog_by_runtime.insert(runtime.terminal_runtime_id().unwrap(), terminal);
         let restored = restore_public_projections(&state, projections).unwrap();
         let terminal = TerminalPublicId::parse("term_00000000000000000000000000000001").unwrap();
-        assert_eq!(restored.agent_records.get(&terminal).unwrap().state, AgentState::Working);
         assert_eq!(restored.notification_ledger[0].terminal_id.as_ref(), Some(&terminal));
         assert_eq!(restored.notification_ledger[0].surface, Some(runtime.id));
         assert!(restored.terminal_notifications[&terminal].unread);

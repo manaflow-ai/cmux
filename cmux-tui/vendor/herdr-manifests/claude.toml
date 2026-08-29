@@ -1,0 +1,207 @@
+id = "claude"
+version = "2026.08.21.1"
+min_engine_version = 2
+updated_at = "2026-08-21T00:00:00Z"
+aliases = ["claude-code"]
+
+[[rules]]
+id = "osc_title_working"
+state = "working"
+priority = 1100
+region = "osc_title"
+visible_working = true
+# Braille covers <= 2.1.227; half-circles are the 2.1.228 busy spinner.
+regex = ['^[\x{2800}-\x{28FF}\x{25D0}-\x{25D3}] ']
+
+[[rules]]
+id = "live_turn_working"
+state = "working"
+priority = 970
+region = "bottom_non_empty_lines(12)"
+visible_working = true
+any = [
+  { line_regex = ['^\s*[⏸⏵].*esc to interrupt(?:\s|·|$)'] },
+  { line_regex = ['^\s*[\x{002A}\x{00B7}\x{2722}\x{2736}\x{273B}\x{273D}]\s+\S.*…(?:\s+\(\d+[smh](?:\s|·)|\s*$)'] },
+]
+
+[[rules]]
+id = "background_shell_working"
+state = "working"
+priority = 965
+region = "bottom_non_empty_lines(5)"
+visible_working = true
+line_regex = ['^\s*[⏸⏵].*·\s+[1-9]\d*\s+shells?\s+(?:·|$)']
+
+[[rules]]
+id = "background_agents_working"
+state = "working"
+priority = 965
+region = "last_non_empty_above_prompt_box"
+visible_working = true
+line_regex = ['^\s*[\x{002A}\x{00B7}\x{2722}\x{2736}\x{273B}\x{273D}]\s+Waiting for [1-9]\d* background agents? to finish\s*$']
+
+[[rules]]
+id = "background_mcp_task_working"
+state = "working"
+priority = 965
+region = "bottom_non_empty_lines(12)"
+visible_working = true
+# Claude renders activity summaries at column zero; wrapped continuations are indented.
+# Keeping that shape prevents user prompt text from impersonating this signal.
+regex = ['(?m)^[\x{002A}\x{00B7}\x{2722}\x{2736}\x{273B}\x{273D}][ \t]+\S[^\n]*?(?:\n[ \t]+[^\n]*?){0,3}·(?:[ \t]+|\n[ \t]*)[1-9]\d*(?:[ \t]+|\n[ \t]*)MCP(?:[ \t]+|\n[ \t]*)tasks?(?:[ \t]+|\n[ \t]*)still(?:[ \t]+|\n[ \t]*)running[ \t]*$']
+not = [
+  { contains = ["do you want to proceed?"] },
+  { contains = ["esc to cancel"] },
+  { contains = ["waiting for permission"] },
+  { contains = ["do you want to allow this connection?"] },
+  { contains = ["tab to amend"] },
+  { contains = ["ctrl+e to explain"] },
+]
+
+[[rules]]
+id = "btw_overlay_working"
+state = "working"
+priority = 975
+region = "bottom_non_empty_lines(5)"
+visible_working = true
+line_regex = [
+  '^\s*/btw(?:\s|$)',
+  '(?i)esc to close\s*$',
+]
+
+[[rules]]
+id = "transcript_viewer"
+state = "unknown"
+priority = 1000
+region = "bottom_non_empty_lines(3)"
+skip_state_update = true
+contains = ["showing detailed transcript"]
+any = [
+  { contains = ["ctrl+o", "to toggle"] },
+  { contains = ["ctrl+e", "show all"] },
+  { contains = ["ctrl+e", "collapse"] },
+  { contains = ["↑↓ scroll"] },
+  { contains = ["? for shortcuts"] },
+]
+
+[[rules]]
+id = "live_blocked_form"
+state = "blocked"
+priority = 980
+region = "after_last_horizontal_rule"
+visible_blocker = true
+contains = ["esc to cancel"]
+any = [
+  { contains = ["enter to confirm"] },
+  { contains = ["enter to select"], any = [
+    { contains = ["tab/arrow keys to navigate"] },
+    { contains = ["arrow keys to navigate"] },
+    { contains = ["arrows to navigate"] },
+    { contains = ["↑/↓ to navigate"] },
+    { contains = ["↑↓ to navigate"] },
+  ] },
+]
+
+[[rules]]
+id = "dynamic_workflow_prompt"
+state = "blocked"
+priority = 980
+region = "whole_recent"
+visible_blocker = true
+contains = ["run a dynamic workflow?", "esc to cancel"]
+
+[[rules]]
+id = "live_prompt_box"
+state = "idle"
+priority = 950
+region = "prompt_box_body"
+visible_idle = true
+line_regex = ['^\s*❯']
+not = [
+  { contains = ["enter to select"] },
+  { contains = ["esc to cancel"] },
+  { contains = ["tab/arrow keys"] },
+  { contains = ["arrow keys to navigate"] },
+  { contains = ["↑/↓ to navigate"] },
+]
+
+[[rules]]
+id = "model_picker_menu"
+state = "unknown"
+priority = 900
+region = "whole_recent"
+skip_state_update = true
+contains = ["select model", "enter to set as default", "esc to cancel"]
+not = [
+  { contains = ["do you want to proceed?"] },
+  { contains = ["enter to select"] },
+]
+
+[[rules]]
+id = "bash_permission_prompt"
+state = "blocked"
+priority = 850
+region = "whole_recent"
+visible_blocker = true
+contains = ["do you want to proceed?"]
+any = [
+  { contains = ["bash command"] },
+  { contains = ["bash("] },
+  { contains = ["contains expansion"] },
+  { contains = ["tab to amend"] },
+  { contains = ["ctrl+e to explain"] },
+]
+all = [
+  { any = [{ line_regex = ['(?i)^\s*❯?\s*yes\b'] }, { line_regex = ['(?i)^\s*1\.\s*yes\b'] }, { line_regex = ['(?i)^\s*2\.\s*no\b'] }] },
+]
+
+[[rules]]
+id = "generic_permission_prompt"
+state = "blocked"
+priority = 840
+region = "after_last_horizontal_rule"
+visible_blocker = true
+contains = ["do you want to proceed?", "esc to cancel"]
+all = [
+  { any = [
+    { line_regex = ['(?i)^\s*❯?\s*1\.\s*yes\b'] },
+    { line_regex = ['(?i)^\s*2\.\s*yes\b'] },
+    { line_regex = ['(?i)^\s*2\.\s*no\b'] },
+    { line_regex = ['(?i)^\s*3\.\s*no\b'] },
+  ] },
+]
+
+[[rules]]
+id = "legacy_no_prompt_blocker"
+state = "blocked"
+priority = 300
+region = "whole_recent"
+any = [
+  { contains = ["do you want to"], any = [{ contains = ["yes"] }, { contains = ["❯"] }] },
+  { contains = ["would you like to"], any = [{ contains = ["yes"] }, { contains = ["❯"] }] },
+  { contains = ["waiting for permission"] },
+  { contains = ["do you want to allow this connection?"] },
+  { contains = ["tab to amend"] },
+  { contains = ["ctrl+e to explain"] },
+  { contains = ["do you want to proceed?", "esc to cancel"] },
+  { contains = ["review your answers"] },
+  { contains = ["skip interview and plan immediately"] },
+]
+not = [
+  { regex = ['(?m)^\s*❯\s*$'] },
+]
+
+[[rules]]
+id = "osc_title_idle"
+state = "idle"
+priority = 250
+region = "osc_title"
+visible_idle = true
+regex = ['^\x{2733} ']
+
+[[rules]]
+id = "osc_progress_idle"
+state = "idle"
+priority = 250
+region = "osc_progress"
+regex = ['^4;0']

@@ -37,11 +37,17 @@ fn projection_detail<'a>(row: &'a crate::sidebar_projection::ProjectionRow) -> C
         "done" => messages.done,
         _ => messages.unknown,
     };
-    if row.subtitle.is_empty() {
-        Cow::Borrowed(state)
-    } else {
-        Cow::Owned(format!("{state} · {}", row.subtitle))
+    // Lead with the agent type when the row name is the tab title, so
+    // "which agent is this" never depends on the title alone. Skip it when
+    // the name already IS the agent type (untitled tab fallback).
+    let mut detail = match row.agent_label.as_deref() {
+        Some(agent) if row.name != agent => format!("{agent} · {state}"),
+        _ => state.to_string(),
+    };
+    if !row.subtitle.is_empty() {
+        detail = format!("{detail} · {}", row.subtitle);
     }
+    detail
 }
 
 /// The color of a workspace's unread indicator, or `None` when nothing is
@@ -320,13 +326,35 @@ pub fn draw_tabs(app: &mut App, frame: &mut Frame) {
 
 /// Render one configurable resource path as a dense native tree column.
 pub fn draw_projection(app: &mut App, frame: &mut Frame, view_index: usize) {
-    let Some(area) = app.projection_sidebar_area(view_index) else { return };
+    let Some(mut area) = app.projection_sidebar_area(view_index) else { return };
     let Some(spec) = app.config.sidebar.views.get(view_index).cloned() else { return };
     let rows = app.projection_rows(view_index);
     let actions = app.sidebar_action_rows(view_index);
     let focused = app.projection_sidebar_focused(view_index);
     let palette = rail::RailPalette::for_app(app, focused);
     rail::prepare(frame, area, palette);
+
+    // Agents views carry a herdr-style header: the view title left, the
+    // fixed sort mode right. It consumes the top line of the rail.
+    let messages = &localization::catalog().sidebar;
+    if spec.levels == [SidebarResourceKind::Agents] && area.height > 1 {
+        rail::view_header(frame, area, area.y, messages.agents, messages.sort_priority, palette);
+        area = Rect { y: area.y + 1, height: area.height - 1, ..area };
+    }
+
+    // Agent rows can span two terminal lines; every row's span is derived
+    // from the same height table so scrolling and hits stay aligned.
+    let two_line_agents = spec.row_lines >= 2;
+    let row_height = |row: &crate::sidebar_projection::ProjectionRow| -> usize {
+        if two_line_agents && row.agent_state.is_some() { 2 } else { 1 }
+    };
+    let mut row_spans = Vec::with_capacity(rows.len());
+    let mut body_rows = 0usize;
+    for row in rows.iter() {
+        let height = row_height(row);
+        row_spans.push(rail::RowSpan::new(body_rows, height));
+        body_rows += height;
+    }
 
     let selectable_rows = rows.len().saturating_add(actions.len());
     let (selected, viewport) = {
@@ -344,14 +372,15 @@ pub fn draw_projection(app: &mut App, frame: &mut Frame, view_index: usize) {
             && state.follow_selection
             && state.selected_action.is_none()
             && !rows.is_empty())
-        .then(|| rail::RowSpan::new(state.selected, 1));
+        .then(|| row_spans.get(state.selected).copied())
+        .flatten();
         let selected_footer = (focused && state.follow_selection)
             .then_some(state.selected_action)
             .flatten()
             .map(|index| rail::RowSpan::new(index, 1));
         let viewport = rail::viewport(
             area,
-            rows.len().max(usize::from(rows.is_empty())),
+            body_rows.max(usize::from(rows.is_empty())),
             actions.len(),
             &mut state.scroll,
             &mut state.footer_scroll,
@@ -367,28 +396,64 @@ pub fn draw_projection(app: &mut App, frame: &mut Frame, view_index: usize) {
         rail::button(frame, area, y, projection_empty_label(resource), false, palette);
     }
     for (row_index, row) in rows.iter().enumerate() {
-        let Some(y) = viewport.body_y(rail::RowSpan::new(row_index, 1)) else { continue };
+        let span = row_spans[row_index];
+        let Some(y) = viewport.body_y(span) else { continue };
         let highlighted = row.active || (focused && selected == row_index);
-        let detail = projection_detail(row);
+        let two_line = span.height == 2;
+        // Two-line agent rows read like herdr: the state glyph plus the
+        // context line (tab title, else the session/workspace subtitle),
+        // then the agent type dim underneath. Single-line rows keep the
+        // combined detail text.
+        let detail = if two_line { String::new() } else { projection_detail(row) };
+        let title = if two_line && row.agent_label.as_deref() == Some(row.name.as_str()) {
+            row.subtitle.as_str()
+        } else {
+            row.name.as_str()
+        };
+        // The dim second line is the agent type; an agent the roster cannot
+        // name yet (bare socket reports) falls back to its localized state.
+        let second_line = row.agent_label.clone().or_else(|| {
+            row.agent_state.as_deref().map(|state| {
+                match state {
+                    "working" => messages.working,
+                    "blocked" => messages.blocked,
+                    "idle" => messages.idle,
+                    "done" => messages.done,
+                    _ => messages.unknown,
+                }
+                .to_string()
+            })
+        });
+        let indicator = row.agent_state.as_deref().and_then(|state| match state {
+            "blocked" => Some(rail::TreeRowIndicator::Dot(app.config.theme.notification_error)),
+            "working" => Some(rail::TreeRowIndicator::Dot(app.config.theme.notification_info)),
+            "idle" => Some(rail::TreeRowIndicator::Circle),
+            _ => None,
+        });
         let disclosure = rail::tree_row(
             frame,
             area,
             y,
-            row.depth,
-            &row.name,
-            &detail,
-            row.branch.map(|_| row.expanded),
-            highlighted,
-            row.active,
+            rail::TreeRow {
+                depth: row.depth,
+                name: title,
+                detail: &detail,
+                second_line: two_line.then_some(second_line.as_deref().unwrap_or("")),
+                branch: row.branch.map(|_| row.expanded),
+                indicator,
+                highlighted,
+                active: row.active,
+            },
             palette,
         );
         if let (Some(rect), Some(branch)) = (disclosure, row.branch) {
             app.hits.push((rect, Hit::ProjectionToggle { view: view_index, branch }));
         }
-        app.hits.push((
-            rail::row(area, y),
-            Hit::ProjectionRow { view: view_index, row: row_index, target: row.target },
-        ));
+        let hit = Hit::ProjectionRow { view: view_index, row: row_index, target: row.target };
+        app.hits.push((rail::row(area, y), hit));
+        if two_line && y + 1 < area.y.saturating_add(area.height) {
+            app.hits.push((rail::row(area, y + 1), hit));
+        }
     }
     for (action_index, action) in actions.iter().enumerate() {
         let Some(y) = viewport.footer_y(rail::RowSpan::new(action_index, 1)) else { continue };

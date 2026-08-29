@@ -7079,6 +7079,11 @@ pub struct App {
     projection_rails: HashMap<String, ProjectionRailState>,
     projection_rows_cache: VecDeque<ProjectionRowsCache>,
     projection_rows_revision: u64,
+    /// Client-local focus stamps for the agents-view seen bit: surface to
+    /// the last epoch ms this client had it focused. Presentation state,
+    /// never journaled or shared: two attached clients keep separate stamps
+    /// and may rank the same idle agent differently, deliberately.
+    agent_focus_stamps: HashMap<SurfaceId, u64>,
     /// Projection surfaces seen by the most recent rendered snapshots. These
     /// sets cover caches evicted by the bounded LRU, so an update still wakes
     /// a visible rail even when its snapshot is not retained. They are pruned
@@ -9607,6 +9612,7 @@ fn run_with_machine_updates_inner(
         projection_rails: HashMap::new(),
         projection_rows_cache: VecDeque::new(),
         projection_rows_revision: 0,
+        agent_focus_stamps: HashMap::new(),
         projection_agent_surfaces: HashSet::new(),
         projection_title_surfaces: HashSet::new(),
         projection_agent_surfaces_by_view: HashMap::new(),
@@ -10399,27 +10405,24 @@ impl App {
             rows
         } else {
             let agents = if spec.includes(SidebarResourceKind::Agents) {
-                // Finished reports are historical records, not active agents.
-                // Otherwise detached "surface..." rows remain forever after exit.
-                // An `all`-scoped view is a chronological status board, so it
-                // keeps done agents; unknown stays out everywhere.
-                let keep_done = spec.scope == crate::config::SidebarViewScope::All;
+                // Finished reports are historical records, not active agents:
+                // an ended session leaves the journal-derived roster, and
+                // remote caches converge through the done broadcast, so every
+                // scope hides done/unknown rather than listing dead agents.
                 self.session
                     .agents()
                     .into_iter()
-                    .filter(|agent| match agent.state.as_str() {
-                        "unknown" => false,
-                        "done" => keep_done,
-                        _ => true,
-                    })
+                    .filter(|agent| !matches!(agent.state.as_str(), "done" | "unknown"))
                     .collect::<Vec<_>>()
             } else {
                 Vec::new()
             };
+            let seen_idle = self.seen_idle_agent_surfaces(&agents);
             let rows = crate::sidebar_projection::rows(
                 &spec,
                 &self.tree,
                 &agents,
+                &seen_idle,
                 selected_workspace,
                 &collapsed,
             );
@@ -10445,6 +10448,42 @@ impl App {
         };
         self.projection_rail_state_mut(index).reconcile_selection(&rows);
         rows
+    }
+
+    /// Stamp the focused surface, then derive which idle agents this client
+    /// has seen: the surface was focused at or after its idle transition.
+    /// The stamps live only in this client (presentation state); ordering
+    /// can therefore differ between two attached clients, by design. The
+    /// projection cache stays coherent because both seen inputs already
+    /// key it: a focus move changes the focus key and an agent transition
+    /// bumps the invalidation revision.
+    fn seen_idle_agent_surfaces(
+        &mut self,
+        agents: &[crate::session::AgentInfo],
+    ) -> crate::sidebar_projection::SeenIdleSurfaces {
+        if let Some(surface) = self.tree.active_surface() {
+            let now_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|elapsed| elapsed.as_millis() as u64)
+                .unwrap_or(0);
+            self.agent_focus_stamps.insert(surface, now_ms);
+        }
+        // Closed tabs leave stale stamps behind; bound the map instead of
+        // walking the tree every render.
+        if self.agent_focus_stamps.len() > 4_096 {
+            let live: HashSet<SurfaceId> = agents.iter().map(|agent| agent.surface).collect();
+            self.agent_focus_stamps.retain(|surface, _| live.contains(surface));
+        }
+        agents
+            .iter()
+            .filter(|agent| agent.state == "idle")
+            .filter(|agent| {
+                self.agent_focus_stamps
+                    .get(&agent.surface)
+                    .is_some_and(|stamp| *stamp >= agent.updated_at_ms)
+            })
+            .map(|agent| agent.surface)
+            .collect()
     }
 
     fn invalidate_projection_rows_cache(&mut self) {
@@ -27291,6 +27330,7 @@ mod tests {
             width: 30,
             max_width: 0,
             collapse_priority: 30,
+            row_lines: 1,
             scope: crate::config::SidebarViewScope::Workspace,
         }];
         app.config.sidebar.profiles = vec![
@@ -27353,6 +27393,7 @@ mod tests {
             width: 30,
             max_width: 0,
             collapse_priority: 30,
+            row_lines: 1,
             scope: crate::config::SidebarViewScope::Workspace,
         };
         let agents_view = SidebarViewSpec {
@@ -27363,6 +27404,7 @@ mod tests {
             width: 30,
             max_width: 0,
             collapse_priority: 30,
+            row_lines: 1,
             scope: crate::config::SidebarViewScope::Workspace,
         };
         let tabs_profile = SidebarProfileSpec {
@@ -27499,6 +27541,415 @@ mod tests {
             Some(&at_boundary),
         );
         assert!(revealed.machine.is_some());
+    }
+
+    #[test]
+    fn split_hysteresis_tracks_column_after_inner_child_pruning() {
+        let mut config = split_sidebar_config();
+        // The first child is pruned by the split's minimum height, while the
+        // top-level split column itself remains rendered.
+        config.sidebar.views[0].collapse_priority = 10;
+        config.sidebar.views[1].collapse_priority = 20;
+
+        let previous = sidebar_layout_for_state(
+            &config,
+            true,
+            false,
+            false,
+            (50, 8),
+            None,
+            None,
+            None,
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashSet::new(),
+            None,
+        );
+        assert!(previous.has_column("left"));
+        assert!(previous.rail(RailKind::Workspace).is_none());
+        assert!(previous.rail(RailKind::Projection(1)).is_some());
+
+        let current = sidebar_layout_for_state(
+            &config,
+            true,
+            false,
+            false,
+            (50, 8),
+            None,
+            None,
+            None,
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashSet::new(),
+            Some(&previous),
+        );
+        assert!(current.has_column("left"));
+        assert!(current.rail(RailKind::Projection(1)).is_some());
+    }
+
+    fn split_sidebar_config() -> Config {
+        use crate::config::{
+            SidebarLayoutNode, SidebarSplitDir, SidebarSplitSpec, SidebarViewScope,
+        };
+        let mut config = Config::default();
+        config.sidebar.views = vec![
+            SidebarViewSpec::legacy(SidebarColumnKind::Workspaces, 26, 0),
+            SidebarViewSpec {
+                id: "all-agents".into(),
+                levels: vec![SidebarResourceKind::Agents],
+                actions: Vec::new(),
+                actions_position: crate::config::ActionsPosition::Bottom,
+                width: 26,
+                max_width: 0,
+                collapse_priority: 20,
+                row_lines: 1,
+                scope: SidebarViewScope::All,
+            },
+        ];
+        config.sidebar.views_explicit = true;
+        config.sidebar.layout = vec![SidebarLayoutNode::Split(SidebarSplitSpec {
+            id: "left".into(),
+            dir: SidebarSplitDir::Vertical,
+            weights: vec![1, 1],
+            children: vec![SidebarLayoutNode::Leaf(0), SidebarLayoutNode::Leaf(1)],
+            width: 26,
+            max_width: 0,
+            collapse_priority: 30,
+        })];
+        config
+    }
+
+    #[test]
+    fn vertical_split_column_stacks_rails_around_a_divider_row() {
+        let config = split_sidebar_config();
+        let layout = sidebar_layout_for_state(
+            &config,
+            true,
+            false,
+            false,
+            (120, 31),
+            None,
+            None,
+            None,
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashSet::new(),
+            None,
+        );
+        assert_eq!(layout.columns.len(), 1);
+        assert_eq!(layout.ordered.len(), 2);
+        let top = layout.ordered[0].rect;
+        let bottom = layout.ordered[1].rect;
+        assert_eq!(layout.workspace, Some(top));
+        assert_eq!(layout.ordered[1].kind, RailKind::Projection(1));
+        assert_eq!((top.x, bottom.x), (0, 0));
+        assert_eq!(top.width, bottom.width);
+        assert_eq!(layout.dividers.len(), 1);
+        let divider = layout.dividers[0];
+        assert_eq!(divider.rect.y, top.y + top.height);
+        assert_eq!(bottom.y, divider.rect.y + 1);
+        assert_eq!(top.height + bottom.height + 1, 31, "children partition the full column");
+        assert_eq!(layout.content.x, top.width, "one column, one column width");
+    }
+
+    #[test]
+    fn split_fraction_overrides_replace_configured_weights() {
+        let config = split_sidebar_config();
+        let mut fractions = HashMap::new();
+        fractions.insert(
+            "left".to_string(),
+            HashMap::from([("workspaces".to_string(), 0.2f32), ("all-agents".to_string(), 0.8f32)]),
+        );
+        let layout = sidebar_layout_for_state(
+            &config,
+            true,
+            false,
+            false,
+            (120, 31),
+            None,
+            None,
+            None,
+            &HashMap::new(),
+            &fractions,
+            &HashSet::new(),
+            None,
+        );
+        let top = layout.ordered[0].rect;
+        let bottom = layout.ordered[1].rect;
+        assert_eq!(top.height, 6, "0.2 of the 30 shared rows");
+        assert_eq!(bottom.height, 24);
+    }
+
+    #[test]
+    fn split_fraction_overrides_follow_child_ids_after_reordering() {
+        let mut config = split_sidebar_config();
+        if let Some(crate::config::SidebarLayoutNode::Split(split)) =
+            config.sidebar.layout.first_mut()
+        {
+            split.children.reverse();
+            split.weights.reverse();
+        }
+        let mut fractions = HashMap::new();
+        fractions.insert(
+            "left".to_string(),
+            HashMap::from([("workspaces".to_string(), 0.2f32), ("all-agents".to_string(), 0.8f32)]),
+        );
+        let layout = sidebar_layout_for_state(
+            &config,
+            true,
+            false,
+            false,
+            (120, 31),
+            None,
+            None,
+            None,
+            &HashMap::new(),
+            &fractions,
+            &HashSet::new(),
+            None,
+        );
+
+        assert_eq!(layout.rail(RailKind::Workspace).unwrap().height, 6);
+        assert_eq!(layout.rail(RailKind::Projection(1)).unwrap().height, 24);
+    }
+
+    #[test]
+    fn split_fraction_overrides_keep_surviving_child_ratios_after_pruning() {
+        use crate::config::{SidebarLayoutNode, SidebarSplitDir, SidebarSplitSpec};
+
+        let mut config = split_sidebar_config();
+        let mut third = config.sidebar.views[1].clone();
+        third.id = "third".into();
+        config.sidebar.views.push(third);
+        config.sidebar.views[0].collapse_priority = 1;
+        config.sidebar.views[1].collapse_priority = 20;
+        config.sidebar.views[2].collapse_priority = 30;
+        config.sidebar.layout = vec![SidebarLayoutNode::Split(SidebarSplitSpec {
+            id: "left".into(),
+            dir: SidebarSplitDir::Vertical,
+            weights: vec![1, 1, 1],
+            children: vec![
+                SidebarLayoutNode::Leaf(0),
+                SidebarLayoutNode::Leaf(1),
+                SidebarLayoutNode::Leaf(2),
+            ],
+            width: 26,
+            max_width: 0,
+            collapse_priority: 30,
+        })];
+        let mut fractions = HashMap::new();
+        fractions.insert(
+            "left".to_string(),
+            HashMap::from([
+                ("workspaces".to_string(), 0.2f32),
+                ("all-agents".to_string(), 0.6f32),
+                ("third".to_string(), 0.2f32),
+            ]),
+        );
+
+        // The first child is pruned at this height. The two surviving
+        // children retain their 3:1 saved ratio instead of falling back to
+        // equal configured weights.
+        let layout = sidebar_layout_for_state(
+            &config,
+            true,
+            false,
+            false,
+            (120, 16),
+            None,
+            None,
+            None,
+            &HashMap::new(),
+            &fractions,
+            &HashSet::new(),
+            None,
+        );
+        assert_eq!(layout.split_groups[0].child_keys, vec!["all-agents", "third"]);
+        assert_eq!(layout.rail(RailKind::Projection(1)).unwrap().height, 10);
+        assert_eq!(layout.rail(RailKind::Projection(2)).unwrap().height, 5);
+    }
+
+    #[test]
+    fn hidden_split_pane_gives_the_column_to_the_remaining_rail() {
+        let config = split_sidebar_config();
+        let mut hidden = HashSet::new();
+        hidden.insert("all-agents".to_string());
+        let layout = sidebar_layout_for_state(
+            &config,
+            true,
+            false,
+            false,
+            (120, 31),
+            None,
+            None,
+            None,
+            &HashMap::new(),
+            &HashMap::new(),
+            &hidden,
+            None,
+        );
+        assert_eq!(layout.ordered.len(), 1);
+        assert!(layout.dividers.is_empty());
+        assert_eq!(layout.ordered[0].rect.height, 31);
+    }
+
+    #[test]
+    fn sidebar_split_divider_drag_re_shares_the_column() {
+        let mux = Mux::new("sidebar-split-drag-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.config = split_sidebar_config();
+        app.sync_layout((120, 31));
+        assert_eq!(app.sidebar_layout.dividers.len(), 1);
+
+        app.drag_sidebar_split_divider("left", "workspaces", "all-agents", 0, 9);
+        app.sync_layout((120, 31));
+        let top = app.sidebar_layout.ordered[0].rect;
+        let bottom = app.sidebar_layout.ordered[1].rect;
+        assert_eq!(top.height, 9, "the dragged divider row becomes the boundary");
+        assert_eq!(top.height + bottom.height, 30);
+
+        // The two rails clamp at their minimum height.
+        app.drag_sidebar_split_divider("left", "workspaces", "all-agents", 0, 0);
+        app.sync_layout((120, 31));
+        assert_eq!(app.sidebar_layout.ordered[0].rect.height, super::MIN_SPLIT_RAIL_HEIGHT);
+    }
+
+    #[test]
+    fn sidebar_split_divider_drag_resolves_group_by_stable_id() {
+        let mux = Mux::new("sidebar-split-stable-id-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.sidebar_layout.split_groups = vec![
+            SidebarSplitGroupPlacement {
+                id: "other".into(),
+                dir: SidebarSplitDir::Vertical,
+                children: vec![
+                    Rect { x: 0, y: 0, width: 20, height: 10 },
+                    Rect { x: 0, y: 11, width: 20, height: 10 },
+                ],
+                child_keys: vec!["other-first".into(), "other-second".into()],
+            },
+            SidebarSplitGroupPlacement {
+                id: "left".into(),
+                dir: SidebarSplitDir::Vertical,
+                children: vec![
+                    Rect { x: 0, y: 0, width: 20, height: 10 },
+                    Rect { x: 0, y: 11, width: 20, height: 10 },
+                ],
+                child_keys: vec!["first".into(), "second".into()],
+            },
+        ];
+
+        app.drag_sidebar_split_divider("left", "first", "second", 0, 9);
+
+        assert!(app.sidebar_split_fractions.contains_key("left"));
+        assert!(!app.sidebar_split_fractions.contains_key("other"));
+        let fractions = app.sidebar_split_fractions.get("left").unwrap();
+        assert!(fractions.contains_key("first"));
+        assert!(fractions.contains_key("second"));
+    }
+
+    #[test]
+    fn sidebar_split_drag_keeps_the_same_children_after_layout_pruning() {
+        use crate::config::{SidebarLayoutNode, SidebarSplitDir, SidebarSplitSpec};
+
+        let mux = Mux::new("sidebar-split-drag-pruning-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let mut config = split_sidebar_config();
+        let mut third = config.sidebar.views[1].clone();
+        third.id = "third".into();
+        let mut fourth = third.clone();
+        fourth.id = "fourth".into();
+        config.sidebar.views.extend([third, fourth]);
+        config.sidebar.views[0].collapse_priority = 1;
+        config.sidebar.views[1].collapse_priority = 20;
+        config.sidebar.views[2].collapse_priority = 30;
+        config.sidebar.views[3].collapse_priority = 40;
+        config.sidebar.layout = vec![SidebarLayoutNode::Split(SidebarSplitSpec {
+            id: "left".into(),
+            dir: SidebarSplitDir::Vertical,
+            weights: vec![1; 4],
+            children: (0..4).map(SidebarLayoutNode::Leaf).collect(),
+            width: 26,
+            max_width: 0,
+            collapse_priority: 30,
+        })];
+        config.sidebar.views_explicit = true;
+        app.config = config;
+
+        // Capture the divider between the second and third children while all
+        // four children fit.
+        app.sync_layout((120, 23));
+        let (group, first_child, second_child) =
+            app.sidebar_split_drag_target(0, 1).expect("second split divider exists");
+        assert_eq!((first_child.as_str(), second_child.as_str()), ("all-agents", "third"));
+        app.drag = Some(Drag::SidebarSplit { group, first_child, second_child });
+
+        // A shorter frame prunes only the first child. The captured pair is
+        // now at indexes 0 and 1, so an index-only drag would target the wrong
+        // pair (or fail when the old index is out of range).
+        app.sync_layout((120, 18));
+        assert_eq!(
+            app.sidebar_layout.split_groups[0].child_keys,
+            vec!["all-agents", "third", "fourth"]
+        );
+        app.handle_left_drag(0, 6).unwrap();
+        app.sync_layout((120, 18));
+
+        let fourth_height = app
+            .sidebar_layout
+            .ordered
+            .iter()
+            .find(|placement| placement.kind == RailKind::Projection(3))
+            .map(|placement| placement.rect.height)
+            .expect("fourth child remains visible");
+        assert_eq!(fourth_height, 5, "the captured pair, not the stale index, was resized");
+        assert!(matches!(app.drag, Some(Drag::SidebarSplit { .. })));
+    }
+
+    #[test]
+    fn focus_moves_vertically_between_stacked_rails() {
+        let mux = Mux::new("sidebar-split-focus-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.config = split_sidebar_config();
+        app.sync_layout((120, 31));
+
+        app.focus = FocusTarget::WorkspaceRail;
+        assert!(app.move_focus_between_sidebar_rails(Direction::Down));
+        assert_eq!(app.focus, FocusTarget::ProjectionRail(1));
+        assert!(app.move_focus_between_sidebar_rails(Direction::Up));
+        assert_eq!(app.focus, FocusTarget::WorkspaceRail);
+        assert!(
+            !app.move_focus_between_sidebar_rails(Direction::Up),
+            "no rail above the top of the column"
+        );
+    }
+
+    #[test]
+    fn rail_width_drag_on_a_stacked_rail_resizes_the_whole_column() {
+        let mux = Mux::new("sidebar-split-width-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.config = split_sidebar_config();
+        app.sync_layout((120, 31));
+
+        app.drag = Some(Drag::RailResize(RailKind::Projection(1)));
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Drag(MouseButton::Left),
+            column: 33,
+            row: 25,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        app.sync_layout((120, 31));
+        assert_eq!(
+            app.projection_sidebar_width_overrides.get("left").copied(),
+            Some(34),
+            "the override commits under the split group id"
+        );
+        let top = app.sidebar_layout.ordered[0].rect;
+        let bottom = app.sidebar_layout.ordered[1].rect;
+        assert_eq!(top.width, 34);
+        assert_eq!(bottom.width, 34);
+        app.drag = None;
     }
 
     #[test]
@@ -34517,6 +34968,7 @@ mod tests {
                     state: "working".into(),
                     source: "hook".into(),
                     session: None,
+                    agent: None,
                     updated_at_ms: 1,
                 },
                 &tx,
@@ -34539,6 +34991,7 @@ mod tests {
                     state: "working".into(),
                     source: "hook".into(),
                     session: None,
+                    agent: None,
                     updated_at_ms: 2,
                 },
                 &tx,
@@ -42901,6 +43354,7 @@ mod tests {
             width: 40,
             max_width: 0,
             collapse_priority: 30,
+            row_lines: 1,
             scope: crate::config::SidebarViewScope::Workspace,
         }];
         app.config.sidebar.views_explicit = true;
@@ -42980,6 +43434,7 @@ mod tests {
             width: 40,
             max_width: 0,
             collapse_priority: 30,
+            row_lines: 1,
             scope: crate::config::SidebarViewScope::Workspace,
         }];
         app.config.sidebar.views_explicit = true;
@@ -43011,6 +43466,7 @@ mod tests {
                 width: 40,
                 max_width: 0,
                 collapse_priority: 30,
+                row_lines: 1,
                 scope: crate::config::SidebarViewScope::Workspace,
             },
             SidebarViewSpec {
@@ -43021,6 +43477,7 @@ mod tests {
                 width: 40,
                 max_width: 0,
                 collapse_priority: 30,
+                row_lines: 1,
                 scope: crate::config::SidebarViewScope::Workspace,
             },
         ];
@@ -43037,6 +43494,7 @@ mod tests {
                 state: "working".into(),
                 source: "hook".into(),
                 session: None,
+                agent: None,
                 updated_at_ms: 1,
             }))
             .unwrap(),
@@ -43051,6 +43509,7 @@ mod tests {
                 state: "working".into(),
                 source: "hook".into(),
                 session: None,
+                agent: None,
                 updated_at_ms: 1,
             }))
             .unwrap();
@@ -43069,6 +43528,7 @@ mod tests {
                 state: "working".into(),
                 source: "hook".into(),
                 session: None,
+                agent: None,
                 updated_at_ms: 2,
             }))
             .unwrap(),
@@ -43094,6 +43554,7 @@ mod tests {
             width: 40,
             max_width: 0,
             collapse_priority: 30,
+            row_lines: 1,
             scope: crate::config::SidebarViewScope::All,
         }];
         app.config.sidebar.views_explicit = true;
@@ -43126,6 +43587,7 @@ mod tests {
                 width: 40,
                 max_width: 0,
                 collapse_priority: 30,
+                row_lines: 1,
                 scope: crate::config::SidebarViewScope::Workspace,
             },
             SidebarViewSpec {
@@ -43136,6 +43598,7 @@ mod tests {
                 width: 40,
                 max_width: 0,
                 collapse_priority: 30,
+                row_lines: 1,
                 scope: crate::config::SidebarViewScope::Workspace,
             },
         ];
@@ -43190,6 +43653,7 @@ mod tests {
             width: 40,
             max_width: 0,
             collapse_priority: 30,
+            row_lines: 1,
             scope: crate::config::SidebarViewScope::Workspace,
         }];
         app.config.sidebar.views_explicit = true;
@@ -43219,6 +43683,7 @@ mod tests {
             width: 40,
             max_width: 0,
             collapse_priority: 30,
+            row_lines: 1,
             scope: crate::config::SidebarViewScope::Workspace,
         }];
         app.config.sidebar.views_explicit = true;
@@ -43234,6 +43699,7 @@ mod tests {
                 state: "working".into(),
                 source: "hook".into(),
                 session: None,
+                agent: None,
                 updated_at_ms: 1,
             }))
             .unwrap(),
@@ -43257,6 +43723,7 @@ mod tests {
             width: 40,
             max_width: 0,
             collapse_priority: 30,
+            row_lines: 1,
             scope: crate::config::SidebarViewScope::Workspace,
         }];
         app.config.sidebar.views_explicit = true;
@@ -43293,6 +43760,7 @@ mod tests {
             width: 40,
             max_width: 0,
             collapse_priority: 30,
+            row_lines: 1,
             scope: crate::config::SidebarViewScope::Workspace,
         }];
         app.config.sidebar.views_explicit = true;
@@ -43318,6 +43786,7 @@ mod tests {
             width: 40,
             max_width: 0,
             collapse_priority: 30,
+            row_lines: 1,
             scope: crate::config::SidebarViewScope::Workspace,
         }];
         app.config.sidebar.views_explicit = true;
@@ -43358,6 +43827,7 @@ mod tests {
             width: 40,
             max_width: 0,
             collapse_priority: 30,
+            row_lines: 1,
             scope: crate::config::SidebarViewScope::Workspace,
         }];
         app.config.sidebar.views_explicit = true;
@@ -43423,6 +43893,7 @@ mod tests {
             width: 40,
             max_width: 0,
             collapse_priority: 30,
+            row_lines: 1,
             scope: crate::config::SidebarViewScope::Workspace,
         }];
         app.config.sidebar.views_explicit = true;
@@ -43440,6 +43911,53 @@ mod tests {
         );
 
         mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn agents_view_priority_renders_header_dots_and_two_line_rows() {
+        let (mux, first) = test_mux("agents-view-two-line-test", None);
+        let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let second = mux.new_tab(Some(pane), None, Some((80, 24))).unwrap();
+        // The working report lands last, but blocked still ranks first.
+        mux.report_agent(second.id, AgentState::Blocked, AgentSource::Socket, None).unwrap();
+        mux.report_agent(first.id, AgentState::Working, AgentSource::Socket, None).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.config.sidebar.columns.clear();
+        app.config.sidebar.views = vec![SidebarViewSpec {
+            id: "agents".into(),
+            levels: vec![SidebarResourceKind::Agents],
+            actions: Vec::new(),
+            actions_position: crate::config::ActionsPosition::Bottom,
+            width: 30,
+            max_width: 0,
+            collapse_priority: 30,
+            row_lines: 2,
+            scope: crate::config::SidebarViewScope::Workspace,
+        }];
+        app.config.sidebar.views_explicit = true;
+        app.replace_tree(app.session.tree());
+        app.sync_layout((100, 20));
+
+        let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let rendered = buffer_text(terminal.backend().buffer());
+        let lines: Vec<&str> = rendered.lines().collect();
+
+        let header = lines
+            .iter()
+            .position(|line| line.contains("agents") && line.contains("priority"))
+            .expect("agents view header shows the title and the sort mode");
+        let blocked = lines.iter().position(|line| line.contains("blocked")).unwrap();
+        let working = lines.iter().position(|line| line.contains("working")).unwrap();
+        assert!(header < blocked, "header renders above the rows");
+        assert!(blocked < working, "blocked outranks working regardless of recency");
+        // Two-line rows: the state dot and title line sits directly above
+        // the dim type/state line.
+        assert!(lines[blocked - 1].contains("●"), "blocked row carries a dot on its title line");
+        assert!(lines[working - 1].contains("●"), "working row carries a dot on its title line");
+        assert_eq!(working - blocked, 2, "each agent entry spans two lines");
+
+        mux.close_surface(second.id).unwrap();
     }
 
     #[test]
@@ -43462,6 +43980,7 @@ mod tests {
             width: 40,
             max_width: 0,
             collapse_priority: 30,
+            row_lines: 1,
             scope: crate::config::SidebarViewScope::Workspace,
         }];
         app.config.sidebar.views_explicit = true;
@@ -43614,6 +44133,7 @@ mod tests {
             width: 40,
             max_width: 0,
             collapse_priority: 30,
+            row_lines: 1,
             scope: crate::config::SidebarViewScope::Workspace,
         }];
         app.config.sidebar.views_explicit = true;
@@ -43714,6 +44234,7 @@ mod tests {
             width: 40,
             max_width: 0,
             collapse_priority: 30,
+            row_lines: 1,
             scope: crate::config::SidebarViewScope::Workspace,
         }];
         app.config.sidebar.views_explicit = true;
@@ -45622,6 +46143,7 @@ mod tests {
             projection_rails: HashMap::new(),
             projection_rows_cache: VecDeque::new(),
             projection_rows_revision: 0,
+            agent_focus_stamps: HashMap::new(),
             projection_agent_surfaces: HashSet::new(),
             projection_title_surfaces: HashSet::new(),
             projection_agent_surfaces_by_view: HashMap::new(),
