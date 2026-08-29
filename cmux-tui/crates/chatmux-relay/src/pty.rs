@@ -3091,8 +3091,7 @@ mod tests {
             "rows": 24,
             "actorId": "user_owner",
         });
-        let mut trusted =
-            h.context_with_transport("supervised", h.owner.clone(), Some("tunnel-a"));
+        let mut trusted = h.context_with_transport("supervised", h.owner.clone(), Some("tunnel-a"));
         trusted.transport_kind = TransportKind::Tunnel;
         h.manager.handle_frame(&frame, &trusted).await;
         let pty = h.spawned()[0].clone();
