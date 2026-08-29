@@ -1657,7 +1657,28 @@ fn replace_installed_plugin_with_fs<F: InstallFilesystem, C: FnOnce() -> anyhow:
     };
     let backups_clean = backup_dir_clean && metadata_backup_clean;
     if backups_clean {
-        let _ = filesystem.remove_file(&journal_path);
+        // The committed journal is the last recovery evidence. Make both
+        // backup removals durable before unlinking it, otherwise a crash can
+        // lose the journal while resurrecting one of the backups as an
+        // unreachable orphan. If the directory sync fails, keep the journal
+        // so the next operation can retry cleanup.
+        let journal_parent = journal_path.parent().unwrap_or_else(|| Path::new("."));
+        let registry = install_root.join(".registry");
+        let cleanup_durable = sync_directory(install_root)
+            .and_then(|()| sync_directory(&registry))
+            .is_ok();
+        if cleanup_durable {
+            let journal_removed = match filesystem.remove_file(&journal_path) {
+                Ok(()) => true,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => true,
+                Err(_) => false,
+            };
+            if journal_removed {
+                // A failed final sync is safe: the committed journal may
+                // remain and recovery will repeat the idempotent cleanup.
+                let _ = sync_directory(journal_parent);
+            }
+        }
     }
     Ok(())
 }
