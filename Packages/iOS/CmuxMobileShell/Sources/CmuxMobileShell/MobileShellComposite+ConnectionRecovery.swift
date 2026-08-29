@@ -753,11 +753,16 @@ extension MobileShellComposite {
                 )
                 : nil
         )
-        if resolvedMethod == .relay, pinnedRoutes.isEmpty,
-           let relayRoute = Self.synthesizedRelayRoute() {
-            // A relay pairing needs no persisted route: the ticket carries the
-            // synthesized WebSocket route so the dial below always has one.
-            pinnedRoutes = [relayRoute]
+        if resolvedMethod == .relay {
+            // The relay method is exclusive: no persisted Tailscale or other
+            // host/port route may dial. Debug loopback stays as the
+            // same-machine dev lane (simulator flow), ahead of the synthesized
+            // relay route, which is appended so a pairing with no persisted
+            // route at all still dials.
+            pinnedRoutes = pinnedRoutes.filter { $0.kind == .debugLoopback }
+            if let relayRoute = Self.synthesizedRelayRoute() {
+                pinnedRoutes.append(relayRoute)
+            }
         }
         guard let firstRoute = pinnedRoutes.first else { return .failed(.unsupportedRoute) }
 
@@ -770,7 +775,12 @@ extension MobileShellComposite {
                 persistedRoutes: legacyTailscaleRoutes
             ) != nil
         }
-        if resolvedMethod == .relay
+        // The stored-ticket path serves transport-admitted lanes (the relay's
+        // synthesized WebSocket route, legacy iroh rows) and grandfathered
+        // Tailscale evidence. A loopback-first set keeps the legacy dev dial
+        // below even when the pairing's method is relay, preserving the
+        // simulator flow's bearer handling.
+        if firstRoute.kind == .websocket
             || firstRoute.kind == .iroh
             || hasAuthorizedLegacyTailscaleRoute {
             do {
