@@ -473,14 +473,28 @@ final class MobileHostService {
     private init() {}
 
     /// Inject the auth dependency. Call once at the composition root.
-    /// Exactly one iroh host runtime owns the app's broker binding slot:
-    /// the irx rebuild when its DEBUG flag is on, the legacy runtime
-    /// otherwise. Running both would reincarnate the binding in a loop.
+    /// Exactly one runtime owns the mobile transport slot: the dot relay
+    /// runtime when its gate is on (the default — the iroh endpoint is never
+    /// started in dot mode), the irx rebuild when its flag is on, the legacy
+    /// iroh runtime otherwise. Running two would fight over the identity /
+    /// broker binding slot.
     func configure(auth: AuthCoordinator) {
         self.auth = auth
-        if MobileHostIrxRuntime.isEnabled {
+        if MobileHostDotRuntime.isEnabled {
+            MobileHostDotRuntime.shared.configure(auth: auth)
+        } else if MobileHostIrxRuntime.isEnabled {
+            if let reason = MobileHostDotRuntime.forceDisabledReason {
+                mobileHostLog.info(
+                    "dot transport disabled: \(reason, privacy: .public)"
+                )
+            }
             MobileHostIrxRuntime.shared.configure(auth: auth)
         } else {
+            if let reason = MobileHostDotRuntime.forceDisabledReason {
+                mobileHostLog.info(
+                    "dot transport disabled: \(reason, privacy: .public)"
+                )
+            }
             MobileHostIrohRuntime.shared.configure(auth: auth)
         }
     }
@@ -839,7 +853,8 @@ final class MobileHostService {
     nonisolated static func startupPlan(
         remoteControlDisabledByPolicy: Bool,
         legacyListenerEnabled: Bool,
-        legacyListenerRunning: Bool
+        legacyListenerRunning: Bool,
+        dotEnabled: Bool = false
     ) -> MobileHostStartupPlan {
         guard !remoteControlDisabledByPolicy else {
             return MobileHostStartupPlan(
@@ -848,8 +863,13 @@ final class MobileHostService {
             )
         }
         return MobileHostStartupPlan(
-            activatesIroh: true,
-            startsLegacyListener: legacyListenerEnabled && !legacyListenerRunning
+            // Dot owns the complete mobile data plane. Do not re-arm the
+            // legacy IROH endpoint or TCP listener in that mode, otherwise a
+            // stale route can win attach-ticket selection during activation.
+            activatesIroh: !dotEnabled,
+            startsLegacyListener: !dotEnabled
+                && legacyListenerEnabled
+                && !legacyListenerRunning
         )
     }
 
@@ -1030,7 +1050,8 @@ final class MobileHostService {
         let plan = Self.startupPlan(
             remoteControlDisabledByPolicy: MobileRemoteControlPolicy.isDisabled,
             legacyListenerEnabled: Self.isListeningEnabled,
-            legacyListenerRunning: listener != nil
+            legacyListenerRunning: listener != nil,
+            dotEnabled: MobileHostDotRuntime.isEnabled
         )
         if MobileRemoteControlPolicy.isDisabled {
             mobileHostLog.info("mobile host disabled by managed policy; not starting")
@@ -1042,7 +1063,15 @@ final class MobileHostService {
             }
             #endif
             if listener == nil {
-                mobileHostLog.info("legacy mobile host listener disabled; starting Iroh only")
+                if MobileHostDotRuntime.isEnabled {
+                    mobileHostLog.info(
+                        "dot mobile transport owns the data plane; legacy listener disabled"
+                    )
+                } else {
+                    mobileHostLog.info(
+                        "legacy mobile host listener disabled; starting Iroh only"
+                    )
+                }
             }
             if plan.activatesIroh {
                 MobileHostIrohRuntime.shared.setDesiredActive(true)
@@ -1285,6 +1314,16 @@ final class MobileHostService {
             return
         }
         remoteControlPolicyStopApplied = false
+        if MobileHostDotRuntime.isEnabled {
+            // A settings notification can arrive after a previous transport
+            // was active. Keep the legacy listener and IROH endpoint dormant
+            // while dot republishes its identity-only route.
+            MobileHostIrohRuntime.shared.setDesiredActive(false)
+            if listener != nil {
+                stopLegacyListener(reason: "dot transport owns mobile data plane")
+            }
+            return
+        }
         let defaults = UserDefaults.standard
         // Settings control only the legacy TCP/Tailscale listener. Account-
         // authenticated Iroh stays available for signed-in Macs.
