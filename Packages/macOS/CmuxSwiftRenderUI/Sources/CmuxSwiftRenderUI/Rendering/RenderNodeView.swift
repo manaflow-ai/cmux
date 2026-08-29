@@ -29,15 +29,19 @@ struct RenderNodeView: View {
         path + [-2, modifierIndex]
     }
 
-    /// Computes the paths used while traversing this node's modifiers. The
-    /// first tuple member is the path before each modifier; the second is the
-    /// path inherited by child render nodes.
+    /// Computes the logical paths used while applying this node's modifiers.
+    /// The first tuple member gives each modifier's final hierarchy path; the
+    /// second is the path inherited by child render nodes.
     func contextMenuPathPlan(for modifiers: [RenderModifier])
         -> (modifierPaths: [[Int]], descendantPath: [Int]) {
         var path = contextMenuPath
-        var modifierPaths: [[Int]] = []
-        for (index, modifier) in modifiers.enumerated() {
-            modifierPaths.append(path)
+        var modifierPaths = Array(repeating: [Int](), count: modifiers.count)
+        // `applyModifiers` wraps the accumulated view in source order, so the
+        // last modifier is the outermost layer. Walk backwards to assign the
+        // same logical ancestry that the resulting SwiftUI hierarchy has.
+        for index in modifiers.indices.reversed() {
+            let modifier = modifiers[index]
+            modifierPaths[index] = path
             if isContextMenuOverlay(modifier) {
                 path = appendingContextMenuModifierPath(path, modifierIndex: index)
             }

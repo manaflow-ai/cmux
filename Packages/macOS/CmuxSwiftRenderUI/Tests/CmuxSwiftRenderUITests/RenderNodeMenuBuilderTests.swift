@@ -358,10 +358,42 @@ struct RenderNodeMenuBuilderTests {
         let view = RenderNodeView(node: node, contextMenuPath: [3, 2])
         let plan = view.contextMenuPathPlan(for: node.modifiers)
 
-        #expect(plan.modifierPaths == [[3, 2], [3, 2, -2, 0]])
-        #expect(plan.descendantPath == [3, 2, -2, 0, -2, 1])
-        #expect(plan.modifierPaths[1].count > plan.modifierPaths[0].count)
-        #expect(plan.modifierPaths[1].starts(with: plan.modifierPaths[0]))
+        // `applyModifiers` wraps each new modifier around the accumulated
+        // view, so the second context menu is the outer owner and the first
+        // one is its descendant.
+        #expect(plan.modifierPaths == [[3, 2, -2, 1], [3, 2]])
+        #expect(plan.descendantPath == [3, 2, -2, 1, -2, 0])
+        #expect(plan.modifierPaths[0].count > plan.modifierPaths[1].count)
+        #expect(plan.modifierPaths[0].starts(with: plan.modifierPaths[1]))
+    }
+
+    @Test("nested overlay ownership preserves the shared superview point")
+    func nestedOverlayUsesSuperviewPointAcrossOffsets() {
+        let menuNodes = [RenderNode(kind: .button, text: "Nested",
+                                    action: ButtonAction(commands: [.log("nested")]))]
+
+        // Both overlays are offset from the common container. The point is in
+        // the nested overlay's frame only after converting through `content`.
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 140))
+        let content = NSView(frame: NSRect(x: 20, y: 15, width: 260, height: 100))
+        let nested = RenderNodeContextMenuView(
+            frame: NSRect(x: 110, y: 25, width: 60, height: 40)
+        )
+        nested.nodes = menuNodes
+        nested.contextMenuPath = [0, -2, 1]
+        content.addSubview(nested)
+        container.addSubview(content)
+
+        let rowOverlay = RenderNodeContextMenuView(
+            frame: NSRect(x: 20, y: 15, width: 260, height: 100)
+        )
+        rowOverlay.nodes = menuNodes
+        rowOverlay.contextMenuPath = [0]
+        container.addSubview(rowOverlay)
+
+        // Container-space point (145, 50) maps to nested-local (15, 10).
+        #expect(rowOverlay.deeperOverlayClaims(NSPoint(x: 145, y: 50)))
+        #expect(!rowOverlay.deeperOverlayClaims(NSPoint(x: 90, y: 50)))
     }
 
     @Test("a sibling row overlay does not suppress the current row menu")

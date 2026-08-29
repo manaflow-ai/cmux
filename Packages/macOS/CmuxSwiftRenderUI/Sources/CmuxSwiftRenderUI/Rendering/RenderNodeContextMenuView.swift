@@ -27,17 +27,35 @@ final class RenderNodeContextMenuView: NSView {
     var isMenuEnabled = true
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        performHitTest(at: point, currentEvent: NSApp.currentEvent)
+        guard let superview else { return nil }
+        // AppKit supplies `point` in this view's superview coordinate system.
+        // Convert it once for the local bounds check, while retaining the
+        // original point for descendant overlays in that same superview space.
+        return evaluateHitTest(
+            localPoint: convert(point, from: superview),
+            superviewPoint: point,
+            currentEvent: NSApp.currentEvent
+        )
     }
 
-    /// Event-filtered hit-test implementation. The override supplies
-    /// ``NSApp.currentEvent``; callers that drive synthetic events can pass
-    /// the event explicitly while preserving AppKit's coordinate contract.
-    func performHitTest(at point: NSPoint, currentEvent: NSEvent?) -> NSView? {
-        // AppKit gives NSView.hitTest(_:) a point in this view's superview
-        // coordinate system. Convert it once before checking the local bounds.
+    /// Deterministic event-filtered hit-test seam. The point is in this view's
+    /// superview coordinate system, matching ``NSView.hitTest(_:)``. Production
+    /// hit testing supplies the same point through the override above; tests
+    /// can pass a synthetic event without relying on `NSApp.currentEvent`.
+    func performHitTest(at pointInSuperview: NSPoint, currentEvent: NSEvent?) -> NSView? {
         guard let superview else { return nil }
-        let localPoint = convert(point, from: superview)
+        return evaluateHitTest(
+            localPoint: convert(pointInSuperview, from: superview),
+            superviewPoint: pointInSuperview,
+            currentEvent: currentEvent
+        )
+    }
+
+    private func evaluateHitTest(
+        localPoint: NSPoint,
+        superviewPoint: NSPoint,
+        currentEvent: NSEvent?
+    ) -> NSView? {
         guard bounds.contains(localPoint), let event = currentEvent else { return nil }
         switch event.type {
         case .rightMouseDown:
@@ -57,7 +75,7 @@ final class RenderNodeContextMenuView: NSView {
         // continue into the content subtree and reach the deeper overlay.
         // The descendant walk is expressed in the superview's coordinates,
         // which is also the coordinate system AppKit supplied to this method.
-        if deeperOverlayClaims(point) { return nil }
+        if deeperOverlayClaims(superviewPoint) { return nil }
         return self
     }
 
