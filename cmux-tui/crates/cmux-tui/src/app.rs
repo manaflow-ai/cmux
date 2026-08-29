@@ -20367,7 +20367,7 @@ impl App {
         modifiers: KeyModifiers,
         terminal_admission: Option<TerminalPointerAdmission>,
     ) -> PtyMousePressResult {
-        if modifiers.contains(KeyModifiers::SHIFT)
+        if modifiers.intersects(KeyModifiers::SHIFT | KeyModifiers::ALT)
             || self.menu.is_some()
             || self.prompt.is_some()
             || self.drag.is_some()
