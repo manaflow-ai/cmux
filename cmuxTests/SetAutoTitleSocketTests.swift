@@ -1,6 +1,5 @@
 import Foundation
 import CmuxSettings
-import SQLite3
 import Testing
 
 #if canImport(cmux_DEV)
@@ -297,76 +296,26 @@ import Testing
     // MARK: - surface.sync_codex_native_title (cmux #11144)
     //
     // Mirrors an OSC terminal-title update, but sourced from Codex's own
-    // native thread title (`~/.codex/state_5.sqlite`) instead of a terminal
-    // escape sequence, so it writes through `Workspace.updatePanelTitle` (the
-    // same raw tier OSC already uses) rather than the `.auto` custom-title
-    // tier `workspace.set_auto_title` writes to. Unlike that method, it is
-    // NOT gated by the opt-in Workspace Auto-Naming setting — matching
-    // Claude's unconditional OSC-driven tab title updates.
-
-    private func makeCodexStateDatabase(sessionId: String, title: String) throws -> (dir: URL, path: String) {
-        let dir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-sync-codex-title-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let dbURL = dir.appendingPathComponent("state_5.sqlite")
-        var db: OpaquePointer?
-        guard sqlite3_open(dbURL.path, &db) == SQLITE_OK, let db else {
-            throw CocoaError(.fileWriteUnknown)
-        }
-        defer { sqlite3_close(db) }
-        let schema = """
-            CREATE TABLE threads (
-                id TEXT PRIMARY KEY,
-                rollout_path TEXT NOT NULL,
-                cwd TEXT NOT NULL,
-                title TEXT NOT NULL,
-                model TEXT,
-                git_branch TEXT,
-                approval_mode TEXT NOT NULL,
-                sandbox_policy TEXT NOT NULL,
-                reasoning_effort TEXT,
-                first_user_message TEXT NOT NULL,
-                updated_at_ms INTEGER,
-                archived INTEGER NOT NULL DEFAULT 0
-            );
-            """
-        guard sqlite3_exec(db, schema, nil, nil, nil) == SQLITE_OK else {
-            throw CocoaError(.fileWriteUnknown)
-        }
-        let insert = """
-            INSERT INTO threads (
-                id, rollout_path, cwd, title, approval_mode, sandbox_policy, first_user_message, archived
-            ) VALUES (?, '/tmp/rollout.jsonl', '/tmp/project', ?, 'never', '{"type":"read-only"}', 'hi', 0);
-            """
-        var stmt: OpaquePointer?
-        guard sqlite3_prepare_v2(db, insert, -1, &stmt, nil) == SQLITE_OK, let stmt else {
-            throw CocoaError(.fileWriteUnknown)
-        }
-        defer { sqlite3_finalize(stmt) }
-        let transient = unsafeBitCast(OpaquePointer(bitPattern: -1), to: sqlite3_destructor_type.self)
-        sqlite3_bind_text(stmt, 1, sessionId, -1, transient)
-        sqlite3_bind_text(stmt, 2, title, -1, transient)
-        guard sqlite3_step(stmt) == SQLITE_DONE else {
-            throw CocoaError(.fileWriteUnknown)
-        }
-        return (dir, dbURL.path)
-    }
+    // native thread title instead of a terminal escape sequence, so it writes
+    // through `Workspace.updatePanelTitle` (the same raw tier OSC already
+    // uses) rather than the `.auto` custom-title tier `workspace.set_auto_title`
+    // writes to. Unlike that method, it is NOT gated by the opt-in Workspace
+    // Auto-Naming setting — matching Claude's unconditional OSC-driven tab
+    // title updates. The title itself is resolved by the caller (the detached
+    // `cmux hooks codex sync-native-title` process, via `CodexNativeTitleStore`
+    // in the CMUXAgentLaunch package) before this call, so these tests exercise
+    // the handler with a plain `title` param — the reader itself is covered by
+    // `CodexNativeTitleStoreTests` in that package.
 
     @Test func syncCodexNativeTitleAppliesRawPanelTitleWhenNoCustomTitleExists() throws {
         try withManager { _, workspace in
             let pane = try #require(workspace.bonsplitController.allPaneIds.first)
             let panelId = try #require(workspace.newTerminalSurface(inPane: pane, focus: true)?.id)
-            let (dir, dbPath) = try makeCodexStateDatabase(
-                sessionId: "codex-sync-session-1",
-                title: "測試 cmux 與 codex Tab 同步"
-            )
-            defer { try? FileManager.default.removeItem(at: dir) }
 
             let envelope = try call(method: "surface.sync_codex_native_title", params: [
                 "workspace_id": workspace.id.uuidString,
                 "panel_id": panelId.uuidString,
-                "session_id": "codex-sync-session-1",
-                "db_path_for_testing": dbPath
+                "title": "測試 cmux 與 codex Tab 同步"
             ])
             let result = try #require(envelope["result"] as? [String: Any])
             #expect(result["applied"] as? Bool == true)
@@ -382,17 +331,10 @@ import Testing
             let panelId = try #require(workspace.newTerminalSurface(inPane: pane, focus: true)?.id)
             _ = workspace.setPanelCustomTitle(panelId: panelId, title: "my renamed tab", source: .user)
 
-            let (dir, dbPath) = try makeCodexStateDatabase(
-                sessionId: "codex-sync-session-2",
-                title: "some fresh Codex title"
-            )
-            defer { try? FileManager.default.removeItem(at: dir) }
-
             let envelope = try call(method: "surface.sync_codex_native_title", params: [
                 "workspace_id": workspace.id.uuidString,
                 "panel_id": panelId.uuidString,
-                "session_id": "codex-sync-session-2",
-                "db_path_for_testing": dbPath
+                "title": "some fresh Codex title"
             ])
             #expect(envelope["ok"] as? Bool == true)
             #expect(workspace.panelCustomTitles[panelId] == "my renamed tab")
@@ -406,40 +348,77 @@ import Testing
             let panelId = try #require(workspace.newTerminalSurface(inPane: pane, focus: true)?.id)
             _ = workspace.setPanelCustomTitle(panelId: panelId, title: "auto-named tab", source: .auto)
 
-            let (dir, dbPath) = try makeCodexStateDatabase(
-                sessionId: "codex-sync-session-3",
-                title: "some fresh Codex title"
-            )
-            defer { try? FileManager.default.removeItem(at: dir) }
-
             let envelope = try call(method: "surface.sync_codex_native_title", params: [
                 "workspace_id": workspace.id.uuidString,
                 "panel_id": panelId.uuidString,
-                "session_id": "codex-sync-session-3",
-                "db_path_for_testing": dbPath
+                "title": "some fresh Codex title"
             ])
             #expect(envelope["ok"] as? Bool == true)
             #expect(workspace.panelCustomTitles[panelId] == "auto-named tab")
         }
     }
 
-    @Test func syncCodexNativeTitleIsANoOpWhenSessionHasNoNativeTitle() throws {
+    @Test func syncCodexNativeTitleIgnoresWorkspaceAutoNamingSetting() throws {
+        // Priority: independent of the opt-in Workspace Auto-Naming feature —
+        // must apply identically whether that setting is on or off.
+        try withAutoNamingSetting(false) {
+            try withManager { _, workspace in
+                let pane = try #require(workspace.bonsplitController.allPaneIds.first)
+                let panelId = try #require(workspace.newTerminalSurface(inPane: pane, focus: true)?.id)
+
+                let envelope = try call(method: "surface.sync_codex_native_title", params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "panel_id": panelId.uuidString,
+                    "title": "applies even with auto-naming off"
+                ])
+                let result = try #require(envelope["result"] as? [String: Any])
+                #expect(result["applied"] as? Bool == true)
+                #expect(workspace.panelTitles[panelId] == "applies even with auto-naming off")
+            }
+        }
+    }
+
+    @Test func syncCodexNativeTitleMalformedParamsProduceCleanErrors() throws {
         try withManager { _, workspace in
             let pane = try #require(workspace.bonsplitController.allPaneIds.first)
             let panelId = try #require(workspace.newTerminalSurface(inPane: pane, focus: true)?.id)
 
-            // Not gated by the Workspace Auto-Naming setting: this must be a
-            // clean no-op with the setting off, using a session id no fixture
-            // database provides, rather than an error.
-            let envelope = try call(method: "surface.sync_codex_native_title", params: [
+            // Missing title.
+            var envelope = try call(method: "surface.sync_codex_native_title", params: [
                 "workspace_id": workspace.id.uuidString,
-                "panel_id": panelId.uuidString,
-                "session_id": "codex-session-\(UUID().uuidString)",
-                "db_path_for_testing": "/nonexistent/state_5.sqlite"
+                "panel_id": panelId.uuidString
             ])
-            let result = try #require(envelope["result"] as? [String: Any])
-            #expect(result["applied"] as? Bool == false)
-            #expect(workspace.panelTitles[panelId] == nil)
+            #expect(envelope["ok"] as? Bool == false)
+            var error = try #require(envelope["error"] as? [String: Any])
+            #expect(error["code"] as? String == "invalid_params")
+
+            // Missing workspace id.
+            envelope = try call(method: "surface.sync_codex_native_title", params: [
+                "panel_id": panelId.uuidString,
+                "title": "Fix auth bug"
+            ])
+            #expect(envelope["ok"] as? Bool == false)
+            error = try #require(envelope["error"] as? [String: Any])
+            #expect(error["code"] as? String == "invalid_params")
+
+            // Missing panel id.
+            envelope = try call(method: "surface.sync_codex_native_title", params: [
+                "workspace_id": workspace.id.uuidString,
+                "title": "Fix auth bug"
+            ])
+            #expect(envelope["ok"] as? Bool == false)
+            error = try #require(envelope["error"] as? [String: Any])
+            #expect(error["code"] as? String == "invalid_params")
+
+            // Unknown workspace.
+            envelope = try call(method: "surface.sync_codex_native_title", params: [
+                "workspace_id": UUID().uuidString,
+                "panel_id": panelId.uuidString,
+                "title": "Fix auth bug"
+            ])
+            #expect(envelope["ok"] as? Bool == false)
+            error = try #require(envelope["error"] as? [String: Any])
+            #expect(error["code"] as? String == "not_found")
         }
     }
 

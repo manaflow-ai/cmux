@@ -266,10 +266,8 @@ struct ControlCommandExecutionPolicyTests {
     }
 
     @Test func codexNativeTitleSyncRunsOnTheWorkerAndIsMainThreadCallable() {
-        // cmux #11144: this fires a state_5.sqlite snapshot-copy-and-query on
-        // every Codex turn end. Regression guard for that read landing on the
-        // socket worker rather than defaulting to `.mainActor` (which would
-        // block the main actor with file I/O on every turn).
+        // cmux #11144: matches workspace.set_auto_title's classification,
+        // since both apply a caller-supplied title with no I/O of their own.
         let policy = ControlCommandExecutionPolicy(forMethod: "surface.sync_codex_native_title")
         #expect(policy == .socketWorker(mainThreadCallable: true))
     }

@@ -4309,23 +4309,26 @@ class TerminalController {
 
     /// `surface.sync_codex_native_title`: mirrors an OSC terminal-title
     /// update, but sourced from Codex's own natively-generated thread title
-    /// (`~/.codex/state_5.sqlite`) instead of a terminal escape sequence.
-    /// Codex's CLI does not emit OSC title updates that track its live
-    /// conversation title the way Claude Code's CLI does, so a Codex panel's
-    /// Bonsplit tab never picks one up through the generic terminal-title
-    /// pipeline (cmux #11144). This writes through `Workspace.updatePanelTitle`
-    /// — the exact raw-title tier OSC already writes to — so any existing
-    /// custom title, `.auto` or `.user`, is left untouched exactly as it
-    /// already is for OSC updates; this never itself becomes a `customTitle`
-    /// write. Unlike `workspace.set_auto_title`, it is not gated by the
-    /// opt-in Workspace Auto-Naming setting and never runs a summarizer:
-    /// Codex already computed this title itself. Best-effort: an unresolved
-    /// panel, a missing database, or an unknown/empty title is a silent
+    /// instead of a terminal escape sequence. Codex's CLI does not emit OSC
+    /// title updates that track its live conversation title the way Claude
+    /// Code's CLI does, so a Codex panel's Bonsplit tab never picks one up
+    /// through the generic terminal-title pipeline (cmux #11144). The caller
+    /// (the detached `cmux hooks codex sync-native-title` process) has
+    /// already resolved `title` via `CodexNativeTitleStore` before this call
+    /// — this handler does no database or file I/O of its own, only the same
+    /// in-memory panel lookup and `Workspace.updatePanelTitle` write
+    /// `workspace.set_auto_title` already does. Because it writes through the
+    /// exact raw-title tier OSC already writes to, any existing custom title,
+    /// `.auto` or `.user`, is left untouched exactly as it already is for OSC
+    /// updates; this never itself becomes a `customTitle` write. Unlike
+    /// `workspace.set_auto_title`, it is not gated by the opt-in Workspace
+    /// Auto-Naming setting and never runs a summarizer: the caller already
+    /// has Codex's own title. Best-effort: an unresolved panel is a silent
     /// `applied: false`, not an error.
     private func v2SurfaceSyncCodexNativeTitle(params: [String: Any]) -> V2CallResult {
-        guard let sessionId = v2String(params, "session_id")?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !sessionId.isEmpty else {
-            return .err(code: "invalid_params", message: "Missing or invalid session_id", data: nil)
+        guard let title = v2String(params, "title")?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !title.isEmpty else {
+            return .err(code: "invalid_params", message: "Missing or invalid title", data: nil)
         }
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
@@ -4337,20 +4340,6 @@ class TerminalController {
             return .err(code: "invalid_params", message: "Missing or invalid panel_id", data: nil)
         }
 
-        // Test-only seam (compiled out of Release): lets socket-level tests
-        // supply a fixture database instead of the real `~/.codex/state_5.sqlite`.
-        var dbPathOverride: String?
-#if DEBUG
-        dbPathOverride = v2String(params, "db_path_for_testing")
-#endif
-        let nativeTitle = dbPathOverride.map {
-            SessionIndexStore.codexNativeTitle(forSessionId: sessionId, dbPath: $0)
-        } ?? SessionIndexStore.codexNativeTitle(forSessionId: sessionId)
-
-        guard let nativeTitle else {
-            return .ok(["applied": false])
-        }
-
         var found = false
         var applied = false
         v2MainSync {
@@ -4360,7 +4349,7 @@ class TerminalController {
                 : workspace.panelIdFromSurfaceId(TabID(uuid: panelId))
             guard let resolvedPanelId else { return }
             found = true
-            applied = workspace.updatePanelTitle(panelId: resolvedPanelId, title: nativeTitle)
+            applied = workspace.updatePanelTitle(panelId: resolvedPanelId, title: title)
         }
 
         guard found else {

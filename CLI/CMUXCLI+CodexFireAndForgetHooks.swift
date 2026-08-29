@@ -292,10 +292,12 @@ extension CMUXCLI {
 
     /// `cmux hooks codex sync-native-title`: a detached re-invocation spawned
     /// from the Codex Stop hook (see ``spawnDetachedCodexNativeTitleSync``),
-    /// mirroring how `auto-name` is spawned from the same site. Tells the app
-    /// to mirror Codex's own native thread title (`~/.codex/state_5.sqlite`)
-    /// onto the panel's raw terminal title — cmux #11144. No transcript is
-    /// read and no summarizer runs: Codex already computed this title itself.
+    /// mirroring how `auto-name` is spawned from the same site. Reads Codex's
+    /// own native thread title (`~/.codex/state_5.sqlite`, via
+    /// `CodexNativeTitleStore` — a plain library call, not a transcript read
+    /// or a summarizer) entirely in this detached process, then sends the
+    /// already-resolved string to the app so its socket handler does no I/O
+    /// of its own — cmux #11144.
     func runCodexNativeTitleSyncHook(
         commandArgs: [String],
         client: SocketClient,
@@ -307,19 +309,24 @@ extension CMUXCLI {
               !sessionId.isEmpty, !workspaceId.isEmpty, !surfaceId.isEmpty else {
             return
         }
+        guard let title = CodexNativeTitleStore.title(forSessionId: sessionId) else {
+            telemetry.breadcrumb("codex-hook.native-title-sync.no-title")
+            return
+        }
         _ = try? client.sendV2(method: "surface.sync_codex_native_title", params: [
-            "session_id": sessionId,
             "workspace_id": workspaceId,
-            "panel_id": surfaceId
+            "panel_id": surfaceId,
+            "title": title
         ])
         telemetry.breadcrumb("codex-hook.native-title-sync.sent")
     }
 
-    /// Spawns the native-title-sync pass detached, mirroring
-    /// ``spawnDetachedAgentAutoName``'s spawn-and-briefly-wait shape so this
-    /// short synchronous Stop hook never blocks on it. Unlike the auto-naming
-    /// spawn, this is not gated on the opt-in Workspace Auto-Naming setting —
-    /// it runs unconditionally at every Codex turn end, matching Claude's
+    /// Spawns the native-title-sync pass detached and fire-and-forget,
+    /// mirroring ``spawnDetachedCodexSettledStop``'s `nohup ... &` shape
+    /// rather than waiting on the child: this short synchronous Stop hook
+    /// must never block on it, even briefly. Unlike the auto-naming spawn,
+    /// this is not gated on the opt-in Workspace Auto-Naming setting — it
+    /// runs unconditionally at every Codex turn end, matching Claude's
     /// unconditional OSC-driven tab title updates.
     func spawnDetachedCodexNativeTitleSync(
         sessionId: String,
@@ -345,7 +352,7 @@ extension CMUXCLI {
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
         process.arguments = [
             "-c",
-            "\"$0\" hooks codex sync-native-title --session \"$1\" --workspace \"$2\" --surface \"$3\" </dev/null >/dev/null 2>&1 &",
+            "nohup \"$0\" hooks codex sync-native-title --session \"$1\" --workspace \"$2\" --surface \"$3\" </dev/null >/dev/null 2>&1 &",
             selfPath,
             sessionId,
             workspaceId,
@@ -359,10 +366,6 @@ extension CMUXCLI {
             try process.run()
         } catch {
             telemetry.breadcrumb("codex-hook.native-title-sync.spawn-failed")
-            return
-        }
-        if ((try? waitForProcessExit(process, timeout: 1)) ?? false) == false {
-            process.terminate()
         }
     }
 
