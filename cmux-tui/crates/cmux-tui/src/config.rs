@@ -4445,7 +4445,7 @@ fn parse_scrollback_limit_from_root(path: &Path, deadline_at: Instant) -> Scroll
             continue;
         }
         let identity = pending.path.canonicalize().unwrap_or_else(|_| pending.path.clone());
-        if !loaded.insert(identity) {
+        if !loaded.insert(identity.clone()) {
             continue;
         }
         let remaining_bytes = GHOSTTY_CONFIG_MAX_BYTES.saturating_sub(bytes_loaded);
