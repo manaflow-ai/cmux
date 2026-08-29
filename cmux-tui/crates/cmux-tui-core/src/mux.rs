@@ -60,6 +60,7 @@ use crate::terminal_host_runtime::TerminalHostIdentity;
 #[cfg(unix)]
 use crate::terminal_host_runtime::TerminalHostLiveness;
 use crate::workspace_registry::{
+    AgentHookPendingProjection,
     FrontendProjection, ProjectionCommit, RESOURCE_API_FRONTEND_PROJECTION_SCHEMA_VERSION,
     RegistryBrowser, RegistryBrowserReconnect, RegistryCommit, RegistryLayoutNode,
     RegistrySnapshot, RegistryTab, RegistryTerminal, RegistryViewport, RegistryWorkspace,
@@ -2541,14 +2542,14 @@ impl Mux {
         // Keep startup work bounded. Remaining rows stay durable for a later
         // availability signal or restart.
         for _ in 0..crate::workspace_registry::AGENT_HOOK_MAX_RETRY_PAGES_PER_WAKE {
-            let (pending, next_cursor) = self
+            let page = self
                 .workspace_registry
                 .lock()
                 .unwrap()
                 .pending_agent_hook_projections_page(cursor.clone())?;
-            let Some(next_cursor) = next_cursor else { break };
+            let Some(next_cursor) = page.next_cursor else { break };
             cursor = Some(next_cursor);
-            self.retry_pending_agent_hooks_rows(pending)?;
+            self.retry_pending_agent_hooks_rows(page.rows)?;
         }
         Ok(())
     }
@@ -2578,10 +2579,17 @@ impl Mux {
 
     fn retry_pending_agent_hooks_rows(
         &self,
-        pending: Vec<(String, String, String, u64, crate::JournalIngress)>,
+        pending: Vec<AgentHookPendingProjection>,
     ) -> anyhow::Result<usize> {
         let mut applied = 0;
-        for (producer_id, origin, key, sequence, ingress) in pending {
+        for row in pending {
+            let AgentHookPendingProjection {
+                producer_id,
+                origin,
+                idempotency_key: key,
+                sequence,
+                ingress,
+            } = row;
             match self.apply_agent_hook_record(&ingress, sequence) {
                 Ok(()) => {
                     if self
@@ -22490,7 +22498,10 @@ mod tests {
         let pending =
             mux.workspace_registry.lock().unwrap().pending_agent_hook_projections().unwrap();
         assert_eq!(pending.len(), 1);
-        assert_eq!(pending[0].0, crate::agent_hooks::AGENT_HOOK_PRODUCER_ID);
+        assert_eq!(
+            pending[0].producer_id,
+            crate::agent_hooks::AGENT_HOOK_PRODUCER_ID
+        );
         assert!(
             mux.workspace_registry
                 .lock()

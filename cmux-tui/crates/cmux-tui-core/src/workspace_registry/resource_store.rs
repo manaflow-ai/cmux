@@ -14,6 +14,35 @@ pub(crate) const AGENT_HOOK_MAX_ATTEMPTS: i64 = 8;
 pub(crate) const AGENT_HOOK_MAX_RETRY_PAGES_PER_WAKE: usize = 16;
 pub(crate) const AGENT_HOOK_DEAD_LETTER_CAP: i64 = 1024;
 
+/// A durable hook projection selected for one retry attempt.
+///
+/// This is a named record rather than a positional tuple. Retry identity,
+/// ordering, and payload have different invariants, and named fields keep a
+/// future column change from silently swapping them at a call site.
+#[derive(Debug)]
+pub(crate) struct AgentHookPendingProjection {
+    pub(crate) producer_id: String,
+    pub(crate) origin: String,
+    pub(crate) idempotency_key: String,
+    pub(crate) sequence: u64,
+    pub(crate) ingress: JournalIngress,
+}
+
+/// Stable key for paging durable hook projections.
+#[derive(Debug, Clone)]
+pub(crate) struct AgentHookPendingCursor {
+    pub(crate) sequence: u64,
+    pub(crate) idempotency_key: String,
+    pub(crate) rowid: i64,
+}
+
+/// One bounded page of durable hook projections.
+#[derive(Debug)]
+pub(crate) struct AgentHookPendingPage {
+    pub(crate) rows: Vec<AgentHookPendingProjection>,
+    pub(crate) next_cursor: Option<AgentHookPendingCursor>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum AgentHookRetryClass {
     Transient,
@@ -582,7 +611,7 @@ impl WorkspaceRegistry {
         origin: &str,
         idempotency_key: &str,
         sequence: u64,
-        ingress: &crate::JournalIngress,
+        ingress: &JournalIngress,
         error: &str,
         retry_class: AgentHookRetryClass,
     ) -> anyhow::Result<()> {
@@ -694,9 +723,10 @@ impl WorkspaceRegistry {
         Ok(())
     }
 
+    #[cfg(test)]
     pub(crate) fn pending_agent_hook_projections(
         &self,
-    ) -> anyhow::Result<Vec<(String, String, String, u64, JournalIngress)>> {
+    ) -> anyhow::Result<Vec<AgentHookPendingProjection>> {
         let mut statement = self.connection.prepare(
             "SELECT producer_id, origin, idempotency_key, event_sequence, ingress_json
              FROM resource_agent_hook_pending ORDER BY event_sequence ASC, idempotency_key ASC",
@@ -713,13 +743,14 @@ impl WorkspaceRegistry {
             })?
             .map(|row| {
                 let (producer_id, origin, key, sequence, ingress_json) = row?;
-                Ok((
+                Ok(AgentHookPendingProjection {
                     producer_id,
                     origin,
-                    key,
-                    u64::try_from(sequence).context("pending hook sequence is negative")?,
-                    serde_json::from_str(&ingress_json)?,
-                ))
+                    idempotency_key: key,
+                    sequence: u64::try_from(sequence)
+                        .context("pending hook sequence is negative")?,
+                    ingress: serde_json::from_str(&ingress_json)?,
+                })
             })
             .collect()
     }
@@ -727,7 +758,7 @@ impl WorkspaceRegistry {
     pub(crate) fn pending_agent_hook_projections_for_terminal(
         &self,
         terminal_id: &TerminalPublicId,
-    ) -> anyhow::Result<Vec<(String, String, String, u64, JournalIngress)>> {
+    ) -> anyhow::Result<Vec<AgentHookPendingProjection>> {
         let mut statement = self.connection.prepare(
             "SELECT producer_id, origin, idempotency_key, event_sequence, ingress_json
              FROM resource_agent_hook_pending
@@ -759,25 +790,25 @@ impl WorkspaceRegistry {
                     continue;
                 }
             };
-            pending.push((
+            pending.push(AgentHookPendingProjection {
                 producer_id,
                 origin,
-                key,
-                u64::try_from(sequence).context("pending hook sequence is negative")?,
+                idempotency_key: key,
+                sequence: u64::try_from(sequence)
+                    .context("pending hook sequence is negative")?,
                 ingress,
-            ));
+            });
         }
         Ok(pending)
     }
 
     pub(crate) fn pending_agent_hook_projections_page(
         &self,
-        after: Option<(u64, String, i64)>,
-    ) -> anyhow::Result<(
-        Vec<(String, String, String, u64, JournalIngress)>,
-        Option<(u64, String, i64)>,
-    )> {
-        let (after_sequence, after_key, after_rowid) = after.unwrap_or((0, String::new(), 0));
+        after: Option<AgentHookPendingCursor>,
+    ) -> anyhow::Result<AgentHookPendingPage> {
+        let (after_sequence, after_key, after_rowid) = after
+            .map(|cursor| (cursor.sequence, cursor.idempotency_key, cursor.rowid))
+            .unwrap_or((0, String::new(), 0));
         let mut statement = self.connection.prepare(
             "SELECT rowid, producer_id, origin, idempotency_key, event_sequence, ingress_json
              FROM resource_agent_hook_pending
@@ -814,7 +845,11 @@ impl WorkspaceRegistry {
         let mut next_cursor = None;
         for (rowid, producer_id, origin, key, sequence, ingress_json) in rows {
             let sequence = u64::try_from(sequence).context("pending hook sequence is negative")?;
-            next_cursor = Some((sequence, key.clone(), rowid));
+            next_cursor = Some(AgentHookPendingCursor {
+                sequence,
+                idempotency_key: key.clone(),
+                rowid,
+            });
             let ingress = match serde_json::from_str(&ingress_json) {
                 Ok(ingress) => ingress,
                 Err(_) => {
@@ -822,9 +857,15 @@ impl WorkspaceRegistry {
                     continue;
                 }
             };
-            pending.push((producer_id, origin, key, sequence, ingress));
+            pending.push(AgentHookPendingProjection {
+                producer_id,
+                origin,
+                idempotency_key: key,
+                sequence,
+                ingress,
+            });
         }
-        Ok((pending, next_cursor))
+        Ok(AgentHookPendingPage { rows: pending, next_cursor })
     }
 
     #[expect(
