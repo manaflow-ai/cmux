@@ -98,8 +98,17 @@ if [[ -x "$fallback_bin" ]]; then
   exec "$fallback_bin" "\$@"
 fi
 
+# Agent hooks must fail-open when no reload-selected CLI exists.
+for _cmux_arg in "\$@"; do
+  if [[ "\$_cmux_arg" == "hooks" ]]; then
+    echo '{}'
+    exit 0
+  fi
+done
+
 echo "error: no reload-selected dev cmux CLI found. Run ./scripts/reload.sh --tag <name> first." >&2
 exit 1
+
 EOF
   chmod +x "$target"
 }
