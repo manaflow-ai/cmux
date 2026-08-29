@@ -900,14 +900,13 @@ fn send_pty_error(context: &FrameContext, pty_id: &str, code: &str, _message: &s
 /// opening reservation. Tunnel state is a public boundary, so an unknown
 /// trust value must fail closed even when the normal producer only emits enum
 /// values.
-fn terminal_open_trust_allowed(context: &FrameContext, frame: &Value) -> bool {
+fn terminal_open_trust_allowed(context: &FrameContext, actor: &str) -> bool {
     let Some(trust) = Trust::parse(&context.trust) else {
         return false;
     };
     if trust != Trust::Observe {
         return true;
     }
-    let actor = frame.get("actorId").and_then(Value::as_str).unwrap_or_default();
     context.owner_user_id.as_deref().is_some_and(|owner| owner == actor)
 }
 
@@ -941,7 +940,10 @@ impl Inner {
         if pty_id.is_empty() {
             return;
         }
-        if !terminal_open_trust_allowed(context, frame) {
+        // Read the actor once at the boundary. The same immutable identity is
+        // used for admission and for the attachment ownership record.
+        let actor = frame.get("actorId").and_then(Value::as_str).unwrap_or_default().to_owned();
+        if !terminal_open_trust_allowed(context, &actor) {
             send_pty_error(context, &pty_id, "trust_refused", "terminal trust is not established");
             return;
         }
