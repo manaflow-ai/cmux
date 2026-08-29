@@ -61,6 +61,7 @@ const MAX_PTY_INGRESS_FRAMES: usize = 64;
 // Keep room for the workspace fs_write 2 MiB payload plus its JSON envelope.
 const MAX_INBOUND_FRAME_BYTES: usize = 4 << 20;
 const CONNECTION_TASK_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(2);
+const CONNECTION_TASK_ABORT_TIMEOUT: Duration = Duration::from_secs(1);
 /// One suspend/read-liveness sample per period while a socket is open.
 const LIVENESS_CHECK_INTERVAL: Duration = Duration::from_secs(5);
 /// Wall clock moving more than this relative to the monotonic clock between
@@ -393,15 +394,40 @@ async fn wait_for_reconnect(cancellation: &CancellationToken, delay: Duration) -
     }
 }
 
-/// Cancel and await all work admitted by one physical socket. The timeout is
-/// a final guard for provider code that does not reach an async cancellation
-/// point; dropping the JoinSet after the timeout aborts the remaining handles.
+/// Observe every task result while a connection shuts down. `JoinSet::shutdown`
+/// would abort first and intentionally discard panic results, so keep the
+/// join loop explicit to preserve diagnostics for a task that fails while
+/// releasing its connection-owned resources.
+async fn observe_connection_tasks(connection_tasks: &mut JoinSet<()>) {
+    while let Some(joined) = connection_tasks.join_next().await {
+        if let Err(error) = joined
+            && error.is_panic()
+        {
+            eprintln!("Relay connection task panicked during shutdown: {error}");
+        }
+    }
+}
+
+/// Cancel and await all work admitted by one physical socket. Give handlers
+/// a cooperative window first, then abort and observe the remaining handles
+/// within a shorter final window. A started blocking provider may still outlive
+/// its async wrapper, so the JoinSet is dropped when the bounded cleanup ends.
 async fn shutdown_connection_tasks(
     connection_tasks: &mut JoinSet<()>,
     cancellation: &CancellationToken,
 ) -> bool {
     cancellation.cancel();
-    timeout(CONNECTION_TASK_SHUTDOWN_TIMEOUT, connection_tasks.shutdown()).await.is_ok()
+    if timeout(CONNECTION_TASK_SHUTDOWN_TIMEOUT, observe_connection_tasks(connection_tasks))
+        .await
+        .is_ok()
+    {
+        return true;
+    }
+
+    connection_tasks.abort_all();
+    let _ =
+        timeout(CONNECTION_TASK_ABORT_TIMEOUT, observe_connection_tasks(connection_tasks)).await;
+    false
 }
 
 /// Keep the machine online until the process cancellation token is raised.
@@ -697,6 +723,10 @@ async fn relay_session(
             if critical_burst >= 8 {
                 critical_burst = 0;
                 tokio::select! {
+                    // This arm is intentionally unbiased after each critical
+                    // burst. Keep cancellation as an explicit wake source so
+                    // it competes fairly with ready queues and timers.
+                    _ = cancellation.cancelled() => Wake::Shutdown,
                     frame = critical_rx.recv() => Wake::Outbound(true, frame),
                     frame = watch_rx.recv() => Wake::Outbound(false, frame),
                     _ = async {
@@ -706,12 +736,15 @@ async fn relay_session(
                         }
                     }, if heartbeat.is_some() => Wake::Heartbeat,
                     _ = liveness.tick() => Wake::Liveness,
-                    _ = cancellation.cancelled() => Wake::Shutdown,
                     incoming = guard.next() => Wake::Incoming(incoming),
                 }
             } else {
                 tokio::select! {
                     biased;
+                    // `biased` polls in source order. Cancellation must be
+                    // first or a continuously-ready queue/heartbeat can
+                    // starve process shutdown indefinitely.
+                    _ = cancellation.cancelled() => Wake::Shutdown,
                     frame = critical_rx.recv() => Wake::Outbound(true, frame),
                     frame = watch_rx.recv() => Wake::Outbound(false, frame),
                     _ = async {
@@ -721,7 +754,6 @@ async fn relay_session(
                         }
                     }, if heartbeat.is_some() => Wake::Heartbeat,
                     _ = liveness.tick() => Wake::Liveness,
-                    _ = cancellation.cancelled() => Wake::Shutdown,
                     incoming = guard.next() => Wake::Incoming(incoming),
                 }
             }
@@ -1106,11 +1138,12 @@ async fn relay_session(
                                         // outbound queue cannot block this loop and stop socket
                                         // ingress from being drained.
                                         let text = reply.to_string();
-                                        let sent = socket
-                                            .lock()
-                                            .await
-                                            .send(Message::Text(text.into()))
-                                            .await;
+                                        let sent = send_socket_text(
+                                            &socket,
+                                            text,
+                                            &connection_cancellation,
+                                        )
+                                        .await;
                                         if sent.is_err() {
                                             break Ok(connected);
                                         }
@@ -1185,7 +1218,7 @@ async fn relay_session(
     // shutdown wait forever.
     if !shutdown_connection_tasks(&mut connection_tasks, &connection_cancellation).await {
         eprintln!(
-            "Relay connection task shutdown exceeded {CONNECTION_TASK_SHUTDOWN_TIMEOUT:?}; abandoning remaining handlers."
+            "Graceful relay connection task shutdown exceeded {CONNECTION_TASK_SHUTDOWN_TIMEOUT:?}; forced abort was applied to remaining handlers."
         );
     }
 
