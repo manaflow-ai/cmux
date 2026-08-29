@@ -22206,12 +22206,12 @@ mod tests {
         }
         assert_eq!(replayed.entries, mux.agent_roster.lock().unwrap().roster.entries);
 
-        // The codex process leaves the pane: session-ended-equivalent
-        // removal, immediately (exit is an identity edge).
+        // Foreground identity is sampled on a bounded 500 ms cadence. The
+        // injected resolver is therefore observed on the next due sample,
+        // then the identity edge removes the screen-derived entry.
         scanner::scan(&mux, &mut tracker, manifests, step(1_600), &gone);
-        let journal_after_exit = mux.workspace_registry.lock().unwrap().session_journal_after(0, 512).unwrap();
-        eprintln!("screen-detect exit journal: {:?}", journal_after_exit.records.iter().map(|r| (&r.kind, &r.payload)).collect::<Vec<_>>());
-        eprintln!("screen-detect exit roster: {:?}", mux.agent_roster.lock().unwrap().roster.entries);
+        assert_eq!(mux.list_agents(Some(surface_id), None).len(), 1);
+        scanner::scan(&mux, &mut tracker, manifests, step(2_000), &gone);
         assert!(mux.list_agents(Some(surface_id), None).is_empty());
     }
 
