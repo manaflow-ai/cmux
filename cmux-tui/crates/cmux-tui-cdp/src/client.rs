@@ -17,7 +17,7 @@ use tungstenite::client::IntoClientRequest;
 use tungstenite::http::HeaderValue;
 use tungstenite::http::header::AUTHORIZATION;
 use tungstenite::protocol::WebSocketConfig;
-use tungstenite::{Error as WsError, Message, WebSocket, client_with_config};
+use tungstenite::{Error as WsError, Message, WebSocket, client};
 
 /// Maximum number of pending events in each bounded CDP event queue.
 ///
