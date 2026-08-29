@@ -4841,7 +4841,9 @@ fn parse_ghostty_defaults_from_paths(
 ) -> Option<DefaultColors> {
     match parse_ghostty_defaults_from_paths_result(config_paths, theme_dirs) {
         GhosttyConfigParseOutcome::Parsed(defaults) => Some(*defaults),
-        GhosttyConfigParseOutcome::Missing | GhosttyConfigParseOutcome::TimedOut => None,
+        GhosttyConfigParseOutcome::Partial(_)
+        | GhosttyConfigParseOutcome::Missing
+        | GhosttyConfigParseOutcome::TimedOut => None,
     }
 }
 
