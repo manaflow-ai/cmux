@@ -387,6 +387,7 @@ fn ghostty_config_paths_from(
     // Ghostty resolves XDG_CONFIG_HOME to the user's XDG config root. When
     // it is unset, that root is HOME/.config. Do not search both roots: doing
     // so would make an unrelated legacy file override the active XDG file.
+    #[cfg(target_os = "macos")]
     let has_xdg_config_home = xdg_config_home.is_some();
     let config_root = xdg_config_home.or_else(|| home.as_ref().map(|home| home.join(".config")));
     if let Some(config_root) = config_root {
