@@ -439,6 +439,36 @@ impl RealPtyDeps {
     }
 }
 
+/// Owns a spawned child until the PTY setup has transferred it to the wait
+/// thread. Any setup error must terminate and reap the child before the
+/// caller can choose pipe mode, otherwise one failed PTY attempt leaks a
+/// process outside the relay's lifecycle.
+struct SpawnedChildCleanup {
+    child: Option<Box<dyn cmux_pty::Child + Send + Sync>>,
+}
+
+impl SpawnedChildCleanup {
+    fn new(child: Box<dyn cmux_pty::Child + Send + Sync>) -> Self {
+        Self { child: Some(child) }
+    }
+
+    fn child(&self) -> &(dyn cmux_pty::Child + Send + Sync) {
+        self.child.as_deref().expect("spawned child cleanup owns a child")
+    }
+
+    fn take(&mut self) -> Box<dyn cmux_pty::Child + Send + Sync> {
+        self.child.take().expect("spawned child cleanup owns a child")
+    }
+}
+
+impl Drop for SpawnedChildCleanup {
+    fn drop(&mut self) {
+        let Some(mut child) = self.child.take() else { return };
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+}
+
 /// A real PTY master behind a mutex; write/resize block briefly.
 struct MasterControl {
     master: Mutex<Box<dyn MasterPty + Send>>,
@@ -547,12 +577,18 @@ fn spawn_real_pty(spec: &SpawnSpec) -> anyhow::Result<PtyHandle> {
     for (key, value) in &spec.env {
         command.env(key, value);
     }
-    let spawned = pair.spawn(command)?;
-    let writer = spawned.master.take_writer()?;
-    let killer = spawned.child.clone_killer();
     let output = ThreadOutput::new();
+    // Set up every fallible cancellation primitive before spawning. This
+    // keeps descriptor exhaustion on the no-child side of the boundary.
+    let (completion, cancel_reader) =
+        ProcessOutputCompletion::with_pty_cancellation(1, Arc::clone(&output))?;
+    let spawned = pair.spawn(command)?;
+    let cmux_pty::SpawnedPty { mut master, child } = spawned;
+    let mut child_cleanup = SpawnedChildCleanup::new(child);
+    let writer = master.take_writer()?;
+    let killer = child_cleanup.child().clone_killer();
     let control = Arc::new(MasterControl {
-        master: Mutex::new(spawned.master),
+        master: Mutex::new(master),
         writer: Mutex::new(writer),
         killer: Mutex::new(killer),
     });
@@ -560,9 +596,6 @@ fn spawn_real_pty(spec: &SpawnSpec) -> anyhow::Result<PtyHandle> {
     // Use the same bounded post-exit grace as pipe fallback. A background
     // descendant can inherit the PTY slave, so waiting for terminal EOF here
     // would otherwise delay the primary child exit without a bound.
-    let (completion, cancel_reader) =
-        ProcessOutputCompletion::with_pty_cancellation(1, Arc::clone(&output))?;
-
     // Blocking reader thread -> output sink.
     let data_output = Arc::clone(&output);
     let data_completion = Arc::clone(&completion);
@@ -570,7 +603,7 @@ fn spawn_real_pty(spec: &SpawnSpec) -> anyhow::Result<PtyHandle> {
         pump_pty(reader, cancel_reader, data_output, data_completion);
     });
     // Blocking wait thread -> exit.
-    let mut child = spawned.child;
+    let mut child = child_cleanup.take();
     let exit_completion = Arc::clone(&completion);
     std::thread::spawn(move || {
         let code = child.wait().map(|status| i64::from(status.exit_code() as i32)).unwrap_or(0);
