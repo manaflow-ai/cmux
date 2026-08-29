@@ -184,8 +184,6 @@ pub(crate) fn scan(
     // Rotate only the bounded lookup slice. The next pass starts where the
     // previous process-identity budget ended while still observing every
     // terminal's revision above.
-    tracker.advance_scan_cursor(
-        terminals.len(),
-        terminals.len().min(MAX_FOREGROUND_LOOKUPS_PER_SCAN),
-    );
+    tracker
+        .advance_scan_cursor(terminals.len(), terminals.len().min(MAX_FOREGROUND_LOOKUPS_PER_SCAN));
 }

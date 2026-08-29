@@ -5371,51 +5371,51 @@ impl Mux {
                         Err(_error) => (Vec::new(), false, true, false),
                         Ok(page) if page.records.is_empty() => (Vec::new(), false, true, false),
                         Ok(page) => {
-                        let mut deltas = Vec::new();
-                        let mut next_cursor = read_cursor;
-                        let mut reached_commit = false;
-                        for record in page.records {
-                            if record.sequence > commit.sequence {
-                                reached_commit = true;
-                                break;
+                            let mut deltas = Vec::new();
+                            let mut next_cursor = read_cursor;
+                            let mut reached_commit = false;
+                            for record in page.records {
+                                if record.sequence > commit.sequence {
+                                    reached_commit = true;
+                                    break;
+                                }
+                                if record.sequence <= next_cursor {
+                                    continue;
+                                }
+                                let event = RosterEvent::from_record(&record);
+                                let record_deltas = host.roster.apply(&event);
+                                let echo = record
+                                    .payload
+                                    .get("adapter")
+                                    .and_then(|adapter| adapter.get("id"))
+                                    .and_then(Value::as_str)
+                                    == Some(SOCKET_REPORT_ADAPTER);
+                                if !echo {
+                                    deltas.extend(record_deltas);
+                                }
+                                next_cursor = record.sequence;
+                                if next_cursor == commit.sequence {
+                                    reached_commit = true;
+                                    break;
+                                }
                             }
-                            if record.sequence <= next_cursor {
-                                continue;
-                            }
-                            let event = RosterEvent::from_record(&record);
-                            let record_deltas = host.roster.apply(&event);
-                            let echo = record
-                                .payload
-                                .get("adapter")
-                                .and_then(|adapter| adapter.get("id"))
-                                .and_then(Value::as_str)
-                                == Some(SOCKET_REPORT_ADAPTER);
-                            if !echo {
-                                deltas.extend(record_deltas);
-                            }
-                            next_cursor = record.sequence;
-                            if next_cursor == commit.sequence {
-                                reached_commit = true;
-                                break;
+                            if next_cursor == read_cursor && !reached_commit {
+                                (Vec::new(), false, true, false)
+                            } else {
+                                host.cursor = next_cursor;
+                                let snapshot = host.roster.snapshot().to_string();
+                                let failed = registry
+                                    .put_journal_reducer_state(
+                                        AGENT_ROSTER_REDUCER_ID,
+                                        AGENT_ROSTER_REDUCER_VERSION,
+                                        host.cursor,
+                                        &snapshot,
+                                    )
+                                    .is_err();
+                                host.snapshot_dirty = failed;
+                                (deltas, reached_commit, false, failed)
                             }
                         }
-                        if next_cursor == read_cursor && !reached_commit {
-                            (Vec::new(), false, true, false)
-                        } else {
-                            host.cursor = next_cursor;
-                            let snapshot = host.roster.snapshot().to_string();
-                            let failed = registry
-                                .put_journal_reducer_state(
-                                    AGENT_ROSTER_REDUCER_ID,
-                                    AGENT_ROSTER_REDUCER_VERSION,
-                                    host.cursor,
-                                    &snapshot,
-                                )
-                                .is_err();
-                            host.snapshot_dirty = failed;
-                            (deltas, reached_commit, false, failed)
-                        }
-                    }
                     }
                 }
             };

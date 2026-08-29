@@ -797,7 +797,10 @@ fn interpreter_script_path(pid: u32, executable: &Path) -> Option<String> {
 /// command lines. A caller that needs an option-specific form must add a
 /// parser for that interpreter with tests for its exact grammar.
 #[cfg(target_os = "linux")]
-fn script_argument_for_interpreter<'a>(arguments: &'a [&'a [u8]], interpreter: &str) -> Option<&'a [u8]> {
+fn script_argument_for_interpreter<'a>(
+    arguments: &'a [&'a [u8]],
+    interpreter: &str,
+) -> Option<&'a [u8]> {
     if interpreter == "env" {
         // `env` normally execs the requested interpreter before this process
         // can be observed. If it remains the executable, its option grammar
@@ -844,8 +847,8 @@ fn script_has_interpreter_shebang(path: &Path, interpreter: &str) -> bool {
 fn interpreter_names_match(candidate: &str, observed: &str) -> bool {
     fn family(name: &str) -> Option<&'static str> {
         const FAMILIES: &[&str] = &[
-            "python3", "python2", "python", "nodejs", "node", "bash", "dash", "zsh",
-            "sh", "ruby", "perl", "php", "bun", "deno",
+            "python3", "python2", "python", "nodejs", "node", "bash", "dash", "zsh", "sh", "ruby",
+            "perl", "php", "bun", "deno",
         ];
         FAMILIES.iter().copied().find(|base| {
             name == *base
@@ -1296,11 +1299,8 @@ mod tests {
         ];
         assert_eq!(script_argument_for_interpreter(&shell_command, "sh"), None);
 
-        let direct_script = [
-            b"/usr/bin/python3".as_slice(),
-            b"/tmp/codex".as_slice(),
-            b"--data-file".as_slice(),
-        ];
+        let direct_script =
+            [b"/usr/bin/python3".as_slice(), b"/tmp/codex".as_slice(), b"--data-file".as_slice()];
         assert_eq!(
             script_argument_for_interpreter(&direct_script, "python3"),
             Some(b"/tmp/codex".as_slice())
