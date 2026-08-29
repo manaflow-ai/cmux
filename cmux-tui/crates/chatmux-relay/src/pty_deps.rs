@@ -9,9 +9,11 @@
 #![cfg(unix)]
 
 use std::collections::{HashMap, VecDeque};
+use std::fs::File;
 use std::io::{Read, Write};
 use std::mem::{offset_of, size_of};
 use std::os::fd::AsRawFd;
+use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, mpsc};
@@ -262,20 +264,47 @@ impl PtyOutput for ThreadOutput {
 /// Orders the process exit notification after every reader has reached EOF.
 /// A child can exit while bytes remain buffered in a pipe or PTY master. The
 /// wait thread records the exit code, and the final reader publishes it only
-/// after its last `push_data` call. Pipe fallback uses a bounded grace period;
-/// the PTY path keeps its terminal EOF semantics. The output callback runs
-/// outside this coordinator's mutex.
+/// after its last `push_data` call. Both paths use a bounded grace period; the
+/// PTY reader has an explicit poll cancellation wake for inherited slave
+/// descriptors. The output callback runs outside this coordinator's mutex.
 struct ProcessOutputCompletion {
     state: Mutex<ProcessOutputCompletionState>,
     wake: Condvar,
     output: Arc<ThreadOutput>,
     post_exit_grace: Option<Duration>,
     cancelled: AtomicBool,
+    cancel_wake: Option<Arc<CancellationWake>>,
 }
 
 struct ProcessOutputCompletionState {
     readers_remaining: usize,
     child_exit: Option<i64>,
+}
+
+/// Wakes a PTY reader that is waiting in `poll` when completion reaches its
+/// bounded grace deadline. A socket pair avoids closing a descriptor from a
+/// different thread, which can race with descriptor reuse.
+struct CancellationWake {
+    writer: Mutex<UnixStream>,
+}
+
+impl CancellationWake {
+    fn new() -> std::io::Result<(Arc<Self>, UnixStream)> {
+        let (reader, writer) = UnixStream::pair()?;
+        writer.set_nonblocking(true)?;
+        Ok((Arc::new(Self { writer: Mutex::new(writer) }), reader))
+    }
+
+    fn signal(&self) {
+        let Ok(mut writer) = self.writer.lock() else { return };
+        loop {
+            match writer.write(&[1]) {
+                Ok(_) => break,
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(_) => break,
+            }
+        }
+    }
 }
 
 impl ProcessOutputCompletion {
@@ -288,12 +317,41 @@ impl ProcessOutputCompletion {
         output: Arc<ThreadOutput>,
         post_exit_grace: Option<Duration>,
     ) -> Arc<Self> {
+        Self::with_post_exit_grace_and_cancel(
+            readers_remaining,
+            output,
+            post_exit_grace,
+            None,
+        )
+    }
+
+    fn with_pty_cancellation(
+        readers_remaining: usize,
+        output: Arc<ThreadOutput>,
+    ) -> std::io::Result<(Arc<Self>, UnixStream)> {
+        let (cancel_wake, cancel_reader) = CancellationWake::new()?;
+        let completion = Self::with_post_exit_grace_and_cancel(
+            readers_remaining,
+            output,
+            Some(PIPE_OUTPUT_DRAIN_GRACE),
+            Some(cancel_wake),
+        );
+        Ok((completion, cancel_reader))
+    }
+
+    fn with_post_exit_grace_and_cancel(
+        readers_remaining: usize,
+        output: Arc<ThreadOutput>,
+        post_exit_grace: Option<Duration>,
+        cancel_wake: Option<Arc<CancellationWake>>,
+    ) -> Arc<Self> {
         Arc::new(Self {
             state: Mutex::new(ProcessOutputCompletionState { readers_remaining, child_exit: None }),
             wake: Condvar::new(),
             output,
             post_exit_grace,
             cancelled: AtomicBool::new(false),
+            cancel_wake,
         })
     }
 
@@ -344,11 +402,14 @@ impl ProcessOutputCompletion {
         }
         let code = state.child_exit.take();
         self.cancelled.store(true, Ordering::Release);
+        if let Some(cancel_wake) = &self.cancel_wake {
+            cancel_wake.signal();
+        }
         drop(state);
         if let Some(code) = code {
-            // End the source after the bounded grace period. Readers poll for
-            // cancellation, so inherited descriptors cannot retain threads
-            // after the child has exited.
+            // End the source after the bounded grace period. The PTY reader's
+            // poll set includes the cancellation wake, so inherited
+            // descriptors cannot retain a reader thread after this point.
             self.output.push_exit(code);
         }
     }
@@ -483,6 +544,7 @@ fn spawn_real_pty(spec: &SpawnSpec) -> anyhow::Result<PtyHandle> {
         pixel_width: 0,
         pixel_height: 0,
     })?;
+    let reader = File::from(pair.try_clone_reader_descriptor()?);
     let mut command = cmux_pty::PtyCommand::new(spec.file.clone());
     command.args(spec.args.clone());
     command.cwd(&spec.cwd);
@@ -491,7 +553,6 @@ fn spawn_real_pty(spec: &SpawnSpec) -> anyhow::Result<PtyHandle> {
         command.env(key, value);
     }
     let spawned = pair.spawn(command)?;
-    let reader = spawned.master.try_clone_reader()?;
     let writer = spawned.master.take_writer()?;
     let killer = spawned.child.clone_killer();
     let output = ThreadOutput::new();
@@ -504,21 +565,14 @@ fn spawn_real_pty(spec: &SpawnSpec) -> anyhow::Result<PtyHandle> {
     // Use the same bounded post-exit grace as pipe fallback. A background
     // descendant can inherit the PTY slave, so waiting for terminal EOF here
     // would otherwise delay the primary child exit without a bound.
-    let completion = ProcessOutputCompletion::new(1, Arc::clone(&output));
+    let (completion, cancel_reader) =
+        ProcessOutputCompletion::with_pty_cancellation(1, Arc::clone(&output))?;
 
     // Blocking reader thread -> output sink.
     let data_output = Arc::clone(&output);
     let data_completion = Arc::clone(&completion);
     std::thread::spawn(move || {
-        let mut reader = reader;
-        let mut buffer = [0_u8; 32_768];
-        loop {
-            match reader.read(&mut buffer) {
-                Ok(0) | Err(_) => break,
-                Ok(count) => data_output.push_data(Bytes::copy_from_slice(&buffer[..count])),
-            }
-        }
-        data_completion.reader_finished();
+        pump_pty(reader, cancel_reader, data_output, data_completion);
     });
     // Blocking wait thread -> exit.
     let mut child = spawned.child;
@@ -529,6 +583,47 @@ fn spawn_real_pty(spec: &SpawnSpec) -> anyhow::Result<PtyHandle> {
     });
 
     Ok(PtyHandle { control, output, banner: None })
+}
+
+/// Read a PTY with an owned descriptor and an explicit cancellation wake.
+/// `Read::read` is called only after the descriptor reports readiness, so a
+/// descendant-held PTY slave cannot leave this thread blocked past the grace
+/// deadline.
+fn pump_pty(
+    mut reader: impl Read + AsRawFd,
+    cancel_reader: UnixStream,
+    output: Arc<ThreadOutput>,
+    completion: Arc<ProcessOutputCompletion>,
+) {
+    let reader_fd = reader.as_raw_fd();
+    let cancel_fd = cancel_reader.as_raw_fd();
+    let mut buffer = [0_u8; 32_768];
+    loop {
+        let mut poll_fds = [
+            libc::pollfd { fd: reader_fd, events: libc::POLLIN, revents: 0 },
+            libc::pollfd { fd: cancel_fd, events: libc::POLLIN, revents: 0 },
+        ];
+        let poll_result = unsafe { libc::poll(poll_fds.as_mut_ptr(), poll_fds.len() as _, -1) };
+        if poll_result < 0 {
+            if std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted {
+                continue;
+            }
+            break;
+        }
+        if completion.cancelled() || poll_fds[1].revents != 0 {
+            break;
+        }
+        if poll_fds[0].revents == 0 {
+            continue;
+        }
+        match reader.read(&mut buffer) {
+            Ok(0) => break,
+            Err(error) if error.raw_os_error() == Some(libc::EIO) => break,
+            Err(_) => break,
+            Ok(count) => output.push_data(Bytes::copy_from_slice(&buffer[..count])),
+        }
+    }
+    completion.reader_finished();
 }
 
 fn spawn_pipe_mode(spec: &SpawnSpec, reason: &str) -> PtyHandle {
@@ -1087,5 +1182,28 @@ mod tests {
         reader_done_rx
             .recv_timeout(Duration::from_secs(1))
             .expect("reader must stop after bounded post-exit recovery");
+    }
+
+    #[test]
+    fn pty_reader_cancellation_wakes_a_blocked_poll() {
+        let output = ThreadOutput::new();
+        let (completion, cancel_reader) =
+            ProcessOutputCompletion::with_pty_cancellation(1, TestArc::clone(&output))
+                .expect("cancellation wake");
+        let (reader_stream, _writer_stream) = UnixStream::pair().expect("PTY-like stream pair");
+        let reader = reader_stream;
+        let (reader_done_tx, reader_done_rx) = mpsc::channel();
+        let pump_output = TestArc::clone(&output);
+        let pump_completion = TestArc::clone(&completion);
+        thread::spawn(move || {
+            pump_pty(reader, cancel_reader, pump_output, pump_completion);
+            reader_done_tx.send(()).expect("reader completion");
+        });
+
+        completion.child_exited(41);
+
+        reader_done_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("cancellation must wake a blocked PTY poll");
     }
 }
