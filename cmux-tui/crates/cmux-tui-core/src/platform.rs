@@ -239,7 +239,8 @@ pub fn workspace_state_dir() -> Option<PathBuf> {
 /// Return a path that every state-file owner can use without hitting the
 /// legacy Windows MAX_PATH boundary. Windows' verbatim namespace is applied
 /// only to long, absolute drive or UNC paths. Short paths keep their existing
-/// spelling so callers and persisted diagnostics remain compatible.
+/// spelling so callers and persisted diagnostics remain compatible. Long paths
+/// with names that Win32 would reinterpret also keep their original spelling.
 pub fn normalize_filesystem_path(path: PathBuf) -> PathBuf {
     #[cfg(windows)]
     {
@@ -279,6 +280,12 @@ pub fn normalize_filesystem_path(path: PathBuf) -> PathBuf {
         let Some(normalized) = normalize_windows_absolute_path(&wide) else {
             return path;
         };
+        // `\\?\` disables Win32 string parsing. Prefix only components that
+        // already have ordinary Win32 file-name semantics, or the same input
+        // could select a different filesystem object after normalization.
+        if !windows_absolute_path_is_verbatim_safe(&normalized) {
+            return path;
+        }
         let is_unc = normalized.starts_with(&[b'\\' as u16, b'\\' as u16]);
         let mut prefixed = if is_unc {
             // `\\server\\share` becomes `\\?\\UNC\\server\\share`.
@@ -315,6 +322,83 @@ fn has_windows_device_prefix(path: &[u16]) -> bool {
 fn has_windows_parent_component(path: &[u16]) -> bool {
     path.split(|unit| *unit == b'\\' as u16)
         .any(|segment| segment == [b'.' as u16, b'.' as u16])
+}
+
+#[cfg(any(windows, test))]
+fn windows_absolute_path_is_verbatim_safe(path: &[u16]) -> bool {
+    let components = if path.len() >= 3
+        && path[0] <= 0x7f
+        && (path[0] as u8).is_ascii_alphabetic()
+        && path[1] == b':' as u16
+        && path[2] == b'\\' as u16
+    {
+        &path[3..]
+    } else if path.starts_with(&[b'\\' as u16, b'\\' as u16]) {
+        // Include the server and share. Keeping their spelling in the same
+        // conservative component contract avoids changing UNC lookup rules.
+        &path[2..]
+    } else {
+        return false;
+    };
+
+    components
+        .split(|unit| *unit == b'\\' as u16)
+        .filter(|component| !component.is_empty())
+        .all(windows_component_is_verbatim_safe)
+}
+
+#[cfg(any(windows, test))]
+fn windows_component_is_verbatim_safe(component: &[u16]) -> bool {
+    if component.is_empty()
+        || component.last().is_some_and(|unit| *unit == b'.' as u16 || *unit == b' ' as u16)
+    {
+        return false;
+    }
+    if component.iter().any(|unit| {
+        *unit < 32
+            || *unit == b'<' as u16
+            || *unit == b'>' as u16
+            || *unit == b':' as u16
+            || *unit == b'"' as u16
+            || *unit == b'/' as u16
+            || *unit == b'|' as u16
+            || *unit == b'?' as u16
+            || *unit == b'*' as u16
+    }) {
+        return false;
+    }
+
+    let stem_end =
+        component.iter().position(|unit| *unit == b'.' as u16).unwrap_or(component.len());
+    let mut stem = &component[..stem_end];
+    while stem.last().is_some_and(|unit| *unit == b'.' as u16 || *unit == b' ' as u16) {
+        stem = &stem[..stem.len() - 1];
+    }
+    !windows_component_is_reserved_device_name(stem)
+}
+
+#[cfg(any(windows, test))]
+fn windows_component_is_reserved_device_name(stem: &[u16]) -> bool {
+    fn ascii_eq_ignore_case(actual: &[u16], expected: &[u8]) -> bool {
+        actual.len() == expected.len()
+            && actual.iter().zip(expected).all(|(actual, expected)| {
+                *actual <= 0x7f && (*actual as u8).eq_ignore_ascii_case(expected)
+            })
+    }
+
+    if [b"CON".as_slice(), b"PRN", b"AUX", b"NUL"]
+        .iter()
+        .any(|name| ascii_eq_ignore_case(stem, name))
+    {
+        return true;
+    }
+    if stem.len() != 4
+        || !(ascii_eq_ignore_case(&stem[..3], b"COM") || ascii_eq_ignore_case(&stem[..3], b"LPT"))
+    {
+        return false;
+    }
+    matches!(stem[3], unit if (b'1' as u16..=b'9' as u16).contains(&unit))
+        || matches!(stem[3], 0x00b9 | 0x00b2 | 0x00b3)
 }
 
 #[cfg(windows)]
@@ -1337,6 +1421,55 @@ mod tests {
         let normalized = normalize_filesystem_path(path.clone());
         let text = normalized.to_string_lossy();
         assert_eq!(normalized, path, "{text}");
+    }
+
+    #[test]
+    fn windows_verbatim_component_guard_rejects_win32_semantic_changes() {
+        for component in ["state.", "state ", "CON", "nul.txt", "Com9.log", "LPT¹"] {
+            let wide = component.encode_utf16().collect::<Vec<_>>();
+            assert!(!windows_component_is_verbatim_safe(&wide), "{component}");
+        }
+    }
+
+    #[test]
+    fn windows_verbatim_component_guard_accepts_ordinary_names() {
+        for component in ["state", "state data.v1", ".state", "COM10", "日本語"] {
+            let wide = component.encode_utf16().collect::<Vec<_>>();
+            assert!(windows_component_is_verbatim_safe(&wide), "{component}");
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn normalize_long_windows_trailing_dot_or_space_paths_preserve_component_semantics() {
+        let parent = vec!["segment"; 36].join(r"\");
+        for child in ["state.", "state "] {
+            let path = PathBuf::from(format!(r"C:\{parent}\{child}"));
+            let normalized = normalize_filesystem_path(path.clone());
+            assert_eq!(normalized, path, "{}", normalized.display());
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn normalize_long_windows_reserved_device_paths_preserve_component_semantics() {
+        let parent = vec!["segment"; 36].join(r"\");
+        for child in ["CON", "nul.txt", "Com9.log", "LPT¹"] {
+            let path = PathBuf::from(format!(r"C:\{parent}\{child}"));
+            let normalized = normalize_filesystem_path(path.clone());
+            assert_eq!(normalized, path, "{}", normalized.display());
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn normalize_long_windows_valid_components_use_the_verbatim_namespace() {
+        let parent = vec!["segment"; 36].join(r"\");
+        let path = PathBuf::from(format!(r"C:\{parent}\state data.v1"));
+        let normalized = normalize_filesystem_path(path);
+        let text = normalized.to_string_lossy();
+        assert!(text.starts_with(r"\\?\C:\"), "{text}");
+        assert!(text.ends_with(r"\state data.v1"), "{text}");
     }
 
     #[cfg(windows)]
