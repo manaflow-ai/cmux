@@ -261,6 +261,9 @@ struct RenderNodeMenuBuilderTests {
         let overlay = RenderNodeContextMenuView(
             frame: NSRect(x: 100, y: 20, width: 80, height: 40)
         )
+        // A non-zero bounds origin ensures hit testing converts from the
+        // superview's space instead of relying on equal frame and bounds.
+        overlay.bounds = NSRect(x: 10, y: 5, width: 80, height: 40)
         overlay.nodes = [
             RenderNode(kind: .button, text: "Row",
                        action: ButtonAction(commands: [.log("row")]))

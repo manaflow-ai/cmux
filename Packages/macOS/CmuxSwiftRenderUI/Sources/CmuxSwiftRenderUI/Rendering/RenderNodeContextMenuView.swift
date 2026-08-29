@@ -30,13 +30,15 @@ final class RenderNodeContextMenuView: NSView {
         performHitTest(at: point, currentEvent: NSApp.currentEvent)
     }
 
-    /// Test seam for the event-filtered hit test. Production callers use
-    /// ``NSApp.currentEvent`` through the override above; tests can provide a
-    /// synthetic event while still exercising AppKit's coordinate contract.
+    /// Event-filtered hit-test implementation. The override supplies
+    /// ``NSApp.currentEvent``; callers that drive synthetic events can pass
+    /// the event explicitly while preserving AppKit's coordinate contract.
     func performHitTest(at point: NSPoint, currentEvent: NSEvent?) -> NSView? {
         // AppKit gives NSView.hitTest(_:) a point in this view's superview
-        // coordinate system. The frame is expressed in that same space.
-        guard frame.contains(point), let event = currentEvent else { return nil }
+        // coordinate system. Convert it once before checking the local bounds.
+        guard let superview else { return nil }
+        let localPoint = convert(point, from: superview)
+        guard bounds.contains(localPoint), let event = currentEvent else { return nil }
         switch event.type {
         case .rightMouseDown:
             break
