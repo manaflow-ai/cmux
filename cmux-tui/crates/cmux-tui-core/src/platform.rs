@@ -267,6 +267,15 @@ pub fn normalize_filesystem_path(path: PathBuf) -> PathBuf {
         if has_windows_device_prefix(&wide) {
             return path;
         }
+        // A verbatim path disables Win32's component parsing. Removing a
+        // parent component here would therefore change the meaning of a path
+        // that traverses a junction or symbolic link. Keep the original path
+        // spelling until a handle-aware canonicalization path is available.
+        // This is a deliberate fail-closed choice for the uncommon long path
+        // case, and preserves the pre-upgrade filesystem target.
+        if has_windows_parent_component(&wide) {
+            return path;
+        }
         let Some(normalized) = normalize_windows_absolute_path(&wide) else {
             return path;
         };
@@ -300,6 +309,12 @@ fn has_windows_device_prefix(path: &[u16]) -> bool {
     path.starts_with(&[b'\\' as u16, b'\\' as u16, b'?' as u16, b'\\' as u16])
         || path.starts_with(&[b'\\' as u16, b'\\' as u16, b'.' as u16, b'\\' as u16])
         || path.starts_with(&[b'\\' as u16, b'?' as u16, b'?' as u16, b'\\' as u16])
+}
+
+#[cfg(windows)]
+fn has_windows_parent_component(path: &[u16]) -> bool {
+    path.split(|unit| *unit == b'\\' as u16)
+        .any(|segment| segment == [b'.' as u16, b'.' as u16])
 }
 
 #[cfg(windows)]
@@ -1292,12 +1307,11 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
-    fn normalize_long_windows_state_paths_uses_the_verbatim_namespace() {
+    fn normalize_long_windows_parent_paths_preserve_component_semantics() {
         let path = PathBuf::from(format!(r"C:\{}\..\state", "segment".repeat(42)));
-        let normalized = normalize_filesystem_path(path);
+        let normalized = normalize_filesystem_path(path.clone());
         let text = normalized.to_string_lossy();
-        assert!(text.starts_with(r"\\?\C:\"), "{text}");
-        assert!(!text.contains(r"\..\"), "{text}");
+        assert_eq!(normalized, path, "{text}");
     }
 
     #[cfg(windows)]
