@@ -12,6 +12,10 @@ extension ShortcutListModel {
         }
         return action.effectivePersistedShortcutResolvingLegacyConflicts(
             candidate,
+            // The policy's optional means "use the package default". Convert
+            // a resolver's explicit nil stroke to the persisted unbound marker
+            // so a hidden host action cannot silently regain its built-in key.
+            defaultShortcut: action.defaultShortcut(using: defaultShortcutResolver) ?? .unbound,
             normalizing: { shortcut in
                 guard action.shortcutBindingPolicyResult(for: shortcut) == .accepted else {
                     return nil

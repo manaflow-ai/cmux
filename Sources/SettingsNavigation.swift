@@ -432,6 +432,7 @@ enum SettingsSearchIndex {
         setting(.sidebarAppearance, "notification-badge-position", String(localized: "settings.app.notificationBadgePosition", defaultValue: "Notification Badge Position"), "sidebar.notificationBadgePosition notification unread badge position left right leading trailing side"),
         setting(.sidebarAppearance, "show-metadata", String(localized: "settings.app.showMetadata", defaultValue: "Show Custom Metadata in Sidebar"), "report meta status block"),
         setting(.sidebarAppearance, "right-max-width", String(localized: "settings.sidebar.rightMaxWidth", defaultValue: "Dock Max Width"), "dock right sidebar max width terminal reservation cap logs lazygit"),
+        setting(.sidebarAppearance, "right-sidebar-tabs", String(localized: "settings.sidebar.rightTabs", defaultValue: "Right Sidebar Tabs"), "right sidebar tabs show hide reorder order files find vault feed dock cloud mode switcher customize"),
         setting(.customSidebars, "enabled", String(localized: "settings.customSidebars.enabled", defaultValue: "Show Custom Sidebars"), "custom sidebars enable show vibe swift json interpreted picker"),
         setting(.customSidebars, "renderer", String(localized: "settings.customSidebars.renderer", defaultValue: "Renderer"), "renderer in-process in app remote worker isolated process hover focus typing input"),
         setting(.betaFeatures, "feed", String(localized: "settings.betaFeatures.feed", defaultValue: "Feed"), "feed right sidebar agent decisions permissions questions"),

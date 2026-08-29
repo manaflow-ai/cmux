@@ -118,6 +118,28 @@ public protocol SettingsHostActions: AnyObject {
     @discardableResult
     func setSidebarFontSize(_ points: Double) async -> Bool
 
+    /// The customizable right-sidebar tabs in the user's order, hidden tabs
+    /// included. Backed by host-owned mode metadata and tab preferences the
+    /// package cannot read; empty when the host has no right sidebar
+    /// (previews/tests).
+    func rightSidebarTabs() -> [RightSidebarTabSettingsItem]
+
+    /// Shows or hides one right-sidebar tab.
+    ///
+    /// - Returns: `false` when the host refused the change (hiding the last
+    ///   visible tab); the card re-reads state so the toggle snaps back.
+    @discardableResult
+    func setRightSidebarTabVisible(id: String, visible: Bool) -> Bool
+
+    /// Moves one right-sidebar tab by `offset` within the ordered tab list
+    /// (negative is toward the front). Hidden tabs keep their slot.
+    func moveRightSidebarTab(id: String, offset: Int)
+
+    /// Yields a fresh tab list whenever the tabs change from any entrypoint
+    /// (this card, the mode bar's context menu, shortcut rebinds that change
+    /// the displayed digit hints).
+    func rightSidebarTabsUpdates() -> AsyncStream<[RightSidebarTabSettingsItem]>
+
     /// The current workspace tab-bar font size with its range + default.
     /// Backed by the Ghostty config file (`surface-tab-bar-font-size`).
     func surfaceTabBarFontSize() -> SettingsFontSize
@@ -247,9 +269,44 @@ public struct CloudMachinesPlanSummary: Equatable, Sendable {
     }
 }
 
+/// One right-sidebar tab as the Sidebar section's customization card renders
+/// it. `id` is the host's stable mode identifier (the mode raw value).
+public struct RightSidebarTabSettingsItem: Identifiable, Equatable, Sendable {
+    public let id: String
+    public let title: String
+    public let symbolName: String
+    public let isVisible: Bool
+    /// Resolved switch-shortcut label (e.g. `⌃4`); empty when unbound.
+    public let shortcutLabel: String
+
+    public init(
+        id: String,
+        title: String,
+        symbolName: String,
+        isVisible: Bool,
+        shortcutLabel: String
+    ) {
+        self.id = id
+        self.title = title
+        self.symbolName = symbolName
+        self.isVisible = isVisible
+        self.shortcutLabel = shortcutLabel
+    }
+}
+
 public extension SettingsHostActions {
     /// Default no-op for previews and tests without a live control socket.
     func socketControlConfigurationDidChange() {}
+
+    /// Right-sidebar tab defaults for previews, tests, and package-only
+    /// hosts: no tabs, refuse mutations, no updates.
+    func rightSidebarTabs() -> [RightSidebarTabSettingsItem] { [] }
+    @discardableResult
+    func setRightSidebarTabVisible(id: String, visible: Bool) -> Bool { false }
+    func moveRightSidebarTab(id: String, offset: Int) {}
+    func rightSidebarTabsUpdates() -> AsyncStream<[RightSidebarTabSettingsItem]> {
+        AsyncStream { $0.finish() }
+    }
 
     /// Cloud Machines defaults for previews, tests, and package-only hosts:
     /// unavailable, no plan, no-op actions.

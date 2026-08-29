@@ -72,15 +72,19 @@ extension ShortcutAction {
     ///
     /// - Parameters:
     ///   - candidate: The configured shortcut, or `nil` when no override exists.
+    ///   - hostDefault: An optional host-owned default. Pass
+    ///     ``StoredShortcut/unbound`` to explicitly disable the built-in value.
     ///   - conflictsWithReservedShortcut: Whether a normalized shortcut is reserved
     ///     by a higher-priority system-wide binding.
     /// - Returns: The executable shortcut, or `nil` when the action is unbound.
     public func effectivePersistedShortcut(
         _ candidate: StoredShortcut?,
+        defaultShortcut hostDefault: StoredShortcut? = nil,
         conflictsWithReservedShortcut: (StoredShortcut) -> Bool = { _ in false }
     ) -> StoredShortcut? {
         effectivePersistedShortcut(
             candidate,
+            defaultShortcut: hostDefault,
             normalizing: { shortcut in
                 shortcutBindingPolicyResult(for: shortcut) == .accepted
                     ? shortcut.canonicalized()
@@ -94,6 +98,8 @@ extension ShortcutAction {
     ///
     /// - Parameters:
     ///   - candidate: The configured shortcut, or `nil` when no override exists.
+    ///   - hostDefault: An optional host-owned default. Pass
+    ///     ``StoredShortcut/unbound`` to explicitly disable the built-in value.
     ///   - normalizing: Returns the executable representation of a shortcut, or
     ///     `nil` when the consumer cannot execute it.
     ///   - conflictsWithReservedShortcut: Whether a normalized shortcut is reserved
@@ -101,6 +107,7 @@ extension ShortcutAction {
     /// - Returns: The executable shortcut, or `nil` when the action is unbound.
     public func effectivePersistedShortcut(
         _ candidate: StoredShortcut?,
+        defaultShortcut hostDefault: StoredShortcut? = nil,
         normalizing: (StoredShortcut) -> StoredShortcut?,
         conflictsWithReservedShortcut: (StoredShortcut) -> Bool
     ) -> StoredShortcut? {
@@ -117,9 +124,10 @@ extension ShortcutAction {
             }
         }
 
-        guard let defaultShortcut,
-              !defaultShortcut.isUnbound,
-              let normalizedDefault = normalizing(defaultShortcut),
+        let fallback = hostDefault ?? defaultShortcut
+        guard let fallback,
+              !fallback.isUnbound,
+              let normalizedDefault = normalizing(fallback),
               !conflictsWithReservedShortcut(normalizedDefault) else {
             return nil
         }
