@@ -187,14 +187,35 @@ try {
       const attachBody = expectedTransport === "cmux-remote"
         ? { transport: "cmux-remote" }
         : { requireDaemon: true };
+      // First attach after create races the in-VM daemon boot; the API says
+      // retryable with retryAfterSeconds and real clients loop. Retry 502s
+      // within a bounded budget so the smoke measures the client contract,
+      // not the race.
       const attachStartedAt = performance.now();
-      const attach = await fetchWithTimeout(`${targetUrl}/api/vm/${encodeURIComponent(vmId)}/attach-endpoint`, {
-        method: "POST",
-        headers: { ...authHeaders, "content-type": "application/json" },
-        body: JSON.stringify(attachBody),
-      });
+      const attachBudgetMs = 120_000;
+      let attach;
+      let attachText;
+      for (;;) {
+        attach = await fetchWithTimeout(`${targetUrl}/api/vm/${encodeURIComponent(vmId)}/attach-endpoint`, {
+          method: "POST",
+          headers: { ...authHeaders, "content-type": "application/json" },
+          body: JSON.stringify(attachBody),
+        });
+        attachText = await attach.text();
+        if (attach.status !== 502) break;
+        const elapsed = performance.now() - attachStartedAt;
+        if (elapsed >= attachBudgetMs) break;
+        let retryAfterSeconds = 2;
+        try {
+          const parsed = JSON.parse(attachText);
+          if (typeof parsed.retryAfterSeconds === "number") retryAfterSeconds = parsed.retryAfterSeconds;
+          if (parsed.retryable !== true) break;
+        } catch {
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, Math.max(1, retryAfterSeconds) * 1000));
+      }
       attachDurationMs = Math.round(performance.now() - attachStartedAt);
-      const attachText = await attach.text();
       if (attach.status !== 200) throw new Error(`POST attach-endpoint expected 200, got ${attach.status}: ${attachText}`);
       const attached = JSON.parse(attachText);
       if (attached.transport !== expectedTransport) {
