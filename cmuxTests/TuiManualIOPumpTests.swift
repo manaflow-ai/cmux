@@ -227,12 +227,14 @@ struct TuiManualIOPumpTests {
         let channel = TuiManualIOInputChannel()
         channel.setHandle(pipe.fileHandleForWriting)
         channel.send(Data("first\n".utf8))
+        channel.waitForTesting()
         // Pause (relay died): input is dropped, never queued for a future
         // relay, so stale keystrokes cannot replay into a resynced shell.
         channel.setHandle(nil)
         channel.send(Data("dropped\n".utf8))
         channel.setHandle(pipe.fileHandleForWriting)
         channel.send(Data("second\n".utf8))
+        channel.waitForTesting()
         channel.closeHandle()
 
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
@@ -251,6 +253,7 @@ struct TuiManualIOPumpTests {
         channel.sendUserInput(Data("c\n".utf8), claimInterval: 5, now: 106)
         // Within the fresh window again: no second claim.
         channel.sendUserInput(Data("d\n".utf8), claimInterval: 5, now: 107)
+        channel.waitForTesting()
         channel.closeHandle()
 
         let text = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)

@@ -91,6 +91,7 @@ enum TuiManualIOPumpPolicy {
 
     /// One stdin line forwarding raw input bytes to the relay.
     static func inputLine(bytes: Data) -> Data {
+        guard bytes.count <= 3 * 1024 * 1024 else { return Data() }
         var line = Data(#"{"input":""#.utf8)
         line.append(Data(bytes.base64EncodedString().utf8))
         line.append(Data(#""}"#.utf8))
@@ -100,7 +101,11 @@ enum TuiManualIOPumpPolicy {
 
     /// One stdin line driving the daemon-side viewer size.
     static func resizeLine(cols: Int, rows: Int) -> Data {
-        Data(#"{"resize":{"cols":\#(max(1, cols)),"rows":\#(max(1, rows))}}"#.utf8 + [0x0A])
+        var line = Data(
+            #"{"resize":{"cols":\#(max(1, cols)),"rows":\#(max(1, rows))}}"#.utf8
+        )
+        line.append(0x0A)
+        return line
     }
 
     /// One stdin line re-asserting this relay's geometry authority.
@@ -109,7 +114,11 @@ enum TuiManualIOPumpPolicy {
     /// viewed the terminal) claim at attach in arbitrary order — so the
     /// pane the user actually TYPES in re-claims, and the daemon's PTY size
     /// follows user intent instead of restore order.
-    static let claimGeometryLine = Data(#"{"claim":{"geometry":true}}"#.utf8 + [0x0A])
+    static let claimGeometryLine: Data = {
+        var line = Data(#"{"claim":{"geometry":true}}"#.utf8)
+        line.append(0x0A)
+        return line
+    }()
 
     /// Re-claim at most this often: a claim is one daemon round trip, so
     /// claiming per keystroke would double interactive traffic. Within one
@@ -273,34 +282,75 @@ struct TuiManualIOResizeScheduler: Equatable {
 /// the surface's encoded input bytes) and the pump's relay stdin writer.
 /// Lock-guarded because `manualInputHandler` must not touch the main actor.
 final class TuiManualIOInputChannel: @unchecked Sendable {
+    private enum WriteKind: Equatable {
+        case ordinary
+        case coalesced
+    }
+
+    private struct PendingWrite {
+        let handle: FileHandle
+        let generation: UInt64
+        var data: Data
+        let kind: WriteKind
+    }
+
+    /// This is an admission-controlled mailbox, not an unbounded list of
+    /// GCD work items. One worker owns the blocking write and the byte cap
+    /// bounds everything waiting behind it. Input is lossy when the relay
+    /// cannot keep up, because replaying stale keystrokes after reconnect is
+    /// unsafe and retaining them is a memory denial of service.
+    private static let maxPendingBytes = 1 * 1024 * 1024
+
     private let lock = NSLock()
     private var handle: FileHandle?
     private var lastGeometryClaim: TimeInterval = 0
     private let queue = DispatchQueue(label: "cmux.tuiManualIO.stdin", qos: .userInitiated)
+    private var generation: UInt64 = 0
+    private var pending: [PendingWrite] = []
+    private var pendingHead = 0
+    private var pendingBytes = 0
+    private var writerScheduled = false
+    private var writeInFlight = false
+    private var closeWhenIdle = false
+    private var cancelled = false
 
     /// Swaps the live relay stdin. `nil` pauses input (dropped, never
     /// queued: replaying stale input into a shell after a reconnect is
     /// worse than losing keystrokes typed into a dead pane). A fresh handle
     /// counts as a claim: the relay claims geometry itself at attach.
     func setHandle(_ newHandle: FileHandle?, now: TimeInterval = ProcessInfo.processInfo.systemUptime) {
+        var oldHandle: FileHandle?
+        var shouldCloseOld = false
         lock.lock()
+        oldHandle = handle
+        if cancelled {
+            lock.unlock()
+            try? newHandle?.close()
+            return
+        }
+        generation &+= 1
         handle = newHandle
+        closeWhenIdle = false
         if newHandle != nil {
             lastGeometryClaim = now
         }
+        // Queued bytes belong to the previous relay generation. Drop them
+        // before publishing the replacement handle.
+        pending.removeAll(keepingCapacity: true)
+        pendingHead = 0
+        pendingBytes = 0
+        shouldCloseOld = oldHandle.map { old in
+            guard let newHandle else { return true }
+            return old !== newHandle
+        } ?? false
         lock.unlock()
+        if shouldCloseOld {
+            try? oldHandle?.close()
+        }
     }
 
-    func send(_ line: Data) {
-        lock.lock()
-        let target = handle
-        lock.unlock()
-        guard let target else { return }
-        queue.async {
-            // A failed write means the relay just died; the pump's
-            // termination handler owns that transition.
-            try? target.write(contentsOf: line)
-        }
+    func send(_ line: Data, coalescing: Bool = false) {
+        enqueue(line, coalescing: coalescing)
     }
 
     /// Sends user input, preceded by a geometry re-claim when the last
@@ -312,36 +362,207 @@ final class TuiManualIOInputChannel: @unchecked Sendable {
         claimInterval: TimeInterval = TuiManualIOPumpPolicy.claimInterval,
         now: TimeInterval = ProcessInfo.processInfo.systemUptime
     ) {
+        guard !line.isEmpty else { return }
         lock.lock()
-        let target = handle
-        var claim = false
-        if target != nil, now - lastGeometryClaim >= claimInterval {
-            lastGeometryClaim = now
-            claim = true
+        guard !cancelled, !closeWhenIdle, let target = handle else {
+            lock.unlock()
+            return
         }
+        let claim = now - lastGeometryClaim >= claimInterval
+        var payload = Data()
+        if claim {
+            payload.append(TuiManualIOPumpPolicy.claimGeometryLine)
+        }
+        payload.append(line)
+        guard admitLocked(payload, handle: target, kind: .ordinary) else {
+            lock.unlock()
+            return
+        }
+        if claim { lastGeometryClaim = now }
+        let shouldSchedule = scheduleWriterLocked()
         lock.unlock()
-        guard let target else { return }
-        let sendClaim = claim
-        queue.async {
-            if sendClaim {
-                try? target.write(contentsOf: TuiManualIOPumpPolicy.claimGeometryLine)
-            }
-            try? target.write(contentsOf: line)
+        if shouldSchedule {
+            queue.async { [weak self] in self?.drain() }
         }
     }
 
-    /// Closes and detaches the current handle (relay stdin EOF = clean
-    /// detach on the relay side).
-    func closeHandle() {
+    /// Enqueues one bounded write. The worker is the only code that writes to
+    /// a handle, so admission and generation changes cannot race a write.
+    private func enqueue(_ line: Data, coalescing: Bool = false) {
+        guard !line.isEmpty else { return }
         lock.lock()
-        let target = handle
-        handle = nil
+        guard !cancelled, !closeWhenIdle, let target = handle,
+              admitLocked(line, handle: target, kind: coalescing ? .coalesced : .ordinary) else {
+            lock.unlock()
+            return
+        }
+        let shouldSchedule = scheduleWriterLocked()
         lock.unlock()
-        guard let target else { return }
-        queue.async {
-            try? target.close()
+        if shouldSchedule {
+            queue.async { [weak self] in self?.drain() }
         }
     }
+
+    private func admitLocked(_ data: Data, handle: FileHandle, kind: WriteKind) -> Bool {
+        if kind == .coalesced, pendingHead < pending.count,
+           let lastIndex = pending.indices.last,
+           pending[lastIndex].kind == .coalesced,
+           pending[lastIndex].handle === handle,
+           pending[lastIndex].generation == generation {
+            let oldCount = pending[lastIndex].data.count
+            let available = Self.maxPendingBytes - pendingBytes + oldCount
+            guard data.count <= available else { return false }
+            pending[lastIndex].data = data
+            pendingBytes += data.count - oldCount
+            return true
+        }
+        guard data.count <= Self.maxPendingBytes - pendingBytes else { return false }
+        pending.append(PendingWrite(handle: handle, generation: generation, data: data, kind: kind))
+        pendingBytes += data.count
+        return true
+    }
+
+    private func scheduleWriterLocked() -> Bool {
+        guard !writerScheduled else { return false }
+        writerScheduled = true
+        return true
+    }
+
+    /// Drains the bounded mailbox. A stale generation is discarded without a
+    /// write. A failed write invalidates and closes that generation so a
+    /// blocked relay cannot retain input or poison the next relay.
+    private func drain() {
+        while true {
+            lock.lock()
+            guard !cancelled else {
+                writerScheduled = false
+                lock.unlock()
+                return
+            }
+            guard pendingHead < pending.count else {
+                writerScheduled = false
+                var handleToClose: FileHandle?
+                if closeWhenIdle, let current = handle {
+                    handle = nil
+                    generation &+= 1
+                    closeWhenIdle = false
+                    handleToClose = current
+                }
+                lock.unlock()
+                try? handleToClose?.close()
+                return
+            }
+            let write = pending[pendingHead]
+            pendingHead += 1
+            if pendingHead >= 64, pendingHead * 2 >= pending.count {
+                pending.removeFirst(pendingHead)
+                pendingHead = 0
+            }
+            pendingBytes = max(0, pendingBytes - write.data.count)
+            writeInFlight = true
+            let currentHandle = handle
+            let currentGeneration = generation
+            lock.unlock()
+
+            guard let currentHandle,
+                  currentHandle === write.handle,
+                  currentGeneration == write.generation else {
+                finishWrite()
+                continue
+            }
+            do {
+                try write.handle.write(contentsOf: write.data)
+            } catch {
+                invalidate(write.handle, generation: write.generation)
+            }
+            finishWrite()
+        }
+    }
+
+    private func finishWrite() {
+        lock.lock()
+        writeInFlight = false
+        var handleToClose: FileHandle?
+        if closeWhenIdle, pendingHead >= pending.count, let current = handle {
+            handle = nil
+            generation &+= 1
+            closeWhenIdle = false
+            handleToClose = current
+        }
+        lock.unlock()
+        try? handleToClose?.close()
+    }
+
+    private func invalidate(_ target: FileHandle, generation expectedGeneration: UInt64) {
+        lock.lock()
+        guard handle === target, generation == expectedGeneration else {
+            lock.unlock()
+            return
+        }
+        handle = nil
+        generation &+= 1
+        closeWhenIdle = false
+        pending.removeAll(keepingCapacity: true)
+        pendingHead = 0
+        pendingBytes = 0
+        lock.unlock()
+        try? target.close()
+    }
+
+    /// Closes and detaches the current handle after admitted writes drain.
+    /// Call `cancel()` when the relay is lost or the pump is being torn down;
+    /// that path closes the descriptor immediately and drops stale input.
+    func closeHandle() {
+        lock.lock()
+        guard !cancelled, let target = handle else {
+            lock.unlock()
+            return
+        }
+        closeWhenIdle = true
+        var closeNow = false
+        if pendingHead >= pending.count, !writeInFlight {
+            handle = nil
+            generation &+= 1
+            closeWhenIdle = false
+            closeNow = true
+        }
+        let shouldSchedule = !closeNow && scheduleWriterLocked()
+        lock.unlock()
+        if closeNow {
+            try? target.close()
+        } else if shouldSchedule {
+            queue.async { [weak self] in self?.drain() }
+        }
+    }
+
+    /// Immediate cancellation used for relay loss and pump teardown. This is
+    /// separate from `closeHandle()` so normal detach paths can flush
+    /// admitted bytes without risking a wait on a blocked peer.
+    func cancel() {
+        lock.lock()
+        guard !cancelled else {
+            lock.unlock()
+            return
+        }
+        cancelled = true
+        let target = handle
+        handle = nil
+        generation &+= 1
+        closeWhenIdle = false
+        pending.removeAll(keepingCapacity: true)
+        pendingHead = 0
+        pendingBytes = 0
+        lock.unlock()
+        try? target?.close()
+    }
+
+#if DEBUG
+    /// Test-only barrier for the bounded worker. Production callers must not
+    /// wait on a pipe writer because the peer may be slow or gone.
+    func waitForTesting() {
+        queue.sync {}
+    }
+#endif
 }
 
 /// Owns the `cmux-tui attach --terminal <id> --pipe-io` relay for one
@@ -505,7 +726,7 @@ final class TuiManualIOPump {
         stdoutReader = nil
         stderrStream?.close()
         stderrStream = nil
-        inputChannel.closeHandle()
+        inputChannel.cancel()
         generation += 1
         process?.terminationHandler = nil
         process?.terminate()
@@ -532,7 +753,10 @@ final class TuiManualIOPump {
     }
 
     private func deliverResize(_ grid: TuiManualIOGrid) {
-        inputChannel.send(TuiManualIOPumpPolicy.resizeLine(cols: grid.cols, rows: grid.rows))
+        inputChannel.send(
+            TuiManualIOPumpPolicy.resizeLine(cols: grid.cols, rows: grid.rows),
+            coalescing: true
+        )
         startResizeAckTimeout()
     }
 
