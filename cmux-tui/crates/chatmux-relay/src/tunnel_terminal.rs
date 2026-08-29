@@ -578,15 +578,24 @@ async fn serve_connection(stream: TcpStream, manager: Arc<PtyManager>, parent: C
         let connection = Arc::clone(&connection);
         let context = context.clone();
         tokio::spawn(async move {
-            while flow_rx.changed().await.is_ok() {
-                let pause = *flow_rx.borrow_and_update();
-                let frame = json!({
-                    "version": PTY_PROTOCOL_VERSION,
-                    "type": "pty_flow",
-                    "ptyId": connection.pty_id,
-                    "pause": pause,
-                });
-                connection.manager.handle_frame(&frame, &context).await;
+            loop {
+                tokio::select! {
+                    biased;
+                    _ = connection.done.cancelled() => break,
+                    changed = flow_rx.changed() => {
+                        if changed.is_err() || connection.finished.load(Ordering::SeqCst) {
+                            break;
+                        }
+                        let pause = *flow_rx.borrow_and_update();
+                        let frame = json!({
+                            "version": PTY_PROTOCOL_VERSION,
+                            "type": "pty_flow",
+                            "ptyId": connection.pty_id,
+                            "pause": pause,
+                        });
+                        connection.manager.handle_frame(&frame, &context).await;
+                    }
+                }
             }
         })
     };
