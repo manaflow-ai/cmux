@@ -4890,6 +4890,10 @@ fn parse_ghostty_application_defaults_from_paths_result(
                     scrollback_limit_bytes = value;
                 }
             }
+            GhosttyConfigParseOutcome::Partial(defaults) => {
+                let merged = resolved.get_or_insert_with(DefaultColors::default);
+                overlay_ghostty_defaults(merged, *defaults);
+            }
         }
     }
     match resolved {
@@ -4905,6 +4909,7 @@ fn parse_ghostty_application_defaults_from_paths_result(
 
 enum GhosttyConfigParseOutcome {
     Parsed(Box<DefaultColors>),
+    Partial(Box<DefaultColors>),
     Missing,
     TimedOut,
 }
@@ -5056,11 +5061,15 @@ fn parse_ghostty_config_file_until_with_scrollback(
 
     while let Some(pending) = stack.pop() {
         if files_loaded > 0 && ghostty_config_deadline_expired(deadline_at) {
-            return GhosttyConfigParseOutcome::TimedOut;
+            return if collect_scrollback {
+                GhosttyConfigParseOutcome::Partial(Box::new(overrides))
+            } else {
+                GhosttyConfigParseOutcome::TimedOut
+            };
         }
         if pending.depth > GHOSTTY_CONFIG_MAX_DEPTH || files_loaded >= GHOSTTY_CONFIG_MAX_FILES {
             if collect_scrollback {
-                return GhosttyConfigParseOutcome::TimedOut;
+                return GhosttyConfigParseOutcome::Partial(Box::new(overrides));
             }
             continue;
         }
@@ -5071,7 +5080,7 @@ fn parse_ghostty_config_file_until_with_scrollback(
         let remaining_bytes = GHOSTTY_CONFIG_MAX_BYTES.saturating_sub(bytes_loaded);
         if collect_scrollback && ghostty_regular_file_exceeds_limit(&pending.path, remaining_bytes)
         {
-            return GhosttyConfigParseOutcome::TimedOut;
+            return GhosttyConfigParseOutcome::Partial(Box::new(overrides));
         }
         let text = match read_ghostty_regular_file(&pending.path, remaining_bytes) {
             Some(text) => text,
@@ -5099,7 +5108,11 @@ fn parse_ghostty_config_file_until_with_scrollback(
             stack.push(PendingGhosttyConfig { path: include, depth: pending.depth + 1 });
         }
         if ghostty_config_deadline_expired(deadline_at) {
-            return GhosttyConfigParseOutcome::TimedOut;
+            return if collect_scrollback {
+                GhosttyConfigParseOutcome::Partial(Box::new(overrides))
+            } else {
+                GhosttyConfigParseOutcome::TimedOut
+            };
         }
     }
 
@@ -6071,6 +6084,7 @@ mod tests {
             std::fs::write(path, include).unwrap();
         }
         let root = dir.path.join("config-0");
+        std::fs::write(&root, "foreground = #010203\nconfig-file = config-1\n").unwrap();
 
         assert_eq!(
             parse_scrollback_limit_from_root(&root, Instant::now() + Duration::from_secs(1)),
@@ -6084,7 +6098,10 @@ mod tests {
             Some(Instant::now() + Duration::from_secs(1)),
             Some(&mut scrollback),
         );
-        assert!(matches!(outcome, GhosttyConfigParseOutcome::TimedOut));
+        let GhosttyConfigParseOutcome::Partial(colors) = outcome else {
+            panic!("truncated snapshot should preserve parsed colors");
+        };
+        assert_eq!(colors.fg, Some(Rgb { r: 1, g: 2, b: 3 }));
     }
 
     #[test]
