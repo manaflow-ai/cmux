@@ -601,11 +601,22 @@ fn resolved_run_command_for_target(
 ) -> anyhow::Result<Vec<String>> {
     let mut command = resolved_run_command(manifest, staged_dir)?;
     let staged_root = canonical_path(staged_dir)?;
-    let target_root = canonical_path(target_dir)?;
+    // Do not canonicalize the final target component. A forced replacement can
+    // receive a symlink at this path, and resolving it would persist the old
+    // destination instead of the new install root.
+    let target_root = canonical_parent_with_name(target_dir)?;
     if let Ok(relative) = Path::new(&command[0]).strip_prefix(&staged_root) {
         command[0] = target_root.join(relative).display().to_string();
     }
     Ok(command)
+}
+
+fn canonical_parent_with_name(path: &Path) -> anyhow::Result<PathBuf> {
+    let name = path
+        .file_name()
+        .ok_or_else(|| anyhow::anyhow!("path has no final component"))?;
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    Ok(canonical_path(parent)?.join(name))
 }
 
 fn verify_executable(path: &str) -> anyhow::Result<()> {
@@ -1232,12 +1243,18 @@ fn reconcile_install_transactions(install_root: &Path) -> anyhow::Result<()> {
                     }
                     remove_install_temp_if_present(install_root, &journal.temp_dir)?;
                     remove_path_if_present(&journal.metadata_temp)?;
+                    // Persist both restored directory entries before deleting
+                    // the journal that records how to recover them.
+                    sync_directory(install_root)?;
+                    sync_directory(&install_root.join(".registry"))?;
                 }
                 InstallJournalPhase::Committed => unreachable!(),
             }
         }
         remove_path_if_present(&path)?;
         remove_path_if_present(&marker_path)?;
+        sync_directory(install_root)?;
+        sync_directory(&install_root.join(".registry"))?;
     }
     cleanup_orphan_metadata_temps(install_root, &protected_metadata_temps)?;
     cleanup_orphan_commit_markers(install_root, &valid_journal_names)?;
@@ -1838,6 +1855,32 @@ mod tests {
             fs::set_permissions(&executable, fs::Permissions::from_mode(0o755)).unwrap();
         }
         let manifest = parse_manifest(&manifest_text("demo")).unwrap();
+        let command = resolved_run_command_for_target(&manifest, &staged, &target).unwrap();
+        assert_eq!(command, vec![target.join("bin/sidebar").display().to_string()]);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn staged_command_mapping_does_not_follow_target_symlink() {
+        use std::os::unix::fs::{PermissionsExt, symlink};
+
+        let root = std::env::temp_dir().join(format!(
+            "cmux-plugin-command-symlink-{}-{}",
+            std::process::id(),
+            now_nanos()
+        ));
+        let staged = root.join(".install");
+        let target = root.join("demo");
+        let old_target = root.join("old-demo");
+        fs::create_dir_all(staged.join("bin")).unwrap();
+        fs::create_dir_all(&old_target).unwrap();
+        symlink(&old_target, &target).unwrap();
+        let executable = staged.join("bin/sidebar");
+        fs::write(&executable, "#!/bin/sh\nexit 0\n").unwrap();
+        fs::set_permissions(&executable, fs::Permissions::from_mode(0o755)).unwrap();
+        let manifest = parse_manifest(&manifest_text("demo")).unwrap();
+
         let command = resolved_run_command_for_target(&manifest, &staged, &target).unwrap();
         assert_eq!(command, vec![target.join("bin/sidebar").display().to_string()]);
         fs::remove_dir_all(root).unwrap();
