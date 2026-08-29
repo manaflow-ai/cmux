@@ -95,9 +95,10 @@ pub(crate) fn scan(
     // an avoidable O(tracked × live) pass on every tick.
     let live_terminal_ids = terminals.iter().map(|(id, _)| id.as_str()).collect::<HashSet<_>>();
     tracker.retain_terminals(|terminal_id| live_terminal_ids.contains(terminal_id));
+    let scan_count = terminals.len().min(MAX_FOREGROUND_LOOKUPS_PER_SCAN);
     let start = tracker.scan_start(terminals.len());
     let mut lookup_budget = MAX_FOREGROUND_LOOKUPS_PER_SCAN;
-    for offset in 0..terminals.len() {
+    for offset in 0..scan_count {
         let index = (start + offset) % terminals.len();
         let (terminal_id, surface) = &terminals[index];
         let Ok(revision) = surface.terminal_stream_revision() else { continue };
@@ -130,10 +131,12 @@ pub(crate) fn scan(
                 }
             }
         } else {
-            match tracker.cached_foreground_identity(terminal_id) {
-                Some(Some(name)) => manifests.identify(&name),
-                Some(None) | None => None,
-            }
+            // A cached process name is only advisory until the next kernel
+            // sample. Do not reuse it across a process switch or PID reuse.
+            // Failing closed leaves the current roster entry unchanged until
+            // fresh identity data arrives, rather than attributing new output
+            // to a stale agent.
+            None
         };
         // Observe after the identity edge so the immediate evaluation also
         // records its pacer timestamp before later output is debounced.
@@ -168,4 +171,5 @@ pub(crate) fn scan(
             mux.append_screen_detect_event(&emission);
         }
     }
+    tracker.advance_scan_cursor(terminals.len(), scan_count);
 }

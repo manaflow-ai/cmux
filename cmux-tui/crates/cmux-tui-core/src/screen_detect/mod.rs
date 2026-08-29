@@ -196,8 +196,15 @@ impl ScreenDetectTracker {
             return 0;
         }
         let start = self.scan_cursor % terminal_count;
-        self.scan_cursor = (start + 1) % terminal_count;
         start
+    }
+
+    pub(crate) fn advance_scan_cursor(&mut self, terminal_count: usize, processed: usize) {
+        if terminal_count == 0 {
+            self.scan_cursor = 0;
+        } else {
+            self.scan_cursor = (self.scan_cursor + processed.min(terminal_count)) % terminal_count;
+        }
     }
 
     /// True when this terminal previously journaled a screen-derived state
