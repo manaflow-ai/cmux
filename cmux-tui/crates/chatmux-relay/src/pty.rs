@@ -303,9 +303,10 @@ pub struct FrameContext {
     pub auth_generation: Option<u64>,
 }
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
 pub enum TransportKind {
     /// The legacy whole-manager caller, which owns all non-tunnel state.
+    #[default]
     Legacy,
     /// The authenticated relay WebSocket.
     Relay,
@@ -635,7 +636,7 @@ impl PtyManager {
                     }
                     return;
                 };
-                self.inner.clone().open(frame, context, cancellation).await
+                self.inner.clone().open(frame, context, cancellation).await;
             }
             "pty_input" => {
                 let Some(pty_id) = frame.get("ptyId").and_then(Value::as_str) else { return };
@@ -3649,7 +3650,7 @@ mod tests {
                     operation_gate: Arc::new(Mutex::new(())),
                     control: slow,
                     actor_id: "user_owner".to_owned(),
-                    owner: owner_a.clone(),
+                    owner: owner_a,
                 },
             );
             attachments.insert(
@@ -3659,7 +3660,7 @@ mod tests {
                     operation_gate: Arc::new(Mutex::new(())),
                     control: Arc::new(fast),
                     actor_id: "user_owner".to_owned(),
-                    owner: owner_b.clone(),
+                    owner: owner_b,
                 },
             );
         }
@@ -3673,7 +3674,7 @@ mod tests {
         inner.cache_transport_auth(&context_b);
 
         let slow_inner = Arc::clone(&inner);
-        let slow_context = context_a.clone();
+        let slow_context = context_a;
         let slow_thread = thread::spawn(move || {
             slow_inner.with_authorized("p1", &slow_context, "input", |attachment| {
                 attachment.control.write(b"slow");
@@ -3683,7 +3684,7 @@ mod tests {
 
         let (done_tx, done_rx) = sync_channel(1);
         let fast_inner = Arc::clone(&inner);
-        let fast_context = context_b.clone();
+        let fast_context = context_b;
         let fast_thread = thread::spawn(move || {
             fast_inner.with_authorized("p2", &fast_context, "input", |attachment| {
                 attachment.control.write(b"fast");
@@ -3715,7 +3716,7 @@ mod tests {
                         release: Arc::clone(&release),
                     }),
                     actor_id: "user_owner".to_owned(),
-                    owner: owner.clone(),
+                    owner,
                 },
             );
         }
@@ -3724,7 +3725,7 @@ mod tests {
         inner.cache_transport_auth(&context);
 
         let operation_inner = Arc::clone(&inner);
-        let operation_context = context.clone();
+        let operation_context = context;
         let operation = thread::spawn(move || {
             operation_inner.with_authorized("p1", &operation_context, "input", |attachment| {
                 attachment.control.write(b"blocked");
@@ -3768,7 +3769,7 @@ mod tests {
         {
             let mut state = inner.opening_state.lock().unwrap();
             state.reservations.insert(id.clone(), owner_a.clone());
-            state.cancelled.insert(id.clone(), owner_a.clone());
+            state.cancelled.insert(id.clone(), owner_a);
             state.reservations.remove(&id);
             state.reservations.insert(id.clone(), owner_b.clone());
             state.cancelled.insert(id.clone(), owner_b.clone());
@@ -4082,7 +4083,7 @@ mod tests {
             transport_kind: TransportKind::Legacy,
             auth_generation: None,
         };
-        super::send_pty_error(
+        send_pty_error(
             &context,
             "pty-1",
             "failed",
