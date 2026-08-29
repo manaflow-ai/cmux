@@ -4587,6 +4587,7 @@ pub(crate) fn run_ghostty_config_helper() -> i32 {
             print!("{}", serialize_ghostty_application_defaults(&defaults));
             0
         }
+        GhosttyApplicationDefaultsParseOutcome::Partial(_) => 2,
         GhosttyApplicationDefaultsParseOutcome::Missing => 1,
         GhosttyApplicationDefaultsParseOutcome::TimedOut => 2,
     }
@@ -4850,6 +4851,7 @@ fn parse_ghostty_application_defaults_from_paths(
 ) -> Option<GhosttyApplicationDefaults> {
     match parse_ghostty_application_defaults_from_paths_result(config_paths, theme_dirs) {
         GhosttyApplicationDefaultsParseOutcome::Parsed(defaults) => Some(defaults),
+        GhosttyApplicationDefaultsParseOutcome::Partial(defaults) => Some(defaults),
         GhosttyApplicationDefaultsParseOutcome::Missing
         | GhosttyApplicationDefaultsParseOutcome::TimedOut => None,
     }
@@ -4857,6 +4859,7 @@ fn parse_ghostty_application_defaults_from_paths(
 
 enum GhosttyApplicationDefaultsParseOutcome {
     Parsed(GhosttyApplicationDefaults),
+    Partial(GhosttyApplicationDefaults),
     Missing,
     TimedOut,
 }
@@ -4868,6 +4871,7 @@ fn parse_ghostty_application_defaults_from_paths_result(
     let deadline_at = ghostty_config_deadline_from_now(GHOSTTY_CONFIG_PARSE_DEADLINE);
     let mut resolved = None;
     let mut scrollback_limit_bytes = None;
+    let mut incomplete = false;
     for path in config_paths {
         if ghostty_config_deadline_expired(Some(deadline_at)) {
             return GhosttyApplicationDefaultsParseOutcome::TimedOut;
@@ -4893,15 +4897,21 @@ fn parse_ghostty_application_defaults_from_paths_result(
             GhosttyConfigParseOutcome::Partial(defaults) => {
                 let merged = resolved.get_or_insert_with(DefaultColors::default);
                 overlay_ghostty_defaults(merged, *defaults);
+                incomplete = true;
             }
         }
     }
     match resolved {
         Some(colors) => {
-            GhosttyApplicationDefaultsParseOutcome::Parsed(GhosttyApplicationDefaults {
+            let defaults = GhosttyApplicationDefaults {
                 colors: resolve_ghostty_application_defaults(colors),
-                scrollback_limit_bytes,
-            })
+                scrollback_limit_bytes: if incomplete { None } else { scrollback_limit_bytes },
+            };
+            if incomplete {
+                GhosttyApplicationDefaultsParseOutcome::Partial(defaults)
+            } else {
+                GhosttyApplicationDefaultsParseOutcome::Parsed(defaults)
+            }
         }
         None => GhosttyApplicationDefaultsParseOutcome::Missing,
     }
@@ -6102,6 +6112,12 @@ mod tests {
             panic!("truncated snapshot should preserve parsed colors");
         };
         assert_eq!(colors.fg, Some(Rgb { r: 1, g: 2, b: 3 }));
+
+        let outcome = parse_ghostty_application_defaults_from_paths_result(vec![root], Vec::new());
+        let GhosttyApplicationDefaultsParseOutcome::Partial(defaults) = outcome else {
+            panic!("truncated application snapshot should remain explicitly partial");
+        };
+        assert_eq!(defaults.scrollback_limit_bytes, None);
     }
 
     #[test]
