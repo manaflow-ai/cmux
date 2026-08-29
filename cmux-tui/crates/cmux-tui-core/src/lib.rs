@@ -75,7 +75,8 @@ pub use surface::{
     CLEAR_HISTORY_PRESERVATION_ERROR, CLEAR_HISTORY_STREAM_TIMEOUT_ERROR, ClearHistoryDelivery,
     ClearHistoryFailure, DefaultColors, GuardedMouseEncode, PointerSemanticProbe,
     PointerSnapshotProbe, RenderAttachFrame, RenderAttachStream, Surface, SurfaceKind,
-    SurfaceOptions, SurfaceRenderFrame, TerminalColors, TerminalHostConnectionState,
+    DEFAULT_SCROLLBACK_LIMIT_BYTES, SurfaceOptions, SurfaceRenderFrame, TerminalColors,
+    TerminalHostConnectionState,
     TerminalPointerSnapshot,
 };
 pub use workspace_registry::{

@@ -142,10 +142,10 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use cmux_tui_core::BrowserMode;
 use cmux_tui_core::SidebarPluginOptions;
-use cmux_tui_core::SurfaceOptions;
 use cmux_tui_core::TRANSPORT_SAFE_CAPTURE_MEGAPIXELS;
 use cmux_tui_core::platform;
 use cmux_tui_core::{CursorShape, DefaultColors, Rgb};
+use cmux_tui_core::{DEFAULT_SCROLLBACK_LIMIT_BYTES, SurfaceOptions};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::style::Color;
 use serde::{Deserialize, Deserializer};
@@ -3021,6 +3021,7 @@ pub struct Config {
     pub terminal_defaults: DefaultColors,
     pub cursor_style: Option<CursorShape>,
     pub cursor_blink: Option<bool>,
+    scrollback_limit_bytes: Option<usize>,
     pub chrome: ChromeMode,
     pub tabs: Tabs,
     pub sidebar: Sidebar,
@@ -3238,6 +3239,10 @@ pub struct ThemeOverrides {
 }
 
 impl Config {
+    pub fn scrollback_limit_bytes(&self) -> usize {
+        self.scrollback_limit_bytes.unwrap_or(DEFAULT_SCROLLBACK_LIMIT_BYTES)
+    }
+
     pub fn apply_chrome_defaults(&mut self, chrome: ChromeTheme) {
         if !self.theme_overrides.selection {
             self.theme.selection_bg = chrome.selection_bg;
@@ -3259,6 +3264,7 @@ pub fn load() -> Config {
 
     let defaults = ghostty_defaults();
     config.terminal_defaults = defaults;
+    config.scrollback_limit_bytes = ghostty_scrollback_limit_bytes();
     if let Some(bg) = defaults.selection_bg {
         config.theme.selection_bg = Color::Rgb(bg.r, bg.g, bg.b);
         config.theme_overrides.selection = true;
@@ -4359,6 +4365,82 @@ fn ghostty_defaults_from_sources(
         GhosttyHelperDefaults::TimedOut => DefaultColors::default(),
     };
     resolve_ghostty_application_defaults(parsed)
+}
+
+/// Read Ghostty's scrollback setting with the same bounded include traversal
+/// used for the other file-based defaults. Ghostty 1.4 renamed the setting to
+/// make the byte unit explicit, so both spellings are accepted.
+fn ghostty_scrollback_limit_bytes() -> Option<usize> {
+    let deadline_at = ghostty_config_deadline_from_now(GHOSTTY_CONFIG_PARSE_DEADLINE);
+    for path in platform::ghostty_config_paths() {
+        let Some(value) = parse_scrollback_limit_from_root(&path, deadline_at) else {
+            continue;
+        };
+        return value;
+    }
+    None
+}
+
+fn parse_scrollback_limit_from_root(path: &Path, deadline_at: Instant) -> Option<Option<usize>> {
+    let mut stack = vec![PendingGhosttyConfig { path: path.to_path_buf(), depth: 0 }];
+    let mut loaded = HashSet::new();
+    let mut files_loaded = 0usize;
+    let mut bytes_loaded = 0u64;
+    let mut value = None;
+    let mut loaded_root = false;
+
+    while let Some(pending) = stack.pop() {
+        if files_loaded > 0 && Instant::now() >= deadline_at {
+            break;
+        }
+        if pending.depth > GHOSTTY_CONFIG_MAX_DEPTH || files_loaded >= GHOSTTY_CONFIG_MAX_FILES {
+            continue;
+        }
+        let identity = pending.path.canonicalize().unwrap_or_else(|_| pending.path.clone());
+        if !loaded.insert(identity) {
+            continue;
+        }
+        let remaining_bytes = GHOSTTY_CONFIG_MAX_BYTES.saturating_sub(bytes_loaded);
+        let Some(text) = read_ghostty_regular_file(&pending.path, remaining_bytes) else {
+            if pending.depth == 0 && files_loaded == 0 {
+                return None;
+            }
+            continue;
+        };
+        bytes_loaded = bytes_loaded.saturating_add(text.len() as u64);
+        files_loaded += 1;
+        loaded_root |= pending.depth == 0;
+        if let Some(parsed) = parse_scrollback_limit_bytes(&text) {
+            value = Some(parsed);
+        }
+
+        let base_dir = pending.path.parent().unwrap_or_else(|| Path::new("."));
+        let mut theme_candidates = Vec::new();
+        let parsed = parse_ghostty_config_text(&text, Some(base_dir), &mut theme_candidates);
+        for include in parsed
+            .config_files
+            .into_iter()
+            .rev()
+            .filter_map(|include| include.resolve(base_dir))
+        {
+            stack.push(PendingGhosttyConfig { path: include, depth: pending.depth + 1 });
+        }
+    }
+
+    loaded_root.then_some(value)
+}
+
+fn parse_scrollback_limit_bytes(text: &str) -> Option<usize> {
+    text.lines()
+        .filter_map(|line| {
+            let (key, value) = line.trim().split_once('=')?;
+            if !matches!(key.trim(), "scrollback-limit" | "scrollback-limit-bytes") {
+                return None;
+            }
+            let value = value.split('#').next().unwrap_or(value).trim();
+            value.trim_matches('"').replace('_', "").parse::<usize>().ok()
+        })
+        .last()
 }
 
 fn resolve_ghostty_application_defaults(mut defaults: DefaultColors) -> DefaultColors {
@@ -5669,6 +5751,16 @@ mod tests {
         );
         assert_eq!(defaults.cursor_style, Some(CursorShape::Bar));
         assert_eq!(defaults.cursor_blink, Some(false));
+
+        assert_eq!(
+            parse_scrollback_limit_bytes(
+                "scrollback-limit-lines = 12\n\
+                 scrollback-limit = invalid\n\
+                 scrollback-limit-bytes = 8_000_000\n"
+            ),
+            Some(8_000_000)
+        );
+        assert_eq!(parse_scrollback_limit_bytes("scrollback-limit-lines = 12\n"), None);
 
         let invalid = parse_ghostty_defaults(
             "cursor-style = underline\n\

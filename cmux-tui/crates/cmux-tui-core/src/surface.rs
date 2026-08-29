@@ -49,6 +49,9 @@ use crate::terminal_host_protocol::{
 };
 use cmux_tui_cdp::BrowserMode;
 
+/// Ghostty's default maximum retained scrollback backing storage.
+pub const DEFAULT_SCROLLBACK_LIMIT_BYTES: usize = 50_000_000;
+
 /// Result of encoding terminal mouse input against a previously observed
 /// pointer snapshot without blocking on terminal parsing.
 #[derive(Debug)]
@@ -167,7 +170,7 @@ impl Default for SurfaceOptions {
                 .unwrap_or_else(|_| default_child_term()),
             cols: 80,
             rows: 24,
-            scrollback: 10_000,
+            scrollback: DEFAULT_SCROLLBACK_LIMIT_BYTES,
             extra_env: Vec::new(),
             chrome_binary: None,
             cdp_url: None,
