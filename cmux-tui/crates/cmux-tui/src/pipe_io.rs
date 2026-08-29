@@ -22,14 +22,17 @@
 use std::io::{BufRead, Write};
 use std::path::Path;
 use std::sync::Arc;
-use std::sync::mpsc::{Receiver, SyncSender};
 use std::time::{Duration, Instant};
 
 use base64::Engine as _;
 use cmux_tui_core::SurfaceId;
 use cmux_tui_core::resource::TerminalPublicId;
+use crossbeam_channel::{Receiver, Sender};
 
-use crate::session::{PipeIoEvent, RemoteSession, Session, SurfaceAttach, SurfaceHandle};
+use crate::session::{
+    PipeIoEvent, RemoteSession, Session, SurfaceAttach, SurfaceHandle,
+    is_remote_surface_unavailable,
+};
 
 /// The terminal ended, or the embedder walked away: respawning is wrong.
 pub const EXIT_DO_NOT_RESPAWN: i32 = 0;
@@ -133,25 +136,26 @@ pub fn run(
     cols: u16,
     rows: u16,
 ) -> anyhow::Result<PipeIoExitReason> {
-    let (sender, receiver) = std::sync::mpsc::sync_channel(EVENT_QUEUE_CAPACITY);
+    let (sender, receiver) = crossbeam_channel::bounded(EVENT_QUEUE_CAPACITY);
+    // Lifecycle events have their own reserved signal path. A stalled
+    // embedder can fill the byte queue, but it must never be able to hide the
+    // transport-loss event that tells the embedder to respawn.
+    let (lifecycle_sender, lifecycle_receiver) = crossbeam_channel::bounded(1);
     // Install before attach so the initial replay cannot be missed.
-    remote.install_pipe_io_tap(surface, sender.clone());
+    let tap_token = remote.install_pipe_io_tap(surface, sender.clone(), lifecycle_sender);
+    let tap_guard = PipeIoTapGuard { remote: remote.as_ref(), token: tap_token };
     let handle = match session.try_surface_sized(surface, Some((cols.max(1), rows.max(1)))) {
         Ok(SurfaceAttach::Attached(handle)) => handle,
         Ok(SurfaceAttach::Retired | SurfaceAttach::Missing) => {
-            remote.clear_pipe_io_tap(surface);
             return Ok(PipeIoExitReason::TerminalEnded);
         }
         Ok(SurfaceAttach::Deferred) => {
             report_diag("attach", "terminal attach was deferred by the server");
-            remote.clear_pipe_io_tap(surface);
             return Ok(PipeIoExitReason::ProtocolError);
         }
         Err(error) => {
             report_diag("attach", &error.to_string());
-            let reason = classify_remote_error(&error, surface);
-            remote.clear_pipe_io_tap(surface);
-            return Ok(reason);
+            return Ok(classify_remote_error(&error, surface));
         }
     };
     let desired = (cols.max(1), rows.max(1));
@@ -161,7 +165,6 @@ pub fn run(
     if let Err(error) = handle.resize(desired.0, desired.1) {
         report_diag("initial-resize", &error.to_string());
         let reason = classify_handle_error(&handle, &error, surface);
-        remote.clear_pipe_io_tap(surface);
         return Ok(reason);
     }
     // The relay is the sole viewer for this scoped stream. The claim is
@@ -170,7 +173,6 @@ pub fn run(
     if let Err(error) = session.claim_terminal_geometry(surface) {
         report_diag("claim-terminal-geometry", &error.to_string());
         let reason = classify_remote_error(&error, surface);
-        remote.clear_pipe_io_tap(surface);
         return Ok(reason);
     }
     // Reassert after claiming in case another viewer changed the PTY between
@@ -178,12 +180,15 @@ pub fn run(
     if let Err(error) = handle.reassert_size(desired.0, desired.1) {
         report_diag("authoritative-resize", &error.to_string());
         let reason = classify_handle_error(&handle, &error, surface);
-        remote.clear_pipe_io_tap(surface);
         return Ok(reason);
     }
-    spawn_stdin_pump(handle, surface, sender);
-    let reason = pump_events_to_stdout(&receiver, &mut std::io::stdout().lock())?;
-    remote.clear_pipe_io_tap(surface);
+    spawn_stdin_pump(handle, surface, session.clone(), lifecycle_sender);
+    let reason =
+        pump_events_to_stdout(&receiver, &lifecycle_receiver, &mut std::io::stdout().lock())?;
+    // Stop forwarding while the daemon probe runs. The probe has its own
+    // request path, and events for the finished relay must not fill the data
+    // queue or tear down a replacement transport.
+    drop(tap_guard);
     if reason == PipeIoExitReason::DaemonLost {
         return Ok(classify_daemon_loss(remote, socket_path, terminal));
     }
@@ -234,6 +239,29 @@ fn classify_handle_event(
     }
 }
 
+struct PipeIoTapGuard<'a> {
+    remote: &'a RemoteSession,
+    token: Arc<u8>,
+}
+
+impl Drop for PipeIoTapGuard<'_> {
+    fn drop(&mut self) {
+        self.remote.clear_pipe_io_tap(&self.token);
+    }
+}
+
+fn attach_failure_exit_reason(error: &anyhow::Error, surface: SurfaceId) -> PipeIoExitReason {
+    // A rejected attach naming this exact surface means the terminal ended
+    // between the tree lookup and the attach request. Every other failure is
+    // reported as retryable daemon loss so the embedder receives the normal
+    // final JSON record and exit code.
+    if is_remote_surface_unavailable(error, surface) {
+        PipeIoExitReason::TerminalEnded
+    } else {
+        PipeIoExitReason::DaemonLost
+    }
+}
+
 /// The stream ended without a terminal-exit event, but "stream lost" covers
 /// two situations the embedder must tell apart: the daemon really is
 /// unreachable (respawn until it returns), or the terminal was closed and
@@ -265,7 +293,12 @@ fn classify_daemon_loss(
 
 /// Forwards embedder requests from stdin until EOF, then reports the closed
 /// parent through the shared event queue.
-fn spawn_stdin_pump(handle: SurfaceHandle, surface: SurfaceId, sender: SyncSender<PipeIoEvent>) {
+fn spawn_stdin_pump(
+    handle: SurfaceHandle,
+    session: Session,
+    surface: SurfaceId,
+    lifecycle_sender: Sender<PipeIoEvent>,
+) {
     std::thread::Builder::new()
         .name("pipe-io-stdin".into())
         .spawn(move || {
@@ -329,21 +362,46 @@ fn spawn_stdin_pump(handle: SurfaceHandle, surface: SurfaceId, sender: SyncSende
             }
             // Blocking send: the queue is drained until the main loop
             // returns, and a dropped receiver just ends this thread.
-            let _ = sender.send(exit_event);
+            let _ = lifecycle_sender.send(exit_event);
         })
         .expect("spawn pipe-io stdin pump");
 }
 
 fn pump_events_to_stdout(
     receiver: &Receiver<PipeIoEvent>,
+    lifecycle_receiver: &Receiver<PipeIoEvent>,
     stdout: &mut impl Write,
 ) -> anyhow::Result<PipeIoExitReason> {
     let mut emitted_output = false;
     loop {
-        // A dropped sender without a prior event means the session went
-        // away wholesale: report it as a lost daemon.
-        let Ok(event) = receiver.recv() else {
-            return Ok(PipeIoExitReason::DaemonLost);
+        // Lifecycle signals have a separate bounded channel, so a full byte
+        // queue cannot delay or drop a transport-loss notification.
+        let event = crossbeam_channel::select_biased! {
+            recv(lifecycle_receiver) -> event => {
+                match event {
+                    Ok(PipeIoEvent::SurfaceExited) => {
+                        return Ok(PipeIoExitReason::TerminalEnded);
+                    }
+                    Ok(PipeIoEvent::TransportLost) => {
+                        return Ok(PipeIoExitReason::DaemonLost);
+                    }
+                    Ok(PipeIoEvent::StdinClosed) => {
+                        return Ok(PipeIoExitReason::ParentClosed);
+                    }
+                    Ok(PipeIoEvent::Replay { .. } | PipeIoEvent::Output(_)) => {
+                        // Lifecycle senders never carry byte events. Ignore a
+                        // malformed producer rather than violating framing.
+                        continue;
+                    }
+                    Err(_) => return Ok(PipeIoExitReason::DaemonLost),
+                }
+            }
+            recv(receiver) -> event => {
+                match event {
+                    Ok(event) => event,
+                    Err(_) => return Ok(PipeIoExitReason::DaemonLost),
+                }
+            }
         };
         let write_result = match &event {
             PipeIoEvent::Replay { bytes } => {
@@ -406,13 +464,14 @@ mod tests {
 
     #[test]
     fn stdout_pump_prefixes_only_non_initial_replays_with_a_full_reset() {
-        let (sender, receiver) = std::sync::mpsc::sync_channel(8);
+        let (sender, receiver) = crossbeam_channel::bounded(8);
+        let (_lifecycle_sender, lifecycle_receiver) = crossbeam_channel::bounded(1);
         sender.send(replay(b"FIRST")).unwrap();
         sender.send(PipeIoEvent::Output(b"live".to_vec())).unwrap();
         sender.send(replay(b"SECOND")).unwrap();
         sender.send(PipeIoEvent::SurfaceExited).unwrap();
         let mut stdout = Vec::new();
-        let reason = pump_events_to_stdout(&receiver, &mut stdout).unwrap();
+        let reason = pump_events_to_stdout(&receiver, &lifecycle_receiver, &mut stdout).unwrap();
         assert_eq!(reason, PipeIoExitReason::TerminalEnded);
         let mut expected = b"FIRSTlive".to_vec();
         expected.extend_from_slice(REPLAY_RESET);
@@ -427,18 +486,23 @@ mod tests {
             (PipeIoEvent::ProtocolError, PipeIoExitReason::ProtocolError),
             (PipeIoEvent::StdinClosed, PipeIoExitReason::ParentClosed),
         ] {
-            let (sender, receiver) = std::sync::mpsc::sync_channel(8);
+            let (sender, receiver) = crossbeam_channel::bounded(8);
+            let (_lifecycle_sender, lifecycle_receiver) = crossbeam_channel::bounded(1);
             sender.send(event).unwrap();
             let mut stdout = Vec::new();
-            assert_eq!(pump_events_to_stdout(&receiver, &mut stdout).unwrap(), expected);
+            assert_eq!(
+                pump_events_to_stdout(&receiver, &lifecycle_receiver, &mut stdout).unwrap(),
+                expected
+            );
             assert!(stdout.is_empty());
         }
         // Sender dropped without any event: the session vanished wholesale.
-        let (sender, receiver) = std::sync::mpsc::sync_channel::<PipeIoEvent>(8);
+        let (sender, receiver) = crossbeam_channel::bounded::<PipeIoEvent>(8);
+        let (_lifecycle_sender, lifecycle_receiver) = crossbeam_channel::bounded(1);
         drop(sender);
         let mut stdout = Vec::new();
         assert_eq!(
-            pump_events_to_stdout(&receiver, &mut stdout).unwrap(),
+            pump_events_to_stdout(&receiver, &lifecycle_receiver, &mut stdout).unwrap(),
             PipeIoExitReason::DaemonLost
         );
     }
@@ -448,5 +512,33 @@ mod tests {
         assert!(parse_request(r#"{"input":null}"#).is_err());
         assert!(parse_request(r#"{"resize":null}"#).is_err());
         assert!(parse_request(r#"{"input":"aGk=","resize":{"cols":80,"rows":24}}"#).is_err());
+    }
+
+    #[test]
+    fn stdout_pump_prioritizes_a_transport_loss_over_queued_bytes() {
+        let (sender, receiver) = crossbeam_channel::bounded(1);
+        let (lifecycle_sender, lifecycle_receiver) = crossbeam_channel::bounded(1);
+        sender.send(PipeIoEvent::Output(b"stale".to_vec())).unwrap();
+        lifecycle_sender.send(PipeIoEvent::TransportLost).unwrap();
+
+        let mut stdout = Vec::new();
+        assert_eq!(
+            pump_events_to_stdout(&receiver, &lifecycle_receiver, &mut stdout).unwrap(),
+            PipeIoExitReason::DaemonLost
+        );
+        assert!(stdout.is_empty(), "stale bytes must not be emitted after transport loss");
+    }
+
+    #[test]
+    fn attach_failures_preserve_terminal_and_daemon_exit_contracts() {
+        let terminal_ended =
+            crate::session::test_remote_rejected_error_with_message("unknown surface 7");
+        assert_eq!(attach_failure_exit_reason(&terminal_ended, 7), PipeIoExitReason::TerminalEnded);
+
+        let daemon_lost = crate::session::test_remote_transport_error();
+        assert_eq!(attach_failure_exit_reason(&daemon_lost, 7), PipeIoExitReason::DaemonLost);
+
+        let unexpected = anyhow::anyhow!("attach capability negotiation failed");
+        assert_eq!(attach_failure_exit_reason(&unexpected, 7), PipeIoExitReason::DaemonLost);
     }
 }
