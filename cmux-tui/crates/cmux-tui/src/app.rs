@@ -16003,7 +16003,8 @@ impl App {
 
     fn mouse_opens_cmux_context_menu(mouse: &MouseEvent) -> bool {
         mouse.kind == MouseEventKind::Down(MouseButton::Right)
-            && mouse.modifiers.contains(KeyModifiers::SHIFT)
+            && (mouse.modifiers.contains(KeyModifiers::SHIFT)
+                || mouse.modifiers.contains(KeyModifiers::ALT))
     }
 
     fn rendered_pointer_route_for_mouse(&self, mouse: &MouseEvent) -> PointerRouteIdentity {
