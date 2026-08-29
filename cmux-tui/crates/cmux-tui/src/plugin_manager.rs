@@ -1040,8 +1040,8 @@ fn reconcile_install_transactions(install_root: &Path) -> anyhow::Result<()> {
             // so stale recovery cannot overwrite a newer selection.
             let legacy_expected = (journal.owner_token.is_some()
                 && journal.expected_sidebar_plugin.is_none())
-                .then(|| expected_sidebar_plugin_for_target(install_root, &journal.name))
-                .flatten();
+            .then(|| expected_sidebar_plugin_for_target(install_root, &journal.name))
+            .flatten();
             let expected = journal.expected_sidebar_plugin.as_ref().or(legacy_expected.as_ref());
             if let Some(snapshot) = &journal.config_snapshot {
                 restore_config_snapshot(snapshot, expected)?;
@@ -1528,9 +1528,12 @@ mod tests {
             sidebar_plugin: None,
             original_non_object: Some(json!("legacy")),
         };
-        restore_config_snapshot(&snapshot, Some(&json!({
-            "command": ["new"]
-        })))
+        restore_config_snapshot(
+            &snapshot,
+            Some(&json!({
+                "command": ["new"]
+            })),
+        )
         .unwrap();
         assert_eq!(fs::read_to_string(&path).unwrap().trim(), "\"legacy\"");
         fs::remove_file(path).unwrap();
@@ -2013,7 +2016,8 @@ mod tests {
         )
         .unwrap_err();
         assert!(error.to_string().contains("injected config failure"));
-        let current: Value = serde_json::from_str(&fs::read_to_string(config_path).unwrap()).unwrap();
+        let current: Value =
+            serde_json::from_str(&fs::read_to_string(config_path).unwrap()).unwrap();
         assert_eq!(current["sidebar"]["plugin"]["command"], json!(["newer"]));
         assert_eq!(current["theme"]["name"], json!("changed"));
         fs::remove_dir_all(root).unwrap();
