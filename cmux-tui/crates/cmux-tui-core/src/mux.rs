@@ -5547,11 +5547,13 @@ impl Mux {
         &self,
         emission: &crate::screen_detect::ScreenDetectEmission,
     ) {
-        let kind = if emission.state == AgentState::Done {
-            "agent.session.ended"
-        } else {
-            "agent.state.changed"
-        };
+        // Screen detection is a state observer, not an authoritative session
+        // owner. Keep every emission under the state-change event contract,
+        // including the terminal Done edge. The reducer uses the explicit
+        // normalized state and native-event marker to remove the detected
+        // entry, while the journal validator does not have to infer a full
+        // hook session lifecycle from a process-name sample.
+        let kind = "agent.state.changed";
         let ingress = crate::JournalIngress {
             producer_id: crate::agent_hooks::AGENT_HOOK_PRODUCER_ID.into(),
             manifest_version: crate::agent_hooks::AGENT_HOOK_MANIFEST_VERSION,
