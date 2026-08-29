@@ -4406,10 +4406,7 @@ enum ScrollbackConfigOutcome {
     TimedOut,
 }
 
-fn parse_scrollback_limit_from_root(
-    path: &Path,
-    deadline_at: Instant,
-) -> ScrollbackConfigOutcome {
+fn parse_scrollback_limit_from_root(path: &Path, deadline_at: Instant) -> ScrollbackConfigOutcome {
     // Ghostty parses the complete parent file first, then loads its
     // config-file entries in declaration order. Nested entries are appended
     // after the already queued siblings. A FIFO queue preserves that
@@ -4449,7 +4446,8 @@ fn parse_scrollback_limit_from_root(
         let base_dir = pending.path.parent().unwrap_or_else(|| Path::new("."));
         let mut theme_candidates = Vec::new();
         let parsed = parse_ghostty_config_text(&text, Some(base_dir), &mut theme_candidates);
-        for include in parsed.config_files.into_iter().filter_map(|include| include.resolve(base_dir))
+        for include in
+            parsed.config_files.into_iter().filter_map(|include| include.resolve(base_dir))
         {
             queue.push_back(PendingGhosttyConfig { path: include, depth: pending.depth + 1 });
         }

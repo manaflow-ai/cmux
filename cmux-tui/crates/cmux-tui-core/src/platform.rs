@@ -380,8 +380,8 @@ pub fn ghostty_config_paths() -> Vec<PathBuf> {
     // Ghostty resolves XDG_CONFIG_HOME to the user's XDG config root. When
     // it is unset, that root is HOME/.config. Do not search both roots: doing
     // so would make an unrelated legacy file override the active XDG file.
-    let config_root = env_path("XDG_CONFIG_HOME")
-        .or_else(|| home_dir().map(|home| home.join(".config")));
+    let config_root =
+        env_path("XDG_CONFIG_HOME").or_else(|| home_dir().map(|home| home.join(".config")));
     if let Some(config_root) = config_root {
         let dir = config_root.join("ghostty");
         // Ghostty loads the legacy name first, then the current name when
@@ -392,10 +392,8 @@ pub fn ghostty_config_paths() -> Vec<PathBuf> {
     if let Some(home) = home_dir() {
         #[cfg(target_os = "macos")]
         {
-            let dir = home
-                .join("Library")
-                .join("Application Support")
-                .join("com.mitchellh.ghostty");
+            let dir =
+                home.join("Library").join("Application Support").join("com.mitchellh.ghostty");
             push_unique(&mut candidates, dir.join("config"));
             push_unique(&mut candidates, dir.join("config.ghostty"));
         }
