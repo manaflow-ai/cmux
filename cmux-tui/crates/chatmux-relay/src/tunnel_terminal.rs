@@ -38,20 +38,20 @@
 //! already attach terminals through the cmux CLI. Paired human machines
 //! never run this listener: it starts from the managed branch only.
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64;
-use serde_json::{Value, json};
+use base64::Engine as _;
+use serde_json::{json, Value};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::pty::{
-    FrameContext, PTY_PROTOCOL_VERSION, PtyManager, random_hex, session_name_ok, surface_ref_ok,
+    random_hex, session_name_ok, surface_ref_ok, FrameContext, PtyManager, PTY_PROTOCOL_VERSION,
 };
 
 /// Loopback port the gateway's spliced streams dial. The chatmux Worker
@@ -73,6 +73,11 @@ const OPEN_TIMEOUT: Duration = Duration::from_secs(10);
 /// manager's own 1 MiB output cap stays the hard boundary above this.
 const FLOW_PAUSE_BYTES: u64 = 262_144;
 const FLOW_RESUME_BYTES: u64 = 32_768;
+/// Admission is synchronous from the manager callback, so the writer queue
+/// uses non-blocking sends with both message and byte budgets. The byte cap
+/// leaves room for a maximum PTY frame and a follow-up control/error frame.
+const WRITER_QUEUE_CAPACITY: usize = 128;
+const WRITER_QUEUE_BYTE_CAP: u64 = (MAX_TUNNEL_FRAME_BYTES as u64 + HEADER_BYTES as u64) * 2;
 
 /// Relay pty_error codes -> browser wire codes. Mirrors the Worker's
 /// browserErrorCode map (apps/backend/src/terminal/relay-pty.ts). KEEP IN
@@ -253,9 +258,12 @@ enum WriterMessage {
 struct Connection {
     pty_id: String,
     manager: Arc<PtyManager>,
-    writer_tx: mpsc::UnboundedSender<WriterMessage>,
+    writer_tx: mpsc::Sender<WriterMessage>,
+    /// Serializes queue admission with the End marker so no frame can be
+    /// inserted after shutdown and silently be dropped by the writer.
+    queue_gate: Mutex<()>,
     /// pty_flow requests from the writer's water marks (true = pause).
-    flow_tx: mpsc::UnboundedSender<bool>,
+    flow_tx: mpsc::Sender<bool>,
     /// Bytes queued toward the socket and not yet written.
     pending_out: AtomicU64,
     paused: AtomicBool,
@@ -269,17 +277,69 @@ struct Connection {
 
 impl Connection {
     fn send_control(&self, frame: &Value) {
-        self.enqueue(WriterMessage::Frame(encode_control_frame(frame)));
+        let _ = self.enqueue(WriterMessage::Frame(encode_control_frame(frame)));
     }
 
-    fn enqueue(&self, message: WriterMessage) {
-        if self.finished.load(Ordering::SeqCst) {
-            return;
+    fn reserve_bytes(&self, amount: u64) -> bool {
+        let mut current = self.pending_out.load(Ordering::SeqCst);
+        loop {
+            let Some(next) = current.checked_add(amount) else {
+                return false;
+            };
+            if next > WRITER_QUEUE_BYTE_CAP {
+                return false;
+            }
+            match self.pending_out.compare_exchange(
+                current,
+                next,
+                Ordering::SeqCst,
+                Ordering::SeqCst,
+            ) {
+                Ok(_) => return true,
+                Err(actual) => current = actual,
+            }
         }
-        if let WriterMessage::Frame(frame) = &message {
-            self.pending_out.fetch_add(frame.len() as u64, Ordering::SeqCst);
+    }
+
+    fn release_bytes(&self, amount: u64) {
+        self.pending_out.fetch_sub(amount, Ordering::SeqCst);
+    }
+
+    /// Pause the source before closing when a stalled peer exhausts admission.
+    fn reject_due_to_backpressure(&self) {
+        if !self.paused.swap(true, Ordering::SeqCst) {
+            let _ = self.flow_tx.try_send(true);
         }
-        let _ = self.writer_tx.send(message);
+        self.finish();
+    }
+
+    fn enqueue(&self, message: WriterMessage) -> bool {
+        let frame_bytes = match &message {
+            WriterMessage::Frame(frame) => frame.len() as u64,
+            WriterMessage::End => 0,
+        };
+        let mut reserved = false;
+        let admitted = {
+            let _gate = self.queue_gate.lock().expect("writer queue lock");
+            if self.finished.load(Ordering::SeqCst) {
+                false
+            } else if frame_bytes != 0 && !self.reserve_bytes(frame_bytes) {
+                false
+            } else {
+                reserved = frame_bytes != 0;
+                self.writer_tx.try_send(message).is_ok()
+            }
+        };
+        if admitted {
+            return true;
+        }
+        if reserved {
+            self.release_bytes(frame_bytes);
+        }
+        if !self.finished.load(Ordering::SeqCst) {
+            self.reject_due_to_backpressure();
+        }
+        false
     }
 
     /// Idempotent shutdown: flush queued frames, close the socket, and let
@@ -287,10 +347,11 @@ impl Connection {
     /// session lives on for a later re-attach, the same rule a dropped
     /// relay-socket viewer follows).
     fn finish(&self) {
+        let _gate = self.queue_gate.lock().expect("writer queue lock");
         if self.finished.swap(true, Ordering::SeqCst) {
             return;
         }
-        let _ = self.writer_tx.send(WriterMessage::End);
+        let _ = self.writer_tx.try_send(WriterMessage::End);
         self.done.cancel();
     }
 
@@ -335,14 +396,16 @@ impl Connection {
                 else {
                     return;
                 };
-                self.enqueue(WriterMessage::Frame(encode_pty_frame(&bytes)));
+                if !self.enqueue(WriterMessage::Frame(encode_pty_frame(&bytes))) {
+                    return;
+                }
                 // Socket-side congestion: pause the source through the
                 // manager's own flow verb; the writer resumes it below the
                 // low-water mark.
                 if self.pending_out.load(Ordering::SeqCst) > FLOW_PAUSE_BYTES
                     && !self.paused.swap(true, Ordering::SeqCst)
                 {
-                    let _ = self.flow_tx.send(true);
+                    let _ = self.flow_tx.try_send(true);
                 }
             }
             Some("pty_exit") => {
@@ -448,12 +511,13 @@ async fn handle_client_frame(
 async fn serve_connection(stream: TcpStream, manager: Arc<PtyManager>, parent: CancellationToken) {
     let _ = stream.set_nodelay(true);
     let (mut read_half, mut write_half) = stream.into_split();
-    let (writer_tx, mut writer_rx) = mpsc::unbounded_channel::<WriterMessage>();
-    let (flow_tx, mut flow_rx) = mpsc::unbounded_channel::<bool>();
+    let (writer_tx, mut writer_rx) = mpsc::channel::<WriterMessage>(WRITER_QUEUE_CAPACITY);
+    let (flow_tx, mut flow_rx) = mpsc::channel::<bool>(4);
     let connection = Arc::new(Connection {
         pty_id: format!("tunnel-{}", random_hex(8)),
         manager: Arc::clone(&manager),
         writer_tx,
+        queue_gate: Mutex::new(()),
         flow_tx,
         pending_out: AtomicU64::new(0),
         paused: AtomicBool::new(false),
@@ -484,7 +548,13 @@ async fn serve_connection(stream: TcpStream, manager: Arc<PtyManager>, parent: C
                         if previous.saturating_sub(length) < FLOW_RESUME_BYTES
                             && connection.paused.swap(false, Ordering::SeqCst)
                         {
-                            let _ = connection.flow_tx.send(false);
+                            let _ = connection.flow_tx.try_send(false);
+                        }
+                        // `finish` may race with a full queue, so End is only
+                        // best effort. Once all admitted frames drain, stop
+                        // without waiting for another sender-side message.
+                        if connection.finished.load(Ordering::SeqCst) && writer_rx.is_empty() {
+                            break;
                         }
                     }
                     WriterMessage::End => break,
@@ -501,7 +571,9 @@ async fn serve_connection(stream: TcpStream, manager: Arc<PtyManager>, parent: C
         let context = context.clone();
         tokio::spawn(async move {
             while let Some(pause) = flow_rx.recv().await {
-                if connection.finished.load(Ordering::SeqCst) {
+                // Deliver a final pause even when shutdown has started. This
+                // keeps PTY flow semantics intact for a queue-overflow close.
+                if connection.finished.load(Ordering::SeqCst) && !pause {
                     break;
                 }
                 let frame = json!({
