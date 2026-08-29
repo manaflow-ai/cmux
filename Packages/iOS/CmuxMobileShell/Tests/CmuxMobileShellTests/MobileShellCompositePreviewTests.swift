@@ -662,6 +662,99 @@ import Testing
         #expect(store.selectedTerminalID?.rawValue == "terminal-selected")
     }
 
+    @Test func reopeningWorkspaceRestoresLastOpenedTerminalTab() {
+        let store = MobileShellComposite.preview()
+        store.signIn()
+        let workspaceA = MobileWorkspacePreview(
+            id: "ws-a",
+            name: "A",
+            terminals: [
+                MobileTerminalPreview(id: "a1", name: "First", isFocused: true),
+                MobileTerminalPreview(id: "a2", name: "Second"),
+            ]
+        )
+        let workspaceB = MobileWorkspacePreview(
+            id: "ws-b",
+            name: "B",
+            terminals: [MobileTerminalPreview(id: "b1", name: "Other")]
+        )
+        store.replaceForegroundWorkspaceState([workspaceA, workspaceB])
+        store.selectedWorkspaceID = workspaceA.id
+        #expect(store.selectedTerminalID?.rawValue == "a1")
+
+        store.selectTerminalFromChrome("a2")
+        store.selectedWorkspaceID = workspaceB.id
+        #expect(store.selectedTerminalID?.rawValue == "b1")
+
+        store.selectedWorkspaceID = workspaceA.id
+
+        // Reopening the workspace shows the tab the user last opened there,
+        // not the Mac-focused fallback.
+        #expect(store.selectedTerminalID?.rawValue == "a2")
+    }
+
+    @Test func reopeningWorkspaceRestoresLastOpenedMacSurfaceTab() {
+        let store = MobileShellComposite.preview()
+        store.signIn()
+        let workspaceA = MobileWorkspacePreview(
+            id: "ws-a",
+            name: "A",
+            terminals: [MobileTerminalPreview(id: "a1", name: "Shell", isFocused: true)],
+            surfaces: [MobileSurfacePreview(id: "s1", kind: .markdown, title: "README")]
+        )
+        let workspaceB = MobileWorkspacePreview(
+            id: "ws-b",
+            name: "B",
+            terminals: [MobileTerminalPreview(id: "b1", name: "Other")]
+        )
+        store.replaceForegroundWorkspaceState([workspaceA, workspaceB])
+        store.selectedWorkspaceID = workspaceA.id
+        #expect(store.selectedTerminalID?.rawValue == "a1")
+
+        store.selectMacSurface("s1")
+        store.selectedWorkspaceID = workspaceB.id
+        #expect(store.selectedMacSurfaceID == nil)
+
+        store.selectedWorkspaceID = workspaceA.id
+
+        // The last opened tab in ws-a was the Mac surface, so reopening the
+        // workspace shows it again instead of falling back to the terminal.
+        #expect(store.selectedMacSurfaceID?.rawValue == "s1")
+    }
+
+    @Test func reopeningWorkspaceFallsBackWhenLastOpenedTabIsGone() {
+        let store = MobileShellComposite.preview()
+        store.signIn()
+        let workspaceA = MobileWorkspacePreview(
+            id: "ws-a",
+            name: "A",
+            terminals: [
+                MobileTerminalPreview(id: "a1", name: "First", isFocused: true),
+                MobileTerminalPreview(id: "a2", name: "Second"),
+            ]
+        )
+        let workspaceB = MobileWorkspacePreview(
+            id: "ws-b",
+            name: "B",
+            terminals: [MobileTerminalPreview(id: "b1", name: "Other")]
+        )
+        store.replaceForegroundWorkspaceState([workspaceA, workspaceB])
+        store.selectedWorkspaceID = workspaceA.id
+        store.selectTerminalFromChrome("a2")
+        store.selectedWorkspaceID = workspaceB.id
+
+        // The remembered tab is closed on the Mac while the user is away.
+        let workspaceAWithoutA2 = MobileWorkspacePreview(
+            id: "ws-a",
+            name: "A",
+            terminals: [MobileTerminalPreview(id: "a1", name: "First", isFocused: true)]
+        )
+        store.replaceForegroundWorkspaceState([workspaceAWithoutA2, workspaceB])
+        store.selectedWorkspaceID = workspaceA.id
+
+        #expect(store.selectedTerminalID?.rawValue == "a1")
+    }
+
     @Test func anonymousForegroundRowsDoNotExposeAggregateSentinel() {
         let store = MobileShellComposite.preview()
         store.signIn()
