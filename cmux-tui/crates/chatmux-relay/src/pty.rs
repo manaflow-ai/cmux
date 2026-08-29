@@ -610,8 +610,7 @@ impl PtyManager {
         }
         match frame_type {
             "pty_open" => {
-                let Some(cancellation) =
-                    cancellation.or_else(|| self.new_open_cancellation())
+                let Some(cancellation) = cancellation.or_else(|| self.new_open_cancellation())
                 else {
                     let pty_id = frame.get("ptyId").and_then(Value::as_str).unwrap_or_default();
                     if !pty_id.is_empty() {
