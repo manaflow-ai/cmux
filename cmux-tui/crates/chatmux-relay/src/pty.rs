@@ -669,7 +669,7 @@ impl PtyManager {
     /// tunnel authority on disconnect or trust renegotiation; existing tunnel
     /// viewers must lose their attachments at the same boundary.
     pub fn detach_tunnel_transports(&self) {
-        self.detach_matching(|owner| owner.kind == TransportKind::Tunnel);
+        self.inner.detach_tunnel_transports();
     }
 
     fn detach_matching(&self, owns: impl Fn(&TransportOwner) -> bool) {
@@ -760,7 +760,6 @@ fn send_typed_pty_error(
     send_pty_error(context, pty_id, wire_code, message);
 }
 
-impl Inner {
     async fn open(self: Arc<Self>, frame: &Value, context: &FrameContext) {
         let pty_id = frame.get("ptyId").and_then(Value::as_str).unwrap_or_default().to_owned();
         if pty_id.is_empty() {
@@ -3411,15 +3410,11 @@ mod tests {
         entered.wait();
 
         let (done_tx, done_rx) = sync_channel(1);
-        let revoke_inner = Arc::clone(&inner);
-        let revoke = thread::spawn(move || {
-            revoke_inner.detach_tunnel_transports();
-            done_tx.send(()).unwrap();
-        });
+        h.manager.detach_tunnel_transports();
+        done_tx.send(()).unwrap();
         let completed_without_waiting = done_rx.recv_timeout(Duration::from_millis(250)).is_ok();
         release.wait();
         operation.join().unwrap();
-        revoke.join().unwrap();
         assert!(completed_without_waiting, "revocation must not wait for PTY I/O");
         assert!(!h.manager.has_attachment("p1"));
     }
