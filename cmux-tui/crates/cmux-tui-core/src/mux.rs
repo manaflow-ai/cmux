@@ -22502,8 +22502,8 @@ mod tests {
             true,
         )
         .unwrap();
-        let surface = reopened.resource_surface_for_terminal(&terminal_id).unwrap();
-        let records = reopened.list_agents(Some(surface.id), None);
+        let surface_id = reopened.resource_surface_for_terminal(&terminal_id).unwrap();
+        let records = reopened.list_agents(Some(surface_id), None);
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].agent.as_deref(), Some("claude"));
         reopened.shutdown();
