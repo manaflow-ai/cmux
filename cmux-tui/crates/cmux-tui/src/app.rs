@@ -8843,7 +8843,8 @@ fn run_with_machine_updates_inner(
         },
         move |error| {
             let error = anyhow::anyhow!(error);
-            crate::client_log::error("browser-control", &error);
+            let error_text = error.to_string();
+            crate::client_log::error("browser-control", &error_text);
             let message = if is_connection_unavailable(&error) {
                 localization::catalog().browser.control_unavailable()
             } else {
