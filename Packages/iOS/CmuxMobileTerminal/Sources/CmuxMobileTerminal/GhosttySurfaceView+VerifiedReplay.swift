@@ -169,6 +169,12 @@ extension GhosttySurfaceView {
                         )
                         return
                     }
+                    // The replay reset the mirror; mid-gesture the pixel pump
+                    // re-asserts the held position (the anchor restore stands
+                    // down for user interaction), otherwise drop the stale
+                    // remainder so the next batch rebases from the live
+                    // viewport.
+                    self.reassertLocalPixelScrollPositionAfterReplay()
                     if restored {
                         self.needsDraw = true
                         self.scheduleVisibleArtifactCountUpdate()

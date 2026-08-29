@@ -9,9 +9,13 @@ usage() {
   cat <<'EOF'
 Usage:
   ./scripts/verify-cmux-tui-hosted.sh --filter <rust-test-name>
+  ./scripts/verify-cmux-tui-hosted.sh --filter chatmux_relay
   ./scripts/verify-cmux-tui-hosted.sh --full
 
 --filter runs matching Rust tests on hosted Linux and macOS.
+The reserved `chatmux_relay` filter runs the complete `chatmux-relay` package;
+Cargo test names do not include their package name, so a plain test-name filter
+cannot select that crate.
 --full runs the cross-platform merge gate, including real Windows execution.
 Both modes build and download a macOS arm64 cmux-tui artifact from the exact pushed HEAD.
 EOF
@@ -156,6 +160,22 @@ done
 
 if [[ -z "$run_id" ]]; then
   echo "error: the dispatched workflow did not appear within 120 seconds" >&2
+  exit 1
+fi
+
+# The list query is only a discovery hint. Re-read the run before accepting it
+# so a branch/ref race cannot make us watch a run for a different revision.
+run_identity="$(gh run view --repo "$REPO" "$run_id" \
+  --json headSha,headBranch,event,displayTitle \
+  --jq '[.headSha, .headBranch, .event, .displayTitle] | @tsv')"
+IFS=$'\t' read -r run_head_sha run_head_branch run_event run_display_title <<< "$run_identity"
+if [[ "$run_head_sha" != "$commit" || "$run_head_branch" != "$remote_branch" || \
+      "$run_event" != "workflow_dispatch" || "$run_display_title" != "$run_title" ]]; then
+  echo "error: discovered workflow run identity changed; refusing non-exact run" >&2
+  printf 'expected: sha=%s branch=%s event=workflow_dispatch title=%s\n' \
+    "$commit" "$remote_branch" "$run_title" >&2
+  printf 'actual:   sha=%s branch=%s event=%s title=%s\n' \
+    "$run_head_sha" "$run_head_branch" "$run_event" "$run_display_title" >&2
   exit 1
 fi
 

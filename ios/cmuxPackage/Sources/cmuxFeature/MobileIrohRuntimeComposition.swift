@@ -165,6 +165,22 @@ public final class MobileIrohRuntimeComposition:
     /// Broker-verified personal-account Mac routes and live discovery candidates.
     public let routeCatalog: MobileIrohRouteCatalog
 
+    /// Identity material handoff for the irx runtime (identity adoption):
+    /// the same Keychain/dev-store identity, app-instance scope, and durable
+    /// device ID the legacy stack registers with, so the irx binding is a
+    /// refresh-in-place of the existing slot and every stored route and pair
+    /// grant stays valid.
+    func irxAdoptedIdentity(
+        accountID: String,
+        tag: String
+    ) async throws -> (material: CmxIrohIdentityMaterial, appInstanceID: String, deviceID: String)? {
+        guard let durable = await deviceID() else { return nil }
+        let appInstanceID = try await appInstances.appInstanceID(accountID: accountID, tag: tag)
+        let material = try await identities.identity(
+            accountID: accountID, appInstanceID: appInstanceID)
+        return (material, appInstanceID, cmxCanonicalDeviceID(durable))
+    }
+
     private let appInstances: CmxIrohAppInstanceRepository
     private let identities: CmxIrohIdentityRepository
     private let brokerCredentials: CmxIrohBrokerCredentialRepository
@@ -647,7 +663,8 @@ public final class MobileIrohRuntimeComposition:
         guard self.runtime === runtime else { return [] }
         let candidates = await routeCatalog.liveMacCandidates(
             preferredTag: tag,
-            compatibleWith: discoveryCompatibilityPolicy
+            compatibleWith: discoveryCompatibilityPolicy,
+            limit: 4
         )
         recordDiscoveryOutcome(candidateCount: candidates.count)
         return candidates
@@ -732,6 +749,25 @@ public final class MobileIrohRuntimeComposition:
             priority: priority
         )
         return MobileIrohTerminalLane(stream: stream)
+    }
+
+    /// Opens a simulator-stream v2 lane for one Mac simulator panel. The
+    /// phone-to-Mac half carries start/ack/input messages, so it rides above
+    /// terminal typing (tiny messages, interaction-critical); the Mac sets
+    /// its own video priority below terminal output.
+    public func openSimulatorStreamLane(
+        for request: CmxByteTransportRequest,
+        panelID: UUID,
+        priority: Int32 = 5
+    ) async throws -> MobileIrohSimulatorStreamLane {
+        let resourceID = try CmxIrohResourceID(
+            "simstream:\(panelID.uuidString.lowercased())")
+        let stream = try await openBidirectionalLane(
+            for: request,
+            lane: .simulatorStream(resourceID: resourceID),
+            priority: priority
+        )
+        return MobileIrohSimulatorStreamLane(stream: stream)
     }
 
     /// Opens a low-priority raw artifact lane for an opaque Mac-issued capability.
@@ -2321,7 +2357,9 @@ public final class MobileIrohRuntimeComposition:
             alpn: CmxIrohProtocolConfiguration.cmuxMobileV1.alpn,
             maximumHeaderByteCount: CmxIrohProtocolConfiguration.cmuxMobileV1
                 .maximumHeaderByteCount,
-            maximumConcurrentClientApplicationLaneCount: 5,
+            // 4 terminal + 1 artifact + 2 simulator-stream, mirroring the
+            // Mac router's MobileHostIrohApplicationLaneQuota classes.
+            maximumConcurrentClientApplicationLaneCount: 7,
             allowsNATTraversalAfterAdmission: mode.allowsNATTraversalAfterAdmission
         )
     }
@@ -2336,8 +2374,8 @@ public final class MobileIrohRuntimeComposition:
         for policy: MobileMacBuildCompatibilityPolicy?
     ) -> [String]? {
         switch policy {
-        case let .development(expectedInstanceTag, additionalInstanceTags):
-            [expectedInstanceTag] + additionalInstanceTags.sorted()
+        case .development:
+            nil
         case .official:
             ["default", "nightly"]
         case nil:

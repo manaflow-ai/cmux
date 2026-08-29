@@ -5,10 +5,11 @@ struct WorkspaceTitleMenuValue: Equatable {
     let contentWidth: CGFloat
     let hasBackButton: Bool
     let hasTrailingCluster: Bool
-    let hasChatToggle: Bool
     let measuredTrailingItemsWidth: CGFloat
     let measuredTrailingItemCount: Int
     let trailingItemCount: Int
+    /// Collapse-recovery ratchet; see `MobileLeadingToolbarTitleWidth`.
+    let hadTrailingCollapse: Bool
     let isEnabled: Bool
     let workspaceName: String
     let hasUnread: Bool
@@ -16,6 +17,10 @@ struct WorkspaceTitleMenuValue: Equatable {
     let canRenameWorkspace: Bool
     let canToggleReadState: Bool
     let canCloseWorkspace: Bool
+    /// Whether the menu offers Reconnect — the disconnected state's manual
+    /// recovery entry now that no pill covers the terminal. Reauthentication
+    /// keeps its own blocking banner instead.
+    let canReconnect: Bool
     let labelToken: WorkspaceTitleMenuLabelToken
     let terminalTheme: TerminalTheme
 }

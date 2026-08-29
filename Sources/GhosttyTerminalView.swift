@@ -3570,6 +3570,32 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private static let tabTransferPasteboardType = NSPasteboard.PasteboardType("com.splittabbar.tabtransfer")
     private static let sidebarTabReorderPasteboardType = NSPasteboard.PasteboardType("com.cmux.sidebar-tab-reorder")
 
+    /// Resolves internal drag identity through the live registries. AppKit
+    /// drag callbacks arrive on the main thread, while this view predates the
+    /// app-wide MainActor annotation; the assumption keeps stale pasteboard
+    /// UTIs from suppressing ordinary file drops without adding a second owner.
+    private static func hasLiveInternalDrag(in pasteboard: NSPasteboard) -> Bool {
+        MainActor.assumeIsolated {
+            let app = AppDelegate.shared
+            let types = pasteboard.types
+            if types?.contains(tabTransferPasteboardType) == true,
+               app?.liveTabDragCapabilityResolver.resolve(from: pasteboard) != nil {
+                return true
+            }
+            guard types?.contains(sidebarTabReorderPasteboardType) == true else {
+                return false
+            }
+            return SidebarTabDragPayload.hasLiveSession(
+                in: pasteboard,
+                currentSessionId: app?.sidebarWorkspaceDragRegistry.currentSessionId
+            )
+        }
+    }
+
+    private static func filteredDropTypes(_ types: [NSPasteboard.PasteboardType]) -> Set<NSPasteboard.PasteboardType> {
+        Set(types).subtracting([tabTransferPasteboardType, sidebarTabReorderPasteboardType])
+    }
+
     private enum WordPathResolutionSource: String {
         case quicklook
         case snapshot
@@ -3703,23 +3729,70 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private func flushPendingScrollbar() {
         _scrollbarLock.lock()
         _scrollbarFlushScheduled = false
-        let pending = _pendingScrollbar
+        let hasPending = _pendingScrollbar != nil
         _pendingScrollbar = nil
         _scrollbarLock.unlock()
 
-        guard let pending else { return }
-        scrollbar = pending
+        guard hasPending else { return }
+        // Callback payloads are coalesced and can predate main-thread input.
+        // Treat them as invalidation signals when the runtime is available so
+        // a delayed packet can never move the viewport to obsolete geometry.
+        guard let authoritativeScrollbar = authoritativeScrollbarSnapshot() else {
+            // No runtime means the callback has no trustworthy row-space
+            // identity. Drop it rather than moving AppKit to stale geometry.
+            return
+        }
+        publishScrollbarUpdate(authoritativeScrollbar)
+    }
+
+    private func authoritativeScrollbarSnapshot() -> GhosttyScrollbar? {
+        var value = ghostty_surface_scrollbar_s()
+        guard readAuthoritativeScrollbar(&value) else { return nil }
+        return GhosttyScrollbar(
+            total: value.total,
+            offset: value.offset,
+            len: value.len
+        )
+    }
+
+    private func publishScrollbarUpdate(
+        _ value: GhosttyScrollbar,
+        isAuthoritativeWheelResponse: Bool = false
+    ) {
+        scrollbar = value
         if keyboardCopyModeActive, let surface {
             reconcileKeyboardCopyModeViewport(surface: surface)
+        }
+        var userInfo: [AnyHashable: Any] = [GhosttyNotificationKey.scrollbar: value]
+        if isAuthoritativeWheelResponse {
+            userInfo[GhosttyNotificationKey.isAuthoritativeWheelResponse] = true
         }
         NotificationCenter.default.post(
             name: .ghosttyDidUpdateScrollbar,
             object: self,
-            userInfo: [GhosttyNotificationKey.scrollbar: pending]
+            userInfo: userInfo
         )
     }
 
-    func flushPendingScrollbarIfAvailable() -> Bool {
+    private func postWheelScroll(
+        requiresAuthoritativeResponse: Bool,
+        authoritativeResponseUnavailable: Bool = false
+    ) {
+        var userInfo: [AnyHashable: Any] = [:]
+        if requiresAuthoritativeResponse {
+            userInfo[GhosttyNotificationKey.requiresAuthoritativeWheelResponse] = true
+        }
+        if authoritativeResponseUnavailable {
+            userInfo[GhosttyNotificationKey.authoritativeWheelResponseUnavailable] = true
+        }
+        NotificationCenter.default.post(
+            name: .ghosttyDidReceiveWheelScroll,
+            object: self,
+            userInfo: userInfo.isEmpty ? nil : userInfo
+        )
+    }
+
+    private func flushPendingScrollbarIfAvailable() -> Bool {
         _scrollbarLock.lock()
         let hasPending = _pendingScrollbar != nil
         _scrollbarLock.unlock()
@@ -3727,6 +3800,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard hasPending else { return false }
         flushPendingScrollbar()
         return true
+    }
+
+    private func discardPendingScrollbar() {
+        _scrollbarLock.lock()
+        _pendingScrollbar = nil
+        _scrollbarLock.unlock()
     }
 
     func enqueueRenderedFrameUpdate(
@@ -3782,6 +3861,42 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var keyboardCopyModeConsumedKeyUps: Set<UInt16> = []
     private var imeConsumedKeyUps: Set<UInt16> = []
     private var manualNamedKeyConsumedKeyUps: Set<UInt16> = []
+    /// Deferred native input actions retain their authored order until the
+    /// runtime surface is ready. Keeping paste and key actions in one queue
+    /// prevents a later key from overtaking an earlier cold paste.
+    private enum PendingInputReplayAction {
+        case keyDown(NSEvent)
+        case keyUp(NSEvent)
+        case paste(UUID)
+    }
+    private var pendingInputReplayActions: [PendingInputReplayAction] = []
+    private var pendingKeyDownActionCount = 0
+    private var pendingKeyActionCount = 0
+    private var pendingPasteActionCount = 0
+    /// Surface identity that owns deferred key actions. Portal reuse can
+    /// attach a different terminal before the original runtime is ready; never
+    /// replay the old terminal's input into that replacement.
+    private var pendingExplicitKeyDownSurfaceID: UUID?
+    private weak var pendingExplicitKeyDownSurface: TerminalSurface?
+    private var pendingExplicitKeyDownKeyCodes: [UInt16: Int] = [:]
+    private weak var pendingPasteSurface: TerminalSurface?
+    private var pendingPasteSurfaceID: UUID?
+    private var pendingPastePayloadBytes = 0
+    private var pendingPastePayloadBytesByID: [UUID: Int] = [:]
+    private struct PendingPastePreparationResult: Sendable {
+        let payload: TerminalImageTransferPreparedContent
+        let payloadBytes: Int
+    }
+    private var pendingPastePreparationTasks: [
+        UUID: Task<PendingPastePreparationResult, Never>
+    ] = [:]
+    private var pendingPastePreparedPayloadsByID: [UUID: TerminalImageTransferPreparedContent] = [:]
+    private static let maximumPendingExplicitKeyDownEvents = 32
+    private static let maximumPendingPasteActions = 32
+    private static let maximumPendingInputReplayActions =
+        maximumPendingExplicitKeyDownEvents + maximumPendingPasteActions
+    private static let maximumPendingPastePayloadBytes = 4 * 1_048_576
+    private var replayingPendingInput = false
     private var keyboardCopyModeInputState = TerminalKeyboardCopyModeInputState()
     private var keyboardCopyModeCursor: TerminalKeyboardCopyModeCursor?
     private var keyboardCopyModeRenderedFrameDemandRelease: (() -> Void)?
@@ -3821,6 +3936,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
     private var trackingArea: NSTrackingArea?
     private var windowObserver: NSObjectProtocol?
+    private var windowOcclusionObserver: NSObjectProtocol?
+    private var windowKeyObservers: [NSObjectProtocol] = []
+    /// Windows that have reported an occlusion `.visible` bit at least once, so the
+    /// visibility rule knows when that signal is trustworthy (see
+    /// `TerminalRendererWindowVisibility`). Weak: windows come and go.
+    private static let windowsThatReportedVisible = NSHashTable<NSWindow>.weakObjects()
     private var lastScrollEventTime: CFTimeInterval = 0
     private let scrollSpeedAccumulator = TerminalScrollSpeedAccumulator()
     private var visibleInUI: Bool = true
@@ -4069,6 +4190,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             titleUpdateSurfaceKey = nextTitleUpdateSurfaceKey
         }
         if !isSameSurface {
+            if pendingKeyActionCount > 0,
+               (pendingExplicitKeyDownSurface !== surface
+                || pendingExplicitKeyDownSurfaceID != surface.id) {
+                discardPendingExplicitKeyDownEvents()
+            }
+            if pendingPasteActionCount > 0,
+               (pendingPasteSurface !== surface
+                || pendingPasteSurfaceID != surface.id) {
+                discardPendingPasteAfterSurfaceReady()
+            }
             appliedColorScheme = nil
             // Reset any OSC 22 mouse shape carried over from the previous surface.
             updateGhosttyMouseShape(GHOSTTY_MOUSE_SHAPE_TEXT)
@@ -4088,12 +4219,354 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         applySurfaceColorScheme(force: !isSameSurface || !isAlreadyAttached)
     }
 
+    private func queueExplicitKeyDownForInputDemand(_ event: NSEvent) {
+        guard let owningSurface = terminalSurface else { return }
+        guard pendingKeyDownActionCount < Self.maximumPendingExplicitKeyDownEvents,
+              pendingInputReplayActions.count < Self.maximumPendingInputReplayActions else {
+            return
+        }
+        if pendingKeyActionCount == 0 {
+            pendingExplicitKeyDownSurfaceID = owningSurface.id
+            pendingExplicitKeyDownSurface = owningSurface
+        } else if pendingExplicitKeyDownSurface !== owningSurface {
+            discardPendingExplicitKeyDownEvents()
+            return
+        }
+        pendingInputReplayActions.append(.keyDown(event))
+        pendingKeyDownActionCount += 1
+        pendingKeyActionCount += 1
+        pendingExplicitKeyDownKeyCodes[event.keyCode, default: 0] += 1
+    }
+
+    fileprivate func replayPendingExplicitKeyDownEventsIfReady() {
+        replayPendingInputIfReady()
+    }
+
+    fileprivate func discardPendingExplicitKeyDownEvents() {
+        removePendingInputReplayActions { action in
+            switch action {
+            case .keyDown, .keyUp:
+                return true
+            case .paste:
+                return false
+            }
+        }
+        pendingExplicitKeyDownSurfaceID = nil
+        pendingExplicitKeyDownSurface = nil
+        pendingExplicitKeyDownKeyCodes.removeAll(keepingCapacity: false)
+    }
+
+    @discardableResult
+    fileprivate func queuePasteAfterSurfaceReady(for surface: TerminalSurface) -> Bool {
+        if pendingPasteSurface !== surface {
+            discardPendingPasteAfterSurfaceReady()
+        }
+        guard pendingPasteActionCount < Self.maximumPendingPasteActions,
+              pendingInputReplayActions.count < Self.maximumPendingInputReplayActions,
+              let pasteboard = GhosttyApp.terminalPasteboard.pasteboard(
+                  for: GHOSTTY_CLIPBOARD_STANDARD
+              ),
+              let preparationService = imageTransferPreparation else {
+            return false
+        }
+        pendingPasteSurface = surface
+        pendingPasteSurfaceID = surface.id
+
+        // Capture the pasteboard generation while the user gesture is being
+        // handled, then let the killable preparation worker materialize it off
+        // the main actor. The worker rejects a generation that changed before
+        // it could be read instead of replaying a later clipboard value.
+        let request = TerminalPasteboardReadRequest(
+            pasteboardName: pasteboard.name.rawValue,
+            changeCount: pasteboard.changeCount
+        )
+        let preparationID = UUID()
+        pendingInputReplayActions.append(.paste(preparationID))
+        pendingPasteActionCount += 1
+        let pasteboardService = GhosttyApp.terminalPasteboard
+        let preparationTask = Task.detached(priority: .utility) {
+            let payload = await preparationService.prepare(
+                request: request,
+                mode: .paste
+            )
+            return PendingPastePreparationResult(
+                payload: payload,
+                payloadBytes: GhosttyNSView.pendingPastePayloadByteCount(
+                    payload,
+                    using: pasteboardService
+                )
+            )
+        }
+        pendingPastePreparationTasks[preparationID] = preparationTask
+        let surfaceID = surface.id
+        Task { @MainActor [weak self] in
+            let result = await preparationTask.value
+            if let self {
+                self.completePendingPastePreparation(
+                    preparationID: preparationID,
+                    surfaceID: surfaceID,
+                    result: result
+                )
+            } else {
+                result.payload.cleanupTransferredTemporaryFiles(
+                    using: GhosttyApp.terminalPasteboard
+                )
+            }
+        }
+        return true
+    }
+
+    fileprivate func discardPendingPasteAfterSurfaceReady() {
+        for task in pendingPastePreparationTasks.values {
+            task.cancel()
+        }
+        pendingPastePreparationTasks.removeAll(keepingCapacity: false)
+        for payload in pendingPastePreparedPayloadsByID.values {
+            payload.cleanupTransferredTemporaryFiles(
+                using: GhosttyApp.terminalPasteboard
+            )
+        }
+        pendingPastePreparedPayloadsByID.removeAll(keepingCapacity: false)
+        removePendingInputReplayActions { action in
+            if case .paste = action { return true }
+            return false
+        }
+        pendingPasteSurface = nil
+        pendingPasteSurfaceID = nil
+        pendingPastePayloadBytes = 0
+        pendingPastePayloadBytesByID.removeAll(keepingCapacity: false)
+    }
+
+    private func completePendingPastePreparation(
+        preparationID: UUID,
+        surfaceID: UUID,
+        result: PendingPastePreparationResult
+    ) {
+        let payload = result.payload
+        pendingPastePreparationTasks.removeValue(forKey: preparationID)
+        guard pendingInputReplayActions.contains(where: { action in
+            if case .paste(let actionID) = action {
+                return actionID == preparationID
+            }
+            return false
+        }) else {
+            payload.cleanupTransferredTemporaryFiles(
+                using: GhosttyApp.terminalPasteboard
+            )
+            return
+        }
+        guard pendingPasteSurface?.id == surfaceID,
+              pendingPasteSurfaceID == surfaceID else {
+            removePendingInputReplayActions { action in
+                if case .paste(let actionID) = action {
+                    return actionID == preparationID
+                }
+                return false
+            }
+            payload.cleanupTransferredTemporaryFiles(
+                using: GhosttyApp.terminalPasteboard
+            )
+            return
+        }
+
+        if payload != .reject {
+            let payloadBytes = result.payloadBytes
+            guard payloadBytes <= Self.maximumPendingPastePayloadBytes,
+                  pendingPastePayloadBytes <=
+                      Self.maximumPendingPastePayloadBytes - payloadBytes else {
+                payload.cleanupTransferredTemporaryFiles(
+                    using: GhosttyApp.terminalPasteboard
+                )
+                pendingPastePreparedPayloadsByID[preparationID] = .reject
+                replayPendingInputIfReady()
+                return
+            }
+            pendingPastePayloadBytes += payloadBytes
+            pendingPastePayloadBytesByID[preparationID] = payloadBytes
+        }
+        pendingPastePreparedPayloadsByID[preparationID] = payload
+        replayPendingInputIfReady()
+    }
+
+    fileprivate func replayPendingPasteAfterSurfaceReadyIfNeeded() {
+        replayPendingInputIfReady()
+    }
+
+    fileprivate func replayPendingInputIfReady() {
+        guard !pendingInputReplayActions.isEmpty,
+              let readySurface = terminalSurface,
+              surface != nil else {
+            return
+        }
+        let keySurfaceMatches = pendingKeyActionCount == 0
+            ? true
+            : pendingExplicitKeyDownSurface === readySurface
+                && pendingExplicitKeyDownSurfaceID == readySurface.id
+        let pasteSurfaceMatches = pendingPasteActionCount == 0
+            ? true
+            : pendingPasteSurface === readySurface
+                && pendingPasteSurfaceID == readySurface.id
+        guard keySurfaceMatches, pasteSurfaceMatches else {
+            discardPendingExplicitKeyDownEvents()
+            discardPendingPasteAfterSurfaceReady()
+            return
+        }
+
+        replayingPendingInput = true
+        defer {
+            replayingPendingInput = false
+            if pendingKeyActionCount == 0 {
+                pendingExplicitKeyDownSurfaceID = nil
+                pendingExplicitKeyDownSurface = nil
+                pendingExplicitKeyDownKeyCodes.removeAll(keepingCapacity: false)
+            }
+            if pendingPasteActionCount == 0 {
+                pendingPasteSurface = nil
+                pendingPasteSurfaceID = nil
+                pendingPastePayloadBytes = 0
+                pendingPastePayloadBytesByID.removeAll(keepingCapacity: false)
+            }
+        }
+
+        while let action = pendingInputReplayActions.first {
+            guard terminalSurface === readySurface, surface != nil else {
+                discardPendingExplicitKeyDownEvents()
+                discardPendingPasteAfterSurfaceReady()
+                return
+            }
+
+            switch action {
+            case .keyDown(let event):
+                _ = removeFirstPendingInputReplayAction()
+                let remainingKeyDowns =
+                    (pendingExplicitKeyDownKeyCodes[event.keyCode] ?? 1) - 1
+                if remainingKeyDowns > 0 {
+                    pendingExplicitKeyDownKeyCodes[event.keyCode] = remainingKeyDowns
+                } else {
+                    pendingExplicitKeyDownKeyCodes.removeValue(
+                        forKey: event.keyCode
+                    )
+                }
+                keyDown(with: event)
+            case .keyUp(let event):
+                _ = removeFirstPendingInputReplayAction()
+                keyUp(with: event)
+            case .paste(let preparationID):
+                guard let payload = pendingPastePreparedPayloadsByID[
+                    preparationID
+                ] else {
+                    // Preserve the authored order until this preparation
+                    // completes; later key events must not overtake it.
+                    return
+                }
+                _ = removeFirstPendingInputReplayAction()
+                pendingPastePreparedPayloadsByID.removeValue(
+                    forKey: preparationID
+                )
+                if let payloadBytes = pendingPastePayloadBytesByID.removeValue(
+                    forKey: preparationID
+                ) {
+                    pendingPastePayloadBytes = max(
+                        0,
+                        pendingPastePayloadBytes - payloadBytes
+                    )
+                }
+                if !executePreparedImageTransfer(
+                    payload,
+                    mode: .paste,
+                    onCancel: {}
+                ) {
+                    payload.cleanupTransferredTemporaryFiles(
+                        using: GhosttyApp.terminalPasteboard
+                    )
+                }
+            }
+        }
+    }
+
+    @discardableResult
+    private func removeFirstPendingInputReplayAction() -> PendingInputReplayAction {
+        let action = pendingInputReplayActions.removeFirst()
+        switch action {
+        case .keyDown:
+            pendingKeyDownActionCount = max(0, pendingKeyDownActionCount - 1)
+            pendingKeyActionCount = max(0, pendingKeyActionCount - 1)
+        case .keyUp:
+            pendingKeyActionCount = max(0, pendingKeyActionCount - 1)
+        case .paste:
+            pendingPasteActionCount = max(0, pendingPasteActionCount - 1)
+        }
+        return action
+    }
+
+    private func removePendingInputReplayActions(
+        where shouldRemove: (PendingInputReplayAction) -> Bool
+    ) {
+        pendingInputReplayActions.removeAll(where: shouldRemove)
+        pendingKeyDownActionCount = 0
+        pendingKeyActionCount = 0
+        pendingPasteActionCount = 0
+        for action in pendingInputReplayActions {
+            switch action {
+            case .keyDown:
+                pendingKeyDownActionCount += 1
+                pendingKeyActionCount += 1
+            case .keyUp:
+                pendingKeyActionCount += 1
+            case .paste:
+                pendingPasteActionCount += 1
+            }
+        }
+    }
+
+    private nonisolated static func pendingPastePayloadByteCount(
+        _ payload: TerminalImageTransferPreparedContent,
+        using pasteboardService: TerminalPasteboardService
+    ) -> Int {
+        switch payload {
+        case .insertText(let text):
+            return text.utf8.count
+        case .fileURLs(let urls):
+            return urls.reduce(into: 0) { total, url in
+                guard total != .max else { return }
+                var payloadBytes = url.path.utf8.count
+                if pasteboardService.isOwnedTemporaryImageFile(url) {
+                    let maybeFileSize = try? url.resourceValues(
+                        forKeys: [.fileSizeKey]
+                    ).fileSize
+                    guard let fileSize = maybeFileSize,
+                          fileSize >= 0 else {
+                        total = .max
+                        return
+                    }
+                    let (withFileSize, fileSizeOverflowed) = payloadBytes
+                        .addingReportingOverflow(fileSize)
+                    guard !fileSizeOverflowed else {
+                        total = .max
+                        return
+                    }
+                    payloadBytes = withFileSize
+                }
+                let (next, overflowed) = total.addingReportingOverflow(payloadBytes)
+                total = overflowed ? .max : next
+            }
+        case .reject:
+            return 0
+        }
+    }
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if let windowObserver {
             NotificationCenter.default.removeObserver(windowObserver)
             self.windowObserver = nil
         }
+        if let windowOcclusionObserver {
+            NotificationCenter.default.removeObserver(windowOcclusionObserver)
+            self.windowOcclusionObserver = nil
+        }
+        windowKeyObservers.forEach { NotificationCenter.default.removeObserver($0) }
+        windowKeyObservers.removeAll()
         // Balance the cursor stack if the view is removed while hover is active
         if wordPathHoverActive {
             wordPathHoverActive = false
@@ -4128,6 +4601,39 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         ) { [weak self] notification in
             self?.windowDidChangeScreen(notification)
         }
+
+        // Window-level occlusion (miniaturized, fully covered, inactive Space)
+        // pauses the core renderer and lets the reclamation controller release
+        // this surface's GPU swap chain. View-level occlusion stays untouched:
+        // a nil-window reparenting transition keeps the last window state, so
+        // portal moves cannot flap occlusion mid-drag.
+        windowOcclusionObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didChangeOcclusionStateNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] notification in
+            guard let occludedWindow = notification.object as? NSWindow else { return }
+            // Delivered on the main queue (`queue: .main`), which is the main actor.
+            MainActor.assumeIsolated {
+                self?.applyRendererWindowVisibility(for: occludedWindow)
+            }
+        }
+        // Key/main transitions do not always come with an occlusion change, and a
+        // window on a virtual display may never report `.visible` at all; both
+        // re-evaluate the same rule so an on-screen window is always presented.
+        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didBecomeMainNotification, NSWindow.didResignKeyNotification] {
+            windowKeyObservers.append(NotificationCenter.default.addObserver(
+                forName: name,
+                object: window,
+                queue: .main
+            ) { [weak self] notification in
+                guard let keyWindow = notification.object as? NSWindow else { return }
+                MainActor.assumeIsolated {
+                    self?.applyRendererWindowVisibility(for: keyWindow)
+                }
+            })
+        }
+        applyRendererWindowVisibility(for: window)
 
         if let surface = terminalSurface?.surface,
            let displayID = window.screen?.displayID,
@@ -4168,8 +4674,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     fileprivate func updateOcclusionState() {
-        // Intentionally no-op: we don't drive libghostty occlusion from AppKit occlusion state.
-        // This avoids transient clears during reparenting and keeps rendering logic minimal.
+        // Intentionally no-op at the VIEW level: view visibility flaps during
+        // portal reparenting and would cause transient clears. Occlusion is
+        // driven by portal visibility (`setVisibleInUI`) combined with the
+        // window-level observer registered in `viewDidMoveToWindow`.
     }
 
     override func viewDidChangeBackingProperties() {
@@ -4226,8 +4734,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     private static func hasTabDragPasteboardTypes() -> Bool {
-        let types = NSPasteboard(name: .drag).types ?? []
-        return types.contains(tabTransferPasteboardType) || types.contains(sidebarTabReorderPasteboardType)
+        let pasteboard = NSPasteboard(name: .drag)
+        return hasLiveInternalDrag(in: pasteboard)
     }
 
     private static func isDragResizeEvent(_ eventType: NSEvent.EventType?) -> Bool {
@@ -4508,8 +5016,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
     @discardableResult
     func prepareSurfaceForPaste(reason: String) -> Bool {
-        terminalSurface?.didReceiveExplicitInput()
+        let inputSurface = terminalSurface
+        let cancelledDeferredAdmission = inputSurface?.didReceiveExplicitInput() == true
         guard ensureSurfaceReadyForInput() != nil else {
+            if cancelledDeferredAdmission || inputSurface?.canCreateRuntimeSurface == true,
+               let inputSurface {
+                guard queuePasteAfterSurfaceReady(for: inputSurface) else {
+                    requestInputRecoveryAfterSurfaceMiss(reason: reason)
+                    return false
+                }
+            }
             requestInputRecoveryAfterSurfaceMiss(reason: reason)
             return false
         }
@@ -5635,7 +6151,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func keyDown(with event: NSEvent) {
         if routeInputDuringClipboardRead(event) { return }
-        terminalSurface?.didReceiveExplicitInput()
+        let cancelledDeferredAdmission = terminalSurface?.didReceiveExplicitInput() == true
 #if DEBUG
         let typingTimingStart = CmuxTypingTiming.start()
         let phaseTotalStart = ProcessInfo.processInfo.systemUptime
@@ -5667,6 +6183,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let ensureSurfaceStart = ProcessInfo.processInfo.systemUptime
 #endif
         guard let surface = ensureSurfaceReadyForInput() else {
+            if cancelledDeferredAdmission ||
+                pendingExplicitKeyDownKeyCodes.isEmpty == false ||
+                terminalSurface?.canCreateRuntimeSurface == true {
+                queueExplicitKeyDownForInputDemand(event)
+                requestInputRecoveryAfterSurfaceMiss(reason: "keyDown.missingSurface.afterRestoreCancel")
+                return
+            }
             requestInputRecoveryAfterSurfaceMiss(reason: "keyDown.missingSurface")
 #if DEBUG
             ensureSurfaceMs = (ProcessInfo.processInfo.systemUptime - ensureSurfaceStart) * 1000.0
@@ -6129,6 +6652,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func keyUp(with event: NSEvent) {
         if routeInputDuringClipboardRead(event) { return }
+        if !replayingPendingInput,
+           pendingExplicitKeyDownKeyCodes[event.keyCode] != nil {
+            guard pendingInputReplayActions.count < Self.maximumPendingInputReplayActions else {
+                return
+            }
+            pendingInputReplayActions.append(.keyUp(event))
+            return
+        }
         guard let surface = ensureSurfaceReadyForInput() else {
             super.keyUp(with: event)
             return
@@ -6471,7 +7002,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// Applies terminal focus intent for pointer-downs that land outside the
     /// capped terminal content but remain inside its pane.
     func focusFromPointerDown() {
-        terminalSurface?.didReceiveExplicitInput()
         if let terminalSurface {
             activateContainerFocusFromPointerDown()
             terminalSurface.hostedView.clearReparentFocusSuppressionForPointerFocus()
@@ -7663,8 +8193,28 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func scrollWheel(with event: NSEvent) {
         if routeInputDuringClipboardRead(event) { return }
-        NotificationCenter.default.post(name: .ghosttyDidReceiveWheelScroll, object: self)
-        guard let surface = surface else { return }
+        guard let surface else {
+            // Detached views used by previews and tests have no runtime
+            // snapshot. Preserve the bounded first-packet fallback for them.
+            postWheelScroll(requiresAuthoritativeResponse: true)
+            if let authoritativeScrollbar = authoritativeScrollbarSnapshot() {
+                // The synchronous snapshot supersedes any callback payload
+                // that was queued before this wheel event.
+                discardPendingScrollbar()
+                publishScrollbarUpdate(
+                    authoritativeScrollbar,
+                    isAuthoritativeWheelResponse: true
+                )
+                return
+            }
+            _ = flushPendingScrollbarIfAvailable()
+            postWheelScroll(
+                requiresAuthoritativeResponse: false,
+                authoritativeResponseUnavailable: true
+            )
+            return
+        }
+        postWheelScroll(requiresAuthoritativeResponse: true)
         lastScrollEventTime = CACurrentMediaTime()
         Self.focusLog("scrollWheel: surface=\(terminalSurface?.id.uuidString ?? "nil") firstResponder=\(String(describing: window?.firstResponder))")
         var x = event.scrollingDeltaX
@@ -7709,8 +8259,27 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             y,
             ghostty_input_scroll_mods_t(mods)
         )
+
+        guard let authoritativeScrollbar = authoritativeScrollbarSnapshot() else {
+            // Surface teardown can race input delivery. Cancel the pending
+            // request and discard queued geometry; publishing stale geometry
+            // here would move the viewport to an obsolete row space.
+            discardPendingScrollbar()
+            postWheelScroll(
+                requiresAuthoritativeResponse: false,
+                authoritativeResponseUnavailable: true
+            )
+            return
+        }
+        publishScrollbarUpdate(
+            authoritativeScrollbar,
+            isAuthoritativeWheelResponse: true
+        )
     }
+
     deinit {
+        discardPendingExplicitKeyDownEvents()
+        discardPendingPasteAfterSurfaceReady()
         keyboardCopyModeRenderedFrameDemandRelease?()
         selectionAccessibilitySignal.finish()
         if titleUpdateSurfaceKey != nil {
@@ -7729,6 +8298,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if let windowObserver {
             NotificationCenter.default.removeObserver(windowObserver)
         }
+        if let windowOcclusionObserver {
+            NotificationCenter.default.removeObserver(windowOcclusionObserver)
+        }
+        windowKeyObservers.forEach { NotificationCenter.default.removeObserver($0) }
         if let trackingArea {
             removeTrackingArea(trackingArea)
         }
@@ -7759,9 +8332,30 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
     }
 
+    /// Applies `TerminalRendererWindowVisibility` for the hosting window. The
+    /// occlusion `.visible` bit is remembered per window so the rule can tell a
+    /// trustworthy occlusion verdict from a virtual display that never sets it.
+    private func applyRendererWindowVisibility(for window: NSWindow) {
+        let occlusionVisible = window.occlusionState.contains(.visible)
+        if occlusionVisible {
+            Self.windowsThatReportedVisible.add(window)
+        }
+        terminalSurface?.setRendererWindowVisible(
+            TerminalRendererWindowVisibility.isVisible(
+                occlusionVisible: occlusionVisible,
+                windowHasReportedVisible: Self.windowsThatReportedVisible.contains(window),
+                isWindowVisible: window.isVisible,
+                isMiniaturized: window.isMiniaturized,
+                isOnActiveSpace: window.isOnActiveSpace,
+                isKeyWindow: window.isKeyWindow
+            )
+        )
+    }
+
     private func windowDidChangeScreen(_ notification: Notification) {
         guard let window else { return }
         guard let object = notification.object as? NSWindow, window == object else { return }
+        applyRendererWindowVisibility(for: window)
         guard let screen = window.screen else { return }
         guard let surface = terminalSurface?.surface else { return }
 
@@ -7858,7 +8452,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private func executeImageTransferPlan(
         _ plan: TerminalImageTransferPlan,
         operation: TerminalImageTransferOperation? = nil,
-        onCancel: @escaping () -> Void = {}
+        onCancel: @escaping () -> Void = {},
+        onTextCompletion: @escaping () -> Void = {}
     ) -> Bool {
         guard plan != .reject else { return false }
 
@@ -7915,7 +8510,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                     if let operation {
                         self?.terminalSurface?.hostedView.endImageTransferIndicator(for: operation)
                     }
-                    self?.deliverUploadResultText(text)
+                    if let self {
+                        _ = self.deliverUploadResultText(
+                            text,
+                            onCompleted: onTextCompletion
+                        )
+                    } else {
+                        onTextCompletion()
+                    }
                 }
                 if Thread.isMainThread {
                     send()
@@ -7974,21 +8576,55 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     @discardableResult
     private func executePreparedImageTransfer(
         _ preparedContent: TerminalImageTransferPreparedContent,
+        mode: TerminalImageTransferMode = .drop,
         onCancel: @escaping () -> Void
     ) -> Bool {
         switch preparedContent {
         case .reject:
             return false
         case .insertText(let text):
-            terminalSurface?.sendText(text)
-            return true
+            return terminalSurface?.sendText(text) ?? false
         case .fileURLs(let fileURLs):
             let plan = TerminalImageTransferPlanner.plan(
                 fileURLs: fileURLs,
                 target: resolvedImageTransferTarget(),
-                mode: .drop
+                mode: mode
             )
-            return executeImageTransferPlan(plan, onCancel: onCancel)
+            guard plan != .reject else {
+                preparedContent.cleanupTransferredTemporaryFiles(
+                    using: GhosttyApp.terminalPasteboard
+                )
+                return false
+            }
+            let onTextCompletion: () -> Void
+            switch plan {
+            case .insertText:
+                onTextCompletion = {
+                    preparedContent.cleanupTransferredTemporaryFiles(
+                        using: GhosttyApp.terminalPasteboard
+                    )
+                }
+            case .insertTextSegments(let segments, _):
+                var remainingSegments = segments.count
+                onTextCompletion = {
+                    remainingSegments = max(0, remainingSegments - 1)
+                    guard remainingSegments == 0 else { return }
+                    preparedContent.cleanupTransferredTemporaryFiles(
+                        using: GhosttyApp.terminalPasteboard
+                    )
+                }
+            case .uploadFiles:
+                // Upload callbacks own cleanup until the remote transfer has
+                // finished (or failed), so do not consume ownership here.
+                onTextCompletion = {}
+            case .reject:
+                onTextCompletion = {}
+            }
+            return executeImageTransferPlan(
+                plan,
+                onCancel: onCancel,
+                onTextCompletion: onTextCompletion
+            )
         }
     }
 
@@ -8048,10 +8684,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard let types = sender.draggingPasteboard.types else { return [] }
         // Defer to bonsplit when a tab/session drag is in flight: bonsplit's pane
         // drop overlays should win over the terminal's text/file drop handling.
-        if types.contains(Self.tabTransferPasteboardType) || types.contains(Self.sidebarTabReorderPasteboardType) {
+        if Self.hasLiveInternalDrag(in: sender.draggingPasteboard) {
             return []
         }
-        if Set(types).isDisjoint(with: Self.dropTypes) {
+        if Self.filteredDropTypes(types).isDisjoint(with: Self.dropTypes) {
             return []
         }
         return .copy
@@ -8063,10 +8699,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         cmuxDebugLog("terminal.draggingUpdated surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") types=\(types.map(\.rawValue))")
         #endif
         guard let types = sender.draggingPasteboard.types else { return [] }
-        if types.contains(Self.tabTransferPasteboardType) || types.contains(Self.sidebarTabReorderPasteboardType) {
+        if Self.hasLiveInternalDrag(in: sender.draggingPasteboard) {
             return []
         }
-        if Set(types).isDisjoint(with: Self.dropTypes) {
+        if Self.filteredDropTypes(types).isDisjoint(with: Self.dropTypes) {
             return []
         }
         return .copy
@@ -8074,7 +8710,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
         let types = sender.draggingPasteboard.types ?? []
-        if types.contains(Self.tabTransferPasteboardType) || types.contains(Self.sidebarTabReorderPasteboardType) {
+        if Self.hasLiveInternalDrag(in: sender.draggingPasteboard) {
             return false
         }
         #if DEBUG
@@ -8387,10 +9023,11 @@ final class GhosttySurfaceScrollView: NSView {
     private var isLiveScrolling = false
     private var lastSentRow: Int?
     var notificationScrollRestoreState = NotificationScrollRestoreState()
-    /// Tracks scrollback review so auto-scroll does not fight the user's position.
-    var userScrolledAwayFromBottom = false
-    private var pendingExplicitWheelScroll = false
-    var allowExplicitScrollbarSync = false
+    /// Single source of truth for terminal follow/review intent. Layout and
+    /// document reflow may move AppKit bounds transiently, but they never write
+    /// this state; only user scroll gestures, explicit restores, and
+    /// authoritative Ghostty scrollbar packets do.
+    private(set) var scrollbackViewportIntent: TerminalScrollbackViewportIntent = .followingOutput
     /// Threshold in points from bottom to consider "at bottom" (allows for minor float drift)
     private static let scrollToBottomThreshold: CGFloat = 5.0
     private var isActive = true
@@ -8622,7 +9259,6 @@ final class GhosttySurfaceScrollView: NSView {
         scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = false
         scrollView.usesPredominantAxisScrolling = true
-        scrollView.scrollerStyle = .overlay
         scrollView.drawsBackground = false
         scrollView.backgroundColor = .clear
         scrollView.contentView.clipsToBounds = true
@@ -8851,7 +9487,7 @@ final class GhosttySurfaceScrollView: NSView {
             queue: .main
         ) { [weak self] _ in
             self?.isLiveScrolling = false
-            // Final scroll position check to update userScrolledAwayFromBottom state
+            // Final user-gesture check to settle follow/review intent.
             self?.handleLiveScroll()
         })
 
@@ -8884,8 +9520,11 @@ final class GhosttySurfaceScrollView: NSView {
             // Session restore can request focus before the runtime surface exists.
             // Re-run the normal first-responder/focus path once the surface is live.
             guard self.isActive || self.surfaceView.desiredFocus || self.isSurfaceViewFirstResponder() else {
+                self.surfaceView.discardPendingExplicitKeyDownEvents()
+                self.surfaceView.discardPendingPasteAfterSurfaceReady()
                 return
             }
+            self.surfaceView.replayPendingInputIfReady()
             self.scheduleAutomaticFirstResponderApply(reason: "surfaceDidBecomeReady")
         })
         observers.append(NotificationCenter.default.addObserver(
@@ -8898,11 +9537,27 @@ final class GhosttySurfaceScrollView: NSView {
         observers.append(NotificationCenter.default.addObserver(
             forName: .ghosttyDidReceiveWheelScroll,
             object: surfaceView,
-            queue: .main
-        ) { [weak self] _ in
+            // Every producer is ``GhosttyNSView.scrollWheel`` on the main
+            // thread. Do not enqueue this arm operation: the following
+            // authoritative snapshot must observe the new intent.
+            queue: nil
+        ) { [weak self] notification in
             MainActor.assumeIsolated {
-                self?.pendingExplicitWheelScroll = true
-                self?.cancelPendingNotificationScrollRestoreForUserInput()
+                guard let self else { return }
+                if notification.userInfo?[GhosttyNotificationKey.authoritativeWheelResponseUnavailable]
+                    as? Bool == true {
+                    self.scrollbackViewportIntent = self.scrollbackViewportIntent
+                        .cancellingExplicitScrollbarSync()
+                    self.cancelPendingNotificationScrollRestoreForUserInput()
+                    return
+                }
+                let requiresAuthoritativeResponse =
+                    notification.userInfo?[GhosttyNotificationKey.requiresAuthoritativeWheelResponse]
+                    as? Bool == true
+                self.beginExplicitScrollbarSync(
+                    requiresAuthoritativeResponse: requiresAuthoritativeResponse
+                )
+                self.cancelPendingNotificationScrollRestoreForUserInput()
             }
         })
         observers.append(NotificationCenter.default.addObserver(
@@ -9071,7 +9726,14 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     @discardableResult
-    private func synchronizeGeometryAndContent() -> Bool {
+    private func synchronizeGeometryAndContent(
+        forceViewportSync: Bool? = nil,
+        preservedReviewOriginY: CGFloat? = nil
+    ) -> Bool {
+        let preservedReviewOriginY = preservedReviewOriginY ?? {
+            guard scrollbackViewportIntent.preservesViewportDuringPendingSync else { return nil }
+            return max(scrollView.contentView.bounds.origin.y, 0)
+        }()
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
@@ -9137,7 +9799,10 @@ final class GhosttySurfaceScrollView: NSView {
         updateNotificationRingPath()
         updateFlashPath(style: lastFlashStyle)
         updateFlashAppearance(style: lastFlashStyle)
-        synchronizeScrollView()
+        synchronizeScrollView(
+            forceViewportSync: forceViewportSync,
+            preservedReviewOriginY: preservedReviewOriginY
+        )
         synchronizeSurfaceView()
         let didCoreSurfaceChange = synchronizeCoreSurface()
         return !sizeApproximatelyEqual(previousSurfaceSize, targetSize) || didCoreSurfaceChange
@@ -10127,7 +10792,10 @@ final class GhosttySurfaceScrollView: NSView {
         surfaceView.terminalSurface?.setRendererPortalVisible(visible)
         if wasVisible != visible, lastRequestedPortalOcclusionVisible != visible {
             lastRequestedPortalOcclusionVisible = visible
-            surfaceView.terminalSurface?.setOcclusion(visible)
+            // A portal reveal inside a hidden window (agent/socket-driven
+            // workspace switches) must not lift occlusion; the window-level
+            // observer replays it when the window returns on screen.
+            surfaceView.terminalSurface?.applyVisibilityOcclusion(visible)
         }
 #if DEBUG
         if wasVisible != visible {
@@ -11672,37 +12340,51 @@ final class GhosttySurfaceScrollView: NSView {
         layer.path = CGPath(roundedRect: rect, cornerWidth: radius, cornerHeight: radius, transform: nil)
     }
 
-    private func synchronizeScrollView() {
+    private func synchronizeScrollView(
+        forceViewportSync: Bool? = nil,
+        preservedReviewOriginY: CGFloat? = nil
+    ) {
         var didChangeGeometry = false
+        let originToPreserve = preservedReviewOriginY ?? {
+            guard scrollbackViewportIntent.preservesViewportDuringPendingSync else { return nil }
+            return max(scrollView.contentView.bounds.origin.y, 0)
+        }()
         let targetDocumentHeight = documentHeight()
         if abs(documentView.frame.height - targetDocumentHeight) > 0.5 {
             documentView.frame.size.height = targetDocumentHeight
             didChangeGeometry = true
         }
 
+        // A non-flipped clip view can be clamped to its live bottom when its
+        // document or viewport height changes. Restore the pre-layout pixel
+        // anchor while reviewing scrollback or waiting for a wheel response;
+        // an authoritative Ghostty packet will replace it below.
+        if forceViewportSync != true,
+           scrollbackViewportIntent.preservesViewportDuringPendingSync,
+           let originToPreserve {
+            let maxOriginY = max(
+                0,
+                documentView.frame.height - scrollView.contentView.bounds.height
+            )
+            let preservedOrigin = CGPoint(
+                x: 0,
+                y: min(max(originToPreserve, 0), maxOriginY)
+            )
+            let currentOrigin = scrollView.contentView.bounds.origin
+            if !pointApproximatelyEqual(currentOrigin, preservedOrigin) {
+                scrollView.contentView.scroll(to: preservedOrigin)
+                didChangeGeometry = true
+            }
+        }
+
         if !isLiveScrolling {
             let cellHeight = surfaceView.cellSize.height
             if cellHeight > 0, let scrollbar = surfaceView.scrollbar {
-                let offsetY =
-                    CGFloat(scrollbar.total - scrollbar.offset - scrollbar.len) * cellHeight
+                let offsetY = CGFloat(scrollbar.rowsBelowViewport) * cellHeight
                 let targetOrigin = CGPoint(x: 0, y: offsetY)
-
-                // Check if we're currently at the bottom (with threshold for float drift)
                 let currentOrigin = scrollView.contentView.bounds.origin
-                let documentHeight = documentView.frame.height
-                let viewportHeight = scrollView.contentView.bounds.height
-                let distanceFromBottom = documentHeight - currentOrigin.y - viewportHeight
-                let isAtBottom = distanceFromBottom <= Self.scrollToBottomThreshold
-
-                // Update userScrolledAwayFromBottom based on current position
-                if isAtBottom {
-                    userScrolledAwayFromBottom = false
-                }
-
-                // Passive bottom packets should not override an explicit scrollback review,
-                // but the first scrollbar packet caused by the user's own wheel input should
-                // still move the viewport to the requested scrollback position.
-                let shouldAutoScroll = !userScrolledAwayFromBottom || allowExplicitScrollbarSync
+                let shouldAutoScroll = forceViewportSync ??
+                    scrollbackViewportIntent.allowsPassiveScrollbarSync
 
                 if shouldAutoScroll && !pointApproximatelyEqual(currentOrigin, targetOrigin) {
                     scrollView.contentView.scroll(to: targetOrigin)
@@ -11712,7 +12394,6 @@ final class GhosttySurfaceScrollView: NSView {
             }
         }
 
-        allowExplicitScrollbarSync = false
         if didChangeGeometry {
             scrollView.reflectScrolledClipView(scrollView.contentView)
         }
@@ -11721,22 +12402,50 @@ final class GhosttySurfaceScrollView: NSView {
     private func handleScrollChange() {
         synchronizeSurfaceView()
     }
+
+    private func beginExplicitScrollbarSync(
+        requiresAuthoritativeResponse: Bool = false
+    ) {
+        scrollbackViewportIntent = scrollbackViewportIntent
+            .beginningExplicitScrollbarSync(
+                requiresAuthoritativeResponse: requiresAuthoritativeResponse
+            )
+    }
+
+    /// Applies a direct viewport restore as one intent transition so a later
+    /// passive bottom packet cannot overwrite a restored scrollback position.
+    @discardableResult
+    func prepareExplicitViewportRestore(
+        isAtBottom: Bool
+    ) -> TerminalScrollbackViewportIntent {
+        let previousIntent = scrollbackViewportIntent
+        scrollbackViewportIntent = scrollbackViewportIntent
+            .resolvingExplicitViewportRestore(isAtBottom: isAtBottom)
+        return previousIntent
+    }
+
+    func rollbackExplicitViewportRestore(
+        to previousIntent: TerminalScrollbackViewportIntent
+    ) {
+        scrollbackViewportIntent = previousIntent
+    }
+
     private func handleLiveScroll() {
         cancelPendingNotificationScrollRestoreForUserInput()
         let cellHeight = surfaceView.cellSize.height
         guard cellHeight > 0 else { return }
         let visibleRect = scrollView.contentView.documentVisibleRect
         let documentHeight = documentView.frame.height
-        let scrollOffset = documentHeight - visibleRect.origin.y - visibleRect.height
+        let topBasedScrollOffset = max(
+            documentHeight - visibleRect.origin.y - visibleRect.height,
+            0
+        )
+        scrollbackViewportIntent = scrollbackViewportIntent.applyingUserScroll(
+            distanceFromBottom: Double(max(visibleRect.origin.y, 0)),
+            bottomThreshold: Double(Self.scrollToBottomThreshold)
+        )
 
-        // Track if user has scrolled away from bottom to review scrollback
-        if scrollOffset > Self.scrollToBottomThreshold {
-            userScrolledAwayFromBottom = true
-        } else if scrollOffset <= 0 {
-            userScrolledAwayFromBottom = false
-        }
-
-        let row = Int(scrollOffset / cellHeight)
+        let row = Int(topBasedScrollOffset / cellHeight)
 
         guard row != lastSentRow else { return }
         lastSentRow = row
@@ -11745,20 +12454,37 @@ final class GhosttySurfaceScrollView: NSView {
 
     private func handleScrollbarUpdate(_ notification: Notification) {
         guard let scrollbar = notification.userInfo?[GhosttyNotificationKey.scrollbar] as? GhosttyScrollbar else { return }
+        let preservedReviewOriginY = scrollbackViewportIntent.preservesViewportDuringPendingSync
+            ? max(scrollView.contentView.bounds.origin.y, 0)
+            : nil
+        let cellHeight = surfaceView.cellSize.height
+        let targetDistanceFromBottom = cellHeight > 0
+            ? Double(scrollbar.rowsBelowViewport) * Double(cellHeight)
+            : nil
+        let syncDecision = scrollbackViewportIntent.applyingScrollbar(
+            scrollbar,
+            targetDistanceFromBottom: targetDistanceFromBottom,
+            bottomThreshold: Double(Self.scrollToBottomThreshold),
+            isAuthoritativeWheelResponse:
+                notification.userInfo?[GhosttyNotificationKey.isAuthoritativeWheelResponse]
+                    as? Bool == true
+        )
+        scrollbackViewportIntent = syncDecision.intent
         let wasVisible = scrollView.hasVerticalScroller
-        if pendingExplicitWheelScroll {
-            userScrolledAwayFromBottom = scrollbar.offset + scrollbar.len < scrollbar.total
-            allowExplicitScrollbarSync = true
-            pendingExplicitWheelScroll = false
-        }
         surfaceView.scrollbar = scrollbar
         let isVisible = shouldShowTerminalScrollBar()
         if wasVisible != isVisible {
-            _ = synchronizeGeometryAndContent()
+            _ = synchronizeGeometryAndContent(
+                forceViewportSync: syncDecision.shouldSynchronizeViewport,
+                preservedReviewOriginY: preservedReviewOriginY
+            )
             restorePendingNotificationScrollPositionAfterScrollbarUpdate()
             return
         }
-        synchronizeScrollView()
+        synchronizeScrollView(
+            forceViewportSync: syncDecision.shouldSynchronizeViewport,
+            preservedReviewOriginY: preservedReviewOriginY
+        )
         restorePendingNotificationScrollPositionAfterScrollbarUpdate()
     }
 
@@ -11767,14 +12493,13 @@ final class GhosttySurfaceScrollView: NSView {
         let shouldShowScrollBar = shouldShowTerminalScrollBar()
         let didChange =
             scrollView.hasVerticalScroller != shouldShowScrollBar ||
-            scrollView.autohidesScrollers != false ||
-            scrollView.scrollerStyle != .overlay
+            scrollView.autohidesScrollers
         scrollView.hasVerticalScroller = shouldShowScrollBar
-        // Mirror upstream Ghostty: keep overlay scrollers even when the
-        // system preference is legacy so terminal content never sits beneath a
-        // permanently reserved scrollbar gutter.
+        // Keep the scroller visible whenever terminal scrollback exists. The
+        // scroller style itself is intentionally left to AppKit, which follows
+        // the user's Appearance > Show scroll bars preference and updates this
+        // scroll view when NSScroller.preferredScrollerStyle changes.
         scrollView.autohidesScrollers = false
-        scrollView.scrollerStyle = .overlay
         updateTrackingAreas()
         return didChange
     }
@@ -11790,8 +12515,25 @@ final class GhosttySurfaceScrollView: NSView {
         synchronizeScrollbarAppearance()
 
         // Retile just the scroll view so contentSize reflects the current
-        // scroller preference without perturbing hosted terminal geometry.
+        // scroller preference. Update the hosted surface/document frames through
+        // the same narrow path instead of running the full pane reconciliation,
+        // which can perturb split-layout overlays during a system preference
+        // change.
         scrollView.tile()
+        synchronizeTerminalGeometryAfterScrollerStyleChange()
+    }
+
+    private func synchronizeTerminalGeometryAfterScrollerStyleChange() {
+        scrollView.layoutSubtreeIfNeeded()
+        let targetSize = scrollView.contentView.bounds.size
+        let targetSurfaceFrame = CGRect(origin: surfaceView.frame.origin, size: targetSize)
+        _ = setFrameIfNeeded(surfaceView, to: targetSurfaceFrame)
+        let targetDocumentFrame = CGRect(
+            origin: documentView.frame.origin,
+            size: CGSize(width: scrollView.contentView.bounds.width, height: documentView.frame.height)
+        )
+        _ = setFrameIfNeeded(documentView, to: targetDocumentFrame)
+        synchronizeSurfaceView()
         _ = synchronizeCoreSurface()
     }
 

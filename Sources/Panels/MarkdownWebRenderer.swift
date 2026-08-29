@@ -1,10 +1,11 @@
 import AppKit
+import CmuxAgentChat
 import SwiftUI
 import WebKit
 
 struct MarkdownWebRenderer: NSViewRepresentable {
-    static let localImageURLScheme = "cmux-local-image"
-    static let remoteImageURLScheme = "cmux-remote-image"
+    static let localImageURLScheme = MarkdownWebViewerScheme.localImage
+    static let remoteImageURLScheme = MarkdownWebViewerScheme.remoteImage
 
     let markdown: String
     let theme: MarkdownWebTheme
@@ -143,6 +144,10 @@ struct MarkdownWebRenderer: NSViewRepresentable {
     @MainActor
     final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler, WKURLSchemeHandler {
         var webView: MarkdownWebView?
+        /// Fired after each successful markdown render push (initial shell
+        /// load included). Re-rendering replaces the content DOM, so an active
+        /// find-in-page search must re-run to restore its highlights.
+        var onMarkdownRendered: (() -> Void)?
         var panelId: UUID = UUID()
         var workspaceId: UUID = UUID()
         var filePath: String = ""
@@ -387,12 +392,15 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             NSLog("MarkdownPanel.pushMarkdown bytes=\(markdown.utf8.count)")
 #endif
             guard let js = Self.renderMarkdownScript(markdown) else { return }
-            webView.evaluateJavaScript(js) { _, error in
+            webView.evaluateJavaScript(js) { [weak self] _, error in
 #if DEBUG
                 if let error {
                     NSLog("MarkdownPanel: pushMarkdown evaluateJavaScript failed: \(error)")
                 }
 #endif
+                if error == nil {
+                    self?.onMarkdownRendered?()
+                }
             }
         }
 
@@ -797,6 +805,12 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             decidePolicyFor navigationAction: WKNavigationAction,
             decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
         ) {
+            let decisionHandler = BrowserNavigationActionDecisionHandler(
+                decisionHandler,
+                fallbackPolicy: WKNavigationActionPolicy.cancel,
+                label: "MarkdownWebRenderer.Coordinator.navigationAction"
+            ).closure
+
             // The first load (loadHTMLString) has navigationType = .other —
             // allow it. Anything the user clicks (links, anchors, ...) we
             // route through the cmux tab/browser machinery.

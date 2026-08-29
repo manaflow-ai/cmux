@@ -295,7 +295,7 @@ struct VaultPaneTransferLifecycleTests {
             let fixture = try VaultPaneAppFixture()
             defer { fixture.tearDown() }
 
-            let dock = fixture.workspace.dockSplit
+            let dock = try #require(fixture.workspace.dockSplit)
             let targetPane = try #require(dock.bonsplitController.allPaneIds.first)
             let targetPanelID: UUID
             switch dropCase.targetKind {

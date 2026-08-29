@@ -2789,6 +2789,11 @@ Result<Json> Codec<ProcessInfoResult>::encode(const ProcessInfoResult& value) {
     } else {
         object.emplace("cwd", Json(nullptr));
     }
+    if (!value.foreground_cwd.is_absent()) {
+        auto encoded = encode_value(value.foreground_cwd);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("foreground_cwd", std::move(encoded).value());
+    }
     if (value.pid) {
         auto encoded = encode_value(*value.pid);
         if (!encoded) return std::move(encoded).error();
@@ -2827,6 +2832,16 @@ Result<ProcessInfoResult> Codec<ProcessInfoResult>::decode(const Json& value) {
             auto decoded = decode_value<std::string>(*field_cwd);
             if (!decoded) return std::move(decoded).error();
             result.cwd = std::move(decoded).value();
+        }
+    }
+    const Json* field_foreground_cwd = value.find("foreground_cwd");
+    if (field_foreground_cwd) {
+        if (field_foreground_cwd->is_null()) {
+            result.foreground_cwd = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_foreground_cwd);
+            if (!decoded) return std::move(decoded).error();
+            result.foreground_cwd = Field<std::string>(std::move(decoded).value());
         }
     }
     const Json* field_pid = value.find("pid");

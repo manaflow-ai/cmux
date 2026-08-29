@@ -83,6 +83,7 @@ actor LivenessHostRouter {
     // tests from exercising the one-shot legacy identity recovery request.
     private var macDeviceID: String? = "test-mac"
     private var macInstanceTag: String? = "default"
+    private var macClientNamespace: String? = "mac:com.cmuxterm.app.debug"
     private var macDisplayName: String? = "Test Mac"
     private var workspaceListResponseHook: (@Sendable () -> Void)?
     private var workspaceIDs = ["live-workspace"]
@@ -291,9 +292,15 @@ actor LivenessHostRouter {
         self.capabilities = capabilities
     }
 
-    func setHostIdentity(deviceID: String?, instanceTag: String?, displayName: String? = nil) {
+    func setHostIdentity(
+        deviceID: String?,
+        instanceTag: String?,
+        displayName: String? = nil,
+        clientNamespace: String? = "mac:com.cmuxterm.app.debug"
+    ) {
         macDeviceID = deviceID
         macInstanceTag = instanceTag
+        macClientNamespace = clientNamespace
         macDisplayName = displayName
     }
 
@@ -570,6 +577,9 @@ actor LivenessHostRouter {
             } else {
                 if let macDeviceID { result["mac_device_id"] = macDeviceID }
                 if let macInstanceTag { result["mac_instance_tag"] = macInstanceTag }
+                if let macClientNamespace {
+                    result["mac_client_namespace"] = macClientNamespace
+                }
                 if let macDisplayName { result["mac_display_name"] = macDisplayName }
             }
             return try? Self.resultFrame(id: id, result: result)

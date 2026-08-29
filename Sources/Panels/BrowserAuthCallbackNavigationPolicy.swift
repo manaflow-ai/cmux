@@ -104,19 +104,22 @@ struct BrowserAuthCallbackNavigationPolicy {
         switch disposition {
         case .passThrough:
             return false
-        case .block:
+        case .block, .deliverInApp:
+            // Every consumed disposition must close WebKit's policy decision
+            // before any follow-up work can run. Keeping this outside the
+            // delivery-specific branch prevents a new consumed case from
+            // accidentally returning with an uncalled handler.
             cancelNavigation()
             reportTerminalCancellation()
-            return true
-        case .deliverInApp:
+        }
+
+        if case .deliverInApp = disposition {
             let returnURL = Self.webReturnURL(fromPageURL: sourcePageURL)
-            cancelNavigation()
-            reportTerminalCancellation()
             Task { @MainActor in
                 completion(await deliver(callbackURL), returnURL)
             }
-            return true
         }
+        return true
     }
 
     /// Completes a consumed callback consistently across browser surfaces.

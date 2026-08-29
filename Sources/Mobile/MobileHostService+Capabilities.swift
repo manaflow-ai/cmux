@@ -45,6 +45,9 @@ extension MobileHostService {
         "mobile.events.unsubscribe",
         "mobile.host.status",
         "mobile.rpc.methods",
+        "mobile.simulator.device.select",
+        "mobile.simulator.devices.list",
+        "mobile.simulator.recover",
         "mobile.simulator.input.button",
         "mobile.simulator.input.pointer",
         "mobile.simulator.input.text",
@@ -178,6 +181,9 @@ extension MobileHostService {
             MobileSimulatorStreamCapability.current.inputIdentifier,
             MobileSimulatorStreamCapability.current.ownershipIdentifier,
             MobileSimulatorStreamCapability.current.keepaliveIdentifier,
+            MobileSimulatorStreamCapability.current.streamV2Identifier,
+            MobileSimulatorStreamCapability.current.devicesIdentifier,
+            MobileSimulatorStreamCapability.current.recoverIdentifier,
             "events.v1",
             "notification.badge.v1",
             "notification.dismiss.v1",
@@ -241,6 +247,9 @@ extension MobileHostService {
                 MobileSimulatorStreamCapability.current.inputIdentifier,
                 MobileSimulatorStreamCapability.current.ownershipIdentifier,
                 MobileSimulatorStreamCapability.current.keepaliveIdentifier,
+                MobileSimulatorStreamCapability.current.streamV2Identifier,
+                MobileSimulatorStreamCapability.current.devicesIdentifier,
+                MobileSimulatorStreamCapability.current.recoverIdentifier,
             ]
             capabilities.removeAll { simulatorCapabilities.contains($0) }
         }

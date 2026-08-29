@@ -3,6 +3,7 @@ import CmuxMobileBrowser
 import CmuxMobileBrowserStream
 import CmuxMobileShell
 import CmuxMobileShellModel
+import CmuxMobileSupport
 import CmuxMobileTerminal
 import SwiftUI
 
@@ -26,18 +27,45 @@ extension WorkspaceDetailView {
                 .opacity(surface == .terminal ? 1 : 0)
                 .allowsHitTesting(surface == .terminal)
                 .accessibilityHidden(surface != .terminal)
-            if surface == .chat, let session = chosenChatSession {
-                chatContent(session)
-                    .background(store.activeTerminalTheme.terminalBackgroundColor)
-            } else if surface == .browser, let browser = activeBrowser {
+            if surface == .browser, let browser = activeBrowser {
                 browserContent(browser)
                     .background(store.activeTerminalTheme.terminalBackgroundColor)
+            } else if surface == .browser {
+                waitingSurfacePlaceholder(
+                    title: L10n.string("mobile.browser.waiting", defaultValue: "Waiting for Browser"),
+                    detail: L10n.string(
+                        "mobile.browser.waitingDetail",
+                        defaultValue: "The browser will appear when the Mac is ready."
+                    ),
+                    symbol: "globe",
+                    accessibilityIdentifier: "MobileBrowserPlaceholder"
+                )
             } else if surface == .browserStream, let browser = activeBrowserStream {
                 browserStreamContent(browser)
                     .background(store.activeTerminalTheme.terminalBackgroundColor)
+            } else if surface == .browserStream {
+                waitingSurfacePlaceholder(
+                    title: L10n.string("mobile.browserStream.waiting", defaultValue: "Waiting for Browser"),
+                    detail: L10n.string(
+                        "mobile.browserStream.waitingDetail",
+                        defaultValue: "The first frame will appear when the Mac is ready."
+                    ),
+                    symbol: "globe",
+                    accessibilityIdentifier: "BrowserStreamPlaceholder"
+                )
             } else if surface == .simulatorStream, let simulator = activeSimulatorStream {
                 simulatorStreamContent(simulator)
                     .background(store.activeTerminalTheme.terminalBackgroundColor)
+            } else if surface == .simulatorStream {
+                waitingSurfacePlaceholder(
+                    title: L10n.string("mobile.simulatorStream.waiting", defaultValue: "Waiting for Simulator"),
+                    detail: L10n.string(
+                        "mobile.simulatorStream.waitingDetail",
+                        defaultValue: "The first frame will appear when the Mac is ready."
+                    ),
+                    symbol: "iphone",
+                    accessibilityIdentifier: "SimulatorStreamPlaceholder"
+                )
             } else if case let .macSurface(macSurface) = surface {
                 macSurfaceContent(macSurface)
                     .background(store.activeTerminalTheme.terminalBackgroundColor)
@@ -47,20 +75,9 @@ extension WorkspaceDetailView {
                     // dark theme (and vice versa).
                     .environment(\.colorScheme, store.activeTerminalTheme.terminalColorScheme)
                     // Same recovery chrome as the terminal: the last synced
-                    // surface stays visible underneath while the pill shows
-                    // reconnect progress (it renders nothing when connected).
-                    .overlay(alignment: .topLeading) {
-                        MobileMacConnectionStatusPill(
-                            host: host,
-                            status: effectiveConnectionStatus,
-                            reconnect: Self.reconnectAction(
-                                connectionRequiresReauth: store.connectionRequiresReauth,
-                                reconnect: { reconnectToWorkspaceMac() }
-                            )
-                        )
-                        .padding(.top, 10)
-                        .padding(.leading, 10)
-                    }
+                    // surface stays visible, and connection state lives in
+                    // the shared title bar (spinner while reconnecting, red
+                    // dot + Reconnect menu item while disconnected).
             }
         }
         .safeAreaInset(edge: .top, spacing: 0) {
@@ -224,7 +241,48 @@ extension WorkspaceDetailView {
         }
     }
 
+    @ViewBuilder
     func simulatorStreamContent(_ simulator: MobileSimulatorStreamSurfaceState) -> some View {
+        if store.supportsSimulatorStreamV2,
+            let access = store.simulatorStreamV2Access(panelID: simulator.id)
+        {
+            let workspaceID = workspace.rpcWorkspaceID.rawValue
+            SimulatorStreamV2Pane(
+                panelID: simulator.id,
+                workspaceID: workspaceID,
+                access: access,
+                isTransportReady: store.connectionState == .connected,
+                supportsDeviceSwitching: store.supportsSimulatorDeviceSwitching,
+                listDevices: { [weak store] in
+                    await store?.listSimulatorDevices(
+                        panelID: simulator.id, workspaceID: workspaceID) ?? []
+                },
+                selectDevice: { [weak store] udid in
+                    await store?.selectSimulatorDevice(
+                        panelID: simulator.id, workspaceID: workspaceID, udid: udid) ?? false
+                },
+                supportsRecover: store.supportsSimulatorRecover,
+                recover: { [weak store] in
+                    await store?.recoverSimulator(
+                        panelID: simulator.id, workspaceID: workspaceID) ?? false
+                }
+            )
+            .task {
+                await store.stopLegacySimulatorStream(
+                    panelID: simulator.id,
+                    workspaceID: workspace.rpcWorkspaceID.rawValue
+                )
+            }
+            .id(simulator.id)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            legacySimulatorStreamContent(simulator)
+        }
+    }
+
+    private func legacySimulatorStreamContent(
+        _ simulator: MobileSimulatorStreamSurfaceState
+    ) -> some View {
         SimulatorStreamPane(
             state: simulator,
             workspaceID: workspace.rpcWorkspaceID.rawValue,

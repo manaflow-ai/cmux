@@ -14,9 +14,9 @@ There is no master or slave role. The rail follows capabilities available to thi
 
 Right-click a client-owned machine or any tab in the tabs column to rename that exact row. Provider-owned machine renames remain capability-gated and versioned by the provider. Client-owned machine names last for the current process only; tab names remain session state.
 
-The static catalog shows `+ Connect machine`. It discovers concrete aliases from `Host` directives in `~/.ssh/config` and recursively follows `Include` directives. Wildcard and negated patterns are omitted. Type while the native picker is open to filter large host catalogs, then use Up/Down and Enter. Large pickers have the same wheel, track-click, and thumb-drag scrollbar as other native overlays. `Add SSH host…` accepts `cmux-lawrence`, `user@host`, or the familiar `ssh cmux-lawrence` spelling. Either path adds an SSH target for the current process and connects to its `main` session. SSH performs final config resolution, so aliases retain their configured hostname, user, port, proxy, and identity settings. Temporary targets and renamed machine labels are not written to configuration. To keep `cmux-lawrence` across launches, add a concrete `Host cmux-lawrence` entry to `~/.ssh/config`; the picker discovers it on the next launch.
+The static catalog shows `+ ssh host`. It discovers concrete aliases from `Host` directives in `~/.ssh/config` and recursively follows `Include` directives. Wildcard and negated patterns are omitted. Type while the native picker is open to filter large host catalogs, then use Up/Down and Enter. Large pickers have the same wheel, track-click, and thumb-drag scrollbar as other native overlays. `Add SSH host…` accepts `cmux-lawrence`, `user@host`, or the familiar `ssh cmux-lawrence` spelling. Either path adds an SSH target for the current process and connects to its `main` session. SSH performs final config resolution, so aliases retain their configured hostname, user, port, proxy, and identity settings. Temporary targets and renamed machine labels are not written to configuration. To keep `cmux-lawrence` across launches, add a concrete `Host cmux-lawrence` entry to `~/.ssh/config`; the picker discovers it on the next launch.
 
-`+ new machine` remains capability-gated. Configured `machine_sidebar.create_sources` enable a prototype native source picker whose new rows point back to the current mux. This validates Docker and microVM provider UX without running a provider or provisioning infrastructure.
+`+ new vm` remains capability-gated. Configured `machine_sidebar.create_sources` enable a prototype native source picker whose new rows point back to the current mux. This validates Docker and microVM provider UX without running a provider or provisioning infrastructure.
 
 ## Static targets
 
@@ -52,7 +52,7 @@ The direct-command form treats every value through the terminating `--` as one l
 
 A local `--cloud` client appends the configured `machines` array to the provider catalog. Provider machines use low process-local keys and local entries use the upper half of the key space. A provider refresh cannot replace an active local session. Switching back to a provider machine opens a fresh provider ticket.
 
-`+ Connect machine` has two capability-gated owners. When the provider negotiates `connect-external-machine-v1` and sets the current snapshot's `connect_external_machine` bit, the prompt accepts a host address or pairing code and sends it unchanged as an opaque provider mutation. The provider enrolls and selects the returned machine; the TUI refreshes the catalog and opens it through the normal machine-switch path. The pairing code is bounded, never shell-evaluated, and redacted from debug output. Exact retries use the same mutation id and receive the provider's idempotent result.
+`+ ssh host` has two capability-gated owners. When the provider negotiates `connect-external-machine-v1` and sets the current snapshot's `connect_external_machine` bit, the prompt accepts a host address or pairing code and sends it unchanged as an opaque provider mutation. The provider enrolls and selects the returned machine; the TUI refreshes the catalog and opens it through the normal machine-switch path. The pairing code is bounded, never shell-evaluated, and redacted from debug output. Exact retries use the same mutation id and receive the provider's idempotent result.
 
 When provider-owned connect is unavailable, the local Cloud overlay preserves the static behavior: a temporary `host` or `user@host` target uses the caller's local SSH config, keys, agent, and `known_hosts`. Those local target details never enter provider requests.
 
@@ -64,20 +64,15 @@ See [Configuration](configuration.md#dynamic-machine-provider) for persistent cl
 
 ## Run with npm
 
-Install cmux on a remote Linux or macOS machine so SSH has a stable executable path:
-
-```bash
-npm install --global cmux
-command -v cmux
-```
-
-Put the absolute path printed by `command -v cmux` in the target's `binary` field and set `session` to `agents`. The first managed connection starts that session on demand. After adding the target to the local config, start the client normally:
+Packaged clients install their pinned remote binary after the compatibility probe:
 
 ```bash
 npx cmux
 ```
 
-The local `npx cmux` process renders both rails and opens `ssh -T` only when that machine is selected. It verifies that the remote package and protocol match, then starts or reuses the remote protocol-v12 session. Run `npx cmux ssh dev@buildbox --session agents --upgrade` once when a legacy remote executable is too old to answer the compatibility probe.
+Set the target's `session` to `agents`. The first managed connection starts that session on demand.
+
+The local `npx cmux` process opens SSH only when that machine is selected. It verifies the remote package and protocol, installs a missing or incompatible packaged binary, then starts or reuses the remote protocol-v12 session. Source builds must install the exact matching binary themselves; `--no-install` disables automatic installation. A legacy executable that cannot answer the probe requires `--upgrade`.
 
 For a direct transport check, the equivalent relay is:
 
@@ -92,7 +87,7 @@ This command emits raw JSON-lines protocol traffic, not a second TUI. It checks 
 Start a persistent local session in one terminal or service supervisor:
 
 ```bash
-npx cmux --headless --session agents
+npx cmux server start --session agents
 ```
 
 First verify Cloud host trust and authentication once, then exit back to your local shell. Use the same resolved host, user, port, and identity that the agent will use:
@@ -112,7 +107,7 @@ npx cmux machine-agent --session agents
 
 The agent fails closed without a controlling terminal, including on reconnects where the broker does not emit a pairing code.
 
-The agent runs the exact remote command `cmux machine register`. The first successful registration prints a short one-time pairing code. In the TUI reached by `ssh cmux.cloud`, choose `+ Connect machine` and enter that code.
+The agent runs the exact remote command `cmux machine register`. The first successful registration prints a short one-time pairing code. In the TUI reached by `ssh cmux.cloud`, choose `+ ssh host` and enter that code.
 
 The connection is outbound only. The agent opens no listener and changes no shell or SSH files. It multiplexes Cloud streams onto the selected local protocol-v12 session, reconnects with bounded backoff, and preserves active streams during a server-requested software generation migration.
 

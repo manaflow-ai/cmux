@@ -174,7 +174,8 @@ public actor MobileIrohRouteCatalog {
                 instanceTag: identity.instanceTag ?? "",
                 routes: [route],
                 lastSeenAt: timestampParser.parse(binding.lastSeenAt),
-                capabilities: binding.capabilities
+                capabilities: binding.capabilities,
+                clientNamespace: binding.clientNamespace
             )
         }
     }
@@ -186,20 +187,54 @@ public actor MobileIrohRouteCatalog {
     /// builds and then broker recency.
     public func liveMacCandidates(
         preferredTag: String,
-        compatibleWith policy: MobileMacBuildCompatibilityPolicy? = nil
+        compatibleWith policy: MobileMacBuildCompatibilityPolicy? = nil,
+        limit: Int? = nil
     ) -> [MobileDiscoveredIrohMac] {
-        liveMacs
-            .filter { policy?.allows(instanceTag: $0.instanceTag) ?? true }
-            .sorted { left, right in
-                let leftRank = Self.tagRank(left.instanceTag, preferred: preferredTag)
-                let rightRank = Self.tagRank(right.instanceTag, preferred: preferredTag)
-                if leftRank != rightRank { return leftRank < rightRank }
-                if left.lastSeenAt != right.lastSeenAt {
-                    return left.lastSeenAt > right.lastSeenAt
+        guard let limit else {
+            return liveMacs
+                .filter {
+                    policy?.allows(
+                        instanceTag: $0.instanceTag,
+                        clientNamespace: $0.clientNamespace
+                    ) ?? true
                 }
-                if left.deviceID != right.deviceID { return left.deviceID < right.deviceID }
-                return left.instanceTag < right.instanceTag
-            }
+                .sorted { Self.candidateSortsBefore($0, $1, preferredTag: preferredTag) }
+        }
+        guard limit > 0 else { return [] }
+
+        // Automatic admission only needs the best few candidates. Keep a
+        // bounded ordered buffer so a large authenticated fleet costs O(n*k)
+        // instead of sorting every row at O(n log n), where k is the limit.
+        var best: [MobileDiscoveredIrohMac] = []
+        best.reserveCapacity(min(limit, liveMacs.count))
+        for candidate in liveMacs
+            where policy?.allows(
+                instanceTag: candidate.instanceTag,
+                clientNamespace: candidate.clientNamespace
+            ) ?? true {
+            let insertionIndex = best.firstIndex {
+                Self.candidateSortsBefore(candidate, $0, preferredTag: preferredTag)
+            } ?? best.endIndex
+            guard insertionIndex < limit || best.count < limit else { continue }
+            best.insert(candidate, at: insertionIndex)
+            if best.count > limit { best.removeLast() }
+        }
+        return best
+    }
+
+    private static func candidateSortsBefore(
+        _ left: MobileDiscoveredIrohMac,
+        _ right: MobileDiscoveredIrohMac,
+        preferredTag: String
+    ) -> Bool {
+        let leftRank = tagRank(left.instanceTag, preferred: preferredTag)
+        let rightRank = tagRank(right.instanceTag, preferred: preferredTag)
+        if leftRank != rightRank { return leftRank < rightRank }
+        if left.lastSeenAt != right.lastSeenAt {
+            return left.lastSeenAt > right.lastSeenAt
+        }
+        if left.deviceID != right.deviceID { return left.deviceID < right.deviceID }
+        return left.instanceTag < right.instanceTag
     }
 
     /// Drops live first-pair candidates without disturbing verified routes for

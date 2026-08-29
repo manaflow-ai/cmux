@@ -1,6 +1,20 @@
 import AppKit
+import CmuxAppKitSupportUI
 import CmuxFoundation
 import SwiftUI
+
+/// Returns whether a rasterized icon contains a visible alpha pixel.
+@MainActor
+private func containsVisiblePixels(in bitmap: NSBitmapImageRep) -> Bool {
+    for y in 0..<bitmap.pixelsHigh {
+        for x in 0..<bitmap.pixelsWide {
+            if let color = bitmap.colorAt(x: x, y: y), color.alphaComponent > 0.01 {
+                return true
+            }
+        }
+    }
+    return false
+}
 
 enum RenderableSystemSymbol {
     static let defaultWorkspaceGroupIcon = "folder.fill"
@@ -19,6 +33,11 @@ enum RenderableSystemSymbol {
     private static var appKitImageCache: [AppKitImageCacheKey: NSImage] = [:]
     @MainActor
     private static var appKitImageCacheInsertionOrder: [AppKitImageCacheKey] = []
+    @MainActor
+    private static var appKitImageRetryCache = AppKitImageRetryCache(
+        limit: appKitImageCacheLimit,
+        retryInterval: negativeRenderabilityRetryInterval
+    )
 
     struct RenderabilityCache {
         private let limit: Int
@@ -94,10 +113,61 @@ enum RenderableSystemSymbol {
         }
     }
 
-    private struct AppKitImageCacheKey: Hashable {
+    struct AppKitImageCacheKey: Hashable {
         let systemName: String
         let rasterSize: CGFloat
         let weightRawValue: CGFloat
+    }
+
+    /// Coalesces repeated blank rasterization attempts until a lifecycle retry is due.
+    struct AppKitImageRetryCache {
+        private let limit: Int
+        private let retryInterval: TimeInterval
+        private let now: () -> Date
+        private var failures: [AppKitImageCacheKey: Date] = [:]
+        private var insertionOrder: [AppKitImageCacheKey] = []
+
+        init(
+            limit: Int,
+            retryInterval: TimeInterval,
+            now: @escaping () -> Date = Date.init
+        ) {
+            self.limit = limit
+            self.retryInterval = retryInterval
+            self.now = now
+        }
+
+        mutating func shouldAttempt(_ key: AppKitImageCacheKey) -> Bool {
+            guard let failedAt = failures[key] else { return true }
+            guard now().timeIntervalSince(failedAt) >= retryInterval else { return false }
+            removeFailure(for: key)
+            return true
+        }
+
+        mutating func recordFailure(for key: AppKitImageCacheKey) {
+            if failures[key] == nil {
+                insertionOrder.append(key)
+            }
+            failures[key] = now()
+            while insertionOrder.count > limit {
+                let evictedKey = insertionOrder.removeFirst()
+                failures.removeValue(forKey: evictedKey)
+            }
+        }
+
+        mutating func recordSuccess(for key: AppKitImageCacheKey) {
+            removeFailure(for: key)
+        }
+
+        mutating func reset() {
+            failures.removeAll()
+            insertionOrder.removeAll()
+        }
+
+        private mutating func removeFailure(for key: AppKitImageCacheKey) {
+            failures.removeValue(forKey: key)
+            insertionOrder.removeAll { $0 == key }
+        }
     }
 
     static func trimmed(_ raw: String?) -> String? {
@@ -138,6 +208,25 @@ enum RenderableSystemSymbol {
         renderabilityCache.isRenderable(symbol)
     }
 
+    /// Resolves a bounded set of symbols before a view enters an AppKit
+    /// window's constraint/layout cycle.
+    @MainActor
+    static func prewarmAppKitImages(
+        systemNames: [String],
+        pointSizes: [CGFloat],
+        weight: Font.Weight? = nil
+    ) {
+        for systemName in systemNames {
+            for pointSize in pointSizes {
+                _ = configuredAppKitImage(
+                    systemName: systemName,
+                    pointSize: pointSize,
+                    weight: weight
+                )
+            }
+        }
+    }
+
     static func clampedRasterPointSize(_ pointSize: CGFloat) -> CGFloat {
         guard pointSize.isFinite else {
             return minimumRasterPointSize
@@ -173,6 +262,12 @@ enum RenderableSystemSymbol {
         if let cached = appKitImageCache[cacheKey] {
             return cached
         }
+        // This synchronous @MainActor path has no suspension window for a
+        // concurrent materialization; coalesce repeated body evaluations and
+        // let the AppKit lifecycle owner perform the immediate retry.
+        guard appKitImageRetryCache.shouldAttempt(cacheKey) else {
+            return nil
+        }
         if !renderabilityCache.isRenderable(systemName) {
             return nil
         }
@@ -186,9 +281,16 @@ enum RenderableSystemSymbol {
             weight: fontWeight
         )
         let configuredImage = baseImage.withSymbolConfiguration(configuration) ?? baseImage
-        let image = (configuredImage.copy() as? NSImage) ?? configuredImage
+        let imageSize = symbolImageSize(configuredImage.size, fallbackDimension: rasterSize)
+        guard let image = materializedImage(configuredImage, size: imageSize) else {
+            appKitImageRetryCache.recordFailure(for: cacheKey)
+            return nil
+        }
+        appKitImageRetryCache.recordSuccess(for: cacheKey)
+        // Keep the template contract used by the SwiftUI and AppKit callers,
+        // while replacing AppKit's lazy symbol representation with a bitmap
+        // that cannot be materialized again from an NSWindow layout pass.
         image.isTemplate = true
-        image.size = symbolImageSize(configuredImage.size, fallbackDimension: rasterSize)
         appKitImageCache[cacheKey] = image
         appKitImageCacheInsertionOrder.append(cacheKey)
         while appKitImageCacheInsertionOrder.count > appKitImageCacheLimit {
@@ -196,6 +298,83 @@ enum RenderableSystemSymbol {
             appKitImageCache.removeValue(forKey: evictedKey)
         }
         return image
+    }
+
+    /// Draws a symbol into an owned bitmap before handing it to AppKit views.
+    ///
+    /// `NSImage(systemSymbolName:)` stores a lazy symbol representation. If
+    /// that representation reaches an `NSImageView` while AppKit is solving
+    /// window constraints, the first provider lookup can block the main
+    /// thread for several seconds. A bitmap representation makes all later
+    /// intrinsic-size and layout queries constant-time.
+    @MainActor
+    private static func materializedImage(_ source: NSImage, size: NSSize) -> NSImage? {
+        let image = NSImage(size: size)
+        // Keep native reps for both common display scales. AppKit can then
+        // select a fully materialized bitmap instead of resampling a 2x rep
+        // on a 1x display (or vice versa).
+        for pixelScale in [CGFloat(2), CGFloat(1)] {
+            guard let bitmap = materializedBitmap(source, size: size, pixelScale: pixelScale) else {
+                return nil
+            }
+            // A symbol provider can resolve successfully while still drawing
+            // a transparent bitmap during an AppKit window/appearance pass.
+            // Never put that transient result in the process-wide cache.
+            guard containsVisiblePixels(in: bitmap) else {
+                return nil
+            }
+            image.addRepresentation(bitmap)
+        }
+        image.cacheMode = .never
+        return image
+    }
+
+    @MainActor
+    private static func materializedBitmap(
+        _ source: NSImage,
+        size: NSSize,
+        pixelScale: CGFloat
+    ) -> NSBitmapImageRep? {
+        guard let bitmap = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: max(1, Int(ceil(size.width * pixelScale))),
+            pixelsHigh: max(1, Int(ceil(size.height * pixelScale))),
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        ) else {
+            return nil
+        }
+
+        // NSGraphicsContext derives its point-to-pixel CTM from the bitmap's
+        // point-space size. Set it before creating the context so the backing
+        // pixels are used for the symbol draw, rather than only when the
+        // representation is later displayed.
+        bitmap.size = size
+        guard let graphicsContext = NSGraphicsContext(bitmapImageRep: bitmap) else {
+            return nil
+        }
+
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = graphicsContext
+        defer { NSGraphicsContext.restoreGraphicsState() }
+
+        NSColor.clear.setFill()
+        NSRect(origin: .zero, size: size).fill()
+        graphicsContext.imageInterpolation = .high
+        source.draw(
+            in: NSRect(origin: .zero, size: size),
+            from: .zero,
+            operation: .sourceOver,
+            fraction: 1,
+            respectFlipped: true,
+            hints: nil
+        )
+        return bitmap
     }
 
     static func symbolImageSize(_ naturalSize: NSSize, fallbackDimension: CGFloat) -> NSSize {
@@ -209,7 +388,7 @@ enum RenderableSystemSymbol {
         return naturalSize
     }
 
-    private static func nsFontWeight(for weight: Font.Weight?) -> NSFont.Weight {
+    fileprivate static func nsFontWeight(for weight: Font.Weight?) -> NSFont.Weight {
         guard let weight else { return .regular }
         if weight == .ultraLight { return .ultraLight }
         if weight == .thin { return .thin }
@@ -228,6 +407,7 @@ enum RenderableSystemSymbol {
         renderabilityCache.reset()
         appKitImageCache.removeAll()
         appKitImageCacheInsertionOrder.removeAll()
+        appKitImageRetryCache.reset()
     }
     #endif
 }
@@ -283,6 +463,26 @@ struct CmuxSystemSymbolImage: View {
         ) {
             Image(nsImage: image)
                 .renderingMode(.template)
+                .frame(width: rasterSize, height: rasterSize, alignment: alignment)
+        } else if RenderableSystemSymbol.isRenderable(systemName) {
+            // A transient blank materialization gets the same AppKit lifecycle
+            // owner and forced-appearance retry instead of a lazy SwiftUI provider.
+            // The mask keeps the caller's foreground color/style semantics while
+            // the AppKit view remains the only symbol lifecycle owner.
+            Rectangle()
+                .fill(.foreground)
+                .frame(width: rasterSize, height: rasterSize)
+                .mask(
+                    CmuxResolvedIconImage(request: CmuxResolvedIconRequest(
+                        source: .systemSymbol(
+                            name: systemName,
+                            accessibilityDescription: nil
+                        ),
+                        size: NSSize(width: rasterSize, height: rasterSize),
+                        symbolWeight: RenderableSystemSymbol.nsFontWeight(for: weight)
+                    ))
+                    .frame(width: rasterSize, height: rasterSize)
+                )
                 .frame(width: rasterSize, height: rasterSize, alignment: alignment)
         } else {
             Color.clear

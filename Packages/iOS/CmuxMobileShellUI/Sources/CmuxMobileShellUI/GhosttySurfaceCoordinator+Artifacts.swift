@@ -238,9 +238,14 @@ extension GhosttySurfaceRepresentable.Coordinator {
         private func requestArtifactFilesFromChip() {
             guard artifactChipGate.isEnabled else { return }
             guard let surfaceView, let chipView = artifactChipController?.view else { return }
-            let frame = chipView.convert(chipView.bounds, to: surfaceView)
-            let width = max(surfaceView.bounds.width, 1)
-            let height = max(surfaceView.bounds.height, 1)
+            // Normalize against the view backing the SwiftUI representable
+            // (the adopting host). The surface itself slides under the
+            // keyboard, so anchors normalized against it would drift by the
+            // slide.
+            let reference = surfaceView.artifactChipAnchorReferenceView
+            let frame = chipView.convert(chipView.bounds, to: reference)
+            let width = max(reference.bounds.width, 1)
+            let height = max(reference.bounds.height, 1)
             onArtifactFilesRequested(UnitPoint(
                 x: min(max(frame.midX / width, 0), 1),
                 y: min(max(frame.midY / height, 0), 1)
@@ -421,6 +426,12 @@ extension GhosttySurfaceRepresentable.Coordinator {
                 guard let self else { return }
                 await self.store?.scrollTerminal(surfaceID: self.surfaceID, lines: lines, col: col, row: row)
             }
+        }
+
+        func ghosttySurfaceViewOwnsLocalPrimaryScreenScroll(_ surfaceView: GhosttySurfaceView) -> Bool {
+            // The exact confirmed-primary condition that suppresses the Mac
+            // scroll RPC in `scrollTerminal`.
+            store?.ownsLocalPrimaryScreenScroll(surfaceID: surfaceID) ?? false
         }
 
         func ghosttySurfaceView(

@@ -87,6 +87,10 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
     /// sidebar's workspace unread badge). Drives the iMessage-style unread dot.
     /// `false` when connected to a Mac old enough not to emit it.
     public var hasUnread: Bool
+    /// The exact unread count behind ``hasUnread`` (the number the Mac sidebar
+    /// badge shows). `nil` when connected to a Mac old enough not to emit it;
+    /// the indicator then falls back to the plain dot.
+    public var unreadCount: Int?
     /// The terminals contained in the workspace, in display order.
     public var terminals: [MobileTerminalPreview]
     /// Every Mac-rendered surface, in the Mac workspace's spatial order.
@@ -153,6 +157,7 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
         previewAt: Date? = nil,
         lastActivityAt: Date? = nil,
         hasUnread: Bool = false,
+        unreadCount: Int? = nil,
         terminals: [MobileTerminalPreview],
         surfaces: [MobileSurfacePreview] = [],
         simulators: [MobileSimulatorPanelDescriptor] = []
@@ -173,6 +178,7 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
         self.previewAt = previewAt
         self.lastActivityAt = lastActivityAt
         self.hasUnread = hasUnread
+        self.unreadCount = unreadCount
         self.terminals = terminals
         self.surfaces = surfaces
         self.simulators = simulators
@@ -180,6 +186,13 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
 }
 
 extension MobileWorkspacePreview {
+    /// The non-terminal surface the owning Mac currently has focused, when it
+    /// reports one. This is separate from the terminal fallback because an
+    /// explicitly selected terminal on iOS must remain authoritative.
+    public var focusedNonTerminalSurface: MobileSurfacePreview? {
+        surfaces.first { !$0.kind.isTerminal && $0.isFocused }
+    }
+
     /// The non-terminal Mac surface to present, honoring the picker selection.
     ///
     /// Terminal-kinded rows are never a Mac-surface selection (terminals have
@@ -198,6 +211,7 @@ extension MobileWorkspacePreview {
 
     private var defaultMacSurface: MobileSurfacePreview? {
         guard terminals.isEmpty else { return nil }
-        return surfaces.first { !$0.kind.isTerminal }
+        return surfaces.first { !$0.kind.isTerminal && $0.isFocused }
+            ?? surfaces.first { !$0.kind.isTerminal }
     }
 }

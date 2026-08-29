@@ -75,7 +75,10 @@ struct AppWindowChromeComposition {
     ) -> WindowAppearanceSnapshot {
         appearanceResolver(app: app).currentFromUserDefaults(
             defaults: defaults,
-            colorScheme: colorScheme
+            // Translucent chrome composites over the window base the ambient
+            // appearance paints; inject the live ambient instead of letting
+            // the resolver fall back to the terminal-only authority.
+            colorScheme: colorScheme ?? AppearanceSettings.currentAmbientColorScheme(defaults: defaults)
         )
     }
 }

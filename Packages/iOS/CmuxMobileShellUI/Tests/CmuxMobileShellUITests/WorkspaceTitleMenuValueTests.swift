@@ -1,40 +1,49 @@
 import CMUXMobileCore
-import CmuxAgentChat
+import CmuxMobileShellModel
 import Testing
 @testable import CmuxMobileShellUI
 
 @Suite struct WorkspaceTitleMenuValueTests {
     @Test func labelBranchChangesInvalidateTheMenuValue() {
         let standard = menuValue(
-            labelToken: .standard(title: "Workspace", subtitle: "Terminal")
+            labelToken: .standard(title: "Workspace", subtitle: "Terminal", connectionStatus: .connected)
         )
         let browser = menuValue(
-            labelToken: .browser(title: "Workspace")
+            labelToken: .standard(title: "Workspace", subtitle: "GitHub - cmux", connectionStatus: .connected)
         )
-        let chat = menuValue(
-            labelToken: .chat(
-                descriptor: ChatSessionDescriptor(
-                    id: "session-1",
-                    agentKind: .codex,
-                    title: "Build",
-                    state: .idle
-                ),
-                agentState: .idle,
-                isConnected: true,
-                titleOverride: "Workspace",
-                subtitle: "Terminal"
-            )
-        )
-
         #expect(menuValue(labelToken: standard.labelToken) == standard)
         #expect(browser != standard)
-        #expect(chat != standard)
-        #expect(chat != browser)
+    }
+
+    @Test func connectionStatusTransitionsInvalidateTheMenuValue() {
+        let connected = menuValue(
+            labelToken: .standard(title: "Workspace", subtitle: "Terminal", connectionStatus: .connected)
+        )
+        let reconnecting = menuValue(
+            labelToken: .standard(title: "Workspace", subtitle: "Terminal", connectionStatus: .reconnecting)
+        )
+        let unavailable = menuValue(
+            labelToken: .standard(title: "Workspace", subtitle: "Terminal", connectionStatus: .unavailable)
+        )
+        #expect(reconnecting != connected)
+        #expect(unavailable != connected)
+        #expect(unavailable != reconnecting)
+    }
+
+    @Test func reconnectCapabilityInvalidatesTheMenuValue() {
+        let token = WorkspaceTitleMenuLabelToken.standard(
+            title: "Workspace",
+            subtitle: "Terminal",
+            connectionStatus: .unavailable
+        )
+        let withReconnect = menuValue(labelToken: token, canReconnect: true)
+        let withoutReconnect = menuValue(labelToken: token, canReconnect: false)
+        #expect(withReconnect != withoutReconnect)
     }
 
     @Test func customizationCapabilityInvalidatesTheMenuValue() {
         let available = menuValue(
-            labelToken: .standard(title: "Workspace", subtitle: "Terminal"),
+            labelToken: .standard(title: "Workspace", subtitle: "Terminal", connectionStatus: .connected),
             canCustomizeWorkspace: true
         )
         let unavailable = menuValue(
@@ -47,16 +56,17 @@ import Testing
 
     private func menuValue(
         labelToken: WorkspaceTitleMenuLabelToken,
-        canCustomizeWorkspace: Bool = true
+        canCustomizeWorkspace: Bool = true,
+        canReconnect: Bool = false
     ) -> WorkspaceTitleMenuValue {
         WorkspaceTitleMenuValue(
             contentWidth: 390,
             hasBackButton: true,
             hasTrailingCluster: true,
-            hasChatToggle: true,
             measuredTrailingItemsWidth: 0,
             measuredTrailingItemCount: 0,
             trailingItemCount: 0,
+            hadTrailingCollapse: false,
             isEnabled: true,
             workspaceName: "Workspace",
             hasUnread: false,
@@ -64,6 +74,7 @@ import Testing
             canRenameWorkspace: true,
             canToggleReadState: true,
             canCloseWorkspace: true,
+            canReconnect: canReconnect,
             labelToken: labelToken,
             terminalTheme: .monokai
         )

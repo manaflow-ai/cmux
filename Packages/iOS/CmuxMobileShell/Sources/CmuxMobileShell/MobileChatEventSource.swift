@@ -21,8 +21,7 @@ private actor MobileArtifactDownloadByteCounter {
 /// History and actions go through `mobile.chat.*` request methods; live
 /// updates arrive on the `chat.message` event topic, filtered per session.
 /// The returned event stream finishes when the underlying connection drops;
-/// ``CmuxAgentChat/ChatConversationStore`` resubscribes through its `run()`
-/// loop.
+/// consumers resubscribe when they rebuild a source for a new connection.
 public actor MobileChatEventSource: ChatEventSource {
     private let client: MobileCoreRPCClient
     let diagnosticLog: DiagnosticLog?
