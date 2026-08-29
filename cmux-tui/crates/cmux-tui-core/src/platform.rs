@@ -323,7 +323,7 @@ fn has_windows_parent_component(path: &[u16]) -> bool {
     path.split(|unit| *unit == b'\\' as u16).any(|segment| segment == [b'.' as u16, b'.' as u16])
 }
 
-#[cfg(any(windows, test))]
+#[cfg(windows)]
 fn windows_absolute_path_is_verbatim_safe(path: &[u16]) -> bool {
     let components = if path.len() >= 3
         && path[0] <= 0x7f

@@ -5531,7 +5531,6 @@ impl Mux {
         // fence for a start would let a delayed, session-less start mutate a
         // newer lifecycle.
         let agent_session_id = explicit_session_id
-            .clone()
             .or_else(|| {
                 (!is_session_start)
                     .then(|| previous_fence.as_ref().filter(|fence| !fence.ended))
@@ -8949,6 +8948,10 @@ impl Mux {
         self.report_agent_with_sequence_lock(surface, state, source, session, false, None, None)
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "The journal report path keeps each authorization and ordering field explicit."
+    )]
     fn report_agent_with_sequence_lock(
         &self,
         surface: SurfaceId,
@@ -9196,10 +9199,10 @@ impl Mux {
             "state":record.state.as_str(),
             "source":record.source.as_str(),
             "updated_at_ms":record.updated_at_ms.to_string(),
-            "source_session":persisted_source_session.clone().or(record.session.clone()),
+            "source_session":persisted_source_session.or(record.session.clone()),
         });
         let mut public_value = value.clone();
-        public_value["source_session"] = serde_json::json!(record.session.clone());
+        public_value["source_session"] = serde_json::json!(record.session);
         let deltas = if effective_hook_state.is_some_and(|state| state.ended) {
             serde_json::json!([{
                 "kind":"delete",
@@ -9237,10 +9240,10 @@ impl Mux {
                 effective_hook_state,
             )?,
         };
-        if !commit.replayed {
-            if let (Some(direct_state), Some(sequence_guard)) =
+        if !commit.replayed
+            && let (Some(direct_state), Some(sequence_guard)) =
                 (direct_hook_state.as_ref(), sequence_guard.as_mut())
-            {
+        {
                 sequence_guard.insert(
                     terminal_id.clone(),
                     HookFence {
@@ -9249,7 +9252,6 @@ impl Mux {
                         ended: false,
                     },
                 );
-            }
         }
         state.resource_revision = commit.revision;
         if !commit.replayed {

@@ -62,9 +62,11 @@ pub use public_projection_store::RegistryPublicProjections;
 pub use public_projection_store::{RegistryAgentProjection, RegistryNotificationProjection};
 pub(crate) use resource_store::validate_registry_screen_projection;
 pub(crate) use resource_store::{
-    AGENT_HOOK_MAX_ATTEMPTS, AGENT_HOOK_MAX_RETRY_PAGES_PER_WAKE, AgentHookProjectionState,
-    AgentHookRetryClass,
+    AGENT_HOOK_MAX_RETRY_PAGES_PER_WAKE, AgentHookProjectionState, AgentHookRetryClass,
 };
+#[cfg(test)]
+#[allow(unused_imports)]
+pub(crate) use resource_store::AGENT_HOOK_MAX_ATTEMPTS;
 #[allow(unused_imports)]
 pub use resource_store::{
     RegistryBrowser, RegistryBrowserLaunch, RegistryBrowserReconnect, RegistryBrowserSource,
