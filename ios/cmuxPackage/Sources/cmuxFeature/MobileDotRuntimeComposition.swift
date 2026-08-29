@@ -21,6 +21,14 @@ public actor MobileDotRuntimeComposition {
     /// An explicit `false` in defaults (the remote revert switch writes it)
     /// falls back to the irx/legacy pick; the env var re-arms and persists.
     public nonisolated static var isEnabled: Bool {
+        // Verification and dogfood launches use force-only to prove that no
+        // legacy transport can win route selection. Treat that knob as an
+        // explicit re-arm as well, so a stale persisted remote-revert value
+        // cannot silently turn a force-only run back onto Iroh.
+        if ProcessInfo.processInfo.environment["CMUX_DOT_FORCE_ONLY"] == "1" {
+            UserDefaults.standard.set(true, forKey: enabledDefaultsKey)
+            return true
+        }
         if ProcessInfo.processInfo.environment["CMUX_DOT_ENABLED"] == "1" {
             UserDefaults.standard.set(true, forKey: enabledDefaultsKey)
             return true
