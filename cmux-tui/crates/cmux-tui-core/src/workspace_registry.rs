@@ -865,10 +865,9 @@ fn rename_reset_dir_for_deletion(
 ) -> anyhow::Result<PathBuf> {
     let storage_component = session_storage_component(session_name);
     for _ in 0..16 {
-        let candidate = platform::normalize_filesystem_path(root.join(format!(
-            ".reset-{storage_component}-{kind}-{}.deleting",
-            try_new_uuid_v4()?
-        )));
+        let candidate = platform::normalize_filesystem_path(
+            root.join(format!(".reset-{storage_component}-{kind}-{}.deleting", try_new_uuid_v4()?)),
+        );
         ensure_reset_dir_fingerprint(source, kind, expected_fingerprint)?;
         match fs::rename(source, &candidate) {
             Ok(()) => {
@@ -2329,9 +2328,8 @@ impl WorkspaceRegistry {
         {
             return Err(error.into());
         }
-        let session_lock = platform::normalize_filesystem_path(
-            session_dir.join(SESSION_WRITER_LOCK_FILE),
-        );
+        let session_lock =
+            platform::normalize_filesystem_path(session_dir.join(SESSION_WRITER_LOCK_FILE));
         let lease = SessionLease::acquire(&session_lock)?;
         let connection = open_registry_database(&db_path)
             .with_context(|| format!("open workspace registry {}", db_path.display()))?;
