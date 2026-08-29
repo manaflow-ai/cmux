@@ -27,9 +27,16 @@ final class RenderNodeContextMenuView: NSView {
     var isMenuEnabled = true
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        // AppKit gives NSView.hitTest(_:) a point in this view's local
-        // coordinate system. Use bounds for the local containment test.
-        guard bounds.contains(point), let event = NSApp.currentEvent else { return nil }
+        performHitTest(at: point, currentEvent: NSApp.currentEvent)
+    }
+
+    /// Test seam for the event-filtered hit test. Production callers use
+    /// ``NSApp.currentEvent`` through the override above; tests can provide a
+    /// synthetic event while still exercising AppKit's coordinate contract.
+    func performHitTest(at point: NSPoint, currentEvent: NSEvent?) -> NSView? {
+        // AppKit gives NSView.hitTest(_:) a point in this view's superview
+        // coordinate system. The frame is expressed in that same space.
+        guard frame.contains(point), let event = currentEvent else { return nil }
         switch event.type {
         case .rightMouseDown:
             break
@@ -46,9 +53,9 @@ final class RenderNodeContextMenuView: NSView {
         // so a nested `.contextMenu` inside this row must win over this
         // (topmost) overlay. Deferring lets AppKit's hit-test recursion
         // continue into the content subtree and reach the deeper overlay.
-        // The descendant walk is expressed in the superview's coordinates.
-        let pointInSuperview = superview.map { convert(point, to: $0) } ?? point
-        if deeperOverlayClaims(pointInSuperview) { return nil }
+        // The descendant walk is expressed in the superview's coordinates,
+        // which is also the coordinate system AppKit supplied to this method.
+        if deeperOverlayClaims(point) { return nil }
         return self
     }
 

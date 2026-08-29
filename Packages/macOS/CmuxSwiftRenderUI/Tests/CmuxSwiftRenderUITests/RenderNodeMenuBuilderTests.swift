@@ -255,6 +255,42 @@ struct RenderNodeMenuBuilderTests {
         #expect(view.menuForPresentation() == nil)
     }
 
+    @Test("offset overlay hit-tests in its superview coordinate space")
+    func offsetOverlayHitTestUsesSuperviewCoordinates() throws {
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 120))
+        let overlay = RenderNodeContextMenuView(
+            frame: NSRect(x: 100, y: 20, width: 80, height: 40)
+        )
+        overlay.nodes = [
+            RenderNode(kind: .button, text: "Row",
+                       action: ButtonAction(commands: [.log("row")]))
+        ]
+        container.addSubview(overlay)
+
+        let event = try #require(NSEvent.mouseEvent(
+            with: .rightMouseDown,
+            location: NSPoint(x: 120, y: 40),
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            eventNumber: 1,
+            clickCount: 1,
+            pressure: 1
+        ))
+
+        // `hitTest` receives points in the superview's coordinates, so the
+        // offset overlay must claim the point inside its frame.
+        #expect(overlay.performHitTest(
+            at: NSPoint(x: 120, y: 40),
+            currentEvent: event
+        ) === overlay)
+        #expect(overlay.performHitTest(
+            at: NSPoint(x: 20, y: 20),
+            currentEvent: event
+        ) == nil)
+    }
+
     @Test("accessibility handle presents through the mounted view and drops it weakly")
     func accessibilityHandleWiring() {
         let handle = RenderNodeContextMenuHandle()
