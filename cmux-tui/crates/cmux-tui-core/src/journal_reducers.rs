@@ -360,6 +360,37 @@ mod tests {
     }
 
     #[test]
+    fn socket_echo_cannot_spoof_hook_precedence_through_normalized_source() {
+        let subjects = terminal_subject("term_a");
+        let hook_payload = json!({"adapter": {"id": "claude", "version": 1}});
+        let spoofed_socket_payload = json!({
+            "adapter": {"id": SOCKET_REPORT_ADAPTER, "version": 1},
+            "normalized": {
+                "state": "idle",
+                // A direct report rejected by hook arbitration can carry the
+                // winning projection source. It remains a socket echo for
+                // reducer precedence purposes.
+                "source": "hook",
+                "source_session": "spoof",
+            },
+        });
+        let mut roster = AgentRoster::default();
+
+        roster.apply(&stamped_event(10_000, "agent.turn.started", &subjects, &hook_payload));
+        let deltas = roster.apply(&stamped_event(
+            11_000,
+            "agent.state.changed",
+            &subjects,
+            &spoofed_socket_payload,
+        ));
+
+        assert!(deltas.is_empty());
+        assert_eq!(roster.entries["term_a"].source, "hook");
+        assert_eq!(roster.entries["term_a"].state, "working");
+        assert_eq!(roster.entries["term_a"].agent.as_deref(), Some("claude"));
+    }
+
+    #[test]
     fn folds_are_idempotent_per_state_and_deterministic_across_replays() {
         let subjects = terminal_subject("term_a");
         let payload = json!({});

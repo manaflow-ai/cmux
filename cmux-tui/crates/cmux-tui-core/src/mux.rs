@@ -22217,6 +22217,106 @@ mod tests {
     }
 
     #[test]
+    fn reverse_order_roster_folds_replay_the_complete_two_terminal_prefix() {
+        let mux = test_mux();
+        let first_surface = mux.new_workspace(None, None).unwrap();
+        let second_surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = |surface: &Surface| {
+            mux.with_state(|state| match state.resource_indexes.content_ids.get(&surface.id).unwrap()
+            {
+                ContentPublicId::Terminal(terminal_id) => terminal_id.clone(),
+                ContentPublicId::Browser(_) => panic!("workspace opened a browser"),
+            })
+        };
+        let first_terminal = terminal_id(&first_surface);
+        let second_terminal = terminal_id(&second_surface);
+        let first = crate::agent_hooks::agent_hook_journal_ingress(
+            "claude",
+            "SessionStart",
+            Some(&first_terminal.to_string()),
+            serde_json::json!({"session_id":"reverse-first"}),
+        )
+        .unwrap();
+        let second = crate::agent_hooks::agent_hook_journal_ingress(
+            "codex",
+            "UserPromptSubmit",
+            Some(&second_terminal.to_string()),
+            serde_json::json!({"session_id":"reverse-second"}),
+        )
+        .unwrap();
+        let append_without_fold = |ingress: &crate::JournalIngress, key: &str| {
+            let validated = mux.journal_kernel.validate_ingress(ingress).unwrap();
+            mux.workspace_registry
+                .lock()
+                .unwrap()
+                .append_journal_ingress(ingress, &validated, "reverse-fold-test", key)
+                .unwrap()
+        };
+        let first_commit = append_without_fold(&first, "reverse-fold-first");
+        let second_commit = append_without_fold(&second, "reverse-fold-second");
+        assert!(first_commit.sequence < second_commit.sequence);
+
+        // The later commit can be the first callback to reach the reducer.
+        // It must read the whole durable prefix instead of skipping the first
+        // terminal permanently.
+        mux.fold_agent_roster(&second, &second_commit);
+        mux.fold_agent_roster(&first, &first_commit);
+
+        let records = mux.list_agents(None, None);
+        assert_eq!(records.len(), 2);
+        assert!(records.iter().any(|record| {
+            record.terminal_id == first_terminal
+                && record.state == AgentState::Idle
+                && record.agent.as_deref() == Some("claude")
+        }));
+        assert!(records.iter().any(|record| {
+            record.terminal_id == second_terminal
+                && record.state == AgentState::Working
+                && record.agent.as_deref() == Some("codex")
+        }));
+    }
+
+    #[test]
+    fn failed_roster_projection_retries_from_the_unchanged_cursor() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = mux.with_state(|state| {
+            match state.resource_indexes.content_ids.get(&surface.id).unwrap() {
+                ContentPublicId::Terminal(terminal_id) => terminal_id.clone(),
+                ContentPublicId::Browser(_) => panic!("workspace opened a browser"),
+            }
+        });
+        let ingress = crate::agent_hooks::agent_hook_journal_ingress(
+            "claude",
+            "SessionStart",
+            Some(&terminal_id.to_string()),
+            serde_json::json!({"session_id":"retryable-fold"}),
+        )
+        .unwrap();
+        let validated = mux.journal_kernel.validate_ingress(&ingress).unwrap();
+        let commit = mux
+            .workspace_registry
+            .lock()
+            .unwrap()
+            .append_journal_ingress(&ingress, &validated, "retry-fold-test", "retry-fold-event")
+            .unwrap();
+        let starting_cursor = mux.agent_roster.lock().unwrap().cursor;
+
+        mux.workspace_registry.lock().unwrap().set_resource_patch_failure(true).unwrap();
+        mux.fold_agent_roster(&ingress, &commit);
+        assert_eq!(mux.agent_roster.lock().unwrap().cursor, starting_cursor);
+        assert!(mux.list_agents(Some(surface.id), None).is_empty());
+
+        mux.workspace_registry.lock().unwrap().set_resource_patch_failure(false).unwrap();
+        mux.fold_agent_roster(&ingress, &commit);
+        assert_eq!(mux.agent_roster.lock().unwrap().cursor, commit.sequence);
+        let records = mux.list_agents(Some(surface.id), None);
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].state, AgentState::Idle);
+        assert_eq!(records[0].source, AgentSource::Hook);
+    }
+
+    #[test]
     fn screen_detect_scan_drives_the_roster_through_journal_events() {
         use crate::screen_detect::manifest::ManifestSet;
         use crate::screen_detect::{ScreenDetectTracker, scanner};
