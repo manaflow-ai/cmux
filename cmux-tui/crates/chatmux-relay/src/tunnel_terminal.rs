@@ -634,9 +634,11 @@ async fn handle_client_frame(connection: &Arc<Connection>, frame: TunnelFrame) {
                     // manager task still owns its semaphore permit and any
                     // late PTY result, so it cannot install a resource for a
                     // connection that has already timed out.
-                    connection
-                        .manager
-                        .cancel_open(&connection.pty_id, &context, &connection.open_cancellation);
+                    connection.manager.cancel_open(
+                        &connection.pty_id,
+                        &context,
+                        &connection.open_cancellation,
+                    );
                     connection.protocol_error("failed");
                     // Dropping a JoinHandle detaches the task. The bounded
                     // open permit above prevents a permanently stalled
