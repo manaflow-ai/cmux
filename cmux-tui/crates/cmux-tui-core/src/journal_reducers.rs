@@ -183,10 +183,10 @@ impl AgentRoster {
             let Some(state) = event.normalized("state").and_then(agent_state_from_str) else {
                 return Vec::new();
             };
-            let source = event
-                .normalized("source")
-                .and_then(agent_source_from_str)
-                .unwrap_or(AgentSource::Socket);
+            // The adapter id is the provenance marker. Do not trust the
+            // normalized source field here: it is a payload echo and a
+            // forged `source: hook` must not bypass hook precedence.
+            let source = AgentSource::Socket;
             let updated_at_ms = event
                 .normalized("updated_at_ms")
                 .and_then(|value| value.parse::<u64>().ok())

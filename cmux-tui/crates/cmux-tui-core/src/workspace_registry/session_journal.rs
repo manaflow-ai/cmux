@@ -927,17 +927,26 @@ impl WorkspaceRegistry {
             )
             .optional()?;
         let Some(raw) = raw else { return Ok(None) };
-        let value: Value = serde_json::from_str(&raw)
-            .with_context(|| format!("journal reducer state for {reducer_id} is not JSON"))?;
-        let version = value.get("version").and_then(Value::as_u64).unwrap_or(0) as u32;
-        let cursor = value
-            .get("cursor")
-            .and_then(Value::as_str)
-            .and_then(|cursor| cursor.parse::<u64>().ok())
-            .unwrap_or(0);
-        let snapshot =
-            value.get("snapshot").and_then(Value::as_str).map(str::to_string).unwrap_or_default();
-        Ok(Some((version, cursor, snapshot)))
+        // Reducer metadata is derived state. Treat malformed metadata as
+        // absent so startup can rebuild it from the journal, while keeping
+        // journal read/decode failures visible to the caller. Older writers
+        // stored the cursor as a JSON number; current writers use a decimal
+        // string to avoid losing 64-bit precision in JavaScript clients.
+        let Ok(value) = serde_json::from_str::<Value>(&raw) else { return Ok(None) };
+        let Some(version) = value
+            .get("version")
+            .and_then(Value::as_u64)
+            .and_then(|version| u32::try_from(version).ok())
+        else {
+            return Ok(None);
+        };
+        let Some(cursor) = value.get("cursor").and_then(parse_reducer_cursor) else {
+            return Ok(None);
+        };
+        let Some(snapshot) = value.get("snapshot").and_then(Value::as_str) else {
+            return Ok(None);
+        };
+        Ok(Some((version, cursor, snapshot.to_string())))
     }
 
     /// Durably record a reducer's fold position and state snapshot. Cursor
@@ -1157,6 +1166,17 @@ fn first_retained_journal_sequence(connection: &Connection) -> anyhow::Result<Op
         .min()
         .map(|value| u64::try_from(value).context("first retained journal sequence is negative"))
         .transpose()
+}
+
+/// Decode a reducer cursor from both the current decimal-string format and
+/// the legacy JSON-number format. JSON numbers that are negative, fractional,
+/// or outside `u64` are rejected instead of being coerced to zero.
+fn parse_reducer_cursor(value: &Value) -> Option<u64> {
+    match value {
+        Value::String(cursor) => cursor.parse::<u64>().ok(),
+        Value::Number(cursor) => cursor.as_u64(),
+        _ => None,
+    }
 }
 
 pub(super) fn query_session_journal_sequences(
