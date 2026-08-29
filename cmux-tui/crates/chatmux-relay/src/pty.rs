@@ -35,6 +35,7 @@ use tokio_util::sync::CancellationToken;
 use crate::actions::{expand_path, scrubbed_env, validate_request_path};
 use crate::control::ControlHandle;
 use crate::relay_wire::RelayPtyErrorCode;
+use crate::trust::Trust;
 
 pub const PTY_PROTOCOL_VERSION: u64 = 4;
 
@@ -895,6 +896,21 @@ fn send_pty_error(context: &FrameContext, pty_id: &str, code: &str, _message: &s
     }));
 }
 
+/// Validate the local authority before acquiring a PTY permit or creating an
+/// opening reservation. Tunnel state is a public boundary, so an unknown
+/// trust value must fail closed even when the normal producer only emits enum
+/// values.
+fn terminal_open_trust_allowed(context: &FrameContext, frame: &Value) -> bool {
+    let Some(trust) = Trust::parse(&context.trust) else {
+        return false;
+    };
+    if trust != Trust::Observe {
+        return true;
+    }
+    let actor = frame.get("actorId").and_then(Value::as_str).unwrap_or_default();
+    context.owner_user_id.as_deref().is_some_and(|owner| owner == actor)
+}
+
 fn send_typed_pty_error(
     context: &FrameContext,
     pty_id: &str,
@@ -923,6 +939,10 @@ impl Inner {
         }
         let pty_id = frame.get("ptyId").and_then(Value::as_str).unwrap_or_default().to_owned();
         if pty_id.is_empty() {
+            return;
+        }
+        if !terminal_open_trust_allowed(context, frame) {
+            send_pty_error(context, &pty_id, "trust_refused", "terminal trust is not established");
             return;
         }
         // Keep one permit for the complete provider/PTY open. A timeout may
@@ -1000,21 +1020,6 @@ impl Inner {
         // OWNER's terminal. Any trust level admits the owner.
         // Only locally established trust is authoritative. Missing local
         // state fails closed; the untrusted frame cannot elevate access.
-        let trust = context.trust.clone();
-        if trust.is_empty() {
-            fail("trust_refused", "terminal trust is not established");
-            return;
-        }
-        let owner = context.owner_user_id.as_deref();
-        let actor = frame.get("actorId").and_then(Value::as_str).unwrap_or_default();
-        if trust == "observe" && (owner.is_none() || Some(actor) != owner) {
-            fail(
-                "trust_refused",
-                "this machine is paired at observe trust; terminals are owner-only",
-            );
-            return;
-        }
-
         // cwd discipline: the local config and server-echoed root lists both
         // apply when present, else $HOME.
         let server_roots = match parse_allowed_roots(frame) {
@@ -3674,6 +3679,15 @@ mod tests {
         assert!(!state.cancelled.contains_key("reused"));
         assert!(old_cancellation.is_cancelled());
         assert!(!new_cancellation.is_cancelled());
+    }
+
+    #[test]
+    fn open_attempt_tokens_fail_closed_before_reuse_on_counter_wrap() {
+        let h = harness(None, None);
+        h.manager.inner.next_open_attempt.store(u64::MAX, Ordering::Relaxed);
+        let last = h.manager.new_open_cancellation().expect("last unique token");
+        assert_eq!(last.attempt_id(), u64::MAX);
+        assert!(h.manager.new_open_cancellation().is_none());
     }
 
     #[tokio::test(flavor = "current_thread")]
