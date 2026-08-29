@@ -758,7 +758,8 @@ fn spawn_real_pty(spec: &SpawnSpec, handoff: &SpawnHandoff) -> anyhow::Result<Pt
         killer: Mutex::new(killer),
         lifecycle: Arc::clone(&lifecycle),
     });
-    if !handoff.install(Arc::clone(&control)) {
+    let handoff_control: Arc<dyn PtyControl> = control.clone();
+    if !handoff.install(handoff_control) {
         return Err(anyhow::anyhow!("PTY spawn cancelled"));
     }
     output.set_overflow_control(&control);
@@ -898,7 +899,8 @@ fn spawn_pipe_mode(spec: &SpawnSpec, reason: &str, handoff: &SpawnHandoff) -> Pt
                 command_tx: command_tx.clone(),
                 kill_requested: AtomicBool::new(false),
             });
-            if !handoff.install(Arc::clone(&control)) {
+            let handoff_control: Arc<dyn PtyControl> = control.clone();
+            if !handoff.install(handoff_control) {
                 control.kill();
                 output.push_exit(1);
                 return PtyHandle { control: Arc::new(DeadControl), output, banner: None };
