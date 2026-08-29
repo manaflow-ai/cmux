@@ -699,6 +699,9 @@ impl PtyManager {
     /// Network frames never get to replace an existing snapshot implicitly.
     pub fn update_transport_auth(&self, context: &FrameContext) {
         debug_assert!(context.transport_id.is_some(), "transport refresh needs an id");
+        if Trust::parse(&context.trust).is_none() {
+            return;
+        }
         let _state = self.inner.tunnel_state.lock().expect("tunnel state lock");
         if !self.inner.tunnel_authority_generation_current(context) {
             return;
@@ -1401,10 +1404,10 @@ impl Inner {
         auth: &AuthSnapshot,
         context: &FrameContext,
     ) -> bool {
+        let Some(trust) = Self::matching_trust(auth, context) else { return false };
         let owner = auth.owner_user_id.as_deref();
-        let trust_allowed = !auth.trust.is_empty()
-            && (auth.trust != "observe"
-                || (owner.is_some() && owner == Some(attachment.actor_id.as_str())));
+        let trust_allowed = trust != Trust::Observe
+            || (owner.is_some() && owner == Some(attachment.actor_id.as_str()));
         trust_allowed
             && !attachment.closing.load(Ordering::SeqCst)
             && self.tunnel_authority_generation_current(context)
@@ -1454,6 +1457,9 @@ impl Inner {
     }
 
     fn transport_auth_is_current(&self, context: &FrameContext, auth: &AuthSnapshot) -> bool {
+        if Self::matching_trust(auth, context).is_none() {
+            return false;
+        }
         self.transport_auth
             .lock()
             .expect("transport auth lock")
@@ -1475,10 +1481,11 @@ impl Inner {
         context: &FrameContext,
         action: &str,
     ) {
-        let trust_allowed = !auth.trust.is_empty()
-            && (auth.trust != "observe"
+        let trust_allowed = Self::matching_trust(auth, context).is_some_and(|trust| {
+            trust != Trust::Observe
                 || (auth.owner_user_id.is_some()
-                    && auth.owner_user_id.as_deref() == Some(attachment.actor_id.as_str())));
+                    && auth.owner_user_id.as_deref() == Some(attachment.actor_id.as_str()))
+        });
         if trust_allowed
             && self.tunnel_authority_generation_current(context)
             && self.transport_auth_is_current(context, auth)
@@ -1564,6 +1571,11 @@ fn drive_handle(
 
 impl Inner {
     fn cache_transport_auth(&self, context: &FrameContext) -> bool {
+        // The frame context is a security boundary. Never let an unknown
+        // trust string reuse a previously cached valid snapshot.
+        if Trust::parse(&context.trust).is_none() {
+            return false;
+        }
         let _state = self.tunnel_state.lock().expect("tunnel state lock");
         if !self.tunnel_authority_generation_current(context) {
             return false;
@@ -1584,6 +1596,12 @@ impl Inner {
             transport_auth.entry(owner).or_insert(snapshot);
         }
         true
+    }
+
+    fn matching_trust(auth: &AuthSnapshot, context: &FrameContext) -> Option<Trust> {
+        let auth_trust = Trust::parse(&auth.trust)?;
+        let context_trust = Trust::parse(&context.trust)?;
+        (auth_trust == context_trust).then_some(auth_trust)
     }
 
     fn tunnel_authority_generation_current(&self, context: &FrameContext) -> bool {
@@ -3066,6 +3084,37 @@ mod tests {
         assert_eq!(sent[0]["type"], "pty_error");
         assert_eq!(sent[0]["code"], "trust_refused");
         assert!(h.spawned().is_empty(), "malformed authority must not allocate a PTY");
+    }
+
+    #[tokio::test]
+    async fn unknown_trust_cannot_reuse_existing_attachment_authority() {
+        let h = harness(None, None);
+        let frame = serde_json::json!({
+            "version": 4,
+            "type": "pty_open",
+            "ptyId": "p1",
+            "session": "main",
+            "cols": 80,
+            "rows": 24,
+            "actorId": "user_owner",
+        });
+        let mut trusted =
+            h.context_with_transport("supervised", h.owner.clone(), Some("tunnel-a"));
+        trusted.transport_kind = TransportKind::Tunnel;
+        h.manager.handle_frame(&frame, &trusted).await;
+        let pty = h.spawned()[0].clone();
+
+        let input = serde_json::json!({
+            "type": "pty_input",
+            "ptyId": "p1",
+            "dataB64": b64("must-not-write"),
+        });
+        let mut forged =
+            h.context_with_transport("forged-trust", h.owner.clone(), Some("tunnel-a"));
+        forged.transport_kind = TransportKind::Tunnel;
+        h.manager.handle_frame(&input, &forged).await;
+
+        assert!(pty.state.lock().unwrap().written.is_empty());
     }
 
     #[tokio::test]
