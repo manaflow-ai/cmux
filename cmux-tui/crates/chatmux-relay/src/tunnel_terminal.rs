@@ -664,11 +664,7 @@ async fn handle_client_frame(connection: &Arc<Connection>, frame: TunnelFrame) {
                 let cancellation = connection.open_cancellation.clone();
                 async move {
                     manager
-                        .handle_frame_with_open_cancellation(
-                            &open,
-                            &context,
-                            Some(cancellation),
-                        )
+                        .handle_frame_with_open_cancellation(&open, &context, Some(cancellation))
                         .await
                 }
             }));
@@ -1039,11 +1035,7 @@ mod tests {
 
     #[async_trait]
     impl PtyDeps for FakeDeps {
-        async fn spawn_pty(
-            &self,
-            _spec: SpawnSpec,
-            _cancellation: CancellationToken,
-        ) -> PtyHandle {
+        async fn spawn_pty(&self, _spec: SpawnSpec, _cancellation: CancellationToken) -> PtyHandle {
             let pty = FakePty { state: Arc::new(StdMutex::new(FakeState::default())) };
             self.spawned.lock().unwrap().push(pty.clone());
             PtyHandle {
@@ -1052,10 +1044,7 @@ mod tests {
                 banner: self.banner.clone(),
             }
         }
-        async fn resolve_cmux_tui(
-            &self,
-            _cancellation: CancellationToken,
-        ) -> Option<CmuxTui> {
+        async fn resolve_cmux_tui(&self, _cancellation: CancellationToken) -> Option<CmuxTui> {
             None
         }
         async fn ensure_daemon(
