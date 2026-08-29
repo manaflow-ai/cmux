@@ -502,7 +502,11 @@ public actor DotLeg {
         case .string(let text):
             switch try decodeControl(text) {
             case .pong(let ts):
-                configuration.journal.record(component: "leg", event: "pong", attributes: ["ts": String(ts)])
+                configuration.journal.record(
+                    component: "leg",
+                    event: "pong",
+                    attributes: ["ts": String(ts), "path": "do:relay"]
+                )
             case .ping(let ts):
                 try await socket?.send(.string(try DotControlFrame.pong(ts: ts).encoded()))
             case .ackUp(let sequence, let destination):
@@ -622,6 +626,11 @@ public actor DotLeg {
     private func refreshAuth(on task: URLSessionWebSocketTask) async throws {
         let token = try await configuration.tokenProvider()
         try await task.send(.string(try DotControlFrame.authRefresh(token: token).encoded()))
+        configuration.journal.record(
+            component: "leg",
+            event: "auth-refreshed",
+            attributes: ["role": configuration.role.rawValue, "path": "do:relay"]
+        )
     }
 
     /// Connect-time hello still needs a bounded wait. The timeout closes the

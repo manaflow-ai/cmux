@@ -140,6 +140,10 @@ CLIENT_FATAL = {
     ("leg", "resumed"),
     ("leg", "reset"),
     ("leg", "closed"),
+    ("leg", "connect-loop-failed"),
+    ("leg", "read-liveness-expired"),
+    ("leg", "keepalive-failed"),
+    ("session", "handshake-failed"),
 }
 MAC_FATAL = {
     ("leg", "suspended"),
@@ -149,6 +153,9 @@ MAC_FATAL = {
     ("session", "ended"),
     ("host-events", "writer-reset"),
     ("host-terminal", "cursor-gap"),
+    ("leg", "connect-loop-failed"),
+    ("leg", "read-liveness-expired"),
+    ("leg", "keepalive-failed"),
 }
 # Session-scoped events fail the soak only for the focus device's sessions,
 # so a human dogfooding another device in parallel never poisons the verdict.
@@ -168,13 +175,24 @@ _, mac_index = read_events(mac_journal_path, 0)
 pre_client, sim_index = read_events(sim_path, 0)
 
 establish_ms = None
-for event in reversed(pre_client):
+for index in range(len(pre_client) - 1, -1, -1):
+    event = pre_client[index]
     if event.get("component") == "admission" and event.get("event") == "admitted":
         try:
             establish_ms = int(event.get("a_elapsed_ms", "999999"))
         except ValueError:
             establish_ms = None
         break
+    if event.get("component") == "session" and event.get("event") == "handshake-complete":
+        for start in reversed(pre_client[:index]):
+            if start.get("component") == "session" and start.get("event") == "establish-start":
+                try:
+                    establish_ms = int(event.get("mono_ms", 0)) - int(start.get("mono_ms", 0))
+                except (TypeError, ValueError):
+                    establish_ms = None
+                break
+        if establish_ms is not None:
+            break
 
 failures = []
 observations = {
@@ -203,15 +221,15 @@ while time.time() < deadline:
             focus_sessions.add(event["a_session"])
         if key in CLIENT_FATAL:
             failures.append({"side": "client", "at_s": int(now - t0), "event": event})
-        if key == ("keepalive", "pong"):
+        if key in {("keepalive", "pong"), ("leg", "pong")}:
             observations["client_pongs"] += 1
             last_pong_wall = now
-            path = event.get("a_path", "")
+            path = event.get("a_path", "") or ("do:relay" if key == ("leg", "pong") else "")
             if path != "do:relay":
                 observations["non_relay_paths"] += 1
                 failures.append({"side": "client", "at_s": int(now - t0),
                                  "event": event, "why": "non-relay path"})
-        if key == ("leg", "auth-refreshed"):
+        if key in {("leg", "auth-refreshed"), ("keepalive", "auth-refreshed")}:
             observations["client_auth_refreshes"] += 1
     for event in mac_events:
         key = (event.get("component"), event.get("event"))
@@ -222,7 +240,7 @@ while time.time() < deadline:
             or event.get("a_old_session") in focus_sessions
         ):
             failures.append({"side": "mac", "at_s": int(now - t0), "event": event})
-        if key == ("leg", "auth-refreshed"):
+        if key in {("leg", "auth-refreshed"), ("keepalive", "auth-refreshed")}:
             observations["mac_auth_refreshes"] += 1
 
     # Pong cadence: with a 25s app-level ping interval, >60s of silence means
