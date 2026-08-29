@@ -71,7 +71,10 @@ final class PortScanner: @unchecked Sendable {
     /// lifecycle changed. The queue is the sole owner, so cancellation and
     /// generation checks are deterministic and race-free.
     private var burstGeneration: UInt64 = 0
-    private var scheduledBurstWorkItems: [DispatchWorkItem] = []
+    /// There is at most one future callback for the active burst. The callback
+    /// schedules its successor after it starts, so completed work cannot
+    /// accumulate in a history array.
+    private var scheduledBurstWorkItem: DispatchWorkItem?
 
     private var coalesceTimer: DispatchSourceTimer?
 
@@ -137,12 +140,6 @@ final class PortScanner: @unchecked Sendable {
         let key = PanelKey(workspaceId: workspaceId, panelId: panelId)
         publicationState.invalidatePanelLifecycle(for: key)
         queue.async { [self] in
-            burstGeneration &+= 1
-            scheduledBurstWorkItems.forEach { $0.cancel() }
-            scheduledBurstWorkItems.removeAll()
-            burstActive = false
-            coalesceTimer?.cancel()
-            coalesceTimer = nil
             ttyNames.removeValue(forKey: key)
             panelRevisionByKey.removeValue(forKey: key)
             pendingKicks.remove(key)
@@ -151,7 +148,9 @@ final class PortScanner: @unchecked Sendable {
             }
             panelPortSnapshot.remove(keys: [key])
             panelPortOwnersByKey.removeValue(forKey: key)
-            if !pendingKicks.isEmpty {
+            if ttyNames.isEmpty {
+                cancelBurstScheduling()
+            } else if !pendingKicks.isEmpty, !burstActive {
                 startCoalesce()
             }
         }
@@ -259,12 +258,25 @@ final class PortScanner: @unchecked Sendable {
         let workItem = DispatchWorkItem { [weak self] in
             guard let self else { return }
             guard generation == self.burstGeneration else { return }
+            // Clear the completed callback before scheduling its successor.
+            self.scheduledBurstWorkItem = nil
             self.runScan()
-            self.scheduledBurstWorkItems.removeAll { $0.isCancelled }
             self.runBurst(index: index + 1, burstStart: start, generation: generation)
         }
-        scheduledBurstWorkItems.append(workItem)
+        scheduledBurstWorkItem = workItem
         queue.asyncAfter(deadline: deadline, execute: workItem)
+    }
+
+    /// Cancels the global burst scheduler after its last panel is removed.
+    /// Individual panel removal must leave a burst alive for the remaining
+    /// panels because each scan snapshots the current `ttyNames` map.
+    private func cancelBurstScheduling() {
+        burstGeneration &+= 1
+        scheduledBurstWorkItem?.cancel()
+        scheduledBurstWorkItem = nil
+        burstActive = false
+        coalesceTimer?.cancel()
+        coalesceTimer = nil
     }
 
     // MARK: - Scan
@@ -576,7 +588,11 @@ final class PortScanner: @unchecked Sendable {
             inspectedPIDs: inspectedPIDs,
             requestID: requestID
         )
-        if hasPendingScan {
+        // A pending attempt can represent a burst callback that overlapped
+        // this scan after the latest kick was already paid down. Preserve it
+        // for any remaining panel, but do not restart work after the final
+        // panel has been unregistered.
+        if hasPendingScan, !ttyNames.isEmpty {
             runScan()
         }
     }

@@ -1137,6 +1137,12 @@ private actor BurstInvocationCommandRunner: CommandRunning {
     }
 }
 
+private func waitForScannerQueue(_ scanner: PortScanner) async {
+    await withCheckedContinuation { continuation in
+        scanner.queue.async { continuation.resume() }
+    }
+}
+
 @Suite("Port scanner lifecycle")
 struct PortScannerLifecycleTests {
     @Test("Unregister cancels a pending coalesce and burst generation")
@@ -1152,7 +1158,7 @@ struct PortScannerLifecycleTests {
         await MainActor.run {
             scanner.unregisterPanel(workspaceId: workspaceID, panelId: panelID)
         }
-        try? await Task.sleep(for: .milliseconds(800))
+        await waitForScannerQueue(scanner)
         let calls = await runner.recordedArguments
         #expect(calls.isEmpty)
     }
