@@ -9730,6 +9730,7 @@ impl Mux {
         self.agent_hook_fences.lock().unwrap().remove(terminal_id);
         self.agent_records.lock().unwrap().remove(terminal_id);
         self.terminal_notifications.lock().unwrap().remove(terminal_id);
+        Ok(())
     }
 
     fn purge_terminal_runtime_side_tables(&self, runtime: &Surface) -> anyhow::Result<()> {
