@@ -12,6 +12,9 @@ use tokio::time::{Instant, Sleep};
 
 use crate::config::RelayConfig;
 
+const ACCEPT_RETRY_INITIAL: Duration = Duration::from_millis(50);
+const ACCEPT_RETRY_MAX: Duration = Duration::from_secs(1);
+
 /// Applies resource and time bounds before a connection reaches HTTP parsing.
 pub struct AdmissionListener {
     inner: TcpListener,
@@ -38,6 +41,7 @@ impl Listener for AdmissionListener {
     type Addr = std::net::SocketAddr;
 
     async fn accept(&mut self) -> (Self::Io, Self::Addr) {
+        let mut retry_attempt = 0u32;
         loop {
             let permit = self
                 .permits
@@ -59,8 +63,14 @@ impl Listener for AdmissionListener {
                         address,
                     );
                 }
-                Err(error) if is_connection_error(&error) => continue,
-                Err(_) => tokio::time::sleep(Duration::from_secs(1)).await,
+                Err(_) => {
+                    // Back off every listener failure, including per-connection aborts. A
+                    // peer can cause those errors repeatedly, so an immediate retry would
+                    // let it turn the accept task into a CPU spin. The sleep future is
+                    // cancellation-safe: dropping the listener drops this future.
+                    tokio::time::sleep(accept_retry_delay(retry_attempt)).await;
+                    retry_attempt = retry_attempt.saturating_add(1);
+                }
             }
         }
     }
@@ -68,6 +78,12 @@ impl Listener for AdmissionListener {
     fn local_addr(&self) -> io::Result<Self::Addr> {
         self.inner.local_addr()
     }
+}
+
+fn accept_retry_delay(attempt: u32) -> Duration {
+    let shift = attempt.min(6);
+    let multiplier = 1u32 << shift;
+    ACCEPT_RETRY_INITIAL.checked_mul(multiplier).unwrap_or(ACCEPT_RETRY_MAX).min(ACCEPT_RETRY_MAX)
 }
 
 pub struct AdmissionStream {
@@ -225,15 +241,6 @@ impl AsyncWrite for AdmissionStream {
     }
 }
 
-fn is_connection_error(error: &io::Error) -> bool {
-    matches!(
-        error.kind(),
-        io::ErrorKind::ConnectionRefused
-            | io::ErrorKind::ConnectionAborted
-            | io::ErrorKind::ConnectionReset
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -246,5 +253,14 @@ mod tests {
         let config = RelayConfig::default();
         let admission = AdmissionListener::new(listener, &config);
         assert_eq!(admission.permits.available_permits(), config.max_http_connections);
+    }
+
+    #[test]
+    fn accept_retry_delay_is_bounded_exponential_backoff() {
+        assert_eq!(accept_retry_delay(0), Duration::from_millis(50));
+        assert_eq!(accept_retry_delay(1), Duration::from_millis(100));
+        assert_eq!(accept_retry_delay(4), Duration::from_millis(800));
+        assert_eq!(accept_retry_delay(5), ACCEPT_RETRY_MAX);
+        assert_eq!(accept_retry_delay(u32::MAX), ACCEPT_RETRY_MAX);
     }
 }

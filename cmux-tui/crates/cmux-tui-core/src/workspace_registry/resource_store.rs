@@ -7,6 +7,18 @@ use super::*;
 pub(super) const RESOURCE_MUTATION_REPLAY_CAPACITY: usize = 4096;
 pub(super) const RESOURCE_MUTATION_PRUNE_INTERVAL: u64 = 128;
 const RESOURCE_EVENT_PAGE_SIZE: usize = 1024;
+pub(super) const AGENT_HOOK_RETRY_PAGE_SIZE: i64 = 64;
+// Rows that reach this cap stay durable as dead-letter records. Selectors
+// exclude them, so a permanent projection failure cannot spin forever.
+pub(crate) const AGENT_HOOK_MAX_ATTEMPTS: i64 = 8;
+pub(crate) const AGENT_HOOK_MAX_RETRY_PAGES_PER_WAKE: usize = 16;
+pub(crate) const AGENT_HOOK_DEAD_LETTER_CAP: i64 = 1024;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AgentHookRetryClass {
+    Transient,
+    Permanent,
+}
 
 pub(super) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     transaction.execute_batch(
@@ -150,6 +162,29 @@ pub(super) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::R
              )
            )
          );
+         CREATE TABLE IF NOT EXISTS resource_agent_hook_state (
+           terminal_id TEXT PRIMARY KEY NOT NULL
+             REFERENCES resource_terminals(public_id) ON DELETE CASCADE,
+           agent_session_id TEXT NOT NULL,
+           applied_sequence INTEGER NOT NULL CHECK(applied_sequence >= 0),
+           ended INTEGER NOT NULL CHECK(ended IN (0, 1)),
+           committed_revision INTEGER NOT NULL CHECK(committed_revision >= 0)
+         );
+         CREATE TABLE IF NOT EXISTS resource_agent_hook_apply_cursor (
+           id INTEGER PRIMARY KEY CHECK(id = 1),
+           sequence INTEGER NOT NULL CHECK(sequence >= 0)
+         );
+         CREATE TABLE IF NOT EXISTS resource_agent_hook_pending (
+           producer_id TEXT NOT NULL,
+           origin TEXT NOT NULL,
+           idempotency_key TEXT NOT NULL,
+           terminal_id TEXT,
+           event_sequence INTEGER NOT NULL CHECK(event_sequence >= 0),
+           ingress_json TEXT NOT NULL CHECK(json_valid(ingress_json)),
+           error TEXT NOT NULL,
+           attempt INTEGER NOT NULL CHECK(attempt >= 0),
+           PRIMARY KEY(producer_id, origin, idempotency_key)
+         );
          DROP TRIGGER IF EXISTS resource_agent_projection_terminal_tombstone;
          CREATE INDEX IF NOT EXISTS resource_mutations_by_operation_revision
            ON resource_mutations(operation, committed_revision DESC);
@@ -161,6 +196,67 @@ pub(super) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::R
              committed_revision DESC,
              terminal_id DESC
            );",
+    )?;
+    let has_scoped_pending = transaction
+        .prepare("PRAGMA table_info(resource_agent_hook_pending)")?
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<Result<Vec<_>, _>>()?
+        .iter()
+        .any(|column| column == "producer_id");
+    if !has_scoped_pending {
+        transaction.execute_batch(
+            "ALTER TABLE resource_agent_hook_pending RENAME TO resource_agent_hook_pending_legacy;
+             CREATE TABLE resource_agent_hook_pending (
+               producer_id TEXT NOT NULL,
+               origin TEXT NOT NULL,
+               idempotency_key TEXT NOT NULL,
+               terminal_id TEXT,
+               event_sequence INTEGER NOT NULL CHECK(event_sequence >= 0),
+               ingress_json TEXT NOT NULL CHECK(json_valid(ingress_json)),
+               error TEXT NOT NULL,
+               attempt INTEGER NOT NULL CHECK(attempt >= 0),
+               PRIMARY KEY(producer_id, origin, idempotency_key)
+             );
+             INSERT INTO resource_agent_hook_pending(
+               producer_id, origin, idempotency_key, terminal_id, event_sequence, ingress_json, error, attempt
+             ) SELECT COALESCE(NULLIF(json_extract(ingress_json, '$.producer_id'), ''), 'cmux_agent'),
+               'agent-hook', idempotency_key,
+               (SELECT json_extract(value, '$.id')
+                FROM json_each(resource_agent_hook_pending_legacy.ingress_json, '$.subjects')
+                WHERE json_extract(value, '$.kind') = 'terminal' LIMIT 1),
+               event_sequence, ingress_json, error, attempt
+             FROM resource_agent_hook_pending_legacy;
+             DROP TABLE resource_agent_hook_pending_legacy;",
+         )?;
+    }
+    transaction.execute(
+        "INSERT OR IGNORE INTO resource_agent_hook_apply_cursor(id, sequence) VALUES(1, 0)",
+        [],
+    )?;
+    let has_pending_terminal_id = transaction
+        .prepare("PRAGMA table_info(resource_agent_hook_pending)")?
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<Result<Vec<_>, _>>()?
+        .iter()
+        .any(|column| column == "terminal_id");
+    if !has_pending_terminal_id {
+        transaction
+            .execute("ALTER TABLE resource_agent_hook_pending ADD COLUMN terminal_id TEXT", [])?;
+        transaction.execute(
+            "UPDATE resource_agent_hook_pending
+             SET terminal_id = (
+               SELECT json_extract(value, '$.id')
+               FROM json_each(resource_agent_hook_pending.ingress_json, '$.subjects')
+               WHERE json_extract(value, '$.kind') = 'terminal' LIMIT 1
+             )
+             WHERE terminal_id IS NULL",
+            [],
+        )?;
+    }
+    transaction.execute_batch(
+        "DROP INDEX IF EXISTS resource_agent_hook_pending_by_terminal;
+         CREATE INDEX IF NOT EXISTS resource_agent_hook_pending_by_terminal
+           ON resource_agent_hook_pending(terminal_id, event_sequence, idempotency_key);",
     )?;
     Ok(())
 }
@@ -274,6 +370,13 @@ pub(super) fn resource_tabs_needs_multiview_normalization(
         }
     }
     Ok(!saw_browser_view_index)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AgentHookProjectionState {
+    pub agent_session_id: String,
+    pub applied_sequence: u64,
+    pub ended: bool,
 }
 
 pub(super) fn migrate_resource_agent_projections(
@@ -407,7 +510,364 @@ pub(super) fn migrate_resource_browser_metadata(
     Ok(())
 }
 
+fn advance_agent_hook_apply_cursor_transaction(
+    transaction: &Transaction<'_>,
+    sequence: u64,
+) -> anyhow::Result<()> {
+    let sequence = i64::try_from(sequence).context("agent hook sequence exceeds SQLite range")?;
+    let changed = transaction.execute(
+        "UPDATE resource_agent_hook_apply_cursor
+         SET sequence = CASE WHEN sequence < ?1 THEN ?1 ELSE sequence END
+         WHERE id = 1",
+        [sequence],
+    )?;
+    anyhow::ensure!(changed == 1, "agent hook apply cursor row is missing");
+    Ok(())
+}
+
 impl WorkspaceRegistry {
+    /// Return the highest journal sequence committed with a hook projection.
+    /// This recovery watermark is not an admission cursor. It advances only
+    /// after the projection transaction commits.
+    pub fn agent_hook_apply_cursor(&self) -> anyhow::Result<u64> {
+        self.connection
+            .query_row(
+                "SELECT sequence FROM resource_agent_hook_apply_cursor WHERE id = 1",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .map(|value| u64::try_from(value).context("agent hook apply cursor is negative"))?
+    }
+
+    pub fn advance_agent_hook_apply_cursor(&mut self, sequence: u64) -> anyhow::Result<()> {
+        let tx = self.connection.transaction()?;
+        advance_agent_hook_apply_cursor_transaction(&tx, sequence)?;
+        tx.commit()?;
+        Ok(())
+    }
+    pub(super) fn stage_agent_hook_pending(
+        transaction: &Transaction<'_>,
+        producer_id: &str,
+        origin: &str,
+        idempotency_key: &str,
+        sequence: u64,
+        ingress: &crate::JournalIngress,
+    ) -> anyhow::Result<()> {
+        let ingress_json = serde_json::to_string(ingress)?;
+        let terminal_id = ingress
+            .subjects
+            .iter()
+            .find(|subject| subject.kind == "terminal")
+            .map(|subject| subject.id.as_str());
+        transaction.execute(
+            "INSERT INTO resource_agent_hook_pending(
+               producer_id, origin, idempotency_key, terminal_id, event_sequence, ingress_json, error, attempt
+             ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, '', 0)
+             ON CONFLICT(producer_id, origin, idempotency_key) DO UPDATE SET
+               terminal_id = excluded.terminal_id,
+               event_sequence = excluded.event_sequence,
+               ingress_json = excluded.ingress_json",
+            params![producer_id, origin, idempotency_key, terminal_id, i64::try_from(sequence)?, ingress_json],
+        )?;
+        Ok(())
+    }
+
+    pub fn enqueue_agent_hook_pending(
+        &mut self,
+        producer_id: &str,
+        origin: &str,
+        idempotency_key: &str,
+        sequence: u64,
+        ingress: &crate::JournalIngress,
+        error: &str,
+        retry_class: AgentHookRetryClass,
+    ) -> anyhow::Result<()> {
+        const MAX_ERROR_CHARS: usize = 1_024;
+        let ingress_json = serde_json::to_string(ingress)?;
+        let terminal_id = ingress
+            .subjects
+            .iter()
+            .find(|subject| subject.kind == "terminal")
+            .map(|subject| subject.id.as_str());
+        let bounded_error = error.chars().take(MAX_ERROR_CHARS).collect::<String>();
+        // Projection failures caused by temporary availability or storage
+        // conditions keep the attempt budget unchanged. Other failures consume
+        // the bounded budget and become quarantined at the cap.
+        let transient = matches!(retry_class, AgentHookRetryClass::Transient);
+        self.connection.execute(
+            "INSERT INTO resource_agent_hook_pending(
+               producer_id, origin, idempotency_key, terminal_id, event_sequence, ingress_json, error, attempt
+             ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, 1)
+             ON CONFLICT(producer_id, origin, idempotency_key) DO UPDATE SET
+               terminal_id = excluded.terminal_id,
+               event_sequence = excluded.event_sequence,
+               ingress_json = excluded.ingress_json,
+               error = CASE
+                 WHEN ?8 = 1 THEN excluded.error
+                 WHEN resource_agent_hook_pending.attempt + 1 >= ?9
+                 THEN 'agent hook retry limit reached'
+                 ELSE excluded.error
+               END,
+               attempt = CASE
+                 WHEN ?8 = 1 THEN resource_agent_hook_pending.attempt
+                 WHEN resource_agent_hook_pending.attempt < ?9
+                 THEN resource_agent_hook_pending.attempt + 1
+                 ELSE resource_agent_hook_pending.attempt
+               END",
+            params![
+                producer_id,
+                origin,
+                idempotency_key,
+                terminal_id,
+                i64::try_from(sequence)?,
+                ingress_json,
+                bounded_error,
+                transient as i64,
+                AGENT_HOOK_MAX_ATTEMPTS,
+            ],
+        )?;
+        // Keep quarantined failures bounded. Live retry rows remain untouched;
+        // only the oldest dead letters beyond the retention cap are evicted.
+        self.connection.execute(
+            "DELETE FROM resource_agent_hook_pending
+             WHERE attempt >= ?1
+               AND rowid NOT IN (
+                 SELECT rowid
+                 FROM resource_agent_hook_pending
+                 WHERE attempt >= ?1
+                 ORDER BY rowid DESC
+                 LIMIT ?2
+               )",
+            params![AGENT_HOOK_MAX_ATTEMPTS, AGENT_HOOK_DEAD_LETTER_CAP],
+        )?;
+        Ok(())
+    }
+
+    pub(crate) fn purge_agent_hook_pending_for_terminal(
+        &mut self,
+        terminal_id: &crate::resource::TerminalPublicId,
+    ) -> anyhow::Result<()> {
+        self.connection.execute(
+            "DELETE FROM resource_agent_hook_pending WHERE terminal_id = ?1",
+            [terminal_id.as_str()],
+        )?;
+        Ok(())
+    }
+
+    pub fn clear_agent_hook_pending(
+        &mut self,
+        producer_id: &str,
+        origin: &str,
+        idempotency_key: &str,
+    ) -> anyhow::Result<()> {
+        self.connection.execute(
+            "DELETE FROM resource_agent_hook_pending
+             WHERE producer_id = ?1 AND origin = ?2 AND idempotency_key = ?3",
+            params![producer_id, origin, idempotency_key],
+        )?;
+        Ok(())
+    }
+
+    fn record_agent_hook_pending_failure(
+        &self,
+        producer_id: &str,
+        origin: &str,
+        idempotency_key: &str,
+    ) -> anyhow::Result<()> {
+        self.connection.execute(
+            "UPDATE resource_agent_hook_pending
+             SET error = CASE
+                   WHEN attempt + 1 >= ?4 THEN 'agent hook retry limit reached'
+                   ELSE 'invalid pending agent hook payload'
+                 END,
+                 attempt = CASE
+                   WHEN attempt < ?4 THEN attempt + 1
+                   ELSE attempt
+                 END
+             WHERE producer_id = ?1 AND origin = ?2 AND idempotency_key = ?3",
+            params![producer_id, origin, idempotency_key, AGENT_HOOK_MAX_ATTEMPTS],
+        )?;
+        Ok(())
+    }
+
+    pub fn pending_agent_hook_projections(
+        &self,
+    ) -> anyhow::Result<Vec<(String, String, String, u64, crate::JournalIngress)>> {
+        let mut statement = self.connection.prepare(
+            "SELECT producer_id, origin, idempotency_key, event_sequence, ingress_json
+             FROM resource_agent_hook_pending ORDER BY event_sequence ASC, idempotency_key ASC",
+        )?;
+        statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, i64>(3)?,
+                    row.get::<_, String>(4)?,
+                ))
+            })?
+            .map(|row| {
+                let (producer_id, origin, key, sequence, ingress_json) = row?;
+                Ok((
+                    producer_id,
+                    origin,
+                    key,
+                    u64::try_from(sequence).context("pending hook sequence is negative")?,
+                    serde_json::from_str(&ingress_json)?,
+                ))
+            })
+            .collect()
+    }
+
+    pub fn pending_agent_hook_projections_for_terminal(
+        &self,
+        terminal_id: &crate::resource::TerminalPublicId,
+    ) -> anyhow::Result<Vec<(String, String, String, u64, crate::JournalIngress)>> {
+        let mut statement = self.connection.prepare(
+            "SELECT producer_id, origin, idempotency_key, event_sequence, ingress_json
+             FROM resource_agent_hook_pending
+             WHERE terminal_id = ?1 AND attempt < ?2
+             ORDER BY event_sequence ASC, idempotency_key ASC
+             LIMIT ?3",
+        )?;
+        let rows = statement
+            .query_map(
+                params![terminal_id.as_str(), AGENT_HOOK_MAX_ATTEMPTS, AGENT_HOOK_RETRY_PAGE_SIZE],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, i64>(3)?,
+                        row.get::<_, String>(4)?,
+                    ))
+                },
+            )?
+            .collect::<Result<Vec<_>, _>>()?;
+        drop(statement);
+        let mut pending = Vec::with_capacity(rows.len());
+        for (producer_id, origin, key, sequence, ingress_json) in rows {
+            let ingress = match serde_json::from_str(&ingress_json) {
+                Ok(ingress) => ingress,
+                Err(_) => {
+                    self.record_agent_hook_pending_failure(&producer_id, &origin, &key)?;
+                    continue;
+                }
+            };
+            pending.push((
+                producer_id,
+                origin,
+                key,
+                u64::try_from(sequence).context("pending hook sequence is negative")?,
+                ingress,
+            ));
+        }
+        Ok(pending)
+    }
+
+    pub fn pending_agent_hook_projections_page(
+        &self,
+        after: Option<(u64, String, i64)>,
+    ) -> anyhow::Result<(
+        Vec<(String, String, String, u64, crate::JournalIngress)>,
+        Option<(u64, String, i64)>,
+    )> {
+        let (after_sequence, after_key, after_rowid) = after.unwrap_or((0, String::new(), 0));
+        let mut statement = self.connection.prepare(
+            "SELECT rowid, producer_id, origin, idempotency_key, event_sequence, ingress_json
+             FROM resource_agent_hook_pending
+             WHERE attempt < ?1
+               AND (event_sequence > ?2
+                    OR (event_sequence = ?2 AND idempotency_key > ?3)
+                    OR (event_sequence = ?2 AND idempotency_key = ?3 AND rowid > ?4))
+             ORDER BY event_sequence ASC, idempotency_key ASC, rowid ASC
+             LIMIT ?5",
+        )?;
+        let rows = statement
+            .query_map(
+                params![
+                    AGENT_HOOK_MAX_ATTEMPTS,
+                    i64::try_from(after_sequence)?,
+                    after_key,
+                    after_rowid,
+                    AGENT_HOOK_RETRY_PAGE_SIZE
+                ],
+                |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, String>(3)?,
+                        row.get::<_, i64>(4)?,
+                        row.get::<_, String>(5)?,
+                    ))
+                },
+            )?
+            .collect::<Result<Vec<_>, _>>()?;
+        drop(statement);
+        let mut pending = Vec::with_capacity(rows.len());
+        let mut next_cursor = None;
+        for (rowid, producer_id, origin, key, sequence, ingress_json) in rows {
+            let sequence = u64::try_from(sequence).context("pending hook sequence is negative")?;
+            next_cursor = Some((sequence, key.clone(), rowid));
+            let ingress = match serde_json::from_str(&ingress_json) {
+                Ok(ingress) => ingress,
+                Err(_) => {
+                    self.record_agent_hook_pending_failure(&producer_id, &origin, &key)?;
+                    continue;
+                }
+            };
+            pending.push((producer_id, origin, key, sequence, ingress));
+        }
+        Ok((pending, next_cursor))
+    }
+
+    pub fn commit_agent_projection_with_hook_state(
+        &mut self,
+        mutation: &WorkspaceMutation,
+        fingerprint: &Value,
+        expected_revision: Option<u64>,
+        terminal_id: &TerminalPublicId,
+        result: &Value,
+        deltas: &Value,
+        hook_state: Option<&AgentHookProjectionState>,
+    ) -> anyhow::Result<ResourcePatchCommit> {
+        self.commit_agent_projection_inner(
+            mutation,
+            fingerprint,
+            expected_revision,
+            terminal_id,
+            result,
+            deltas,
+            hook_state,
+            None,
+        )
+    }
+
+    pub fn commit_agent_projection_with_hook_state_and_sequence(
+        &mut self,
+        mutation: &WorkspaceMutation,
+        fingerprint: &Value,
+        expected_revision: Option<u64>,
+        terminal_id: &TerminalPublicId,
+        result: &Value,
+        deltas: &Value,
+        hook_state: Option<&AgentHookProjectionState>,
+        journal_sequence: u64,
+    ) -> anyhow::Result<ResourcePatchCommit> {
+        self.commit_agent_projection_inner(
+            mutation,
+            fingerprint,
+            expected_revision,
+            terminal_id,
+            result,
+            deltas,
+            hook_state,
+            Some(journal_sequence),
+        )
+    }
+
     pub fn replay_resource_patch(
         &self,
         mutation: &WorkspaceMutation,
@@ -430,6 +890,30 @@ impl WorkspaceRegistry {
         result: &Value,
         deltas: &Value,
     ) -> anyhow::Result<ResourcePatchCommit> {
+        self.commit_agent_projection_inner(
+            mutation,
+            fingerprint,
+            expected_revision,
+            terminal_id,
+            result,
+            deltas,
+            None,
+            None,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn commit_agent_projection_inner(
+        &mut self,
+        mutation: &WorkspaceMutation,
+        fingerprint: &Value,
+        expected_revision: Option<u64>,
+        terminal_id: &TerminalPublicId,
+        result: &Value,
+        deltas: &Value,
+        hook_state: Option<&AgentHookProjectionState>,
+        journal_sequence: Option<u64>,
+    ) -> anyhow::Result<ResourcePatchCommit> {
         const OPERATION: &str = "agent.report";
         validate_identifier("mutation id", &mutation.id)?;
         validate_identifier("mutation origin", &mutation.origin)?;
@@ -441,6 +925,10 @@ impl WorkspaceRegistry {
         let result_json = canonical_json(result)?;
         let tx = self.connection.transaction()?;
         if let Some(replayed) = resource_patch_replay(&tx, mutation, OPERATION, &fingerprint)? {
+            if let Some(sequence) = journal_sequence {
+                advance_agent_hook_apply_cursor_transaction(&tx, sequence)?;
+                tx.commit()?;
+            }
             return Ok(replayed);
         }
         let terminal_is_live = tx
@@ -475,6 +963,27 @@ impl WorkspaceRegistry {
                committed_revision = excluded.committed_revision",
             params![terminal_id.as_str(), result_json, sqlite_revision],
         )?;
+        if let Some(hook_state) = hook_state {
+            let applied_sequence = i64::try_from(hook_state.applied_sequence)
+                .context("agent hook sequence exceeds SQLite range")?;
+            tx.execute(
+                "INSERT INTO resource_agent_hook_state(
+                   terminal_id, agent_session_id, applied_sequence, ended, committed_revision
+                 ) VALUES(?1, ?2, ?3, ?4, ?5)
+                 ON CONFLICT(terminal_id) DO UPDATE SET
+                   agent_session_id = excluded.agent_session_id,
+                   applied_sequence = excluded.applied_sequence,
+                   ended = excluded.ended,
+                   committed_revision = excluded.committed_revision",
+                params![
+                    terminal_id.as_str(),
+                    hook_state.agent_session_id,
+                    applied_sequence,
+                    hook_state.ended,
+                    sqlite_revision,
+                ],
+            )?;
+        }
         tx.execute(
             "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
             [revision.to_string()],
@@ -504,6 +1013,9 @@ impl WorkspaceRegistry {
             deltas,
         )?;
         prune_resource_mutations(&tx)?;
+        if let Some(sequence) = journal_sequence {
+            advance_agent_hook_apply_cursor_transaction(&tx, sequence)?;
+        }
         tx.commit()?;
         Ok(ResourcePatchCommit { revision, result: result.clone(), replayed: false })
     }
@@ -574,6 +1086,25 @@ impl WorkspaceRegistry {
             )
             .optional()
             .map_err(Into::into)
+    }
+
+    /// A missing in-memory surface can be a startup race only while the
+    /// durable terminal is launching, adopting, or running. Exited and
+    /// tombstoned terminals cannot recover a hook projection.
+    pub fn agent_hook_terminal_retryable(
+        &self,
+        public_id: &TerminalPublicId,
+    ) -> anyhow::Result<bool> {
+        let Some(host_id) = self.live_terminal_host_id(public_id)? else {
+            return Ok(false);
+        };
+        let Some(terminal) = self.terminal_record(&host_id)? else {
+            return Ok(false);
+        };
+        Ok(matches!(
+            terminal.lifecycle,
+            TerminalLifecycle::Launching | TerminalLifecycle::Adopting | TerminalLifecycle::Running
+        ))
     }
 
     pub fn resource_topology_snapshot(&self) -> anyhow::Result<ResourceTopologySnapshot> {
@@ -790,6 +1321,33 @@ impl WorkspaceRegistry {
         result: &Value,
         deltas: &Value,
     ) -> anyhow::Result<ResourcePatchCommit> {
+        self.commit_resource_patch_with_workspace_ledger(
+            mutation,
+            operation,
+            fingerprint,
+            expected_generation,
+            expected_revision,
+            patch,
+            result,
+            deltas,
+            None,
+        )
+        .map(|(commit, _)| commit)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn commit_resource_patch_with_workspace_ledger(
+        &mut self,
+        mutation: &WorkspaceMutation,
+        operation: &str,
+        fingerprint: &Value,
+        expected_generation: Option<&str>,
+        expected_revision: Option<u64>,
+        patch: &ResourcePatch,
+        result: &Value,
+        deltas: &Value,
+        workspace_ledger: Option<&ResourceWorkspaceLedger>,
+    ) -> anyhow::Result<(ResourcePatchCommit, Option<u64>)> {
         validate_identifier("mutation id", &mutation.id)?;
         validate_identifier("mutation origin", &mutation.origin)?;
         validate_identifier("resource operation", operation)?;
@@ -798,7 +1356,7 @@ impl WorkspaceRegistry {
         let result_json = canonical_json(result)?;
         let tx = self.connection.transaction()?;
         if let Some(replayed) = resource_patch_replay(&tx, mutation, operation, &fingerprint)? {
-            return Ok(replayed);
+            return Ok((replayed, None));
         }
         if let Some(expected) = expected_generation
             && expected != self.generation
@@ -821,6 +1379,25 @@ impl WorkspaceRegistry {
             .ok_or_else(|| anyhow::anyhow!("resource revision exhausted"))?;
         let sqlite_revision =
             i64::try_from(revision).context("resource revision exceeds SQLite range")?;
+
+        // The legacy ledger commit runs first, mirroring the resource close
+        // path: its full-registry rewrite is then corrected in place by the
+        // patch's own upserts inside this same transaction.
+        let workspace_revision = workspace_ledger
+            .map(|ledger| {
+                super::commit_workspace_registry_in_transaction(
+                    &tx,
+                    mutation,
+                    &fingerprint,
+                    None,
+                    ledger.event_kind,
+                    &ledger.workspace_key,
+                    &ledger.workspaces,
+                    &canonical_json(&ledger.legacy_result)?,
+                )
+                .map(|(revision, _)| revision)
+            })
+            .transpose()?;
 
         apply_resource_patch(&tx, patch, sqlite_revision)?;
         tx.execute(
@@ -853,7 +1430,10 @@ impl WorkspaceRegistry {
         )?;
         prune_resource_mutations(&tx)?;
         tx.commit()?;
-        Ok(ResourcePatchCommit { revision, result: result.clone(), replayed: false })
+        Ok((
+            ResourcePatchCommit { revision, result: result.clone(), replayed: false },
+            workspace_revision,
+        ))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1007,6 +1587,37 @@ impl WorkspaceRegistry {
             |row| row.get::<_, i64>(0),
         )?;
         u64::try_from(count).context("resource agent projection count is negative")
+    }
+
+    #[cfg(test)]
+    pub(crate) fn delete_agent_hook_state_for_test(
+        &mut self,
+        terminal_id: &crate::resource::TerminalPublicId,
+    ) -> anyhow::Result<()> {
+        self.connection.execute(
+            "DELETE FROM resource_agent_hook_state WHERE terminal_id = ?1",
+            [terminal_id.as_str()],
+        )?;
+        Ok(())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn agent_hook_pending_retry_state_for_test(
+        &self,
+        producer_id: &str,
+        origin: &str,
+        idempotency_key: &str,
+    ) -> anyhow::Result<Option<(i64, String)>> {
+        self.connection
+            .query_row(
+                "SELECT attempt, error
+                 FROM resource_agent_hook_pending
+                 WHERE producer_id = ?1 AND origin = ?2 AND idempotency_key = ?3",
+                params![producer_id, origin, idempotency_key],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()
+            .map_err(Into::into)
     }
 }
 
@@ -1224,6 +1835,21 @@ pub struct ResourcePatchCommit {
     pub revision: u64,
     pub result: Value,
     pub replayed: bool,
+}
+
+/// Legacy workspace-ledger commit to run inside the same transaction as a
+/// resource patch that changes the workspace projection. The legacy CAS
+/// (`create-workspace`/`rename-workspace`/`move-workspace`/`close-workspace`)
+/// compares client snapshot revisions against this ledger, so any resource
+/// commit that changes the reported workspace registry without advancing the
+/// ledger permanently wedges every later legacy mutation (issue: packaged
+/// browsers fail alt+n forever after a receipted `workspace.create`).
+#[derive(Debug, Clone)]
+pub struct ResourceWorkspaceLedger {
+    pub event_kind: &'static str,
+    pub workspace_key: String,
+    pub workspaces: Vec<RegistryWorkspace>,
+    pub legacy_result: Value,
 }
 
 #[derive(Debug, Clone, PartialEq)]

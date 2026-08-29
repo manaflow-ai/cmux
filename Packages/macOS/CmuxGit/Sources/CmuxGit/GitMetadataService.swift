@@ -118,32 +118,32 @@ public struct GitMetadataService: Sendable {
         guard let repository = Self.resolveGitRepository(containing: directory) else {
             return .notARepository
         }
-        async let initialReferences = gitReferenceSnapshot(repository: repository)
-        async let initialTrackedChanges = gitTrackedChangesSnapshot(
+        async let initialReferencesTask = gitReferenceSnapshot(repository: repository)
+        async let initialTrackedChangesTask = gitTrackedChangesSnapshot(
             repository: repository,
             trackedPathEventGeneration: trackedPathEventGeneration
         )
-        let initialReferenceSnapshot = await initialReferences
-        var trackedChanges = await initialTrackedChanges
+        let initialReferences = await initialReferencesTask
+        var trackedChanges = await initialTrackedChangesTask
         // HEAD and index updates are separate filesystem operations. Reconcile
         // the reference signature after the index scan for every backend; the
         // files implementation uses a cheap bounded direct revalidation.
         let resolvedReferences: GitReferenceSnapshot
         let latestReferences: GitReferenceSnapshot
-        if initialReferenceSnapshot.usesGitPlumbing {
+        if initialReferences.usesGitPlumbing {
             // Plumbing snapshots already perform a stable symbolic-ref/commit
             // read under the shared limiter. Repeating that full probe after
             // the index scan doubles process work for reftable repositories;
             // the watcher will schedule a new snapshot when ref metadata
             // changes.
-            latestReferences = initialReferenceSnapshot
+            latestReferences = initialReferences
         } else {
             latestReferences = await gitReferenceSnapshot(
                 repository: repository,
                 revalidateFileBackedHead: true
             )
         }
-        if latestReferences.headSignature != initialReferenceSnapshot.headSignature {
+        if latestReferences.headSignature != initialReferences.headSignature {
             trackedChanges = await gitTrackedChangesSnapshot(repository: repository)
         }
         resolvedReferences = latestReferences
