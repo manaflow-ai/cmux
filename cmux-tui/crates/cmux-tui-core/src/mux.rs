@@ -1101,9 +1101,22 @@ fn restore_agent_roster(registry: &WorkspaceRegistry) -> anyhow::Result<AgentRos
         AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION, AgentRoster, RosterEvent,
     };
 
+    // A cursor is meaningful only with the snapshot it describes. If the
+    // snapshot is malformed, start at the journal head so no retained event
+    // is silently skipped by a stale cursor.
+    let mut snapshot_valid = false;
     let mut host = match registry.journal_reducer_state(AGENT_ROSTER_REDUCER_ID)? {
         Some((version, cursor, snapshot)) if version == AGENT_ROSTER_REDUCER_VERSION => {
-            AgentRosterHost { roster: AgentRoster::restore(&snapshot).unwrap_or_default(), cursor }
+            match AgentRoster::restore(&snapshot) {
+                Some(roster) => {
+                    snapshot_valid = true;
+                    AgentRosterHost { roster, cursor }
+                }
+                None => {
+                    eprintln!("cmux-tui: invalid agent roster snapshot; replaying journal");
+                    AgentRosterHost::default()
+                }
+            }
         }
         _ => AgentRosterHost::default(),
     };
@@ -1118,7 +1131,7 @@ fn restore_agent_roster(registry: &WorkspaceRegistry) -> anyhow::Result<AgentRos
             host.cursor = host.cursor.max(record.sequence);
         }
     }
-    if host.cursor != initial_cursor {
+    if host.cursor != initial_cursor || !snapshot_valid {
         registry.put_journal_reducer_state(
             AGENT_ROSTER_REDUCER_ID,
             AGENT_ROSTER_REDUCER_VERSION,
@@ -2140,6 +2153,9 @@ pub struct Mux {
     durable_terminal_defaults: AtomicBool,
     sidebar_plugin: Mutex<SidebarPluginRuntime>,
     agent_roster: Mutex<AgentRosterHost>,
+    /// Serialize journal folds so a later commit cannot advance the reducer
+    /// cursor past an earlier committed record.
+    agent_roster_fold: Mutex<()>,
     agent_records: Mutex<HashMap<TerminalPublicId, TerminalAgentRecord>>,
     agent_hook_fences: Mutex<HashMap<TerminalPublicId, HookFence>>,
     /// Nonterminal notifications remain placement-local. Terminal unread
@@ -2536,6 +2552,7 @@ impl Mux {
             durable_terminal_defaults: AtomicBool::new(has_terminal_defaults),
             sidebar_plugin: Mutex::new(SidebarPluginRuntime::default()),
             agent_roster: Mutex::new(agent_roster),
+            agent_roster_fold: Mutex::new(()),
             agent_records: Mutex::new(agent_records),
             agent_hook_fences: Mutex::new(agent_hook_fences),
             placement_notifications: Mutex::new(HashMap::new()),
@@ -5577,38 +5594,77 @@ impl Mux {
         if ingress.producer_id != crate::agent_hooks::AGENT_HOOK_PRODUCER_ID {
             return;
         }
-        let record = match self
-            .workspace_registry
-            .lock()
-            .unwrap()
-            .session_journal_after(commit.sequence.saturating_sub(1), 1)
-        {
-            Ok(page) => page.records.into_iter().find(|record| record.sequence == commit.sequence),
-            Err(error) => {
-                eprintln!("cmux-tui: reading a committed agent event back failed: {error}");
+        // Journal callbacks can complete out of order. Serialize folds and
+        // replay the contiguous committed prefix, so a later sequence never
+        // advances the cursor past an earlier event that has not been folded.
+        let _fold = self.agent_roster_fold.lock().unwrap();
+        loop {
+            let (cursor, mut candidate) = {
+                let host = self.agent_roster.lock().unwrap();
+                if commit.sequence <= host.cursor {
+                    return;
+                }
+                (host.cursor, host.roster.clone())
+            };
+            let page =
+                match self.workspace_registry.lock().unwrap().session_journal_after(cursor, 512) {
+                    Ok(page) => page,
+                    Err(error) => {
+                        // The durable event remains available for a later fold or
+                        // restart. Leave the cursor unchanged when the read fails.
+                        eprintln!("cmux-tui: reading committed agent events back failed: {error}");
+                        return;
+                    }
+                };
+            if page.records.is_empty() {
                 return;
             }
-        };
-        let Some(record) = record else { return };
-        let (deltas, cursor, snapshot) = {
-            let mut host = self.agent_roster.lock().unwrap();
-            if commit.sequence <= host.cursor {
+
+            let mut next_cursor = cursor;
+            let mut deltas = Vec::new();
+            for record in page.records {
+                if record.sequence <= next_cursor {
+                    continue;
+                }
+                // Do not consume a record committed after the callback's
+                // target. A later callback will fold that suffix.
+                if record.sequence > commit.sequence {
+                    break;
+                }
+                deltas.extend(candidate.apply(&RosterEvent::from_record(&record)));
+                next_cursor = record.sequence;
+            }
+            if next_cursor == cursor {
+                // The writer acknowledged a commit that the reader cannot see
+                // yet. Keep the cursor unchanged so another callback retries.
                 return;
             }
-            let deltas = host.roster.apply(&RosterEvent::from_record(&record));
-            host.cursor = host.cursor.max(commit.sequence);
-            (deltas, host.cursor, host.roster.snapshot().to_string())
-        };
-        if let Err(error) = self.workspace_registry.lock().unwrap().put_journal_reducer_state(
-            AGENT_ROSTER_REDUCER_ID,
-            AGENT_ROSTER_REDUCER_VERSION,
-            cursor,
-            &snapshot,
-        ) {
-            eprintln!("cmux-tui: persisting the agent roster snapshot failed: {error}");
-        }
-        for delta in deltas {
-            self.apply_roster_delta_to_record_cache(delta);
+            let snapshot = candidate.snapshot().to_string();
+            if let Err(error) = self.workspace_registry.lock().unwrap().put_journal_reducer_state(
+                AGENT_ROSTER_REDUCER_ID,
+                AGENT_ROSTER_REDUCER_VERSION,
+                next_cursor,
+                &snapshot,
+            ) {
+                eprintln!("cmux-tui: persisting the agent roster snapshot failed: {error}");
+                return;
+            }
+            {
+                let mut host = self.agent_roster.lock().unwrap();
+                if host.cursor != cursor {
+                    // The fold gate should make this impossible. Preserve a
+                    // newer host state if a future writer violates that rule.
+                    return;
+                }
+                host.roster = candidate;
+                host.cursor = next_cursor;
+            }
+            for delta in deltas {
+                self.apply_roster_delta_to_record_cache(delta);
+            }
+            if commit.sequence <= next_cursor {
+                return;
+            }
         }
     }
 
@@ -9563,6 +9619,10 @@ impl Mux {
         // The registry guard is dropped before acquiring the fence guard.
         self.agent_hook_fences.lock().unwrap().remove(terminal_id);
         self.agent_records.lock().unwrap().remove(terminal_id);
+        // Retirement and journal folding share one lifecycle gate. This keeps
+        // a concurrent fold from installing a candidate snapshot after the
+        // terminal has been removed.
+        let _fold = self.agent_roster_fold.lock().unwrap();
         let retired = {
             let mut host = self.agent_roster.lock().unwrap();
             host.roster
