@@ -577,7 +577,7 @@ impl CdpClient {
                 .map_err(|error| anyhow::anyhow!("invalid CDP bearer token: {error}"))?;
             request.headers_mut().insert(AUTHORIZATION, value);
         }
-        let (ws, _) = client_with_config(request, stream, Some(cdp_websocket_config()))?;
+        let (ws, _) = client::client_with_config(request, stream, Some(cdp_websocket_config()))?;
         // The reader thread owns the socket and drains queued outbound
         // writes before each read poll. A message enqueued just after a
         // read starts can wait for this window, but writers never contend
