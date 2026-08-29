@@ -22499,6 +22499,58 @@ mod tests {
     }
 
     #[test]
+    fn agent_roster_legacy_numeric_ahead_cursor_rebuilds_from_retained_journal() {
+        use crate::journal_reducers::{
+            AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION, AgentRoster,
+        };
+
+        let registry = WorkspaceRegistry::in_memory("roster-ahead-legacy").unwrap();
+        let snapshot = AgentRoster::default().snapshot().to_string();
+        let metadata = serde_json::json!({
+            "version": AGENT_ROSTER_REDUCER_VERSION,
+            "cursor": 42,
+            "snapshot": snapshot,
+        });
+        registry
+            .connection
+            .execute(
+                "INSERT INTO meta(key, value) VALUES(?1, ?2)
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                rusqlite::params![
+                    format!("journal_reducer.{AGENT_ROSTER_REDUCER_ID}"),
+                    metadata.to_string()
+                ],
+            )
+            .unwrap();
+
+        let host = restore_agent_roster(&registry).unwrap();
+        assert_eq!(host.cursor, 0, "legacy numeric ahead cursors must be repaired");
+        assert!(host.roster.entries.is_empty());
+    }
+
+    #[test]
+    fn malformed_agent_roster_cursor_metadata_rebuilds_as_missing_state() {
+        use crate::journal_reducers::AGENT_ROSTER_REDUCER_ID;
+
+        let registry = WorkspaceRegistry::in_memory("roster-malformed-cursor").unwrap();
+        registry
+            .connection
+            .execute(
+                "INSERT INTO meta(key, value) VALUES(?1, ?2)
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                rusqlite::params![
+                    format!("journal_reducer.{AGENT_ROSTER_REDUCER_ID}"),
+                    r#"{"version":3,"cursor":{"bad":true},"snapshot":{}}"#
+                ],
+            )
+            .unwrap();
+
+        let host = restore_agent_roster(&registry).unwrap();
+        assert_eq!(host.cursor, 0);
+        assert!(host.roster.entries.is_empty());
+    }
+
+    #[test]
     fn agent_roster_gap_fails_closed_without_complete_snapshot() {
         use crate::journal_reducers::{
             AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION, AgentRoster,

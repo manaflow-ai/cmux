@@ -2084,6 +2084,64 @@ mod tests {
     }
 
     #[test]
+    fn reducer_state_accepts_legacy_numeric_cursor_without_precision_loss() {
+        let registry = WorkspaceRegistry::in_memory("reducer-cursor-legacy").unwrap();
+        let key = "journal_reducer.agent_roster";
+        for cursor in [42_u64, u64::MAX] {
+            let raw = serde_json::json!({
+                "version": 3,
+                "cursor": cursor,
+                "snapshot": "{\"entries\":{}}",
+            })
+            .to_string();
+            registry
+                .connection
+                .execute(
+                    "INSERT INTO meta(key, value) VALUES(?1, ?2)
+                     ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                    rusqlite::params![key, raw],
+                )
+                .unwrap();
+
+            assert_eq!(
+                registry.journal_reducer_state("agent_roster").unwrap(),
+                Some((3, cursor, "{\"entries\":{}}".to_string()))
+            );
+        }
+    }
+
+    #[test]
+    fn malformed_reducer_state_fields_are_treated_as_absent() {
+        let registry = WorkspaceRegistry::in_memory("reducer-cursor-malformed").unwrap();
+        let key = "journal_reducer.agent_roster";
+        let malformed = [
+            "not-json".to_string(),
+            serde_json::json!({"version": 3, "snapshot": "{}"}).to_string(),
+            serde_json::json!({"version": 3, "cursor": -1, "snapshot": "{}"}).to_string(),
+            serde_json::json!({"version": 3, "cursor": 1.5, "snapshot": "{}"}).to_string(),
+            serde_json::json!({
+                "version": 3,
+                "cursor": "18446744073709551616",
+                "snapshot": "{}",
+            })
+            .to_string(),
+            serde_json::json!({"version": "3", "cursor": 1, "snapshot": "{}"}).to_string(),
+            serde_json::json!({"version": 3, "cursor": 1, "snapshot": 7}).to_string(),
+        ];
+        for raw in malformed {
+            registry
+                .connection
+                .execute(
+                    "INSERT INTO meta(key, value) VALUES(?1, ?2)
+                     ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                    rusqlite::params![key, raw],
+                )
+                .unwrap();
+            assert_eq!(registry.journal_reducer_state("agent_roster").unwrap(), None);
+        }
+    }
+
+    #[test]
     fn retained_history_gap_is_a_typed_cursor_error() {
         let registry = WorkspaceRegistry::in_memory("cursor-gap").unwrap();
         registry
