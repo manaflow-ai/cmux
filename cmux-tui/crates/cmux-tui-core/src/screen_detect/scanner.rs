@@ -106,14 +106,18 @@ pub(crate) fn scan(
         };
         let identity_edge =
             tracker.note_foreground_agent(terminal_id, manifest.map(|manifest| manifest.id()));
+        let should_evaluate = manifest.is_none() || quiesced || identity_edge;
+        if !should_evaluate {
+            continue;
+        }
         let emission = match manifest {
             None => {
                 // Not an agent (or the agent exited). Closes a live
                 // screen-derived entry; a terminal that never emitted
                 // stays silent.
-                tracker.record_detection(terminal_id, None)
+                tracker.prepare_detection(terminal_id, None)
             }
-            Some(manifest) if quiesced || identity_edge => {
+            Some(manifest) => {
                 let Ok(Ok(screen)) = surface.try_with_terminal(|terminal| terminal.viewport_text())
                 else {
                     continue;
@@ -126,12 +130,24 @@ pub(crate) fn scan(
                     // progress-region rules simply never match.
                     osc_progress: "",
                 });
-                tracker.record_detection(terminal_id, Some((manifest.id(), detection)))
+                tracker.prepare_detection(terminal_id, Some((manifest.id(), detection)))
             }
-            Some(_) => None,
         };
-        if let Some(emission) = emission {
-            mux.append_screen_detect_event(&emission);
+        let append_succeeded = match emission.as_ref() {
+            Some(emission) => match mux.append_screen_detect_event(emission) {
+                Ok(()) => true,
+                Err(error) => {
+                    eprintln!(
+                        "cmux-tui: journaling a screen-detected state for {} failed: {error}",
+                        emission.terminal_id
+                    );
+                    false
+                }
+            },
+            None => true,
+        };
+        if append_succeeded {
+            tracker.commit_detection(terminal_id, emission.as_ref());
         }
     }
 }

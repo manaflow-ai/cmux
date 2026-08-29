@@ -10,6 +10,9 @@ pub(super) struct RestoredPublicProjections {
     pub(super) next_notification_id: u64,
     pub(super) terminal_notifications: HashMap<TerminalPublicId, SurfaceNotification>,
     pub(super) notification_ledger: VecDeque<ResourceNotification>,
+    /// Agent projections written before the journal reducer existed. They
+    /// are used only as a migration seed when no reducer snapshot is valid.
+    pub(super) legacy_agents: Vec<RegistryAgentProjection>,
 }
 
 pub(super) fn restore_public_projections(
@@ -57,14 +60,13 @@ pub(super) fn restore_public_projections(
         .context("notification count exceeds uint64")?
         .saturating_add(1);
 
-    // The live agent roster derives from the journal (snapshot plus tail
-    // fold), not from the durable agent projections restored here.
     Ok(RestoredPublicProjections {
         default_colors,
         has_terminal_defaults,
         next_notification_id,
         terminal_notifications,
         notification_ledger,
+        legacy_agents: projections.agents,
     })
 }
 

@@ -116,18 +116,18 @@ impl ScreenDetectTracker {
         true
     }
 
-    /// Fold one evaluated detection. `None` detection means the foreground
-    /// process is not a supported agent (or is gone): a live screen-derived
-    /// entry is closed with a session-ended-equivalent `Done` emission.
-    pub(crate) fn record_detection(
+    /// Prepare one evaluated detection. The returned emission is a proposal:
+    /// callers must append it to the journal and call `commit_detection` only
+    /// after that append succeeds. This keeps in-memory edge state aligned
+    /// with the durable journal when storage is unavailable.
+    pub(crate) fn prepare_detection(
         &mut self,
         terminal_id: &str,
         detection: Option<(&str, Detection)>,
     ) -> Option<ScreenDetectEmission> {
         let entry = self.terminals.entry(terminal_id.to_string()).or_default();
-        entry.evaluated_revision = Some(entry.revision);
         let Some((agent, detection)) = detection else {
-            let (agent, _) = entry.emitted.take()?;
+            let (agent, _) = entry.emitted.as_ref()?.clone();
             return Some(ScreenDetectEmission {
                 terminal_id: terminal_id.to_string(),
                 agent,
@@ -159,12 +159,49 @@ impl ScreenDetectTracker {
         if entry.emitted.as_ref() == Some(&next) {
             return None;
         }
-        entry.emitted = Some(next);
         Some(ScreenDetectEmission {
             terminal_id: terminal_id.to_string(),
             agent: agent.to_string(),
             state,
         })
+    }
+
+    /// Record a detection for callers that do not have a separate durable
+    /// append. The scanner uses `prepare_detection` plus `commit_detection`
+    /// so a failed journal append remains retryable.
+    pub(crate) fn record_detection(
+        &mut self,
+        terminal_id: &str,
+        detection: Option<(&str, Detection)>,
+    ) -> Option<ScreenDetectEmission> {
+        let emission = self.prepare_detection(terminal_id, detection);
+        self.commit_detection(terminal_id, emission.as_ref());
+        emission
+    }
+
+    /// Commit a prepared detection after its journal append succeeds. A
+    /// missing emission still marks the revision evaluated, which prevents
+    /// repeated scans of an unchanged screen.
+    pub(crate) fn commit_detection(
+        &mut self,
+        terminal_id: &str,
+        emission: Option<&ScreenDetectEmission>,
+    ) {
+        let entry = self.terminals.entry(terminal_id.to_string()).or_default();
+        entry.evaluated_revision = Some(entry.revision);
+        let Some(emission) = emission else { return };
+        debug_assert_eq!(emission.terminal_id, terminal_id);
+        if emission.state == AgentState::Done {
+            if entry
+                .emitted
+                .as_ref()
+                .is_some_and(|(agent, _)| agent == &emission.agent)
+            {
+                entry.emitted = None;
+            }
+        } else {
+            entry.emitted = Some((emission.agent.clone(), emission.state));
+        }
     }
 
     /// Drop terminals that left the session. Closed terminals are retired
@@ -251,6 +288,32 @@ mod tests {
         let blocked =
             tracker.record_detection("term_a", Some(("codex", detection(ScreenState::Blocked))));
         assert_eq!(blocked.map(|emission| emission.state), Some(AgentState::Blocked));
+    }
+
+    #[test]
+    fn prepared_emission_is_retryable_until_the_journal_append_commits() {
+        let mut tracker = ScreenDetectTracker::default();
+        let first = tracker.prepare_detection(
+            "term_a",
+            Some(("codex", detection(ScreenState::Working))),
+        );
+        assert!(first.is_some());
+        assert!(!tracker.has_live_emission("term_a"));
+
+        // A failed append does not consume the edge. The next scan can make
+        // the same proposal again.
+        let retry = tracker.prepare_detection(
+            "term_a",
+            Some(("codex", detection(ScreenState::Working))),
+        );
+        assert_eq!(retry, first);
+
+        tracker.commit_detection("term_a", retry.as_ref());
+        assert!(tracker.has_live_emission("term_a"));
+        assert_eq!(
+            tracker.prepare_detection("term_a", Some(("codex", detection(ScreenState::Working)))),
+            None
+        );
     }
 
     #[test]
