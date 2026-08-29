@@ -4376,12 +4376,12 @@ describe("VM Effect workflows", () => {
         Effect.provide(providerLayer(provider, billing)),
       ),
     );
-    expect(retryError).toBeInstanceOf(VmCreateFailedError);
-    expect(retryError).toMatchObject({
-      code: "create",
-      message: "provider unavailable",
-    });
-    expect(createCalls).toBe(1);
+    // Provider create failures are reported to the caller as retryable, so a
+    // same-key retry reaches the provider again (and fails again here, since
+    // this provider always fails) instead of replaying vm_create_failed.
+    expect(retryError).toBeInstanceOf(VmProviderOperationError);
+    expect(createCalls).toBe(2);
+    expect(refundCalls).toBe(2);
 
     const usageEvents = await sql<{ eventType: string }[]>`
       select event_type as "eventType" from cloud_vm_usage_events
@@ -4390,8 +4390,12 @@ describe("VM Effect workflows", () => {
     `;
     expect(usageEvents.map((event) => event.eventType).sort()).toEqual([
       "vm.create.credit.refunded",
+      "vm.create.credit.refunded",
+      "vm.create.credit.reserved",
       "vm.create.credit.reserved",
       "vm.create.failed",
+      "vm.create.failed",
+      "vm.create.requested",
       "vm.create.requested",
     ]);
   });
