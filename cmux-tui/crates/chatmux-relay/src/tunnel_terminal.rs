@@ -322,7 +322,7 @@ enum FlowAction {
 
 impl Connection {
     fn send_control(&self, frame: &Value) {
-        let _ = self.enqueue_frame(encode_control_frame(frame), true);
+        let _ = self.enqueue(WriterMessage::Frame(encode_control_frame(frame)));
     }
 
     fn reserve_bytes(&self, amount: u64, control: bool) -> bool {
