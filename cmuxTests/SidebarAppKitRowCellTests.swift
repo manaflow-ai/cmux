@@ -2140,9 +2140,10 @@ struct SidebarPinnedIndicatorColorTests {
                 pressure: 1
             ))
         }
-        #expect(SidebarSecondaryClick.isActive(try mouseEvent(.rightMouseDown)))
-        #expect(SidebarSecondaryClick.isActive(try mouseEvent(.leftMouseDown, flags: [.control])))
-        #expect(!SidebarSecondaryClick.isActive(try mouseEvent(.leftMouseDown)))
+        let classifier = SidebarSecondaryClickClassifier()
+        #expect(classifier.isActive(try mouseEvent(.rightMouseDown)))
+        #expect(classifier.isActive(try mouseEvent(.leftMouseDown, flags: [.control])))
+        #expect(!classifier.isActive(try mouseEvent(.leftMouseDown)))
     }
 
     @Test

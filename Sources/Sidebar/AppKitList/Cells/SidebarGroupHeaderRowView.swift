@@ -28,6 +28,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
 
     private var model: SidebarGroupHeaderRowModel?
     private var actions: SidebarGroupHeaderRowActions?
+    private let secondaryClickClassifier = SidebarSecondaryClickClassifier()
     private var isPointerHovering = false
     private var contextMenuVisible = false
     private var contextMenuDidOpen: (() -> Void)?
@@ -37,7 +38,7 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         let hit = super.hitTest(point)
-        guard SidebarSecondaryClick.isActive(NSApp.currentEvent) else { return hit }
+        guard secondaryClickClassifier.isActive(NSApp.currentEvent) else { return hit }
         let local = convert(point, from: superview)
         guard !isHidden, alphaValue > 0.01, bounds.contains(local) else { return hit }
         return self

@@ -249,7 +249,11 @@ struct SidebarWorkspaceRowCommands {
     /// Parity with TabItemView.moveWorkspaces(_:toWindow:).
     func moveWorkspaces(toWindow windowId: UUID) {
         guard let tabManager, let app = AppDelegate.shared else { return }
-        let orderedWorkspaceIds = tabManager.tabs.compactMap { contextMenuWorkspaceIds.contains($0.id) ? $0.id : nil }
+        // Set membership keeps this ordered projection O(workspaces + targets).
+        let contextMenuWorkspaceIdSet = Set(contextMenuWorkspaceIds)
+        let orderedWorkspaceIds = tabManager.tabs.compactMap {
+            contextMenuWorkspaceIdSet.contains($0.id) ? $0.id : nil
+        }
         guard !orderedWorkspaceIds.isEmpty else { return }
         for (index, workspaceId) in orderedWorkspaceIds.enumerated() {
             let shouldFocus = index == orderedWorkspaceIds.count - 1
@@ -262,7 +266,11 @@ struct SidebarWorkspaceRowCommands {
     /// Parity with TabItemView.moveWorkspacesToNewWindow.
     func moveWorkspacesToNewWindow() {
         guard let tabManager, let app = AppDelegate.shared else { return }
-        let orderedWorkspaceIds = tabManager.tabs.compactMap { contextMenuWorkspaceIds.contains($0.id) ? $0.id : nil }
+        // Set membership keeps this ordered projection O(workspaces + targets).
+        let contextMenuWorkspaceIdSet = Set(contextMenuWorkspaceIds)
+        let orderedWorkspaceIds = tabManager.tabs.compactMap {
+            contextMenuWorkspaceIdSet.contains($0.id) ? $0.id : nil
+        }
         guard let firstWorkspaceId = orderedWorkspaceIds.first else { return }
         let shouldFocusImmediately = orderedWorkspaceIds.count == 1
         guard let newWindowId = app.moveWorkspaceToNewWindow(workspaceId: firstWorkspaceId, focus: shouldFocusImmediately) else {
@@ -387,9 +395,13 @@ struct SidebarWorkspaceRowMenuBuilder {
             _ = AppDelegate.shared?.createEmptyWorkspaceGroup(tabManager: tabManager)
         })
 
-        let targetWorkspaces = targetIds.compactMap { id in
-            tabManager.tabs.first(where: { $0.id == id })
-        }
+        // Index tabs once so a large selection does not rescan all workspaces
+        // for every target ID.
+        let workspaceById = Dictionary(
+            tabManager.tabs.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let targetWorkspaces = targetIds.compactMap { workspaceById[$0] }
         let existingAnchorIds = Set(tabManager.workspaceGroups.compactMap(\.liveAnchorWorkspaceId))
         let eligibleTargets = targetWorkspaces.filter { !existingAnchorIds.contains($0.id) }
         let eligibleTargetIds = eligibleTargets.map(\.id)
@@ -553,9 +565,12 @@ struct SidebarWorkspaceRowMenuBuilder {
         menu.addItem(.separator())
         let remoteWorkspaces: () -> [Workspace] = { [weak tabManager, commands] in
             guard let tabManager else { return [] }
-            return commands.remoteContextMenuWorkspaceIds.compactMap { workspaceId in
-                tabManager.tabs.first(where: { $0.id == workspaceId })
-            }
+            // Resolve the live tab list once per action, then use O(1) ID lookups.
+            let workspaceById = Dictionary(
+                tabManager.tabs.map { ($0.id, $0) },
+                uniquingKeysWith: { first, _ in first }
+            )
+            return commands.remoteContextMenuWorkspaceIds.compactMap { workspaceById[$0] }
         }
         let reconnectLabel = label(
             multi: String(localized: "contextMenu.reconnectWorkspaces", defaultValue: "Reconnect Workspaces"),

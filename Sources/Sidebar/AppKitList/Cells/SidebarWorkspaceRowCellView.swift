@@ -60,6 +60,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
 
     private var model: SidebarWorkspaceRowModel?
     private var actions: SidebarAppKitRowActions?
+    private let secondaryClickClassifier = SidebarSecondaryClickClassifier()
     private var isPointerHovering = false
     private var contextMenuVisible = false
     private var contextMenuDidOpen: (() -> Void)?
@@ -179,7 +180,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         let hit = super.hitTest(point)
-        guard SidebarSecondaryClick.isActive(NSApp.currentEvent) else { return hit }
+        guard secondaryClickClassifier.isActive(NSApp.currentEvent) else { return hit }
         if let hit, ownsContextMenu(hit) { return hit }
         let local = convert(point, from: superview)
         guard !isHidden, alphaValue > 0.01, bounds.contains(local) else { return hit }

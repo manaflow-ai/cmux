@@ -4,12 +4,14 @@ import CmuxSidebar
 import CmuxWorkspaces
 import SwiftUI
 
+/// Classifies AppKit events that should route through a row context menu.
+///
 /// Physical right-click and Control-click both need the workspace/group cell
 /// to be the hit-tested view. Title/status subviews return `nil` from
 /// `hitTest` (or swallow `menu(for:)`), so AppKit never asks the cell and
-/// no menu appears — while empty-area clicks still reach the table.
-enum SidebarSecondaryClick {
-    static func isActive(_ event: NSEvent?) -> Bool {
+/// no menu appears, while empty-area clicks still reach the table.
+struct SidebarSecondaryClickClassifier {
+    func isActive(_ event: NSEvent?) -> Bool {
         guard let event else { return false }
         switch event.type {
         case .rightMouseDown, .rightMouseUp:
