@@ -183,6 +183,7 @@ public actor DotLeg {
     private var lastReceivedBySource: [UInt32: UInt64] = [:]
     private var reconnectAttempt = 0
     private var flushing = false
+    private var lastInboundAt: ContinuousClock.Instant?
 
     private static let maxPendingFrames = 4_096
     private static let maxPendingBytes = 8 * 1024 * 1024
@@ -397,27 +398,76 @@ public actor DotLeg {
 
     private func receiveLoop() async throws {
         guard let task = socket else { throw DotTransportError.notConnected }
-        var lastInbound = ContinuousClock.now
-        while !stopped && !Task.isCancelled {
-            do {
-                let message = try await receiveWithDeadline(task, seconds: 20)
-                lastInbound = .now
-                try await handle(message)
-                if let authDeadline, authDeadline.timeIntervalSinceNow < 90 {
-                    try await refreshAuth(on: task)
+        configuration.journal.record(
+            component: "leg", event: "receive-loop-started",
+            attributes: ["role": configuration.role.rawValue]
+        )
+        lastInboundAt = .now
+        let keepaliveInterval = configuration.keepaliveInterval
+        let watchdog = Task { [weak self, weak task] in
+            guard let task else { return }
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(for: .seconds(keepaliveInterval))
+                } catch {
+                    return
                 }
-            } catch is DotReceiveTimeout {
-                let elapsed = lastInbound.duration(to: .now)
-                let seconds = Double(elapsed.components.seconds)
-                    + Double(elapsed.components.attoseconds) / 1e18
-                if seconds > configuration.readLivenessDeadline {
-                    throw DotTransportError.readLivenessExpired
-                }
-                try await task.send(.string(try DotControlFrame.ping(ts: Date().timeIntervalSince1970).encoded()))
-                if let authDeadline, authDeadline.timeIntervalSinceNow < 90 {
-                    try await refreshAuth(on: task)
-                }
+                guard let self else { return }
+                if await self.keepaliveTick(on: task) { return }
             }
+        }
+        defer {
+            watchdog.cancel()
+            lastInboundAt = nil
+        }
+        while !stopped && !Task.isCancelled {
+            let message = try await task.receive()
+            lastInboundAt = .now
+            try await handle(message)
+            if let authDeadline, authDeadline.timeIntervalSinceNow < 90 {
+                try await refreshAuth(on: task)
+            }
+        }
+    }
+
+    /// Keep liveness independent from URLSession's receive continuation. A
+    /// racing timeout task cannot safely cancel `receive()` without waiting
+    /// for URLSession to finish it, which would strand the leg before its
+    /// first ping. The watchdog sends pings and owns the read-deadline close.
+    private func keepaliveTick(on task: URLSessionWebSocketTask) async -> Bool {
+        guard !stopped, socket === task else { return true }
+        let lastInbound = lastInboundAt ?? .now
+        let elapsed = lastInbound.duration(to: .now)
+        let seconds = Double(elapsed.components.seconds)
+            + Double(elapsed.components.attoseconds) / 1e18
+        if seconds > configuration.readLivenessDeadline {
+            configuration.journal.record(
+                component: "leg", event: "read-liveness-expired",
+                attributes: ["role": configuration.role.rawValue]
+            )
+            task.cancel(with: .abnormalClosure, reason: nil)
+            return true
+        }
+        do {
+            try await task.send(.string(try DotControlFrame.ping(ts: Date().timeIntervalSince1970).encoded()))
+            configuration.journal.record(
+                component: "leg", event: "ping-sent",
+                attributes: ["role": configuration.role.rawValue]
+            )
+            if let authDeadline, authDeadline.timeIntervalSinceNow < 90 {
+                try await refreshAuth(on: task)
+            }
+            return false
+        } catch {
+            configuration.journal.record(
+                component: "leg", event: "keepalive-failed",
+                attributes: [
+                    "role": configuration.role.rawValue,
+                    "error": String(describing: error),
+                ]
+            )
+            task.cancel(with: .abnormalClosure, reason: nil)
+            return true
         }
     }
 
@@ -548,6 +598,10 @@ public actor DotLeg {
         try await task.send(.string(try DotControlFrame.authRefresh(token: token).encoded()))
     }
 
+    /// Connect-time hello still needs a bounded wait. The timeout closes the
+    /// handshake socket before the task group exits, so URLSession cannot
+    /// strand the structured timeout task. Steady-state reads use the
+    /// independent watchdog above instead of racing `receive()`.
     private func receiveWithDeadline(
         _ task: URLSessionWebSocketTask,
         seconds: Int
@@ -556,6 +610,7 @@ public actor DotLeg {
             group.addTask { try await task.receive() }
             group.addTask {
                 try await Task.sleep(for: .seconds(seconds))
+                task.cancel(with: .abnormalClosure, reason: nil)
                 throw DotReceiveTimeout()
             }
             let result = try await group.next()!
