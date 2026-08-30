@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 public import CmuxIrohTransport
 
 /// Keeps the endpoint's relay credentials perpetually fresh: mints early

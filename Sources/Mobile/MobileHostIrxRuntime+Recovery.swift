@@ -96,7 +96,7 @@ extension MobileHostIrxRuntime {
             attributes["state"] = IrxHostActivationState
                 .reauthenticationRequired.rawValue
             Self.journal.record("host-runtime", "reauthentication-required", attributes)
-            await cleanupActivationResources()
+            await cleanupActivationResources(invalidateGeneration: true)
         case let .retry(policyDelay, retryAfterSeconds):
             let delay = IrxRelayCredentialPolicy.boundedRetryDelay(
                 expiresAt: nil,
@@ -134,7 +134,7 @@ extension MobileHostIrxRuntime {
             setActivationState(.failed, failure: failure)
             attributes["state"] = IrxHostActivationState.failed.rawValue
             Self.journal.record("host-runtime", "activation-stopped", attributes)
-            await cleanupActivationResources()
+            await cleanupActivationResources(invalidateGeneration: true)
         }
     }
 
@@ -189,7 +189,7 @@ extension MobileHostIrxRuntime {
                 attributes["state"] = IrxHostActivationState
                     .reauthenticationRequired.rawValue
                 Self.journal.record("host-runtime", "reauthentication-required", attributes)
-                await cleanupActivationResources()
+                await cleanupActivationResources(invalidateGeneration: true)
                 return
             }
             activationRetryTask?.cancel()
@@ -198,11 +198,14 @@ extension MobileHostIrxRuntime {
             var attributes = failure.journalAttributes
             attributes["state"] = IrxHostActivationState.failed.rawValue
             Self.journal.record("host-runtime", "activation-stopped", attributes)
-            await cleanupActivationResources()
+            await cleanupActivationResources(invalidateGeneration: true)
         }
     }
 
-    func cleanupActivationResources() async {
+    func cleanupActivationResources(invalidateGeneration: Bool = false) async {
+        if invalidateGeneration {
+            generationToken = UUID()
+        }
         acceptLoop?.cancel()
         acceptLoop = nil
         if let autopilot {
