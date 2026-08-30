@@ -417,14 +417,15 @@ extension AppDelegate {
                 ) else {
                 return
             }
+            let lifecycleCoordinator = self?.mainWindowLifecycleCoordinator
             let resumeIndexes = await self?.mainWindowLifecycleCoordinator
                 .loadWindowlessRecoveryResumeIndexes(
                     ttyDeviceBindings: ttyDeviceBindings
                 ) { bindings in
                     await ProcessDetectedResumeIndexes.loadFreshWithDeadline(
                         ttyDeviceBindings: bindings,
-                        onWorkerCreated: { [weak self] worker in
-                            self?.mainWindowLifecycleCoordinator
+                        onWorkerCreated: { [weak lifecycleCoordinator] worker in
+                            lifecycleCoordinator?
                                 .retainWindowlessRecoveryResumeIndexesWorker(worker)
                         }
                     )
