@@ -108,6 +108,13 @@ extension MobileCoreRPCSession {
     }
 
     func dispatch(frame: Data) {
+        // A zlib-compressed event frame (magic byte 0x01, negotiated at
+        // subscribe) inflates here; a frame that claims compression but does
+        // not inflate is dropped exactly like an unparseable envelope.
+        guard let frame = MobileEventFrameCompression.inflatedFrame(
+            frame,
+            maximumInflatedByteCount: MobileSyncFrameCodec.defaultMaximumFrameByteCount
+        ) else { return }
         let parsed = try? JSONSerialization.jsonObject(with: frame) as? [String: Any]
         guard let envelope = parsed else { return }
         if (envelope["kind"] as? String) == "event" {

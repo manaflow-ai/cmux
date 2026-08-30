@@ -12048,6 +12048,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // this device owns a deep local scrollback and scrolls it locally.
             if usesScreenAnchoredRenderGrid, topics.contains("terminal.render_grid") {
                 params["render_grid_anchor"] = MobileTerminalRenderGridFrame.Anchor.screen.rawValue
+                // Opt into zlib-compressed event frames (render-grid deltas
+                // and full frames); a Mac too old to know the parameter
+                // ignores it and keeps sending plain frames.
+                params["event_compression"] = MobileEventFrameCompression.deflateParameterValue
             }
             requestData = try MobileCoreRPCClient.requestData(
                 method: "mobile.events.subscribe",

@@ -592,6 +592,7 @@ final class MobileHostService {
             return
         }
         var encodedByAnchor: [MobileTerminalRenderGridFrame.Anchor: (frame: Data, isFullRenderGridFrame: Bool)] = [:]
+        var compressedByAnchor: [MobileTerminalRenderGridFrame.Anchor: (frame: Data, isFullRenderGridFrame: Bool)] = [:]
         for (anchor, item) in framesByAnchor {
             var envelope = Data(#"{"kind":"event","topic":"terminal.render_grid","payload":"#.utf8)
             envelope.append(item.payloadJSON)
@@ -601,12 +602,22 @@ final class MobileHostService {
                 continue
             }
             encodedByAnchor[anchor] = (frame, item.isFullFrame)
+            // One compression per anchor serves every opted-in subscriber.
+            // Delta and full-frame JSON compress 3-6x, which is most of the
+            // payload cost of a busy terminal on a phone link.
+            if let compressedPayload = MobileEventFrameCompression.compressedPayload(for: envelope),
+               let compressedFrame = try? MobileSyncFrameCodec.encodeFrame(compressedPayload) {
+                compressedByAnchor[anchor] = (compressedFrame, item.isFullFrame)
+            }
         }
         guard !encodedByAnchor.isEmpty else { return }
         deliverEventFrames(topic: topic, coalesceKey: surfaceID, stateSeq: stateSeq) { connection in
-            encodedByAnchor[
-                MobileTerminalRenderGridAnchorRegistry.shared.anchor(connectionID: connection.connectionID)
-            ]
+            let anchor = MobileTerminalRenderGridAnchorRegistry.shared.anchor(connectionID: connection.connectionID)
+            if MobileHostEventCompressionRegistry.shared.isDeflateEnabled(connectionID: connection.connectionID),
+               let compressed = compressedByAnchor[anchor] {
+                return compressed
+            }
+            return encodedByAnchor[anchor]
         }
     }
 
@@ -2375,6 +2386,7 @@ actor MobileHostConnection {
             )
         }
         MobileTerminalRenderGridAnchorRegistry.shared.remove(connectionID: id)
+        MobileHostEventCompressionRegistry.shared.remove(connectionID: id)
         mobileHostLog.info("mobile host connection closed \(self.id.uuidString, privacy: .public): \(reason, privacy: .public)")
         await independentEventWriter?.close()
         await transport.close()
@@ -2777,6 +2789,11 @@ actor MobileHostConnection {
                 topics: topics,
                 transport: selectedTransport,
                 clientID: request.params["client_id"] as? String
+            )
+            MobileHostEventCompressionRegistry.shared.set(
+                deflateEnabled: (request.params["event_compression"] as? String)
+                    == MobileEventFrameCompression.deflateParameterValue,
+                connectionID: id
             )
             if topics.contains("terminal.render_grid") {
                 // Anchor negotiation: "screen" clients own their local
