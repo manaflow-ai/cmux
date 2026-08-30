@@ -146,7 +146,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private func clearPendingWorkspaceDragWriters(
         preserving preservedWriter: SidebarWorkspaceDragPasteboardWriter? = nil
     ) {
-        let pendingWriters = pendingWorkspaceDragWriters.objectEnumerator().allObjects
+        let pendingWriters = pendingWorkspaceDragWriters.objectEnumerator()?.allObjects ?? []
             .compactMap { $0 as? SidebarWorkspaceDragPasteboardWriter }
         for writer in pendingWriters where writer !== preservedWriter {
             if let tableView = writer.sourceViewForDrag as? SidebarWorkspaceTableViewImpl,
@@ -1303,6 +1303,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
 
     func workspaceDragSessionDidBegin(sourceTableView: NSTableView? = nil) {
         guard !isWorkspaceDragSourceActive else { return }
+        activeWorkspaceDragActions = actions ?? pendingWorkspaceDragActions
         if workspaceDragSourceCompletionReceived,
            let retainedContainer = activeWorkspaceDragContainerView {
             // A deferred drop from the previous native source cannot survive
