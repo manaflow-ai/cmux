@@ -197,13 +197,15 @@ extension TerminalController {
             "directory": CmuxExtensionSidebarSelection.customSidebarsDirectory.path,
             "valid_count": report.validCount,
             "error_count": report.errorCount,
+            "warning_count": report.warningCount,
             "sidebars": report.entries.map { entry in
                 [
                     "name": entry.name,
                     "path": entry.fileURL.path,
                     "kind": entry.kind.rawValue,
                     "ok": entry.isValid,
-                    "error": v2OrNull(entry.errorMessage)
+                    "error": v2OrNull(entry.errorMessage),
+                    "warnings": entry.warningMessages,
                 ] as [String: Any]
             }
         ]

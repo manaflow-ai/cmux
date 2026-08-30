@@ -10,8 +10,18 @@ import SwiftUI
 /// from the environment.
 struct RenderNodeView: View {
     let node: RenderNode
+    private let styleResolver: RenderStyleResolver
 
     @Environment(\.sidebarActionDispatch) private var dispatch
+
+    /// Creates a recursive renderer with one shared style-resolution dependency.
+    init(
+        node: RenderNode,
+        styleResolver: RenderStyleResolver = RenderStyleResolver()
+    ) {
+        self.node = node
+        self.styleResolver = styleResolver
+    }
 
     var body: some View {
         let view = applyModifiers(content, node.modifiers)
@@ -77,9 +87,16 @@ struct RenderNodeView: View {
         case .viewThatFits:
             ViewThatFits { children }
         case .hsplit:
-            ResizableHSplit(columns: node.children)
+            ResizableHSplit(
+                columns: node.children,
+                styleResolver: styleResolver
+            )
         case .reorderable:
-            ReorderableList(rows: node.children, spec: node.reorder)
+            ReorderableList(
+                rows: node.children,
+                spec: node.reorder,
+                styleResolver: styleResolver
+            )
         case .text:
             Text(node.text ?? "")
         case .label:
@@ -152,7 +169,7 @@ struct RenderNodeView: View {
     @ViewBuilder
     private var children: some View {
         ForEach(Array(node.children.enumerated()), id: \.offset) { _, child in
-            RenderNodeView(node: child)
+            RenderNodeView(node: child, styleResolver: styleResolver)
         }
     }
 
@@ -164,169 +181,196 @@ struct RenderNodeView: View {
         return result
     }
 
-    private func apply(_ modifier: RenderModifier, to view: AnyView) -> AnyView {
-        let token = clean(modifier.firstValue)
-        switch modifier.name {
-        case "font":
-            return AnyView(view.modifier(OptionalDSLFont(spec: resolveFontSpec(token))))
-        case "bold":
-            return AnyView(view.fontWeight(.bold))
-        case "strikethrough":
-            return AnyView(view.strikethrough())
-        case "underline":
-            return AnyView(view.underline())
-        case "italic":
-            return AnyView(view.italic())
-        case "monospaced":
-            return AnyView(view.monospaced())
-        case "monospacedDigit":
-            return AnyView(view.monospacedDigit())
-        case "fontWeight":
-            return AnyView(view.fontWeight(dslFontWeight(token)))
-        case "fontDesign":
-            return AnyView(view.fontDesign(dslFontDesign(token)))
-        case "multilineTextAlignment":
-            return AnyView(view.multilineTextAlignment(dslTextAlignment(token)))
-        case "textCase":
-            return AnyView(view.textCase(dslTextCase(token)))
-        case "truncationMode":
-            return AnyView(view.truncationMode(dslTruncationMode(token)))
-        case "foregroundColor", "foregroundStyle", "fill", "tint":
-            if let color = dslColor(token) { return AnyView(view.foregroundStyle(color)) }
+    /// Applies one captured modifier after normalizing its actual renderer effect.
+    private func apply(
+        _ capturedModifier: RenderModifier,
+        to view: AnyView
+    ) -> AnyView {
+        guard let modifier = capturedModifier.normalizedRenderedEffect(
+            on: node.kind,
+            using: styleResolver
+        ),
+              let renderedKind = modifier.renderedKind else {
             return view
-        case "padding":
+        }
+        let token = styleResolver.cleanToken(modifier.firstValue)
+        switch renderedKind {
+        case .font:
+            return AnyView(view.modifier(OptionalDSLFont(spec: resolveFontSpec(token))))
+        case .bold:
+            return AnyView(view.fontWeight(.bold))
+        case .strikethrough:
+            return AnyView(view.strikethrough())
+        case .underline:
+            return AnyView(view.underline())
+        case .italic:
+            return AnyView(view.italic())
+        case .monospaced:
+            return AnyView(view.monospaced())
+        case .monospacedDigit:
+            return AnyView(view.monospacedDigit())
+        case .fontWeight:
+            return AnyView(view.fontWeight(dslFontWeight(token)))
+        case .fontDesign:
+            return AnyView(view.fontDesign(dslFontDesign(token)))
+        case .multilineTextAlignment:
+            return AnyView(view.multilineTextAlignment(dslTextAlignment(token)))
+        case .textCase:
+            return AnyView(view.textCase(dslTextCase(token)))
+        case .truncationMode:
+            return AnyView(view.truncationMode(dslTruncationMode(token)))
+        case .foregroundColor, .foregroundStyle, .fill, .tint:
+            if let color = styleResolver.color(token) {
+                return AnyView(view.foregroundStyle(color))
+            }
+            return view
+        case .padding:
             if let token, let value = Double(token) { return AnyView(view.padding(CGFloat(value))) }
             return AnyView(view.padding())
-        case "background":
+        case .background:
             if !modifier.children.isEmpty {
-                let alignment = frameAlignment(clean(modifier.value("alignment")))
+                let alignment = frameAlignment(
+                    styleResolver.cleanToken(modifier.value("alignment"))
+                )
                 return AnyView(view.background(alignment: alignment) { modifierChildren(modifier) })
             }
-            if let color = dslColor(token) { return AnyView(view.background(color)) }
+            if let color = styleResolver.color(token) {
+                return AnyView(view.background(color))
+            }
             return view
-        case "overlay":
+        case .overlay:
             if !modifier.children.isEmpty {
-                let alignment = frameAlignment(clean(modifier.value("alignment")))
+                let alignment = frameAlignment(
+                    styleResolver.cleanToken(modifier.value("alignment"))
+                )
                 return AnyView(view.overlay(alignment: alignment) { modifierChildren(modifier) })
             }
-            if let color = dslColor(token) { return AnyView(view.overlay(color)) }
+            if let color = styleResolver.color(token) {
+                return AnyView(view.overlay(color))
+            }
             return view
-        case "mask":
+        case .mask:
             if !modifier.children.isEmpty {
                 return AnyView(view.mask { modifierChildren(modifier) })
             }
             return view
-        case "safeAreaInset":
+        case .safeAreaInset:
             if !modifier.children.isEmpty {
-                let edge = clean(modifier.value("edge"))
+                let edge = styleResolver.cleanToken(modifier.value("edge"))
                 if edge == "top" {
                     return AnyView(view.safeAreaInset(edge: .top) { modifierChildren(modifier) })
                 }
                 return AnyView(view.safeAreaInset(edge: .bottom) { modifierChildren(modifier) })
             }
             return view
-        case "cornerRadius":
+        case .cornerRadius:
             if let token, let value = Double(token) {
                 return AnyView(view.clipShape(RoundedRectangle(cornerRadius: CGFloat(value))))
             }
             return view
-        case "opacity":
+        case .opacity:
             if let token, let value = Double(token) { return AnyView(view.opacity(value)) }
             return view
-        case "lineLimit":
+        case .lineLimit:
             if let token, let value = Int(token) { return AnyView(view.lineLimit(value)) }
             return view
-        case "frame":
+        case .frame:
             return applyFrame(modifier, to: view)
-        case "shadow":
+        case .shadow:
             let radius = modDouble(modifier, "radius") ?? (token.flatMap(Double.init)) ?? 4
-            let color = dslColor(clean(modifier.value("color"))) ?? Color.black.opacity(0.33)
+            let color = styleResolver.color(modifier.value("color"))
+                ?? Color.black.opacity(0.33)
             return AnyView(view.shadow(color: color, radius: CGFloat(radius),
                                        x: CGFloat(modDouble(modifier, "x") ?? 0),
                                        y: CGFloat(modDouble(modifier, "y") ?? 0)))
-        case "border":
-            let color = dslColor(token) ?? .secondary
-            let width = modDouble(modifier, "width") ?? 1
-            return AnyView(view.border(color, width: CGFloat(width)))
-        case "blur":
+        case .border:
+            let border = styleResolver.border(modifier)
+            return AnyView(view.border(border.color, width: border.width))
+        case .blur:
             let radius = modDouble(modifier, "radius") ?? (token.flatMap(Double.init)) ?? 0
             return AnyView(view.blur(radius: CGFloat(radius)))
-        case "offset":
+        case .offset:
             return AnyView(view.offset(x: CGFloat(modDouble(modifier, "x") ?? 0),
                                        y: CGFloat(modDouble(modifier, "y") ?? 0)))
-        case "scaleEffect":
+        case .scaleEffect:
             if let token, let s = Double(token) { return AnyView(view.scaleEffect(CGFloat(s))) }
             return view
-        case "rotationEffect":
-            return AnyView(view.rotationEffect(.degrees(angleDegrees(token) ?? 0)))
-        case "zIndex":
+        case .rotationEffect:
+            return AnyView(
+                view.rotationEffect(.degrees(token.flatMap(Double.init) ?? 0))
+            )
+        case .zIndex:
             if let token, let z = Double(token) { return AnyView(view.zIndex(z)) }
             return view
-        case "brightness":
+        case .brightness:
             return AnyView(view.brightness(token.flatMap(Double.init) ?? 0))
-        case "contrast":
+        case .contrast:
             return AnyView(view.contrast(token.flatMap(Double.init) ?? 1))
-        case "saturation":
+        case .saturation:
             return AnyView(view.saturation(token.flatMap(Double.init) ?? 1))
-        case "grayscale":
+        case .grayscale:
             return AnyView(view.grayscale(token.flatMap(Double.init) ?? 0))
-        case "clipShape":
+        case .clipShape:
             return applyClipShape(token, to: view)
-        case "imageScale":
+        case .imageScale:
             return AnyView(view.imageScale(dslImageScale(token)))
-        case "symbolRenderingMode":
+        case .symbolRenderingMode:
             return AnyView(view.symbolRenderingMode(dslSymbolRenderingMode(token)))
-        case "symbolVariant":
+        case .symbolVariant:
             return AnyView(view.symbolVariant(dslSymbolVariant(token)))
-        case "contextMenu":
+        case .contextMenu:
             if !modifier.children.isEmpty {
                 return AnyView(view.contextMenu { modifierChildren(modifier) })
             }
             return view
-        case "help":
+        case .help:
             if let token { return AnyView(view.help(LocalizedStringKey(token))) }
             return view
-        case "keyboardShortcut":
+        case .keyboardShortcut:
             guard let key = dslKeyEquivalent(token) else { return view }
             return AnyView(view.keyboardShortcut(key, modifiers: dslEventModifiers(modifier.value("modifiers"))))
-        case "disabled":
+        case .disabled:
             // Disabled only when the arg explicitly resolves to true; an
             // unresolved expression defaults to enabled, not disabled.
             return AnyView(view.disabled(token == "true"))
-        case "redacted":
-            let reason = clean(modifier.value("reason")) ?? token
+        case .redacted:
+            let reason = styleResolver.cleanToken(modifier.value("reason"))
+                ?? token
             return AnyView(view.redacted(reason: reason == "invalidated" ? .invalidated : .placeholder))
-        case "unredacted":
+        case .unredacted:
             return AnyView(view.unredacted())
-        case "accessibilityLabel":
+        case .accessibilityLabel:
             return AnyView(view.accessibilityLabel(Text(token ?? "")))
-        case "accessibilityHint":
+        case .accessibilityHint:
             return AnyView(view.accessibilityHint(Text(token ?? "")))
-        case "accessibilityValue":
+        case .accessibilityValue:
             return AnyView(view.accessibilityValue(Text(token ?? "")))
-        case "accessibilityHidden":
+        case .accessibilityHidden:
             return AnyView(view.accessibilityHidden(token != "false"))
-        case "scrollIndicators":
+        case .scrollIndicators:
             return AnyView(view.scrollIndicators(token == "hidden" || token == "never" ? .hidden : .visible))
-        case "scrollContentBackground":
+        case .scrollContentBackground:
             return AnyView(view.scrollContentBackground(token == "hidden" ? .hidden : .visible))
-        case "aspectRatio":
-            let mode: ContentMode = clean(modifier.value("contentMode")) == "fill" ? .fill : .fit
+        case .aspectRatio:
+            let mode: ContentMode = styleResolver.cleanToken(
+                modifier.value("contentMode")
+            ) == "fill" ? .fill : .fit
             // Only apply an explicit ratio when positive; a zero/negative ratio
             // is invalid in SwiftUI, so fall back to mode-only.
             if let token, let ratio = Double(token), ratio > 0 { return AnyView(view.aspectRatio(CGFloat(ratio), contentMode: mode)) }
             return AnyView(view.aspectRatio(contentMode: mode))
-        case "scaledToFit":
+        case .scaledToFit:
             return AnyView(view.aspectRatio(contentMode: .fit))
-        case "scaledToFill":
+        case .scaledToFill:
             return AnyView(view.aspectRatio(contentMode: .fill))
-        case "clipped":
+        case .clipped:
             return AnyView(view.clipped())
-        case "fixedSize":
+        case .fixedSize:
             return AnyView(view.fixedSize())
-        case "layoutPriority":
+        case .layoutPriority:
             return AnyView(view.layoutPriority(token.flatMap(Double.init) ?? 0))
-        default:
+        case .resizable, .trim, .stroke, .strokeBorder:
+            // These are applied to the concrete Image/Shape in `content`.
             return view
         }
     }
@@ -335,7 +379,12 @@ struct RenderNodeView: View {
     /// erasure (it's an `Image` method, unavailable on `AnyView`). `.scaledToFit`/
     /// `.aspectRatio` from the generic modifier pass then apply on top.
     private func styledImage(_ image: Image) -> AnyView {
-        if node.modifiers.contains(where: { $0.name == "resizable" }) {
+        if node.modifiers.contains(where: {
+            $0.normalizedRenderedEffect(
+                on: node.kind,
+                using: styleResolver
+            )?.renderedKind == .resizable
+        }) {
             return AnyView(image.resizable())
         }
         return AnyView(image)
@@ -344,8 +393,7 @@ struct RenderNodeView: View {
     /// Resolves a gradient node's color stops, falling back to two clear stops
     /// so an empty/unresolved gradient is harmless rather than invalid.
     private func gradientColors(_ node: RenderNode) -> [Color] {
-        let resolved = node.colors.compactMap { dslColor($0) }
-        return resolved.count >= 2 ? resolved : (resolved + [.clear, .clear])
+        styleResolver.gradient(node.colors).colors
     }
 
     /// Renders a shape, applying shape-level `.trim` then `.stroke` /
@@ -354,12 +402,22 @@ struct RenderNodeView: View {
     /// from the generic modifier pass fills it.
     private func styledShape(_ shape: some Shape) -> AnyView {
         var resolved = AnyShape(shape)
-        if let trim = node.modifiers.first(where: { $0.name == "trim" }) {
+        let renderedModifiers = node.modifiers.compactMap {
+            $0.normalizedRenderedEffect(
+                on: node.kind,
+                using: styleResolver
+            )
+        }
+        if let trim = renderedModifiers.first(where: {
+            $0.renderedKind == .trim
+        }) {
             resolved = AnyShape(resolved.trim(from: CGFloat(modDouble(trim, "from") ?? 0),
                                               to: CGFloat(modDouble(trim, "to") ?? 1)))
         }
-        if let stroke = node.modifiers.first(where: { $0.name == "stroke" || $0.name == "strokeBorder" }) {
-            let color = dslColor(clean(stroke.firstValue)) ?? .secondary
+        if let stroke = renderedModifiers.first(where: {
+            $0.renderedKind == .stroke || $0.renderedKind == .strokeBorder
+        }) {
+            let color = styleResolver.color(stroke.firstValue) ?? .secondary
             let width = modDouble(stroke, "lineWidth") ?? 1
             return AnyView(resolved.stroke(color, lineWidth: CGFloat(width)))
         }
@@ -371,11 +429,17 @@ struct RenderNodeView: View {
     @ViewBuilder
     private func modifierChildren(_ modifier: RenderModifier) -> some View {
         if modifier.children.count == 1 {
-            RenderNodeView(node: modifier.children[0])
+            RenderNodeView(
+                node: modifier.children[0],
+                styleResolver: styleResolver
+            )
         } else {
             ZStack {
                 ForEach(Array(modifier.children.enumerated()), id: \.offset) { _, child in
-                    RenderNodeView(node: child)
+                    RenderNodeView(
+                        node: child,
+                        styleResolver: styleResolver
+                    )
                 }
             }
         }
@@ -383,18 +447,9 @@ struct RenderNodeView: View {
 
     /// A labeled `Double` argument of a modifier (e.g. `.shadow(radius: 4)`).
     private func modDouble(_ modifier: RenderModifier, _ label: String) -> Double? {
-        modifier.value(label).map { clean($0) ?? $0 }.flatMap { Double($0) }
-    }
-
-    /// Degrees from an angle token like `.degrees(45)` or `.radians(1.5)`.
-    private func angleDegrees(_ token: String?) -> Double? {
-        guard let token else { return nil }
-        if let open = token.firstIndex(of: "("), let close = token.lastIndex(of: ")") {
-            let inner = String(token[token.index(after: open)..<close])
-            guard let value = Double(inner.trimmingCharacters(in: .whitespaces)) else { return nil }
-            return token.contains("radians") ? value * 180 / .pi : value
-        }
-        return Double(token)
+        modifier.value(label)
+            .map { styleResolver.cleanToken($0) ?? $0 }
+            .flatMap(Double.init)
     }
 
     /// Resolves a `.clipShape(<Shape>())` token to a clip.
@@ -416,7 +471,9 @@ struct RenderNodeView: View {
             if raw == ".infinity" || raw == "infinity" { return .infinity }
             return Double(raw).map { CGFloat($0) }
         }
-        let alignment = frameAlignment(clean(modifier.value("alignment")))
+        let alignment = frameAlignment(
+            styleResolver.cleanToken(modifier.value("alignment"))
+        )
         return AnyView(
             view.frame(
                 minWidth: dim("minWidth"),
@@ -473,14 +530,4 @@ struct RenderNodeView: View {
         return dslFontWeight(String(rawWeight))
     }
 
-    /// Strips a leading `.` (member token) or surrounding quotes from a raw
-    /// modifier argument so color/font/alignment tokens resolve.
-    private func clean(_ raw: String?) -> String? {
-        guard let raw else { return nil }
-        if raw.hasPrefix(".") { return String(raw.dropFirst()) }
-        if raw.count >= 2, raw.hasPrefix("\""), raw.hasSuffix("\"") {
-            return String(raw.dropFirst().dropLast())
-        }
-        return raw
-    }
 }

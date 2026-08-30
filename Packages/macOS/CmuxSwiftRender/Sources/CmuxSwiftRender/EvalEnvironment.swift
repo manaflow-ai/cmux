@@ -19,15 +19,22 @@ public final class EvalEnvironment {
     private var functions: [String: FunctionDeclSyntax]
     private let parent: EvalEnvironment?
     private let externalResolver: ((String) -> SwiftValue?)?
+    private let memberAccessRecorder: EvaluationMemberAccessRecorder?
     /// Shared across the whole scope chain; bounds interpreter recursion so
     /// pathological authored source can't overflow the stack.
     let budget: RecursionBudget
 
-    init(values: [String: SwiftValue] = [:], parent: EvalEnvironment? = nil) {
+    /// Creates a lexical scope that inherits diagnostics and budget from its parent.
+    init(
+        values: [String: SwiftValue] = [:],
+        parent: EvalEnvironment? = nil,
+        memberAccessRecorder: EvaluationMemberAccessRecorder? = nil
+    ) {
         self.values = values
         self.functions = [:]
         self.parent = parent
         self.externalResolver = nil
+        self.memberAccessRecorder = parent?.memberAccessRecorder ?? memberAccessRecorder
         self.budget = parent?.budget ?? RecursionBudget()
     }
 
@@ -41,6 +48,7 @@ public final class EvalEnvironment {
         self.functions = [:]
         self.parent = nil
         self.externalResolver = resolver
+        self.memberAccessRecorder = nil
         self.budget = RecursionBudget()
     }
 
@@ -63,6 +71,11 @@ public final class EvalEnvironment {
     /// Looks up a user-defined function by name, walking up the scope chain.
     public func lookupFunction(_ name: String) -> FunctionDeclSyntax? {
         functions[name] ?? parent?.lookupFunction(name)
+    }
+
+    /// Records an executed member read when its base value was selected for coverage.
+    func recordMemberAccess(_ name: String, on baseValue: SwiftValue) {
+        memberAccessRecorder?.record(name, on: baseValue)
     }
 
     /// A fresh child scope for a loop body, `if` branch, or closure.

@@ -36,6 +36,48 @@ import Testing
         #expect(node?.reorder?.itemIds == ["w1", "w2"])
     }
 
+    @Test func diagnosticsAttributeMembersOnlyToTrackedBaseValues() {
+        let workspace = SwiftValue.object([
+            "branch": .string("workspace-branch"),
+            "dirty": .bool(true),
+            "tabs": .array([
+                .object(["branch": .string("tab-branch")]),
+            ]),
+        ])
+
+        let evaluation = interp.evaluateWithDiagnostics(
+            """
+            VStack {
+                Text(workspace.branch)
+                Text(workspace["dirty"])
+                ForEach(workspace.tabs) { tab in
+                    Text(tab["branch"])
+                }
+            }
+            """,
+            state: ["workspace": workspace],
+            trackingMemberAccessesOn: workspace
+        )
+
+        #expect(evaluation.accessedTrackedMemberNames == ["branch", "dirty", "tabs"])
+    }
+
+    @Test func diagnosticsDoNotRecordMembersFromUnresolvedBaseValues() {
+        let workspace = SwiftValue.object([
+            "branch": .string("workspace-branch"),
+        ])
+
+        let evaluation = interp.evaluateWithDiagnostics(
+            """
+            Text(missing.branch)
+            """,
+            state: ["workspace": workspace],
+            trackingMemberAccessesOn: workspace
+        )
+
+        #expect(evaluation.accessedTrackedMemberNames.isEmpty)
+    }
+
     @Test func parsesHSplitViewColumns() {
         let node = interp.evaluate("""
         HSplitView {

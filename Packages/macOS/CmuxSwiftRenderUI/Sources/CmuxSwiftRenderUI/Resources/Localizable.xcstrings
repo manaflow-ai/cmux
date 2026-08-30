@@ -51,6 +51,57 @@
           }
         }
       }
+    },
+    "sidebar.custom.validation.emptyRender": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidebar rendered no visible content."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーに表示可能な内容がレンダリングされませんでした。"
+          }
+        }
+      }
+    },
+    "sidebar.custom.validation.emptyRenderWithoutOptionalData": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidebar rendered no visible content when optional workspace data was absent."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オプションのワークスペースデータがない場合、サイドバーに表示可能な内容がレンダリングされませんでした。"
+          }
+        }
+      }
+    },
+    "sidebar.custom.validation.noOptionalDataCoverage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidebar output did not change when its referenced optional workspace data was removed."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "参照されているオプションのワークスペースデータを削除しても、サイドバーの出力が変化しませんでした。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -20,6 +20,13 @@ public struct CustomSidebarValidationReport: Equatable, Sendable {
         entries.count - validCount
     }
 
+    /// Total number of non-blocking warning messages.
+    public var warningCount: Int {
+        entries.reduce(into: 0) { count, entry in
+            count += entry.warningMessages.count
+        }
+    }
+
     /// Names of every sidebar included in the report.
     public var names: [String] {
         entries.map(\.name)
