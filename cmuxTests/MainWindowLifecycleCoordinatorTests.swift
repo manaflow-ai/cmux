@@ -339,8 +339,14 @@ struct MainWindowLifecycleCoordinatorTests {
         let coordinator = MainWindowLifecycleCoordinator()
         let eligibleWindowId = UUID()
         let remoteWindowId = UUID()
-        let eligibleManager = TabManager(autoWelcomeIfNeeded: false)
-        let remoteManager = TabManager(autoWelcomeIfNeeded: false)
+        let eligibleManager = TabManager(
+            autoWelcomeIfNeeded: false,
+            createInitialWorkspace: false
+        )
+        let remoteManager = TabManager(
+            autoWelcomeIfNeeded: false,
+            createInitialWorkspace: false
+        )
         defer {
             tearDown(eligibleManager)
             tearDown(remoteManager)

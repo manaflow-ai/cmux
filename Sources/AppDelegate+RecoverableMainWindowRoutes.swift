@@ -916,6 +916,18 @@ extension AppDelegate {
         guard mainWindowLifecycleCoordinator.transitionToOrphaned(route, from: context) else {
             return false
         }
+        // The coordinator removes the context from its registered lookup as
+        // soon as it enters the orphan phase. Move the context-owned observer
+        // to the route before that context can be released; otherwise a
+        // recovered window can receive `willClose` with no owner left to
+        // finalize its route and terminal graph.
+        if let window {
+            route.closeObserver = context.closeObserver
+                ?? WindowCloseObserver(window: window) { [weak self] closingWindow in
+                    self?.unregisterMainWindow(closingWindow)
+                }
+            context.closeObserver = nil
+        }
         context.tabManager.installRecoverableMainWindowRouteOwnerRegistration(
             RecoverableMainWindowRouteOwnerRegistration(
                 appDelegate: self,
