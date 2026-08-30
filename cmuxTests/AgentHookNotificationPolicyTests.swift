@@ -112,6 +112,43 @@ struct AgentHookNotificationPolicyTests {
         }
     }
 
+    @Test func localCapacityProseIsNotAnUngatedProviderError() {
+        let message = "The local job queue is at capacity"
+        let classifier = AgentHookAbnormalStopClassifier()
+
+        #expect(classifier.abnormalStopClass(signal: "Stop", message: message) == nil)
+        #expect(
+            AgentHookNotificationClassifier.classify(
+                displayName: "Grok",
+                signal: "Stop",
+                message: message,
+                isFallback: false
+            ).notifyCategory != .other
+        )
+    }
+
+    @Test func genericStopReasonIsClassifiedWhenMessageIsAbsent() throws {
+        let input = ClaudeHookParsedInput(
+            rawObject: ["terminationReason": "rate limit"],
+            object: ["terminationReason": "rate limit"],
+            rawFallback: nil,
+            sessionId: nil,
+            turnId: nil,
+            cwd: nil,
+            transcriptPath: nil
+        )
+        let def = try #require(CMUXCLI.agentDefs.first { $0.name == "grok" })
+        let summary = CMUXCLI(args: []).summarizeGenericAbnormalStop(
+            def: def,
+            input: input,
+            lastMessage: nil
+        )
+
+        #expect(summary?.status == .error)
+        #expect(summary?.notifyCategory == .other)
+        #expect(summary?.subtitle == "Rate limited")
+    }
+
     @Test func providerErrorBodyRedactsDiagnostics() throws {
         let raw = #"API Error: request_id=abc123 Authorization: Bearer secret-value stack trace at Provider.call() payload={"token":"secret"}"#
         let summary = try #require(

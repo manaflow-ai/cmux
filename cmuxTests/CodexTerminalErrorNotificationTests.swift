@@ -69,6 +69,7 @@ struct CodexTerminalErrorNotificationTests {
         {"timestamp":"2026-07-15T07:55:29.500Z","type":"event_msg","payload":{"type":"task_started","turn_id":"\(turnID)","started_at":1784102129}}
         {"timestamp":"2026-07-15T07:55:29.600Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Partial response"}]}}
         {"timestamp":"2026-07-15T07:55:29.804Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"\(turnID)","last_agent_message":"Partial response","error":{"message":"Selected model is at capacity. Please try a different model.","codex_error_info":"server_overloaded"}}}
+        {"timestamp":"2026-07-15T07:55:29.900Z","type":"response_item","payload":{"type":"message","role":"assistant","turn_id":"turn-later-unrelated","content":[{"type":"output_text","text":"Later unrelated turn"}]}}
         """.write(to: transcriptURL, atomically: true, encoding: .utf8)
 
         let server = try CodexTerminalErrorSocketServer(
