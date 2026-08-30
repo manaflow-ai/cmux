@@ -307,11 +307,13 @@ extension AppDelegate {
         action: KeyboardShortcutSettings.Action,
         event: NSEvent
     ) -> Bool {
-        performFocusedDockCommand(
-            command,
+        guard let store = focusedDockStoreForShortcut(
             action: action,
             preferredWindow: event.window
-        )
+        ) else {
+            return false
+        }
+        return performDockCommand(command, in: store)
     }
 
     /// Executes a Dock-owned command from a menu or another synchronous entry
@@ -324,12 +326,24 @@ extension AppDelegate {
         action: KeyboardShortcutSettings.Action,
         preferredWindow: NSWindow?
     ) -> Bool {
-        guard let store = focusedDockStoreForShortcut(
-            action: action,
+        guard case .dockScoped = action.dockShortcutRoutingDisposition else {
+            assertionFailure(
+                "Non-Dock-scoped command requested the Dock gate: " + action.rawValue
+            )
+            return false
+        }
+        guard let store = existingFocusedDockStoreForShortcut(
             preferredWindow: preferredWindow
         ) else {
             return false
         }
+        return performDockCommand(command, in: store)
+    }
+
+    private func performDockCommand(
+        _ command: DockShortcutCommand,
+        in store: DockSplitStore
+    ) -> Bool {
         if command.isFocusHistoryNavigation, !store.focusHistoryIncludesPanesAndTabs {
             return false
         }

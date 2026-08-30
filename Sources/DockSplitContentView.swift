@@ -100,6 +100,7 @@ private final class DockPointerInteractionHostView: NSView {
     private var globalMouseUpMonitor: Any?
     private var windowResignKeyObserver: NSObjectProtocol?
     private var deferredInteractionClearTask: Task<Void, Never>?
+    private var trackingArea: NSTrackingArea?
 
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
@@ -110,6 +111,26 @@ private final class DockPointerInteractionHostView: NSView {
         // than leaving a token tied to the old one.
         stopMonitoring()
         installMonitorIfNeeded()
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let trackingArea {
+            removeTrackingArea(trackingArea)
+        }
+        let next = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect],
+            owner: self
+        )
+        addTrackingArea(next)
+        trackingArea = next
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        cancelInteractionClear()
+        store?.endUserDockInteraction()
     }
 
     func installMonitorIfNeeded() {

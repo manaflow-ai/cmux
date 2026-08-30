@@ -137,6 +137,7 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
     /// mutations, so they must consume this explicit UI token instead of
     /// inferring intent from `NSApp.currentEvent`.
     @ObservationIgnored private var pendingUserInteraction = false
+    @ObservationIgnored private var pendingUserInteractionStartedAt: TimeInterval?
     @ObservationIgnored var forceCloseDockTabIds: Set<TabID> = []
     @ObservationIgnored var pendingCloseConfirmDockTabIds: Set<TabID> = []
     @ObservationIgnored var tabCloseButtonCloseDockTabIds: Set<TabID> = []
@@ -868,16 +869,24 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
     func beginUserDockInteraction() {
         guard isVisibleInUI, scope == .global else { return }
         pendingUserInteraction = true
+        pendingUserInteractionStartedAt = ProcessInfo.processInfo.systemUptime
     }
 
     func endUserDockInteraction() {
         pendingUserInteraction = false
+        pendingUserInteractionStartedAt = nil
     }
 
     @discardableResult
     func consumeUserDockInteraction() -> Bool {
         guard pendingUserInteraction else { return false }
         pendingUserInteraction = false
+        let startedAt = pendingUserInteractionStartedAt
+        pendingUserInteractionStartedAt = nil
+        guard let startedAt,
+              ProcessInfo.processInfo.systemUptime - startedAt <= 2 else {
+            return false
+        }
         return true
     }
 
