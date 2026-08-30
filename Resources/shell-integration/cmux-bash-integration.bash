@@ -1433,14 +1433,13 @@ _cmux_watcher_parent_start_time() {
     kernel="$(/usr/sbin/sysctl -n "kern.proc.pid.$pid" 2>/dev/null | /usr/bin/od -An -tu4 2>/dev/null)"
     while read -r sec usec; do
         if [[ "$sec" =~ ^[0-9]+$ && "$usec" =~ ^[0-9]+$ && "$sec" -ge 1000000000 && "$sec" -le 3000000000 && "$usec" -lt 1000000 ]]; then
-            printf '%s%06d\n' "$sec" "$usec"
+            printf '%s\n' "$sec"
             return 0
         fi
     done < <(printf '%s\n' "$kernel" | awk '{ for (i=1;i<NF;i++) print $i, $(i+1) }')
     # Darwin's ps exposes process start time through `lstart`, which is a
     # locale-formatted string. Force the stable C locale and UTC timezone,
-    # then convert the five fields to a fixed-width numeric token before
-    # comparing.
+    # then convert the five fields to the same epoch-second token.
     raw="$(TZ=UTC LC_ALL=C /bin/ps -o lstart= -p "$pid" 2>/dev/null)" || return 1
     case "$raw" in *$'\n'*) return 1 ;; esac
     local -a words=()
@@ -1468,7 +1467,8 @@ _cmux_watcher_parent_start_time() {
         [0-9][0-9][0-9][0-9]) year="${words[4]}" ;;
         *) return 1 ;;
     esac
-    token="${year}${month}${day}${clock//:/}"
+    token="$(TZ=UTC LC_ALL=C /bin/date -j -u -f '%a %b %d %T %Y' "$raw" '+%s' 2>/dev/null)" || return 1
+    [[ "$token" =~ ^[0-9]+$ ]] || return 1
     _cmux_watcher_parent_identity_valid "$pid" "$token" || return 1
     printf '%s\n' "$token"
 }
@@ -1485,7 +1485,7 @@ _cmux_watcher_parent_identity_valid() {
     case "$identity" in
         ''|*[!0-9]*) return 1 ;;
     esac
-    (( ${#identity} == 16 || ${#identity} == 14 ))
+    (( ${#identity} >= 10 && ${#identity} <= 11 ))
 }
 
 _cmux_watcher_parent_alive() {
