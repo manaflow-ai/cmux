@@ -403,7 +403,7 @@ async fn observe_connection_tasks(connection_tasks: &mut JoinSet<()>) {
         if let Err(error) = joined
             && error.is_panic()
         {
-            eprintln!("Relay connection task panicked during shutdown: {error}");
+            eprintln!("Relay cleanup encountered an internal error.");
         }
     }
 }
@@ -1217,9 +1217,7 @@ async fn relay_session(
     // deadline for the final await instead of letting reconnect or process
     // shutdown wait forever.
     if !shutdown_connection_tasks(&mut connection_tasks, &connection_cancellation).await {
-        eprintln!(
-            "Graceful relay connection task shutdown exceeded {CONNECTION_TASK_SHUTDOWN_TIMEOUT:?}; forced abort was applied to remaining handlers."
-        );
+        eprintln!("Relay cleanup did not finish before its safety deadline.");
     }
 
     // This socket's attachments die with it; sessions persist, and the
