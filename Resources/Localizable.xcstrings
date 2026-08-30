@@ -40288,6 +40288,13 @@
         "ja": { "stringUnit": { "state": "translated", "value": "local-tmux には tmux が必要です。tmux をインストールするか、実行可能な tmux のパスを設定してください" } }
       }
     },
+    "cli.localTmux.error.tmuxAliasAttachOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "the tmux alias only supports attach; use local-tmux for other session operations" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "tmux エイリアスは attach のみをサポートします。他のセッション操作には local-tmux を使用してください" } }
+      }
+    },
     "cli.localTmux.error.targetNotFound": {
       "extractionState": "manual",
       "localizations": {
@@ -40434,13 +40441,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux local-tmux <start|attach|list|status|detach|close|cleanup> [session] [options]\n\nOpt-in local tmux sessions survive cmux quit, crash, and app updates. Ordinary cmux terminals are unchanged.\n\nstart <name> [--cwd <path>] [--command <shell>] [--detached]\nattach <name|--id <uuid>> [--workspace <id|ref|index>] [--focus <true|false>] [--headless]\nlist [--json]\nstatus <name|--id <uuid>> [--json]\ndetach <name|--id <uuid>> [--client <id> | --all]\nclose <name|--id <uuid>>\ncleanup [--prune]\n\nThe registry and tmux server socket live under ~/.cmux/local-tmux with user-only permissions. `attach --headless` hands the terminal directly to tmux for a client outside the cmux GUI."
+            "value": "Usage: cmux local-tmux <start|attach|list|status|detach|close|cleanup> [session] [options]\n\nOpt-in local tmux sessions survive cmux quit, crash, and app updates. Ordinary cmux terminals are unchanged.\n\nstart <name> [--cwd <path>] [--command <shell>] [--detached]\nattach <name|--id <uuid>> [--workspace <id|ref|index>] [--focus <true|false>] [--headless] [--new-client]\nlist [--json]\nstatus <name|--id <uuid>> [--json]\ndetach <name|--id <uuid>> [--client <id> | --all]\nclose <name|--id <uuid>>\ncleanup [--prune]\n\nThe registry and tmux server socket live under ~/.cmux/local-tmux with user-only permissions. `attach --headless` hands the terminal directly to tmux for a client outside the cmux GUI."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "使い方: cmux local-tmux <start|attach|list|status|detach|close|cleanup> [セッション] [オプション]\n\nオプトインしたローカル tmux セッションは cmux の終了、クラッシュ、アップデート後も維持されます。通常の cmux ターミナルの動作は変わりません。\n\nstart <name> [--cwd <path>] [--command <shell>] [--detached]\nattach <name|--id <uuid>> [--workspace <id|ref|index>] [--focus <true|false>] [--headless]\nlist [--json]\nstatus <name|--id <uuid>> [--json]\ndetach <name|--id <uuid>> [--client <id> | --all]\nclose <name|--id <uuid>>\ncleanup [--prune]\n\nレジストリと tmux サーバーソケットは ~/.cmux/local-tmux にユーザー専用権限で保存されます。`attach --headless` は cmux GUI 外のクライアントを tmux に直接接続します。"
+            "value": "使い方: cmux local-tmux <start|attach|list|status|detach|close|cleanup> [セッション] [オプション]\n\nオプトインしたローカル tmux セッションは cmux の終了、クラッシュ、アップデート後も維持されます。通常の cmux ターミナルの動作は変わりません。\n\nstart <name> [--cwd <path>] [--command <shell>] [--detached]\nattach <name|--id <uuid>> [--workspace <id|ref|index>] [--focus <true|false>] [--headless] [--new-client]\nlist [--json]\nstatus <name|--id <uuid>> [--json]\ndetach <name|--id <uuid>> [--client <id> | --all]\nclose <name|--id <uuid>>\ncleanup [--prune]\n\nレジストリと tmux サーバーソケットは ~/.cmux/local-tmux にユーザー専用権限で保存されます。`attach --headless` は cmux GUI 外のクライアントを tmux に直接接続します。"
           }
         }
       }

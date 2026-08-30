@@ -170,7 +170,12 @@ struct LocalTmuxExecutableResolver {
             "/usr/bin/tmux",
             "/bin/tmux",
         ],
-        isExecutable: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) }
+        isExecutable: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) },
+        isDirectory: (String) -> Bool = { path in
+            var directory = ObjCBool(false)
+            return FileManager.default.fileExists(atPath: path, isDirectory: &directory)
+                && directory.boolValue
+        }
     ) -> String? {
         var candidates: [String] = []
         if let environmentPath {
@@ -183,7 +188,9 @@ struct LocalTmuxExecutableResolver {
         candidates.append(contentsOf: commonPaths)
         var seen = Set<String>()
         return candidates.first { candidate in
-            seen.insert(candidate).inserted && isExecutable(candidate)
+            seen.insert(candidate).inserted
+                && !isDirectory(candidate)
+                && isExecutable(candidate)
         }
     }
 }

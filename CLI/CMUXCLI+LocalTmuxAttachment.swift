@@ -307,19 +307,28 @@ extension CMUXCLI {
         guard let windows = payload["windows"] as? [[String: Any]] else {
             throw CLIError(message: String(localized: "cli.localTmux.error.livenessUnavailable", defaultValue: "local-tmux could not verify the existing surface; no new client was created"))
         }
+        var surfaceProcesses: [[String: Any]]?
         for window in windows {
             for workspace in window["workspaces"] as? [[String: Any]] ?? [] {
                 for pane in workspace["panes"] as? [[String: Any]] ?? [] {
                     for surface in pane["surfaces"] as? [[String: Any]] ?? [] {
                         guard (surface["id"] as? String) == surfaceID else { continue }
-                        return localTmuxProcessTreeContainsTmux(
-                            surface["processes"] as? [[String: Any]] ?? []
-                        )
+                        surfaceProcesses = surface["processes"] as? [[String: Any]] ?? []
+                        break
                     }
+                    if surfaceProcesses != nil { break }
                 }
+                if surfaceProcesses != nil { break }
             }
+            if surfaceProcesses != nil { break }
         }
-        return false
+        guard let surfaceProcesses else {
+            throw CLIError(message: String(
+                localized: "cli.localTmux.error.livenessUnavailable",
+                defaultValue: "local-tmux could not verify the existing surface; no new client was created"
+            ))
+        }
+        return localTmuxProcessTreeContainsTmux(surfaceProcesses)
     }
 
     private func localTmuxProcessTreeContainsTmux(_ processes: [[String: Any]]) -> Bool {

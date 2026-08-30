@@ -114,5 +114,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertFalse(attach.timedOut, attach.stderr)
         XCTAssertEqual(attach.status, 0, attach.stderr)
         XCTAssertTrue(attach.stdout.contains(createdSurfaceID), attach.stdout)
+        let persisted = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: registryURL)) as? [String: Any]
+        )
+        let persistedSessions = try XCTUnwrap(persisted["sessions"] as? [[String: Any]])
+        XCTAssertEqual(persistedSessions.first?["surfaceID"] as? String, createdSurfaceID)
     }
 }

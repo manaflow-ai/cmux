@@ -168,7 +168,11 @@ extension CMUXCLI {
         } else {
             path = LocalTmuxExecutableResolver().resolve(environmentPath: environment["PATH"])
         }
-        guard let path, FileManager.default.isExecutableFile(atPath: path) else {
+        var executableIsDirectory = ObjCBool(false)
+        guard let path,
+              !FileManager.default.fileExists(atPath: path, isDirectory: &executableIsDirectory)
+                || !executableIsDirectory.boolValue,
+              FileManager.default.isExecutableFile(atPath: path) else {
             throw CLIError(message: String(localized: "cli.localTmux.error.tmuxMissing", defaultValue: "local-tmux requires tmux. Install tmux or configure an executable tmux path"), exitCode: 127)
         }
         let socketPath = registry.serverSocketURL.path

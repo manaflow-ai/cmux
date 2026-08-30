@@ -232,7 +232,7 @@ struct LocalTmuxInvocation {
     Ordinary cmux terminals are unchanged.
 
     start <name> [--cwd <path>] [--command <shell>] [--detached]
-    attach <name|--id <uuid>> [--workspace <id|ref|index>] [--focus <true|false>] [--headless]
+    attach <name|--id <uuid>> [--workspace <id|ref|index>] [--focus <true|false>] [--headless] [--new-client]
     list [--json]
     status <name|--id <uuid>> [--json]
     detach <name|--id <uuid>> [--client <id> | --all]

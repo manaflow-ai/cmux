@@ -25,7 +25,8 @@ cmux local-tmux attach work --headless
 ```
 
 The alias `cmux tmux attach work` is accepted for scripts that prefer the
-shorter tmux vocabulary.
+shorter tmux vocabulary. The alias is attach-only; use `cmux local-tmux` for
+session listing and lifecycle operations.
 
 ## Lifecycle and identity
 

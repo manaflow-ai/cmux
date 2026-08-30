@@ -5001,6 +5001,12 @@ struct CMUXCLI {
         // working while the GUI is quit (including during an app update).
         if command == "local-tmux" || command == "tmux" {
             let invocation = try LocalTmuxInvocation.parse(commandArgs)
+            if command == "tmux", invocation.action != .attach {
+                throw CLIError(message: String(
+                    localized: "cli.localTmux.error.tmuxAliasAttachOnly",
+                    defaultValue: "the tmux alias only supports attach; use local-tmux for other session operations"
+                ))
+            }
             if invocation.canRunWithoutCmux {
                 try runLocalTmuxOfflineCommand(
                     commandArgs: commandArgs,
