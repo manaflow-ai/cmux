@@ -844,6 +844,7 @@ impl WorkspaceRegistry {
             None,
             None,
         )
+        .map(|(commit, _)| commit)
     }
 
     pub fn commit_agent_projection_with_hook_state_and_sequence(
@@ -868,6 +869,7 @@ impl WorkspaceRegistry {
             Some(journal_sequence),
             None,
         )
+        .map(|(commit, _)| commit)
     }
 
     pub fn commit_agent_projection_with_hook_state_and_journal(
@@ -883,8 +885,8 @@ impl WorkspaceRegistry {
         validated: &crate::journal_kernel::ValidatedJournalIngress,
         origin: &str,
         idempotency_key: &str,
-    ) -> anyhow::Result<ResourcePatchCommit> {
-        self.commit_agent_projection_inner(
+    ) -> anyhow::Result<(ResourcePatchCommit, u64)> {
+        let (commit, echo_sequence) = self.commit_agent_projection_inner(
             mutation,
             fingerprint,
             expected_revision,
@@ -894,7 +896,10 @@ impl WorkspaceRegistry {
             hook_state,
             None,
             Some((ingress, validated, origin, idempotency_key)),
-        )
+        )?;
+        let echo_sequence =
+            echo_sequence.context("agent journal echo did not produce a committed sequence")?;
+        Ok((commit, echo_sequence))
     }
 
     pub fn replay_resource_patch(
@@ -930,6 +935,7 @@ impl WorkspaceRegistry {
             None,
             None,
         )
+        .map(|(commit, _)| commit)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -949,7 +955,7 @@ impl WorkspaceRegistry {
             &str,
             &str,
         )>,
-    ) -> anyhow::Result<ResourcePatchCommit> {
+    ) -> anyhow::Result<(ResourcePatchCommit, Option<u64>)> {
         const OPERATION: &str = "agent.report";
         validate_identifier("mutation id", &mutation.id)?;
         validate_identifier("mutation origin", &mutation.origin)?;
@@ -960,7 +966,7 @@ impl WorkspaceRegistry {
         let fingerprint = canonical_json(fingerprint)?;
         let result_json = canonical_json(result)?;
         let tx = self.connection.transaction()?;
-        let journal_sequence =
+        let echo_sequence =
             if let Some((ingress, validated, origin, idempotency_key)) = journal_echo {
                 Some(
                     super::journal_extensions::append_journal_ingress_transaction(
@@ -973,14 +979,16 @@ impl WorkspaceRegistry {
                     .sequence,
                 )
             } else {
-                journal_sequence
+                None
             };
         if let Some(replayed) = resource_patch_replay(&tx, mutation, OPERATION, &fingerprint)? {
             if let Some(sequence) = journal_sequence {
                 advance_agent_hook_apply_cursor_transaction(&tx, sequence)?;
+            }
+            if journal_sequence.is_some() || echo_sequence.is_some() {
                 tx.commit()?;
             }
-            return Ok(replayed);
+            return Ok((replayed, echo_sequence));
         }
         let terminal_is_live = tx
             .query_row(
@@ -1068,7 +1076,10 @@ impl WorkspaceRegistry {
             advance_agent_hook_apply_cursor_transaction(&tx, sequence)?;
         }
         tx.commit()?;
-        Ok(ResourcePatchCommit { revision, result: result.clone(), replayed: false })
+        Ok((
+            ResourcePatchCommit { revision, result: result.clone(), replayed: false },
+            echo_sequence,
+        ))
     }
 
     pub fn terminal_resource_id(

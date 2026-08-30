@@ -9729,7 +9729,7 @@ impl Mux {
                 "value":public_value,
             }])
         };
-        let commit = match (journal_sequence, echo_ingress) {
+        let (commit, echo_sequence) = match (journal_sequence, echo_ingress) {
             (None, Some((ingress, key))) => {
                 let validated = self.journal_kernel.validate_ingress(ingress)?;
                 registry.commit_agent_projection_with_hook_state_and_journal(
@@ -9746,25 +9746,31 @@ impl Mux {
                     key,
                 )?
             }
-            (Some(sequence), _) => registry.commit_agent_projection_with_hook_state_and_sequence(
-                mutation,
-                fingerprint,
-                expected_revision,
-                &terminal_id,
-                &value,
-                &deltas,
-                effective_hook_state,
-                sequence,
-            )?,
-            (None, None) => registry.commit_agent_projection_with_hook_state(
-                mutation,
-                fingerprint,
-                expected_revision,
-                &terminal_id,
-                &value,
-                &deltas,
-                effective_hook_state,
-            )?,
+            (Some(sequence), _) => (
+                registry.commit_agent_projection_with_hook_state_and_sequence(
+                    mutation,
+                    fingerprint,
+                    expected_revision,
+                    &terminal_id,
+                    &value,
+                    &deltas,
+                    effective_hook_state,
+                    sequence,
+                )?,
+                None,
+            ),
+            (None, None) => (
+                registry.commit_agent_projection_with_hook_state(
+                    mutation,
+                    fingerprint,
+                    expected_revision,
+                    &terminal_id,
+                    &value,
+                    &deltas,
+                    effective_hook_state,
+                )?,
+                None,
+            ),
         };
         if !commit.replayed {
             if let (Some(direct_state), Some(sequence_guard)) =
@@ -9784,9 +9790,8 @@ impl Mux {
         if !commit.replayed {
             records.insert(terminal_id.clone(), record.clone());
         }
-        let echo_fold_sequence = echo_ingress
-            .filter(|_| !commit.replayed)
-            .and_then(|_| registry.agent_hook_apply_cursor().ok());
+        let echo_fold_sequence =
+            echo_ingress.filter(|_| !commit.replayed).and_then(|_| echo_sequence);
         drop(records);
         drop(state);
         drop(registry);
@@ -24291,10 +24296,7 @@ mod tests {
             .append_journal_ingress(&ingress, &validated, "unapplied-hook", "hook-1")
             .unwrap();
         assert_eq!(hook_commit.sequence, 1);
-        assert_eq!(
-            mux.workspace_registry.lock().unwrap().agent_hook_apply_cursor().unwrap(),
-            0
-        );
+        assert_eq!(mux.workspace_registry.lock().unwrap().agent_hook_apply_cursor().unwrap(), 0);
 
         mux.report_agent(surface.id, AgentState::Working, AgentSource::Socket, Some("poll".into()))
             .unwrap();
