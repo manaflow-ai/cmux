@@ -813,6 +813,7 @@ mod tests {
         resized: Vec<(u16, u16)>,
         pause_calls: usize,
         resume_calls: usize,
+        paused: bool,
         killed: bool,
     }
 
@@ -823,7 +824,13 @@ mod tests {
 
     impl FakePty {
         fn emit(&self, text: &str) {
-            let sink = self.state.lock().unwrap().on_data.clone();
+            let (sink, paused) = {
+                let state = self.state.lock().unwrap();
+                (state.on_data.clone(), state.paused)
+            };
+            if paused {
+                return;
+            }
             if let Some(sink) = sink {
                 sink(Bytes::copy_from_slice(text.as_bytes()));
             }
@@ -844,10 +851,14 @@ mod tests {
             self.state.lock().unwrap().resized.push((cols, rows));
         }
         fn pause(&self) {
-            self.state.lock().unwrap().pause_calls += 1;
+            let mut state = self.state.lock().unwrap();
+            state.pause_calls += 1;
+            state.paused = true;
         }
         fn resume(&self) {
-            self.state.lock().unwrap().resume_calls += 1;
+            let mut state = self.state.lock().unwrap();
+            state.resume_calls += 1;
+            state.paused = false;
         }
         fn kill(&self) {
             self.state.lock().unwrap().killed = true;
@@ -1093,15 +1104,16 @@ mod tests {
         }
     }
 
-    fn test_connection(
+    fn test_connection_with_id(
         rig: &Rig,
+        pty_id: &str,
     ) -> (Arc<Connection>, mpsc::Receiver<WriterMessage>, watch::Receiver<bool>) {
         let (writer_tx, writer_rx) = mpsc::channel(WRITER_QUEUE_CAPACITY);
         let overflow_permit = writer_tx.clone().try_reserve_owned().expect("reserve overflow slot");
         let end_permit = writer_tx.clone().try_reserve_owned().expect("reserve End slot");
         let (flow_tx, flow_rx) = watch::channel(false);
         let connection = Arc::new(Connection {
-            pty_id: "test-pty".to_owned(),
+            pty_id: pty_id.to_owned(),
             manager: Arc::clone(&rig.manager),
             writer_tx,
             overflow_permit: Mutex::new(Some(overflow_permit)),
@@ -1118,19 +1130,33 @@ mod tests {
         (connection, writer_rx, flow_rx)
     }
 
-    async fn attach_test_pty(rig: &Rig, connection: &Arc<Connection>) -> FakePty {
+    fn test_connection(
+        rig: &Rig,
+    ) -> (Arc<Connection>, mpsc::Receiver<WriterMessage>, watch::Receiver<bool>) {
+        test_connection_with_id(rig, "test-pty")
+    }
+
+    async fn attach_test_pty_with_session(
+        rig: &Rig,
+        connection: &Arc<Connection>,
+        session: &str,
+    ) -> FakePty {
         connection.open_sent.store(true, Ordering::SeqCst);
         let context = connection.frame_context();
         let open = json!({
             "version": PTY_PROTOCOL_VERSION,
             "type": "pty_open",
             "ptyId": connection.pty_id,
-            "session": "flow-test",
+            "session": session,
             "cols": 80,
             "rows": 24,
         });
         rig.manager.handle_frame(&open, &context).await;
         spawned_pty(rig).await
+    }
+
+    async fn attach_test_pty(rig: &Rig, connection: &Arc<Connection>) -> FakePty {
+        attach_test_pty_with_session(rig, connection, "flow-test").await
     }
 
     #[tokio::test]
@@ -1214,6 +1240,43 @@ mod tests {
             .expect("flow worker deadline")
             .expect("flow worker join");
         assert_eq!(pty.state.lock().unwrap().pause_calls, 1);
+        rig.cancel.cancel();
+    }
+
+    #[tokio::test]
+    async fn overflow_close_resumes_shared_shell_for_other_viewer() {
+        let rig = rig().await;
+        let (slow, _slow_writer_rx, slow_flow_rx) = test_connection_with_id(&rig, "slow-pty");
+        let (other, mut other_writer_rx, _other_flow_rx) =
+            test_connection_with_id(&rig, "other-pty");
+        let pty = attach_test_pty_with_session(&rig, &slow, "shared-flow-test").await;
+        let _ = attach_test_pty_with_session(&rig, &other, "shared-flow-test").await;
+
+        let flow = spawn_flow_worker(Arc::clone(&slow), slow.frame_context(), slow_flow_rx);
+        slow.reject_due_to_backpressure();
+        tokio::time::timeout(FLOW_DRAIN_TIMEOUT, flow)
+            .await
+            .expect("flow worker deadline")
+            .expect("flow worker join");
+        assert!(pty.state.lock().unwrap().paused);
+
+        let close = json!({
+            "version": PTY_PROTOCOL_VERSION,
+            "type": "pty_close",
+            "ptyId": slow.pty_id,
+        });
+        rig.manager.handle_frame(&close, &slow.frame_context()).await;
+        let state = pty.state.lock().unwrap();
+        assert!(!state.paused, "detaching the overflowed viewer must resume the shell");
+        assert_eq!(state.resume_calls, 1);
+        drop(state);
+
+        while other_writer_rx.try_recv().is_ok() {}
+        pty.emit("after detach");
+        match other_writer_rx.try_recv().expect("other viewer output") {
+            WriterMessage::Frame(frame) => assert_eq!(&frame[HEADER_BYTES..], b"after detach"),
+            WriterMessage::End => panic!("other viewer detached unexpectedly"),
+        }
         rig.cancel.cancel();
     }
 
