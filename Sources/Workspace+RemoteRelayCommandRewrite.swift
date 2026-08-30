@@ -93,6 +93,7 @@ extension Workspace {
             params.removeValue(forKey: "_cmux_remote_workspace_id")
             params.removeValue(forKey: "_cmux_remote_relay_authentication_code")
             params.removeValue(forKey: "_cmux_remote_relay_request_authentication_code")
+            params.removeValue(forKey: WorkspaceRemoteRelayCommandRewriter.callerWorkspaceIDKey)
             didRewrite = true
         }
         if !params.isEmpty || request["params"] != nil || remoteWorkspaceID != nil {
@@ -105,6 +106,13 @@ extension Workspace {
             ) as? [String: Any] ?? params
             if let remoteWorkspaceID {
                 params["_cmux_remote_workspace_id"] = remoteWorkspaceID.uuidString
+                if method == "notification.create_for_caller" {
+                    // The relay owner is the security scope for caller TTY
+                    // resolution. The remote process cannot widen it with a
+                    // stale or forged workspace value.
+                    params[WorkspaceRemoteRelayCommandRewriter.callerWorkspaceIDKey] =
+                        remoteWorkspaceID.uuidString
+                }
                 didRewrite = true
             }
             request["params"] = params

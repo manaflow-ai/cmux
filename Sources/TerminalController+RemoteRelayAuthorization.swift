@@ -40,6 +40,7 @@ extension TerminalController {
         "agent.resolve_delivery_target",
         "notification.create",
         "notification.create_for_target",
+        "notification.create_for_caller",
     ]
 
     private nonisolated static let remoteRelayWorkspaceRequiredMethods: Set<String> = [
@@ -62,6 +63,7 @@ extension TerminalController {
         "surface.ports_kick",
         "notification.create",
         "notification.create_for_target",
+        "notification.create_for_caller",
     ]
 
     private nonisolated static let remoteRelaySurfaceRequiredMethods: Set<String> = [
@@ -245,6 +247,12 @@ extension TerminalController {
 
         var sanitizedParams = request.params
         sanitizedParams.removeValue(forKey: WorkspaceRemoteRelayCommandRewriter.requestAuthenticationCodeKey)
+        if request.method == "notification.create_for_caller" {
+            // Caller TTY resolution may recover a moved pane, but an
+            // authenticated relay must never resolve outside its owner.
+            sanitizedParams[WorkspaceRemoteRelayCommandRewriter.callerWorkspaceIDKey] =
+                .string(snapshot.ownerWorkspaceID.uuidString)
+        }
         let sanitizedRequest = ControlRequest(
             id: request.id,
             method: request.method,

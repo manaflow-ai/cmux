@@ -82,9 +82,13 @@ extension TerminalController {
 
         let preferredWorkspaceId = v2UUID(params, "preferred_workspace_id")
         let preferredSurfaceId = v2UUID(params, "preferred_surface_id")
+        let callerWorkspaceId = v2UUID(
+            params,
+            WorkspaceRemoteRelayCommandRewriter.callerWorkspaceIDKey
+        )
         let callerTTY = stringParam(params, "caller_tty")
         let preferTTY = boolParam(params, "prefer_tty") ?? false
-        let title = stringParam(params, "title") ?? "Notification"
+        let title = stringParam(params, "title") ?? Self.defaultNotificationTitle
         let subtitle = stringParam(params, "subtitle") ?? ""
         let body = stringParam(params, "body") ?? ""
         let replyShape = TerminalNotificationReplyShape(wire: stringParam(params, "reply_shape"))
@@ -95,7 +99,8 @@ extension TerminalController {
                 preferredWorkspaceId: preferredWorkspaceId,
                 preferredSurfaceId: preferredSurfaceId,
                 callerTTY: callerTTY,
-                preferTTY: preferTTY
+                preferTTY: preferTTY,
+                callerWorkspaceId: callerWorkspaceId
             )
             guard let target else {
                 result = .err(code: "not_found", message: "Workspace not found", data: nil)
@@ -127,7 +132,8 @@ extension TerminalController {
         preferredWorkspaceId: UUID?,
         preferredSurfaceId: UUID?,
         callerTTY: String?,
-        preferTTY: Bool
+        preferTTY: Bool,
+        callerWorkspaceId: UUID? = nil
     ) -> TerminalCallerNotificationTarget? {
         guard let fallback = activeTabManagerForCallerNotification() else { return nil }
         guard let target = Self.callerNotificationTarget(
@@ -135,7 +141,8 @@ extension TerminalController {
             preferredWorkspaceId: preferredWorkspaceId,
             preferredSurfaceId: preferredSurfaceId,
             callerTTY: Self.normalizedTTYName(callerTTY),
-            preferTTY: preferTTY
+            preferTTY: preferTTY,
+            callerWorkspaceId: callerWorkspaceId
         ) else { return nil }
         return TerminalCallerNotificationTarget(
             workspaceId: target.workspace.id,
@@ -148,18 +155,36 @@ extension TerminalController {
         preferredWorkspaceId: UUID?,
         preferredSurfaceId: UUID?,
         callerTTY: String?,
-        preferTTY: Bool
+        preferTTY: Bool,
+        callerWorkspaceId: UUID?
     ) -> TerminalCallerTarget? {
+        func scopedTarget(_ target: TerminalCallerTarget?) -> TerminalCallerTarget? {
+            guard let target else { return nil }
+            guard callerWorkspaceId == nil || target.workspace.id == callerWorkspaceId else {
+                return nil
+            }
+            return target
+        }
+
+        let scopedWorkspaceId = callerWorkspaceId ?? preferredWorkspaceId
         let managers = candidateManagers(
             fallback: fallback,
-            preferredWorkspaceId: preferredWorkspaceId,
+            preferredWorkspaceId: scopedWorkspaceId,
             preferredSurfaceId: preferredSurfaceId
         )
-        let ttyTarget = callerTTY.flatMap { targetForTTY($0, tabManagers: managers) }
-        if preferTTY, let ttyTarget { return ttyTarget }
+        let ttyTarget = callerTTY.flatMap {
+            targetForTTY(
+                $0,
+                tabManagers: managers,
+                preferredWorkspaceId: scopedWorkspaceId,
+                preferredSurfaceId: preferredSurfaceId,
+                searchAllWorkspaces: preferTTY && callerWorkspaceId == nil
+            )
+        }
+        if preferTTY, let ttyTarget { return scopedTarget(ttyTarget) }
 
-        if let preferredWorkspaceId,
-           let workspace = workspace(id: preferredWorkspaceId, tabManagers: managers) {
+        if let scopedWorkspaceId,
+           let workspace = workspace(id: scopedWorkspaceId, tabManagers: managers) {
             if let preferredSurfaceId,
                let target = workspace.surfaceOwnershipTarget(for: preferredSurfaceId) {
                 return TerminalCallerTarget(workspace: workspace, surfaceId: target.surfaceID)
@@ -170,29 +195,32 @@ extension TerminalController {
             // workspace's focused pane.
             if let preferredSurfaceId,
                let surfaceTarget = targetForSurface(preferredSurfaceId, tabManagers: managers) {
-                return surfaceTarget
+                return scopedTarget(surfaceTarget)
             }
-            if let ttyTarget, ttyTarget.workspace.id == workspace.id { return ttyTarget }
+            if let ttyTarget, ttyTarget.workspace.id == workspace.id {
+                return scopedTarget(ttyTarget)
+            }
             let focusedSurfaceID = workspace.focusedPanelId.flatMap {
                 workspace.surfaceOwnershipTarget(for: $0)?.surfaceID
             }
             return TerminalCallerTarget(workspace: workspace, surfaceId: focusedSurfaceID)
         }
 
-        if let ttyTarget { return ttyTarget }
+        if let ttyTarget { return scopedTarget(ttyTarget) }
         if let preferredSurfaceId,
            let surfaceTarget = targetForSurface(preferredSurfaceId, tabManagers: managers) {
-            return surfaceTarget
+            return scopedTarget(surfaceTarget)
         }
         if let preferredSurfaceId,
            let selected = selectedWorkspace(in: managers),
            let target = selected.surfaceOwnershipTarget(for: preferredSurfaceId) {
-            return TerminalCallerTarget(workspace: selected, surfaceId: target.surfaceID)
+            return scopedTarget(TerminalCallerTarget(workspace: selected, surfaceId: target.surfaceID))
         }
         guard let selected = selectedWorkspace(in: managers) else { return nil }
         let focusedSurfaceID = selected.focusedPanelId.flatMap {
             selected.surfaceOwnershipTarget(for: $0)?.surfaceID
         }
+        guard callerWorkspaceId == nil || selected.id == callerWorkspaceId else { return nil }
         return TerminalCallerTarget(workspace: selected, surfaceId: focusedSurfaceID)
     }
 
@@ -232,19 +260,102 @@ extension TerminalController {
         return nil
     }
 
-    private static func targetForTTY(
-        _ ttyName: String,
-        tabManagers: [TabManager]
-    ) -> TerminalCallerTarget? {
-        for manager in tabManagers {
-            for workspace in manager.tabs {
-                for (surfaceId, candidateTTY) in workspace.surfaceTTYNames
-                    where workspace.panels[surfaceId] != nil && normalizedTTYName(candidateTTY) == ttyName {
-                    return TerminalCallerTarget(workspace: workspace, surfaceId: surfaceId)
+    /// Returns the smallest workspace scope that can contain a caller TTY.
+    /// Relay notifications carry stable workspace/surface identities, so the
+    /// normal path only inspects that workspace instead of walking every
+    /// workspace in every window. Identity-less callers retain the full scan
+    /// needed by the legacy identify-caller path.
+    private static func ttyCandidateWorkspaces(
+        preferredWorkspaceId: UUID?,
+        preferredSurfaceId: UUID?,
+        tabManagers: [TabManager],
+        searchAllWorkspaces: Bool = false
+    ) -> [Workspace] {
+        if searchAllWorkspaces {
+            var workspaces: [Workspace] = []
+            var seenWorkspaceIDs: Set<UUID> = []
+            for manager in tabManagers {
+                for workspace in manager.tabs where seenWorkspaceIDs.insert(workspace.id).inserted {
+                    workspaces.append(workspace)
+                }
+            }
+            return workspaces
+        }
+
+        var preferredWorkspace: Workspace?
+        if let preferredWorkspaceId {
+            for manager in tabManagers {
+                if let workspace = manager.workspacesById[preferredWorkspaceId] {
+                    preferredWorkspace = workspace
+                    if let preferredSurfaceId {
+                        if workspace.surfaceOwnershipTarget(for: preferredSurfaceId) != nil {
+                            return [workspace]
+                        }
+                    } else {
+                        return [workspace]
+                    }
+                    break
                 }
             }
         }
-        return nil
+
+        // A stale workspace id can accompany a surface that moved windows or
+        // workspaces. Only that recovery path needs the cross-manager search.
+        if let preferredSurfaceId {
+            for manager in tabManagers {
+                if let workspace = manager.tabs.first(where: {
+                    $0.surfaceOwnershipTarget(for: preferredSurfaceId) != nil
+                }) {
+                    return [workspace]
+                }
+            }
+        }
+
+        if let preferredWorkspace {
+            return [preferredWorkspace]
+        }
+
+        var workspaces: [Workspace] = []
+        var seenWorkspaceIDs: Set<UUID> = []
+        for manager in tabManagers {
+            for workspace in manager.tabs where seenWorkspaceIDs.insert(workspace.id).inserted {
+                workspaces.append(workspace)
+            }
+        }
+        return workspaces
+    }
+
+    private static func targetForTTY(
+        _ ttyName: String,
+        tabManagers: [TabManager],
+        preferredWorkspaceId: UUID? = nil,
+        preferredSurfaceId: UUID? = nil,
+        searchAllWorkspaces: Bool = false
+    ) -> TerminalCallerTarget? {
+        var candidates: [(binding: TerminalCallerTTYBinding, ttyName: String)] = []
+        var targets: [TerminalCallerTTYBinding: TerminalCallerTarget] = [:]
+        for workspace in ttyCandidateWorkspaces(
+            preferredWorkspaceId: preferredWorkspaceId,
+            preferredSurfaceId: preferredSurfaceId,
+            tabManagers: tabManagers,
+            searchAllWorkspaces: searchAllWorkspaces
+        ) {
+            for (surfaceId, candidateTTY) in workspace.surfaceTTYNames
+                where workspace.panels[surfaceId] != nil && normalizedTTYName(candidateTTY) == ttyName {
+                let binding = TerminalCallerTTYBinding(
+                    workspaceId: workspace.id,
+                    surfaceId: surfaceId
+                )
+                candidates.append((binding: binding, ttyName: candidateTTY))
+                targets[binding] = TerminalCallerTarget(
+                    workspace: workspace,
+                    surfaceId: surfaceId
+                )
+            }
+        }
+        let resolver = TerminalCallerTTYResolver(reportedCandidates: candidates)
+        guard let binding = resolver.binding(for: ttyName) else { return nil }
+        return targets[binding]
     }
 
     /// Resolve local callers from Ghostty's current runtime PTYs first. Shell-
@@ -252,32 +363,36 @@ extension TerminalController {
     /// tmux, where the pane TTY necessarily differs from Ghostty's outer PTY.
     private static func liveTargetForTTY(
         _ ttyName: String,
-        tabManagers: [TabManager]
+        tabManagers: [TabManager],
+        preferredWorkspaceId: UUID? = nil,
+        preferredSurfaceId: UUID? = nil
     ) -> TerminalCallerTarget? {
         guard let callerTTY = normalizedTTYName(ttyName) else { return nil }
         var liveCandidates: [(binding: TerminalCallerTTYBinding, ttyName: String)] = []
         var reportedCandidates: [(binding: TerminalCallerTTYBinding, ttyName: String)] = []
         var targets: [TerminalCallerTTYBinding: TerminalCallerTarget] = [:]
-        for manager in tabManagers {
-            for workspace in manager.tabs {
-                guard !workspace.isRemoteWorkspace, !workspace.isRemoteTmuxMirror else { continue }
-                for (surfaceId, panel) in workspace.panels {
-                    guard let terminalPanel = panel as? TerminalPanel,
-                          !workspace.isRemoteTerminalSurface(surfaceId) else { continue }
-                    let binding = TerminalCallerTTYBinding(
-                        workspaceId: workspace.id,
-                        surfaceId: surfaceId
-                    )
-                    targets[binding] = TerminalCallerTarget(
-                        workspace: workspace,
-                        surfaceId: surfaceId
-                    )
-                    if let liveTTYName = terminalPanel.surface.controllingTTYName() {
-                        liveCandidates.append((binding: binding, ttyName: liveTTYName))
-                    }
-                    if let reportedTTYName = workspace.surfaceTTYNames[surfaceId] {
-                        reportedCandidates.append((binding: binding, ttyName: reportedTTYName))
-                    }
+        for workspace in ttyCandidateWorkspaces(
+            preferredWorkspaceId: preferredWorkspaceId,
+            preferredSurfaceId: preferredSurfaceId,
+            tabManagers: tabManagers
+        ) {
+            guard !workspace.isRemoteWorkspace, !workspace.isRemoteTmuxMirror else { continue }
+            for (surfaceId, panel) in workspace.panels {
+                guard let terminalPanel = panel as? TerminalPanel,
+                      !workspace.isRemoteTerminalSurface(surfaceId) else { continue }
+                let binding = TerminalCallerTTYBinding(
+                    workspaceId: workspace.id,
+                    surfaceId: surfaceId
+                )
+                targets[binding] = TerminalCallerTarget(
+                    workspace: workspace,
+                    surfaceId: surfaceId
+                )
+                if let liveTTYName = terminalPanel.surface.controllingTTYName() {
+                    liveCandidates.append((binding: binding, ttyName: liveTTYName))
+                }
+                if let reportedTTYName = workspace.surfaceTTYNames[surfaceId] {
+                    reportedCandidates.append((binding: binding, ttyName: reportedTTYName))
                 }
             }
         }
