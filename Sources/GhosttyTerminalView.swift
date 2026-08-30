@@ -3127,14 +3127,18 @@ class GhosttyApp {
             // Only Dock terminals have a menu-capability subscriber. Avoid
             // allocating and dispatching a process-wide notification for the
             // much more common main-workspace drag-selection path.
-            if let terminalSurface = surfaceView.terminalSurface,
-               GhosttyApp.terminalSurfaceRegistry.isRightSidebarDockSurface(
-                   id: terminalSurface.id
-               ) {
-                NotificationCenter.default.post(
-                    name: .terminalSelectionDidChange,
-                    object: terminalSurface
-                )
+            if let terminalSurface = surfaceView.terminalSurface {
+                performOnMain {
+                    guard GhosttyApp.terminalSurfaceRegistry.isRightSidebarDockSurface(
+                        id: terminalSurface.id
+                    ) else {
+                        return
+                    }
+                    NotificationCenter.default.post(
+                        name: .terminalSelectionDidChange,
+                        object: terminalSurface
+                    )
+                }
             }
             return true
         case GHOSTTY_ACTION_GOTO_SPLIT:
