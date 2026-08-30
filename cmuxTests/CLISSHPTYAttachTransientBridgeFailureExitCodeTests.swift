@@ -179,10 +179,17 @@ extension CLINotifyProcessIntegrationRegressionTests {
         ])
         try writeSSHPTYReconnectTestShell(at: fakeSSH, lines: [
             "#!/bin/sh",
+            "case \" $* \" in",
+            "  *\" -G \"*) printf '%s\\n' \"controlpath ${CMUX_TEST_CONTROL_PATH}\"; exit 0 ;;",
+            "  *\" -O check \"*) exit 1 ;;",
+            "esac",
             "count=$(cat \"${CMUX_TEST_AUTH_ATTEMPTS}\" 2>/dev/null || printf 0)",
             "count=$((count + 1))",
             "printf '%s' \"$count\" > \"${CMUX_TEST_AUTH_ATTEMPTS}\"",
-            "if [ \"$count\" -eq 2 ]; then exit 255; fi",
+            "if [ \"$count\" -eq 2 ]; then",
+            "  printf '%s\\n' 'ssh: connect to host user@example.test port 22: Network is unreachable' >&2",
+            "  exit 255",
+            "fi",
             "exit 0",
         ])
         try writeSSHPTYReconnectTestShell(at: fakeSleep, lines: [
@@ -202,6 +209,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         environment["CMUX_TEST_AUTH_ATTEMPTS"] = authAttempts.path
         environment["CMUX_TEST_ATTACH_ATTEMPTS"] = attachAttempts.path
         environment["CMUX_TEST_SLEEP_ATTEMPTS"] = sleepAttempts.path
+        environment["CMUX_TEST_CONTROL_PATH"] = "/tmp/cmux-ssh-\(getuid())-\(root.lastPathComponent)"
         environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "2"
         environment["CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS"] = "2"
 
@@ -251,13 +259,18 @@ extension CLINotifyProcessIntegrationRegressionTests {
         try writeSSHPTYReconnectTestShell(at: fakeAuth, lines: [
             "#!/bin/sh",
             "case \" $* \" in",
+            "  *\" -G \"*) printf '%s\\n' \"controlpath ${CMUX_TEST_CONTROL_PATH}\"; exit 0 ;;",
+            "  *\" -O check \"*) exit 1 ;;",
             "  *\" -T example.test true \"*) ;;",
             "  *) exit 0 ;;",
             "esac",
             "count=$(cat \"${CMUX_TEST_AUTH_ATTEMPTS}\" 2>/dev/null || printf 0)",
             "count=$((count + 1))",
             "printf '%s' \"$count\" > \"${CMUX_TEST_AUTH_ATTEMPTS}\"",
-            "if [ \"$count\" -eq 2 ]; then exit 255; fi",
+            "if [ \"$count\" -eq 2 ]; then",
+            "  printf '%s\\n' 'ssh: connect to host example.test port 22: Network is unreachable' >&2",
+            "  exit 255",
+            "fi",
             "exit 0",
         ])
         try writeSSHPTYReconnectTestShell(at: fakeAttach, lines: [
@@ -298,6 +311,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         environment["CMUX_TEST_AUTH_ATTEMPTS"] = authAttempts.path
         environment["CMUX_TEST_ATTACH_ATTEMPTS"] = attachAttempts.path
         environment["CMUX_TEST_SLEEP_ATTEMPTS"] = sleepAttempts.path
+        environment["CMUX_TEST_CONTROL_PATH"] = "/tmp/cmux-ssh-\(getuid())-\(root.lastPathComponent)"
         environment["CMUX_SSH_RECONNECT_DELAY_SECONDS"] = "2"
         environment["CMUX_SSH_RECONNECT_MAX_DELAY_SECONDS"] = "2"
 
