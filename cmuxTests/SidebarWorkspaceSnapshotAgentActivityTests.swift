@@ -531,6 +531,24 @@ struct SidebarWorkspaceAgentActivityTests {
     }
 
     @Test
+    func persistedIdleWithoutLiveEvidenceIsUnknown() {
+        let activity = SidebarWorkspaceAgentActivity.resolve(evidence: [
+            Self.evidence(
+                lifecycle: .idle,
+                processLiveness: .unknown,
+                hasExactProcessIdentity: false,
+                isRuntimeBound: false,
+                hasLiveLifecycleSignal: false,
+                isHookBacked: true,
+                isExactProcessBinding: false
+            )
+        ])
+
+        #expect(activity.agents.count == 1)
+        #expect(activity.primaryState == .unknown)
+    }
+
+    @Test
     func staleStructuredStatusWithoutDeterministicPresenceIsHidden() {
         let stale = SidebarStatusEntry(key: "codex", value: "Running")
         let unrelated = SidebarStatusEntry(key: "build", value: "Compiling")

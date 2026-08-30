@@ -40,7 +40,18 @@ enum SidebarAgentResolvedState: String, Equatable, Sendable {
                 self = .unknown
             }
         case .idle:
-            self = processLiveness == .exited ? .unknown : .idle
+            if processLiveness == .exited {
+                self = .unknown
+            } else if processLiveness == .running
+                        || hasExactProcessIdentity
+                        || hasLiveLifecycleSignal {
+                self = .idle
+            } else {
+                // A cached idle value without a live token or process
+                // generation may belong to a replaced session. Keep the
+                // sidebar honest until cmux re-correlates it.
+                self = .unknown
+            }
         case .unknown, nil:
             self = .unknown
         }
