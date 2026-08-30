@@ -427,6 +427,11 @@ private struct CodexTerminalErrorProcess {
         process.standardOutput = stdout
         process.standardError = stderr
 
+        // Install the handler before launch so an immediately exiting child
+        // cannot race registration and leave the test waiting for a timeout.
+        let finished = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in finished.signal() }
+
         do {
             try process.run()
         } catch {
@@ -435,11 +440,10 @@ private struct CodexTerminalErrorProcess {
         stdin.fileHandleForWriting.write(Data(standardInput.utf8))
         try? stdin.fileHandleForWriting.close()
 
-        let finished = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            process.waitUntilExit()
-            finished.signal()
-        }
+        // Avoid consuming a global queue worker for waitUntilExit(). Under
+        // parallel test load the worker can be delayed even after Process has
+        // exited, making a successful hook look like a timeout. Process calls
+        // the termination handler when the child actually terminates.
         let timedOut = finished.wait(timeout: .now() + timeout) == .timedOut
         if timedOut {
             process.terminate()
