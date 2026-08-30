@@ -24,7 +24,6 @@ struct DockSplitContentView: View {
             )
             .onTapGesture { store.bonsplitController.focusPane(paneId) }
         }
-        .accessibilityIdentifier("DockSplitContent")
         .background {
             DockPointerInteractionHost(store: store)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -137,35 +136,34 @@ private final class DockPointerInteractionHostView: NSView {
         let point = convert(event.locationInWindow, from: nil)
         guard bounds.contains(point) else { return }
         guard let hitView = window.contentView?.hitTest(event.locationInWindow),
-              isDockHitView(hitView, in: window) else {
+              isDockHitView(hitView, at: event.locationInWindow, in: window) else {
             return
         }
         store?.noteUserDockPointerInteraction(window: window)
     }
 
-    private func isDockHitView(_ view: NSView, in window: NSWindow) -> Bool {
-        var candidate: NSView? = view
-        while let current = candidate {
-            if current.accessibilityIdentifier == "DockSplitContent"
-                || current.accessibilityIdentifier == "DockPanel" {
-                return true
-            }
-            candidate = current.superview
+    private func isDockHitView(
+        _ view: NSView,
+        at windowPoint: NSPoint,
+        in window: NSWindow
+    ) -> Bool {
+        // Bonsplit owns the actual tab-bar AppKit hit regions. This remains
+        // correct even when SwiftUI mounts the Dock tab strip in a separate
+        // hosting subtree from this monitor view.
+        if BonsplitTabBarHitRegionRegistry.containsWindowPoint(
+            windowPoint,
+            in: window
+        ) {
+            return true
         }
 
-        // Terminal and browser portals are reparented into a window-level host
-        // during split churn, so their hit view may sit outside the SwiftUI
-        // accessibility container. Resolve those through the Dock's ownership
-        // registry instead of treating the whole window as Dock content.
-        if let store,
-           let terminalView = view.cmuxStrictOwningGhosttyView(),
-           let surfaceId = terminalView.terminalSurface?.id,
-           store.containsPanel(surfaceId) {
-            return true
+        guard let store else { return false }
+        // Surface portals are intentionally reparented to a window-level host.
+        // Ask each visible Dock panel's ownership seam instead of depending on
+        // portal ancestry or accessibility identifiers.
+        return store.panels.values.contains { panel in
+            store.panelIsSelectedInVisibleDockPane(panel.id)
+                && panel.ownedFocusIntent(for: view, in: window) != nil
         }
-        if store?.browserPanel(owning: view, in: window) != nil {
-            return true
-        }
-        return false
     }
 }
