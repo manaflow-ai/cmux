@@ -1,3 +1,26 @@
+export interface CTLACK {
+    payload: CTLACKPayload;
+    /**
+     * directory/hint revision the client has applied; stops the server's retry ladder for
+     * revisions up to and including it
+     */
+    rev:  number;
+    type: CTLACKType;
+    /**
+     * control-plane protocol version, 1
+     */
+    v: number;
+}
+
+export interface CTLACKPayload {
+    /**
+     * optional client stamp of when the acked revision was applied
+     */
+    appliedAt?: Date;
+}
+
+export type CTLACKType = "ack";
+
 export interface CTLError {
     payload: CTLErrorPayload;
     type:    CTLErrorType;
@@ -31,24 +54,70 @@ export interface CTLDirectory {
 export interface CTLDirectoryPayload {
     bindings:              Binding[];
     grantVerificationKeys: GrantVerificationKey[];
-    relayFleet:            string[];
-    routeContractVersion:  number;
+    /**
+     * server stamp when this directory was issued; anchor of the trust lease
+     */
+    issuedAt: Date;
+    /**
+     * per-platform app-version floors; clients below the floor must update before participating
+     */
+    minimumSupportedVersion?: PurpleMinimumSupportedVersion;
+    relayFleet:               string[];
+    routeContractVersion:     number;
+    /**
+     * trust lease duration; clients treat the directory as stale once issuedAt + ttlSeconds
+     * passes without a re-stamp
+     */
+    ttlSeconds: number;
 }
 
 export interface Binding {
+    appVersion?:     string;
     bindingId:       string;
+    capabilities?:   string[];
     clientNamespace: string;
     deviceId?:       null | string;
     endpointId:      string;
     homeRelayUrl?:   null | string;
     instanceTag?:    null | string;
-    updatedAt?:      Date | null;
+    /**
+     * when this device last confirmed itself over its own control-plane hello
+     */
+    lastConfirmedAt?: Date;
+    releaseTrack?:    ReleaseTrack;
+    /**
+     * authorization kill switch, orthogonal to status; peers must deny P2P admission to a
+     * revoked device
+     */
+    revoked: boolean;
+    /**
+     * device lifecycle state from the account overlay; a binding never confirmed by its own
+     * hello stays seeded
+     */
+    status?:    Status;
+    updatedAt?: Date | null;
 }
+
+export type ReleaseTrack = "nightly" | "stable" | "internal" | "beta" | "appstore" | "dev";
+
+/**
+ * device lifecycle state from the account overlay; a binding never confirmed by its own
+ * hello stays seeded
+ */
+export type Status = "active" | "seeded" | "stale" | "retired" | "suspended" | "pending" | "superseded";
 
 export interface GrantVerificationKey {
     alg:       string;
     keyId:     string;
     publicKey: string;
+}
+
+/**
+ * per-platform app-version floors; clients below the floor must update before participating
+ */
+export interface PurpleMinimumSupportedVersion {
+    ios?: string;
+    mac?: string;
 }
 
 export type CTLDirectoryType = "directory";
@@ -64,10 +133,28 @@ export interface CTLHelloACK {
 
 export interface CTLHelloACKPayload {
     /**
+     * echo of the directory's per-platform version floors so clients get them before the
+     * directory body
+     */
+    minimumSupportedVersion?: FluffyMinimumSupportedVersion;
+    /**
      * rev the server resumed the delta stream from; null means full snapshot follows
      */
     resumedFromRev?: number | null;
-    sessionId:       string;
+    /**
+     * control-plane features this server supports (list overlay, ack tracking, revocation)
+     */
+    serverCapabilities?: string[];
+    sessionId:           string;
+}
+
+/**
+ * echo of the directory's per-platform version floors so clients get them before the
+ * directory body
+ */
+export interface FluffyMinimumSupportedVersion {
+    ios?: string;
+    mac?: string;
 }
 
 export type CTLHelloACKType = "hello_ack";
@@ -82,14 +169,25 @@ export interface CTLHello {
 }
 
 export interface CTLHelloPayload {
+    appVersion?:   string;
+    capabilities?: string[];
+    /**
+     * optional client self-identification; presence of any client-info field confirms the
+     * device into the account overlay
+     */
+    deviceId?:  string;
     endpointId: string;
     /**
      * highest rev this client has on disk; server streams deltas after it, or a full snapshot
      * when null/too old
      */
-    haveRev?:   number | null;
-    wantPasses: boolean;
+    haveRev?:      number | null;
+    platform?:     Platform;
+    releaseTrack?: ReleaseTrack;
+    wantPasses:    boolean;
 }
+
+export type Platform = "mac" | "ios";
 
 export type CTLHelloType = "hello";
 
@@ -236,6 +334,11 @@ export interface CTLSnapshotComplete {
 }
 
 export interface CTLSnapshotCompletePayload {
+    /**
+     * server freshness re-stamp; when a hello's haveRev already matches head this frame alone
+     * re-arms the directory trust lease without resending the body
+     */
+    issuedAt?: Date;
 }
 
 export type CTLSnapshotCompleteType = "snapshot_complete";

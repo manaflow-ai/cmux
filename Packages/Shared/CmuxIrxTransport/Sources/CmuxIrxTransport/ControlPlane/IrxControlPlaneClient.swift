@@ -22,17 +22,22 @@ public actor IrxControlPlaneClient {
         public var endpointIDHex: String
         public var wantPasses: Bool
         public var cacheDirectory: URL
+        /// Optional client identification carried on the hello so the server
+        /// can seed and version-stamp this device's directory entry.
+        public var clientInfo: IrxCtlClientInfo?
 
         public init(
             socketURL: URL,
             endpointIDHex: String,
             wantPasses: Bool,
-            cacheDirectory: URL
+            cacheDirectory: URL,
+            clientInfo: IrxCtlClientInfo? = nil
         ) {
             self.socketURL = socketURL
             self.endpointIDHex = endpointIDHex
             self.wantPasses = wantPasses
             self.cacheDirectory = cacheDirectory
+            self.clientInfo = clientInfo
         }
     }
 
@@ -41,17 +46,28 @@ public actor IrxControlPlaneClient {
         public var onHintUpdate: @Sendable (_ endpointIDHex: String, _ relayURL: String) async -> Void
         public var onDirectory: @Sendable (CTLDirectoryPayload) async -> Void
         public var onSnapshotComplete: @Sendable (_ rev: Int) async -> Void
+        /// The list-auth overlay of a directory fact (rev + lease stamp +
+        /// per-entry authorization). The consumer applies it, then calls
+        /// ``IrxControlPlaneClient/acknowledge(rev:)``.
+        public var onDirectoryFact: (@Sendable (IrxCtlDirectoryFact) async -> Void)?
+        /// An explicit freshness re-stamp (a `current` frame, or a
+        /// `snapshot_complete` carrying `issuedAt`).
+        public var onFreshness: (@Sendable (_ rev: Int, _ issuedAt: Date) async -> Void)?
 
         public init(
             onRelayPasses: @escaping @Sendable ([IrxRelayCredential]) async -> Void,
             onHintUpdate: @escaping @Sendable (String, String) async -> Void,
             onDirectory: @escaping @Sendable (CTLDirectoryPayload) async -> Void,
-            onSnapshotComplete: @escaping @Sendable (Int) async -> Void
+            onSnapshotComplete: @escaping @Sendable (Int) async -> Void,
+            onDirectoryFact: (@Sendable (IrxCtlDirectoryFact) async -> Void)? = nil,
+            onFreshness: (@Sendable (_ rev: Int, _ issuedAt: Date) async -> Void)? = nil
         ) {
             self.onRelayPasses = onRelayPasses
             self.onHintUpdate = onHintUpdate
             self.onDirectory = onDirectory
             self.onSnapshotComplete = onSnapshotComplete
+            self.onDirectoryFact = onDirectoryFact
+            self.onFreshness = onFreshness
         }
     }
 
@@ -66,6 +82,9 @@ public actor IrxControlPlaneClient {
     private var loop: Task<Void, Never>?
     private var socket: URLSessionWebSocketTask?
     private var backoff: Duration = .seconds(1)
+    /// Highest revision acknowledged on the CURRENT socket; duplicate acks
+    /// (a directory frame that also fanned hint updates) collapse here.
+    private var lastAckedRev: Int?
     private static let maxBackoff: Duration = .seconds(30)
 
     /// Frame router probe: read only the discriminator, then decode the
@@ -172,16 +191,17 @@ public actor IrxControlPlaneClient {
         request.setValue(tokens.refresh, forHTTPHeaderField: "x-stack-refresh-token")
         let task = URLSession.shared.webSocketTask(with: request)
         socket = task
+        lastAckedRev = nil
         task.resume()
 
-        let hello = CTLHello(
-            payload: CTLHelloPayload(
-                endpointID: configuration.endpointIDHex,
-                haveRev: cursorCache.load()?.haveRev,
-                wantPasses: configuration.wantPasses
-            ),
-            type: .hello,
-            v: 1
+        // Hello v2: the generated hello fields plus optional client info
+        // (device, platform, version, capabilities); old servers ignore the
+        // extra keys.
+        let hello = IrxCtlHelloV2(
+            endpointID: configuration.endpointIDHex,
+            haveRev: cursorCache.load()?.haveRev,
+            wantPasses: configuration.wantPasses,
+            clientInfo: configuration.clientInfo
         )
         let helloData = try JSONEncoder().encode(hello)
         try await task.send(.string(String(decoding: helloData, as: UTF8.self)))
@@ -211,11 +231,16 @@ public actor IrxControlPlaneClient {
             switch probe.type {
             case "hello_ack":
                 let ack = try Self.decoder.decode(CTLHelloACK.self, from: data)
+                // List-auth additions (serverCapabilities, minimum version)
+                // are advisory; tolerate their absence and journal presence.
+                let overlay = try? Self.decoder.decode(IrxCtlHelloAckOverlay.self, from: data)
                 journal.record(
                     "control-plane", "hello-ack",
                     [
                         "session": ack.payload.sessionID,
                         "resumed_from": ack.payload.resumedFromRev.map(String.init) ?? "snapshot",
+                        "server_capabilities": overlay?.payload?.serverCapabilities?
+                            .joined(separator: ",") ?? "-",
                     ]
                 )
             case "relay_passes":
@@ -250,19 +275,43 @@ public actor IrxControlPlaneClient {
                 await handlers.onHintUpdate(
                     fact.payload.endpointID, fact.payload.homeRelayURL)
             case "directory":
-                let fact = try Self.decoder.decode(CTLDirectory.self, from: data)
+                // The tolerant overlay is the PRIMARY decode: every list-auth
+                // field is optional there, so directories from both old and
+                // new servers parse. The generated strict type (which now
+                // REQUIRES the lease stamp) feeds the legacy handler
+                // best-effort only.
+                let listFact = try Self.decoder.decode(IrxCtlDirectoryFact.self, from: data)
                 journal.record(
                     "control-plane", "directory",
                     [
-                        "rev": String(fact.rev),
-                        "bindings": String(fact.payload.bindings.count),
+                        "rev": String(listFact.rev),
+                        "bindings": String(listFact.payload.bindings.count),
+                        "stamped": String(listFact.payload.issuedAt != nil),
                     ]
                 )
-                await handlers.onDirectory(fact.payload)
-                for binding in fact.payload.bindings {
+                if let fact = try? Self.decoder.decode(CTLDirectory.self, from: data) {
+                    await handlers.onDirectory(fact.payload)
+                }
+                for binding in listFact.payload.bindings {
                     if let relay = binding.homeRelayURL {
                         await handlers.onHintUpdate(binding.endpointID, relay)
                     }
+                }
+                if let onDirectoryFact = handlers.onDirectoryFact {
+                    await onDirectoryFact(listFact)
+                }
+            case "current":
+                // Explicit freshness re-stamp for the device-list lease.
+                let stamp = try Self.decoder.decode(IrxCtlFreshnessStamp.self, from: data)
+                journal.record(
+                    "control-plane", "current",
+                    [
+                        "rev": String(stamp.rev),
+                        "stamped": String(stamp.issuedAt != nil),
+                    ]
+                )
+                if let issuedAt = stamp.issuedAt {
+                    await handlers.onFreshness?(stamp.rev, issuedAt)
                 }
             case "snapshot_complete":
                 let fact = try Self.decoder.decode(CTLSnapshotComplete.self, from: data)
@@ -272,6 +321,14 @@ public actor IrxControlPlaneClient {
                     "control-plane", "snapshot-complete", ["rev": String(fact.rev)]
                 )
                 await handlers.onSnapshotComplete(fact.rev)
+                // The server may extend snapshot_complete with issuedAt as a
+                // lease re-stamp; handle it defensively alongside `current`.
+                if let stamp = try? Self.decoder.decode(
+                    IrxCtlFreshnessStamp.self, from: data),
+                    let issuedAt = stamp.issuedAt
+                {
+                    await handlers.onFreshness?(stamp.rev, issuedAt)
+                }
             case "error":
                 let fact = try Self.decoder.decode(CTLError.self, from: data)
                 journal.record(
@@ -292,6 +349,38 @@ public actor IrxControlPlaneClient {
                 ["type": probe.type, "error": String(describing: error)]
             )
         }
+    }
+
+    // MARK: - Acknowledgment
+
+    /// Confirms a directory/hint revision was APPLIED (persisted and swapped
+    /// into the live judge), so the server can track fleet convergence.
+    /// Idempotent per socket: a revision already acknowledged on this
+    /// connection is skipped; the counter resets on reconnect because the
+    /// server re-learns position from the hello's `haveRev`.
+    public func acknowledge(rev: Int) async {
+        guard let socket else { return }
+        if let lastAckedRev, rev <= lastAckedRev { return }
+        guard let data = try? Self.encodedAck(rev: rev) else { return }
+        do {
+            try await socket.send(.string(String(decoding: data, as: UTF8.self)))
+            lastAckedRev = rev
+            journal.record("control-plane", "acked", ["rev": String(rev)])
+        } catch {
+            journal.record(
+                "control-plane", "ack-failed",
+                ["rev": String(rev), "error": String(describing: error)]
+            )
+        }
+    }
+
+    /// The ack frame bytes (generated `CTLACK`, RFC3339 applied stamp),
+    /// exposed for wire-shape tests.
+    static func encodedAck(rev: Int, appliedAt: Date = Date()) throws -> Data {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        return try encoder.encode(
+            CTLACK(payload: CTLACKPayload(appliedAt: appliedAt), rev: rev, type: .ack, v: 1))
     }
 
     // MARK: - Publishing (Mac)

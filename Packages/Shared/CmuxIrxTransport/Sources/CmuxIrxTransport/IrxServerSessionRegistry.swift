@@ -44,4 +44,26 @@ public actor IrxServerSessionRegistry {
         }
         sessionsByDevice.removeAll()
     }
+
+    /// Closes every live session whose TLS-authenticated peer endpoint the
+    /// predicate selects (directory enforcement: a device revoked or dropped
+    /// from the list is cut NOW, not at its next admission).
+    public func closeAll(
+        code: IrxCloseCode,
+        matching shouldClose: @Sendable (_ remoteEndpointIDHex: String) -> Bool
+    ) async {
+        for (deviceID, entry) in sessionsByDevice
+        where shouldClose(entry.connection.remoteEndpointIDHex) {
+            journal.record(
+                "registry", "list-enforced-close",
+                [
+                    "device": deviceID,
+                    "session": entry.session,
+                    "code": code.rawValue,
+                ]
+            )
+            await entry.connection.close(code: code, origin: .local)
+            sessionsByDevice[deviceID] = nil
+        }
+    }
 }

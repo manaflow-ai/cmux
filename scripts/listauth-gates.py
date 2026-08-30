@@ -164,7 +164,7 @@ def wait_for_events_after(t_launch, wanted, timeout_s):
 def gate_cold():
     trials = []
     failures = []
-    wanted = {("admission", "admitted"), ("control-plane", "directory-applied")}
+    wanted = {("admission", "admitted"), ("control-plane", "directory")}
     for trial in range(args.trials):
         subprocess.run(["xcrun", "simctl", "terminate", args.udid, args.bundle_id],
                        capture_output=True)
@@ -175,10 +175,10 @@ def gate_cold():
         found = wait_for_events_after(t_launch, wanted, timeout_s=30)
         row = {"trial": trial,
                "admitted_ms": found.get(("admission", "admitted")),
-               "directory_ms": found.get(("control-plane", "directory-applied"))}
+               "directory_ms": found.get(("control-plane", "directory"))}
         trials.append(row)
         for key, label in ((("admission", "admitted"), "admitted"),
-                           (("control-plane", "directory-applied"), "directory")):
+                           (("control-plane", "directory"), "directory")):
             ms = found.get(key)
             if ms is None:
                 failures.append({"trial": trial, "why": f"{label} never observed"})
@@ -199,13 +199,13 @@ def gate_background():
     t_launch = time.time()
     subprocess.run(["xcrun", "simctl", "launch", args.udid, args.bundle_id],
                    capture_output=True)
-    wanted = {("admission", "admitted"), ("control-plane", "directory-applied")}
+    wanted = {("admission", "admitted"), ("control-plane", "directory")}
     found = wait_for_events_after(t_launch, wanted, timeout_s=30)
     failures = []
     row = {"admitted_ms": found.get(("admission", "admitted")),
-           "directory_ms": found.get(("control-plane", "directory-applied"))}
+           "directory_ms": found.get(("control-plane", "directory"))}
     for key, label in ((("admission", "admitted"), "admitted"),
-                       (("control-plane", "directory-applied"), "directory")):
+                       (("control-plane", "directory"), "directory")):
         ms = found.get(key)
         if ms is None:
             failures.append({"why": f"{label} never observed after foreground"})
@@ -270,9 +270,9 @@ def gate_soak():
                                      "event": event, "why": "non-relay path in relay mode"})
             if key == ("endpoint", "relay-credential-rotated"):
                 obs["client_rotations"] += 1
-            if key == ("control-plane", "directory-applied"):
+            if key == ("control-plane", "directory"):
                 obs["list_pushes"] += 1
-            if key == ("control-plane", "ack-sent"):
+            if key == ("control-plane", "acked"):
                 obs["acks_sent"] += 1
             if key == ("credential-autopilot", "mint-failed"):
                 obs["mint_failures"] += 1

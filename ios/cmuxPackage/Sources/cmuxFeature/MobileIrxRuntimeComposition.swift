@@ -3,6 +3,7 @@ import CmuxAuthRuntime
 public import CmuxIrohTransport
 import CmuxIrxTransport
 public import CmuxMobileRPC
+import CmuxMobileShellModel
 public import Foundation
 
 /// iOS composition root for the irx transport (the from-scratch iroh rebuild
@@ -43,6 +44,17 @@ public actor MobileIrxRuntimeComposition {
         case simulatorStreamingUnsupported
     }
 
+    /// Dial-gate refusals from the device-list lease. Deliberately NOT
+    /// ``IrxAdmissionDenied``: the peer engine treats these as ordinary
+    /// transient failures (backoff + redial), because a stale lease or a
+    /// directory that has not yet caught up heals as soon as the control
+    /// plane re-stamps. A revoked entry, by contrast, throws
+    /// `IrxAdmissionDenied(.revoked)` and parks the engine.
+    public enum DeviceListDialRefusal: Error, Sendable {
+        case staleLease
+        case unknownEndpoint
+    }
+
     /// One journal for every irx component on the phone; the JSONL file lives
     /// in the app container's Documents so the soak analyzer can pull it with
     /// `simctl get_app_container`.
@@ -66,6 +78,9 @@ public actor MobileIrxRuntimeComposition {
     private let clientNamespace: String
     public nonisolated let tag: String
     private let stateDirectory: URL
+    /// The app's signed Keychain access group; scopes the Release device-list
+    /// and broker-cache Keychain items.
+    private let keychainAccessGroup: String?
 
     private weak var auth: AuthCoordinator?
     /// Identity donor (identity adoption): the legacy composition owns the
@@ -76,9 +91,16 @@ public actor MobileIrxRuntimeComposition {
     private var autopilot: IrxRelayCredentialAutopilot?
     private var identity: IrxIdentity?
     /// The always-on fact channel to the per-account control-plane DO.
-    /// Never on the dial path; delivers pushed passes and hint updates.
+    /// Never on the dial path; delivers pushed passes, hint updates, and the
+    /// device-list directory (the dial-gate authority).
     private var controlPlane: IrxControlPlaneClient?
     private var controlPlaneBaseURL: URL?
+    /// The current device-list lease: consulted by the dial gate. nil until
+    /// a directory has EVER been received or restored (the bootstrap
+    /// exception: a fresh install may dial before its first directory).
+    private let deviceListBox = IrxDeviceListCurrent()
+    /// Durable lease storage (Keychain in Release, dev file store in DEBUG).
+    private var deviceListStore: IrxDeviceListStore?
     private var provisioningTask: Task<Void, Never>?
     private var provisionInFlight: Task<IrxBrokerService, any Error>?
     /// One reconnect owner per Mac endpoint (contract: the single dialer).
@@ -99,7 +121,7 @@ public actor MobileIrxRuntimeComposition {
         keychainAccessGroup: String? = nil,
         defaults: UserDefaults = .standard
     ) {
-        _ = keychainAccessGroup
+        self.keychainAccessGroup = keychainAccessGroup
         _ = defaults
         let appNamespace = injectedAppNamespace
             ?? MobileIOSAppNamespace(bundleIdentifier: bundleIdentifier)
@@ -249,7 +271,15 @@ public actor MobileIrxRuntimeComposition {
                 // namespaces, which the DO cannot mint bearer-only; flip
                 // this when proof pass-through ships.
                 wantPasses: false,
-                cacheDirectory: stateDirectory
+                cacheDirectory: stateDirectory,
+                clientInfo: IrxCtlClientInfo(
+                    deviceID: identity.deviceID,
+                    platform: "ios",
+                    appVersion: IrxCtlClientInfo.appVersionString(
+                        infoDictionary: Bundle.main.infoDictionary),
+                    releaseTrack: Self.clientReleaseTrack(),
+                    capabilities: ["cmux.irx.v2", "list-auth"]
+                )
             ),
             tokenPair: { [weak auth] in
                 guard let auth else { return nil }
@@ -265,12 +295,143 @@ public actor MobileIrxRuntimeComposition {
                         endpointIDHex: endpointIDHex, relayURL: relayURL)
                 },
                 onDirectory: { _ in },
-                onSnapshotComplete: { _ in }
+                onSnapshotComplete: { _ in },
+                onDirectoryFact: { [weak self] fact in
+                    await self?.applyDeviceListFact(fact)
+                },
+                onFreshness: { [weak self] rev, issuedAt in
+                    await self?.applyDeviceListFreshness(rev: rev, issuedAt: issuedAt)
+                }
             ),
             journal: Self.journal
         )
         controlPlane = client
         Task { await client.start() }
+    }
+
+    // MARK: - Device list (dial-gate authority)
+
+    /// The phone's iteration of the device-list apply: persist, swap the
+    /// dial-gate box, project into the UI state, acknowledge the revision.
+    /// (Enforcement on LIVE sessions is the Mac's job; the phone's gate
+    /// bites at the next dial.)
+    private func applyDeviceListFact(_ fact: IrxCtlDirectoryFact) async {
+        if let current = deviceListBox.current, fact.rev < current.rev {
+            Self.journal.record(
+                "client-runtime", "device-list-stale-rev",
+                ["rev": String(fact.rev), "have": String(current.rev)]
+            )
+            return
+        }
+        let snapshot = IrxDeviceListSnapshot(
+            fact: fact,
+            receivedAtWall: Date(),
+            receivedAtMonotonic: .now
+        )
+        deviceListBox.replace(snapshot)
+        if let deviceListStore {
+            await deviceListStore.persist(snapshot)
+        }
+        await controlPlane?.acknowledge(rev: fact.rev)
+        Self.journal.record(
+            "client-runtime", "device-list-applied",
+            ["rev": String(fact.rev), "entries": String(snapshot.entries.count)]
+        )
+        await projectDeviceListForUI(snapshot)
+    }
+
+    private func applyDeviceListFreshness(rev: Int, issuedAt: Date) async {
+        guard
+            let updated = deviceListBox.restamp(
+                rev: rev,
+                issuedAt: issuedAt,
+                receivedAtWall: Date(),
+                receivedAtMonotonic: .now
+            )
+        else { return }
+        if let deviceListStore {
+            await deviceListStore.persist(updated)
+        }
+        Self.journal.record(
+            "client-runtime", "device-list-restamped", ["rev": String(rev)]
+        )
+    }
+
+    /// Mirrors the lease into the @Observable UI state (Computers rows read
+    /// it to badge seeded Macs).
+    private func projectDeviceListForUI(_ snapshot: IrxDeviceListSnapshot) async {
+        let fresh = snapshot.isFresh(now: .now)
+        var byEndpoint: [String: MobileMacListAuthState.Entry] = [:]
+        var byDevice: [String: MobileMacListAuthState.Entry] = [:]
+        for (endpointIDHex, entry) in snapshot.entries {
+            let projected = MobileMacListAuthState.Entry(
+                status: entry.status, revoked: entry.revoked, isFresh: fresh)
+            byEndpoint[endpointIDHex] = projected
+            if let deviceID = entry.deviceID {
+                byDevice[deviceID] = projected
+            }
+        }
+        await MainActor.run {
+            MobileMacListAuthState.shared.replace(
+                entriesByEndpointID: byEndpoint, entriesByDeviceID: byDevice)
+        }
+    }
+
+    /// UI/programmatic lookup: the peer's list-auth stance right now.
+    public func deviceListEntry(
+        endpointIDHex: String
+    ) -> (status: String, revoked: Bool, fresh: Bool)? {
+        guard let snapshot = deviceListBox.current,
+            let entry = snapshot.entries[endpointIDHex]
+        else { return nil }
+        return (entry.status, entry.revoked, snapshot.isFresh(now: .now))
+    }
+
+    /// Sign-out: drop the lease everywhere (memory, durable store, UI), so
+    /// the next account starts from its own directory.
+    public func handleSignOut() async {
+        deviceListBox.clear()
+        if let deviceListStore {
+            await deviceListStore.clear()
+        }
+        deviceListStore = nil
+        await MainActor.run {
+            MobileMacListAuthState.shared.clear()
+        }
+        Self.journal.record("client-runtime", "device-list-signed-out")
+    }
+
+    /// The lease's durable backend, matching the identity/credential stores'
+    /// DEBUG/#else split exactly.
+    private nonisolated static func deviceListSecureStore(
+        stateDirectory: URL,
+        keychainAccessGroup: String?
+    ) -> any CmxIrohSecureCredentialStoring {
+        #if DEBUG
+        CmxIrohDevelopmentFileCredentialStore(
+            directory: stateDirectory.appendingPathComponent(
+                "device-list", isDirectory: true)
+        )
+        #else
+        CmxIrohKeychainCredentialStore(
+            service: "com.cmuxterm.irx.device-list.v1",
+            accessGroup: keychainAccessGroup
+        )
+        #endif
+    }
+
+    /// The phone build's control-plane release track. Conservative: DEBUG is
+    /// "dev"; a bundle id carrying a ".beta" segment is "beta"; everything
+    /// else reports "appstore" (TestFlight and App Store share a bundle id,
+    /// so the wire cannot distinguish them here).
+    private nonisolated static func clientReleaseTrack(
+        bundleIdentifier: String? = Bundle.main.bundleIdentifier
+    ) -> String {
+        #if DEBUG
+        return "dev"
+        #else
+        return (bundleIdentifier ?? "").contains(".beta") ? "beta" : "appstore"
+        #endif
     }
 
     /// Pushed passes flow through the broker's mint rules (fleet allowlist,
@@ -370,7 +531,11 @@ public actor MobileIrxRuntimeComposition {
                 platform: .ios,
                 displayName: nil,
                 cacheDirectory: stateDirectory,
-                identityGeneration: adopted.material.generation
+                identityGeneration: adopted.material.generation,
+                // Release: broker caches live in the Keychain, scoped per
+                // account + backend; DEBUG stays on the JSON files.
+                accountID: session.accountID,
+                keychainAccessGroup: keychainAccessGroup
             ),
             identity: identity,
             accessTokenPair: { [weak auth] in
@@ -436,6 +601,23 @@ public actor MobileIrxRuntimeComposition {
         self.broker = broker
         endpointSupervisor = supervisor
         autopilot = pilot
+        // DEVICE LIST: restore the persisted lease before any dial so the
+        // gate (and the UI projection) work offline; the control-plane
+        // socket then refreshes it with live directory facts.
+        let listStore = IrxDeviceListStore(
+            secureStore: Self.deviceListSecureStore(
+                stateDirectory: stateDirectory,
+                keychainAccessGroup: keychainAccessGroup
+            ),
+            accountID: session.accountID,
+            backendHost: brokerBaseURL.host() ?? "unknown-broker",
+            journal: Self.journal
+        )
+        deviceListStore = listStore
+        if let persisted = await listStore.loadPersisted() {
+            deviceListBox.replace(persisted)
+            await projectDeviceListForUI(persisted)
+        }
         startControlPlane(identity: identity)
         return broker
     }
@@ -535,15 +717,43 @@ public actor MobileIrxRuntimeComposition {
         return engine
     }
 
-    /// One dial: cached grant + cached credentials + ready endpoint, then
-    /// connect + one-round-trip admission. Broker calls happen only on cache
-    /// misses (first pairing with this Mac, or a stale grant).
+    /// Refuses a dial the device list forbids. FAIL CLOSED only when there
+    /// is something to judge: a snapshot exists (entry missing/revoked, or
+    /// the whole lease stale). BOOTSTRAP EXCEPTION: when NO directory has
+    /// ever been received or restored (fresh install, first ever dial racing
+    /// the first control-plane hello), the dial proceeds; the Mac's own list
+    /// judge remains the authority that actually admits.
+    private func enforceDialGate(peerHex: String) throws {
+        guard let snapshot = deviceListBox.current else { return }
+        let refuse: (String) -> Void = { reason in
+            Self.journal.record(
+                "client-dial", "dial-refused",
+                ["reason": reason, "peer": String(peerHex.prefix(12))]
+            )
+        }
+        guard snapshot.isFresh(now: .now) else {
+            refuse("stale")
+            throw DeviceListDialRefusal.staleLease
+        }
+        guard let entry = snapshot.entries[peerHex] else {
+            refuse("absent")
+            throw DeviceListDialRefusal.unknownEndpoint
+        }
+        if entry.revoked {
+            refuse("revoked")
+            throw IrxAdmissionDenied(code: .revoked)
+        }
+    }
+
+    /// One dial: cached credentials + ready endpoint, then connect + one
+    /// GRANTLESS round-trip admission (the Mac judges our TLS key against
+    /// its device list; no pair-grant fetch sits on this path anymore).
     private func dialOnce(peerHex: String) async throws -> IrxClientSession {
         let broker = try await provisionedBroker()
         guard let supervisor = endpointSupervisor, let autopilot else {
             throw CompositionError.notSignedIn
         }
-        let grant = try await resolvedGrant(peerHex: peerHex, broker: broker)
+        try enforceDialGate(peerHex: peerHex)
         let credentials = try await autopilot.usableCredentials()
         var relayURL = routesByPeer[peerHex]?.relayURL
         if relayURL == nil {
@@ -575,51 +785,20 @@ public actor MobileIrxRuntimeComposition {
         )
         let connection = try await supervisor.dial(
             address: address, credentials: credentials)
-        do {
-            let (admit, control) = try await IrxAdmission.performClient(
-                connection: connection,
-                grantJWS: grant.grantJWS,
-                journal: Self.journal
-            )
-            // Credit the server-opened events lane now that admission holds.
-            await connection.raiseRemoteStreamCredit(bi: 0, uni: 4)
-            return IrxClientSession(
-                connection: connection,
-                admit: admit,
-                control: control,
-                establishedAt: Date()
-            )
-        } catch let denial as IrxAdmissionDenied {
-            // A revoked/expired/mismatched grant can be stale cache: drop it
-            // so the NEXT dial re-mints instead of re-presenting the corpse.
-            if denial.code == .invalidGrant || denial.code == .grantExpired
-                || denial.code == .revoked
-            {
-                await broker.dropGrant(acceptorEndpointIDHex: peerHex)
-            }
-            throw denial
-        }
-    }
-
-    private func resolvedGrant(
-        peerHex: String,
-        broker: IrxBrokerService
-    ) async throws -> IrxGrantSnapshot {
-        if let cached = await broker.cachedGrant(acceptorEndpointIDHex: peerHex) {
-            return cached
-        }
-        // First contact with this Mac: find its binding, mint a grant.
-        let discovery = try await broker.discover()
-        guard
-            let acceptorBinding = discovery.bindings.first(where: {
-                $0.endpointID.endpointID == peerHex && $0.platform == .mac
-            })
-        else {
-            throw CompositionError.peerNotDiscovered
-        }
-        return try await broker.issuePairGrant(
-            acceptorBindingID: acceptorBinding.bindingID,
-            acceptorEndpointIDHex: peerHex
+        // Grantless hello v2: no pair-grant fetch or mint precedes the dial.
+        // (Old Macs that still require a grant deny with `invalid-grant`;
+        // the engine parks until they update - list-auth Macs deploy first.)
+        let (admit, control) = try await IrxAdmission.performClient(
+            connection: connection,
+            journal: Self.journal
+        )
+        // Credit the server-opened events lane now that admission holds.
+        await connection.raiseRemoteStreamCredit(bi: 0, uni: 4)
+        return IrxClientSession(
+            connection: connection,
+            admit: admit,
+            control: control,
+            establishedAt: Date()
         )
     }
 

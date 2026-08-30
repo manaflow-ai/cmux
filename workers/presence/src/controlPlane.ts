@@ -17,11 +17,13 @@
 
 import type {
   Binding,
+  CTLACK,
   CTLDirectory,
   CTLDirectoryPayload,
   CTLError,
   CTLHello,
   CTLHelloACK,
+  CTLHelloPayload,
   CTLHintUpdate,
   CTLMintRequest,
   CTLPublishHint,
@@ -30,6 +32,9 @@ import type {
   FluffyProof,
   GrantVerificationKey,
   Pass,
+  PurpleMinimumSupportedVersion,
+  ReleaseTrack,
+  Status,
 } from "./generated/controlPlane";
 
 export const CONTROL_PROTOCOL_VERSION = 1;
@@ -58,16 +63,43 @@ export const HINT_CONFIRM_DELAY_MS = 3_000;
  * socket stays snapshot-pending and the alarm retries this soon. */
 export const SNAPSHOT_RETRY_DELAY_MS = 5_000;
 
+/** Trust lease served with every directory (and re-stamped through
+ * snapshot_complete.issuedAt): clients treat the list as stale once
+ * issuedAt + ttlSeconds passes without a fresher stamp. */
+export const DIRECTORY_TTL_SECONDS = 86_400;
+
+/** Advertised in every hello_ack so clients can feature-gate on the server:
+ * device-list overlay, ack tracking, and account-owner revocation. */
+export const CONTROL_SERVER_CAPABILITIES: readonly string[] = [
+  "cmux.ctl.listv2",
+  "cmux.ctl.ack",
+  "cmux.ctl.revocation",
+];
+
+/** Ack retry ladder: a socket that has not acked the newest broadcast revision
+ * gets the LATEST directory (never historical deltas) resent at these offsets,
+ * then hourly until it acks. Per socket, reset on ack, alarm-driven — no
+ * timers. */
+export const ACK_RETRY_LADDER_MS: readonly number[] = [5_000, 30_000, 120_000, 600_000];
+export const ACK_RETRY_STEADY_MS = 3_600_000;
+
 const MAX_ENDPOINT_ID_CHARS = 128;
 const MAX_RELAY_URL_CHARS = 512;
+/** Bounds for hello client info. Exceeding one skips the confirm-on-hello
+ * (the hello itself still proceeds); nothing oversized reaches storage. */
+const MAX_DEVICE_ID_CHARS = 128;
+const MAX_APP_VERSION_CHARS = 64;
+const MAX_CLIENT_CAPABILITIES = 32;
+const MAX_CLIENT_CAPABILITY_CHARS = 64;
 
 // ---- Storage keys (all under the account DO's own storage) ----
 
 /** Last account route revision this DO observed (upstream `revision`, or the
  * local fallback counter when upstream omits it). */
 export const REV_KEY = "ctl:rev";
-/** Cached CTLDirectoryPayload from the last successful discovery fetch. Broker
- * truth only: publish_hint announcements are never folded in. */
+/** Cached BrokerDirectoryPayload from the last successful discovery fetch.
+ * Broker truth only: publish_hint announcements are never folded in, and the
+ * DO-owned device overlay is joined in at directory build time, not here. */
 export const DIR_KEY = "ctl:dir";
 /** Per-endpoint relay-pass mint generation counter (`ctl:gen:<endpointId>`).
  * The broker response carries no generation; passes minted in one batch share
@@ -78,6 +110,24 @@ export const GEN_PREFIX = "ctl:gen:";
  * (mint); deleted on close and on expiry sweep, and never usable past the
  * socket's own deadline (which the worker capped at token expiry). */
 export const BEARER_PREFIX = "ctl:bearer:";
+/** Per-device authorization overlay (`ctl:dev:<endpointId>`): the DO-owned
+ * listv2 facts (status, revoked, version/track/capabilities, confirmation and
+ * ack watermarks) joined onto broker bindings at every directory build. Rows
+ * whose binding disappeared upstream are kept (so revocation survives a
+ * binding flap) but never emitted. */
+export const DEV_PREFIX = "ctl:dev:";
+
+/** The stored shape under DEV_PREFIX. lastAckedRev is bookkeeping only and is
+ * never emitted in the directory. */
+export interface DeviceOverlay {
+  status: Status;
+  revoked: boolean;
+  appVersion?: string;
+  releaseTrack?: ReleaseTrack;
+  capabilities?: string[];
+  lastConfirmedAt?: string;
+  lastAckedRev?: number;
+}
 
 // The generated types annotate RFC3339 `format: date-time` fields as `Date`,
 // but quicktype ran with --just-types (no converters): on the wire — and at
@@ -127,6 +177,40 @@ function validEnvelope(
   return isObject(value.payload);
 }
 
+const DEVICE_STATUSES: ReadonlySet<string> = new Set([
+  "active",
+  "seeded",
+  "stale",
+  "retired",
+  "suspended",
+  "pending",
+  "superseded",
+]);
+
+const RELEASE_TRACKS: ReadonlySet<string> = new Set([
+  "nightly",
+  "stable",
+  "internal",
+  "beta",
+  "appstore",
+  "dev",
+]);
+
+const CLIENT_PLATFORMS: ReadonlySet<string> = new Set(["mac", "ios"]);
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+function validMinimumSupportedVersion(value: unknown): boolean {
+  if (!isObject(value)) return false;
+  if (!hasOnlyKeys(value, [], ["mac", "ios"])) return false;
+  for (const key of ["mac", "ios"] as const) {
+    if (key in value && typeof value[key] !== "string") return false;
+  }
+  return true;
+}
+
 function validProof(value: unknown): value is FluffyProof {
   if (!isObject(value)) return false;
   if (!hasOnlyKeys(value, ["bindingId", "timestamp", "signature"])) return false;
@@ -139,15 +223,33 @@ function validBinding(value: unknown): value is Binding {
   if (!isObject(value)) return false;
   if (!hasOnlyKeys(
     value,
-    ["bindingId", "endpointId", "clientNamespace"],
-    ["deviceId", "instanceTag", "homeRelayUrl", "updatedAt"],
+    ["bindingId", "endpointId", "clientNamespace", "revoked"],
+    [
+      "deviceId",
+      "instanceTag",
+      "homeRelayUrl",
+      "updatedAt",
+      "status",
+      "appVersion",
+      "releaseTrack",
+      "capabilities",
+      "lastConfirmedAt",
+    ],
   )) return false;
   if (typeof value.bindingId !== "string") return false;
   if (typeof value.endpointId !== "string") return false;
   if (typeof value.clientNamespace !== "string") return false;
+  if (typeof value.revoked !== "boolean") return false;
   for (const key of ["deviceId", "instanceTag", "homeRelayUrl", "updatedAt"] as const) {
     if (key in value && value[key] !== null && typeof value[key] !== "string") return false;
   }
+  if ("status" in value
+    && !(typeof value.status === "string" && DEVICE_STATUSES.has(value.status))) return false;
+  if ("appVersion" in value && typeof value.appVersion !== "string") return false;
+  if ("releaseTrack" in value
+    && !(typeof value.releaseTrack === "string" && RELEASE_TRACKS.has(value.releaseTrack))) return false;
+  if ("capabilities" in value && !isStringArray(value.capabilities)) return false;
+  if ("lastConfirmedAt" in value && typeof value.lastConfirmedAt !== "string") return false;
   return true;
 }
 
@@ -178,7 +280,8 @@ export type DecodedControlFrame =
   | { kind: "snapshot_complete"; frame: CTLSnapshotComplete }
   | { kind: "error"; frame: CTLError }
   | { kind: "mint_request"; frame: CTLMintRequest }
-  | { kind: "publish_hint"; frame: CTLPublishHint };
+  | { kind: "publish_hint"; frame: CTLPublishHint }
+  | { kind: "ack"; frame: CTLACK };
 
 /** Decode ANY control-plane envelope (server- or client-originated) into the
  * generated wire types, enforcing the schemas' exact-keys and required-fields
@@ -192,7 +295,11 @@ export function decodeControlFrame(value: unknown): DecodedControlFrame | null {
   switch (value.type) {
     case "hello": {
       if (!validEnvelope(value, "hello", false)) return null;
-      if (!hasOnlyKeys(payload, ["endpointId", "wantPasses"], ["haveRev"])) return null;
+      if (!hasOnlyKeys(
+        payload,
+        ["endpointId", "wantPasses"],
+        ["haveRev", "deviceId", "platform", "appVersion", "releaseTrack", "capabilities"],
+      )) return null;
       if (typeof payload.endpointId !== "string") return null;
       if (typeof payload.wantPasses !== "boolean") return null;
       if ("haveRev" in payload
@@ -200,17 +307,35 @@ export function decodeControlFrame(value: unknown): DecodedControlFrame | null {
         && !(typeof payload.haveRev === "number" && Number.isSafeInteger(payload.haveRev))) {
         return null;
       }
+      if ("deviceId" in payload && typeof payload.deviceId !== "string") return null;
+      if ("platform" in payload
+        && !(typeof payload.platform === "string" && CLIENT_PLATFORMS.has(payload.platform))) {
+        return null;
+      }
+      if ("appVersion" in payload && typeof payload.appVersion !== "string") return null;
+      if ("releaseTrack" in payload
+        && !(typeof payload.releaseTrack === "string" && RELEASE_TRACKS.has(payload.releaseTrack))) {
+        return null;
+      }
+      if ("capabilities" in payload && !isStringArray(payload.capabilities)) return null;
       return { kind: "hello", frame: value as unknown as CTLHello };
     }
     case "hello_ack": {
       if (!validEnvelope(value, "hello_ack", false)) return null;
-      if (!hasOnlyKeys(payload, ["sessionId"], ["resumedFromRev"])) return null;
+      if (!hasOnlyKeys(
+        payload,
+        ["sessionId"],
+        ["resumedFromRev", "serverCapabilities", "minimumSupportedVersion"],
+      )) return null;
       if (typeof payload.sessionId !== "string") return null;
       if ("resumedFromRev" in payload
         && payload.resumedFromRev !== null
         && !(typeof payload.resumedFromRev === "number" && Number.isSafeInteger(payload.resumedFromRev))) {
         return null;
       }
+      if ("serverCapabilities" in payload && !isStringArray(payload.serverCapabilities)) return null;
+      if ("minimumSupportedVersion" in payload
+        && !validMinimumSupportedVersion(payload.minimumSupportedVersion)) return null;
       return { kind: "hello_ack", frame: value as unknown as CTLHelloACK };
     }
     case "directory": {
@@ -220,7 +345,9 @@ export function decodeControlFrame(value: unknown): DecodedControlFrame | null {
         "bindings",
         "relayFleet",
         "grantVerificationKeys",
-      ])) return null;
+        "issuedAt",
+        "ttlSeconds",
+      ], ["minimumSupportedVersion"])) return null;
       if (!(typeof payload.routeContractVersion === "number"
         && Number.isSafeInteger(payload.routeContractVersion))) return null;
       if (!Array.isArray(payload.bindings) || !payload.bindings.every(validBinding)) return null;
@@ -228,6 +355,12 @@ export function decodeControlFrame(value: unknown): DecodedControlFrame | null {
         || !payload.relayFleet.every((url) => typeof url === "string")) return null;
       if (!Array.isArray(payload.grantVerificationKeys)
         || !payload.grantVerificationKeys.every(validGrantKey)) return null;
+      if (typeof payload.issuedAt !== "string") return null;
+      if (!(typeof payload.ttlSeconds === "number" && Number.isSafeInteger(payload.ttlSeconds))) {
+        return null;
+      }
+      if ("minimumSupportedVersion" in payload
+        && !validMinimumSupportedVersion(payload.minimumSupportedVersion)) return null;
       return { kind: "directory", frame: value as unknown as CTLDirectory };
     }
     case "hint_update": {
@@ -249,8 +382,15 @@ export function decodeControlFrame(value: unknown): DecodedControlFrame | null {
     }
     case "snapshot_complete": {
       if (!validEnvelope(value, "snapshot_complete", true)) return null;
-      if (Object.keys(payload).length !== 0) return null;
+      if (!hasOnlyKeys(payload, [], ["issuedAt"])) return null;
+      if ("issuedAt" in payload && typeof payload.issuedAt !== "string") return null;
       return { kind: "snapshot_complete", frame: value as unknown as CTLSnapshotComplete };
+    }
+    case "ack": {
+      if (!validEnvelope(value, "ack", true)) return null;
+      if (!hasOnlyKeys(payload, [], ["appliedAt"])) return null;
+      if ("appliedAt" in payload && typeof payload.appliedAt !== "string") return null;
+      return { kind: "ack", frame: value as unknown as CTLACK };
     }
     case "error": {
       if (!validEnvelope(value, "error", false)) return null;
@@ -280,18 +420,60 @@ export function decodeControlFrame(value: unknown): DecodedControlFrame | null {
   }
 }
 
+// ---- Broker-truth payload shapes (what DIR_KEY stores) ----
+
+/** A binding as the upstream discovery response asserts it. Overlay fields
+ * (status/revoked/version/track/capabilities/confirmation) are DO-owned and
+ * joined in at directory build time, never stored in broker truth. */
+export type BrokerBinding = Omit<
+  Binding,
+  "status" | "revoked" | "appVersion" | "releaseTrack" | "capabilities" | "lastConfirmedAt"
+>;
+
+/** What DIR_KEY stores: broker truth only — no overlay join and no freshness
+ * stamps (issuedAt/ttlSeconds are stamped per outbound frame, so a re-stamp
+ * never looks like a content change). */
+export interface BrokerDirectoryPayload {
+  routeContractVersion: number;
+  bindings: BrokerBinding[];
+  relayFleet: string[];
+  grantVerificationKeys: GrantVerificationKey[];
+  minimumSupportedVersion?: PurpleMinimumSupportedVersion;
+}
+
+/** The wire directory body minus the per-send freshness stamps. */
+export type WireDirectoryBody = Omit<CTLDirectoryPayload, "issuedAt" | "ttlSeconds">;
+
 // ---- Server frame builders ----
 
-export function helloAckFrame(sessionId: string, resumedFromRev: number | null): CTLHelloACK {
+export function helloAckFrame(
+  sessionId: string,
+  resumedFromRev: number | null,
+  minimumSupportedVersion: PurpleMinimumSupportedVersion | null = null,
+): CTLHelloACK {
   return {
     v: CONTROL_PROTOCOL_VERSION,
     type: "hello_ack",
-    payload: { sessionId, resumedFromRev },
+    payload: {
+      sessionId,
+      resumedFromRev,
+      serverCapabilities: [...CONTROL_SERVER_CAPABILITIES],
+      ...(minimumSupportedVersion ? { minimumSupportedVersion } : {}),
+    },
   };
 }
 
-export function directoryFrame(rev: number, payload: CTLDirectoryPayload): CTLDirectory {
-  return { v: CONTROL_PROTOCOL_VERSION, type: "directory", rev, payload };
+export function directoryFrame(
+  rev: number,
+  body: WireDirectoryBody,
+  issuedAtIso: string,
+): CTLDirectory {
+  return {
+    v: CONTROL_PROTOCOL_VERSION,
+    type: "directory",
+    rev,
+    payload: { ...body, issuedAt: wireDate(issuedAtIso), ttlSeconds: DIRECTORY_TTL_SECONDS },
+  };
 }
 
 export function relayPassesFrame(rev: number, endpointId: string, passes: Pass[]): CTLRelayPasses {
@@ -321,8 +503,16 @@ export function hintUpdateFrame(
   };
 }
 
-export function snapshotCompleteFrame(rev: number): CTLSnapshotComplete {
-  return { v: CONTROL_PROTOCOL_VERSION, type: "snapshot_complete", rev, payload: {} };
+/** snapshot_complete doubles as the explicit-freshness "current" frame: when a
+ * hello's haveRev already equals head, this stamp alone re-arms the client's
+ * directory trust lease (no separate frame type on the wire). */
+export function snapshotCompleteFrame(rev: number, issuedAtIso: string): CTLSnapshotComplete {
+  return {
+    v: CONTROL_PROTOCOL_VERSION,
+    type: "snapshot_complete",
+    rev,
+    payload: { issuedAt: wireDate(issuedAtIso) },
+  };
 }
 
 export function errorFrame(code: string, message: string, retryable: boolean): CTLError {
@@ -340,11 +530,11 @@ export function errorFrame(code: string, message: string, retryable: boolean): C
  * are skipped rather than failing the whole directory. */
 export function directoryPayloadFromDiscovery(
   value: unknown,
-): { revision: number | null; payload: CTLDirectoryPayload } | null {
+): { revision: number | null; payload: BrokerDirectoryPayload } | null {
   if (!isObject(value)) return null;
   if (!Array.isArray(value.bindings)) return null;
 
-  const bindings: Binding[] = [];
+  const bindings: BrokerBinding[] = [];
   for (const raw of value.bindings) {
     if (!isObject(raw)) continue;
     const bindingId = raw.binding_id;
@@ -403,9 +593,29 @@ export function directoryPayloadFromDiscovery(
       ? value.revision
       : null;
 
+  // Optional per-platform app-version floors, when the broker publishes them.
+  let minimumSupportedVersion: PurpleMinimumSupportedVersion | undefined;
+  const minRaw = value.minimum_supported_version;
+  if (isObject(minRaw)) {
+    const mac = typeof minRaw.mac === "string" ? minRaw.mac : undefined;
+    const ios = typeof minRaw.ios === "string" ? minRaw.ios : undefined;
+    if (mac !== undefined || ios !== undefined) {
+      minimumSupportedVersion = {
+        ...(mac !== undefined ? { mac } : {}),
+        ...(ios !== undefined ? { ios } : {}),
+      };
+    }
+  }
+
   return {
     revision,
-    payload: { routeContractVersion, bindings, relayFleet, grantVerificationKeys },
+    payload: {
+      routeContractVersion,
+      bindings,
+      relayFleet,
+      grantVerificationKeys,
+      ...(minimumSupportedVersion !== undefined ? { minimumSupportedVersion } : {}),
+    },
   };
 }
 
@@ -479,14 +689,18 @@ export type DirectoryDelta =
  * material changed, a hint removed — hint_update cannot express null) falls
  * back to a full directory frame. */
 export function directoryDelta(
-  previous: CTLDirectoryPayload | undefined,
-  next: CTLDirectoryPayload,
+  previous: BrokerDirectoryPayload | undefined,
+  next: BrokerDirectoryPayload,
 ): DirectoryDelta {
   if (previous === undefined) return { kind: "full" };
   if (JSON.stringify(previous) === JSON.stringify(next)) return { kind: "none" };
   if (previous.routeContractVersion !== next.routeContractVersion) return { kind: "full" };
   if (JSON.stringify(previous.relayFleet) !== JSON.stringify(next.relayFleet)) return { kind: "full" };
   if (JSON.stringify(previous.grantVerificationKeys) !== JSON.stringify(next.grantVerificationKeys)) {
+    return { kind: "full" };
+  }
+  if (JSON.stringify(previous.minimumSupportedVersion ?? null)
+    !== JSON.stringify(next.minimumSupportedVersion ?? null)) {
     return { kind: "full" };
   }
   const prevById = new Map(previous.bindings.map((binding) => [binding.bindingId, binding]));
@@ -530,6 +744,34 @@ export interface CtlAttachment {
   /** True when the initial directory fetch failed with no cache to serve; the
    * alarm retries and completes the snapshot when upstream recovers. */
   snapshotPending?: boolean;
+  /** Highest revision this socket has acked (client applied that directory or
+   * hint revision). Mirrored into the device overlay's lastAckedRev when the
+   * socket is bound to a known device. */
+  lastAckedRev?: number;
+  /** Retry-ladder state for the newest revision delivered but not yet acked:
+   * resend the LATEST directory at nextAt, then climb the ladder. Cleared by
+   * an ack covering `rev`. */
+  ackRetry?: { rev: number; attempt: number; nextAt: number };
+}
+
+// ---- Device revocation (worker HTTP route -> account DO) ----
+
+export interface RevocationRequest {
+  endpointId: string;
+  revoked: boolean;
+}
+
+/** Strict body parse for POST /v1/control/devices/revoke, shared by the
+ * worker route and the DO adapter. The account identity NEVER rides in this
+ * body — the worker derives the DO from the verified Stack user id. */
+export function parseRevocationRequest(value: unknown): RevocationRequest | null {
+  if (!isObject(value)) return null;
+  if (!hasOnlyKeys(value, ["endpointId", "revoked"])) return null;
+  if (typeof value.endpointId !== "string"
+    || value.endpointId.length === 0
+    || value.endpointId.length > MAX_ENDPOINT_ID_CHARS) return null;
+  if (typeof value.revoked !== "boolean") return null;
+  return { endpointId: value.endpointId, revoked: value.revoked };
 }
 
 export interface CtlSocket {
@@ -686,6 +928,9 @@ export class ControlPlaneCore {
       case "publish_hint":
         await this.handlePublishHint(socket, attachment, decoded.frame);
         return;
+      case "ack":
+        await this.handleAck(socket, attachment, decoded.frame);
+        return;
       default:
         return; // server-to-client frame echoed back; ignore
     }
@@ -709,17 +954,32 @@ export class ControlPlaneCore {
     attachment.wantPasses = payload.wantPasses;
     socket.setAttachment(attachment);
 
+    // Confirm-on-hello BEFORE reading the head revision: the overlay flip
+    // (seeded -> active, plus version/track/capabilities) bumps the revision
+    // and broadcasts to peers, and the snapshot this client is about to
+    // receive must already show its own confirmed entry.
+    await this.confirmDeviceFromHello(attachment, payload);
+
     const storedRev = await this.deps.storage.get<number>(REV_KEY);
-    const cached = await this.deps.storage.get<CTLDirectoryPayload>(DIR_KEY);
+    const cached = await this.deps.storage.get<BrokerDirectoryPayload>(DIR_KEY);
     const haveRev = payload.haveRev ?? null;
     const resumed = haveRev !== null && storedRev !== undefined
       && haveRev === storedRev && cached !== undefined;
 
-    this.sendFrame(socket, attachment, helloAckFrame(attachment.sessionId, resumed ? haveRev : null));
+    this.sendFrame(socket, attachment, helloAckFrame(
+      attachment.sessionId,
+      resumed ? haveRev : null,
+      // Version floors ride the hello_ack too, so clients hold them even
+      // before (or without) a directory body.
+      cached?.minimumSupportedVersion ?? null,
+    ));
 
     if (resumed) {
       // Client already holds the current snapshot; skip the directory body.
-      // The 60s alarm refresh heals any staleness the DO itself has.
+      // snapshot_complete carries issuedAt: that stamp alone re-arms the
+      // client's trust lease (the explicit-freshness "current" role rides on
+      // the existing frame instead of adding a new one). The 60s alarm
+      // refresh heals any staleness the DO itself has.
       await this.finishSnapshot(socket, attachment, storedRev);
       return;
     }
@@ -735,7 +995,7 @@ export class ControlPlaneCore {
         // Serve the cached facts (stale rev is honest: the client can resume
         // from it) and complete the snapshot; the alarm refresh delivers
         // deltas when upstream recovers.
-        this.sendFrame(socket, attachment, directoryFrame(storedRev, cached));
+        await this.sendDirectory(socket, attachment, storedRev, cached);
         await this.finishSnapshot(socket, attachment, storedRev);
       } else {
         attachment.snapshotPending = true;
@@ -746,10 +1006,45 @@ export class ControlPlaneCore {
     }
 
     const { rev, previous, previousRev } = await this.storeDirectory(fetched);
-    this.sendFrame(socket, attachment, directoryFrame(rev, fetched.payload));
+    await this.sendDirectory(socket, attachment, rev, fetched.payload);
     // This fetch doubles as a refresh for everyone else already snapshotted.
-    this.broadcastDirectoryChange(previous, fetched.payload, rev, previousRev, attachment.sessionId);
+    await this.broadcastDirectoryChange(previous, fetched.payload, rev, previousRev, attachment.sessionId);
     await this.finishSnapshot(socket, attachment, rev);
+  }
+
+  // ---- Confirm-on-hello: client info claims the device's overlay entry ----
+
+  /** A hello carrying any client-info field is the device confirming itself:
+   * its overlay flips to "active", lastConfirmedAt is stamped, and declared
+   * version/track/capabilities are recorded. That is a revision-bearing list
+   * change, so the account revision bumps and peers get the new directory
+   * (the confirming socket is excluded — its snapshot arrives inline).
+   * Oversized client info skips the confirmation, never the hello. */
+  private async confirmDeviceFromHello(
+    attachment: CtlAttachment,
+    payload: CTLHelloPayload,
+  ): Promise<void> {
+    const hasClientInfo = payload.deviceId != null || payload.platform != null
+      || payload.appVersion != null || payload.releaseTrack != null
+      || payload.capabilities != null;
+    if (!hasClientInfo) return;
+    if (payload.deviceId != null && payload.deviceId.length > MAX_DEVICE_ID_CHARS) return;
+    if (payload.appVersion != null && payload.appVersion.length > MAX_APP_VERSION_CHARS) return;
+    if (payload.capabilities != null && (
+      payload.capabilities.length > MAX_CLIENT_CAPABILITIES
+      || payload.capabilities.some((cap) => cap.length > MAX_CLIENT_CAPABILITY_CHARS)
+    )) return;
+    const overlay = await this.ensureOverlay(payload.endpointId);
+    const updated: DeviceOverlay = {
+      ...overlay,
+      status: "active",
+      lastConfirmedAt: rfc3339FromMs(this.deps.now()),
+      ...(payload.appVersion != null ? { appVersion: payload.appVersion } : {}),
+      ...(payload.releaseTrack != null ? { releaseTrack: payload.releaseTrack } : {}),
+      ...(payload.capabilities != null ? { capabilities: [...payload.capabilities] } : {}),
+    };
+    await this.deps.storage.put(DEV_PREFIX + payload.endpointId, updated);
+    await this.bumpOverlayRevisionAndBroadcast(attachment.sessionId);
   }
 
   /** Mint passes if requested, then close the snapshot. */
@@ -761,10 +1056,69 @@ export class ControlPlaneCore {
     if (attachment.wantPasses && attachment.endpointId) {
       await this.mintAndSend(socket, attachment, attachment.endpointId, rev);
     }
-    this.sendFrame(socket, attachment, snapshotCompleteFrame(rev));
+    this.sendFrame(socket, attachment, snapshotCompleteFrame(rev, rfc3339FromMs(this.deps.now())));
     if (attachment.snapshotPending) {
       attachment.snapshotPending = false;
       socket.setAttachment(attachment);
+    }
+  }
+
+  // ---- Directory delivery + ack tracking ----
+
+  /** Send one socket the merged, freshness-stamped directory and arm its ack
+   * retry ladder for that revision. */
+  private async sendDirectory(
+    socket: CtlSocket,
+    attachment: CtlAttachment,
+    rev: number,
+    broker: BrokerDirectoryPayload,
+  ): Promise<void> {
+    const merged = await this.mergedDirectory(broker);
+    this.sendFrame(socket, attachment, directoryFrame(rev, merged, rfc3339FromMs(this.deps.now())));
+    await this.markAckPending(socket, attachment, rev);
+  }
+
+  /** Arm (or re-arm at the newest revision) the socket's ack retry ladder and
+   * pull the alarm to the first rung. No-op when the socket already acked this
+   * revision or newer. */
+  private async markAckPending(
+    socket: CtlSocket,
+    attachment: CtlAttachment,
+    rev: number,
+  ): Promise<void> {
+    if ((attachment.lastAckedRev ?? -1) >= rev) return;
+    const now = this.deps.now();
+    const nextAt = now + (ACK_RETRY_LADDER_MS[0] ?? ACK_RETRY_STEADY_MS);
+    attachment.ackRetry = { rev, attempt: 0, nextAt };
+    socket.setAttachment(attachment);
+    await this.deps.scheduleAlarmAt(nextAt);
+  }
+
+  // ---- ack: the client applied revision `rev`; stand the ladder down ----
+
+  private async handleAck(
+    socket: CtlSocket,
+    attachment: CtlAttachment,
+    frame: CTLACK,
+  ): Promise<void> {
+    const rev = frame.rev;
+    // Stale acks are fine; ignore anything at or below the current watermark.
+    if ((attachment.lastAckedRev ?? -1) >= rev) return;
+    attachment.lastAckedRev = rev;
+    if (attachment.ackRetry !== undefined && rev >= attachment.ackRetry.rev) {
+      delete attachment.ackRetry;
+    }
+    socket.setAttachment(attachment);
+    // Mirror into the device overlay when the socket is bound to a known
+    // device (bookkeeping only: no revision bump, never emitted).
+    if (attachment.endpointId) {
+      const overlay = await this.deps.storage.get<DeviceOverlay>(DEV_PREFIX + attachment.endpointId);
+      if (overlay !== undefined && (overlay.lastAckedRev ?? -1) < rev) {
+        await this.deps.storage.put(DEV_PREFIX + attachment.endpointId, {
+          ...overlay,
+          lastAckedRev: rev,
+        });
+      }
     }
   }
 
@@ -793,6 +1147,21 @@ export class ControlPlaneCore {
     endpointId: string,
     rev: number,
   ): Promise<void> {
+    // A revoked device keeps its socket and may see the directory, but never
+    // fresh relay credentials. Non-retryable: only an un-revoke (or asking for
+    // a non-revoked endpoint) changes the answer. Checked for both the minted
+    // endpoint and the requesting socket's own bound endpoint.
+    if (await this.isEndpointRevoked(endpointId)
+      || (attachment.endpointId !== undefined
+        && attachment.endpointId !== endpointId
+        && await this.isEndpointRevoked(attachment.endpointId))) {
+      this.sendFrame(socket, attachment, errorFrame(
+        "mint_revoked",
+        "device revoked for this account",
+        false,
+      ));
+      return;
+    }
     const credentials = decodeStoredCredentials(
       await this.deps.storage.get<string>(BEARER_PREFIX + attachment.sessionId),
     );
@@ -870,6 +1239,9 @@ export class ControlPlaneCore {
     const frameJson = JSON.stringify(
       hintUpdateFrame(rev, endpointId, homeRelayUrl, rfc3339FromMs(now)),
     );
+    // The announcement is NOT revision-bearing (rev did not move), so it never
+    // arms the peers' ack retry ladders; the confirm re-fetch does when the
+    // broker revision actually advances.
     for (const peer of this.deps.sockets()) {
       const peerAttachment = peer.getAttachment();
       if (!peerAttachment) continue;
@@ -882,6 +1254,109 @@ export class ControlPlaneCore {
       }
     }
     await this.deps.scheduleAlarmAt(now + HINT_CONFIRM_DELAY_MS);
+  }
+
+  // ---- Device overlay (listv2): storage-driven, joined at directory build ----
+
+  /** Load a device's overlay, materializing the seeded default on first
+   * sighting so admin mutations (revoke) always have a record to land on. */
+  private async ensureOverlay(endpointId: string): Promise<DeviceOverlay> {
+    const existing = await this.deps.storage.get<DeviceOverlay>(DEV_PREFIX + endpointId);
+    if (existing !== undefined) return existing;
+    const seeded: DeviceOverlay = { status: "seeded", revoked: false };
+    await this.deps.storage.put(DEV_PREFIX + endpointId, seeded);
+    return seeded;
+  }
+
+  private async isEndpointRevoked(endpointId: string): Promise<boolean> {
+    const overlay = await this.deps.storage.get<DeviceOverlay>(DEV_PREFIX + endpointId);
+    return overlay?.revoked === true;
+  }
+
+  /** Join broker bindings with the DO-owned overlay. Bindings never seen
+   * before get a seeded overlay row created; overlay rows whose binding
+   * disappeared upstream are kept in storage but not emitted. lastAckedRev is
+   * bookkeeping and never emitted. */
+  private async mergedDirectory(broker: BrokerDirectoryPayload): Promise<WireDirectoryBody> {
+    const bindings: Binding[] = [];
+    for (const binding of broker.bindings) {
+      const overlay = await this.ensureOverlay(binding.endpointId);
+      bindings.push({
+        ...binding,
+        status: overlay.status,
+        revoked: overlay.revoked,
+        ...(overlay.appVersion !== undefined ? { appVersion: overlay.appVersion } : {}),
+        ...(overlay.releaseTrack !== undefined ? { releaseTrack: overlay.releaseTrack } : {}),
+        ...(overlay.capabilities !== undefined ? { capabilities: overlay.capabilities } : {}),
+        ...(overlay.lastConfirmedAt !== undefined
+          ? { lastConfirmedAt: wireDate(overlay.lastConfirmedAt) }
+          : {}),
+      });
+    }
+    return { ...broker, bindings };
+  }
+
+  /** Bump the account revision for a DO-local overlay change (confirm-on-hello
+   * or revocation — broker truth did not move, so storeDirectory could never
+   * see it) and broadcast the merged directory to every snapshotted socket,
+   * except the optionally excluded one whose snapshot arrives inline. */
+  private async bumpOverlayRevisionAndBroadcast(excludeSessionId: string | null): Promise<number> {
+    const previousRev = (await this.deps.storage.get<number>(REV_KEY)) ?? 0;
+    const rev = previousRev + 1;
+    await this.deps.storage.put(REV_KEY, rev);
+    const broker = await this.deps.storage.get<BrokerDirectoryPayload>(DIR_KEY);
+    if (broker === undefined) return rev; // no directory yet; nothing to broadcast
+    const merged = await this.mergedDirectory(broker);
+    const frameJson = JSON.stringify(directoryFrame(rev, merged, rfc3339FromMs(this.deps.now())));
+    const now = this.deps.now();
+    for (const socket of this.deps.sockets()) {
+      const peer = socket.getAttachment();
+      if (!peer) continue;
+      if (excludeSessionId !== null && peer.sessionId === excludeSessionId) continue;
+      if (!this.deliverable(peer, now)) continue;
+      try {
+        socket.send(frameJson);
+      } catch {
+        continue; // Socket already gone; hibernation cleans it up.
+      }
+      await this.markAckPending(socket, peer, rev);
+    }
+    return rev;
+  }
+
+  // ---- Revocation: account-owner kill switch over the worker HTTP route ----
+
+  /** Flip one device's revoked flag (status untouched — revoked is
+   * orthogonal). Idempotent. On revoke: bump the revision, broadcast the
+   * merged directory immediately (the revoked device may still see the list),
+   * then close every socket bound to that endpoint with 1008 "revoked". Mints
+   * for the endpoint are refused until un-revoked. */
+  async handleRevocation(
+    request: RevocationRequest,
+  ): Promise<{ rev: number; changed: boolean; revoked: boolean }> {
+    const overlay = await this.ensureOverlay(request.endpointId);
+    if (overlay.revoked === request.revoked) {
+      const rev = (await this.deps.storage.get<number>(REV_KEY)) ?? 0;
+      return { rev, changed: false, revoked: overlay.revoked };
+    }
+    await this.deps.storage.put(DEV_PREFIX + request.endpointId, {
+      ...overlay,
+      revoked: request.revoked,
+    });
+    const rev = await this.bumpOverlayRevisionAndBroadcast(null);
+    if (request.revoked) {
+      for (const socket of this.deps.sockets()) {
+        const attachment = socket.getAttachment();
+        if (!attachment || attachment.endpointId !== request.endpointId) continue;
+        await this.deps.storage.delete(BEARER_PREFIX + attachment.sessionId);
+        try {
+          socket.close(1008, "revoked");
+        } catch {
+          // already closed
+        }
+      }
+    }
+    return { rev, changed: true, revoked: request.revoked };
   }
 
   // ---- Alarm: expiry sweep + periodic refresh + pending-snapshot recovery ----
@@ -905,14 +1380,62 @@ export class ControlPlaneCore {
     }
     if (live.length === 0) return; // idle account: stop the refresh cadence
     await this.refreshDirectory(live);
+    await this.retryUnackedDirectories(live);
     let earliestExpiry = Number.POSITIVE_INFINITY;
+    let earliestAckRetry = Number.POSITIVE_INFINITY;
     for (const socket of live) {
       const attachment = socket.getAttachment();
-      if (attachment && attachment.expiresAt < earliestExpiry) earliestExpiry = attachment.expiresAt;
+      if (!attachment) continue;
+      if (attachment.expiresAt < earliestExpiry) earliestExpiry = attachment.expiresAt;
+      if (attachment.ackRetry !== undefined && attachment.ackRetry.nextAt < earliestAckRetry) {
+        earliestAckRetry = attachment.ackRetry.nextAt;
+      }
     }
     await this.deps.scheduleAlarmAt(
       Math.min(this.deps.now() + CONTROL_REFRESH_INTERVAL_MS, earliestExpiry),
     );
+    // Pull the alarm to the earliest due ack rung (ensure-at keeps the min).
+    if (earliestAckRetry !== Number.POSITIVE_INFINITY) {
+      await this.deps.scheduleAlarmAt(earliestAckRetry);
+    }
+  }
+
+  /** Resend the LATEST merged directory to every live socket whose retry rung
+   * is due and which still has not acked the head revision. Ladder offsets:
+   * 5s, 30s, 2m, 10m after delivery, then hourly; the ladder resets on ack. */
+  private async retryUnackedDirectories(live: CtlSocket[]): Promise<void> {
+    const now = this.deps.now();
+    const rev = (await this.deps.storage.get<number>(REV_KEY)) ?? 0;
+    const broker = await this.deps.storage.get<BrokerDirectoryPayload>(DIR_KEY);
+    let frameJson: string | null = null;
+    for (const socket of live) {
+      const attachment = socket.getAttachment();
+      if (!attachment || attachment.ackRetry === undefined) continue;
+      if (attachment.ackRetry.nextAt > now) continue;
+      if ((attachment.lastAckedRev ?? -1) >= rev) {
+        // Already acked through head; stand down.
+        delete attachment.ackRetry;
+        socket.setAttachment(attachment);
+        continue;
+      }
+      if (broker !== undefined && attachment.expiresAt > now) {
+        if (frameJson === null) {
+          frameJson = JSON.stringify(
+            directoryFrame(rev, await this.mergedDirectory(broker), rfc3339FromMs(now)),
+          );
+        }
+        try {
+          socket.send(frameJson);
+        } catch {
+          // Socket already gone; hibernation cleans it up.
+        }
+      }
+      const attempt = attachment.ackRetry.attempt + 1;
+      const delay = ACK_RETRY_LADDER_MS[attempt] ?? ACK_RETRY_STEADY_MS;
+      // The resend carried the head revision, so the ladder now tracks it.
+      attachment.ackRetry = { rev, attempt, nextAt: now + delay };
+      socket.setAttachment(attachment);
+    }
   }
 
   /** Re-fetch discovery with a live socket's token and broadcast what changed.
@@ -925,14 +1448,14 @@ export class ControlPlaneCore {
     const fetched = await this.fetchDirectory(holder);
     if (fetched === null) return; // upstream down; keep serving cached facts
     const { rev, previous, previousRev } = await this.storeDirectory(fetched);
-    this.broadcastDirectoryChange(previous, fetched.payload, rev, previousRev, null);
+    await this.broadcastDirectoryChange(previous, fetched.payload, rev, previousRev, null);
     // Recover sockets whose initial snapshot fetch failed.
     const now = this.deps.now();
     for (const socket of live) {
       const attachment = socket.getAttachment();
       if (!attachment || !attachment.snapshotPending) continue;
       if (attachment.expiresAt <= now) continue;
-      this.sendFrame(socket, attachment, directoryFrame(rev, fetched.payload));
+      await this.sendDirectory(socket, attachment, rev, fetched.payload);
       await this.finishSnapshot(socket, attachment, rev);
     }
   }
@@ -951,7 +1474,7 @@ export class ControlPlaneCore {
    * immediate retry on connection-level failure. Null on any failure. */
   private async fetchDirectory(
     attachment: CtlAttachment,
-  ): Promise<{ revision: number | null; payload: CTLDirectoryPayload } | null> {
+  ): Promise<{ revision: number | null; payload: BrokerDirectoryPayload } | null> {
     const credentials = decodeStoredCredentials(
       await this.deps.storage.get<string>(BEARER_PREFIX + attachment.sessionId),
     );
@@ -965,35 +1488,40 @@ export class ControlPlaneCore {
   }
 
   private async storeDirectory(
-    fetched: { revision: number | null; payload: CTLDirectoryPayload },
-  ): Promise<{ rev: number; previous: CTLDirectoryPayload | undefined; previousRev: number }> {
-    const previous = await this.deps.storage.get<CTLDirectoryPayload>(DIR_KEY);
+    fetched: { revision: number | null; payload: BrokerDirectoryPayload },
+  ): Promise<{ rev: number; previous: BrokerDirectoryPayload | undefined; previousRev: number }> {
+    const previous = await this.deps.storage.get<BrokerDirectoryPayload>(DIR_KEY);
     const previousRev = (await this.deps.storage.get<number>(REV_KEY)) ?? 0;
-    // Upstream revision when present; otherwise a storage counter that bumps
-    // only when the directory content actually changed.
+    // Upstream revision when it is ahead, otherwise a local bump — and never
+    // backwards: DO-local overlay changes (confirm-on-hello, revocation)
+    // advance the account revision past anything the broker has issued yet.
     const contentChanged = previous === undefined
       || JSON.stringify(previous) !== JSON.stringify(fetched.payload);
-    const rev = fetched.revision ?? (contentChanged ? previousRev + 1 : previousRev);
+    const rev = contentChanged
+      ? Math.max(fetched.revision ?? 0, previousRev + 1)
+      : previousRev;
     if (contentChanged) await this.deps.storage.put(DIR_KEY, fetched.payload);
     if (rev !== previousRev) await this.deps.storage.put(REV_KEY, rev);
     return { rev, previous, previousRev };
   }
 
   /** Broadcast a refreshed directory to every snapshotted socket except
-   * `excludeSessionId` (the one that just received the full body inline). */
-  private broadcastDirectoryChange(
-    previous: CTLDirectoryPayload | undefined,
-    next: CTLDirectoryPayload,
+   * `excludeSessionId` (the one that just received the full body inline).
+   * Full-directory frames carry the overlay join and a fresh stamp; both
+   * frame kinds are revision-bearing and arm the recipients' ack ladders. */
+  private async broadcastDirectoryChange(
+    previous: BrokerDirectoryPayload | undefined,
+    next: BrokerDirectoryPayload,
     rev: number,
     previousRev: number,
     excludeSessionId: string | null,
-  ): void {
+  ): Promise<void> {
     if (rev === previousRev) return;
     const delta = directoryDelta(previous, next);
     if (delta.kind === "none") return;
     const now = this.deps.now();
     const frames = delta.kind === "full"
-      ? [JSON.stringify(directoryFrame(rev, next))]
+      ? [JSON.stringify(directoryFrame(rev, await this.mergedDirectory(next), rfc3339FromMs(now)))]
       : delta.updates.map((update) => JSON.stringify(
         hintUpdateFrame(rev, update.endpointId, update.homeRelayUrl, update.updatedAt),
       ));
@@ -1002,13 +1530,16 @@ export class ControlPlaneCore {
       if (!attachment) continue;
       if (excludeSessionId !== null && attachment.sessionId === excludeSessionId) continue;
       if (!this.deliverable(attachment, now)) continue;
+      let delivered = false;
       for (const json of frames) {
         try {
           socket.send(json);
+          delivered = true;
         } catch {
           // Socket already gone; hibernation cleans it up.
         }
       }
+      if (delivered) await this.markAckPending(socket, attachment, rev);
     }
   }
 

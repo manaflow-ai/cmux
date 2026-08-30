@@ -48,10 +48,31 @@ import Testing
 
     @Test func directoryFixtureDecodes() throws {
         let fact = try Self.decoder.decode(CTLDirectory.self, from: fixture("directory"))
-        #expect(fact.payload.bindings.count == 1)
+        #expect(fact.payload.bindings.count == 2)
         #expect(fact.payload.bindings[0].homeRelayURL == "https://usw1.relay.cmux.dev/")
         #expect(fact.payload.relayFleet.count == 2)
         #expect(fact.payload.grantVerificationKeys.count == 1)
+        // List-auth lease stamp + per-entry authorization state.
+        #expect(fact.payload.ttlSeconds == 86_400)
+        #expect(fact.payload.bindings[0].revoked == false)
+        #expect(fact.payload.bindings[1].status == .seeded)
+        #expect(fact.payload.bindings[1].revoked == true)
+    }
+
+    /// The hand-written tolerant overlay must decode the same golden fixture
+    /// the generated type does, or list-auth silently diverges from the wire.
+    @Test func directoryFixtureDecodesThroughListAuthOverlay() throws {
+        let fact = try Self.decoder.decode(
+            IrxCtlDirectoryFact.self, from: fixture("directory"))
+        #expect(fact.rev == 42)
+        #expect(fact.payload.issuedAt != nil)
+        #expect(fact.payload.ttlSeconds == 86_400)
+        let snapshot = IrxDeviceListSnapshot(
+            fact: fact, receivedAtWall: Date(), receivedAtMonotonic: .now)
+        #expect(snapshot.entries.count == 2)
+        #expect(snapshot.entries["0fbffe130b96"]?.revoked == false)
+        #expect(snapshot.entries["8de4b1c22a10"]?.status == "seeded")
+        #expect(snapshot.entries["8de4b1c22a10"]?.revoked == true)
     }
 
     @Test func hintUpdateFixtureDecodes() throws {

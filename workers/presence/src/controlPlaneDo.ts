@@ -18,6 +18,7 @@ import {
   CONTROL_REFRESH_INTERVAL_MS,
   ControlPlaneCore,
   MAX_CONTROL_SUBSCRIBERS_PER_ACCOUNT,
+  parseRevocationRequest,
   type CtlAttachment,
   type CtlSocket,
   type CtlStorage,
@@ -102,6 +103,25 @@ export class AccountControlPlane extends DurableObject<ControlPlaneEnv> {
   });
 
   override async fetch(request: Request): Promise<Response> {
+    // Device revocation, forwarded by the worker with rebuilt headers after
+    // Stack bearer verification. This DO instance IS the verified account
+    // scope; the strict-parsed body carries only {endpointId, revoked}.
+    if (request.method === "POST"
+      && new URL(request.url).pathname === "/v1/control/devices/revoke") {
+      if (!request.headers.get("x-control-account-id")?.trim()) {
+        return json({ error: "account_required" }, 403);
+      }
+      let body: unknown;
+      try {
+        body = await request.json();
+      } catch {
+        return json({ error: "invalid_request" }, 400);
+      }
+      const parsed = parseRevocationRequest(body);
+      if (parsed === null) return json({ error: "invalid_request" }, 400);
+      const result = await this.core.handleRevocation(parsed);
+      return json({ ok: true, ...result }, 200);
+    }
     if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
       return json({ error: "websocket_required" }, 400);
     }

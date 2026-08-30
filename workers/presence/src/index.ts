@@ -10,6 +10,10 @@
 //   POST /v1/connectivity/invalidate      publish one account route revision
 //   GET  /v1/control/socket               account control-plane WebSocket:
 //                                         revisioned directory/hint/pass facts
+//   POST /v1/control/devices/revoke       flip one device's revoked flag
+//                                         ({endpointId, revoked}); the DO
+//                                         broadcasts, closes that device's
+//                                         sockets, and refuses its mints
 //   POST /v1/replies                      park one phone inline-notification reply
 //   GET  /v1/replies?macDeviceId=…        pending replies for one Mac
 //   POST /v1/replies/ack                  remove processed replies
@@ -32,6 +36,7 @@ import {
 } from "./auth";
 import { MAX_SUBSCRIBE_AGE_MS, TeamPresence } from "./do";
 import { AccountControlPlane, type ControlPlaneEnv } from "./controlPlaneDo";
+import { parseRevocationRequest } from "./controlPlane";
 import {
   isConnectivityPublisherAuthorized,
   parseConnectivityInvalidation,
@@ -143,6 +148,32 @@ export default {
         env.ACCOUNT_CONTROL_PLANE.idFromName(`control:user:${user.id}`),
       );
       return stub.fetch(new Request(request.url, { method: "GET", headers }));
+    }
+
+    if (url.pathname === "/v1/control/devices/revoke") {
+      // Account-owner device revocation. Same Stack bearer verification as the
+      // control-plane socket route; the target DO is derived from the VERIFIED
+      // user id, the forwarded headers are rebuilt from scratch, and only the
+      // strict-parsed body travels — a client-supplied account id has no
+      // channel here.
+      if (request.method !== "POST") return json({ error: "method_not_allowed" }, 405);
+      const user = await verifyRequest(request, env);
+      if (!user) return unauthorized();
+      const body = await readBoundedJson(request, 1_024);
+      if (!body.ok) return json({ error: "invalid_request" }, body.status);
+      const parsed = parseRevocationRequest(body.value);
+      if (parsed === null) return json({ error: "invalid_request" }, 400);
+      const headers = new Headers();
+      headers.set("x-control-account-id", user.id);
+      headers.set("content-type", "application/json");
+      const stub = env.ACCOUNT_CONTROL_PLANE.get(
+        env.ACCOUNT_CONTROL_PLANE.idFromName(`control:user:${user.id}`),
+      );
+      return stub.fetch(new Request(request.url, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(parsed),
+      }));
     }
 
     if (url.pathname === "/v1/connectivity/invalidate") {

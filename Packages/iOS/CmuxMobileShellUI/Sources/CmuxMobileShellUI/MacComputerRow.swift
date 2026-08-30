@@ -106,6 +106,9 @@ struct MacComputerRow: View {
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)
+                if isSeededOnDeviceList {
+                    listAuthWarning
+                }
             }
             Spacer(minLength: 8)
             badge
@@ -134,6 +137,43 @@ struct MacComputerRow: View {
                     "MobileComputerStatus-\(computer.connectionRef.automationID)-\(statusIdentifierSuffix)"
                 )
         }
+    }
+
+    /// Whether the account device list marks this Mac `seeded`: present in
+    /// the directory but never confirmed by its own control-plane hello,
+    /// i.e. probably running a pre-list-auth cmux build.
+    private var isSeededOnDeviceList: Bool {
+        MobileMacListAuthState.shared.isSeeded(deviceID: computer.deviceId)
+    }
+
+    /// Compact warning shown on seeded rows: title + one remediation line.
+    private var listAuthWarning: some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Label {
+                Text(L10n.string(
+                    "computers.listauth.unverified.title",
+                    defaultValue: "Not verified on the new connection system yet"
+                ))
+            } icon: {
+                Image(systemName: "exclamationmark.triangle.fill")
+            }
+            .font(.caption2)
+            .foregroundStyle(.orange)
+            .lineLimit(2)
+            Text(L10n.string(
+                "computers.listauth.unverified.detail",
+                defaultValue:
+                    "It may be running an older cmux version. Update the Mac, or if it's already updated, open cmux on it once to verify."
+            ))
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+            .lineLimit(3)
+        }
+        .padding(.top, 1)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier(
+            "MobileComputerListAuthWarning-\(computer.connectionRef.automationID)"
+        )
     }
 
     private var dotColor: Color {

@@ -11,6 +11,7 @@ import { decodeControlFrame, type DecodedControlFrame } from "../src/controlPlan
 const FIXTURES_DIR = join(import.meta.dir, "../../../schemas/control-plane/fixtures");
 
 const EXPECTED_KINDS: Record<string, DecodedControlFrame["kind"]> = {
+  "ack.json": "ack",
   "control-error.json": "error",
   "directory.json": "directory",
   "hello-ack.json": "hello_ack",

@@ -2,5 +2,7 @@
   "v": 1,
   "type": "snapshot_complete",
   "rev": 42,
-  "payload": {}
+  "payload": {
+    "issuedAt": "2026-08-27T02:49:45Z"
+  }
 }

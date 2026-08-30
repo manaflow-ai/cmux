@@ -36,6 +36,37 @@
         },
         "wantPasses": {
           "type": "boolean"
+        },
+        "deviceId": {
+          "type": "string",
+          "description": "optional client self-identification; presence of any client-info field confirms the device into the account overlay"
+        },
+        "platform": {
+          "type": "string",
+          "enum": [
+            "mac",
+            "ios"
+          ]
+        },
+        "appVersion": {
+          "type": "string"
+        },
+        "releaseTrack": {
+          "type": "string",
+          "enum": [
+            "nightly",
+            "stable",
+            "internal",
+            "beta",
+            "appstore",
+            "dev"
+          ]
+        },
+        "capabilities": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       }
     }

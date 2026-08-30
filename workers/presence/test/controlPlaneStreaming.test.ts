@@ -6,8 +6,10 @@ import { describe, expect, it } from "bun:test";
 import {
   BEARER_PREFIX,
   CONTROL_REFRESH_INTERVAL_MS,
+  CONTROL_SERVER_CAPABILITIES,
   ControlPlaneCore,
   DIR_KEY,
+  DIRECTORY_TTL_SECONDS,
   HINT_CONFIRM_DELAY_MS,
   REV_KEY,
   SNAPSHOT_RETRY_DELAY_MS,
@@ -222,7 +224,11 @@ describe("hello fact streaming", () => {
     await harness.hello(socket, { endpointId: ENDPOINT_A, haveRev: null, wantPasses: true });
 
     expect(socket.types()).toEqual(["hello_ack", "directory", "relay_passes", "snapshot_complete"]);
-    expect(socket.frame("hello_ack")?.payload).toEqual({ sessionId: "s1", resumedFromRev: null });
+    expect(socket.frame("hello_ack")?.payload).toEqual({
+      sessionId: "s1",
+      resumedFromRev: null,
+      serverCapabilities: [...CONTROL_SERVER_CAPABILITIES],
+    });
 
     const directory = socket.frame("directory") as { rev: number; payload: Record<string, unknown> };
     expect(directory.rev).toBe(42);
@@ -231,6 +237,9 @@ describe("hello fact streaming", () => {
     expect(directory.payload.grantVerificationKeys).toEqual([
       { keyId: "k1", alg: "EdDSA", publicKey: "MCowBQYDK2VwAyEA" },
     ]);
+    // Freshness lease stamped per outbound directory.
+    expect(directory.payload.issuedAt).toBe(new Date(T0).toISOString());
+    expect(directory.payload.ttlSeconds).toBe(DIRECTORY_TTL_SECONDS);
     expect(directory.payload.bindings).toEqual([
       {
         bindingId: "611ffbbb-9f60-4601-ba39-4c241b900497",
@@ -240,6 +249,10 @@ describe("hello fact streaming", () => {
         instanceTag: "irx",
         homeRelayUrl: RELAY_1,
         updatedAt: "2026-08-26T00:00:00Z",
+        // listv2 overlay join: a hello without client info leaves the binding
+        // seeded and unrevoked.
+        status: "seeded",
+        revoked: false,
       },
     ]);
 
@@ -278,7 +291,11 @@ describe("hello fact streaming", () => {
     await harness.hello(socket, { endpointId: ENDPOINT_A, haveRev: 42, wantPasses: false });
 
     expect(socket.types()).toEqual(["hello_ack", "snapshot_complete"]);
-    expect(socket.frame("hello_ack")?.payload).toEqual({ sessionId: "s1", resumedFromRev: 42 });
+    expect(socket.frame("hello_ack")?.payload).toEqual({
+      sessionId: "s1",
+      resumedFromRev: 42,
+      serverCapabilities: [...CONTROL_SERVER_CAPABILITIES],
+    });
     expect(socket.frame("snapshot_complete")?.rev).toBe(42);
     expect(harness.discoveryCalls()).toHaveLength(0); // no upstream fetch at all
   });

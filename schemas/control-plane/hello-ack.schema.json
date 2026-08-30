@@ -32,6 +32,26 @@
             "null"
           ],
           "description": "rev the server resumed the delta stream from; null means full snapshot follows"
+        },
+        "serverCapabilities": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "control-plane features this server supports (list overlay, ack tracking, revocation)"
+        },
+        "minimumSupportedVersion": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "echo of the directory's per-platform version floors so clients get them before the directory body",
+          "properties": {
+            "mac": {
+              "type": "string"
+            },
+            "ios": {
+              "type": "string"
+            }
+          }
         }
       }
     }

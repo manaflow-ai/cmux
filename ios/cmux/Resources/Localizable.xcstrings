@@ -23681,6 +23681,40 @@
           }
         }
       }
+    },
+    "computers.listauth.unverified.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not verified on the new connection system yet"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しい接続システムでまだ確認されていません"
+          }
+        }
+      }
+    },
+    "computers.listauth.unverified.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "It may be running an older cmux version. Update the Mac, or if it's already updated, open cmux on it once to verify."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "古いバージョンの cmux が動作している可能性があります。Mac をアップデートするか、すでに最新の場合は、その Mac で cmux を一度開いて確認してください。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

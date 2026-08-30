@@ -90,6 +90,14 @@ public actor IrxBrokerService {
         /// Rotates only when the endpoint identity rotates (legacy-adopted
         /// identities carry their existing generation).
         public var identityGeneration: Int
+        /// The signed-in account. With it, Release builds keep the broker
+        /// caches in the Keychain (`com.cmuxterm.irx.cache.v1`, account
+        /// `<kind>|<accountID>|<backendHost>`) with a one-way migration off
+        /// the legacy JSON files; without it (and in every DEBUG build) the
+        /// files remain the store, byte-identical to before.
+        public var accountID: String?
+        /// The app's Keychain access group (iOS); nil on macOS.
+        public var keychainAccessGroup: String?
 
         public init(
             baseURL: URL,
@@ -98,7 +106,9 @@ public actor IrxBrokerService {
             platform: CmxIrohPlatform,
             displayName: String?,
             cacheDirectory: URL,
-            identityGeneration: Int = 1
+            identityGeneration: Int = 1,
+            accountID: String? = nil,
+            keychainAccessGroup: String? = nil
         ) {
             self.baseURL = baseURL
             self.clientNamespace = clientNamespace
@@ -107,6 +117,17 @@ public actor IrxBrokerService {
             self.displayName = displayName
             self.cacheDirectory = cacheDirectory
             self.identityGeneration = identityGeneration
+            self.accountID = accountID
+            self.keychainAccessGroup = keychainAccessGroup
+        }
+
+        var cacheScope: IrxBrokerCacheScope? {
+            guard let accountID, let backendHost = baseURL.host else { return nil }
+            return IrxBrokerCacheScope(
+                accountID: accountID,
+                backendHost: backendHost,
+                keychainAccessGroup: keychainAccessGroup
+            )
         }
     }
 
@@ -114,10 +135,10 @@ public actor IrxBrokerService {
     private let identity: IrxIdentity
     private let journal: IrxJournal
     private let client: CmxIrohTrustBrokerClient
-    private let bindingCache: IrxDiskCache<IrxBindingSnapshot>
-    private let trustCache: IrxDiskCache<IrxTrustSnapshot>
-    private let credentialCache: IrxDiskCache<IrxRelayCredentialSnapshot>
-    private let grantCache: IrxDiskCache<[String: IrxGrantSnapshot]>
+    private let bindingCache: any IrxJSONCache<IrxBindingSnapshot>
+    private let trustCache: any IrxJSONCache<IrxTrustSnapshot>
+    private let credentialCache: any IrxJSONCache<IrxRelayCredentialSnapshot>
+    private let grantCache: any IrxJSONCache<[String: IrxGrantSnapshot]>
     private var registrationInFlight: Task<IrxBindingSnapshot, any Error>?
     private var lastHintRegistered: (url: String?, at: Date)?
     private var lastDiscovery: CmxIrohDiscoveryResponse?
@@ -140,7 +161,12 @@ public actor IrxBrokerService {
             )
         })
         let dir = configuration.cacheDirectory
-        bindingCache = IrxDiskCache(fileURL: dir.appendingPathComponent("binding.json"))
+        let scope = configuration.cacheScope
+        bindingCache = IrxBrokerCacheFactory.make(
+            kind: "binding",
+            fileURL: dir.appendingPathComponent("binding.json"),
+            scope: scope
+        )
         // Warm launches skip register() for speed, but register() is what
         // arms per-request binding-proof signing; an unarmed client sends
         // proofless mints that the broker 403s (binding_request_proof_required)
@@ -168,9 +194,21 @@ public actor IrxBrokerService {
             clientNamespace: configuration.clientNamespace,
             bindingAuthorization: retainedAuthorization
         )
-        trustCache = IrxDiskCache(fileURL: dir.appendingPathComponent("trust.json"))
-        credentialCache = IrxDiskCache(fileURL: dir.appendingPathComponent("relay-credentials.json"))
-        grantCache = IrxDiskCache(fileURL: dir.appendingPathComponent("grants.json"))
+        trustCache = IrxBrokerCacheFactory.make(
+            kind: "trust",
+            fileURL: dir.appendingPathComponent("trust.json"),
+            scope: scope
+        )
+        credentialCache = IrxBrokerCacheFactory.make(
+            kind: "relay-credentials",
+            fileURL: dir.appendingPathComponent("relay-credentials.json"),
+            scope: scope
+        )
+        grantCache = IrxBrokerCacheFactory.make(
+            kind: "grants",
+            fileURL: dir.appendingPathComponent("grants.json"),
+            scope: scope
+        )
     }
 
     /// The underlying trust-broker client, exposed for the legacy-dialect
@@ -296,6 +334,13 @@ public actor IrxBrokerService {
     // MARK: - Discovery / trust material
 
     public func cachedTrust() -> IrxTrustSnapshot? {
+        trustCache.load()
+    }
+
+    /// Synchronous trust read for the admission path (no actor hop). Reads
+    /// the SAME cache the discovery write path uses, so the Release keychain
+    /// migration can never strand admission on a deleted legacy file.
+    public nonisolated func cachedTrustForAdmission() -> IrxTrustSnapshot? {
         trustCache.load()
     }
 

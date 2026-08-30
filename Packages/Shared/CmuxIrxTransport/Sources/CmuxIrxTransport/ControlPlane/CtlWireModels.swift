@@ -1,6 +1,7 @@
 // This file was generated from JSON Schema using quicktype, do not modify it directly.
 // To parse the JSON, add this file to your project and do:
 //
+//   let cTLACK = try? JSONDecoder().decode(CTLACK.self, from: jsonData)
 //   let cTLError = try? JSONDecoder().decode(CTLError.self, from: jsonData)
 //   let cTLDirectory = try? JSONDecoder().decode(CTLDirectory.self, from: jsonData)
 //   let cTLHelloACK = try? JSONDecoder().decode(CTLHelloACK.self, from: jsonData)
@@ -18,6 +19,61 @@
 // synthesized for types that have collections (such as arrays or dictionaries).
 
 public import Foundation
+
+// MARK: - CTLACK
+public struct CTLACK: Codable, Equatable {
+    public let payload: CTLACKPayload
+    /// directory/hint revision the client has applied; stops the server's retry ladder for
+    /// revisions up to and including it
+    public let rev: Int
+    public let type: CTLACKType
+    /// control-plane protocol version, 1
+    public let v: Int
+
+    public enum CodingKeys: String, CodingKey {
+        case payload = "payload"
+        case rev = "rev"
+        case type = "type"
+        case v = "v"
+    }
+
+    public init(payload: CTLACKPayload, rev: Int, type: CTLACKType, v: Int) {
+        self.payload = payload
+        self.rev = rev
+        self.type = type
+        self.v = v
+    }
+}
+
+//
+// Hashable or Equatable:
+// The compiler will not be able to synthesize the implementation of Hashable or Equatable
+// for types that require the use of JSONAny, nor will the implementation of Hashable be
+// synthesized for types that have collections (such as arrays or dictionaries).
+
+// MARK: - CTLACKPayload
+public struct CTLACKPayload: Codable, Equatable {
+    /// optional client stamp of when the acked revision was applied
+    public let appliedAt: Date?
+
+    public enum CodingKeys: String, CodingKey {
+        case appliedAt = "appliedAt"
+    }
+
+    public init(appliedAt: Date?) {
+        self.appliedAt = appliedAt
+    }
+}
+
+public enum CTLACKType: String, Codable, Equatable {
+    case ack = "ack"
+}
+
+//
+// Hashable or Equatable:
+// The compiler will not be able to synthesize the implementation of Hashable or Equatable
+// for types that require the use of JSONAny, nor will the implementation of Hashable be
+// synthesized for types that have collections (such as arrays or dictionaries).
 
 // MARK: - CTLError
 public struct CTLError: Codable, Equatable {
@@ -108,21 +164,34 @@ public struct CTLDirectory: Codable, Equatable {
 public struct CTLDirectoryPayload: Codable, Equatable {
     public let bindings: [Binding]
     public let grantVerificationKeys: [GrantVerificationKey]
+    /// server stamp when this directory was issued; anchor of the trust lease
+    public let issuedAt: Date
+    /// per-platform app-version floors; clients below the floor must update before participating
+    public let minimumSupportedVersion: PurpleMinimumSupportedVersion?
     public let relayFleet: [String]
     public let routeContractVersion: Int
+    /// trust lease duration; clients treat the directory as stale once issuedAt + ttlSeconds
+    /// passes without a re-stamp
+    public let ttlSeconds: Int
 
     public enum CodingKeys: String, CodingKey {
         case bindings = "bindings"
         case grantVerificationKeys = "grantVerificationKeys"
+        case issuedAt = "issuedAt"
+        case minimumSupportedVersion = "minimumSupportedVersion"
         case relayFleet = "relayFleet"
         case routeContractVersion = "routeContractVersion"
+        case ttlSeconds = "ttlSeconds"
     }
 
-    public init(bindings: [Binding], grantVerificationKeys: [GrantVerificationKey], relayFleet: [String], routeContractVersion: Int) {
+    public init(bindings: [Binding], grantVerificationKeys: [GrantVerificationKey], issuedAt: Date, minimumSupportedVersion: PurpleMinimumSupportedVersion?, relayFleet: [String], routeContractVersion: Int, ttlSeconds: Int) {
         self.bindings = bindings
         self.grantVerificationKeys = grantVerificationKeys
+        self.issuedAt = issuedAt
+        self.minimumSupportedVersion = minimumSupportedVersion
         self.relayFleet = relayFleet
         self.routeContractVersion = routeContractVersion
+        self.ttlSeconds = ttlSeconds
     }
 }
 
@@ -134,33 +203,77 @@ public struct CTLDirectoryPayload: Codable, Equatable {
 
 // MARK: - Binding
 public struct Binding: Codable, Equatable {
+    public let appVersion: String?
     public let bindingID: String
+    public let capabilities: [String]?
     public let clientNamespace: String
     public let deviceID: String?
     public let endpointID: String
     public let homeRelayURL: String?
     public let instanceTag: String?
+    /// when this device last confirmed itself over its own control-plane hello
+    public let lastConfirmedAt: Date?
+    public let releaseTrack: ReleaseTrack?
+    /// authorization kill switch, orthogonal to status; peers must deny P2P admission to a
+    /// revoked device
+    public let revoked: Bool
+    /// device lifecycle state from the account overlay; a binding never confirmed by its own
+    /// hello stays seeded
+    public let status: Status?
     public let updatedAt: Date?
 
     public enum CodingKeys: String, CodingKey {
+        case appVersion = "appVersion"
         case bindingID = "bindingId"
+        case capabilities = "capabilities"
         case clientNamespace = "clientNamespace"
         case deviceID = "deviceId"
         case endpointID = "endpointId"
         case homeRelayURL = "homeRelayUrl"
         case instanceTag = "instanceTag"
+        case lastConfirmedAt = "lastConfirmedAt"
+        case releaseTrack = "releaseTrack"
+        case revoked = "revoked"
+        case status = "status"
         case updatedAt = "updatedAt"
     }
 
-    public init(bindingID: String, clientNamespace: String, deviceID: String?, endpointID: String, homeRelayURL: String?, instanceTag: String?, updatedAt: Date?) {
+    public init(appVersion: String?, bindingID: String, capabilities: [String]?, clientNamespace: String, deviceID: String?, endpointID: String, homeRelayURL: String?, instanceTag: String?, lastConfirmedAt: Date?, releaseTrack: ReleaseTrack?, revoked: Bool, status: Status?, updatedAt: Date?) {
+        self.appVersion = appVersion
         self.bindingID = bindingID
+        self.capabilities = capabilities
         self.clientNamespace = clientNamespace
         self.deviceID = deviceID
         self.endpointID = endpointID
         self.homeRelayURL = homeRelayURL
         self.instanceTag = instanceTag
+        self.lastConfirmedAt = lastConfirmedAt
+        self.releaseTrack = releaseTrack
+        self.revoked = revoked
+        self.status = status
         self.updatedAt = updatedAt
     }
+}
+
+public enum ReleaseTrack: String, Codable, Equatable {
+    case appstore = "appstore"
+    case beta = "beta"
+    case dev = "dev"
+    case nightly = "nightly"
+    case releaseTrackInternal = "internal"
+    case stable = "stable"
+}
+
+/// device lifecycle state from the account overlay; a binding never confirmed by its own
+/// hello stays seeded
+public enum Status: String, Codable, Equatable {
+    case active = "active"
+    case pending = "pending"
+    case retired = "retired"
+    case seeded = "seeded"
+    case stale = "stale"
+    case superseded = "superseded"
+    case suspended = "suspended"
 }
 
 //
@@ -185,6 +298,29 @@ public struct GrantVerificationKey: Codable, Equatable {
         self.alg = alg
         self.keyID = keyID
         self.publicKey = publicKey
+    }
+}
+
+//
+// Hashable or Equatable:
+// The compiler will not be able to synthesize the implementation of Hashable or Equatable
+// for types that require the use of JSONAny, nor will the implementation of Hashable be
+// synthesized for types that have collections (such as arrays or dictionaries).
+
+/// per-platform app-version floors; clients below the floor must update before participating
+// MARK: - PurpleMinimumSupportedVersion
+public struct PurpleMinimumSupportedVersion: Codable, Equatable {
+    public let ios: String?
+    public let mac: String?
+
+    public enum CodingKeys: String, CodingKey {
+        case ios = "ios"
+        case mac = "mac"
+    }
+
+    public init(ios: String?, mac: String?) {
+        self.ios = ios
+        self.mac = mac
     }
 }
 
@@ -226,18 +362,51 @@ public struct CTLHelloACK: Codable, Equatable {
 
 // MARK: - CTLHelloACKPayload
 public struct CTLHelloACKPayload: Codable, Equatable {
+    /// echo of the directory's per-platform version floors so clients get them before the
+    /// directory body
+    public let minimumSupportedVersion: FluffyMinimumSupportedVersion?
     /// rev the server resumed the delta stream from; null means full snapshot follows
     public let resumedFromRev: Int?
+    /// control-plane features this server supports (list overlay, ack tracking, revocation)
+    public let serverCapabilities: [String]?
     public let sessionID: String
 
     public enum CodingKeys: String, CodingKey {
+        case minimumSupportedVersion = "minimumSupportedVersion"
         case resumedFromRev = "resumedFromRev"
+        case serverCapabilities = "serverCapabilities"
         case sessionID = "sessionId"
     }
 
-    public init(resumedFromRev: Int?, sessionID: String) {
+    public init(minimumSupportedVersion: FluffyMinimumSupportedVersion?, resumedFromRev: Int?, serverCapabilities: [String]?, sessionID: String) {
+        self.minimumSupportedVersion = minimumSupportedVersion
         self.resumedFromRev = resumedFromRev
+        self.serverCapabilities = serverCapabilities
         self.sessionID = sessionID
+    }
+}
+
+//
+// Hashable or Equatable:
+// The compiler will not be able to synthesize the implementation of Hashable or Equatable
+// for types that require the use of JSONAny, nor will the implementation of Hashable be
+// synthesized for types that have collections (such as arrays or dictionaries).
+
+/// echo of the directory's per-platform version floors so clients get them before the
+/// directory body
+// MARK: - FluffyMinimumSupportedVersion
+public struct FluffyMinimumSupportedVersion: Codable, Equatable {
+    public let ios: String?
+    public let mac: String?
+
+    public enum CodingKeys: String, CodingKey {
+        case ios = "ios"
+        case mac = "mac"
+    }
+
+    public init(ios: String?, mac: String?) {
+        self.ios = ios
+        self.mac = mac
     }
 }
 
@@ -279,23 +448,45 @@ public struct CTLHello: Codable, Equatable {
 
 // MARK: - CTLHelloPayload
 public struct CTLHelloPayload: Codable, Equatable {
+    public let appVersion: String?
+    public let capabilities: [String]?
+    /// optional client self-identification; presence of any client-info field confirms the
+    /// device into the account overlay
+    public let deviceID: String?
     public let endpointID: String
     /// highest rev this client has on disk; server streams deltas after it, or a full snapshot
     /// when null/too old
     public let haveRev: Int?
+    public let platform: Platform?
+    public let releaseTrack: ReleaseTrack?
     public let wantPasses: Bool
 
     public enum CodingKeys: String, CodingKey {
+        case appVersion = "appVersion"
+        case capabilities = "capabilities"
+        case deviceID = "deviceId"
         case endpointID = "endpointId"
         case haveRev = "haveRev"
+        case platform = "platform"
+        case releaseTrack = "releaseTrack"
         case wantPasses = "wantPasses"
     }
 
-    public init(endpointID: String, haveRev: Int?, wantPasses: Bool) {
+    public init(appVersion: String?, capabilities: [String]?, deviceID: String?, endpointID: String, haveRev: Int?, platform: Platform?, releaseTrack: ReleaseTrack?, wantPasses: Bool) {
+        self.appVersion = appVersion
+        self.capabilities = capabilities
+        self.deviceID = deviceID
         self.endpointID = endpointID
         self.haveRev = haveRev
+        self.platform = platform
+        self.releaseTrack = releaseTrack
         self.wantPasses = wantPasses
     }
+}
+
+public enum Platform: String, Codable, Equatable {
+    case ios = "ios"
+    case mac = "mac"
 }
 
 public enum CTLHelloType: String, Codable, Equatable {
@@ -660,8 +851,16 @@ public struct CTLSnapshotComplete: Codable, Equatable {
 
 // MARK: - CTLSnapshotCompletePayload
 public struct CTLSnapshotCompletePayload: Codable, Equatable {
+    /// server freshness re-stamp; when a hello's haveRev already matches head this frame alone
+    /// re-arms the directory trust lease without resending the body
+    public let issuedAt: Date?
 
-    public init() {
+    public enum CodingKeys: String, CodingKey {
+        case issuedAt = "issuedAt"
+    }
+
+    public init(issuedAt: Date?) {
+        self.issuedAt = issuedAt
     }
 }
 
