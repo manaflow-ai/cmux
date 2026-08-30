@@ -9322,9 +9322,29 @@ struct ContentView: View {
               let tab = dock.bonsplitController.tab(tabId) else {
             return nil
         }
+        return CommandPaletteDockSurfaceTarget(dock: dock, panelId: target.panelId, panel: panel, tab: tab)
+    }
+
+    /// Resolves a captured Dock tab by its stable owner/panel identity when the
+    /// transient command-palette restore target is unavailable (for example,
+    /// after a browser action target has already been consumed). The panel UUID
+    /// is authoritative; the owner check prevents a stale palette entry from
+    /// mutating a replacement Dock that happens to be visible.
+    private func commandPaletteDockSurfaceTarget(
+        ownerId: UUID,
+        panelId: UUID
+    ) -> CommandPaletteDockSurfaceTarget? {
+        guard let dock = DockSplitStore.liveStore(containingPanel: panelId),
+              !dock.isRetired,
+              dock.workspaceId == ownerId,
+              let panel = dock.panels[panelId],
+              let tabId = dock.surfaceId(forPanelId: panelId),
+              let tab = dock.bonsplitController.tab(tabId) else {
+            return nil
+        }
         return CommandPaletteDockSurfaceTarget(
             dock: dock,
-            panelId: target.panelId,
+            panelId: panelId,
             panel: panel,
             tab: tab
         )
@@ -10591,7 +10611,11 @@ struct ContentView: View {
         case .workspace(let workspaceId):
             tabManager.setCustomTitle(tabId: workspaceId, title: normalizedName)
         case .dockTab(let ownerId, let panelId):
-            guard let dockSurface = commandPaletteDockSurfaceTarget(),
+            guard let dockSurface = commandPaletteDockSurfaceTarget()
+                ?? commandPaletteDockSurfaceTarget(
+                    ownerId: ownerId,
+                    panelId: panelId
+                ),
                   dockSurface.dock.workspaceId == ownerId,
                   dockSurface.panelId == panelId,
                   dockSurface.dock.setDockPanelCustomTitle(

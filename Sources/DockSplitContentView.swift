@@ -196,7 +196,7 @@ final class DockPointerInteractionHostView: NSView {
         let ownerStore = store
         let installedWindowObserver = windowResignKeyObserver
         let installedApplicationObserver = applicationResignActiveObserver
-        teardownBox.replace(with: { [weak ownerStore] in
+        teardownBox.replace(with: { [weak ownerStore, weak registeredWindow] in
             ownerStore?.cancelDockPointerInteraction(window: registeredWindow)
             DockPointerInteractionEventRouter.shared.unregister(
                 hostID: hostID,

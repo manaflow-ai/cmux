@@ -468,7 +468,9 @@ extension DockSplitStore {
             return true
         }
         return closeDockTabs(
-            tabs.lazy.filter { $0.id != selectedTabId }.map(\.id),
+            tabs.lazy
+                .filter { $0.id != selectedTabId && !$0.isPinned }
+                .map(\.id),
             inPane: paneId,
             confirmationPolicy: .allTabs
         )
