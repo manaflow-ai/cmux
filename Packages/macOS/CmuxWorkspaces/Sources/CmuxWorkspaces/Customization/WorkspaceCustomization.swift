@@ -1,3 +1,9 @@
+/// Identifies who produced a workspace title for recovery ordering.
+public enum WorkspaceCustomizationTitleSource: String, Codable, Equatable, Sendable {
+    case user
+    case auto
+}
+
 /// One independently persisted workspace customization field.
 ///
 /// `absent` means the recovery journal has never observed a mutation for the
@@ -8,11 +14,16 @@ public enum WorkspaceCustomizationField: Codable, Equatable, Sendable {
     case absent
     /// The most recent user mutation assigned the associated value.
     case value(String)
+    /// The most recent automatic title mutation assigned the associated value.
+    ///
+    /// Automatic values are journaled so a clear followed by auto-naming has a
+    /// durable ordering relative to a stale session snapshot.
+    case autoValue(String)
     /// The most recent user mutation explicitly cleared the field.
     case cleared
 }
 
-/// User-owned workspace identity persisted independently of session autosave.
+/// Workspace identity persisted independently of session autosave.
 ///
 /// Records are keyed by `Workspace.stableId`. Title and color are independent
 /// so mutating one field never makes the other field authoritative.

@@ -80,10 +80,17 @@ extension TabManager {
         _ workspace: Workspace,
         source: Workspace.CustomTitleSource
     ) {
-        guard source == .user else { return }
+        // Automatic naming normally belongs to the session snapshot. Journal
+        // only the first auto title after an explicit clear, which advances the
+        // clear tombstone without turning every refresh into a durable write.
+        if source == .auto,
+           workspaceCustomizationStore.customization(for: workspace.stableId)?.customTitle != .cleared {
+            return
+        }
         workspaceCustomizationStore.setCustomTitle(
             workspace.customTitle,
-            for: workspace.stableId
+            for: workspace.stableId,
+            source: source == .auto ? .auto : .user
         )
     }
 
@@ -106,17 +113,14 @@ extension TabManager {
         case .absent:
             break
         case let .value(title):
-            workspace.setCustomTitle(title)
+            workspace.setCustomTitle(title, source: .user)
+        case let .autoValue(title):
+            // The journal is newer than the session snapshot. Clear any stale
+            // snapshot title before restoring the latest automatic value.
+            workspace.setCustomTitle(nil)
+            workspace.setCustomTitle(title, source: .auto)
         case .cleared:
-            // A prior user clear re-enables auto-naming; it must not evict
-            // a subsequently auto-derived title restored from the session
-            // snapshot. Without this guard, the durable customization journal
-            // clobbers the snapshot's `.auto` title on every restore, so
-            // auto-named workspaces lose their title across restart until the
-            // next turn re-derives it.
-            if workspace.effectiveCustomTitleSource != .auto {
-                workspace.setCustomTitle(nil)
-            }
+            workspace.setCustomTitle(nil)
         }
 
         switch customization.customColor {

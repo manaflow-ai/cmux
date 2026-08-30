@@ -1,10 +1,10 @@
 public import Foundation
 
-/// Persists bounded user-owned identity recovery records by workspace identity.
+/// Persists bounded workspace identity recovery records by workspace identity.
 ///
 /// The session snapshot remains the baseline. This journal records immediate
-/// user mutations so a quit before the next autosave cannot lose a rename,
-/// recolor, or explicit clear.
+/// title and user mutations so a quit before the next autosave cannot lose a
+/// rename, recolor, or explicit clear.
 @MainActor
 public struct WorkspaceCustomizationStore {
     /// Production key for the stable-workspace-ID recovery journal.
@@ -65,13 +65,18 @@ public struct WorkspaceCustomizationStore {
         })
     }
 
-    /// Records the latest explicit workspace-title mutation.
+    /// Records the latest workspace-title mutation.
     ///
     /// - Parameters:
     ///   - title: The title to record, or `nil` to record an explicit clear.
+    ///   - source: Whether the title came from a user or automatic naming.
     ///   - stableId: The stable workspace identity.
-    public func setCustomTitle(_ title: String?, for stableId: UUID) {
-        let field = normalizedField(title)
+    public func setCustomTitle(
+        _ title: String?,
+        for stableId: UUID,
+        source: WorkspaceCustomizationTitleSource = .user
+    ) {
+        let field = normalizedTitleField(title, source: source)
         updateCustomization(for: stableId) { current in
             WorkspaceCustomization(
                 customTitle: field,
@@ -180,6 +185,15 @@ public struct WorkspaceCustomizationStore {
     private func normalizedField(_ value: String?) -> WorkspaceCustomizationField {
         let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return trimmed.isEmpty ? .cleared : .value(trimmed)
+    }
+
+    private func normalizedTitleField(
+        _ value: String?,
+        source: WorkspaceCustomizationTitleSource
+    ) -> WorkspaceCustomizationField {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !trimmed.isEmpty else { return .cleared }
+        return source == .auto ? .autoValue(trimmed) : .value(trimmed)
     }
 
     private func migratedField(_ value: String?) -> WorkspaceCustomizationField {
