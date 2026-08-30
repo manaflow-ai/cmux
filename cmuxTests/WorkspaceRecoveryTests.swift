@@ -568,6 +568,33 @@ struct WorkspaceRecoveryTests {
     }
 
     @Test
+    func managerTeardownFlushesQueuedAutomaticTitle() async throws {
+        let fixture = try makeCustomizationStore()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+
+        var manager: TabManager? = TabManager(
+            initialWorkingDirectory: "/tmp/teardown-auto-title",
+            autoWelcomeIfNeeded: false,
+            workspaceCustomizationStore: fixture.store
+        )
+        let workspace = try #require(manager?.selectedWorkspace)
+        #expect(manager?.setCustomTitle(tabId: workspace.id, title: "User Name") == true)
+        manager?.clearCustomTitle(tabId: workspace.id)
+        #expect(manager?.setCustomTitle(
+            tabId: workspace.id,
+            title: "Automatic Name",
+            source: .auto
+        ) == true)
+        manager = nil
+
+        for _ in 0..<3 { await Task.yield() }
+        #expect(
+            fixture.store.customization(for: workspace.stableId)?.customTitle ==
+                .autoValue("Automatic Name")
+        )
+    }
+
+    @Test
     func autoTitleRecoveryPreservesIndependentColor() throws {
         let fixture = try makeCustomizationStore()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
