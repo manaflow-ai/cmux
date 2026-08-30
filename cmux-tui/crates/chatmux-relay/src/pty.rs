@@ -271,8 +271,10 @@ where
     T: Send + 'static,
     F: FnOnce() -> T + Send + 'static,
 {
-    let _ = permit;
-    tokio::task::spawn_blocking(operation)
+    tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        operation()
+    })
 }
 
 #[async_trait]
