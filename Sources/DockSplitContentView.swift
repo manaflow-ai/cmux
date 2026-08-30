@@ -95,9 +95,19 @@ struct DockPointerInteractionHost: NSViewRepresentable {
 }
 
 /// Owns one local event monitor and removes it deterministically at teardown.
+/// The opaque token is never inspected outside the MainActor except for the
+/// final deinit handoff, where it is immutable and consumed exactly once.
+private final class DockPointerMonitorToken: @unchecked Sendable {
+    let raw: Any
+
+    init(raw: Any) {
+        self.raw = raw
+    }
+}
+
 @MainActor
 private final class DockPointerMonitorLease {
-    private var token: Any?
+    private var token: DockPointerMonitorToken?
 
     @MainActor
     func install(
@@ -110,14 +120,29 @@ private final class DockPointerMonitorLease {
         ) else {
             return
         }
-        token = raw
+        token = DockPointerMonitorToken(raw: raw)
     }
 
     @MainActor
     func stop() {
         guard let token else { return }
-        NSEvent.removeMonitor(token)
+        NSEvent.removeMonitor(token.raw)
         self.token = nil
+    }
+
+    deinit {
+        guard let token else { return }
+        if Thread.isMainThread {
+            MainActor.assumeIsolated {
+                NSEvent.removeMonitor(token.raw)
+            }
+        } else {
+            // Deinitialization can follow an off-main autorelease drain. Keep
+            // AppKit mutation on the MainActor in that uncommon fallback.
+            Task { @MainActor [token] in
+                NSEvent.removeMonitor(token.raw)
+            }
+        }
     }
 
 }
