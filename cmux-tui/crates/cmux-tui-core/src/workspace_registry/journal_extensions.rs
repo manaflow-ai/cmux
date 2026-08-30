@@ -1482,6 +1482,9 @@ pub(crate) fn append_journal_ingress_transaction(
         subjects.insert(subject.clone());
     }
     expand_topology_subjects(tx, &mut subjects)?;
+    if ingress.producer_id == crate::AGENT_HOOK_PRODUCER_ID {
+        ensure_agent_hook_terminals_are_live(tx, &ingress.subjects)?;
+    }
     let subjects = subjects.into_iter().collect::<Vec<_>>();
     let built_in_agent = ingress.producer_id == crate::AGENT_HOOK_PRODUCER_ID;
     let producer = JournalProducer {
@@ -1549,6 +1552,33 @@ pub(crate) fn append_journal_ingress_transaction(
         )?;
     }
     Ok(JournalAppendCommit { sequence, event_id, replayed: false })
+}
+
+/// A terminal tombstone is final. Reject new hook rows after the close
+/// transaction, including rows that were queued before the producer observed
+/// the close. Rows already covered by an idempotency receipt return above and
+/// remain replayable.
+fn ensure_agent_hook_terminals_are_live(
+    tx: &Transaction<'_>,
+    subjects: &[JournalSubject],
+) -> anyhow::Result<()> {
+    for subject in subjects.iter().filter(|subject| subject.kind == "terminal") {
+        let tombstoned = tx
+            .query_row(
+                "SELECT 1
+                 FROM resource_terminals AS rt
+                 LEFT JOIN terminal_hosts AS th ON th.terminal_id = rt.terminal_id
+                 WHERE (rt.public_id = ?1 OR th.terminal_id = ?1)
+                   AND (rt.lifecycle = 'tombstoned' OR th.lifecycle = 'tombstoned')
+                 LIMIT 1",
+                [subject.id.as_str()],
+                |_| Ok(()),
+            )
+            .optional()?
+            .is_some();
+        anyhow::ensure!(!tombstoned, "agent hook terminal {} is tombstoned", subject.id);
+    }
+    Ok(())
 }
 
 impl WorkspaceRegistry {

@@ -1094,7 +1094,14 @@ impl AgentSource {
 struct AgentRosterHost {
     roster: crate::journal_reducers::AgentRoster,
     cursor: u64,
+    /// Cursor included in the last durable snapshot. The journal remains the
+    /// source of truth between snapshots, so folds can coalesce metadata I/O.
+    persisted_cursor: u64,
 }
+
+/// Bound synchronous reducer metadata writes while keeping restart replay
+/// finite. Retirement and shutdown paths still force an immediate snapshot.
+const AGENT_ROSTER_SNAPSHOT_INTERVAL: u64 = 32;
 
 fn restore_agent_roster(registry: &WorkspaceRegistry) -> anyhow::Result<AgentRosterHost> {
     use crate::journal_reducers::{
@@ -1110,7 +1117,7 @@ fn restore_agent_roster(registry: &WorkspaceRegistry) -> anyhow::Result<AgentRos
             match AgentRoster::restore(&snapshot) {
                 Some(roster) => {
                     snapshot_valid = true;
-                    AgentRosterHost { roster, cursor }
+                    AgentRosterHost { roster, cursor, persisted_cursor: cursor }
                 }
                 None => {
                     eprintln!("cmux-tui: invalid agent roster snapshot; replaying journal");
@@ -1163,6 +1170,7 @@ fn restore_agent_roster(registry: &WorkspaceRegistry) -> anyhow::Result<AgentRos
             host.cursor,
             &host.roster.snapshot().to_string(),
         )?;
+        host.persisted_cursor = host.cursor;
     }
     Ok(host)
 }
@@ -5718,6 +5726,8 @@ impl Mux {
                 }
             };
             let mut advanced = false;
+            let mut semantic_change = false;
+            let mut removal = false;
             for record in page.records {
                 if record.sequence <= read_cursor {
                     continue;
@@ -5731,6 +5741,12 @@ impl Mux {
                     host.cursor = record.sequence;
                     deltas
                 };
+                if !deltas.is_empty() {
+                    semantic_change = true;
+                    removal |= deltas.iter().any(|delta| {
+                        matches!(delta, crate::journal_reducers::RosterDelta::Remove { .. })
+                    });
+                }
                 for delta in deltas {
                     self.apply_roster_delta_to_record_cache(delta);
                 }
@@ -5741,19 +5757,33 @@ impl Mux {
                 }
             }
             if advanced {
-                let (cursor, snapshot) = {
+                let snapshot = {
                     let host = self.agent_roster.lock().unwrap();
-                    (host.cursor, host.roster.snapshot().to_string())
+                    let distance = host.cursor.saturating_sub(host.persisted_cursor);
+                    let should_persist = semantic_change
+                        && (host.persisted_cursor == 0
+                            || removal
+                            || distance >= AGENT_ROSTER_SNAPSHOT_INTERVAL);
+                    should_persist.then(|| (host.cursor, host.roster.snapshot().to_string()))
                 };
-                if let Err(error) =
-                    self.workspace_registry.lock().unwrap().put_journal_reducer_state(
-                        crate::journal_reducers::AGENT_ROSTER_REDUCER_ID,
-                        crate::journal_reducers::AGENT_ROSTER_REDUCER_VERSION,
-                        cursor,
-                        &snapshot,
-                    )
-                {
-                    eprintln!("cmux-tui: persisting the agent roster snapshot failed: {error}");
+                if let Some((cursor, snapshot)) = snapshot {
+                    let persisted =
+                        self.workspace_registry.lock().unwrap().put_journal_reducer_state(
+                            crate::journal_reducers::AGENT_ROSTER_REDUCER_ID,
+                            crate::journal_reducers::AGENT_ROSTER_REDUCER_VERSION,
+                            cursor,
+                            &snapshot,
+                        );
+                    match persisted {
+                        Ok(()) => {
+                            self.agent_roster.lock().unwrap().persisted_cursor = cursor;
+                        }
+                        Err(error) => {
+                            eprintln!(
+                                "cmux-tui: persisting the agent roster snapshot failed: {error}"
+                            );
+                        }
+                    }
                 }
             } else {
                 return;
@@ -5794,6 +5824,7 @@ impl Mux {
             self.agent_roster.lock().unwrap().roster = previous;
             return Err(error).context("persist compacted agent roster snapshot");
         }
+        self.agent_roster.lock().unwrap().persisted_cursor = cursor;
         Ok(())
     }
 
@@ -9734,16 +9765,17 @@ impl Mux {
         });
         let now = reported_at_ms.unwrap_or_else(now_ms);
         let mut records = self.agent_records.lock().unwrap();
-        let socket_report_ignored = records.get(&terminal_id).is_some_and(|existing| {
+        let lower_authority_report_ignored = records.get(&terminal_id).is_some_and(|existing| {
             existing.source == AgentSource::Hook
-                && source == AgentSource::Socket
+                && source != AgentSource::Hook
                 && !effective_hook_state.is_some_and(|state| state.ended)
         });
-        // Hook-owned state remains a semantic no-op for a socket report. A
-        // socket-owned report still refreshes its durable timestamp; the
-        // echo key below coalesces only when that complete payload is equal.
+        // Hook-owned state remains a semantic no-op for lower-authority
+        // detected and socket reports. A socket-owned report still refreshes
+        // its durable timestamp; the echo key below coalesces only when that
+        // complete payload is equal.
         let record = match records.get(&terminal_id) {
-            Some(existing) if socket_report_ignored => existing.clone(),
+            Some(existing) if lower_authority_report_ignored => existing.clone(),
             _ => TerminalAgentRecord {
                 state: agent_state,
                 source,
@@ -9755,8 +9787,11 @@ impl Mux {
         // A socket report that is intentionally ignored by the hook-owned
         // record must persist that effective record, not the discarded socket
         // identity. Otherwise durable and in-memory projections diverge.
-        let persisted_source_session =
-            if socket_report_ignored { record.session.clone() } else { persisted_source_session };
+        let persisted_source_session = if lower_authority_report_ignored {
+            record.session.clone()
+        } else {
+            persisted_source_session
+        };
         let digest = Sha256::digest(format!("cmux.protocol/2/agent/{terminal_id}").as_bytes());
         let payload = digest[..16].iter().map(|byte| format!("{byte:02x}")).collect::<String>();
         let agent_id =
@@ -9948,6 +9983,7 @@ impl Mux {
                 );
                 Some(error.context("persist agent roster tombstone"))
             } else {
+                self.agent_roster.lock().unwrap().persisted_cursor = cursor;
                 None
             }
         } else {
@@ -10039,10 +10075,36 @@ impl Mux {
             eprintln!("cmux-tui: journal hook workers did not stop before the shutdown deadline");
         }
         self.finalize_terminal_journal("shutdown");
+        if let Err(error) = self.persist_agent_roster_snapshot() {
+            eprintln!(
+                "cmux-tui: persisting the agent roster snapshot during shutdown failed: {error}"
+            );
+        }
         self.journal_kernel.shutdown();
         if let Some(runtime) = self.browser_runtime.lock().unwrap().take() {
             runtime.shutdown();
         }
+    }
+
+    /// Flush a coalesced roster cursor before the daemon exits. The journal is
+    /// already closed by the caller, so this write observes the final fold.
+    fn persist_agent_roster_snapshot(&self) -> anyhow::Result<()> {
+        let _fold = self.agent_roster_fold.lock().unwrap();
+        let (cursor, snapshot) = {
+            let host = self.agent_roster.lock().unwrap();
+            if host.cursor == host.persisted_cursor {
+                return Ok(());
+            }
+            (host.cursor, host.roster.snapshot().to_string())
+        };
+        self.workspace_registry.lock().unwrap().put_journal_reducer_state(
+            crate::journal_reducers::AGENT_ROSTER_REDUCER_ID,
+            crate::journal_reducers::AGENT_ROSTER_REDUCER_VERSION,
+            cursor,
+            &snapshot,
+        )?;
+        self.agent_roster.lock().unwrap().persisted_cursor = cursor;
+        Ok(())
     }
 
     fn finalize_terminal_journal(&self, context: &str) {
