@@ -6,6 +6,7 @@ import CmuxSidebar
 import Darwin
 import Foundation
 import Testing
+@testable import CmuxTerminal
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -2980,7 +2981,7 @@ struct RemoteAgentRestoreWorkingDirectoryTests {
             #expect(workspace.resumeAgentHibernation(panelId: panelId, focus: false))
             let queuedInput = try #require(
                 panel.surface.debugInitialInputForTesting()
-                    ?? panel.surface.debugNextRuntimeInitialInputForTesting()
+                    ?? panel.surface.nextRuntimeInitialInput
             )
             #expect(queuedInput.contains(sessionId), Comment(rawValue: queuedInput))
             #expect(queuedInput.contains(trustedRemoteDirectory), Comment(rawValue: queuedInput))

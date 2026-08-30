@@ -560,15 +560,6 @@ extension TerminalSurface {
         nextRuntimeInitialInput = trimmedInput
     }
 
-#if DEBUG
-    /// Test support for the hibernation boundary: input prepared for the next
-    /// runtime is intentionally kept separate from the immutable startup input
-    /// of the current (surface-less) runtime.
-    public func debugNextRuntimeInitialInputForTesting() -> String? {
-        nextRuntimeInitialInput
-    }
-#endif
-
     /// Attaches the model to its inner view, creating the runtime surface
     /// when the view is in a window.
     @MainActor
