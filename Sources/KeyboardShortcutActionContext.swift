@@ -75,9 +75,6 @@ extension KeyboardShortcutSettings.Action {
             focusedSimulatorPanel: Bool = false,
             focusedFilePreviewTextEditor: Bool = false,
             rightSidebarFocused: Bool,
-            sidebarMode: String? = nil,
-            /// Independent Dock ownership, so `sidebarMode` remains the
-            /// coordinator's authoritative user-visible mode.
             dockFocused: Bool = false,
             workspaceCanvasLayout: Bool = false
         ) -> Bool {
@@ -111,9 +108,6 @@ extension KeyboardShortcutSettings.Action {
                 focusedSimulatorPanel: context.shortcutContext.bool(ShortcutContextKnownKey.simulatorFocus.rawValue),
                 focusedFilePreviewTextEditor: context.filePreviewTextEditorFocused,
                 rightSidebarFocused: context.rightSidebarFocused,
-                sidebarMode: context.shortcutContext.string(
-                    ShortcutContextKnownKey.sidebarMode.rawValue
-                ),
                 dockFocused: context.shortcutContext.bool(
                     ShortcutContextKnownKey.dockFocus.rawValue
                 ),

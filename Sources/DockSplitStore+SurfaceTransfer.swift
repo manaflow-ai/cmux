@@ -641,15 +641,12 @@ extension DockSplitStore {
     /// context menu, matching `Workspace.bonsplitTabMoveDestinations`.
     func dockTabMoveDestinations(for tabId: TabID) -> [TabContextMoveDestination] {
         guard panel(for: tabId) != nil, let app = AppDelegate.shared else { return [] }
-        var destinations: [TabContextMoveDestination] = []
-        if panels.count > 1 {
-            destinations.append(
-                TabContextMoveDestination(
-                    id: Self.dockMoveNewWorkspaceDestinationId,
-                    title: String(localized: "command.newWorkspace.title", defaultValue: "New Workspace")
-                )
+        var destinations: [TabContextMoveDestination] = [
+            TabContextMoveDestination(
+                id: Self.dockMoveNewWorkspaceDestinationId,
+                title: String(localized: "command.newWorkspace.title", defaultValue: "New Workspace")
             )
-        }
+        ]
         // A window Dock resolves its owning window; a Workspace Dock resolves
         // that workspace's window (see `dockReferenceTabManager`).
         let referenceWindowId = app.dockReferenceTabManager(for: self).flatMap { app.windowId(for: $0) }

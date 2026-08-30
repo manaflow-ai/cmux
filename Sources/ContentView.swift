@@ -6886,7 +6886,8 @@ struct ContentView: View {
                 )
                 snapshot.setBool(
                     CommandPaletteContextKeys.panelCanMoveToNewWorkspace,
-                    dock.panels.count > 1
+                    // A Dock may be left empty; moving its last panel is valid.
+                    true
                 )
                 snapshot.setBool(
                     CommandPaletteContextKeys.workspaceHasSplits,
@@ -6946,7 +6947,8 @@ struct ContentView: View {
             snapshot.setBool(CommandPaletteContextKeys.panelShouldPin, !tab.isPinned)
             snapshot.setBool(
                 CommandPaletteContextKeys.panelCanMoveToNewWorkspace,
-                dockSurface.dock.panels.count > 1
+                // A Dock may be left empty; moving its last panel is valid.
+                true
             )
             snapshot.setBool(
                 CommandPaletteContextKeys.workspaceHasSplits,
@@ -8785,10 +8787,6 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.moveTabToNewWorkspace") {
             if let dockSurfaceStore, let dockSurfacePanelId {
-                guard dockSurfaceStore.panels.count > 1 else {
-                    NSSound.beep()
-                    return
-                }
                 guard AppDelegate.shared?.moveDockSurfaceToNewWorkspace(
                     sourceDock: dockSurfaceStore,
                     panelId: dockSurfacePanelId,

@@ -180,8 +180,7 @@ final class KeyboardShortcutContextTests: XCTestCase {
             context.isAvailable(
                 focusedBrowserPanel: false,
                 focusedMarkdownPanel: false,
-                rightSidebarFocused: true,
-                sidebarMode: "files"
+                rightSidebarFocused: true
             )
         )
         XCTAssertTrue(
@@ -189,20 +188,9 @@ final class KeyboardShortcutContextTests: XCTestCase {
                 focusedBrowserPanel: false,
                 focusedMarkdownPanel: false,
                 rightSidebarFocused: true,
-                sidebarMode: "dock",
                 dockFocused: true
             )
         )
-        XCTAssertTrue(
-            context.isAvailable(
-                focusedBrowserPanel: false,
-                focusedMarkdownPanel: false,
-                rightSidebarFocused: true,
-                sidebarMode: "files",
-                dockFocused: true
-            )
-        )
-
         var shortcutContext = ShortcutContext()
         shortcutContext.setBool(
             ShortcutContextKnownKey.sidebarFocus.rawValue,

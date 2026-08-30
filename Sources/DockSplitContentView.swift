@@ -97,20 +97,21 @@ private struct DockPointerInteractionHost: NSViewRepresentable {
 private final class DockPointerInteractionHostView: NSView {
     var store: DockSplitStore?
     private var eventMonitor: Any?
+    private var windowResignKeyObserver: NSObjectProtocol?
 
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        if window == nil {
-            stopMonitoring()
-        } else {
-            installMonitorIfNeeded()
-        }
+        // A SwiftUI host can migrate between windows while retaining this
+        // representable. Rebind the monitor/observer to the new window rather
+        // than leaving a token tied to the old one.
+        stopMonitoring()
+        installMonitorIfNeeded()
     }
 
     func installMonitorIfNeeded() {
-        guard eventMonitor == nil else { return }
+        guard window != nil, eventMonitor == nil else { return }
         eventMonitor = NSEvent.addLocalMonitorForEvents(
             matching: [
                 .leftMouseDown,
@@ -124,6 +125,15 @@ private final class DockPointerInteractionHostView: NSView {
             self?.handle(event: event)
             return event
         }
+        if windowResignKeyObserver == nil, let window {
+            windowResignKeyObserver = NotificationCenter.default.addObserver(
+                forName: NSWindow.didResignKeyNotification,
+                object: window,
+                queue: .main
+            ) { [weak self] _ in
+                self?.store?.endUserDockInteraction()
+            }
+        }
     }
 
     func stopMonitoring() {
@@ -132,16 +142,23 @@ private final class DockPointerInteractionHostView: NSView {
             NSEvent.removeMonitor(eventMonitor)
             self.eventMonitor = nil
         }
+        if let windowResignKeyObserver {
+            NotificationCenter.default.removeObserver(windowResignKeyObserver)
+            self.windowResignKeyObserver = nil
+        }
     }
 
     private func handle(event: NSEvent) {
-        guard let window, event.window === window else { return }
-        let point = convert(event.locationInWindow, from: nil)
         switch event.type {
         case .leftMouseDown, .rightMouseDown, .otherMouseDown:
+            guard let window, event.window === window else { return }
+            let point = convert(event.locationInWindow, from: nil)
             guard bounds.contains(point) else { return }
             store?.beginUserDockInteraction()
         case .leftMouseUp, .rightMouseUp, .otherMouseUp:
+            // Mouse-up can be delivered to another window after a drag leaves
+            // the Dock. Always clear the token so a later programmatic callback
+            // cannot inherit a stale user interaction.
             store?.endUserDockInteraction()
         default:
             break
