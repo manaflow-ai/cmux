@@ -13,11 +13,15 @@ import CmuxBrowser
 final class VideoBackgroundWebViewBridge: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
     private let onPlayerError: @MainActor (String) -> Void
 
-    /// Invoked when the embed page finishes loading and again when the
-    /// YouTube player reports ready. Scripts evaluated before either point
-    /// land in a document that has no player yet, so the host replays its
-    /// desired pause state here instead of trusting earlier evaluations.
+    /// Invoked when the YouTube player reports that it can render.
     @MainActor var onPlayerReady: (@MainActor () -> Void)?
+
+    /// Invoked when the generated document finishes loading. This is only a
+    /// script-replay signal; it is not sufficient to mark playback active.
+    @MainActor var onPageLoaded: (@MainActor () -> Void)?
+
+    /// Invoked when a queue-managed YouTube item reaches its end.
+    @MainActor var onPlayerEnded: (@MainActor () -> Void)?
 
     init(onPlayerError: @escaping @MainActor (String) -> Void) {
         self.onPlayerError = onPlayerError
@@ -53,7 +57,7 @@ final class VideoBackgroundWebViewBridge: NSObject, WKNavigationDelegate, WKScri
             #if DEBUG
             cmuxDebugLog("videoBackground.page.didFinish url=\(webView.url?.absoluteString ?? "nil")")
             #endif
-            onPlayerReady?()
+            onPageLoaded?()
         }
     }
 
@@ -90,6 +94,8 @@ final class VideoBackgroundWebViewBridge: NSObject, WKNavigationDelegate, WKScri
             onPlayerError("player-error: \(code)")
         case "ready":
             onPlayerReady?()
+        case "ended":
+            onPlayerEnded?()
         default:
             // "skipped" is informational; nothing to do.
             break

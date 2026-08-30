@@ -17,15 +17,33 @@ final class VideoBackgroundWebPlayerView: NSView, VideoBackgroundPlayerView {
     let bridge: VideoBackgroundWebViewBridge
     private var desiredPaused = false
     private var desiredMuted: Bool
+    private var desiredPosition: TimeInterval = 0
+    private var desiredVolume: Double
+    private let onEnded: @MainActor () -> Void
+    private let onReady: @MainActor () -> Void
 
     /// Runs a script in the embed page. Replaceable so tests can observe
     /// which pause/resume scripts the view issues without a live page.
     var evaluateScript: (String) -> Void
 
-    init(source: VideoBackgroundSource, muted: Bool = true, onFailure: @escaping @MainActor (String) -> Void) {
+    init(
+        source: VideoBackgroundSource,
+        muted: Bool = true,
+        queueManaged: Bool = false,
+        quality: String = "1080p",
+        volume: Double = 1,
+        initialPosition: TimeInterval = 0,
+        onFailure: @escaping @MainActor (String) -> Void,
+        onEnded: @escaping @MainActor () -> Void = {},
+        onReady: @escaping @MainActor () -> Void = {}
+    ) {
         let bridge = VideoBackgroundWebViewBridge(onPlayerError: onFailure)
         self.bridge = bridge
         self.desiredMuted = muted
+        self.desiredPosition = max(0, initialPosition.isFinite ? initialPosition : 0)
+        self.desiredVolume = volume.isFinite ? min(max(volume, 0), 1) : 1
+        self.onEnded = onEnded
+        self.onReady = onReady
 
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
@@ -52,7 +70,15 @@ final class VideoBackgroundWebPlayerView: NSView, VideoBackgroundPlayerView {
 
         super.init(frame: .zero)
         wantsLayer = true
-        bridge.onPlayerReady = { [weak self] in self?.applyDesiredState() }
+        bridge.onPageLoaded = { [weak self] in
+            self?.applyDesiredState()
+        }
+        bridge.onPlayerReady = { [weak self] in
+            guard let self else { return }
+            self.onReady()
+            self.applyDesiredState()
+        }
+        bridge.onPlayerEnded = { [weak self] in self?.onEnded() }
         webView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(webView)
         NSLayoutConstraint.activate([
@@ -62,7 +88,13 @@ final class VideoBackgroundWebPlayerView: NSView, VideoBackgroundPlayerView {
             webView.trailingAnchor.constraint(equalTo: trailingAnchor),
         ])
 
-        let page = VideoBackgroundEmbedPage(source: source, muted: muted)
+        let page = VideoBackgroundEmbedPage(
+            source: source,
+            muted: muted,
+            queueManaged: queueManaged,
+            quality: quality,
+            volume: self.desiredVolume
+        )
         webView.loadHTMLString(page.html, baseURL: VideoBackgroundEmbedPage.baseURL)
     }
 
@@ -85,6 +117,20 @@ final class VideoBackgroundWebPlayerView: NSView, VideoBackgroundPlayerView {
         applyDesiredMutedState()
     }
 
+    func setPlaybackPosition(_ seconds: TimeInterval) {
+        let normalized = max(0, seconds.isFinite ? seconds : 0)
+        guard abs(desiredPosition - normalized) > 0.05 else { return }
+        desiredPosition = normalized
+        evaluateScript(VideoBackgroundEmbedPage.positionScript(normalized))
+    }
+
+    func setVolume(_ volume: Double) {
+        let normalized = volume.isFinite ? min(max(volume, 0), 1) : 1
+        guard abs(desiredVolume - normalized) > 0.005 else { return }
+        desiredVolume = normalized
+        evaluateScript(VideoBackgroundEmbedPage.volumeScript(normalized))
+    }
+
     /// Replays both pause and mute state. Called when the page loads and when
     /// the player becomes ready: a script evaluated before the document exists
     /// (a window created while occluded, for example) is silently dropped, and
@@ -92,6 +138,10 @@ final class VideoBackgroundWebPlayerView: NSView, VideoBackgroundPlayerView {
     private func applyDesiredState() {
         applyDesiredPausedState()
         applyDesiredMutedState()
+        evaluateScript(VideoBackgroundEmbedPage.volumeScript(desiredVolume))
+        if desiredPosition > 0 {
+            evaluateScript(VideoBackgroundEmbedPage.positionScript(desiredPosition))
+        }
     }
 
     private func applyDesiredPausedState() {
