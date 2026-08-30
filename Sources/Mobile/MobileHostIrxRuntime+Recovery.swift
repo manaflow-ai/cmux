@@ -456,7 +456,12 @@ extension MobileHostIrxRuntime {
         brokerService = nil
         localBinding = nil
         hadLiveDiscovery = false
-        MobileHostPublicStatusCache.update(irohIdentity: nil)
+        // The route slot is shared with the legacy runtime. A dormant irx
+        // instance (feature flag off) must not clear the route currently owned
+        // by that runtime during its serialized teardown.
+        if Self.isEnabled {
+            MobileHostPublicStatusCache.update(irohIdentity: nil)
+        }
     }
 
     func deactivate(preserveReauthentication: Bool = false) async {
