@@ -13,7 +13,7 @@ import WebKit
 #endif
 
 @MainActor
-@Suite struct BrowserPanelViewIdentityTests {
+@Suite(.serialized) struct BrowserPanelViewIdentityTests {
     @Test func externalPortalGeometrySyncDoesNotDriveSwiftUILayout() async throws {
         let referenceView = LayoutCountingBrowserReferenceView(rootView: EmptyView())
         referenceView.frame = NSRect(x: 0, y: 0, width: 640, height: 480)
