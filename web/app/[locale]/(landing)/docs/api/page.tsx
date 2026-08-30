@@ -58,7 +58,7 @@ export default function ApiPage() {
           <tr>
             <td>{t("release")}</td>
             <td>
-              <code>/tmp/cmux.sock</code>
+              <code>~/.local/state/cmux/cmux.sock</code>
             </td>
           </tr>
           <tr>
@@ -433,7 +433,7 @@ cmux identify --json`}
 
       <DocsHeading level={2} id="detecting-cmux">{t("detectingCmux")}</DocsHeading>
       <CodeBlock title="bash" lang="bash">{`# Prefer explicit socket path if set
-SOCK="\${CMUX_SOCKET_PATH:-/tmp/cmux.sock}"
+SOCK="\${CMUX_SOCKET_PATH:-$HOME/.local/state/cmux/cmux.sock}"
 [ -S "$SOCK" ] && echo "Socket available"
 
 # Check for the CLI
@@ -452,7 +452,9 @@ command -v cmux &>/dev/null && echo "cmux available"
 import os
 import socket
 
-SOCKET_PATH = os.environ.get("CMUX_SOCKET_PATH", "/tmp/cmux.sock")
+SOCKET_PATH = os.environ.get("CMUX_SOCKET_PATH") or os.path.expanduser(
+    "~/.local/state/cmux/cmux.sock"
+)
 
 def rpc(method, params=None, req_id=1):
     payload = {"id": req_id, "method": method, "params": params or {}}
@@ -473,7 +475,7 @@ print(rpc(
 
       <DocsHeading level={3} id="shell-script">{t("shellScript")}</DocsHeading>
       <CodeBlock title="bash" lang="bash">{`#!/bin/bash
-SOCK="\${CMUX_SOCKET_PATH:-/tmp/cmux.sock}"
+SOCK="\${CMUX_SOCKET_PATH:-$HOME/.local/state/cmux/cmux.sock}"
 
 cmux_cmd() {
     printf "%s\\n" "$1" | nc -U "$SOCK"
