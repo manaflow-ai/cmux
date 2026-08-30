@@ -134,8 +134,7 @@ extension AppDelegate {
             return nil
         }
         if mode == .dock {
-            guard coordinator.focusedRightSidebarMode == .dock,
-                  focusedDockStoreForShortcut(preferredWindow: window) != nil else {
+            guard coordinator.focusedRightSidebarMode == .dock else {
                 return nil
             }
         }

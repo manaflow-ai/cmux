@@ -398,7 +398,7 @@ extension AppDelegate {
                 .dockBrowserPanel(owning: window.firstResponder, in: window) {
                 return panel
             }
-            if context.keyboardFocusCoordinator.activeRightSidebarMode == .dock {
+            if focusedSidebarModeForShortcutContext(for: window) == .dock {
                 guard let windowDock = existingWindowDock(
                     forWindowId: context.windowId
                 ),
@@ -421,7 +421,7 @@ extension AppDelegate {
         in window: NSWindow
     ) -> BrowserPanel? {
         guard let context = shortcutMainWindowContext(in: window),
-              context.keyboardFocusCoordinator.activeRightSidebarMode == .dock,
+              focusedSidebarModeForShortcutContext(for: window) == .dock,
               let dock = existingWindowDock(forWindowId: context.windowId),
               let panelId = dock.focusedPanelId else {
             return nil
