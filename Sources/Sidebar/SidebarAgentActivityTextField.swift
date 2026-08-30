@@ -120,12 +120,13 @@ final class SidebarAgentActivityTextField: NSTextField, SidebarAgentElapsedClock
 
     private func apply(text: String, toolTip: String?, accessibilityLabel: String?) {
         let widthChanged = stringValue != text
+        let displayFont = font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize)
         let previousNaturalWidth = widthChanged
-            ? stringValue.size(withAttributes: [.font: font]).width
+            ? stringValue.size(withAttributes: [.font: displayFont]).width
             : 0
         if widthChanged {
             stringValue = text
-            let nextNaturalWidth = text.size(withAttributes: [.font: font]).width
+            let nextNaturalWidth = text.size(withAttributes: [.font: displayFont]).width
             if abs(nextNaturalWidth - previousNaturalWidth) >= 0.5 {
                 invalidateIntrinsicContentSize()
             }
