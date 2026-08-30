@@ -333,6 +333,10 @@ struct Attachment {
     actor_id: String,
     /// Transport that opened this attachment (see FrameContext::transport_id).
     transport_id: Option<String>,
+    /// Authentication and transport sink captured when this viewer opens.
+    /// Shared-session output must use this snapshot, never the latest frame's
+    /// connection-wide context.
+    auth: AuthSnapshot,
 }
 
 struct Inner {
@@ -348,7 +352,6 @@ struct Inner {
     cancelled_openings: Mutex<std::collections::HashSet<String>>,
     shell_sessions: Mutex<HashMap<String, Arc<ShellSession>>>,
     shell_starting: Mutex<HashMap<String, Arc<Notify>>>,
-    auth: Mutex<Option<AuthSnapshot>>,
 }
 
 struct ShellStartReservation {
@@ -399,7 +402,6 @@ impl PtyManager {
                 cancelled_openings: Mutex::new(std::collections::HashSet::new()),
                 shell_sessions: Mutex::new(HashMap::new()),
                 shell_starting: Mutex::new(HashMap::new()),
-                auth: Mutex::new(None),
             }),
         }
     }
@@ -425,19 +427,12 @@ impl PtyManager {
                 cancelled_openings: Mutex::new(std::collections::HashSet::new()),
                 shell_sessions: Mutex::new(HashMap::new()),
                 shell_starting: Mutex::new(HashMap::new()),
-                auth: Mutex::new(None),
             }),
         }
     }
 
     /// Handle one Worker -> relay PTY frame.
     pub async fn handle_frame(&self, frame: &Value, context: &FrameContext) {
-        *self.inner.auth.lock().expect("auth lock") = Some(AuthSnapshot {
-            trust: context.trust.clone(),
-            owner_user_id: context.owner_user_id.clone(),
-            send: Arc::clone(&context.send),
-            buffered_amount: Arc::clone(&context.buffered_amount),
-        });
         let frame_type = frame.get("type").and_then(Value::as_str).unwrap_or_default();
         match frame_type {
             "pty_open" => self.inner.clone().open(frame, context).await,
@@ -769,6 +764,12 @@ impl Inner {
                 control: opened.control,
                 actor_id: actor.to_owned(),
                 transport_id: context.transport_id.clone(),
+                auth: AuthSnapshot {
+                    trust: context.trust.clone(),
+                    owner_user_id: context.owner_user_id.clone(),
+                    send: Arc::clone(&context.send),
+                    buffered_amount: Arc::clone(&context.buffered_amount),
+                },
             },
         );
         if let Some(previous) = previous {
@@ -816,8 +817,11 @@ impl Inner {
     }
 
     fn emit_output(&self, pty_id: &str, chunk: &Bytes, context: &FrameContext) {
-        let Some(auth) = self.auth.lock().expect("auth lock").clone() else { return };
-        if self.authorize_snapshot(pty_id, &auth, context, "output").is_none() {
+        let Some(attachment) = self.attachments.lock().expect("attach lock").get(pty_id).cloned()
+        else {
+            return;
+        };
+        if !self.authorize_attachment(pty_id, &attachment, context, "output") {
             return;
         }
         // Zero-byte chunks carry nothing and historically crashed the web
@@ -825,7 +829,7 @@ impl Inner {
         if chunk.is_empty() {
             return;
         }
-        let buffered = (auth.buffered_amount)();
+        let buffered = (attachment.auth.buffered_amount)();
         // Admit the complete frame before sending it. The socket may accept a
         // frame exactly at the cap, but must reject one that would push the
         // buffered amount over the cap.
@@ -842,7 +846,7 @@ impl Inner {
             );
             return;
         }
-        (auth.send)(json!({
+        (attachment.auth.send)(json!({
             "version": PTY_PROTOCOL_VERSION,
             "type": "pty_output",
             "ptyId": pty_id,
@@ -851,8 +855,11 @@ impl Inner {
     }
 
     fn emit_exit(&self, pty_id: &str, code: i64, context: &FrameContext) {
-        let Some(auth) = self.auth.lock().expect("auth lock").clone() else { return };
-        if self.authorize_snapshot(pty_id, &auth, context, "exit").is_none() {
+        let Some(attachment) = self.attachments.lock().expect("attach lock").get(pty_id).cloned()
+        else {
+            return;
+        };
+        if !self.authorize_attachment(pty_id, &attachment, context, "exit") {
             return;
         }
         let mut attachments = self.attachments.lock().expect("attach lock");
@@ -862,7 +869,7 @@ impl Inner {
         }
         attachments.remove(pty_id);
         drop(attachments);
-        (auth.send)(json!({
+        (attachment.auth.send)(json!({
             "version": PTY_PROTOCOL_VERSION,
             "type": "pty_exit",
             "ptyId": pty_id,
@@ -905,24 +912,59 @@ impl Inner {
     }
 
     fn authorize(&self, pty_id: &str, context: &FrameContext, action: &str) -> Option<Attachment> {
-        let auth = self.auth.lock().expect("auth lock").clone()?;
-        self.authorize_snapshot(pty_id, &auth, context, action)
+        let attachment = self.attachments.lock().expect("attach lock").get(pty_id)?.clone();
+        self.authorize_attachment_with_context(pty_id, &attachment, context, action)
+            .then_some(attachment)
     }
 
-    fn authorize_snapshot(
+    fn authorize_attachment(
         &self,
         pty_id: &str,
-        auth: &AuthSnapshot,
+        attachment: &Attachment,
         context: &FrameContext,
         action: &str,
-    ) -> Option<Attachment> {
-        let attachment = self.attachments.lock().expect("attach lock").get(pty_id)?.clone();
-        let owner = auth.owner_user_id.as_deref();
-        let allowed = !auth.trust.is_empty()
-            && (auth.trust != "observe"
+    ) -> bool {
+        self.authorize_values(
+            pty_id,
+            attachment,
+            &attachment.auth.trust,
+            attachment.auth.owner_user_id.as_deref(),
+            context,
+            action,
+        )
+    }
+
+    fn authorize_attachment_with_context(
+        &self,
+        pty_id: &str,
+        attachment: &Attachment,
+        context: &FrameContext,
+        action: &str,
+    ) -> bool {
+        self.authorize_values(
+            pty_id,
+            attachment,
+            &context.trust,
+            context.owner_user_id.as_deref(),
+            context,
+            action,
+        )
+    }
+
+    fn authorize_values(
+        &self,
+        pty_id: &str,
+        attachment: &Attachment,
+        trust: &str,
+        owner: Option<&str>,
+        context: &FrameContext,
+        action: &str,
+    ) -> bool {
+        let allowed = !trust.is_empty()
+            && (trust != "observe"
                 || (owner.is_some() && owner == Some(attachment.actor_id.as_str())));
         if allowed {
-            Some(attachment)
+            true
         } else {
             self.close(pty_id);
             send_pty_error(
@@ -931,7 +973,7 @@ impl Inner {
                 "trust_revoked",
                 &format!("PTY {action} refused after trust change"),
             );
-            None
+            false
         }
     }
 
