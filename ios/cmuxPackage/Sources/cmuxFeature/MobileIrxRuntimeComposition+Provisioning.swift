@@ -93,23 +93,36 @@ extension MobileIrxRuntimeComposition {
         let refreshDiscovery = refreshDiscoveryInBackground
         backgroundProvisioningTask?.cancel()
         let backgroundTask = Task { [weak self, broker, supervisor] in
-            guard let self,
-                  await self.isCurrentProvisioning(
-                      session: session, broker: broker, endpoint: supervisor
-                  ) else { return }
-            if refreshRegistration {
-                _ = try? await broker.register(pairingEnabled: false, relayURLHint: nil)
+            let refreshTask = Task { [weak self, broker] in
+                guard let self,
+                      await self.isCurrentProvisioning(
+                          session: session, broker: broker, endpoint: supervisor
+                      ) else { return }
+                if refreshRegistration {
+                    _ = try? await broker.register(
+                        pairingEnabled: false, relayURLHint: nil)
+                }
+                guard await self.isCurrentProvisioning(
+                    session: session, broker: broker, endpoint: supervisor
+                ) else { return }
+                if refreshDiscovery {
+                    _ = try? await broker.discover()
+                }
             }
-            guard await self.isCurrentProvisioning(
-                session: session, broker: broker, endpoint: supervisor
-            ) else { return }
-            if refreshDiscovery {
-                _ = try? await broker.discover()
+            let warmupTask = Task { [weak self, supervisor] in
+                guard let self,
+                      await self.isCurrentProvisioning(
+                          session: session, broker: broker, endpoint: supervisor
+                      ) else { return }
+                _ = try? await supervisor.readyEndpoint(credentials: credentials)
             }
-            guard await self.isCurrentProvisioning(
-                session: session, broker: broker, endpoint: supervisor
-            ) else { return }
-            _ = try? await supervisor.readyEndpoint(credentials: credentials)
+            await withTaskCancellationHandler(operation: {
+                await refreshTask.value
+                await warmupTask.value
+            }, onCancel: {
+                refreshTask.cancel()
+                warmupTask.cancel()
+            })
         }
         backgroundProvisioningTask = backgroundTask
         return broker

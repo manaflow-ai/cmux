@@ -285,6 +285,9 @@ final class MobileHostIrxRuntime {
                 )
             }
             await pilot.start()
+            guard !Task.isCancelled,
+                  generationToken == token,
+                  activeAccountID == accountID else { return }
             registry = IrxServerSessionRegistry(journal: Self.journal)
 
             publishRoute(identity: identity, relayURL: homeRelay)
