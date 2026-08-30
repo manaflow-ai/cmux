@@ -107,6 +107,14 @@ fn is_encoded_control_frame(frame: &[u8]) -> bool {
     frame[4] == FRAME_KIND_CONTROL && payload_len == frame.len() - HEADER_BYTES
 }
 
+fn encode_overflow_frame() -> Vec<u8> {
+    encode_control_frame(&json!({
+        "t": "error",
+        "code": "overflow",
+        "message": "terminal output queue is full; reconnect to resume",
+    }))
+}
+
 /// Relay pty_error codes -> browser wire codes. Mirrors the Worker's
 /// browserErrorCode map (apps/backend/src/terminal/relay-pty.ts). KEEP IN
 /// SYNC; `wire_error_codes_match_the_worker_map` pins the shape here.
@@ -429,6 +437,16 @@ impl Connection {
             if self.finished.load(Ordering::SeqCst) {
                 false
             } else {
+                // Keep the client informed before closing. Data admission
+                // leaves a message and byte reserve for this bounded control
+                // frame, and the End permit remains last in FIFO order.
+                let overflow = encode_overflow_frame();
+                let overflow_bytes = overflow.len() as u64;
+                if self.reserve_bytes(overflow_bytes, true) {
+                    if self.writer_tx.try_send(WriterMessage::Frame(overflow)).is_err() {
+                        self.release_bytes(overflow_bytes);
+                    }
+                }
                 self.paused.store(true, Ordering::SeqCst);
                 let mut state = self.flow_state.lock().expect("flow state lock");
                 let notify = !state.desired_pause;
@@ -1026,6 +1044,11 @@ mod tests {
         serde_json::from_slice(&frame.payload).expect("control json")
     }
 
+    fn encoded_control_json(frame: &[u8]) -> Value {
+        assert!(is_encoded_control_frame(frame));
+        serde_json::from_slice(&frame[HEADER_BYTES..]).expect("encoded control json")
+    }
+
     #[test]
     fn data_budget_leaves_byte_reserve_for_control_frames() {
         assert_eq!(
@@ -1209,8 +1232,8 @@ mod tests {
         assert!(connection.finished.load(Ordering::SeqCst));
         assert_eq!(
             connection.pending_out.load(Ordering::SeqCst),
-            (frame_len * 2) as u64,
-            "a rejected frame must release its byte reservation"
+            (frame_len * 2) as u64 + encode_overflow_frame().len() as u64,
+            "a rejected frame must release its byte reservation while retaining the error"
         );
         assert!(*flow_rx.borrow());
         assert!(connection.done.is_cancelled());
@@ -1221,6 +1244,14 @@ mod tests {
         match writer_rx.recv().await.expect("second admitted frame") {
             WriterMessage::Frame(frame) => assert_eq!(frame[0], 2),
             WriterMessage::End => panic!("queue order changed"),
+        }
+        match writer_rx.recv().await.expect("overflow control frame") {
+            WriterMessage::Frame(frame) => {
+                let error = encoded_control_json(&frame);
+                assert_eq!(error["t"], "error");
+                assert_eq!(error["code"], "overflow");
+            }
+            WriterMessage::End => panic!("End overtook overflow error"),
         }
         assert!(matches!(writer_rx.recv().await, Some(WriterMessage::End)));
         rig.cancel.cancel();
@@ -1396,6 +1427,14 @@ mod tests {
                 WriterMessage::Frame(frame) => assert_eq!(frame, vec![index as u8]),
                 WriterMessage::End => panic!("queue order changed"),
             }
+        }
+        match writer_rx.recv().await.expect("overflow control frame") {
+            WriterMessage::Frame(frame) => {
+                let error = encoded_control_json(&frame);
+                assert_eq!(error["t"], "error");
+                assert_eq!(error["code"], "overflow");
+            }
+            WriterMessage::End => panic!("End overtook overflow error"),
         }
         assert!(matches!(writer_rx.recv().await, Some(WriterMessage::End)));
         rig.cancel.cancel();
