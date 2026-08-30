@@ -568,7 +568,7 @@ struct WorkspaceRecoveryTests {
     }
 
     @Test
-    func managerTeardownFlushesQueuedAutomaticTitle() async throws {
+    func managerTeardownFlushesQueuedAutomaticTitle() throws {
         let fixture = try makeCustomizationStore()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
 
@@ -585,12 +585,50 @@ struct WorkspaceRecoveryTests {
             title: "Automatic Name",
             source: .auto
         ) == true)
+        weak var weakManager = manager
         manager = nil
 
-        for _ in 0..<3 { await Task.yield() }
+        #expect(weakManager == nil)
         #expect(
             fixture.store.customization(for: workspace.stableId)?.customTitle ==
                 .autoValue("Automatic Name")
+        )
+    }
+
+    @Test
+    func automaticClearAfterAutoTitlePersistsClearedTombstone() throws {
+        let fixture = try makeCustomizationStore()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+
+        let manager = TabManager(
+            initialWorkingDirectory: "/tmp/automatic-clear-title",
+            autoWelcomeIfNeeded: false,
+            workspaceCustomizationStore: fixture.store
+        )
+        let workspace = try #require(manager.selectedWorkspace)
+        #expect(manager.setCustomTitle(tabId: workspace.id, title: "User Title"))
+        manager.clearCustomTitle(tabId: workspace.id)
+        #expect(manager.setCustomTitle(
+            tabId: workspace.id,
+            title: "Automatic Title",
+            source: .auto
+        ))
+        manager.flushPendingWorkspaceCustomizationWrites()
+        #expect(
+            fixture.store.customization(for: workspace.stableId)?.customTitle ==
+                .autoValue("Automatic Title")
+        )
+
+        // Model an automatic clear from a title owner that has already
+        // persisted an automatic value. The journal must retain the clear as
+        // a tombstone instead of leaving the auto value authoritative.
+        workspace.customTitle = nil
+        workspace.customTitleSource = nil
+        manager.recordWorkspaceCustomTitle(workspace, source: .auto)
+        manager.flushPendingWorkspaceCustomizationWrites()
+        #expect(
+            fixture.store.customization(for: workspace.stableId)?.customTitle ==
+                .cleared
         )
     }
 
