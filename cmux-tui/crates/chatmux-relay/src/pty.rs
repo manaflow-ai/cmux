@@ -3851,6 +3851,8 @@ mod tests {
             spawn_file: String::new(),
             spawn_cwd: PathBuf::new(),
             spawn_term: String::new(),
+            cancel_on_subscribe: Arc::new(AtomicBool::new(false)),
+            cancellation: CancellationToken::new(),
         };
         let owner_a =
             TransportOwner { id: Some("tunnel-a".to_owned()), kind: TransportKind::Tunnel };
