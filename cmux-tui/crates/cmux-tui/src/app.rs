@@ -41757,7 +41757,7 @@ mod tests {
         mux.report_agent(
             surface.id,
             AgentState::Working,
-            AgentSource::Hook,
+            AgentSource::Detected,
             Some("agent-session".into()),
         )
         .unwrap();
@@ -41792,7 +41792,7 @@ mod tests {
         mux.report_agent(
             surface.id,
             AgentState::Working,
-            AgentSource::Hook,
+            AgentSource::Detected,
             Some("agent-session".into()),
         )
         .unwrap();
@@ -41830,7 +41830,7 @@ mod tests {
         mux.report_agent(
             surface.id,
             AgentState::Done,
-            AgentSource::Hook,
+            AgentSource::Detected,
             Some("agent-session".into()),
         )
         .unwrap();
@@ -41981,7 +41981,7 @@ mod tests {
         mux.report_agent(
             surface.id,
             AgentState::Working,
-            AgentSource::Hook,
+            AgentSource::Detected,
             Some("agent-session".into()),
         )
         .unwrap();
