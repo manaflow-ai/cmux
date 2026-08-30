@@ -11804,7 +11804,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 keyCode: 11,
                 windowNumber: window.windowNumber
             ), let commaEvent = makeKeyDownEvent(
-                key: "x",
+                key: "q",
                 modifiers: [],
                 keyCode: 15,
                 windowNumber: window.windowNumber
