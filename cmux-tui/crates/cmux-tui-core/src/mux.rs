@@ -10383,10 +10383,11 @@ impl Mux {
     }
 
     fn purge_terminal_side_tables(&self, terminal_id: &TerminalPublicId) -> anyhow::Result<()> {
-        // Retirement and journal folding share one lifecycle gate. This keeps
-        // a concurrent fold from installing a candidate snapshot after the
-        // terminal has been removed. The tombstone is persisted before the
-        // compatibility cache is cleared.
+        // Retirement and journal folding share one lifecycle gate. Take the
+        // hook fence first so teardown follows the same order as ingress:
+        // `agent_hook_fences` then `agent_roster_fold`. The tombstone is
+        // persisted before the compatibility cache is cleared.
+        let mut fences = self.agent_hook_fences.lock().unwrap();
         let _fold = self.agent_roster_fold.lock().unwrap();
         let (journal_cursor, pending_cleanup) = {
             let mut registry = self.workspace_registry.lock().unwrap();
@@ -10434,12 +10435,9 @@ impl Mux {
         } else {
             None
         };
-        // The fold lock protects the durable tombstone and snapshot only.
-        // Release it before touching the hook-fence table so teardown never
-        // takes `agent_roster_fold` then `agent_hook_fences` while ingress
-        // takes the inverse order.
+        fences.remove(terminal_id);
         drop(_fold);
-        self.agent_hook_fences.lock().unwrap().remove(terminal_id);
+        drop(fences);
         self.agent_records.lock().unwrap().remove(terminal_id);
         self.terminal_notifications.lock().unwrap().remove(terminal_id);
         snapshot_error.or(pending_cleanup_error).map_or(Ok(()), Err)
