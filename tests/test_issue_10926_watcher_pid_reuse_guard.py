@@ -143,6 +143,18 @@ def ps_epoch_start_time(pid: int, env: dict[str, str]) -> str:
     return str(int(started.timestamp()))
 
 
+def process_state(pid: int, env: dict[str, str]) -> str:
+    """Read the symbolic macOS process state without reaping the process."""
+    proc = subprocess.run(
+        ["/bin/ps", "-o", "state=", "-p", str(pid)],
+        env={**env, "LC_ALL": "C"},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return proc.stdout.strip() if proc.returncode == 0 else ""
+
+
 def check_guard_semantics(name: str, shell_argv: list[str], integration: Path, env: dict[str, str]) -> None:
     # The integration path is $1 in both shells so the scripts stay identical.
     guard_script = (
@@ -245,6 +257,40 @@ def check_guard_semantics(name: str, shell_argv: list[str], integration: Path, e
             f"[{name}] guard treated a dead parent PID as alive "
             f"(stdout={proc.stdout!r} stderr={proc.stderr[-500:]!r})"
         )
+
+    # 4. A zombie still has a PID and start time, but it cannot execute and is
+    #    no longer a live watcher parent. Keep it unreaped while checking the
+    #    shipped guard, then reap it in cleanup.
+    zombie = subprocess.Popen(["/bin/sh", "-c", "read _"], stdin=subprocess.PIPE)
+    try:
+        recorded_start = shell_start_time(shell_argv, integration, env, zombie.pid)
+        assert zombie.stdin is not None
+        zombie.stdin.close()
+        deadline = time.monotonic() + 5.0
+        state = ""
+        while time.monotonic() < deadline:
+            state = process_state(zombie.pid, env)
+            if state.startswith("Z"):
+                break
+            time.sleep(0.05)
+        if not recorded_start or not state.startswith("Z"):
+            fail(f"[{name}] could not create a zombie parent fixture (state={state!r})")
+        else:
+            proc = run_shell(
+                shell_argv,
+                guard_script,
+                [str(integration), str(zombie.pid), recorded_start],
+                env,
+            )
+            if "GUARD:0" in proc.stdout or "GUARD:" not in proc.stdout:
+                fail(
+                    f"[{name}] guard treated a zombie parent as alive "
+                    f"(stdout={proc.stdout!r} stderr={proc.stderr[-500:]!r})"
+                )
+    finally:
+        if zombie.stdin is not None and not zombie.stdin.closed:
+            zombie.stdin.close()
+        zombie.wait(timeout=5)
 
 
 def check_tiered_cadence(name: str, shell_argv: list[str], integration: Path, env: dict[str, str]) -> None:
