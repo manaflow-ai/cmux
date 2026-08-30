@@ -413,8 +413,9 @@ struct SidebarWorkspaceRowSuspensionTests {
         window.contentView = cell
         defer { window.close() }
         cell.configure(
-            model: firstModel, actions: actions, isPointerHovering: false,
+            model: firstModel, actions: actions,
             chromePalette: Self.defaultChromePalette(for: firstModel),
+            isPointerHovering: false,
             contextMenuDidOpen: {}, contextMenuDidClose: {}
         )
         let field = try #require(
@@ -425,8 +426,9 @@ struct SidebarWorkspaceRowSuspensionTests {
         field.stringValue = "  Updated first item  "
 
         cell.configure(
-            model: secondModel, actions: actions, isPointerHovering: false,
+            model: secondModel, actions: actions,
             chromePalette: Self.defaultChromePalette(for: secondModel),
+            isPointerHovering: false,
             contextMenuDidOpen: {}, contextMenuDidClose: {}
         )
 
