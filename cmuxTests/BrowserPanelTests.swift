@@ -1737,12 +1737,18 @@ final class WindowBrowserHostViewTests: XCTestCase {
             ["began", "changed", "ended"],
             "A shared browser/Dock divider hit must follow the native sidebar drag lifecycle"
         )
-        XCTAssertEqual(
+        XCTAssertNotNil(
             changedTranslation,
-            32,
-            accuracy: 0.5,
             "The forwarded drag must reach the native sidebar tracker"
         )
+        if let translation = changedTranslation {
+            XCTAssertEqual(
+                Double(translation),
+                32.0,
+                accuracy: 0.5,
+                "The forwarded drag must reach the native sidebar tracker"
+            )
+        }
 
         // AppKit may ask for another hit-test while SwiftUI is moving the
         // divider tracker between hosting wrappers. Preserve the original
@@ -1794,12 +1800,18 @@ final class WindowBrowserHostViewTests: XCTestCase {
             ["began", "changed", "ended"],
             "A Dock divider handoff must survive a transient tracker reparent"
         )
-        XCTAssertEqual(
+        XCTAssertNotNil(
             changedTranslation,
-            28,
-            accuracy: 0.5,
             "A reparented Dock divider must continue receiving native drag translation"
         )
+        if let translation = changedTranslation {
+            XCTAssertEqual(
+                Double(translation),
+                28.0,
+                accuracy: 0.5,
+                "A reparented Dock divider must continue receiving native drag translation"
+            )
+        }
     }
 
     func testHostViewKeepsDockDividerPassThroughDuringTransientPortalContextClear() throws {
