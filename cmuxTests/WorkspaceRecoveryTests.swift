@@ -633,6 +633,53 @@ struct WorkspaceRecoveryTests {
     }
 
     @Test
+    func queuedAutomaticTitleCannotOverwriteLaterExplicitClearAcrossManagers() throws {
+        let fixture = try makeCustomizationStore()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+
+        let queuedManager = TabManager(
+            initialWorkingDirectory: "/tmp/queued-auto-title-manager",
+            autoWelcomeIfNeeded: false,
+            workspaceCustomizationStore: fixture.store
+        )
+        let queuedWorkspace = try #require(queuedManager.selectedWorkspace)
+        #expect(queuedManager.setCustomTitle(
+            tabId: queuedWorkspace.id,
+            title: "User Title"
+        ))
+        queuedManager.clearCustomTitle(tabId: queuedWorkspace.id)
+        #expect(queuedManager.setCustomTitle(
+            tabId: queuedWorkspace.id,
+            title: "Queued Automatic Title",
+            source: .auto
+        ))
+
+        // A second manager can make an explicit clear after the first manager
+        // queued its automatic write but before that write reaches the store.
+        let clearingManager = TabManager(
+            autoWelcomeIfNeeded: false,
+            workspaceCustomizationStore: fixture.store
+        )
+        clearingManager.restoreSessionSnapshot(SessionTabManagerSnapshot(
+            selectedWorkspaceIndex: 0,
+            workspaces: [queuedWorkspace.sessionSnapshot(includeScrollback: false)]
+        ))
+        let clearingWorkspace = try #require(clearingManager.selectedWorkspace)
+        #expect(clearingWorkspace.stableId == queuedWorkspace.stableId)
+        clearingManager.clearCustomTitle(tabId: clearingWorkspace.id)
+        #expect(
+            fixture.store.customization(for: queuedWorkspace.stableId)?.customTitle ==
+                .cleared
+        )
+
+        queuedManager.flushPendingWorkspaceCustomizationWrites()
+        #expect(
+            fixture.store.customization(for: queuedWorkspace.stableId)?.customTitle ==
+                .cleared
+        )
+    }
+
+    @Test
     func autoTitleRecoveryPreservesIndependentColor() throws {
         let fixture = try makeCustomizationStore()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
