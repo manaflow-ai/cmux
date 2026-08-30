@@ -76,7 +76,7 @@ extension MobileIrxRuntimeComposition {
     /// Detects the explicit sign-in transition that follows a rejected
     /// refresh. A new session generation is the safe point to rebuild the
     /// account-pinned broker; the old generation is never retried silently.
-    private func hasNewAuthenticatedSession() async -> Bool {
+    func hasNewAuthenticatedSession() async -> Bool {
         guard reauthenticationRequired,
               let expectedGeneration = provisionedSessionGeneration,
               let accountID = provisionedAccountID,

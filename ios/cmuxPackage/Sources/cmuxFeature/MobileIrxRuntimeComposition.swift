@@ -219,7 +219,7 @@ public actor MobileIrxRuntimeComposition {
         }
     }
 
-    private func provisionIfPossible() async -> Bool {
+    func provisionIfPossible() async -> Bool {
         guard let auth else { return false }
         guard let session = try? await auth.authenticatedSessionSnapshot() else {
             return false
