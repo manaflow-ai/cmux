@@ -1319,12 +1319,11 @@ impl Inner {
         let Some(attachment) = self.attachment(pty_id) else {
             return;
         };
-        // The gate protects the authorization snapshot only. Never hold it
-        // while backpressure or the send callback runs: PTY input can block
-        // until the child drains, while the reader needs this same path to
-        // publish output.
+        // Serialize authorization, revocation, and publication for this
+        // attachment. This prevents a close from racing the final snapshot
+        // check and sending stale output after retirement.
+        let _operation = attachment.operation_gate.lock().expect("attachment operation lock");
         let authorized = {
-            let _operation = attachment.operation_gate.lock().expect("attachment operation lock");
             let _state = self.tunnel_state.lock().expect("tunnel state lock");
             self.attachment_is_authorized(pty_id, &attachment, &auth, context)
         };
@@ -1354,9 +1353,7 @@ impl Inner {
             );
             return;
         }
-        // Closing can race the snapshot once the gate is released. Do not
-        // publish a frame for an attachment that has already been retired or
-        // replaced under the same pty id.
+        // The operation gate remains held through this check and send.
         if !self.attachment_snapshot_is_current(pty_id, &attachment) {
             return;
         }
