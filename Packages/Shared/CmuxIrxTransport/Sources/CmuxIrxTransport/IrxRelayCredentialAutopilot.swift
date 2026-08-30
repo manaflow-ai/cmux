@@ -26,6 +26,8 @@ public actor IrxRelayCredentialAutopilot {
     public enum FailureDisposition: Equatable, Sendable {
         /// The autopilot will sleep for the supplied delay before retrying.
         case retry(delay: TimeInterval)
+        /// A non-fatal auxiliary operation failed; the endpoint remains live.
+        case advisory
         /// The autopilot has stopped and requires lifecycle-owner action.
         case terminal
     }
@@ -34,26 +36,29 @@ public actor IrxRelayCredentialAutopilot {
     private let endpoint: IrxEndpointSupervisor
     private let journal: IrxJournal
     private let clock: any CmxIrohRelayClock
+    private let retryPolicy: IrxHostActivationPolicy
     private var loop: Task<Void, Never>?
     private var loopGeneration: UInt64 = 0
     /// Runs after every successful rotation. Hosts re-register here so their
     /// advertised relay hint (server-capped at a 1h lifetime) never expires.
     public var onRotation: (@Sendable () async throws -> Void)?
-    /// Reports a classified broker failure to the lifecycle owner. The owner
-    /// decides whether an auth rejection tears down the endpoint or a transient
-    /// failure remains on the bounded refresh ladder.
+    /// Reports a classified broker failure and the disposition selected by this
+    /// autopilot to the lifecycle owner. The disposition is authoritative so
+    /// platform owners do not re-derive retry state with a second counter.
     public var onFailure: (@Sendable (IrxBrokerFailure, FailureDisposition) async -> Void)?
 
     public init(
         broker: IrxBrokerService,
         endpoint: IrxEndpointSupervisor,
         journal: IrxJournal,
-        clock: any CmxIrohRelayClock = CmxIrohSystemRelayClock()
+        clock: any CmxIrohRelayClock = CmxIrohSystemRelayClock(),
+        retryPolicy: IrxHostActivationPolicy = IrxHostActivationPolicy()
     ) {
         self.broker = broker
         self.endpoint = endpoint
         self.journal = journal
         self.clock = clock
+        self.retryPolicy = retryPolicy
     }
 
     public func setOnRotation(_ handler: @escaping @Sendable () async throws -> Void) {
@@ -61,6 +66,7 @@ public actor IrxRelayCredentialAutopilot {
     }
 
     /// Installs the lifecycle failure sink for mint and hint-refresh errors.
+    /// Installs the lifecycle failure sink.
     public func setOnFailure(
         _ handler: @escaping @Sendable (IrxBrokerFailure, FailureDisposition) async -> Void
     ) {
@@ -209,6 +215,7 @@ public actor IrxRelayCredentialAutopilot {
                         await onFailure?(failure, .terminal)
                         return .stopped
                     }
+                    await onFailure?(failure, .advisory)
                     journal.record(
                         "credential-autopilot", "hint-refresh-rejected",
                         failure.journalAttributes
@@ -250,19 +257,19 @@ public actor IrxRelayCredentialAutopilot {
             // The host callback owns the shared 401 escalation counter. The
             // autopilot's bounded hint burst must not independently terminate
             // credential renewal before that owner decides.
-            decision = IrxHostActivationPolicy().decision(
+            decision = retryPolicy.decision(
                 for: failure,
                 failureCount: 0,
                 jitterUnitInterval: Double.random(in: 0 ... 1)
             )
         } else if isPostRecoveryUnauthorized {
-            decision = IrxHostActivationPolicy().decision(
+            decision = retryPolicy.decision(
                 for: failure,
                 failureCount: unauthorizedFailureCount,
                 jitterUnitInterval: Double.random(in: 0 ... 1)
             )
         } else {
-            decision = IrxHostActivationPolicy().decision(
+            decision = retryPolicy.decision(
                 for: failure,
                 failureCount: failureCount,
                 jitterUnitInterval: Double.random(in: 0 ... 1)

@@ -223,7 +223,11 @@ final class MobileHostIrxRuntime {
             )
             endpointSupervisor = supervisor
             let pilot = IrxRelayCredentialAutopilot(
-                broker: broker, endpoint: supervisor, journal: Self.journal)
+                broker: broker,
+                endpoint: supervisor,
+                journal: Self.journal,
+                retryPolicy: activationRetryPolicy
+            )
             autopilot = pilot
             // Registration FIRST: non-legacy namespaces need the binding
             // authorization it establishes before any other broker call
@@ -254,16 +258,6 @@ final class MobileHostIrxRuntime {
             } catch let failure as IrxBrokerFailure where failure.operation == .hintRefresh {
                 if failure.requiresReauthentication { throw failure }
                 deferredHintFailure = failure
-                await handleAutopilotFailure(
-                    failure,
-                    disposition: .retry(delay: 0),
-                    accountID: accountID,
-                    token: token
-                )
-                guard generationToken == token,
-                      activeAccountID == accountID,
-                      activationState != .reauthenticationRequired,
-                      activationState != .failed else { return }
             }
             // Relay hints are server-capped at 1h; refresh the registration on
             // every credential rotation so the advertised hint never expires.
@@ -303,7 +297,13 @@ final class MobileHostIrxRuntime {
             // is temporarily unavailable; the autopilot retries the hint
             // independently without churning credentials.
             setActivationState(.active)
-            if deferredHintFailure != nil {
+            if let deferredHintFailure {
+                await handleAutopilotFailure(
+                    deferredHintFailure,
+                    disposition: .advisory,
+                    accountID: accountID,
+                    token: token
+                )
                 await pilot.kickHintRefresh()
             }
         } catch is CancellationError {

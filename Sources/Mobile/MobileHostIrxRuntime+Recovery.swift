@@ -54,8 +54,6 @@ extension MobileHostIrxRuntime {
                 activationUnauthorizedFailureCount + 1,
                 20
             )
-        } else {
-            activationUnauthorizedFailureCount = 0
         }
         return activationRetryPolicy.decision(
             for: failure,
@@ -110,7 +108,8 @@ extension MobileHostIrxRuntime {
                 attributes["retry_after_s"] = String(retryAfterSeconds)
             }
             Self.journal.record("host-runtime", "activation-retry-scheduled", attributes)
-            await cleanupActivationResources()
+            await cleanupActivationResources(invalidateGeneration: true)
+            let retryToken = generationToken
             activationRetryFailureCount = min(activationRetryFailureCount + 1, 20)
             let clock = activationRetryClock
             let deadline = clock.now().addingTimeInterval(delay)
@@ -123,7 +122,7 @@ extension MobileHostIrxRuntime {
                 }
                 guard let self,
                       !Task.isCancelled,
-                      self.generationToken == token,
+                      self.generationToken == retryToken,
                       self.activeAccountID == accountID else { return }
                 self.activationRetryTask = nil
                 self.startActivation(accountID: accountID)
@@ -161,6 +160,10 @@ extension MobileHostIrxRuntime {
             )
         )
         switch disposition {
+        case .advisory:
+            // The endpoint remains usable; retain the classified context for
+            // the journal/diagnostic ring without changing its active state.
+            setActivationState(.active, failure: failure)
         case .retry:
             if failure.operation == .hintRefresh {
                 // Hint publication is an optimization; keep the already bound
