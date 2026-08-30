@@ -19,7 +19,7 @@
 //! every non-empty allowed root list; env scrubbed; per-pty buffered output capped; no
 //! empty frames; unknown ptyIds tolerated; refusals answer pty_error.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -309,6 +309,8 @@ struct ViewerSink {
 /// fans output out to every attachment (multi-viewer, tmux-style).
 struct ShellSession {
     control: Arc<dyn PtyControl>,
+    /// Serializes pause ownership transitions before touching the shared PTY.
+    flow_lock: Mutex<()>,
     inner: Mutex<ShellInner>,
     banner: Option<Vec<u8>>,
 }
@@ -318,6 +320,8 @@ struct ShellInner {
     ring_size: usize,
     alive: bool,
     viewers: Vec<ViewerSink>,
+    /// Viewer ids that currently own a pause on the shared PTY.
+    paused_viewers: HashSet<u64>,
 }
 
 #[derive(Clone)]
@@ -1164,12 +1168,14 @@ impl Inner {
                 let PtyHandle { control, output, banner } = handle;
                 let shell_session = Arc::new(ShellSession {
                     control,
+                    flow_lock: Mutex::new(()),
                     banner,
                     inner: Mutex::new(ShellInner {
                         ring: VecDeque::new(),
                         ring_size: 0,
                         alive: true,
                         viewers: Vec::new(),
+                        paused_viewers: HashSet::new(),
                     }),
                 });
                 // Session-level plumbing runs for the session's whole life:
@@ -1201,6 +1207,7 @@ impl Inner {
                     let viewers = {
                         let mut inner = exit_session.inner.lock().expect("shell inner lock");
                         inner.alive = false;
+                        inner.paused_viewers.clear();
                         std::mem::take(&mut inner.viewers)
                     };
                     manager.shell_sessions.lock().expect("shell lock").remove(&session_name);
@@ -1276,9 +1283,18 @@ struct ShellViewerControl {
 
 impl ShellViewerControl {
     fn release(&self) {
-        self.released.store(true, Ordering::SeqCst);
-        let mut inner = self.session.inner.lock().expect("shell inner lock");
-        inner.viewers.retain(|viewer| viewer.id != self.viewer_id);
+        if self.released.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        let _flow = self.session.flow_lock.lock().expect("shell flow lock");
+        let should_resume = {
+            let mut inner = self.session.inner.lock().expect("shell inner lock");
+            inner.viewers.retain(|viewer| viewer.id != self.viewer_id);
+            inner.paused_viewers.remove(&self.viewer_id) && inner.paused_viewers.is_empty()
+        };
+        if should_resume {
+            self.session.control.resume();
+        }
     }
 }
 
@@ -1290,10 +1306,27 @@ impl PtyControl for ShellViewerControl {
         self.session.control.resize(cols, rows);
     }
     fn pause(&self) {
-        self.session.control.pause();
+        let _flow = self.session.flow_lock.lock().expect("shell flow lock");
+        if self.released.load(Ordering::SeqCst) {
+            return;
+        }
+        let should_pause = {
+            let mut inner = self.session.inner.lock().expect("shell inner lock");
+            inner.paused_viewers.insert(self.viewer_id) && inner.paused_viewers.len() == 1
+        };
+        if should_pause {
+            self.session.control.pause();
+        }
     }
     fn resume(&self) {
-        self.session.control.resume();
+        let _flow = self.session.flow_lock.lock().expect("shell flow lock");
+        let should_resume = {
+            let mut inner = self.session.inner.lock().expect("shell inner lock");
+            inner.paused_viewers.remove(&self.viewer_id) && inner.paused_viewers.is_empty()
+        };
+        if should_resume {
+            self.session.control.resume();
+        }
     }
     fn kill(&self) {
         self.release();
