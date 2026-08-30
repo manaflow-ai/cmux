@@ -20,7 +20,9 @@ extension MobileHostIrxRuntime {
             cancelAutopilotRecovery()
             activationTask?.cancel()
             activationTask = nil
-            setActivationState(.inactive)
+            if activationState != .reauthenticationRequired {
+                setActivationState(.inactive)
+            }
         }
 
         desiredActivityGeneration &+= 1
@@ -32,7 +34,10 @@ extension MobileHostIrxRuntime {
             if effectiveDesired {
                 self.resumeActivationIfNeeded()
             } else {
-                await self.deactivate()
+                await self.deactivate(
+                    preserveReauthentication:
+                        self.activationState == .reauthenticationRequired
+                )
             }
             if self.desiredActivityGeneration == generation {
                 self.desiredActivityTask = nil
@@ -291,7 +296,8 @@ extension MobileHostIrxRuntime {
                 attributes["state"] = IrxHostActivationState
                     .reauthenticationRequired.rawValue
                 Self.journal.record("host-runtime", "reauthentication-required", attributes)
-                await cleanupActivationResources(invalidateGeneration: true)
+                await cleanupActivationResources(
+                    invalidateGeneration: true, stopAutopilot: false)
                 return
             }
             let currentToken = generationToken
@@ -313,7 +319,8 @@ extension MobileHostIrxRuntime {
                     attributes["state"] = IrxHostActivationState.failed.rawValue
                     Self.journal.record(
                         "host-runtime", "activation-stopped", attributes)
-                    await cleanupActivationResources(invalidateGeneration: true)
+                    await cleanupActivationResources(
+                        invalidateGeneration: true, stopAutopilot: false)
                 }
                 return
             }
@@ -323,7 +330,8 @@ extension MobileHostIrxRuntime {
             var attributes = failure.journalAttributes
             attributes["state"] = IrxHostActivationState.failed.rawValue
             Self.journal.record("host-runtime", "activation-stopped", attributes)
-            await cleanupActivationResources(invalidateGeneration: true)
+            await cleanupActivationResources(
+                invalidateGeneration: true, stopAutopilot: false)
             scheduleFailedActivationRecovery(failure: failure, accountID: accountID)
         }
     }
@@ -380,9 +388,9 @@ extension MobileHostIrxRuntime {
         return true
     }
 
-    /// Gives non-auth terminal failures a few bounded recovery probes, then
-    /// keeps an explicit failed state with a slow unattended probe. An account
-    /// transition, policy re-enable, or Settings refresh resets the ladder.
+    /// Gives non-auth terminal failures a few bounded recovery probes. Once
+    /// those probes are exhausted the runtime stays explicitly failed until an
+    /// account transition, policy re-enable, or Settings refresh resets it.
     private func scheduleFailedActivationRecovery(
         failure: IrxBrokerFailure,
         accountID: String
@@ -395,7 +403,6 @@ extension MobileHostIrxRuntime {
                     "host-runtime", "activation-recovery-exhausted",
                     failure.journalAttributes
                 )
-                scheduleTerminalActivationProbe(failure: failure, accountID: accountID)
             }
             return
         }
@@ -435,13 +442,16 @@ extension MobileHostIrxRuntime {
         }
     }
 
-    func cleanupActivationResources(invalidateGeneration: Bool = false) async {
+    func cleanupActivationResources(
+        invalidateGeneration: Bool = false,
+        stopAutopilot: Bool = true
+    ) async {
         if invalidateGeneration {
             generationToken = UUID()
         }
         acceptLoop?.cancel()
         acceptLoop = nil
-        if let autopilot {
+        if stopAutopilot, let autopilot {
             await autopilot.stop()
         }
         autopilot = nil
