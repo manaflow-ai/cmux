@@ -682,11 +682,11 @@ mod tests {
     }
 
     #[test]
-    fn terminal_fences_are_bounded() {
-        const EXPECTED_FENCE_LIMIT: usize = 1_024;
+    fn terminal_fences_are_retained_until_journal_compaction() {
+        const RETIRED_TERMINAL_COUNT: usize = 2_048;
         let payload = json!({});
         let mut live = AgentRoster::default();
-        for sequence in 1..=EXPECTED_FENCE_LIMIT * 2 {
+        for sequence in 1..=RETIRED_TERMINAL_COUNT * 2 {
             let subjects = terminal_subject("long_lived");
             live.apply(&hook_event(
                 sequence as u64,
@@ -698,7 +698,7 @@ mod tests {
         assert_eq!(live.hook_fences.len(), 1);
 
         let mut retired = AgentRoster::default();
-        for index in 0..(EXPECTED_FENCE_LIMIT * 2) {
+        for index in 0..RETIRED_TERMINAL_COUNT {
             let terminal_id = format!("retired_{index}");
             let subjects = terminal_subject(&terminal_id);
             let sequence = index as u64 * 2 + 1;
