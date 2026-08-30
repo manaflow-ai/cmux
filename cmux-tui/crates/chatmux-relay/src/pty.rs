@@ -912,8 +912,17 @@ impl PtyManager {
     /// One transport dropped: release only its attachments and cancel only
     /// its in-flight opens. Sessions live on either way (docs/TERMINAL.md).
     pub fn detach_transport(&self, transport_id: &str) {
-        // This legacy entry point does not carry a transport class. The
-        // matcher fences every typed identity for this opaque id.
+        // This legacy entry point does not carry a transport class. Fence
+        // every possible typed identity before scanning cached state, so an
+        // owner that disconnects before its first frame cannot be recreated.
+        {
+            let _state = self.inner.tunnel_state.lock().expect("tunnel state lock");
+            let mut detached =
+                self.inner.detached_transports.lock().expect("detached transport lock");
+            for kind in [TransportKind::Legacy, TransportKind::Relay, TransportKind::Tunnel] {
+                detached.insert(TransportOwner { id: Some(transport_id.to_owned()), kind });
+            }
+        }
         self.detach_matching(|owner| owner.id.as_deref() == Some(transport_id), true).retire();
     }
 
@@ -1586,16 +1595,15 @@ impl Inner {
         let Some(attachment) = self.attachment(pty_id) else {
             return;
         };
-        // Serialize authorization, revocation, and publication for this
-        // attachment. This prevents a close from racing the final snapshot
-        // check and sending stale output after retirement.
-        let _operation = attachment.operation_gate.lock().expect("attachment operation lock");
+        // Serialize only the authorization snapshot. Never hold the gate
+        // across the transport callback: a stalled consumer must not block a
+        // disconnect or trust revocation from retiring this attachment.
         let authorized = {
+            let _operation = attachment.operation_gate.lock().expect("attachment operation lock");
             let _state = self.tunnel_state.lock().expect("tunnel state lock");
             self.attachment_is_authorized(pty_id, &attachment, &auth, context)
         };
         if !authorized {
-            drop(_operation);
             self.handle_authorization_failure(pty_id, &attachment, &auth, context, "output");
             return;
         }
@@ -1609,7 +1617,6 @@ impl Inner {
         // frame exactly at the cap, but must reject one that would push the
         // buffered amount over the cap.
         if buffered.saturating_add(chunk.len() as u64) > self.output_cap {
-            drop(_operation);
             self.retire_if_current(pty_id, &attachment);
             send_pty_error(
                 context,
@@ -1622,7 +1629,10 @@ impl Inner {
             );
             return;
         }
-        // The operation gate remains held through this check and send.
+        // This final identity check is the publication linearization point.
+        // A concurrent detach may complete after the check, in which case
+        // this already-admitted frame is ordered before that detach. It can
+        // never block retirement while the callback runs.
         if !self.attachment_snapshot_is_current(pty_id, &attachment) {
             return;
         }
