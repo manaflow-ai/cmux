@@ -563,12 +563,18 @@ struct cmuxApp: App {
                 }
                 .disabled(activeTabManager.selectedWorkspace == nil)
 
-                Button(String(localized: "menu.notifications.markAllRead", defaultValue: "Mark All Read")) {
+                splitCommandButton(
+                    title: String(localized: "menu.notifications.markAllRead", defaultValue: "Mark All Read"),
+                    shortcut: menuShortcut(for: .markAllNotificationsRead)
+                ) {
                     notificationStore.markAllRead()
                 }
                 .disabled(!snapshot.hasUnreadNotifications)
 
-                Button(String(localized: "menu.notifications.clearAll", defaultValue: "Clear All")) {
+                splitCommandButton(
+                    title: String(localized: "menu.notifications.clearAll", defaultValue: "Clear All"),
+                    shortcut: menuShortcut(for: .clearAllNotifications)
+                ) {
                     notificationStore.clearAll()
                 }
                 .disabled(!snapshot.hasNotifications)
