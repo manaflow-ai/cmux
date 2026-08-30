@@ -1384,6 +1384,8 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         pendingWorkspaceDragWorkspaceId = nil
         activeWorkspaceDraggingSession = nil
         activeWorkspaceDragSequenceNumber = nil
+        let abandonedContainer = activeWorkspaceDragContainerView
+        let retainedCurrentContainer = abandonedContainer === containerView
         let retainedCurrentTable = retainedCurrentContainer
             && activeWorkspaceDragTableView === containerView?.tableView
         if !retainedCurrentTable {
@@ -1393,8 +1395,6 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         activeWorkspaceDragWriter?.releaseSourceGraph()
         activeWorkspaceDragWriter = nil
 
-        let abandonedContainer = activeWorkspaceDragContainerView
-        let retainedCurrentContainer = abandonedContainer === containerView
         let deferredContainers = deferredProvisionalCellDetachContainers
         deferredProvisionalCellDetachContainers.removeAll(keepingCapacity: false)
         let deferredCellDetachActions: [@MainActor () -> Void] = {
@@ -1406,6 +1406,18 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             retainedContainer.clipView.workspaceController = nil
             retainedContainer.reorderDropView.onPendingDropLifecycleEnded = nil
             activeWorkspaceDragContainerView = nil
+        }
+        for deferredContainer in deferredContainers
+            where deferredContainer !== abandonedContainer
+                && deferredContainer !== containerView {
+            // Every reconstructed provisional container owns its own table
+            // delegate/data-source wiring. Detach each one; retaining only the
+            // first container's cleanup would leave stale tables answering
+            // callbacks against the current row snapshot.
+            clearDropViewActions(in: deferredContainer)
+            detachController(from: deferredContainer.tableView)
+            deferredContainer.clipView.workspaceController = nil
+            deferredContainer.reorderDropView.onPendingDropLifecycleEnded = nil
         }
         if !retainedCurrentContainer {
             workspaceDragSourceCompletionReceived = false
