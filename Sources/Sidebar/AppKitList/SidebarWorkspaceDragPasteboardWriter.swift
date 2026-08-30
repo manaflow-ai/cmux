@@ -12,14 +12,10 @@ import Foundation
 /// AppKit's `endedAt` callback.
 @MainActor
 final class SidebarWorkspaceDragPasteboardWriter: NSPasteboardItem {
-    nonisolated static let didDeallocateNotification = Notification.Name(
-        "cmux.sidebarWorkspaceDragPasteboardWriterDidDeallocate"
-    )
-    nonisolated static let deallocationTokenKey = "token"
     private static let pasteboardType = NSPasteboard.PasteboardType(
         SidebarWorkspaceDragSession.pasteboardTypeIdentifier
     )
-    let provisionalToken = UUID()
+    let provisionalToken: ProvisionalDragWriterOwnership.Token
     private var workspaceId: UUID
     private var sessionId: UUID?
 
@@ -33,12 +29,14 @@ final class SidebarWorkspaceDragPasteboardWriter: NSPasteboardItem {
         workspaceId: UUID,
         sessionId: UUID?,
         sourceView: NSView,
-        controller: SidebarWorkspaceTableController
+        controller: SidebarWorkspaceTableController,
+        provisionalToken: ProvisionalDragWriterOwnership.Token
     ) {
         self.workspaceId = workspaceId
         self.sessionId = sessionId
         self.sourceView = sourceView
         self.controller = controller
+        self.provisionalToken = provisionalToken
         super.init()
     }
 
@@ -48,17 +46,6 @@ final class SidebarWorkspaceDragPasteboardWriter: NSPasteboardItem {
         ofType _: NSPasteboard.PasteboardType
     ) {
         fatalError("init(pasteboardPropertyList:ofType:) is not supported")
-    }
-
-    deinit {
-        // The writer is AppKit's provisional ownership token. Its deallocation
-        // proves that no native session callback can still arrive for this
-        // writer, so the controller can release an abandoned teardown hold.
-        NotificationCenter.default.post(
-            name: Self.didDeallocateNotification,
-            object: nil,
-            userInfo: [Self.deallocationTokenKey: provisionalToken]
-        )
     }
 
     override func writableTypes(for pasteboard: NSPasteboard) -> [NSPasteboard.PasteboardType] {

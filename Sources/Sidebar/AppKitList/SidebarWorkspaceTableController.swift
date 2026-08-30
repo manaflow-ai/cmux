@@ -57,12 +57,12 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     // keep a weak marker here so teardown can distinguish a live writer from an
     // ordinary, already-finished table update without retaining a second cycle.
     private weak var pendingWorkspaceDragWriter: SidebarWorkspaceDragPasteboardWriter?
-    // AppKit may ask for more than one writer before it decides whether to
-    // create a native session (and can release them in either order). Track
-    // every provisional token so a late release cannot leave the old table
-    // graph retained merely because the latest writer happened to die first.
-    private var pendingWorkspaceDragWriterTokens: Set<UUID> = []
-    private var workspaceDragWriterDeallocationObserver: NSObjectProtocol?
+    // The ownership object tracks every writer requested before AppKit decides
+    // whether to create a native session and reports deallocation only for
+    // tokens that are still provisional.
+    private lazy var workspaceDragWriterOwnership = ProvisionalDragWriterOwnership { [weak self] tokenID in
+        self?.workspaceDragWriterDidDeallocate(tokenID: tokenID)
+    }
     // Cells from a provisional container cannot be detached until AppKit has
     // made its native-session decision. Keep the exact container so a later
     // terminal callback detaches only that old presentation, not a rebuilt
@@ -80,7 +80,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private var hasPendingOrActiveWorkspaceDrag: Bool {
         isWorkspaceDragSourceActive
             || pendingWorkspaceDragSessionId != nil
-            || !pendingWorkspaceDragWriterTokens.isEmpty
+            || workspaceDragWriterOwnership.hasPendingTokens
             || activeWorkspaceDragContainerView?.reorderDropView.hasPendingDrop == true
     }
     private weak var unreadSource: SidebarUnreadModel?
@@ -123,48 +123,19 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         if let resizeDidEndObserver {
             NotificationCenter.default.removeObserver(resizeDidEndObserver)
         }
-        if let workspaceDragWriterDeallocationObserver {
-            NotificationCenter.default.removeObserver(workspaceDragWriterDeallocationObserver)
-        }
         previewBailoutTask?.cancel()
     }
 
-    private func installWorkspaceDragWriterDeallocationObserverIfNeeded() {
-        guard workspaceDragWriterDeallocationObserver == nil else { return }
-        workspaceDragWriterDeallocationObserver = NotificationCenter.default.addObserver(
-            forName: SidebarWorkspaceDragPasteboardWriter.didDeallocateNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] notification in
-            guard let token = notification.userInfo?[
-                SidebarWorkspaceDragPasteboardWriter.deallocationTokenKey
-            ] as? UUID else { return }
-            MainActor.assumeIsolated {
-                self?.workspaceDragWriterDidDeallocate(token: token)
-            }
-        }
-    }
-
-    private func removeWorkspaceDragWriterDeallocationObserverIfIdle() {
-        guard pendingWorkspaceDragWriterTokens.isEmpty,
-              let observer = workspaceDragWriterDeallocationObserver else { return }
-        NotificationCenter.default.removeObserver(observer)
-        workspaceDragWriterDeallocationObserver = nil
-    }
-
     private func clearPendingWorkspaceDragWriters() {
-        pendingWorkspaceDragWriterTokens.removeAll(keepingCapacity: false)
+        workspaceDragWriterOwnership.removeAll()
         pendingWorkspaceDragWriter = nil
-        removeWorkspaceDragWriterDeallocationObserverIfIdle()
     }
 
-    private func workspaceDragWriterDidDeallocate(token: UUID) {
-        guard pendingWorkspaceDragWriterTokens.remove(token) != nil else { return }
-        if pendingWorkspaceDragWriter?.provisionalToken == token {
+    private func workspaceDragWriterDidDeallocate(tokenID: UUID) {
+        if pendingWorkspaceDragWriter?.provisionalToken.id == tokenID {
             pendingWorkspaceDragWriter = nil
         }
-        guard pendingWorkspaceDragWriterTokens.isEmpty else { return }
-        removeWorkspaceDragWriterDeallocationObserverIfIdle()
+        guard !workspaceDragWriterOwnership.hasPendingTokens else { return }
         // A provisional writer has no AppKit `endedAt` callback. Its final
         // deallocation is the ownership boundary that proves no native source
         // can still arrive for this request, so release the retained table now
@@ -267,7 +238,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         // an active session has already captured its identity and may still use
         // the normal cell-retirement path.
         let preserveProvisionalWorkspaceDrag = !isWorkspaceDragSourceActive
-            && !pendingWorkspaceDragWriterTokens.isEmpty
+            && workspaceDragWriterOwnership.hasPendingTokens
         if preserveProvisionalWorkspaceDrag {
             deferredProvisionalCellDetachContainer = container
         }
@@ -1059,15 +1030,18 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             workspaceId: workspaceId,
             sessionId: pendingWorkspaceDragSessionId,
             sourceView: tableView,
-            controller: self
+            controller: self,
+            provisionalToken: workspaceDragWriterOwnership.makeToken()
         )
         // Keep the latest writer identity even while an older native session is
         // latched. A subsequent `willBeginAt` can then recover the new row's
         // payload after the old generation's terminal callback was suppressed.
         pendingWorkspaceDragWriter = writer
-        if !isWorkspaceDragSourceActive {
-            pendingWorkspaceDragWriterTokens.insert(writer.provisionalToken)
-            installWorkspaceDragWriterDeallocationObserverIfNeeded()
+        if isWorkspaceDragSourceActive {
+            // A writer requested while a native session is already active is
+            // not provisional; its token must not participate in abandoned
+            // teardown when AppKit later releases the item.
+            workspaceDragWriterOwnership.remove(writer.provisionalToken)
         }
         return writer
     }
@@ -1336,7 +1310,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             let activeSession = activeWorkspaceDraggingSession
             workspaceDragSessionDidEnd(session: activeSession)
         }
-        if pendingWorkspaceDragWriterTokens.isEmpty,
+        if !workspaceDragWriterOwnership.hasPendingTokens,
            activeWorkspaceDragContainerView != nil,
            !workspaceDragSourceCompletionReceived {
             // AppKit can request a writer and then abandon the gesture before
@@ -1348,7 +1322,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         // Keep the provisional identity while AppKit still owns the writer.
         // Its release may happen after this first mouse-down; clearing the
         // identity here would make a later bounded recovery impossible.
-        if pendingWorkspaceDragWriterTokens.isEmpty {
+        if !workspaceDragWriterOwnership.hasPendingTokens {
             pendingWorkspaceDragSessionId = nil
             pendingWorkspaceDragWorkspaceId = nil
         }
@@ -1363,7 +1337,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     /// which we can safely discard it without racing a live session.
     private func discardAbandonedProvisionalWorkspaceDrag() {
         guard !isWorkspaceDragSourceActive,
-              pendingWorkspaceDragWriterTokens.isEmpty,
+              !workspaceDragWriterOwnership.hasPendingTokens,
               pendingWorkspaceDragWriter == nil,
               activeWorkspaceDragContainerView != nil,
               !workspaceDragSourceCompletionReceived else { return }

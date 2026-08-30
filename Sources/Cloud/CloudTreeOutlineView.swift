@@ -82,7 +82,9 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         }
         private var pendingDrags: [UUID: PendingDrag] = [:]
         private weak var latestPendingDragWriter: CloudTreeSurfaceDragPasteboardWriter?
-        private var dragWriterDeallocationObserver: NSObjectProtocol?
+        private lazy var dragWriterOwnership = ProvisionalDragWriterOwnership { [weak self] tokenID in
+            self?.pendingDragWriterDidDeallocate(tokenID: tokenID)
+        }
         /// A drag session owns the outline until it ends: no reloads, no in-place
         /// updates. The latest tree handed in meanwhile is applied once at drag end.
         private(set) var isDragging = false
@@ -101,47 +103,18 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             self.tabDragTransferRegistry = tabDragTransferRegistry
         }
 
-        deinit {
-            if let dragWriterDeallocationObserver {
-                NotificationCenter.default.removeObserver(dragWriterDeallocationObserver)
-            }
-        }
-
-        private func installDragWriterDeallocationObserverIfNeeded() {
-            guard dragWriterDeallocationObserver == nil else { return }
-            dragWriterDeallocationObserver = NotificationCenter.default.addObserver(
-                forName: CloudTreeSurfaceDragPasteboardWriter.didDeallocateNotification,
-                object: nil,
-                queue: .main
-            ) { [weak self] notification in
-                guard let token = notification.userInfo?[
-                    CloudTreeSurfaceDragPasteboardWriter.deallocationTokenKey
-                ] as? UUID else { return }
-                MainActor.assumeIsolated {
-                    self?.pendingDragWriterDidDeallocate(token: token)
-                }
-            }
-        }
-
-        private func removeDragWriterDeallocationObserverIfIdle() {
-            guard pendingDrags.isEmpty, let observer = dragWriterDeallocationObserver else { return }
-            NotificationCenter.default.removeObserver(observer)
-            dragWriterDeallocationObserver = nil
-        }
-
         private func discardPendingDrag(_ pending: PendingDrag) {
             pending.transferRegistry.end(pending.registration)
             SurfaceResourceDragRegistry.shared.discard(id: pending.dragID)
         }
 
-        private func pendingDragWriterDidDeallocate(token: UUID) {
-            guard let pending = pendingDrags.removeValue(forKey: token) else { return }
-            if latestPendingDragWriter?.provisionalToken == token {
+        private func pendingDragWriterDidDeallocate(tokenID: UUID) {
+            guard let pending = pendingDrags.removeValue(forKey: tokenID) else { return }
+            if latestPendingDragWriter?.provisionalToken.id == tokenID {
                 latestPendingDragWriter = nil
             }
             discardPendingDrag(pending)
-            guard pendingDrags.isEmpty else { return }
-            removeDragWriterDeallocationObserverIfIdle()
+            guard !dragWriterOwnership.hasPendingTokens else { return }
             // No native session was promoted for this token. The provisional
             // writer's deallocation is therefore the exact boundary at which
             // its capability and routing registration can be discarded.
@@ -648,16 +621,16 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 dragID: dragID,
                 registration: registration,
                 sourceView: outlineView,
-                coordinator: self
+                coordinator: self,
+                provisionalToken: dragWriterOwnership.makeToken()
             )
-            pendingDrags[writer.provisionalToken] = PendingDrag(
+            pendingDrags[writer.provisionalToken.id] = PendingDrag(
                 dragID: dragID,
                 registration: registration,
                 transferRegistry: transferRegistry,
                 sourceView: outlineView
             )
             latestPendingDragWriter = writer
-            installDragWriterDeallocationObserverIfNeeded()
 #if DEBUG
             cmuxDebugLog("surfaces.drag.begin drag=\(dragID.uuidString.prefix(5)) group=\(group.title) count=\(group.resources.count) lead=\(lead)")
 #endif
@@ -687,7 +660,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             let pendingToken: UUID? = {
                 if let writer = latestPendingDragWriter,
                    writer.sourceViewForDrag === outlineView {
-                    return writer.provisionalToken
+                    return writer.provisionalToken.id
                 }
                 return pendingDrags.first { $0.value.sourceView === outlineView }?.key
             }()
@@ -703,8 +676,9 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             for pending in abandonedPending {
                 discardPendingDrag(pending)
             }
+            dragWriterOwnership.remove(id: pendingToken)
+            dragWriterOwnership.removeAll()
             latestPendingDragWriter = nil
-            removeDragWriterDeallocationObserverIfIdle()
             activeDrag = ActiveDrag(
                 id: pending.dragID,
                 registration: pending.registration,

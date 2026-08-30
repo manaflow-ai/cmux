@@ -35,6 +35,27 @@ struct CloudTreeNativeDragOwnershipTests {
         )
         let dragID: UUID = try {
             let writer = try #require(writer as? CloudTreeSurfaceDragPasteboardWriter)
+            let pasteboard = NSPasteboard(
+                name: NSPasteboard.Name("cloud-tree-provisional-payload-\(UUID().uuidString)")
+            )
+            for type in writer.writableTypes(for: pasteboard) {
+                let value = writer.pasteboardPropertyList(forType: type)
+                if let string = value as? String {
+                    pasteboard.setString(string, forType: type)
+                } else if let data = value as? Data {
+                    pasteboard.setData(data, forType: type)
+                } else if let value {
+                    pasteboard.setPropertyList(value, forType: type)
+                }
+            }
+            #expect(transferRegistry.resolve(from: pasteboard) != nil)
+            let record = try #require(
+                pasteboard.data(forType: DragOverlayRoutingPolicy.surfaceResourceTransferType)
+                    .flatMap { try? JSONDecoder().decode(SurfaceResourceDragPasteboardRecord.self, from: $0) }
+            )
+            #expect(record.dragID == writer.dragID)
+            let expectedResources = try #require(node.dragGroup?.resources)
+            #expect(record.resourceIDs == expectedResources)
             return writer.dragID
         }()
         #expect(outline.activeNativeDragOwner == nil)

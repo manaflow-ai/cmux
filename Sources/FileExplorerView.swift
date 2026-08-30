@@ -81,7 +81,11 @@ struct FileExplorerPanelView: NSViewRepresentable {
     }
 
     static func dismantleNSView(_ nsView: FileExplorerContainerView, coordinator: Coordinator) {
-        _ = nsView
+        // A native source is still allowed to own the container through its
+        // matching `endedAt` callback. When no session was promoted, however,
+        // clear any stale owner marker so a dismantled search table cannot
+        // retain its container through the table's strong owner property.
+        nsView.clearSearchResultsDragOwnerIfIdle()
         coordinator.onContainerChange?(nil)
     }
 
@@ -1639,7 +1643,17 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
         _ = screenPoint
         _ = rowIndexes
         guard tableView === searchResultsView else { return }
-        searchResultsView.activeNativeDragOwner = self
+        if let previousSession = searchResultsView.activeNativeDragSession,
+           previousSession !== session,
+           session.draggingSequenceNumber > previousSession.draggingSequenceNumber {
+            // A new native begin proves that AppKit has left an older drag
+            // loop even when that source omitted `endedAt`; retire only the
+            // superseded capability before installing this generation.
+            FilePreviewDragPasteboardWriter.discardRegisteredDrag(from: previousSession)
+            searchResultsView.activeNativeDragOwner = nil
+            searchResultsView.activeNativeDragSession = nil
+        }
+        searchResultsView.activeNativeDragOwner = coordinator
         searchResultsView.activeNativeDragSession = session
     }
 
@@ -1714,5 +1728,12 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
         copyRelativePathItem.target = self
         copyRelativePathItem.representedObject = NSNumber(value: row)
         menu.addItem(copyRelativePathItem)
+    }
+}
+
+private extension FileExplorerContainerView {
+    func clearSearchResultsDragOwnerIfIdle() {
+        guard searchResultsView.activeNativeDragSession == nil else { return }
+        searchResultsView.activeNativeDragOwner = nil
     }
 }

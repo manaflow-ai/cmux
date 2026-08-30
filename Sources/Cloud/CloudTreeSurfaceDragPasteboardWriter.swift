@@ -11,12 +11,7 @@ import Foundation
 /// after promotion to a real `NSDraggingSession`.
 @MainActor
 final class CloudTreeSurfaceDragPasteboardWriter: NSPasteboardItem {
-    nonisolated static let didDeallocateNotification = Notification.Name(
-        "cmux.cloudTreeSurfaceDragPasteboardWriterDidDeallocate"
-    )
-    nonisolated static let deallocationTokenKey = "token"
-
-    let provisionalToken = UUID()
+    let provisionalToken: ProvisionalDragWriterOwnership.Token
     let dragID: UUID
     let registration: TabDragTransferRegistration
     private let sourceView: NSOutlineView
@@ -26,12 +21,14 @@ final class CloudTreeSurfaceDragPasteboardWriter: NSPasteboardItem {
         dragID: UUID,
         registration: TabDragTransferRegistration,
         sourceView: NSOutlineView,
-        coordinator: CloudTreeOutlineView.Coordinator
+        coordinator: CloudTreeOutlineView.Coordinator,
+        provisionalToken: ProvisionalDragWriterOwnership.Token
     ) {
         self.dragID = dragID
         self.registration = registration
         self.sourceView = sourceView
         self.coordinator = coordinator
+        self.provisionalToken = provisionalToken
         super.init()
     }
 
@@ -43,23 +40,20 @@ final class CloudTreeSurfaceDragPasteboardWriter: NSPasteboardItem {
         fatalError("init(pasteboardPropertyList:ofType:) is not supported")
     }
 
-    deinit {
-        // Deallocation is the only terminal signal available when AppKit
-        // abandons a writer before creating a native session.
-        NotificationCenter.default.post(
-            name: Self.didDeallocateNotification,
-            object: nil,
-            userInfo: [Self.deallocationTokenKey: provisionalToken]
-        )
-    }
-
     override func writableTypes(for pasteboard: NSPasteboard) -> [NSPasteboard.PasteboardType] {
         _ = pasteboard
         return registration.pasteboardItem.types
     }
 
     override func pasteboardPropertyList(forType type: NSPasteboard.PasteboardType) -> Any? {
-        registration.pasteboardItem.propertyList(forType: type)
+        // `TabDragTransferRegistration` stores its capability as a raw string
+        // and the surface record as raw JSON bytes. `propertyList(forType:)`
+        // only reads values written with `setPropertyList`, so proxy each
+        // representation through the matching accessor before falling back to
+        // a true property-list value.
+        registration.pasteboardItem.string(forType: type)
+            ?? registration.pasteboardItem.data(forType: type)
+            ?? registration.pasteboardItem.propertyList(forType: type)
     }
 
     /// The exact outline source that requested this writer.
