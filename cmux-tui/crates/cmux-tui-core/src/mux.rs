@@ -9795,7 +9795,8 @@ impl Mux {
                     &validated,
                     "agent-report",
                     key,
-                )?
+                )
+                .map(|(commit, sequence)| (commit, Some(sequence)))?
             }
             (Some(sequence), _) => (
                 registry.commit_agent_projection_with_hook_state_and_sequence(
