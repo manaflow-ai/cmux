@@ -50,8 +50,8 @@ extension MobileIrxRuntimeComposition {
     }
 
     /// Handles a terminal credential-refresh failure without leaving a
-    /// silently dead autopilot. Renewal pauses until the next explicit
-    /// foreground/auth recovery.
+    /// silently dead autopilot. Renewal either enters an explicit re-auth
+    /// state or follows the bounded self-recovery ladder below.
     func handleAutopilotFailure(
         _ failure: IrxBrokerFailure,
         disposition: IrxRelayCredentialAutopilot.FailureDisposition,
@@ -68,15 +68,13 @@ extension MobileIrxRuntimeComposition {
                 broker: broker,
                 endpoint: endpoint
             ) else { return }
-            guard let auth else {
-                await autopilot?.stop()
-                return
-            }
+            await autopilot?.stop()
+            cancelAutopilotRecovery()
+            reauthenticationRequired = true
+            var attributes = failure.journalAttributes
+            attributes["state"] = "reauthentication_required"
             Self.journal.record(
-                "client-runtime", "reauthentication-requested")
-            await auth.signOut(onSignedOut: { [weak self] _, _ in
-                await self?.resetForSignOut()
-            })
+                "client-runtime", "reauthentication-required", attributes)
             return
         }
         // Keep the current endpoint intact and schedule a few bounded kicks.
@@ -210,6 +208,7 @@ extension MobileIrxRuntimeComposition {
         backgroundProvisioningTask = nil
         cancelAutopilotRecovery()
         autopilotRecoveryCount = 0
+        reauthenticationRequired = false
 
         if let autopilot {
             await autopilot.stop()

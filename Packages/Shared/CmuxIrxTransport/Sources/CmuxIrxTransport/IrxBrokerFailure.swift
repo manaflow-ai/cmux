@@ -209,9 +209,12 @@ public struct IrxBrokerFailure: Error, Codable, Equatable, Sendable {
             "account_mismatch"
         ].contains(code?.lowercased() ?? ""):
             .authenticationRequired
-        case 404 where operation == .revoke:
+        case 404:
+            // A missing broker route or peer is a durable server/input
+            // mismatch, not a connectivity outage. Stop and surface it so a
+            // client cannot poll the same guaranteed 404 forever.
             .rejected
-        case 404, 408, 425, 429, 500 ... 599:
+        case 408, 425, 429, 500 ... 599:
             .transient
         default:
             .rejected

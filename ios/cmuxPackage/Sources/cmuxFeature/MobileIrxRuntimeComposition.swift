@@ -84,6 +84,7 @@ public actor MobileIrxRuntimeComposition {
     var autopilotRecoveryTask: Task<Void, Never>?
     var autopilotRecoveryID: UUID?
     var autopilotRecoveryCount = 0
+    var reauthenticationRequired = false
     let autopilotRecoveryPolicy = IrxHostActivationPolicy(
         retrySchedule: .foregroundClient
     )
@@ -195,6 +196,7 @@ public actor MobileIrxRuntimeComposition {
     public func didBecomeActive() async {
         cancelAutopilotRecovery()
         autopilotRecoveryCount = 0
+        guard !reauthenticationRequired else { return }
         await autopilot?.kick()
         for engine in enginesByPeer.values {
             await engine.warmUp(trigger: "foreground")

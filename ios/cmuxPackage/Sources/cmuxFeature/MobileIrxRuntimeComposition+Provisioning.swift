@@ -80,6 +80,9 @@ extension MobileIrxRuntimeComposition {
         guard await isCurrentProvisioning(session: session) else {
             throw CancellationError()
         }
+        reauthenticationRequired = false
+        autopilotRecoveryCount = 0
+        cancelAutopilotRecovery()
         self.identity = identity
         self.provisionedAccountID = session.accountID
         self.broker = broker

@@ -10,6 +10,7 @@ extension MobileHostIrxRuntime {
     /// teardown is still closing its resources.
     func setDesiredActive(_ desired: Bool) {
         let effectiveDesired = desired && MobileRemoteControlPolicy.isEnabled
+        guard desiredActive != effectiveDesired else { return }
         desiredActive = effectiveDesired
         if !effectiveDesired {
             // Invalidate callbacks and publish the policy stop immediately;
@@ -43,7 +44,7 @@ extension MobileHostIrxRuntime {
     /// and failed states stay visible until the user explicitly refreshes.
     private func resumeActivationIfNeeded() {
         guard desiredActive,
-              activationState == .inactive,
+              activationState == .inactive || activationState == .failed,
               let accountID = activeAccountID else { return }
         activationRetryFailureCount = 0
         activationUnauthorizedFailureCount = 0

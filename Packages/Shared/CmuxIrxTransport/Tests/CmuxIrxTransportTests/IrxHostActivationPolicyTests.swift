@@ -252,6 +252,25 @@ struct IrxHostActivationPolicyTests {
                 for: failure,
                 failureCount: 0,
                 jitterUnitInterval: 0
+        ) == .stopped
+        )
+    }
+
+    @Test("a missing broker route stops instead of polling forever")
+    func brokerNotFoundStops() {
+        let failure = IrxBrokerFailure(
+            operation: .register,
+            error: CmxIrohTrustBrokerClientError.rejected(
+                statusCode: 404,
+                code: "not_found"
+            )
+        )
+        #expect(failure.kind == .rejected)
+        #expect(
+            policy.decision(
+                for: failure,
+                failureCount: 0,
+                jitterUnitInterval: 0
             ) == .stopped
         )
     }
