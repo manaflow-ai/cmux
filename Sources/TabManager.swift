@@ -6612,12 +6612,13 @@ extension TabManager {
         prepareLegacyWorkspaceCustomizationMigration(
             afterRestoring: Array(workspaceSnapshots)
         )
-        let restoredCustomizations = cachedWorkspaceCustomizations(
-            afterRestoring: Array(workspaceSnapshots)
-        )
-        let restoredTitleMutationRevisions = workspaceCustomizationStore.titleMutationRevisions(
-            for: workspaceSnapshots.compactMap(\.stableId)
-        )
+        let restoredWorkspaceCustomizationState = workspaceCustomizationStore
+            .customizationsAndTitleMutationRevisions(
+                for: workspaceSnapshots.compactMap(\.stableId)
+            )
+        let restoredCustomizations = restoredWorkspaceCustomizationState.customizations
+        let restoredTitleMutationRevisions =
+            restoredWorkspaceCustomizationState.titleMutationRevisions
         var restoredOriginalWorkspaceIds: [UUID?] = []
         var reservedWorkspaceIds = excludingWorkspaceIds
         let identitySelector = WorkspaceSessionRestoreIdentity()

@@ -82,15 +82,6 @@ extension TabManager {
         )
     }
 
-    /// Reads recovery records needed by one restore with a single defaults decode.
-    func cachedWorkspaceCustomizations(
-        afterRestoring snapshots: [SessionWorkspaceSnapshot]
-    ) -> [UUID: WorkspaceCustomization] {
-        workspaceCustomizationStore.customizations(
-            for: snapshots.compactMap(\.stableId)
-        )
-    }
-
     /// Applies an explicit creation title without coupling identity to a directory.
     func applyCreationWorkspaceCustomization(
         to workspace: Workspace,

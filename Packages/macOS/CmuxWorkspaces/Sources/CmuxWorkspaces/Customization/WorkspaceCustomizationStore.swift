@@ -105,6 +105,31 @@ public struct WorkspaceCustomizationStore {
         })
     }
 
+    /// Reads recovery values and their title-mutation fences from one immutable
+    /// journal snapshot. The two dictionaries always describe the same
+    /// persisted state, even when another store writes immediately afterward.
+    ///
+    /// - Parameter stableIds: The stable workspace identities to read.
+    /// - Returns: Matching customization values and title fences.
+    public func customizationsAndTitleMutationRevisions(
+        for stableIds: [UUID]
+    ) -> (
+        customizations: [UUID: WorkspaceCustomization],
+        titleMutationRevisions: [UUID: UInt64]
+    ) {
+        let requested = Set(stableIds)
+        guard !requested.isEmpty else { return ([:], [:]) }
+        let entries = loadSnapshot().entries
+        var customizations: [UUID: WorkspaceCustomization] = [:]
+        var titleMutationRevisions: [UUID: UInt64] = [:]
+        for stableId in requested {
+            guard let entry = entries[stableId.uuidString] else { continue }
+            customizations[stableId] = entry.customization
+            titleMutationRevisions[stableId] = entry.titleMutationRevision
+        }
+        return (customizations, titleMutationRevisions)
+    }
+
     /// Reads a batch of recovery records with one defaults decode.
     ///
     /// - Parameter stableIds: The stable workspace identities to read.
