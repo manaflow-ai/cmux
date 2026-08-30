@@ -56,7 +56,7 @@ extension ContentView {
         _ registry: inout CommandPaletteHandlerRegistry,
         dock: DockSplitStore? = nil,
         dockPanelId: UUID? = nil,
-        focusDock: (() -> Bool)? = nil,
+        focusDock: @escaping () -> Bool,
         preferredWindow: @escaping () -> NSWindow?
     ) {
         // A Dock target is captured when the palette is presented. Keep that
@@ -82,7 +82,7 @@ extension ContentView {
         }
         let focusCapturedDock: () -> Bool = {
             guard capturedDock != nil else { return true }
-            return focusDock?() == true
+            return focusDock()
         }
         registry.register(commandId: "palette.nextTabInPane") {
             if capturedDock != nil {
