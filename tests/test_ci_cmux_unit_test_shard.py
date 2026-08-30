@@ -11,7 +11,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 HELPER = ROOT / "scripts" / "ci" / "cmux_unit_test_shard.py"
-CI_PHYSICAL_SHARD_TOTAL = 4
+CI_PHYSICAL_SHARD_TOTAL = 6
 CI_LOGICAL_BATCHES_PER_WORKER = 2
 CI_LOGICAL_SHARD_TOTAL = CI_PHYSICAL_SHARD_TOTAL * CI_LOGICAL_BATCHES_PER_WORKER
 
