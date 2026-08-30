@@ -10,7 +10,7 @@ use std::fmt;
 use std::fs::File;
 use std::io;
 #[cfg(unix)]
-use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+use std::os::fd::{FromRawFd, OwnedFd};
 use std::path::{Path, PathBuf};
 #[cfg(unix)]
 use std::sync::Arc;
