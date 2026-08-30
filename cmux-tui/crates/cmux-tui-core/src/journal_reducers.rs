@@ -698,5 +698,14 @@ mod tests {
         assert_eq!(retired.retired_terminals.len(), RETIRED_TERMINAL_COUNT);
         assert_eq!(retired.retired_terminals.get("retired_0"), Some(&1));
         assert_eq!(retired.retired_terminals.get("retired_2047"), Some(&4_095));
+
+        // Once the journal is checkpointed and sealed through sequence 2_047,
+        // the first half of these records is covered by the checkpoint and
+        // no longer needs an in-memory delayed-row fence.
+        assert!(retired.compact_retired_terminals(2_047));
+        assert_eq!(retired.retired_terminals.len(), RETIRED_TERMINAL_COUNT / 2);
+        assert!(!retired.retired_terminals.contains_key("retired_1023"));
+        assert_eq!(retired.retired_terminals.get("retired_1024"), Some(&2_049));
+        assert!(!retired.compact_retired_terminals(2_047));
     }
 }
