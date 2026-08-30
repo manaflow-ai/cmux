@@ -2,7 +2,10 @@
 
 import { useLocale, useTranslations } from "next-intl";
 import { Link } from "../../../i18n/navigation";
-import { fallbackContentLocales } from "../../../i18n/locale-availability";
+import {
+  fallbackContentLocales,
+  jobsContentLocales,
+} from "../../../i18n/locale-availability";
 import posthog from "posthog-js";
 import { ProUpgradeVisibility } from "./pro-upgrade-visibility";
 import { ContentLocaleLink } from "./content-locale-link";
@@ -39,7 +42,7 @@ export function NavLinks() {
       <ContentLocaleLink
         href="/jobs"
         currentLocale={locale}
-        contentLocales={fallbackContentLocales}
+        contentLocales={jobsContentLocales}
         className="hover:text-foreground transition-colors"
       >
         {t("jobs")}

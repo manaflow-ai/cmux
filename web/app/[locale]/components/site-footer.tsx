@@ -1,6 +1,9 @@
 import { getLocale, getTranslations } from "next-intl/server";
 import { Link } from "../../../i18n/navigation";
-import { fallbackContentLocales } from "../../../i18n/locale-availability";
+import {
+  fallbackContentLocales,
+  jobsContentLocales,
+} from "../../../i18n/locale-availability";
 import type { Locale } from "../../../i18n/routing";
 import { LanguageSwitcher } from "./language-switcher";
 import { ProUpgradeVisibility } from "./pro-upgrade-visibility";
@@ -56,7 +59,7 @@ export async function SiteFooter() {
         {
           label: t("jobs"),
           href: "/jobs",
-          contentLocales: fallbackContentLocales,
+          contentLocales: jobsContentLocales,
         },
       ] satisfies FooterLink[],
     },

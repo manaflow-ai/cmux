@@ -4,7 +4,7 @@ import { getTranslations } from "next-intl/server";
 import { Link } from "@/i18n/navigation";
 import { SiteHeader } from "@/app/[locale]/components/site-header";
 import {
-  fallbackContentLocales,
+  jobsContentLocales,
   hasFallbackContent,
 } from "@/i18n/locale-availability";
 import {
@@ -37,7 +37,9 @@ export async function jobRoleMetadata({
   namespace: JobRoleNamespace;
 }): Promise<Metadata> {
   const { locale } = await params;
-  const contentLocale = hasFallbackContent(locale) ? locale : "en";
+  const contentLocale = hasFallbackContent(locale, jobsContentLocales)
+    ? locale
+    : "en";
   const t = await getTranslations({ locale: contentLocale, namespace });
   const title = t("metaTitle");
   const description = seoDescription(contentLocale, t("metaDescription"), {
@@ -47,7 +49,7 @@ export async function jobRoleMetadata({
   const alternates = buildAlternates(
     contentLocale,
     path,
-    fallbackContentLocales,
+    jobsContentLocales,
   );
 
   return {
