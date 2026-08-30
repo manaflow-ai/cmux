@@ -779,6 +779,33 @@ struct WorkspaceRecoveryTests {
     }
 
     @Test
+    func automaticClearWithoutPriorJournalCreatesTombstone() throws {
+        let fixture = try makeCustomizationStore()
+        defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
+
+        let manager = TabManager(
+            initialWorkingDirectory: "/tmp/automatic-clear-without-journal",
+            autoWelcomeIfNeeded: false,
+            workspaceCustomizationStore: fixture.store
+        )
+        let workspace = try #require(manager.selectedWorkspace)
+        #expect(fixture.store.customization(for: workspace.stableId) == nil)
+
+        // A restored automatic title can be cleared before this workspace has
+        // ever written a stable-ID customization record. That clear must still
+        // fence a stale session snapshot on the next restart.
+        workspace.customTitle = nil
+        workspace.customTitleSource = nil
+        manager.recordWorkspaceCustomTitle(workspace, source: .auto)
+        manager.flushPendingWorkspaceCustomizationWrites()
+
+        #expect(
+            fixture.store.customization(for: workspace.stableId)?.customTitle ==
+                .cleared
+        )
+    }
+
+    @Test
     func queuedAutomaticTitleCannotOverwriteLaterExplicitClearAcrossManagers() throws {
         let fixture = try makeCustomizationStore()
         defer { fixture.defaults.removePersistentDomain(forName: fixture.suiteName) }
