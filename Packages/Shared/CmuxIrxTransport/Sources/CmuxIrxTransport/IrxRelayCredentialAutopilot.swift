@@ -327,7 +327,8 @@ public actor IrxRelayCredentialAutopilot {
             )
             guard !Task.isCancelled else { return nil }
             return FailureCounts(
-                transient: min(failureCount + 1, 20),
+                transient: isPostRecoveryUnauthorized || isMissingAuthentication
+                    ? failureCount : min(failureCount + 1, 20),
                 unauthorized: isPostRecoveryUnauthorized
                     ? min(unauthorizedFailureCount + 1, 20)
                     : unauthorizedFailureCount,
