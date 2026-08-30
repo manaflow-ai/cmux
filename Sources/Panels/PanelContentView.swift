@@ -40,6 +40,8 @@ struct PanelContentView: View {
     let onResumeAgentHibernation: () -> Void
     let onAutoResumeAgentHibernation: () -> Void
     let onTriggerFlash: () -> Void
+    /// Owner action used to materialize a deferred browser after its host reports visibility.
+    let onRequestDeferredBrowserMaterialization: () -> Void
 
     var body: some View {
         renderedPanel
@@ -89,6 +91,12 @@ struct PanelContentView: View {
                 // structural slot when a pane selects another browser, so bind its lifetime
                 // to the panel instead of carrying the prior panel's omnibar draft forward.
                 .id(browserPanel.id)
+            } else if panel is DeferredBrowserPanel {
+                DeferredBrowserPanelView(
+                    isVisibleInUI: isVisibleInUI,
+                    onRequestMaterialization: onRequestDeferredBrowserMaterialization,
+                    onRequestPanelFocus: onRequestPanelFocus
+                )
             }
         case .markdown:
             if let markdownPanel = panel as? MarkdownPanel {
