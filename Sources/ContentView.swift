@@ -8321,13 +8321,20 @@ struct ContentView: View {
         let dockSurfaceTarget = commandPaletteDockSurfaceTarget()
         let dockSurfaceStore = dockSurfaceTarget?.dock
         let dockSurfacePanelId = dockSurfaceTarget?.panelId
-        let focusCapturedDockSurface: () -> Bool = {
+        let dockOwnerWindow: () -> NSWindow? = {
             guard let dockSurfaceTarget,
-                  let app = AppDelegate.shared else { return false }
-            let ownerWindow = observedWindow
+                  let app = AppDelegate.shared else {
+                return observedWindow
+            }
+            return observedWindow
                 ?? app.dockReferenceTabManager(for: dockSurfaceTarget.dock)
                     .flatMap { app.windowId(for: $0) }
                     .flatMap { app.mainWindow(for: $0) }
+        }
+        let focusCapturedDockSurface: () -> Bool = {
+            guard let dockSurfaceTarget,
+                  let app = AppDelegate.shared else { return false }
+            let ownerWindow = dockOwnerWindow()
             guard app.isCurrentCommandPaletteDockTarget(
                 dockSurfaceTarget.dock,
                 panelId: dockSurfaceTarget.panelId,
@@ -8874,7 +8881,7 @@ struct ContentView: View {
             dock: dockSurfaceStore,
             dockPanelId: dockSurfacePanelId,
             focusDock: focusCapturedDockSurface
-        ) { observedWindow }
+        ) { dockOwnerWindow() }
         registry.register(commandId: "palette.openWorkspacePullRequests") {
             DispatchQueue.main.async {
                 if !openWorkspacePullRequestsInConfiguredBrowser() {
