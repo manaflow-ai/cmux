@@ -1347,6 +1347,15 @@ enum AgentReportOrigin {
     RosterFold,
 }
 
+/// The portion of an agent report that must be folded after all report
+/// serialization locks are released. Keeping this receipt separate from the
+/// resource transaction prevents a socket fence from being held while the
+/// journal reducer takes its own lock.
+struct AgentReportFoldReceipt {
+    ingress: crate::JournalIngress,
+    sequence: u64,
+}
+
 enum AgentReportTarget<'a> {
     Surface(SurfaceId),
     Resource { selectors: &'a crate::ResourceSelectors, terminal_id: &'a TerminalPublicId },
@@ -2876,9 +2885,10 @@ impl Mux {
         &self,
         pending: Vec<(String, String, String, u64, crate::JournalIngress)>,
     ) -> anyhow::Result<usize> {
-        // Keep projection completion and removal of its pending marker in the
-        // same serialization domain as roster folding. This prevents a fold
-        // from observing a dead-letter marker while a recovery clears it.
+        // Keep one lock order for retry admission and reducer bookkeeping.
+        // The hook fence is acquired first because applying a hook record
+        // serializes its lifecycle under that fence.
+        let mut fences = self.agent_hook_fences.lock().unwrap();
         let _fold = self.agent_roster_fold.lock().unwrap();
         let mut applied = 0;
         let mut fold_ingress = None;
@@ -2895,7 +2905,7 @@ impl Mux {
             )? {
                 continue;
             }
-            match self.apply_agent_hook_record(&ingress, sequence) {
+            match self.apply_agent_hook_record_locked(&ingress, sequence, &mut fences) {
                 Ok(()) => {
                     if self
                         .workspace_registry
@@ -2954,6 +2964,7 @@ impl Mux {
             }
         }
         drop(_fold);
+        drop(fences);
         if applied > 0 {
             // Pending-marker removal does not append a journal row. Wake a
             // worker that is waiting on the journal epoch so it rereads the
@@ -5777,12 +5788,17 @@ impl Mux {
         // a no-op for already-applied events while allowing restart repair.
         let lifecycle_event = agent_state_for_hook_kind(&ingress.kind).is_some();
         let mut should_fold_roster = !lifecycle_event;
+        // Keep one lock order for hook admission and reducer bookkeeping.
+        // Socket reports take the hook fence before their resource commit and
+        // fold only after releasing it. Hook ingress follows the same order,
+        // then releases both locks before starting the reducer fold.
+        let mut fences = self.agent_hook_fences.lock().unwrap();
+        let _fold = self.agent_roster_fold.lock().unwrap();
         {
             // The pending/quarantine decision, projection, and receipt cleanup
             // are one serialized operation. The reducer takes this same lock
             // while reading its status sets, so it cannot observe a live row
             // being cleared or a dead letter being reclassified mid-fold.
-            let _fold = self.agent_roster_fold.lock().unwrap();
             let quarantined = self
                 .workspace_registry
                 .lock()
@@ -5792,7 +5808,9 @@ impl Mux {
                 // A replay of a quarantined commit is an explicit no-op. Keep
                 // the receipt durable so the reducer can apply its skip rule.
                 should_fold_roster = true;
-            } else if let Err(error) = self.apply_agent_hook_record(ingress, commit.sequence) {
+            } else if let Err(error) =
+                self.apply_agent_hook_record_locked(ingress, commit.sequence, &mut fences)
+            {
                 should_fold_roster = false;
                 if agent_hook_terminal_gone(&error) {
                     if let Err(_bookkeeping_error) = self
@@ -5849,6 +5867,8 @@ impl Mux {
                 }
             }
         }
+        drop(_fold);
+        drop(fences);
         if should_fold_roster {
             self.fold_agent_roster(ingress, &commit);
         }
@@ -6328,6 +6348,19 @@ impl Mux {
         ingress: &crate::JournalIngress,
         sequence: u64,
     ) -> anyhow::Result<()> {
+        let mut fences = self.agent_hook_fences.lock().unwrap();
+        self.apply_agent_hook_record_locked(ingress, sequence, &mut fences)
+    }
+
+    /// Apply a hook record while the caller owns the hook-fence lock. The
+    /// caller may also hold the roster-fold lock, so every such path must take
+    /// the locks in the order `agent_hook_fences` then `agent_roster_fold`.
+    fn apply_agent_hook_record_locked(
+        &self,
+        ingress: &crate::JournalIngress,
+        sequence: u64,
+        fences: &mut HashMap<TerminalPublicId, HookFence>,
+    ) -> anyhow::Result<()> {
         if ingress.producer_id != crate::agent_hooks::AGENT_HOOK_PRODUCER_ID {
             return Ok(());
         }
@@ -6360,7 +6393,6 @@ impl Mux {
         // update as one operation. The projection path takes registry, state,
         // then agent-record locks, so teardown acquires sequence before those
         // locks as well.
-        let mut fences = self.agent_hook_fences.lock().unwrap();
         let explicit_session_id = ingress
             .payload
             .get("normalized")
@@ -6441,9 +6473,6 @@ impl Mux {
             terminal_id.clone(),
             HookFence { session_id: agent_session_id, sequence, ended: state == AgentState::Done },
         );
-        // Projection ordering is complete. Do not carry the fence guard into
-        // cleanup or any retry/reentrant path.
-        drop(fences);
         // An ended session leaves the roster entirely: the done state was
         // committed and broadcast above (so remote caches converge), and the
         // live record is dropped so agents views stop listing the terminal
@@ -9909,7 +9938,17 @@ impl Mux {
             echo_ingress.as_ref(),
         );
         drop(socket_sequence_guard);
-        let (_, record) = commit_result?;
+        let (_, record, fold_receipt) = commit_result?;
+        if let Some(receipt) = fold_receipt {
+            self.fold_agent_roster(
+                &receipt.ingress,
+                &crate::JournalAppendCommit {
+                    sequence: receipt.sequence,
+                    event_id: String::new(),
+                    replayed: false,
+                },
+            );
+        }
         let record = record.context("fresh raw agent report unexpectedly replayed")?;
         if source != AgentSource::Hook {
             // A successful report means this terminal is available. Retry only
@@ -9987,7 +10026,22 @@ impl Mux {
         if result.is_ok() && source != AgentSource::Hook {
             let _ = self.retry_pending_agent_hooks_for_terminal(terminal_id);
         }
-        result.map(|(commit, _)| commit)
+        match result {
+            Ok((commit, _, fold_receipt)) => {
+                if let Some(receipt) = fold_receipt {
+                    self.fold_agent_roster(
+                        &receipt.ingress,
+                        &crate::JournalAppendCommit {
+                            sequence: receipt.sequence,
+                            event_id: String::new(),
+                            replayed: false,
+                        },
+                    );
+                }
+                Ok(commit)
+            }
+            Err(error) => Err(error),
+        }
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -10007,7 +10061,8 @@ impl Mux {
         agent_adapter: Option<String>,
         reported_at_ms: Option<u64>,
         echo_ingress: Option<&(crate::JournalIngress, String)>,
-    ) -> anyhow::Result<(ResourcePatchCommit, Option<AgentRecord>)> {
+    ) -> anyhow::Result<(ResourcePatchCommit, Option<AgentRecord>, Option<AgentReportFoldReceipt>)>
+    {
         // Hook state is accepted only through the validated journal ingress.
         // A direct Hook report has no durable event to replay, so allowing it
         // would let a restart overwrite the journal-derived projection.
@@ -10029,7 +10084,7 @@ impl Mux {
                 // observed. Repair the durable apply watermark separately.
                 registry.advance_agent_hook_apply_cursor(sequence)?;
             }
-            return Ok((replay, None));
+            return Ok((replay, None, None));
         }
         let mut state = self.state.lock().unwrap();
         let (surface, terminal_id) = match target {
@@ -10267,8 +10322,10 @@ impl Mux {
                 records.insert(terminal_id.clone(), record.clone());
             }
         }
-        let echo_fold_sequence =
-            echo_ingress.filter(|_| !commit.replayed).and_then(|_| echo_sequence);
+        let fold_receipt = echo_ingress.filter(|_| !commit.replayed).and_then(|(ingress, _)| {
+            echo_sequence
+                .map(|sequence| AgentReportFoldReceipt { ingress: ingress.clone(), sequence })
+        });
         drop(records);
         drop(state);
         drop(registry);
@@ -10282,12 +10339,6 @@ impl Mux {
             // resource projection. Wake tail readers before the synchronous
             // reducer work so they never wait for an unrelated event.
             self.publish_journal_event();
-        }
-        if let (Some((ingress, _)), Some(sequence)) = (echo_ingress, echo_fold_sequence) {
-            self.fold_agent_roster(
-                ingress,
-                &crate::JournalAppendCommit { sequence, event_id: String::new(), replayed: false },
-            );
         }
         let agent = AgentRecord {
             surface,
@@ -10312,7 +10363,7 @@ impl Mux {
                 updated_at_ms: agent.updated_at_ms,
             });
         }
-        Ok((commit, Some(agent)))
+        Ok((commit, Some(agent), fold_receipt))
     }
 
     /// Drop per-surface metadata for a surface that has left the tree.
@@ -10383,6 +10434,11 @@ impl Mux {
         } else {
             None
         };
+        // The fold lock protects the durable tombstone and snapshot only.
+        // Release it before touching the hook-fence table so teardown never
+        // takes `agent_roster_fold` then `agent_hook_fences` while ingress
+        // takes the inverse order.
+        drop(_fold);
         self.agent_hook_fences.lock().unwrap().remove(terminal_id);
         self.agent_records.lock().unwrap().remove(terminal_id);
         self.terminal_notifications.lock().unwrap().remove(terminal_id);
