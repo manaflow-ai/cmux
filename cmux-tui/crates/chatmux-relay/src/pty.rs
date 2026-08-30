@@ -4241,7 +4241,12 @@ mod tests {
         // Close must signal the exact open before allowing the provider to
         // continue, independent of scheduler timing.
         entered.notified().await;
-        manager.inner.close("p1");
+        manager
+            .handle_frame(
+                &serde_json::json!({ "type": "pty_close", "ptyId": "p1" }),
+                &context,
+            )
+            .await;
         assert!(cancellation.is_cancelled());
 
         release.notify_one();
