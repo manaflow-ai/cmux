@@ -4535,6 +4535,76 @@ mod tests {
     }
 
     #[test]
+    fn detaching_does_not_wait_for_a_blocked_output_sink() {
+        let h = harness(None, None);
+        let entered = Arc::new(Barrier::new(2));
+        let release = Arc::new(Barrier::new(2));
+        let sent = Arc::new(StdMutex::new(Vec::new()));
+        let context = FrameContext {
+            send: {
+                let entered = Arc::clone(&entered);
+                let release = Arc::clone(&release);
+                Arc::new(move |frame| {
+                    sent.lock().unwrap().push(frame);
+                    entered.wait();
+                    release.wait();
+                })
+            },
+            buffered_amount: Arc::new(|| 0),
+            trust: "supervised".to_owned(),
+            local_roots: None,
+            owner_user_id: h.owner.clone(),
+            transport_id: Some("relay-blocked".to_owned()),
+            cancellation: CancellationToken::new(),
+            transport_kind: TransportKind::Relay,
+            auth_generation: None,
+        };
+        h.manager.update_transport_auth(&context);
+        let pty = FakePty {
+            state: Arc::new(StdMutex::new(FakeState::default())),
+            spawn_file: String::new(),
+            spawn_cwd: PathBuf::new(),
+            spawn_term: String::new(),
+            cancel_on_subscribe: Arc::new(AtomicBool::new(false)),
+            cancellation: CancellationToken::new(),
+        };
+        let attachment = Attachment {
+            closing: Arc::new(AtomicBool::new(false)),
+            operation_gate: Arc::new(Mutex::new(())),
+            control: Arc::new(pty),
+            actor_id: "user_owner".to_owned(),
+            owner: TransportOwner {
+                id: Some("relay-blocked".to_owned()),
+                kind: TransportKind::Relay,
+            },
+        };
+        h.manager.inner.attachments.lock().unwrap().insert("p1".to_owned(), attachment);
+
+        let inner = Arc::clone(&h.manager.inner);
+        let output_context = context.clone();
+        let output = thread::spawn(move || {
+            inner.emit_output("p1", &Bytes::from_static(b"blocked"), &output_context);
+        });
+        entered.wait();
+
+        let manager = Arc::new(h.manager);
+        let (detached_tx, detached_rx) = sync_channel(0);
+        let detach_manager = Arc::clone(&manager);
+        let detach = thread::spawn(move || {
+            detach_manager.detach_transport_kind("relay-blocked", TransportKind::Relay);
+            detached_tx.send(()).unwrap();
+        });
+        assert!(
+            detached_rx.recv_timeout(Duration::from_millis(100)).is_ok(),
+            "detach must not wait for a blocked output callback"
+        );
+
+        release.wait();
+        output.join().unwrap();
+        detach.join().unwrap();
+    }
+
+    #[test]
     fn an_old_open_drop_cannot_clear_a_new_owner_cancellation_marker() {
         let h = harness(None, None);
         let inner = Arc::clone(&h.manager.inner);
