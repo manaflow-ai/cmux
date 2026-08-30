@@ -208,7 +208,6 @@ final class WorkspaceSwitchCoordinator {
         transaction.portalShowInterval = nil
         finishIfPossible(&transaction)
     }
-
     func noteFirstFrame(
         surfaceID: UUID,
         requestID: UUID,
@@ -428,7 +427,8 @@ final class WorkspaceSwitchCoordinator {
               transaction.readiness?.interactionIsReady == true else {
             active = transaction
             if transaction.sourceRetired, !presentationExpiryScheduler.isScheduled {
-                presentationExpiryScheduler.schedule(after: .seconds(2)) { [weak self, requestID = transaction.requestID] in
+                let requestID = transaction.requestID
+                presentationExpiryScheduler.schedule(after: .seconds(2)) { [weak self, requestID] in
                     self?.expireUnresolvedPresentation(requestID: requestID)
                 }
             }
