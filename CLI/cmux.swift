@@ -7694,7 +7694,7 @@ struct CMUXCLI {
                 guard let workspaceID = resolvedWorkspaceID else {
                     throw CLIError(message: String(
                         localized: "cli.error.clearNotificationsSurfaceRequiresTarget",
-                        defaultValue: "clear-notifications --surface requires workspace or window context; specify --workspace or --window"
+                        defaultValue: "clear-notifications --surface requires a workspace or window context"
                     ))
                 }
                 let surfaceID = try resolveSurfaceId(
