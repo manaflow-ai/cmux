@@ -147,15 +147,15 @@ extension AppDelegate {
             }
             // A mode switch can publish focus before SwiftUI has mounted the
             // Dock host. Preserve the existing lazy-creation contract for that
-            // explicit Dock focus, while responder-based fallback remains
-            // read-only for non-Dock focus.
+            // explicit Dock focus; all other modes belong to the main/sidebar
+            // containers and must not route into the Dock.
             guard let dock = existingWindowDock(forWindowId: context.windowId)
                 ?? windowDock(forWindowId: context.windowId)
             else { return nil }
             guard !dock.isRetired else { return nil }
             return dock
         }
-        return existingFocusedDockStoreForShortcut(context: context)
+        return nil
     }
 
     /// Read-only variant used while SwiftUI builds menus or command snapshots.
