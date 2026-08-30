@@ -1069,6 +1069,8 @@
 		C0DE31410000000000000103 /* DebugEventLogSerializedAppendTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE31410000000000000104 /* DebugEventLogSerializedAppendTests.swift */; };
 		A500D010A1B2C3D4E5F60718 /* DebugLogging.swift in Sources */ = {isa = PBXBuildFile; fileRef = A500D011A1B2C3D4E5F60718 /* DebugLogging.swift */; };
 		917300000000000000000001 /* DeferredActionReplacementStackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 917300000000000000000002 /* DeferredActionReplacementStackTests.swift */; };
+		D10786DB0000000000000001 /* DeferredBrowserPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10786DB0000000000000002 /* DeferredBrowserPanel.swift */; };
+		D10786DB0000000000000003 /* DeferredBrowserPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10786DB0000000000000004 /* DeferredBrowserPanelView.swift */; };
 		F87910140000000000000001 /* DeferredWorkspaceTerminalFontSizeCoordinatorJoin.swift in Sources */ = {isa = PBXBuildFile; fileRef = F87910140000000000000002 /* DeferredWorkspaceTerminalFontSizeCoordinatorJoin.swift */; };
 		C0DE75890000000000000003 /* DeflatedAssetTestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE75890000000000000004 /* DeflatedAssetTestSupport.swift */; };
 		A5001F000000000000000001 /* DetachedFolderDragIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001F000000000000000002 /* DetachedFolderDragIcon.swift */; };
@@ -4042,6 +4044,8 @@
 		C0DE31410000000000000104 /* DebugEventLogSerializedAppendTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugEventLogSerializedAppendTests.swift; sourceTree = "<group>"; };
 		A500D011A1B2C3D4E5F60718 /* DebugLogging.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/DebugLogging.swift; sourceTree = "<group>"; };
 		917300000000000000000002 /* DeferredActionReplacementStackTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeferredActionReplacementStackTests.swift; sourceTree = "<group>"; };
+		D10786DB0000000000000002 /* DeferredBrowserPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/DeferredBrowserPanel.swift; sourceTree = "<group>"; };
+		D10786DB0000000000000004 /* DeferredBrowserPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/DeferredBrowserPanelView.swift; sourceTree = "<group>"; };
 		F87910140000000000000002 /* DeferredWorkspaceTerminalFontSizeCoordinatorJoin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeferredWorkspaceTerminalFontSizeCoordinatorJoin.swift; sourceTree = "<group>"; };
 		C0DE75890000000000000004 /* DeflatedAssetTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeflatedAssetTestSupport.swift; sourceTree = "<group>"; };
 		A5001F000000000000000002 /* DetachedFolderDragIcon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DetachedFolderDragIcon.swift; sourceTree = "<group>"; };
@@ -7551,6 +7555,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				3865B0023865B0023865B002 /* GlobalSearchCoordinator.swift */,
 				8561B0058561B0058561B005 /* GlobalSearchKeyEvent+QueryEditing.swift */,
 				3865B0033865B0033865B003 /* MenubarSearchPopover.swift */,
+				D10786DB0000000000000002 /* DeferredBrowserPanel.swift */,
 				A5001410 /* Panel.swift */,
 				A85630010000000000000001 /* WorkspaceAttentionColor.swift */,
 				C54860060000000000000002 /* PanelStableSurfaceIdentity.swift */,
@@ -7826,6 +7831,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C51A710000000000000000B2 /* SimulatorPanelView.swift */,
 				C51A71F10000000000000001 /* SimulatorFocusOwnershipBridge.swift */,
 				C51A71F10000000000000003 /* SimulatorFocusOwnershipView.swift */,
+				D10786DB0000000000000004 /* DeferredBrowserPanelView.swift */,
 				A5001415 /* PanelContentView.swift */,
 				A5001223 /* UpdateLogStore.swift */,
 				D7769000000000000000000C /* NotificationPopoverHoverTrackingRepresentable.swift */,
@@ -10133,6 +10139,8 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C57B00090000000000000001 /* CustomSidebarPanelView.swift in Sources */,
 				DEBDADADADADADADAD000001 /* DebugDogfoodCredentialResolver.swift in Sources */,
 				A500D010A1B2C3D4E5F60718 /* DebugLogging.swift in Sources */,
+				D10786DB0000000000000001 /* DeferredBrowserPanel.swift in Sources */,
+				D10786DB0000000000000003 /* DeferredBrowserPanelView.swift in Sources */,
 				F87910140000000000000001 /* DeferredWorkspaceTerminalFontSizeCoordinatorJoin.swift in Sources */,
 				A5001F000000000000000001 /* DetachedFolderDragIcon.swift in Sources */,
 				B05553C10000000000000001 /* DetachedFolderPathLookupCache.swift in Sources */,
