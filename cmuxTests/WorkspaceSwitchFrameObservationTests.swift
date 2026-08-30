@@ -106,9 +106,9 @@ struct WorkspaceSwitchFrameObservationTests {
         var releasedRequestIDs: [UUID] = []
         let coordinator = WorkspaceSwitchCoordinator(
             notificationCenter: notificationCenter,
-            presentationExpiryScheduler: expiryScheduler,
             beginRendererProtection: { _, _, _ in },
-            endRendererProtection: { releasedRequestIDs.append($0) }
+            endRendererProtection: { releasedRequestIDs.append($0) },
+            presentationExpiryScheduler: expiryScheduler
         )
 
         let requestID = coordinator.selectionWillCommit(
