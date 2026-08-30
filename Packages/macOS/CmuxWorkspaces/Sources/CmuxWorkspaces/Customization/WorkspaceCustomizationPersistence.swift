@@ -192,8 +192,22 @@ final class WorkspaceCustomizationSynchronousWriter: @unchecked Sendable {
                 lhs.stableId.uuidString < rhs.stableId.uuidString
             }) {
                 let key = item.stableId.uuidString
-                guard let currentEntry = snapshot.entries[key] else { continue }
                 let trimmed = item.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                guard let currentEntry = snapshot.entries[key] else {
+                    guard trimmed.isEmpty else { continue }
+                    // A clear from an automatic title owner is meaningful even
+                    // when no earlier stable-ID record exists. Create the
+                    // field-specific tombstone and retain its new fence.
+                    snapshot.setTitle(
+                        WorkspaceCustomization(
+                            customTitle: .cleared,
+                            customColor: .absent
+                        ),
+                        for: key,
+                        automaticTitleOrdering: item.automaticTitleOrdering
+                    )
+                    continue
+                }
                 let sameRevision = currentEntry.titleMutationRevision == item.titleMutationRevision
                 let newerConcurrentAutomaticTitle =
                     currentEntry.titleMutationRevision > item.titleMutationRevision

@@ -196,7 +196,13 @@ extension TabManager {
                 )
                 automaticWorkspaceTitleJournalState[stableId] = state
             }
-            guard state.automaticTitleAllowed else { return }
+            // Automatic title owners can clear a restored title before this
+            // workspace has ever written a stable-ID record. Keep that clear
+            // as a durable tombstone so a stale session snapshot cannot
+            // resurrect the title on restart.
+            let automaticTitleClear =
+                workspace.customTitle == nil && workspace.customTitleSource == nil
+            guard state.automaticTitleAllowed || automaticTitleClear else { return }
             // Every notification is a new observation. A different manager
             // may have persisted a newer automatic title since this manager
             // queued its previous value, so retaining the pending fence
