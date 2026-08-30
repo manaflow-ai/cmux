@@ -130,6 +130,11 @@ extension DockSplitStore {
     }
 
     func noteKeyboardFocusIntent(window: NSWindow?) {
+        // Only the per-window Dock is a right-sidebar keyboard owner. A
+        // workspace-scoped Dock may share the model focus path, but publishing
+        // `.dock` for it would redirect this window's shortcuts to a different
+        // global Dock.
+        guard isVisibleInUI, scope == .global else { return }
         guard let appDelegate = AppDelegate.shared else { return }
         let ownerWindow = appDelegate.dockReferenceTabManager(for: self)
             .flatMap { appDelegate.windowId(for: $0) }
