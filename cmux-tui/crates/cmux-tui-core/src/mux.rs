@@ -23140,13 +23140,14 @@ mod tests {
         let mux = Mux::open_persistent(session, SurfaceOptions::default(), &root).unwrap();
         let surface = mux.new_workspace(None, None).unwrap();
         let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
-        mux.report_agent(
-            surface.id,
-            AgentState::Working,
-            AgentSource::Hook,
-            Some("compatibility-session".into()),
+        let started = crate::agent_hooks::agent_hook_journal_ingress(
+            "claude",
+            "UserPromptSubmit",
+            Some(&terminal_id.to_string()),
+            serde_json::json!({"session_id":"compatibility-session"}),
         )
         .unwrap();
+        mux.append_journal_ingress(&started, "test", "unsupported-hook-start").unwrap();
 
         let child = crate::agent_hooks::agent_hook_journal_ingress(
             "claude",
