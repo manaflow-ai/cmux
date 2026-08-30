@@ -197,11 +197,14 @@ final class DockPointerInteractionHostView: NSView {
         // Bonsplit owns the actual tab-bar AppKit hit regions. This remains
         // correct even when SwiftUI mounts the Dock tab strip in a separate
         // hosting subtree from this monitor view.
-        if BonsplitTabBarHitRegionRegistry.containsWindowPoint(
+        if BonsplitTabItemHitRegionRegistry.containsWindowPoint(
             windowPoint,
             in: window
         ) {
-            return true
+            // The tab-item region also contains accessory buttons (close,
+            // mute, pin, and zoom). Those controls deliberately keep the
+            // current first responder, so they must not claim Dock focus.
+            return !isInteractiveDockChrome(hitView)
         }
 
         guard let store else { return false }
@@ -243,6 +246,17 @@ final class DockPointerInteractionHostView: NSView {
             if panel.ownedFocusIntent(for: view, in: window) != nil {
                 return true
             }
+        }
+        return false
+    }
+
+    private func isInteractiveDockChrome(_ view: NSView) -> Bool {
+        var candidate: NSView? = view
+        while let current = candidate {
+            if current is NSControl || current.accessibilityRole() == .button {
+                return true
+            }
+            candidate = current.superview
         }
         return false
     }

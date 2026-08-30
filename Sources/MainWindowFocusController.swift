@@ -107,8 +107,9 @@ final class MainWindowFocusController {
     var focusedRightSidebarMode: RightSidebarMode? {
         rightSidebarFocusState.focusedMode
     }
-    /// The right sidebar's active mode when it owns focus, else `nil`. Surfaces the
-    /// private focus state for the `sidebarMode` keyboard-shortcut context key.
+    /// The right sidebar's intent-level mode, including a pending focus request.
+    /// Routing guards use ``focusedRightSidebarMode`` when they require a
+    /// delivered responder.
     var activeRightSidebarMode: RightSidebarMode? {
         rightSidebarFocusState.mode
     }
