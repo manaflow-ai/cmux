@@ -1059,15 +1059,9 @@ struct RestorableAgentSessionIndex: Sendable {
     /// Security-sensitive callers use this instead of the compatibility lookup
     /// below so a stale workspace cannot adopt a same-panel entry from another
     /// restored workspace.
-    func exactEntry(workspaceId: UUID, panelId: UUID) -> Entry? {
-        entriesByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)]
-    }
-
-    /// Returns only the process entry keyed by this exact workspace/panel pair.
-    ///
-    /// Unlike ``entry(workspaceId:panelId:)``, this does not use the panel-ID
-    /// compatibility fallback. Process teardown safety must never borrow a
-    /// live scope from a panel's previous workspace after the surface moves.
+    /// It also avoids the panel-ID compatibility fallback, so process teardown
+    /// safety never borrows a live scope from a panel's previous workspace after
+    /// the surface moves.
     func exactEntry(workspaceId: UUID, panelId: UUID) -> Entry? {
         entriesByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)]
     }
