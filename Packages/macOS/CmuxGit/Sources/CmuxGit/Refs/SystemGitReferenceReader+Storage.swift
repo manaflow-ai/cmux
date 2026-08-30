@@ -191,7 +191,7 @@ extension SystemGitReferenceReader {
                 maximumByteCount: Self.maximumDirectObjectIDByteCount,
                 deadline: deadline
             ) {
-            case .contents(let contents, consumedByteCount: byteCount):
+            case let .contents(contents, consumedByteCount: byteCount):
                 return .contents(contents, consumedByteCount: byteCount)
             case .missing:
                 continue
@@ -213,9 +213,9 @@ extension SystemGitReferenceReader {
             return .missing
         case .oversized, .unavailable:
             return .unavailable(consumedByteCount: 0)
-        case .contents(let contents, consumedByteCount: byteCount):
-            for rawLine in contents.split(whereSeparator: \.isNewline) {
-                let line = rawLine.trimmingCharacters(in: .whitespaces)
+        case let .contents(contents, consumedByteCount: byteCount):
+            for rawLine in contents.split(whereSeparator: { $0.isNewline }) {
+                let line = rawLine.trimmingCharacters(in: CharacterSet.whitespaces)
                 guard !line.isEmpty, !line.hasPrefix("#"), !line.hasPrefix("^") else { continue }
                 let parts = line.split(whereSeparator: { $0 == " " || $0 == "\t" })
                 guard parts.count == 2, String(parts[1]) == refName else { continue }
