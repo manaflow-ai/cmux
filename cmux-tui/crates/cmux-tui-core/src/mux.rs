@@ -5680,21 +5680,18 @@ impl Mux {
             return;
         }
         loop {
-            let page = match self.workspace_registry.lock().unwrap().session_journal_after_subjects(
-                read_cursor,
-                512,
-                &[crate::JournalSubject {
-                    kind: "producer".into(),
-                    id: crate::agent_hooks::AGENT_HOOK_PRODUCER_ID.into(),
-                }],
-            ) {
+            let page = match self
+                .workspace_registry
+                .lock()
+                .unwrap()
+                .session_journal_after(read_cursor, 512)
+            {
                 Ok(page) => page,
                 Err(error) => {
                     eprintln!("cmux-tui: reading committed agent events back failed: {error}");
                     return;
                 }
             };
-            let scanned_through = page.scanned_through.min(commit.sequence);
             for record in page.records {
                 if record.sequence <= read_cursor {
                     continue;
@@ -5712,39 +5709,23 @@ impl Mux {
                     self.apply_roster_delta_to_record_cache(delta);
                 }
                 read_cursor = record.sequence;
-                // Checkpoint at a bounded journal interval. The in-memory
-                // reducer advances for every event, while durable snapshots
-                // lag by at most this interval and are rebuilt from the
-                // journal tail after restart.
-                if read_cursor % 64 == 0 {
-                    let (cursor, snapshot) = {
-                        let host = self.agent_roster.lock().unwrap();
-                        (host.cursor, host.roster.snapshot().to_string())
-                    };
-                    if let Err(error) =
-                        self.workspace_registry.lock().unwrap().put_journal_reducer_state(
-                            crate::journal_reducers::AGENT_ROSTER_REDUCER_ID,
-                            crate::journal_reducers::AGENT_ROSTER_REDUCER_VERSION,
-                            cursor,
-                            &snapshot,
-                        )
-                    {
-                        eprintln!(
-                            "cmux-tui: persisting the agent roster checkpoint failed: {error}"
-                        );
-                    }
+                let (cursor, snapshot) = {
+                    let host = self.agent_roster.lock().unwrap();
+                    (host.cursor, host.roster.snapshot().to_string())
+                };
+                if let Err(error) =
+                    self.workspace_registry.lock().unwrap().put_journal_reducer_state(
+                        crate::journal_reducers::AGENT_ROSTER_REDUCER_ID,
+                        crate::journal_reducers::AGENT_ROSTER_REDUCER_VERSION,
+                        cursor,
+                        &snapshot,
+                    )
+                {
+                    eprintln!("cmux-tui: persisting the agent roster snapshot failed: {error}");
                 }
                 if read_cursor == commit.sequence {
                     return;
                 }
-            }
-            // The filtered query scanned through this watermark. Advance
-            // over unrelated records, but never beyond the callback target.
-            if scanned_through > read_cursor {
-                read_cursor = scanned_through;
-                self.agent_roster.lock().unwrap().cursor = read_cursor;
-            } else {
-                return;
             }
         }
     }
