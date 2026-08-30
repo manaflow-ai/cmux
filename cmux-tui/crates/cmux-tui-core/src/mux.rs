@@ -6170,7 +6170,7 @@ impl Mux {
         source: AgentSource,
         session: Option<&str>,
     ) -> Option<String> {
-        let (cursor, previous) = {
+        let previous = {
             let host = self.agent_roster.lock().unwrap();
             let previous = host
                 .roster
@@ -6194,7 +6194,7 @@ impl Mux {
                         )
                     })
                 });
-            (host.cursor, previous)
+            previous
         };
         let unchanged = previous.as_ref().is_some_and(
             |(previous_state, previous_source, previous_session, _)| {
@@ -6215,8 +6215,11 @@ impl Mux {
                 format!("{state}|{source}|{:?}|{:?}", session, agent)
             })
             .unwrap_or_default();
+        // The key describes this terminal's semantic report only. A global
+        // journal cursor would make an unrelated event defeat coalescing and
+        // turn a steady socket poll into one durable row per event elsewhere.
         let material = format!(
-            "agent-report-echo-v2|{terminal_id}|{}|{}|{:?}|{cursor}|{previous}",
+            "agent-report-echo-v2|{terminal_id}|{}|{}|{:?}|{previous}",
             state.as_str(),
             source.as_str(),
             session,
@@ -10199,7 +10202,14 @@ impl Mux {
         }
         state.resource_revision = commit.revision;
         if !commit.replayed {
-            records.insert(terminal_id.clone(), record.clone());
+            if record.state == AgentState::Done {
+                // Done is a terminal state for the live compatibility view.
+                // The roster fold removes it, and a coalesced repeat has no
+                // fold callback, so remove it here as well.
+                records.remove(&terminal_id);
+            } else {
+                records.insert(terminal_id.clone(), record.clone());
+            }
         }
         let echo_fold_sequence =
             echo_ingress.filter(|_| !commit.replayed).and_then(|_| echo_sequence);
@@ -10271,10 +10281,10 @@ impl Mux {
             };
             (journal_cursor, pending_cleanup)
         };
-        if pending_cleanup.is_err() {
+        let pending_cleanup_error = pending_cleanup.err().map(|error| {
             self.report_internal_diagnostic("terminal agent hook cleanup deferred");
-        }
-        pending_cleanup.context("purge pending agent hook receipts")?;
+            error.context("purge pending agent hook receipts")
+        });
         let retired = {
             let mut host = self.agent_roster.lock().unwrap();
             let previous = host.roster.clone();
@@ -10306,7 +10316,7 @@ impl Mux {
         self.agent_hook_fences.lock().unwrap().remove(terminal_id);
         self.agent_records.lock().unwrap().remove(terminal_id);
         self.terminal_notifications.lock().unwrap().remove(terminal_id);
-        snapshot_error.map_or(Ok(()), Err)
+        snapshot_error.or(pending_cleanup_error).map_or(Ok(()), Err)
     }
 
     fn purge_terminal_runtime_side_tables(&self, runtime: &Surface) -> anyhow::Result<()> {
