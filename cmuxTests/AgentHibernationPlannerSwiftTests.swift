@@ -182,6 +182,31 @@ struct AgentHibernationPlannerSwiftTests {
     }
 
     @Test
+    func sessionIndexEntryInitializerDefaultsRecordedPIDToFalse() {
+        let entry = RestorableAgentSessionIndex.Entry(
+            snapshot: SessionRestorableAgentSnapshot(
+                kind: .codex,
+                sessionId: "codex-no-recorded-pid",
+                workingDirectory: "/tmp/cmux-agent-hibernation",
+                launchCommand: nil
+            ),
+            lifecycle: .idle,
+            updatedAt: 0,
+            processLiveness: .exited,
+            processIDs: [],
+            processIdentities: [:],
+            agentProcessIDs: [],
+            agentProcessIdentities: [:],
+            hibernationPanelProcessIDs: [],
+            terminationProcessIDs: [],
+            terminationProcessIdentities: [:],
+            containsUnrelatedProcess: false
+        )
+
+        #expect(entry.hasRecordedProcessID == false)
+    }
+
+    @Test
     func scheduledHibernationSelectsIdleLiveProcessOverCap() {
         let workspaceId = UUID()
         let now: TimeInterval = 1_000
