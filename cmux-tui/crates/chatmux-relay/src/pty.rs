@@ -1199,9 +1199,23 @@ impl Inner {
         // installed its capacity reservation.
         let active_registered = {
             let _state = self.tunnel_state.lock().expect("tunnel state lock");
+            // Revalidate at the same state boundary as registration. A stale
+            // frame may have passed the earlier snapshot read while a detach
+            // was waiting for this lock; do not admit provider work after the
+            // active transport snapshot has been removed or replaced.
+            let authority_current = !context.cancellation.is_cancelled()
+                && self.tunnel_authority_generation_current(context)
+                && self
+                    .transport_auth
+                    .lock()
+                    .expect("transport auth lock")
+                    .get(&reservation_owner.owner)
+                    .is_some_and(|current| auth_snapshot_matches(current, &auth));
             let mut opening = self.opening_state.lock().expect("opening state lock");
             let attachments = self.attachments.lock().expect("attach lock");
-            if attachments.contains_key(&pty_id)
+            if !authority_current {
+                Err(("trust_revoked", "terminal trust is not current"))
+            } else if attachments.contains_key(&pty_id)
                 || opening.reservations.contains_key(&pty_id)
                 || opening.active_openings.contains_key(&pty_id)
             {
