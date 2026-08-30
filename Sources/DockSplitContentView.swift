@@ -94,6 +94,42 @@ struct DockPointerInteractionHost: NSViewRepresentable {
     }
 }
 
+/// Carries immutable AppKit teardown handles into a MainActor cleanup call when
+/// an AppKit view is released off-main. The handles are consumed once by the
+/// owning view's deinit and are never inspected by background code.
+private final class DockPointerTeardown: @unchecked Sendable {
+    let store: DockSplitStore?
+    let eventMonitor: Any?
+    let windowResignKeyObserver: NSObjectProtocol?
+    let applicationResignActiveObserver: NSObjectProtocol?
+
+    init(
+        store: DockSplitStore?,
+        eventMonitor: Any?,
+        windowResignKeyObserver: NSObjectProtocol?,
+        applicationResignActiveObserver: NSObjectProtocol?
+    ) {
+        self.store = store
+        self.eventMonitor = eventMonitor
+        self.windowResignKeyObserver = windowResignKeyObserver
+        self.applicationResignActiveObserver = applicationResignActiveObserver
+    }
+
+    @MainActor
+    func perform() {
+        store?.cancelDockPointerInteraction()
+        if let eventMonitor {
+            NSEvent.removeMonitor(eventMonitor)
+        }
+        if let windowResignKeyObserver {
+            NotificationCenter.default.removeObserver(windowResignKeyObserver)
+        }
+        if let applicationResignActiveObserver {
+            NotificationCenter.default.removeObserver(applicationResignActiveObserver)
+        }
+    }
+}
+
 @MainActor
 final class DockPointerInteractionHostView: NSView {
     private enum DockPointerHitTarget {
@@ -111,30 +147,23 @@ final class DockPointerInteractionHostView: NSView {
         // `deinit` is nonisolated under Swift 6. Remove AppKit monitors and
         // observers directly so a skipped SwiftUI dismantle cannot leak a
         // process-wide callback.
-        let retainedStore = store
+        let teardown = DockPointerTeardown(
+            store: store,
+            eventMonitor: eventMonitor,
+            windowResignKeyObserver: windowResignKeyObserver,
+            applicationResignActiveObserver: applicationResignActiveObserver
+        )
         if Thread.isMainThread {
             MainActor.assumeIsolated {
-                retainedStore?.cancelDockPointerInteraction()
+                teardown.perform()
             }
-        } else if let retainedStore {
+        } else {
             // AppKit normally releases this view on the main thread. Keep the
             // uncommon off-main teardown safe without touching actor state
             // synchronously from the wrong executor.
-            Task { @MainActor in
-                retainedStore.cancelDockPointerInteraction()
+            Task { @MainActor [teardown] in
+                teardown.perform()
             }
-        }
-        let eventMonitor = eventMonitor
-        let windowResignKeyObserver = windowResignKeyObserver
-        let applicationResignActiveObserver = applicationResignActiveObserver
-        if let eventMonitor {
-            NSEvent.removeMonitor(eventMonitor)
-        }
-        if let windowResignKeyObserver {
-            NotificationCenter.default.removeObserver(windowResignKeyObserver)
-        }
-        if let applicationResignActiveObserver {
-            NotificationCenter.default.removeObserver(applicationResignActiveObserver)
         }
     }
 
