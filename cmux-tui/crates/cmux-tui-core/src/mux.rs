@@ -2436,6 +2436,23 @@ impl Mux {
         )
     }
 
+    #[cfg(test)]
+    fn open_persistent_for_test(
+        session: impl Into<String>,
+        surface_options: SurfaceOptions,
+        state_root: &Path,
+    ) -> anyhow::Result<Arc<Self>> {
+        let session = session.into();
+        let registry = WorkspaceRegistry::open(state_root, &session)?;
+        Self::from_workspace_registry(
+            session,
+            surface_options,
+            registry,
+            ProviderWorkspaceState::default(),
+            true,
+        )
+    }
+
     pub fn open_persistent_provider_managed(
         session: impl Into<String>,
         surface_options: SurfaceOptions,
@@ -23368,13 +23385,10 @@ mod tests {
             "cmux-roster-multiple-pages-{}",
             crate::workspace_registry::new_uuid_v4()
         ));
-        let registry = WorkspaceRegistry::open(&root, "roster-multiple-pages").unwrap();
-        let mux = Mux::from_workspace_registry(
-            "roster-multiple-pages".into(),
+        let mux = Mux::open_persistent_for_test(
+            "roster-multiple-pages",
             SurfaceOptions::default(),
-            registry,
-            ProviderWorkspaceState::default(),
-            true,
+            &root,
         )
         .unwrap();
         let surface = mux.new_workspace(None, None).unwrap();
