@@ -11,6 +11,7 @@ final class FileExplorerNSOutlineView: NSOutlineView {
     weak var activeNativeDragDelegateMarker: AnyObject?
     var activeNativeDragSession: NSDraggingSession?
     weak var pendingNativeDragWriter: FilePreviewDragPasteboardWriter?
+    var pendingNativeDragOwnership: FilePreviewNativeDragOwnership?
     var activeNativeDragOwnership: FilePreviewNativeDragOwnership?
     /// Called before a new pointer gesture so a lost native terminal callback
     /// cannot leave this outline's source graph latched forever.

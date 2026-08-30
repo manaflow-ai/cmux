@@ -538,8 +538,8 @@ struct FileExplorerPanelView: NSViewRepresentable {
         }
 
         /// Applies the shared native-generation fence used by both file
-        /// preview drag sources. A different session must have a strictly
-        /// newer AppKit sequence before it can replace the active owner.
+        /// preview drag sources. A distinct `willBeginAt` session is an
+        /// authoritative boundary and replaces the prior owner.
         @discardableResult
         func supersedeNativeDragIfNeeded(
             previousSession: NSDraggingSession?,
@@ -548,9 +548,9 @@ struct FileExplorerPanelView: NSViewRepresentable {
             clearPrevious: () -> Void
         ) -> Bool {
             guard let previousSession, previousSession !== newSession else { return true }
-            guard newSession.draggingSequenceNumber > previousSession.draggingSequenceNumber else {
-                return false
-            }
+            // A distinct `willBeginAt` callback is itself an AppKit native
+            // boundary. Sequence numbers are useful for terminal fencing but
+            // cannot reject this promotion because the OS may reuse them.
             finishPrevious()
             clearPrevious()
             return true
@@ -567,7 +567,10 @@ struct FileExplorerPanelView: NSViewRepresentable {
                 nativeSourceView: outlineView,
                 nativeSourceOwner: self
             )
-            (outlineView as? FileExplorerNSOutlineView)?.pendingNativeDragWriter = writer
+            if let outlineView = outlineView as? FileExplorerNSOutlineView {
+                outlineView.pendingNativeDragWriter = writer
+                outlineView.pendingNativeDragOwnership = writer.nativeDragOwnership()
+            }
             return writer
         }
 
@@ -601,8 +604,10 @@ struct FileExplorerPanelView: NSViewRepresentable {
                 outlineView.activeNativeDragDelegateMarker = self
                 outlineView.activeNativeDragSession = session
                 outlineView.activeNativeDragOwnership =
-                    outlineView.pendingNativeDragWriter?.nativeDragOwnership()
+                    outlineView.pendingNativeDragOwnership
+                        ?? outlineView.pendingNativeDragWriter?.nativeDragOwnership()
                 outlineView.pendingNativeDragWriter = nil
+                outlineView.pendingNativeDragOwnership = nil
             }
         }
 
@@ -635,7 +640,15 @@ struct FileExplorerPanelView: NSViewRepresentable {
             guard let outlineView = outlineView as? FileExplorerNSOutlineView else { return }
             guard let session = outlineView.activeNativeDragSession else {
                 outlineView.activeNativeDragDelegateMarker = nil
+                if let ownership = outlineView.pendingNativeDragOwnership {
+                    ownership.finish(from: NSPasteboard(name: .drag))
+                } else {
+                    outlineView.pendingNativeDragWriter?
+                        .nativeDragOwnership()?
+                        .finish(from: NSPasteboard(name: .drag))
+                }
                 outlineView.pendingNativeDragWriter = nil
+                outlineView.pendingNativeDragOwnership = nil
                 outlineView.activeNativeDragOwnership = nil
                 return
             }
@@ -1705,6 +1718,7 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
             nativeSourceOwner: self
         )
         searchResultsView.pendingNativeDragWriter = writer
+        searchResultsView.pendingNativeDragOwnership = writer.nativeDragOwnership()
         return writer
     }
 
@@ -1743,8 +1757,10 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
         // table → container edge would create a retain cycle.
         searchResultsView.activeNativeDragDelegateMarker = self
         searchResultsView.activeNativeDragOwnership =
-            searchResultsView.pendingNativeDragWriter?.nativeDragOwnership()
+            searchResultsView.pendingNativeDragOwnership
+                ?? searchResultsView.pendingNativeDragWriter?.nativeDragOwnership()
         searchResultsView.pendingNativeDragWriter = nil
+        searchResultsView.pendingNativeDragOwnership = nil
         searchResultsView.activeNativeDragSession = session
     }
 
@@ -1778,7 +1794,15 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
     func prepareForNativeDragBoundary() {
         guard let session = searchResultsView.activeNativeDragSession else {
             searchResultsView.activeNativeDragDelegateMarker = nil
+            if let ownership = searchResultsView.pendingNativeDragOwnership {
+                ownership.finish(from: NSPasteboard(name: .drag))
+            } else {
+                searchResultsView.pendingNativeDragWriter?
+                    .nativeDragOwnership()?
+                    .finish(from: NSPasteboard(name: .drag))
+            }
             searchResultsView.pendingNativeDragWriter = nil
+            searchResultsView.pendingNativeDragOwnership = nil
             searchResultsView.activeNativeDragOwnership = nil
             return
         }

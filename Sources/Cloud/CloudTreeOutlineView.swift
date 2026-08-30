@@ -681,13 +681,10 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                     // promotion owns the registration and source generation.
                     return
                 }
-                if let activeDragSequenceNumber,
-                   session.draggingSequenceNumber <= activeDragSequenceNumber {
-                    return
-                }
                 // A newer begin is a native boundary even when the older
-                // outline omitted `endedAt`; retire the older registration
-                // before promoting this writer.
+                // outline omitted `endedAt`; any distinct begin is an
+                // authoritative boundary even when the OS reuses a sequence
+                // number. Retire the older registration before promotion.
                 reclaimSupersededNativeDragIfNeeded()
             }
             let pendingToken: UUID? = {
