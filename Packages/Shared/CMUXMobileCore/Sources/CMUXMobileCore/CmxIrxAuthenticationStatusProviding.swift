@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// Supplies observable irx authentication state to a platform UI.
 public protocol CmxIrxAuthenticationStatusProviding: AnyObject, Sendable {
