@@ -5838,7 +5838,7 @@ impl Mux {
         session: Option<&str>,
         updated_at_ms: u64,
         idempotency_key: &str,
-    ) {
+    ) -> anyhow::Result<crate::JournalAppendCommit> {
         use crate::journal_reducers::{SOCKET_REPORT_ADAPTER, SOCKET_REPORT_NATIVE_EVENT};
         let ingress = crate::JournalIngress {
             producer_id: crate::agent_hooks::AGENT_HOOK_PRODUCER_ID.into(),
@@ -5866,9 +5866,7 @@ impl Mux {
             causation_id: None,
             correlation_id: None,
         };
-        if let Err(error) = self.append_journal_ingress(&ingress, "agent-report", idempotency_key) {
-            eprintln!("cmux-tui: journaling an agent report for {terminal_id} failed: {error}");
-        }
+        self.append_journal_ingress(&ingress, "agent-report", idempotency_key)
     }
 
     /// Committed agent hook events double as the live agent-status feed:
@@ -9375,6 +9373,7 @@ impl Mux {
             None,
             AgentReportOrigin::Direct,
             None,
+            None,
         )
     }
 
@@ -9401,6 +9400,39 @@ impl Mux {
             "source":source.as_str(),
             "source_session":session,
         });
+        let (echo_sequence, echo_timestamp) = if source == AgentSource::Socket {
+            let terminal_id = {
+                let state_guard = self.state.lock().unwrap();
+                let runtime = state_guard
+                    .surfaces
+                    .get(&surface)
+                    .or_else(|| state_guard.terminal_runtime_by_id(surface))
+                    .with_context(|| format!("unknown surface {surface}"))?;
+                let identity =
+                    runtime.resource_identity().context("surface has no resource identity")?;
+                let crate::ContentPublicId::Terminal(id) = identity.content_id else {
+                    anyhow::bail!("surface {surface} is not a terminal")
+                };
+                id
+            };
+            let timestamp = now_ms();
+            match self.agent_report_echo_key(&terminal_id, state, source, session.as_deref()) {
+                Some(key) => {
+                    let commit = self.append_agent_report_echo(
+                        &terminal_id,
+                        state,
+                        source,
+                        session.as_deref(),
+                        timestamp,
+                        &key,
+                    )?;
+                    (Some(commit.sequence), Some(timestamp))
+                }
+                None => (None, Some(timestamp)),
+            }
+        } else {
+            (journal_sequence, None)
+        };
         let (_, record) = self.commit_agent_report(
             AgentReportTarget::Surface(surface),
             state,
@@ -9411,9 +9443,10 @@ impl Mux {
             &fingerprint,
             sequence_lock_held,
             hook_state.as_ref(),
-            journal_sequence,
+            echo_sequence,
             origin,
             agent_adapter,
+            echo_timestamp,
         )?;
         let record = record.context("fresh raw agent report unexpectedly replayed")?;
         if source != AgentSource::Hook {
@@ -9443,6 +9476,30 @@ impl Mux {
             "source":source.as_str(),
             "source_session":source_session,
         });
+        let (journal_sequence, reported_at_ms) = if source == AgentSource::Socket {
+            let timestamp = now_ms();
+            match self.agent_report_echo_key(
+                terminal_id,
+                agent_state,
+                source,
+                source_session.as_deref(),
+            ) {
+                Some(key) => {
+                    let echo = self.append_agent_report_echo(
+                        terminal_id,
+                        agent_state,
+                        source,
+                        source_session.as_deref(),
+                        timestamp,
+                        &key,
+                    )?;
+                    (Some(echo.sequence), Some(timestamp))
+                }
+                None => (None, Some(timestamp)),
+            }
+        } else {
+            (None, None)
+        };
         let result = self.commit_agent_report(
             AgentReportTarget::Resource { selectors: &selectors, terminal_id },
             agent_state,
@@ -9453,9 +9510,10 @@ impl Mux {
             &fingerprint,
             false,
             None,
-            None,
+            journal_sequence,
             AgentReportOrigin::Direct,
             None,
+            reported_at_ms,
         );
         if result.is_ok() && source != AgentSource::Hook {
             let _ = self.retry_pending_agent_hooks_for_terminal(terminal_id);
@@ -9478,6 +9536,7 @@ impl Mux {
         journal_sequence: Option<u64>,
         origin: AgentReportOrigin,
         agent_adapter: Option<String>,
+        reported_at_ms: Option<u64>,
     ) -> anyhow::Result<(ResourcePatchCommit, Option<AgentRecord>)> {
         // Hook state is accepted only through the validated journal ingress.
         // A direct Hook report has no durable event to replay, so allowing it
@@ -9607,7 +9666,7 @@ impl Mux {
         let source_session = source_session.filter(|value| {
             !value.starts_with("cmux-hook-sequence:") && !value.starts_with("cmux-hook-ended:")
         });
-        let now = now_ms();
+        let now = reported_at_ms.unwrap_or_else(now_ms);
         let mut records = self.agent_records.lock().unwrap();
         let socket_report_ignored = records.get(&terminal_id).is_some_and(|existing| {
             existing.source == AgentSource::Hook
@@ -9725,24 +9784,6 @@ impl Mux {
                 agent: agent.agent.as_deref().map(Arc::from),
                 updated_at_ms: agent.updated_at_ms,
             });
-            if origin == AgentReportOrigin::Direct
-                && agent.source == AgentSource::Socket
-                && let Some(idempotency_key) = self.agent_report_echo_key(
-                    &agent.terminal_id,
-                    agent.state,
-                    agent.source,
-                    agent.session.as_deref(),
-                )
-            {
-                self.append_agent_report_echo(
-                    &agent.terminal_id,
-                    agent.state,
-                    agent.source,
-                    agent.session.as_deref(),
-                    agent.updated_at_ms,
-                    &idempotency_key,
-                );
-            }
         }
         Ok((commit, Some(agent)))
     }
