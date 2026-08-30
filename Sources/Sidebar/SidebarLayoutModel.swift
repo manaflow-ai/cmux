@@ -35,7 +35,7 @@ struct SidebarWidthReader<Content: View>: View {
     var body: some View {
         let width = layout.width
 #if DEBUG
-        sidebarWidthRenderProbe.widthRead?(width)
+        let _ = sidebarWidthRenderProbe.widthRead?(width)
 #endif
         content(width)
     }
