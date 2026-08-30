@@ -1097,6 +1097,7 @@ struct AgentRosterHost {
 }
 
 fn restore_agent_roster(registry: &WorkspaceRegistry) -> anyhow::Result<AgentRosterHost> {
+    const MAX_REPLAY_RECORDS: usize = 100_000;
     use crate::journal_reducers::{
         AGENT_ROSTER_REDUCER_ID, AGENT_ROSTER_REDUCER_VERSION, AgentRoster, RosterEvent,
     };
@@ -1121,12 +1122,18 @@ fn restore_agent_roster(registry: &WorkspaceRegistry) -> anyhow::Result<AgentRos
         _ => AgentRosterHost::default(),
     };
     let initial_cursor = host.cursor;
+    let mut replayed_records = 0usize;
     loop {
         let page = registry.session_journal_after(host.cursor, 512)?;
         if page.records.is_empty() {
             break;
         }
         let previous_cursor = host.cursor;
+        replayed_records = replayed_records.saturating_add(page.records.len());
+        anyhow::ensure!(
+            replayed_records <= MAX_REPLAY_RECORDS,
+            "agent roster replay exceeds {MAX_REPLAY_RECORDS} records; reducer checkpoint required"
+        );
         for record in &page.records {
             host.roster.apply(&RosterEvent::from_record(record));
             host.cursor = host.cursor.max(record.sequence);
