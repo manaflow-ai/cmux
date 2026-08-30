@@ -462,6 +462,10 @@ struct cmuxApp: App {
         }
         .windowStyle(.hiddenTitleBar)
         .commands {
+            // Rebuild menu capability snapshots when a Dock focus/topology
+            // mutation publishes an update. The Commands body itself only
+            // reads the bounded snapshot, never the Dock's tab collections.
+            let _ = focusHistoryMenuInvalidator.revision
             CommandGroup(replacing: .appSettings) {
                 splitCommandButton(title: String(localized: "menu.app.settings", defaultValue: "Settings…"), shortcut: menuShortcut(for: .openSettings)) {
                     appDelegate.openPreferencesWindow(debugSource: "menu.cmdComma")

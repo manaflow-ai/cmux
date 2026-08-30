@@ -216,6 +216,10 @@ extension DockSplitStore {
               let panel = panels[panelId] else {
             if menuCapabilities != .empty {
                 menuCapabilities = .empty
+                NotificationCenter.default.post(
+                    name: .dockMenuCapabilitiesDidChange,
+                    object: self
+                )
             }
             return
         }
@@ -238,6 +242,10 @@ extension DockSplitStore {
         )
         if next != menuCapabilities {
             menuCapabilities = next
+            NotificationCenter.default.post(
+                name: .dockMenuCapabilitiesDidChange,
+                object: self
+            )
         }
     }
 

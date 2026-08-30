@@ -1,6 +1,12 @@
 import AppKit
 import SwiftUI
 
+extension Notification.Name {
+    static let dockMenuCapabilitiesDidChange = Notification.Name(
+        "cmux.dockMenuCapabilitiesDidChange"
+    )
+}
+
 @MainActor
 final class FocusHistoryMenuInvalidator: ObservableObject {
     @Published private(set) var revision: UInt64 = 0
@@ -21,6 +27,15 @@ final class FocusHistoryMenuInvalidator: ObservableObject {
         })
         observers.append(center.addObserver(
             forName: NSWindow.didBecomeKeyNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.revision &+= 1
+            }
+        })
+        observers.append(center.addObserver(
+            forName: .dockMenuCapabilitiesDidChange,
             object: nil,
             queue: .main
         ) { [weak self] _ in

@@ -589,6 +589,10 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         }
         guard isVisibleInUI != visible else { return }
         isVisibleInUI = visible
+        NotificationCenter.default.post(
+            name: .dockMenuCapabilitiesDidChange,
+            object: self
+        )
         applyFocusedDockSelection()
     }
 
@@ -601,6 +605,10 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         let anyHostVisible = !visibleUIHostIds.isEmpty
         guard isVisibleInUI != anyHostVisible else { return }
         isVisibleInUI = anyHostVisible
+        NotificationCenter.default.post(
+            name: .dockMenuCapabilitiesDidChange,
+            object: self
+        )
         applyFocusedDockSelection()
     }
 
