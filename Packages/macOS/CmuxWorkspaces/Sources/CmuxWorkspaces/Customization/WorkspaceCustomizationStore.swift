@@ -87,6 +87,17 @@ public struct WorkspaceCustomizationStore {
         return (entry.customization, entry.titleMutationRevision)
     }
 
+    /// Reads title-mutation fences for several stable workspace identities with
+    /// one defaults decode. Missing identities are omitted.
+    public func titleMutationRevisions(for stableIds: [UUID]) -> [UUID: UInt64] {
+        let requested = Set(stableIds)
+        guard !requested.isEmpty else { return [:] }
+        let entries = loadSnapshot().entries
+        return Dictionary(uniqueKeysWithValues: requested.compactMap { stableId in
+            entries[stableId.uuidString].map { (stableId, $0.titleMutationRevision) }
+        })
+    }
+
     /// Reads a batch of recovery records with one defaults decode.
     ///
     /// - Parameter stableIds: The stable workspace identities to read.

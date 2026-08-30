@@ -185,12 +185,41 @@ final class WorkspaceCustomizationSynchronousWriter: @unchecked Sendable {
             }) {
                 let key = item.stableId.uuidString
                 guard let currentEntry = snapshot.entries[key] else { continue }
-                let sameRevision = currentEntry.titleMutationRevision == item.titleMutationRevision
+                let trimmed = item.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                let sameRevision = item.titleMutationRevision != 0
+                    && currentEntry.titleMutationRevision == item.titleMutationRevision
                 let newerConcurrentAutomaticTitle =
-                    currentEntry.titleMutationRevision > item.titleMutationRevision
+                    item.titleMutationRevision != 0
+                    && currentEntry.titleMutationRevision > item.titleMutationRevision
                     && currentEntry.automaticTitleOrdering > 0
                     && item.automaticTitleOrdering > currentEntry.automaticTitleOrdering
-                guard sameRevision || newerConcurrentAutomaticTitle else {
+                let deferredAutomaticTitleCanApply: Bool = {
+                    guard item.titleMutationRevision == 0 else { return false }
+                    switch currentEntry.customization.customTitle {
+                    case .cleared:
+                        // A clear is the authority handoff that enables auto
+                        // naming. It may have happened in another manager
+                        // after this notification was queued.
+                        return true
+                    case let .autoValue(currentTitle):
+                        if currentEntry.automaticTitleOrdering > 0 {
+                            return currentEntry.automaticTitleOrdering <= item.automaticTitleOrdering
+                        }
+                        // Legacy automatic records have no ordering. Never
+                        // replace a different value without a durable fence.
+                        return currentTitle == trimmed
+                    case .absent, .value:
+                        return false
+                    }
+                }()
+                let clearAfterQueuedAutomaticTitle =
+                    item.titleMutationRevision != 0
+                    && currentEntry.titleMutationRevision > item.titleMutationRevision
+                    && currentEntry.customization.customTitle == .cleared
+                guard sameRevision
+                    || newerConcurrentAutomaticTitle
+                    || deferredAutomaticTitleCanApply
+                    || clearAfterQueuedAutomaticTitle else {
                     // Any mutation after the automatic title was queued makes
                     // this record stale unless it is a later automatic title
                     // queued by another manager at the same observed revision.
@@ -205,7 +234,6 @@ final class WorkspaceCustomizationSynchronousWriter: @unchecked Sendable {
                     // for journals written before title-specific revisions.
                     continue
                 }
-                let trimmed = item.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                 let field: WorkspaceCustomizationField = trimmed.isEmpty
                     ? .cleared
                     : .autoValue(trimmed)

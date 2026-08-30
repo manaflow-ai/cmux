@@ -109,6 +109,14 @@ extension TabManager {
               let stored = workspaceCustomizationStore.customization(for: stableId) else {
             return
         }
+        guard shouldApplyWorkspaceCustomization(
+            stored,
+            to: snapshot,
+            titleMutationRevision: workspaceCustomizationStore
+                .customizationTitleMutationRevision(for: stableId)
+        ) else {
+            return
+        }
         applyWorkspaceCustomization(stored, to: workspace)
     }
 
@@ -116,14 +124,43 @@ extension TabManager {
     func reconcileWorkspaceCustomization(
         afterRestoring snapshot: SessionWorkspaceSnapshot,
         to workspace: Workspace,
-        cachedCustomizations: [UUID: WorkspaceCustomization]
+        cachedCustomizations: [UUID: WorkspaceCustomization],
+        cachedTitleMutationRevisions: [UUID: UInt64] = [:]
     ) {
         guard let stableId = snapshot.stableId,
               workspace.stableId == stableId,
               let stored = cachedCustomizations[stableId] else {
             return
         }
+        guard shouldApplyWorkspaceCustomization(
+            stored,
+            to: snapshot,
+            titleMutationRevision: cachedTitleMutationRevisions[stableId]
+        ) else {
+            return
+        }
         applyWorkspaceCustomization(stored, to: workspace)
+    }
+
+    private func shouldApplyWorkspaceCustomization(
+        _ customization: WorkspaceCustomization,
+        to snapshot: SessionWorkspaceSnapshot,
+        titleMutationRevision: UInt64?
+    ) -> Bool {
+        guard snapshot.customTitleSource == .auto,
+              let snapshotRevision = snapshot.customTitleMutationRevision,
+              let titleMutationRevision else {
+            // User records and legacy snapshots retain the established journal
+            // precedence. The fence is only comparable for provenance-aware
+            // automatic titles written by the new schema.
+            return true
+        }
+        switch customization.customTitle {
+        case .autoValue, .cleared:
+            return titleMutationRevision > snapshotRevision
+        case .absent, .value:
+            return true
+        }
     }
 
     func recordWorkspaceCustomTitle(
@@ -135,17 +172,6 @@ extension TabManager {
         // subsequent automatic value so a stale snapshot cannot roll the title
         // back to an earlier refresh.
         if source == .auto {
-            guard let record = workspaceCustomizationStore
-                .customizationAndTitleMutationRevision(for: workspace.stableId) else {
-                return
-            }
-            let field = record.customization.customTitle
-            switch field {
-            case .cleared, .autoValue:
-                break
-            case .absent, .value:
-                return
-            }
             // Every notification is a new observation. A different manager
             // may have persisted a newer automatic title since this manager
             // queued its previous value, so retaining the pending fence
@@ -155,7 +181,10 @@ extension TabManager {
             pendingAutomaticWorkspaceTitles[workspace.stableId] =
                 PendingAutomaticWorkspaceTitle(
                     title: workspace.customTitle,
-                    titleMutationRevision: record.titleMutationRevision,
+                    // Resolve the durable title fence in the synchronous
+                    // writer at flush time. Notification delivery stays
+                    // actor-local and never decodes the full journal.
+                    titleMutationRevision: 0,
                     automaticTitleOrdering: automaticTitleOrdering
                 )
             scheduleAutomaticWorkspaceTitlePersistence()

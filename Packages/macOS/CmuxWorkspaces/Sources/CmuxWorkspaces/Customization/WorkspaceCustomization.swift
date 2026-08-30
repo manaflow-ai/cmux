@@ -17,6 +17,8 @@ public struct WorkspaceCustomizationPendingAutomaticTitle: Sendable, Equatable {
     /// Title revision observed when the automatic title was queued. The write is
     /// valid only while this remains the current title revision, so a later
     /// title mutation from another manager cannot be overwritten by a stale queue.
+    /// Zero means that the revision is resolved at flush time. This keeps high-
+    /// frequency title notifications off the synchronous journal-read path.
     public let titleMutationRevision: UInt64
     /// Process-local tie-breaker for queues created by separate managers at
     /// the same title mutation revision.

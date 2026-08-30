@@ -2412,11 +2412,13 @@ class TabManager: ObservableObject {
             // RestorableAgentSessionIndex.load() (sysctl-per-record + disk) so closing a
             // workspace does not freeze the main thread; fall back to a fresh load only
             // while the cache has not loaded yet. See closedPanelHistoryEntry.
-            let snapshot = workspace.sessionSnapshot(
+            var snapshot = workspace.sessionSnapshot(
                 includeScrollback: true,
                 restorableAgentIndex: SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
                     ?? RestorableAgentSessionIndex.load()
             )
+            snapshot.customTitleMutationRevision = workspaceCustomizationStore
+                .customizationTitleMutationRevision(for: workspace.stableId)
             ClosedItemHistoryStore.shared.push(.workspace(ClosedWorkspaceHistoryEntry(
                 workspaceId: workspace.id,
                 windowId: AppDelegate.shared?.windowId(for: self),
@@ -6438,7 +6440,7 @@ extension TabManager {
         let restorableTabs = tabs
             .filter(\.isRestorableInSessionSnapshot)
             .prefix(SessionPersistencePolicy.maxWorkspacesPerWindow)
-        let workspaceSnapshots = restorableTabs
+        var workspaceSnapshots = restorableTabs
             .map {
                 $0.sessionSnapshot(
                     includeScrollback: includeScrollback,
@@ -6446,6 +6448,13 @@ extension TabManager {
                     surfaceResumeBindingIndex: surfaceResumeBindingIndex
                 )
             }
+        let titleMutationRevisions = workspaceCustomizationStore.titleMutationRevisions(
+            for: workspaceSnapshots.compactMap(\.stableId)
+        )
+        for index in workspaceSnapshots.indices {
+            guard let stableId = workspaceSnapshots[index].stableId else { continue }
+            workspaceSnapshots[index].customTitleMutationRevision = titleMutationRevisions[stableId]
+        }
         let selectedWorkspaceIndex = selectedTabId.flatMap { selectedTabId in
             restorableTabs.firstIndex(where: { $0.id == selectedTabId })
         }
@@ -6598,6 +6607,9 @@ extension TabManager {
         let restoredCustomizations = cachedWorkspaceCustomizations(
             afterRestoring: Array(workspaceSnapshots)
         )
+        let restoredTitleMutationRevisions = workspaceCustomizationStore.titleMutationRevisions(
+            for: workspaceSnapshots.compactMap(\.stableId)
+        )
         var restoredOriginalWorkspaceIds: [UUID?] = []
         var reservedWorkspaceIds = excludingWorkspaceIds
         let identitySelector = WorkspaceSessionRestoreIdentity()
@@ -6631,7 +6643,8 @@ extension TabManager {
             reconcileWorkspaceCustomization(
                 afterRestoring: workspaceSnapshot,
                 to: workspace,
-                cachedCustomizations: restoredCustomizations
+                cachedCustomizations: restoredCustomizations,
+                cachedTitleMutationRevisions: restoredTitleMutationRevisions
             )
             Self.recordRestoredTaskCreateProvenance(for: workspace, in: workspaceCreateIdempotencyCache)
             wireClosedBrowserTracking(for: workspace)
