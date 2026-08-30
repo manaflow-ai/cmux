@@ -155,16 +155,18 @@ extension TerminalController {
             preferredWorkspaceId: preferredWorkspaceId,
             preferredSurfaceId: preferredSurfaceId
         )
-        // A stable surface UUID is stronger evidence than a caller TTY. The
-        // workspace claim can be stale after a pane move, so resolve the
-        // surface globally before considering any weaker TTY evidence.
-        if let preferredSurfaceId,
-           let surfaceTarget = targetForSurface(preferredSurfaceId, tabManagers: managers) {
-            return surfaceTarget
+        let preferredSurfaceTarget = preferredSurfaceId.flatMap {
+            targetForSurface($0, tabManagers: managers)
         }
-
         let ttyTarget = callerTTY.flatMap { liveTargetForTTY($0, tabManagers: managers) }
+        // `prefer_tty` is an explicit caller contract used by tmux/PTY
+        // wrappers. Honor it when the caller TTY is proven; otherwise fall
+        // through to the stable preferred surface identity.
         if preferTTY, let ttyTarget { return ttyTarget }
+        // A stable surface UUID is stronger than an ordinary (non-preferred)
+        // TTY claim. The workspace claim can be stale after a pane move, so
+        // resolve the surface globally before the non-preferred TTY fallback.
+        if let preferredSurfaceTarget { return preferredSurfaceTarget }
 
         if let preferredWorkspaceId,
            let workspace = workspace(id: preferredWorkspaceId, tabManagers: managers) {

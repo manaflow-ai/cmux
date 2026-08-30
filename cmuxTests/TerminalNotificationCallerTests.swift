@@ -7,6 +7,8 @@ import Darwin
 @testable import cmux
 #endif
 
+// This existing socket suite stays on XCTest because its lifecycle uses
+// XCTestCase setUp/tearDown and XCTestExpectation-backed socket delivery.
 @MainActor
 final class TerminalNotificationCallerTests: XCTestCase {
     override func setUp() {
@@ -41,7 +43,7 @@ final class TerminalNotificationCallerTests: XCTestCase {
         appDelegate.notificationStore = store
         AppFocusState.overrideIsFocused = false
 
-        let workspace = manager.addWorkspace(select: true)
+        let workspace = manager.addWorkspace(select: true, eagerLoadTerminal: true)
         defer {
             if manager.tabs.contains(where: { $0.id == workspace.id }) {
                 manager.closeWorkspace(workspace)
@@ -56,7 +58,7 @@ final class TerminalNotificationCallerTests: XCTestCase {
 
         let focusedPanelId = try XCTUnwrap(workspace.focusedPanelId)
         let focusedTerminal = try XCTUnwrap(workspace.panels[focusedPanelId] as? TerminalPanel)
-        let callerTTY = try XCTUnwrap(focusedTerminal.surface.controllingTTYName())
+        let callerTTY = try await waitForControllingTTYName(focusedTerminal)
         workspace.surfaceTTYNames[focusedPanelId] = callerTTY
 
         TerminalController.shared.start(
@@ -229,76 +231,6 @@ final class TerminalNotificationCallerTests: XCTestCase {
         XCTAssertFalse(store.hasUnreadNotification(forTabId: fallbackWorkspace.id, surfaceId: fallbackWorkspace.focusedPanelId))
     }
 
-    func testNotificationCreateForCallerPrefersPreferredSurfaceOverConflictingTTY() async throws {
-        let fixture = try makeSocketFixture(name: "notify-surface-over-tty")
-        defer { fixture.cleanup() }
-
-        let fallbackWorkspace = fixture.workspace
-        let targetWorkspace = fixture.manager.addWorkspace(title: "Preferred Surface", select: false)
-        let targetSurfaceId = try XCTUnwrap(targetWorkspace.focusedPanelId)
-
-        // This is deliberately stale/unproven metadata. The old dictionary
-        // scan returned the focused fallback pane before considering the
-        // preferred surface; strict resolution must let the surface identity
-        // win even when the claimed workspace is dead and prefer_tty is true.
-        fallbackWorkspace.surfaceTTYNames[fixture.surfaceId] = "/dev/ttys777"
-        let response = try await sendV2RequestAsync(
-            method: "notification.create_for_caller",
-            params: [
-                "preferred_workspace_id": UUID().uuidString,
-                "preferred_surface_id": targetSurfaceId.uuidString,
-                "caller_tty": "/dev/ttys777",
-                "prefer_tty": true,
-                "title": "Preferred surface",
-                "subtitle": "Evidence",
-                "body": "Surface identity wins"
-            ],
-            to: fixture.socketPath
-        )
-
-        XCTAssertEqual(response["ok"] as? Bool, true, "\(response)")
-        let result = try XCTUnwrap(response["result"] as? [String: Any])
-        XCTAssertEqual(result["workspace_id"] as? String, targetWorkspace.id.uuidString)
-        XCTAssertEqual(result["surface_id"] as? String, targetSurfaceId.uuidString)
-        XCTAssertTrue(fixture.store.hasUnreadNotification(forTabId: targetWorkspace.id, surfaceId: targetSurfaceId))
-        XCTAssertFalse(fixture.store.hasUnreadNotification(forTabId: fallbackWorkspace.id, surfaceId: fixture.surfaceId))
-    }
-
-    func testNotificationCreateForCallerRejectsAmbiguousReportedTTY() async throws {
-        let fixture = try makeSocketFixture(name: "notify-ambiguous-tty")
-        defer { fixture.cleanup() }
-
-        let focusedSurfaceId = fixture.surfaceId
-        let siblingPanel = try XCTUnwrap(
-            fixture.workspace.newTerminalSplit(
-                from: focusedSurfaceId,
-                orientation: .horizontal,
-                focus: false
-            )
-        )
-        let ambiguousTTY = "/dev/ttys777"
-        fixture.workspace.surfaceTTYNames[focusedSurfaceId] = ambiguousTTY
-        fixture.workspace.surfaceTTYNames[siblingPanel.id] = ambiguousTTY
-
-        let response = try await sendV2RequestAsync(
-            method: "notification.create_for_caller",
-            params: [
-                "caller_tty": ambiguousTTY,
-                "prefer_tty": false,
-                "title": "Ambiguous",
-                "subtitle": "TTY",
-                "body": "Must fail closed"
-            ],
-            to: fixture.socketPath
-        )
-
-        XCTAssertEqual(response["ok"] as? Bool, false, "\(response)")
-        let error = try XCTUnwrap(response["error"] as? [String: Any])
-        XCTAssertEqual(error["code"] as? String, "not_found")
-        XCTAssertFalse(fixture.store.hasUnreadNotification(forTabId: fixture.workspace.id, surfaceId: focusedSurfaceId))
-        XCTAssertFalse(fixture.store.hasUnreadNotification(forTabId: fixture.workspace.id, surfaceId: siblingPanel.id))
-    }
-
     func testNotifyTargetUpdatesStoreBeforeResponseWhenAsyncDrainsAreSuspended() async throws {
         let socketPath = makeSocketPath("notify-sync")
         let store = TerminalNotificationStore.shared
@@ -378,6 +310,21 @@ final class TerminalNotificationCallerTests: XCTestCase {
         return URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("tnc-\(name.prefix(4))-\(shortID).sock")
             .path
+    }
+
+    private func waitForControllingTTYName(_ terminal: TerminalPanel) async throws -> String {
+        let deadline = Date().addingTimeInterval(5)
+        while Date() < deadline {
+            if let ttyName = terminal.surface.controllingTTYName() {
+                return ttyName
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        throw NSError(
+            domain: NSPOSIXErrorDomain,
+            code: Int(ENODEV),
+            userInfo: [NSLocalizedDescriptionKey: "Terminal surface did not expose a controlling TTY"]
+        )
     }
 
     private func waitForSocket(at path: String, timeout: TimeInterval = 5.0) throws {

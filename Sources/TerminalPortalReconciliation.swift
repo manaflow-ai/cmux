@@ -120,13 +120,6 @@ extension GhosttyTerminalView {
                     reason: reason
                 )
 
-            // Notification-ring visibility is a projection of the latest
-            // surface store snapshot, not a portal-ownership side effect. A
-            // hosted view can remain mounted while its host loses ownership;
-            // applying the projection on every pass prevents stale rings from
-            // surviving a pane/workspace transfer.
-            hostedView.setNotificationRing(visible: coordinator.desiredShowsUnreadNotificationRing)
-
             if hostOwnsPortal {
                 configureHostedView(
                     hostedView,
@@ -177,6 +170,18 @@ extension GhosttyTerminalView {
                 hostedView,
                 boundTo: host
             )
+            let hasCurrentHostEntry = TerminalWindowPortalRegistry.hasEntry(
+                for: hostedView,
+                boundTo: host
+            )
+            // Only the current portal owner may publish a ring. A host that is
+            // still the bound owner may also publish a hide, which clears a
+            // stale ring during a hand-off without allowing an old coordinator
+            // to resurrect one on the replacement host.
+            if hostOwnsPortal || (!coordinator.desiredShowsUnreadNotificationRing && hasCurrentHostEntry) {
+                hostedView.setNotificationRing(visible: coordinator.desiredShowsUnreadNotificationRing)
+            }
+
             switch immediateHostedStateAction(
                 hostOwnsPortal: hostOwnsPortal,
                 portalBindingLive: portalBindingLive,
