@@ -62,6 +62,16 @@ struct DockSplitContentView: View {
     }
 }
 
+enum DockPointerInteractionPolicy {
+    static func isDrag(
+        from start: NSPoint,
+        to current: NSPoint,
+        threshold: CGFloat = 4
+    ) -> Bool {
+        max(abs(current.x - start.x), abs(current.y - start.y)) > threshold
+    }
+}
+
 /// Supplies an explicit, Dock-scoped pointer token to ``DockSplitStore`` before
 /// Bonsplit emits its selection callbacks. Bonsplit also emits those callbacks
 /// for programmatic mutations, so a callback must never infer user intent from
@@ -231,9 +241,11 @@ private final class DockPointerInteractionHostView: NSView {
             }
             let point = convert(event.locationInWindow, from: nil)
             guard let mouseDownLocation else { return }
-            let movedX = abs(point.x - mouseDownLocation.x)
-            let movedY = abs(point.y - mouseDownLocation.y)
-            guard max(movedX, movedY) > dragThreshold else { return }
+            guard DockPointerInteractionPolicy.isDrag(
+                from: mouseDownLocation,
+                to: point,
+                threshold: dragThreshold
+            ) else { return }
             // A drag is not a tab/pane click. Clear the click token once the
             // pointer has crossed the system's small click tolerance so a
             // swallowed mouse-up cannot arm a later programmatic mutation.

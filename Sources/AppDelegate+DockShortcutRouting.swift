@@ -145,14 +145,13 @@ extension AppDelegate {
                !sidebarState.isVisible {
                 return nil
             }
-            // A mode switch can publish focus before SwiftUI has mounted the
-            // Dock host. Preserve the existing lazy-creation contract for that
-            // explicit Dock focus; all other modes belong to the main/sidebar
-            // containers and must not route into the Dock.
-            guard let dock = existingWindowDock(forWindowId: context.windowId)
-                ?? windowDock(forWindowId: context.windowId)
-            else { return nil }
-            guard !dock.isRetired else { return nil }
+            // The same mounted-store policy is used by shortcut-context and
+            // menu evaluation. A mode switch alone is not enough to route a
+            // command: until the Dock host is visible there is no Dock surface
+            // to act on, so the caller falls through to its normal container.
+            guard let dock = existingWindowDock(forWindowId: context.windowId),
+                  !dock.isRetired,
+                  dock.isVisibleInUI else { return nil }
             return dock
         }
         return nil

@@ -1623,6 +1623,22 @@ struct DockShortcutRoutingTests {
         }
     }
 
+    @Test("Dock pointer policy tolerates click jitter but cancels real drags")
+    func dockPointerPolicySeparatesJitterFromDrag() {
+        #expect(
+            !DockPointerInteractionPolicy.isDrag(
+                from: NSPoint(x: 10, y: 10),
+                to: NSPoint(x: 13, y: 12)
+            )
+        )
+        #expect(
+            DockPointerInteractionPolicy.isDrag(
+                from: NSPoint(x: 10, y: 10),
+                to: NSPoint(x: 15, y: 10)
+            )
+        )
+    }
+
     @Test("Repeated move-to-pane shortcut does not create a missing pane")
     @MainActor
     func repeatedMoveToPaneDoesNotCreateMissingPane() async throws {
