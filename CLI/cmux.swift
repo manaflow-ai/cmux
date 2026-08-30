@@ -34505,32 +34505,17 @@ export default CMUXSessionRestore;
                 break
             }
             let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
-            guard let target = resolveAgentHookTarget(mapped: mapped) else {
+            let target = resolveAgentHookTarget(mapped: mapped)
+            let workspaceId = target?.workspaceId
+            let surfaceId = target?.surfaceId
+            if target == nil {
                 // Child lifecycle state participates in Codex settlement just
-                // like the parent stop path. Never pass a rejected/stale
-                // mapped surface back into the ledger after target resolution
-                // has failed; keep this callback explicitly unattributed.
+                // like the parent stop path. Keep the visible event
+                // unattributed, but still apply it to the durable ledger by
+                // session identity; passing a rejected/stale surface back
+                // would reintroduce the wrong-pane state we are closing.
                 reportTargetResolutionFailure()
-                let childJournalKind: AgentJournalEventKind = {
-                    if case .codexSubagentStart = action {
-                        return .childSpawned
-                    }
-                    return .childCompleted
-                }()
-                emitJournal(
-                    childJournalKind,
-                    workspaceId: nil,
-                    surfaceId: nil,
-                    unattributedReason: "target-unresolved",
-                    isSubagent: true,
-                    detail: "child-lifecycle"
-                )
-                didSendFeedTelemetry = true
-                print("{}")
-                return
             }
-            let workspaceId = target.workspaceId
-            let surfaceId = target.surfaceId
             let agentId = input.rawObject.flatMap {
                 firstString(in: $0, keys: ["agent_id", "agentId"])
             } ?? input.object.flatMap {
@@ -34559,6 +34544,7 @@ export default CMUXSessionRestore;
                 childJournalKind,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
+                unattributedReason: target == nil ? "target-unresolved" : nil,
                 isSubagent: true,
                 detail: decision.ownership == .foreground ? nil : "child-lifecycle-nested"
             )

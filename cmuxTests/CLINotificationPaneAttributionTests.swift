@@ -127,7 +127,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let staleSurfaceId = "22222222-2222-2222-2222-222222222222"
         let focusedSurfaceId = "33333333-3333-3333-3333-333333333333"
         let sessionIds = ["codex-stale-subagent-start", "codex-stale-subagent-stop"]
+        let settledSessionId = sessionIds[1]
+        let settledTurnId = "turn-1"
         let probePath = root.appendingPathComponent("target-resolution-error.txt", isDirectory: false)
+        let ledgerPath = root.appendingPathComponent("codex-turn-ledger.json")
 
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer {
@@ -153,6 +156,25 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let storeObject: [String: Any] = ["version": 1, "sessions": storedSessions]
         try JSONSerialization.data(withJSONObject: storeObject, options: [.prettyPrinted])
             .write(to: root.appendingPathComponent("codex-hook-sessions.json"), options: .atomic)
+        let ledgerRecord: [String: Any] = [
+            "workspaceID": workspaceId,
+            "surfaceID": staleSurfaceId,
+            "owner": [:],
+            "activeTurnID": settledTurnId,
+            "activeChildrenByTurn": [settledTurnId: ["child-1"]],
+            "unknownChildrenByTurn": [:],
+            "terminalChildrenByTurn": [:],
+            "pendingTurns": [settledTurnId: ["turnID": settledTurnId]],
+            "settledTurnIDs": [],
+            "notifiedTurnIDs": [],
+            "updatedAt": now,
+        ]
+        let ledgerObject: [String: Any] = [
+            "records": [settledSessionId: ledgerRecord],
+            "surfaceOwners": [:],
+        ]
+        try JSONSerialization.data(withJSONObject: ledgerObject, options: [.prettyPrinted])
+            .write(to: ledgerPath, options: .atomic)
 
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
             guard let payload = self.jsonObject(line) else {
@@ -206,6 +228,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_CLI_SENTRY_CAPTURE_PROBE_PATH"] = probePath.path
         environment["CODEX_HOME"] = root.appendingPathComponent("codex-home", isDirectory: true).path
+        environment["CMUX_CODEX_TURN_LEDGER_PATH"] = ledgerPath.path
         environment.removeValue(forKey: "CMUX_CODEX_PID")
 
         for (index, subcommand) in ["subagent-start", "subagent-stop"].enumerated() {
@@ -213,7 +236,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 executablePath: cliPath,
                 arguments: ["hooks", "codex", subcommand],
                 environment: environment,
-                standardInput: #"{"session_id":"\#(sessionIds[index])","cwd":"\#(root.path)","hook_event_name":"SubagentStart","agent_id":"child-\#(index)","turn_id":"turn-\#(index)"}"#,
+                standardInput: #"{"session_id":"\#(sessionIds[index])","cwd":"\#(root.path)","hook_event_name":"\#(index == 0 ? "SubagentStart" : "SubagentStop")","agent_id":"child-\#(index)","turn_id":"turn-\#(index)"}"#,
                 timeout: 5
             )
             XCTAssertFalse(result.timedOut, result.stderr)
@@ -230,6 +253,21 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertFalse(
             state.commands.contains { $0.contains("notify_target_async") },
             "Rejected child targets must not trigger a settled-stop notification, saw \(state.commands)"
+        )
+        let ledgerData = try Data(contentsOf: ledgerPath)
+        let ledger = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: ledgerData) as? [String: Any]
+        )
+        let records = try XCTUnwrap(ledger["records"] as? [String: Any])
+        let settledRecord = try XCTUnwrap(records[settledSessionId] as? [String: Any])
+        let activeChildren = (settledRecord["activeChildrenByTurn"] as? [String: [String]]) ?? [:]
+        XCTAssertTrue(
+            activeChildren[settledTurnId]?.isEmpty != false,
+            "An unresolved SubagentStop must still remove the durable child"
+        )
+        XCTAssertTrue(
+            (settledRecord["settledTurnIDs"] as? [String])?.contains(settledTurnId) == true,
+            "An unresolved SubagentStop must still settle the pending turn by session identity"
         )
         XCTAssertTrue(FileManager.default.fileExists(atPath: probePath.path))
     }
