@@ -8350,10 +8350,16 @@ struct ContentView: View {
         }
         let performDockTerminalCommand: (DockShortcutCommand) -> Bool = {
             command in
-            guard let dockSurfaceStore,
-                  let dockSurfacePanelId,
-                  dockSurfaceStore.panels[dockSurfacePanelId] is TerminalPanel else {
+            guard let dockSurfaceStore else {
                 return false
+            }
+            guard let dockSurfacePanelId,
+                  dockSurfaceStore.panels[dockSurfacePanelId] is TerminalPanel else {
+                // A captured Dock still owns the command even if its panel was
+                // replaced or is a browser; consume the shortcut locally so
+                // it cannot mutate the main workspace terminal.
+                NSSound.beep()
+                return true
             }
             return performDockShortcutCommand(command)
         }

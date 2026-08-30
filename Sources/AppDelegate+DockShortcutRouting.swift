@@ -391,7 +391,8 @@ extension AppDelegate {
             return false
         }
         guard !command.requiresTerminalSurface || store.focusedDockPanelIsTerminal else {
-            return false
+            NSSound.beep()
+            return true
         }
         performDockCommand(command, in: store)
         return true
@@ -420,7 +421,8 @@ extension AppDelegate {
             return false
         }
         guard !command.requiresTerminalSurface || store.focusedDockPanelIsTerminal else {
-            return false
+            NSSound.beep()
+            return true
         }
         performDockCommand(command, in: store)
         return true
