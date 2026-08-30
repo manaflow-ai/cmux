@@ -4115,6 +4115,45 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn closing_an_in_flight_open_cancels_provider_resolution() {
+        let entered = Arc::new(Notify::new());
+        let release = Arc::new(Notify::new());
+        let gate =
+            Arc::new(ResolveGate { entered: Arc::clone(&entered), release: Arc::clone(&release) });
+        let h = harness_with_control_and_gate(None, None, None, None, Some(gate));
+        let context = h.context_with_transport("supervised", h.owner.clone(), Some("tunnel-a"));
+        let manager = Arc::new(h.manager);
+        let frame = serde_json::json!({
+            "version": 4,
+            "type": "pty_open",
+            "ptyId": "p1",
+            "session": "main",
+            "cols": 80,
+            "rows": 24,
+        });
+        let cancellation = manager.new_open_cancellation().expect("open attempt token");
+        let task_manager = Arc::clone(&manager);
+        let task_context = context.clone();
+        let task_cancellation = cancellation.clone();
+        let task = tokio::spawn(async move {
+            task_manager
+                .handle_frame_with_open_cancellation(&frame, &task_context, Some(task_cancellation))
+                .await;
+        });
+
+        // Provider resolution is paused only after the reservation is live.
+        // Close must signal the exact open before allowing the provider to
+        // continue, independent of scheduler timing.
+        entered.notified().await;
+        manager.inner.close("p1");
+        assert!(cancellation.is_cancelled());
+
+        release.notify_one();
+        task.await.unwrap();
+        assert_eq!(manager.attachment_count(), 0);
+    }
+
+    #[tokio::test]
     async fn blocking_open_worker_keeps_its_permit_until_completion() {
         let slots = Arc::new(Semaphore::new(1));
         let permit = OpenPermit::new(slots.clone().try_acquire_owned().expect("open permit"));
