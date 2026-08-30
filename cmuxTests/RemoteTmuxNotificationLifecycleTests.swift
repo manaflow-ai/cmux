@@ -1,6 +1,8 @@
 import AppKit
 import CmuxControlSocket
 import CmuxRemoteSession
+import CmuxTerminalCore
+import CmuxWorkspaces
 import Foundation
 import Testing
 
@@ -13,6 +15,15 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct RemoteTmuxNotificationLifecycleTests {
+    @MainActor
+    private final class RecordingFileOpener: FileOpening {
+        private(set) var opened: [URL] = []
+
+        func open(_ url: URL) {
+            opened.append(url)
+        }
+    }
+
     @MainActor
     private final class Harness {
         let windowID: UUID
@@ -185,6 +196,7 @@ struct RemoteTmuxNotificationLifecycleTests {
         defaults.set(true, forKey: BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey)
         var resolvedProjectedContainer = false
         var externallyOpenedURLs: [URL] = []
+        let fileOpener = RecordingFileOpener()
         let linkCoordinator = TerminalLinkOpenCoordinator(
             defaults: defaults,
             containerResolver: { preferredWorkspaceID, sourcePanelID in
@@ -200,6 +212,7 @@ struct RemoteTmuxNotificationLifecycleTests {
                 externallyOpenedURLs.append($0)
                 return true
             },
+            fileOpen: fileOpener,
             deferOperation: { $0() }
         )
         let projectedURL = try #require(URL(string: "https://example.com/projected-pane"))
@@ -219,15 +232,16 @@ struct RemoteTmuxNotificationLifecycleTests {
             .appendingPathComponent("projected-link-\(UUID().uuidString).swift")
         try "local-only".write(to: localOnlyPath, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: localOnlyPath) }
-        #expect(linkCoordinator.open(TerminalLinkOpenRequest(
+        let localOpenResult = linkCoordinator.open(TerminalLinkOpenRequest(
             rawValue: localOnlyPath.path,
             sourceWorkspaceId: harness.workspace.id,
             sourcePanelId: panePanel.id,
             workingDirectory: nil
-        )))
+        ))
+        #expect(localOpenResult)
         #expect(
-            externallyOpenedURLs.last == localOnlyPath,
-            "Remote transcript paths must fall back externally instead of opening the Mac-local file in cmux"
+            fileOpener.opened == [localOnlyPath],
+            "Remote transcript paths must use the external file-opening seam instead of opening in cmux"
         )
 
         #expect(harness.manager.focusedSurfaceId(for: harness.workspace.id) == panePanel.id)
