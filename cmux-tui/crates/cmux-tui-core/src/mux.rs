@@ -23182,15 +23182,17 @@ mod tests {
         .unwrap();
         mux.append_journal_ingress(&end, "test", "authority-scope-end").unwrap();
 
-        // Direct hook reports remain in the compatibility projection until
-        // their own terminal has a durable roster removal fence.
-        mux.report_agent(
-            compatibility_surface.id,
-            AgentState::Working,
-            AgentSource::Hook,
-            Some("compatibility-session".into()),
-        )
-        .unwrap();
+        // Direct hook reports are rejected because they have no durable
+        // journal event to replay after restart.
+        assert!(
+            mux.report_agent(
+                compatibility_surface.id,
+                AgentState::Working,
+                AgentSource::Hook,
+                Some("compatibility-session".into()),
+            )
+            .is_err()
+        );
         mux.shutdown();
         drop(mux);
 
@@ -23199,10 +23201,7 @@ mod tests {
         let compatibility_surface = reopened
             .resource_surface_for_terminal(&compatibility_terminal)
             .expect("compatibility terminal restored");
-        let records = reopened.list_agents(Some(compatibility_surface), None);
-        assert_eq!(records.len(), 1);
-        assert_eq!(records[0].source, AgentSource::Hook);
-        assert_eq!(records[0].session.as_deref(), Some("compatibility-session"));
+        assert!(reopened.list_agents(Some(compatibility_surface), None).is_empty());
         reopened.shutdown();
         drop(reopened);
         std::fs::remove_dir_all(root).unwrap();
@@ -24482,16 +24481,15 @@ mod tests {
         assert!(mux.surface(first.id).is_some());
         assert!(mux.with_state(|state| state.surfaces.contains_key(&second.id)));
 
-        let detached_report = mux
-            .report_agent(
+        assert!(
+            mux.report_agent(
                 first.id,
                 AgentState::Blocked,
                 AgentSource::Hook,
                 Some("detached-hook".to_string()),
             )
-            .expect("the terminal host identity remains valid without a view");
-        assert_eq!(detached_report.state, AgentState::Blocked);
-        assert_eq!(detached_report.session.as_deref(), Some("detached-hook"));
+            .is_err()
+        );
 
         mux.close_terminal(&host.terminal_id, &host.incarnation).unwrap();
         assert!(mux.list_agents(None, None).is_empty());
