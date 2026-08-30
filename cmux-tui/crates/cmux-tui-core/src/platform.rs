@@ -1423,6 +1423,16 @@ mod tests {
     }
 
     #[test]
+    fn normalize_windows_paths_preserves_drive_relative_and_rooted_controls() {
+        let drive_relative = PathBuf::from(r"C:state");
+        assert_eq!(normalize_filesystem_path(drive_relative.clone()), drive_relative);
+
+        for rooted in [PathBuf::from(r"C:\state"), PathBuf::from(r"\\server\share\state")] {
+            assert_eq!(normalize_filesystem_path(rooted.clone()), rooted);
+        }
+    }
+
+    #[test]
     fn windows_verbatim_component_guard_rejects_win32_semantic_changes() {
         for component in ["state.", "state ", "CON", "nul.txt", "Com9.log", "LPT¹"] {
             let wide = component.encode_utf16().collect::<Vec<_>>();
