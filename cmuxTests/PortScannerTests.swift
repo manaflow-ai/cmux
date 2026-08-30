@@ -1091,7 +1091,7 @@ struct PortScannerLifecycleTests {
         await MainActor.run {
             scanner.unregisterPanel(workspaceId: workspaceID, panelId: panelID)
         }
-        try? await Task.sleep(for: .milliseconds(800))
+        await scanner.waitForIdleForTesting()
         let calls = await runner.recordedArguments
         #expect(calls.isEmpty)
     }
