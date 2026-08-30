@@ -170,7 +170,7 @@ public actor IrxRelayCredentialAutopilot {
                     ?? IrxBrokerFailure(
                         operation: .mint,
                         error: error,
-                        fallbackKind: .transient
+                        fallbackKind: .invalid
                     )
                 let expiry = credentials.map(\.expiresAt).max()
                 guard let nextFailureCount = await waitForRetry(
@@ -209,7 +209,7 @@ public actor IrxRelayCredentialAutopilot {
                     ?? IrxBrokerFailure(
                         operation: .hintRefresh,
                         error: error,
-                        fallbackKind: .transient
+                        fallbackKind: .invalid
                     )
                 if !failure.isRetryable {
                     if failure.requiresReauthentication {

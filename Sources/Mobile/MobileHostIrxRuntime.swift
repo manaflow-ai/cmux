@@ -346,7 +346,7 @@ final class MobileHostIrxRuntime {
                 ?? IrxBrokerFailure(
                     operation: activationOperation,
                     error: error,
-                    fallbackKind: .transient
+                    fallbackKind: .invalid
                 )
             await handleActivationFailure(failure, accountID: accountID, token: token)
         }
