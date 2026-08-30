@@ -30,6 +30,15 @@ enum AgentHookAbnormalStopClass: Equatable {
             return String(localized: "agent.generic.notification.subtitle.error", defaultValue: "Error")
         }
     }
+
+    /// Safe fallback body used when a provider message contains implementation
+    /// details that must not cross the notification boundary.
+    var safeNotificationBody: String {
+        String(
+            localized: "agent.generic.notification.body.safeProviderError",
+            defaultValue: "The agent stopped unexpectedly. Try again or inspect the terminal for details."
+        )
+    }
 }
 
 struct AgentHookAbnormalStopClassifier {
@@ -38,7 +47,7 @@ struct AgentHookAbnormalStopClassifier {
 
     /// Builds the ungated error summary for a recognized provider stop.
     func summary(
-        displayName: String,
+        displayName _: String,
         signal: String,
         message: String,
         isFallback: Bool
@@ -47,12 +56,7 @@ struct AgentHookAbnormalStopClassifier {
               let failureClass = abnormalStopClass(signal: signal, message: message) else {
             return nil
         }
-        let body = message.isEmpty
-            ? String.localizedStringWithFormat(
-                String(localized: "agent.generic.notification.body.reportedError", defaultValue: "%@ reported an error"),
-                displayName
-            )
-            : message
+        let body = safeNotificationBody(message: message, failureClass: failureClass)
         return AgentHookNotificationSummary(
             subtitle: failureClass.localizedSubtitle,
             body: AgentHookNotificationSummary.truncatedBody(body),
@@ -60,6 +64,34 @@ struct AgentHookAbnormalStopClassifier {
             isFallback: isFallback,
             notifyCategory: .other
         )
+    }
+
+    /// Keeps upstream provider text out of classified notifications while
+    /// retaining legacy unclassified summaries when they contain no diagnostics.
+    ///
+    /// - Parameters:
+    ///   - message: Provider-supplied terminal text.
+    ///   - failureClass: The recognized class, when one is available, used to
+    ///     choose a stable fallback body.
+    /// - Returns: A bounded body safe to send over the notification protocol.
+    func safeNotificationBody(
+        message: String,
+        failureClass: AgentHookAbnormalStopClass? = nil
+    ) -> String {
+        let normalized = message
+            .replacingOccurrences(of: "\u{1B}", with: "")
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if let failureClass {
+            return failureClass.safeNotificationBody
+        }
+        guard !normalized.isEmpty else {
+            return AgentHookAbnormalStopClass.generic.safeNotificationBody
+        }
+        guard !containsSensitiveProviderDetail(normalized) else {
+            return failureClass?.safeNotificationBody ?? AgentHookAbnormalStopClass.generic.safeNotificationBody
+        }
+        return AgentHookNotificationSummary.truncatedBody(normalized)
     }
 
     /// Returns the stable failure class for a provider banner, if one is
@@ -313,6 +345,21 @@ struct AgentHookAbnormalStopClassifier {
             || lowercasedText.contains("server overloaded")
             || lowercasedText.contains("529")
             || lowercasedText.contains("429")
+    }
+
+    private func containsSensitiveProviderDetail(_ text: String) -> Bool {
+        let patterns = [
+            #"(?i)\b(?:authorization|proxy-authorization|cookie|set-cookie|bearer|basic|api[_ -]?key|access[_ -]?token|refresh[_ -]?token)\s*[:=]"#,
+            #"(?i)\b(?:request|trace|correlation|session|turn|event)[_ -]?id\s*[:=]"#,
+            #"(?i)\b(?:stack trace|traceback|private key|credential|secret|payload|headers?)\b"#,
+            #"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b"#,
+            #"https?://\S+"#,
+            #"\{[^{}]{2,}\}"#,
+            #"(?i)\bat\s+[A-Za-z0-9_./-]+\([^)]*\)"#,
+        ]
+        return patterns.contains { pattern in
+            text.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil
+        }
     }
 
     private func containsExplicitGenericFailureCue(_ lowercasedText: String) -> Bool {

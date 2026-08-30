@@ -27620,9 +27620,14 @@ struct CMUXCLI {
                     : completion.map { (subtitle: $0.subtitle, body: $0.body) }
                 let stopSummary = abnormalStop.map { (subtitle: $0.subtitle, body: $0.body) }
                     ?? completionSummary
-                let stopLifecycle: AgentHibernationLifecycleState = abnormalStop != nil
-                    ? .needsInput
-                    : (hasPendingBackgroundWork ? .running : .idle)
+                // Live background work keeps the session running even when the
+                // foreground turn ended on a provider error. The error remains
+                // visible through the ungated notification/status lane, while
+                // hibernation and restore state must not treat a live task as
+                // waiting for input.
+                let stopLifecycle: AgentHibernationLifecycleState = hasPendingBackgroundWork
+                    ? .running
+                    : (abnormalStop != nil ? .needsInput : .idle)
                 if let sessionId = parsedInput.sessionId {
                     _ = try? sessionStore.upsert(
                         sessionId: sessionId,
@@ -30179,6 +30184,7 @@ struct CMUXCLI {
     }
 
     private func summarizeCodexHookFailureCandidate(_ candidate: CodexHookFailureCandidate) -> CodexHookFailureSummary {
+        let classifier = AgentHookAbnormalStopClassifier()
         let signal = [
             candidate.message,
             candidate.codexErrorInfo,
@@ -30195,11 +30201,13 @@ struct CMUXCLI {
         // existing clients/tests (for example, `Error` and `Rate limit`). A
         // terminal assistant banner is the new abnormal-stop surface, so only
         // that candidate opts into the shared precise class labels.
-        if candidate.isAbnormalStopBanner,
-           let abnormalClass = AgentHookAbnormalStopClassifier().abnormalStopClass(
-               signal: "Stop",
-               message: signal
-           ) {
+        let abnormalClass = candidate.isAbnormalStopBanner
+            ? classifier.abnormalStopClass(
+                signal: "Stop",
+                message: signal
+            )
+            : nil
+        if let abnormalClass {
             subtitle = abnormalClass.localizedSubtitle
             statusValue = codexAbnormalStopStatusValue(abnormalClass)
         } else if signal.contains("usage_limit") ||
@@ -30234,7 +30242,10 @@ struct CMUXCLI {
         return CodexHookFailureSummary(
             statusValue: statusValue,
             subtitle: subtitle,
-            body: truncate(normalizedSingleLine(detail), maxLength: 220)
+            body: classifier.safeNotificationBody(
+                message: detail,
+                failureClass: abnormalClass
+            )
         )
     }
 
@@ -35930,7 +35941,7 @@ export default CMUXSessionRestore;
                                   lastNotificationStatus: (def.name == "codex" && codexHasActiveBackgroundWork) ? nil : stopNotificationStatus,
                                   updateLastNotificationStatus: true,
                                   runtimeStatus: (hasActiveBackgroundWork && stopNotificationStatus == .idle) ? .running : runtimeStatus(for: stopNotificationStatus),
-                                  updateRuntimeStatus: true)
+                                   updateRuntimeStatus: true)
                 if def.name == "codex", codexHasActiveBackgroundWork {
                     try? store.clearNotificationSummary(sessionId: sessionId)
                 }

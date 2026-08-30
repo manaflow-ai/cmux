@@ -4441,6 +4441,23 @@
         }
       }
     },
+    "agent.generic.notification.body.safeProviderError": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The agent stopped unexpectedly. Try again or inspect the terminal for details."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントが予期せず停止しました。もう一度試すか、詳細をターミナルで確認してください。"
+          }
+        }
+      }
+    },
     "agent.generic.notification.body.taskCompleted": {
       "extractionState": "manual",
       "localizations": {

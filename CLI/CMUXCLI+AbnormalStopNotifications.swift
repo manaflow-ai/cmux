@@ -212,14 +212,19 @@ extension CMUXCLI {
         ) else {
             return nil
         }
+        let classifier = AgentHookAbnormalStopClassifier()
         for message in normalizedMessages {
-            let summary = AgentHookNotificationClassifier.classify(
+            // Generic Stop hooks must stay on the strict provider-failure
+            // boundary. The legacy prose classifier intentionally recognizes
+            // broad failed/error words for Notification events; reusing it
+            // here would resurrect negated or historical prose after the
+            // abnormal-stop classifier correctly rejected it.
+            if let summary = classifier.summary(
                 displayName: def.displayName,
                 signal: signal,
                 message: message,
                 isFallback: false
-            )
-            if summary.status == .error, summary.notifyCategory == .other {
+            ) {
                 return summary
             }
         }

@@ -43,7 +43,8 @@ public struct AgentJournalEventDraft: Codable, Sendable, Equatable {
     /// Whether the event came from a nested (sub)agent session. Subagent
     /// events are journaled but excluded from surface lifecycle reduction.
     public var isSubagent: Bool
-    /// For ``AgentJournalEventKind/turnCompleted``: the turn ended but
+    /// For terminal events such as ``AgentJournalEventKind/turnCompleted`` or
+    /// ``AgentJournalEventKind/errorReported``: the foreground turn ended but
     /// background work is still live, so the agent is still effectively
     /// running.
     public var pendingWork: Bool
@@ -90,7 +91,7 @@ public struct AgentJournalEventDraft: Codable, Sendable, Equatable {
     ///   - surfaceId: Attributed surface UUID, if attribution succeeded.
     ///   - unattributedReason: Why attribution failed, when it did.
     ///   - isSubagent: Whether the event came from a nested agent session.
-    ///   - pendingWork: Whether a completed turn left live background work.
+    ///   - pendingWork: Whether a terminal event left live background work.
     ///   - nativeEvent: The adapter's native hook event name.
     ///   - declaredPhase: Explicit phase assertion for `stateChanged` events.
     ///   - detail: Short human-readable context.

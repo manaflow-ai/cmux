@@ -96,7 +96,11 @@ public struct AgentLifecycleReducer: Sendable {
         case .approvalRequested, .questionRequested, .planReviewRequested:
             return (.needsInput, false)
         case .errorReported:
-            return (.error, false)
+            // A foreground error can coexist with live background work. Keep
+            // the lifecycle running so hibernation and sidebar activity do not
+            // stop supervising the task; the journal kind still preserves the
+            // error for attention and diagnostics.
+            return (draft.pendingWork ? .running : .error, false)
         case .sessionEnded:
             return (previous?.phase ?? .unknown, true)
         case .stateChanged:
