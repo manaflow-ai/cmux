@@ -578,6 +578,21 @@ final class FilePreviewDragPasteboardWriter: NSObject, @preconcurrency NSPastebo
             .tab.id.uuid
     }
 
+    /// Captures this writer's exact native cleanup identity after AppKit has
+    /// selected it for a session. Calling this also eagerly materializes the
+    /// writer's lazy registry entries before the source callback can be lost.
+    func nativeDragOwnership() -> FilePreviewNativeDragOwnership? {
+        let data = transferDataForDrag()
+        guard let dragID = Self.dragID(from: data) else { return nil }
+        return FilePreviewNativeDragOwnership(
+            dragID: dragID,
+            filePreviewData: data,
+            fileURL: URL(fileURLWithPath: filePath).standardizedFileURL.absoluteString,
+            transferRegistration: bonsplitRegistration,
+            transferRegistry: tabDragTransferRegistry
+        )
+    }
+
     /// Resolves a file-preview payload through the process-local preview
     /// registry when no Bonsplit capability was published. The serialized
     /// payload is only an opaque lookup key; an absent registry entry is never

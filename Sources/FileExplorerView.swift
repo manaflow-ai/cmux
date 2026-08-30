@@ -83,8 +83,8 @@ struct FileExplorerPanelView: NSViewRepresentable {
     static func dismantleNSView(_ nsView: FileExplorerContainerView, coordinator: Coordinator) {
         // A native source is still allowed to own the container through its
         // matching `endedAt` callback. When no session was promoted, however,
-        // clear any stale owner marker so a dismantled search table cannot
-        // retain its container through the table's strong owner property.
+        // clear any stale delegate marker so a dismantled search table does not
+        // retain an obsolete native-session identity.
         nsView.clearSearchResultsDragOwnerIfIdle()
         coordinator.onContainerChange?(nil)
     }
@@ -542,12 +542,14 @@ struct FileExplorerPanelView: NSViewRepresentable {
         func outlineView(_ outlineView: NSOutlineView, pasteboardWriterForItem item: Any) -> (any NSPasteboardWriting)? {
             guard let node = item as? FileExplorerNode, !node.isDirectory else { return nil }
             guard store.provider is LocalFileExplorerProvider else { return nil }
-            return FilePreviewDragPasteboardWriter(
+            let writer = FilePreviewDragPasteboardWriter(
                 filePath: node.path,
                 displayTitle: node.name,
                 nativeSourceView: outlineView,
                 nativeSourceOwner: self
             )
+            (outlineView as? FileExplorerNSOutlineView)?.pendingNativeDragWriter = writer
+            return writer
         }
 
         func outlineView(
@@ -559,8 +561,11 @@ struct FileExplorerPanelView: NSViewRepresentable {
             _ = screenPoint
             _ = draggedItems
             if let outlineView = outlineView as? FileExplorerNSOutlineView {
-                outlineView.activeNativeDragOwner = self
+                outlineView.activeNativeDragDelegateMarker = self
                 outlineView.activeNativeDragSession = session
+                outlineView.activeNativeDragOwnership =
+                    outlineView.pendingNativeDragWriter?.nativeDragOwnership()
+                outlineView.pendingNativeDragWriter = nil
             }
         }
 
@@ -570,14 +575,30 @@ struct FileExplorerPanelView: NSViewRepresentable {
             endedAt screenPoint: NSPoint,
             operation: NSDragOperation
         ) {
-            defer {
-                if let outlineView = outlineView as? FileExplorerNSOutlineView,
-                   outlineView.activeNativeDragSession === session {
-                    outlineView.activeNativeDragOwner = nil
-                    outlineView.activeNativeDragSession = nil
-                }
+            guard let outlineView = outlineView as? FileExplorerNSOutlineView,
+                  outlineView.activeNativeDragSession === session else { return }
+            outlineView.activeNativeDragOwnership?.finish(from: session.draggingPasteboard)
+            outlineView.activeNativeDragDelegateMarker = nil
+            outlineView.activeNativeDragOwnership = nil
+            outlineView.activeNativeDragSession = nil
+        }
+
+        /// Reclaims an outline drag at the next pointer boundary when AppKit
+        /// omitted its native terminal callback during reconstruction. The
+        /// exact outline argument matters because ``Coordinator.outlineView``
+        /// may already point at a newly built view.
+        func prepareForNativeDragBoundary(on outlineView: NSOutlineView) {
+            guard let outlineView = outlineView as? FileExplorerNSOutlineView else { return }
+            guard let session = outlineView.activeNativeDragSession else {
+                outlineView.activeNativeDragDelegateMarker = nil
+                outlineView.pendingNativeDragWriter = nil
+                outlineView.activeNativeDragOwnership = nil
+                return
             }
-            FilePreviewDragPasteboardWriter.discardRegisteredDrag(from: session)
+            outlineView.activeNativeDragOwnership?.finish(from: session.draggingPasteboard)
+            outlineView.activeNativeDragDelegateMarker = nil
+            outlineView.activeNativeDragOwnership = nil
+            outlineView.activeNativeDragSession = nil
         }
 
         @MainActor
@@ -831,6 +852,10 @@ final class FileExplorerContainerView: NSView {
         outlineView.dataSource = coordinator
         outlineView.delegate = coordinator
         outlineView.target = coordinator
+        outlineView.onNativeDragPointerBoundary = { [weak coordinator, weak outlineView] in
+            guard let outlineView else { return }
+            coordinator?.prepareForNativeDragBoundary(on: outlineView)
+        }
         outlineView.doubleAction = #selector(FileExplorerPanelView.Coordinator.handleDoubleClick(_:))
         outlineView.setDraggingSourceOperationMask(.move, forLocal: true)
         coordinator.outlineView = outlineView
@@ -1629,12 +1654,14 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
             return nil
         }
         let result = searchSnapshot.results[row]
-        return FilePreviewDragPasteboardWriter(
+        let writer = FilePreviewDragPasteboardWriter(
             filePath: result.path,
             displayTitle: (result.relativePath as NSString).lastPathComponent,
             nativeSourceView: tableView,
             nativeSourceOwner: self
         )
+        searchResultsView.pendingNativeDragWriter = writer
+        return writer
     }
 
     func tableView(
@@ -1652,14 +1679,18 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
             // A new native begin proves that AppKit has left an older drag
             // loop even when that source omitted `endedAt`; retire only the
             // superseded capability before installing this generation.
-            FilePreviewDragPasteboardWriter.discardRegisteredDrag(from: previousSession)
-            searchResultsView.activeNativeDragOwner = nil
+            searchResultsView.activeNativeDragOwnership?.finish(from: previousSession.draggingPasteboard)
+            searchResultsView.activeNativeDragDelegateMarker = nil
+            searchResultsView.activeNativeDragOwnership = nil
             searchResultsView.activeNativeDragSession = nil
         }
         // The pasteboard writer retains this exact container through the native
         // terminal callback. Keep only a weak marker on the table: a strong
         // table → container edge would create a retain cycle.
-        searchResultsView.activeNativeDragOwner = self
+        searchResultsView.activeNativeDragDelegateMarker = self
+        searchResultsView.activeNativeDragOwnership =
+            searchResultsView.pendingNativeDragWriter?.nativeDragOwnership()
+        searchResultsView.pendingNativeDragWriter = nil
         searchResultsView.activeNativeDragSession = session
     }
 
@@ -1672,11 +1703,12 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
         guard tableView === searchResultsView else { return }
         defer {
             if searchResultsView.activeNativeDragSession === session {
-                searchResultsView.activeNativeDragOwner = nil
+                searchResultsView.activeNativeDragOwnership?.finish(from: session.draggingPasteboard)
+                searchResultsView.activeNativeDragDelegateMarker = nil
+                searchResultsView.activeNativeDragOwnership = nil
                 searchResultsView.activeNativeDragSession = nil
             }
         }
-        FilePreviewDragPasteboardWriter.discardRegisteredDrag(from: session)
     }
 
     /// Reclaims a search drag whose native terminal callback was lost before a
@@ -1685,11 +1717,14 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
     /// use for releasing the intentional container/table retain cycle.
     func prepareForNativeDragBoundary() {
         guard let session = searchResultsView.activeNativeDragSession else {
-            searchResultsView.activeNativeDragOwner = nil
+            searchResultsView.activeNativeDragDelegateMarker = nil
+            searchResultsView.pendingNativeDragWriter = nil
+            searchResultsView.activeNativeDragOwnership = nil
             return
         }
-        FilePreviewDragPasteboardWriter.discardRegisteredDrag(from: session)
-        searchResultsView.activeNativeDragOwner = nil
+        searchResultsView.activeNativeDragOwnership?.finish(from: session.draggingPasteboard)
+        searchResultsView.activeNativeDragDelegateMarker = nil
+        searchResultsView.activeNativeDragOwnership = nil
         searchResultsView.activeNativeDragSession = nil
     }
 
@@ -1754,6 +1789,8 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
 private extension FileExplorerContainerView {
     func clearSearchResultsDragOwnerIfIdle() {
         guard searchResultsView.activeNativeDragSession == nil else { return }
-        searchResultsView.activeNativeDragOwner = nil
+        searchResultsView.activeNativeDragDelegateMarker = nil
+        searchResultsView.pendingNativeDragWriter = nil
+        searchResultsView.activeNativeDragOwnership = nil
     }
 }

@@ -10,7 +10,10 @@ final class CloudTreeNSOutlineView: NSOutlineView {
     /// Keeps the outline delegate/source graph alive while AppKit owns a
     /// native surface drag, including reconstruction between writer creation
     /// and `willBeginAt`.
-    var activeNativeDragOwner: AnyObject?
+    /// Strong coordinator owner for the active Cloud drag. The coordinator
+    /// clears this at the native terminal boundary; the distinct name makes
+    /// its ownership contract explicit (unlike weak File Explorer markers).
+    var activeNativeDragCoordinator: AnyObject?
     var activeNativeDragSession: NSDraggingSession?
     /// Invoked before a new pointer gesture. AppKit cannot deliver this
     /// boundary while the previous native drag loop is active.

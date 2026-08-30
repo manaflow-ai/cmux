@@ -49,7 +49,7 @@ struct CloudTreeNativeDragOwnershipTests {
             #expect(record.resourceIDs == expectedResources)
             return writer.dragID
         }()
-        #expect(outline.activeNativeDragOwner == nil)
+        #expect(outline.activeNativeDragCoordinator == nil)
         #expect(SurfaceResourceDragRegistry.shared.group(id: dragID) != nil)
 
         // No native session was promoted. Releasing the writer is the exact
@@ -58,7 +58,7 @@ struct CloudTreeNativeDragOwnershipTests {
 
         #expect(SurfaceResourceDragRegistry.shared.group(id: dragID) == nil)
         #expect(!coordinator.isDragging)
-        #expect(outline.activeNativeDragOwner == nil)
+        #expect(outline.activeNativeDragCoordinator == nil)
         _ = container
     }
 
@@ -91,7 +91,7 @@ struct CloudTreeNativeDragOwnershipTests {
         )
 
         #expect(coordinator.isDragging)
-        #expect(outline.activeNativeDragOwner === coordinator)
+        #expect(outline.activeNativeDragCoordinator === coordinator)
         #expect(outline.activeNativeDragSession === session)
 
         // Releasing the provisional writer after promotion must not terminate
@@ -107,7 +107,7 @@ struct CloudTreeNativeDragOwnershipTests {
             operation: []
         )
         #expect(!coordinator.isDragging)
-        #expect(outline.activeNativeDragOwner == nil)
+        #expect(outline.activeNativeDragCoordinator == nil)
         #expect(outline.activeNativeDragSession == nil)
         _ = container
     }
@@ -147,16 +147,23 @@ struct CloudTreeNativeDragOwnershipTests {
         coordinator.prepareForNativeDragBoundary()
         #expect(!coordinator.isDragging)
         #expect(SurfaceResourceDragRegistry.shared.group(id: writer.dragID) == nil)
-        #expect(outline.activeNativeDragOwner == nil)
+        #expect(outline.activeNativeDragCoordinator == nil)
         #expect(outline.activeNativeDragSession == nil)
 
-        // A late callback from the retired source must remain harmless.
+        // A replacement writer may be requested before the retired source's
+        // delayed endedAt callback arrives. The superseded-session fence must
+        // keep that new registration intact.
+        let replacementWriter = try #require(
+            coordinator.outlineView(outline, pasteboardWriterForItem: node)
+                as? CloudTreeSurfaceDragPasteboardWriter
+        )
         coordinator.outlineView(
             outline,
             draggingSession: session,
             endedAt: .zero,
             operation: []
         )
+        #expect(SurfaceResourceDragRegistry.shared.group(id: replacementWriter.dragID) != nil)
         _ = container
     }
 

@@ -64,7 +64,7 @@ struct FileExplorerNativeDragOwnershipTests {
                 willBeginAt: .zero,
                 forRowIndexes: IndexSet(integer: 0)
             )
-            #expect(activeContainer.searchResultsView.activeNativeDragOwner === activeContainer)
+            #expect(activeContainer.searchResultsView.activeNativeDragDelegateMarker === activeContainer)
             #expect(activeContainer.searchResultsView.activeNativeDragSession === session)
 
             // This is the SwiftUI representable's dismantle boundary. The
@@ -90,7 +90,7 @@ struct FileExplorerNativeDragOwnershipTests {
                 endedAt: .zero,
                 operation: []
             )
-            #expect(retainedContainer.searchResultsView.activeNativeDragOwner == nil)
+            #expect(retainedContainer.searchResultsView.activeNativeDragDelegateMarker == nil)
             #expect(retainedContainer.searchResultsView.activeNativeDragSession == nil)
         }
     }
@@ -123,15 +123,19 @@ struct FileExplorerNativeDragOwnershipTests {
             isSearching: false
         ))
 
-        var firstWriter: (any NSPasteboardWriting)? = container.tableView(
-            container.searchResultsView,
-            pasteboardWriterForRow: 0
+        let firstWriter = try #require(
+            container.tableView(
+                container.searchResultsView,
+                pasteboardWriterForRow: 0
+            ) as? FilePreviewDragPasteboardWriter
         )
+        let sharedPasteboard = NSPasteboard(
+            name: NSPasteboard.Name("file-explorer-shared-drag-\(UUID().uuidString)")
+        )
+        #expect(sharedPasteboard.writeObjects([firstWriter]))
         let firstSession = SearchResultsDragTestSession(
             sequence: 1,
-            pasteboard: NSPasteboard(
-                name: NSPasteboard.Name("file-explorer-first-\(UUID().uuidString)")
-            )
+            pasteboard: sharedPasteboard
         )
         container.tableView(
             container.searchResultsView,
@@ -140,15 +144,16 @@ struct FileExplorerNativeDragOwnershipTests {
             forRowIndexes: IndexSet(integer: 0)
         )
 
-        var secondWriter: (any NSPasteboardWriting)? = container.tableView(
-            container.searchResultsView,
-            pasteboardWriterForRow: 0
+        let secondWriter = try #require(
+            container.tableView(
+                container.searchResultsView,
+                pasteboardWriterForRow: 0
+            ) as? FilePreviewDragPasteboardWriter
         )
+        #expect(sharedPasteboard.writeObjects([secondWriter]))
         let secondSession = SearchResultsDragTestSession(
             sequence: 2,
-            pasteboard: NSPasteboard(
-                name: NSPasteboard.Name("file-explorer-second-\(UUID().uuidString)")
-            )
+            pasteboard: sharedPasteboard
         )
         container.tableView(
             container.searchResultsView,
@@ -157,8 +162,12 @@ struct FileExplorerNativeDragOwnershipTests {
             forRowIndexes: IndexSet(integer: 0)
         )
 
-        #expect(container.searchResultsView.activeNativeDragOwner === container)
+        #expect(container.searchResultsView.activeNativeDragDelegateMarker === container)
         #expect(container.searchResultsView.activeNativeDragSession === secondSession)
+        #expect(
+            sharedPasteboard.data(forType: DragOverlayRoutingPolicy.filePreviewTransferType) != nil,
+            "Superseded cleanup must not erase the replacement drag's payload."
+        )
 
         // A late callback from the superseded source must not clear the new
         // owner/session pair.
@@ -176,10 +185,8 @@ struct FileExplorerNativeDragOwnershipTests {
             endedAt: .zero,
             operation: []
         )
-        #expect(container.searchResultsView.activeNativeDragOwner == nil)
+        #expect(container.searchResultsView.activeNativeDragDelegateMarker == nil)
         #expect(container.searchResultsView.activeNativeDragSession == nil)
-        firstWriter = nil
-        secondWriter = nil
     }
 
     @Test("A pointer boundary reclaims a search drag that lost endedAt")
@@ -233,15 +240,62 @@ struct FileExplorerNativeDragOwnershipTests {
             FileExplorerPanelView.dismantleNSView(activeContainer, coordinator: coordinator)
 
             // A subsequent pointer gesture is the first safe boundary after a
-            // missing endedAt. It must release the deliberate owner cycle and
-            // revoke only this session's preview capability.
+            // missing endedAt. It must retire only this session's native
+            // ownership record and revoke its preview capability.
             activeContainer.prepareForNativeDragBoundary()
-            #expect(activeContainer.searchResultsView.activeNativeDragOwner == nil)
+            #expect(activeContainer.searchResultsView.activeNativeDragDelegateMarker == nil)
             #expect(activeContainer.searchResultsView.activeNativeDragSession == nil)
         }
         container = nil
         writer = nil
         #expect(weakContainer == nil)
+    }
+
+    @Test("The file tree also reclaims a drag that lost endedAt")
+    func pointerBoundaryReclaimsOutlineDragAfterReconstruction() throws {
+        let store = FileExplorerStore()
+        store.provider = LocalFileExplorerProvider()
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: FileExplorerState(),
+            onOpenFilePreview: { _ in }
+        )
+        let container = FileExplorerContainerView(
+            coordinator: coordinator,
+            presentation: .files
+        )
+        let outline = try #require(coordinator.outlineView as? FileExplorerNSOutlineView)
+        let node = FileExplorerNode(
+            name: "preview.txt",
+            path: "/tmp/preview.txt",
+            isDirectory: false
+        )
+        let writer = try #require(
+            coordinator.outlineView(
+                outline,
+                pasteboardWriterForItem: node
+            ) as? FilePreviewDragPasteboardWriter
+        )
+        let session = SearchResultsDragTestSession(
+            sequence: 23,
+            pasteboard: NSPasteboard(
+                name: NSPasteboard.Name("file-explorer-outline-boundary-\(UUID().uuidString)")
+            )
+        )
+        coordinator.outlineView(
+            outline,
+            draggingSession: session,
+            willBeginAt: .zero,
+            forItems: [node]
+        )
+        #expect(outline.activeNativeDragDelegateMarker === coordinator)
+        #expect(writer.nativeDragOwnership() != nil)
+
+        coordinator.prepareForNativeDragBoundary(on: outline)
+        #expect(outline.activeNativeDragDelegateMarker == nil)
+        #expect(outline.activeNativeDragSession == nil)
+        #expect(outline.activeNativeDragOwnership == nil)
+        _ = container
     }
 
     @MainActor

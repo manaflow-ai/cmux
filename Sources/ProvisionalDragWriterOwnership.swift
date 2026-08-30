@@ -9,43 +9,7 @@ import Foundation
 /// owner rather than broadcasting through process-global notification state.
 @MainActor
 final class ProvisionalDragWriterOwnership {
-    /// Token retained by one provisional pasteboard writer.
-    final class Token {
-        let id: UUID
-        private let owner: ProvisionalDragWriterOwnership
-
-        fileprivate init(owner: ProvisionalDragWriterOwnership) {
-            id = UUID()
-            self.owner = owner
-        }
-
-        /// Signals writer destruction while its controller is still retained.
-        nonisolated func notifyDeallocated() {
-            let owner = owner
-            let tokenID = id
-            if Thread.isMainThread {
-                // AppKit drag callbacks and writer destruction are main-thread
-                // events; this keeps the normal abandonment path synchronous.
-                MainActor.assumeIsolated {
-                    owner.tokenDidDeallocate(id)
-                }
-            } else {
-                // A defensive off-main release still retains the owner until
-                // the actor hop executes, so cleanup cannot be lost during ARC
-                // stored-property destruction.
-                Task { @MainActor in
-                    owner.tokenDidDeallocate(tokenID)
-                }
-            }
-        }
-
-        deinit {
-            // A token normally receives this signal from its writer's deinit;
-            // keep this fallback for any future writer that does not explicitly
-            // forward destruction. The owner-side token removal is idempotent.
-            notifyDeallocated()
-        }
-    }
+    typealias Token = ProvisionalDragWriterOwnershipToken
 
     private let onTokenDeallocated: @MainActor (UUID) -> Void
     private var pendingTokenIDs: Set<UUID> = []
@@ -57,7 +21,9 @@ final class ProvisionalDragWriterOwnership {
     var hasPendingTokens: Bool { !pendingTokenIDs.isEmpty }
 
     func makeToken() -> Token {
-        let token = Token(owner: self)
+        let token = Token { [weak self] tokenID in
+            self?.tokenDidDeallocate(tokenID)
+        }
         pendingTokenIDs.insert(token.id)
         return token
     }

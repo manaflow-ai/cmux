@@ -5,8 +5,10 @@ final class FileExplorerSearchResultsTableView: NSTableView {
     /// Weak marker for the container retained by the pasteboard writer until
     /// AppKit reports completion. A strong table → container edge would form a
     /// cycle because the container owns this table.
-    weak var activeNativeDragOwner: AnyObject?
+    weak var activeNativeDragDelegateMarker: AnyObject?
     var activeNativeDragSession: NSDraggingSession?
+    weak var pendingNativeDragWriter: FilePreviewDragPasteboardWriter?
+    var activeNativeDragOwnership: FilePreviewNativeDragOwnership?
     /// Called before AppKit evaluates a new pointer gesture. A new
     /// `mouseDown` cannot arrive while the old native drag loop is still live,
     /// so this is the authoritative boundary for a source whose `endedAt`

@@ -67,23 +67,12 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         private var contentSignature: [String] = []
         private var selectedNodeID: String?
         private var isUpdatingProgrammatically = false
-        private struct ActiveDrag {
-            let id: UUID
-            let registration: TabDragTransferRegistration
-            let transferRegistry: TabDragTransferRegistry
-        }
         private var activeDrag: ActiveDrag?
         private var activeDragSequenceNumber: Int?
         private var activeDragSession: NSDraggingSession?
         private weak var activeDragSourceView: CloudTreeNSOutlineView?
         private var supersededDragSession: NSDraggingSession?
         private var supersededDragSequenceNumber: Int?
-        private struct PendingDrag {
-            let dragID: UUID
-            let registration: TabDragTransferRegistration
-            let transferRegistry: TabDragTransferRegistry
-            let sourceView: NSOutlineView
-        }
         private var pendingDrags: [UUID: PendingDrag] = [:]
         private weak var latestPendingDragWriter: CloudTreeSurfaceDragPasteboardWriter?
         private lazy var dragWriterOwnership = ProvisionalDragWriterOwnership { [weak self] tokenID in
@@ -133,7 +122,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             // writer's deallocation is therefore the exact boundary at which
             // its capability and routing registration can be discarded.
             if activeDrag == nil, activeDragSession == nil {
-                outlineView?.activeNativeDragOwner = nil
+                outlineView?.activeNativeDragCoordinator = nil
                 outlineView?.activeNativeDragSession = nil
                 setDragging(false)
             }
@@ -151,12 +140,12 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             activeDragSession = nil
             activeDragSequenceNumber = nil
             if let sourceView = activeDragSourceView {
-                sourceView.activeNativeDragOwner = nil
+                sourceView.activeNativeDragCoordinator = nil
                 sourceView.activeNativeDragSession = nil
             } else if let outlineView,
                       (outlineView.activeNativeDragSession == nil
-                           || outlineView.activeNativeDragOwner === self) {
-                outlineView.activeNativeDragOwner = nil
+                           || outlineView.activeNativeDragCoordinator === self) {
+                outlineView.activeNativeDragCoordinator = nil
                 outlineView.activeNativeDragSession = nil
             }
             activeDragSourceView = nil
@@ -167,6 +156,13 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         /// The boundary is safe because AppKit does not dispatch a new
         /// `mouseDown` while the older native drag loop is still running.
         func prepareForNativeDragBoundary() {
+            if let activeDragSession = activeDragSession ?? outlineView?.activeNativeDragSession {
+                supersededDragSession = activeDragSession
+            }
+            if let activeDragSequenceNumber = activeDragSequenceNumber
+                ?? outlineView?.activeNativeDragSession?.draggingSequenceNumber {
+                supersededDragSequenceNumber = activeDragSequenceNumber
+            }
             if let activeDrag {
                 self.activeDrag = nil
                 activeDrag.transferRegistry.end(activeDrag.registration)
@@ -175,11 +171,9 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             discardAllPendingDrags()
             activeDragSession = nil
             activeDragSequenceNumber = nil
-            supersededDragSession = nil
-            supersededDragSequenceNumber = nil
-            activeDragSourceView?.activeNativeDragOwner = nil
+            activeDragSourceView?.activeNativeDragCoordinator = nil
             activeDragSourceView?.activeNativeDragSession = nil
-            outlineView?.activeNativeDragOwner = nil
+            outlineView?.activeNativeDragCoordinator = nil
             outlineView?.activeNativeDragSession = nil
             activeDragSourceView = nil
             setDragging(false)
@@ -710,7 +704,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 // the outline for its terminal callback so catalog updates
                 // cannot reload rows under the live session.
                 if let outlineView = outlineView as? CloudTreeNSOutlineView {
-                    outlineView.activeNativeDragOwner = self
+                    outlineView.activeNativeDragCoordinator = self
                     outlineView.activeNativeDragSession = session
                     activeDragSourceView = outlineView
                 }
@@ -735,7 +729,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             supersededDragSession = nil
             supersededDragSequenceNumber = nil
             if let outlineView = outlineView as? CloudTreeNSOutlineView {
-                outlineView.activeNativeDragOwner = self
+                outlineView.activeNativeDragCoordinator = self
                 outlineView.activeNativeDragSession = session
             }
             activeDragSequenceNumber = session.draggingSequenceNumber
@@ -775,11 +769,11 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             defer {
                 if let outlineView = outlineView as? CloudTreeNSOutlineView,
                    outlineView.activeNativeDragSession === session {
-                    outlineView.activeNativeDragOwner = nil
+                    outlineView.activeNativeDragCoordinator = nil
                     outlineView.activeNativeDragSession = nil
                 }
                 if activeDragSourceView?.activeNativeDragSession === session {
-                    activeDragSourceView?.activeNativeDragOwner = nil
+                    activeDragSourceView?.activeNativeDragCoordinator = nil
                     activeDragSourceView?.activeNativeDragSession = nil
                 }
                 activeDragSequenceNumber = nil
