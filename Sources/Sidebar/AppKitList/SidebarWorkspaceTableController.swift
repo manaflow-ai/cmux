@@ -70,11 +70,11 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private lazy var workspaceDragWriterOwnership = ProvisionalDragWriterOwnership { [weak self] tokenID in
         self?.workspaceDragWriterDidDeallocate(tokenID: tokenID)
     }
-    // Cells from a provisional container cannot be detached until AppKit has
-    // made its native-session decision. Keep the exact container so a later
-    // terminal callback detaches only that old presentation, not a rebuilt
-    // table's cells.
-    private var deferredProvisionalCellDetachContainer: SidebarWorkspaceTableContainerView?
+    // Cells from provisional containers cannot be detached until AppKit has
+    // made its native-session decision. Retain every reconstruction in the
+    // current pre-session generation so no earlier container loses its
+    // controlled detach/commit callback when SwiftUI rebuilds repeatedly.
+    private var deferredProvisionalCellDetachContainers: [SidebarWorkspaceTableContainerView] = []
     private var activeWorkspaceDragSessionId: UUID?
     private var activeWorkspaceDragCapabilityValue: String?
     // Retain and identity-check the exact AppKit session. A late callback from
@@ -248,7 +248,9 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         let preserveProvisionalWorkspaceDrag = !isWorkspaceDragSourceActive
             && workspaceDragWriterOwnership.hasPendingTokens
         if preserveProvisionalWorkspaceDrag {
-            deferredProvisionalCellDetachContainer = container
+            if !deferredProvisionalCellDetachContainers.contains(where: { $0 === container }) {
+                deferredProvisionalCellDetachContainers.append(container)
+            }
         }
         if preserveNativeDragPresentation, activeWorkspaceDragContainerView == nil {
             activeWorkspaceDragContainerView = container
@@ -1350,7 +1352,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         guard workspaceDragWriterOwnership.hasPendingTokens
             || pendingWorkspaceDragWriter != nil
             || activeWorkspaceDragContainerView != nil
-            || deferredProvisionalCellDetachContainer != nil
+            || !deferredProvisionalCellDetachContainers.isEmpty
             || pendingWorkspaceDragSessionId != nil
             || pendingWorkspaceDragWorkspaceId != nil else { return }
 
@@ -1365,11 +1367,10 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         activeWorkspaceDragTableView = nil
 
         let abandonedContainer = activeWorkspaceDragContainerView
-        let deferredContainer = deferredProvisionalCellDetachContainer
+        let deferredContainers = deferredProvisionalCellDetachContainers
+        deferredProvisionalCellDetachContainers.removeAll(keepingCapacity: false)
         let deferredCellDetachActions: [@MainActor () -> Void] = {
-            guard let container = deferredProvisionalCellDetachContainer else { return [] }
-            deferredProvisionalCellDetachContainer = nil
-            return detachLoadedCells(in: container)
+            deferredContainers.flatMap { detachLoadedCells(in: $0) }
         }()
         if let retainedContainer = abandonedContainer {
             clearDropViewActions(in: retainedContainer)
@@ -1387,7 +1388,9 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         }
         let postUpdateActions: [@MainActor () -> Void] = {
             guard let abandonedContainer else { return deferredCellDetachActions }
-            guard deferredContainer !== abandonedContainer else { return deferredCellDetachActions }
+            guard !deferredContainers.contains(where: { $0 === abandonedContainer }) else {
+                return deferredCellDetachActions
+            }
             return deferredCellDetachActions + detachLoadedCells(in: abandonedContainer)
         }()
         rows.removeAll(keepingCapacity: false)
@@ -1420,9 +1423,9 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             return
         }
         let deferredCellDetachActions: [@MainActor () -> Void] = {
-            guard let container = deferredProvisionalCellDetachContainer else { return [] }
-            deferredProvisionalCellDetachContainer = nil
-            return detachLoadedCells(in: container)
+            let containers = deferredProvisionalCellDetachContainers
+            deferredProvisionalCellDetachContainers.removeAll(keepingCapacity: false)
+            return containers.flatMap { detachLoadedCells(in: $0) }
         }()
         // AppKit may deliver a duplicate terminal callback while a deferred
         // drop is still waiting for its target bridge. The first callback owns
