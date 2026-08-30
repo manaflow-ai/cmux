@@ -632,7 +632,9 @@ C0DE71B10000000000000001 /* AppDelegate+AgentChatNotifications.swift in Sources 
 		C9A2B00000000000000000B3 /* CmuxAppKitSupportUI in Frameworks */ = {isa = PBXBuildFile; productRef = C9A2B00000000000000000B2 /* CmuxAppKitSupportUI */; };
 		C9A2B00000000000000000C3 /* CmuxAppKitSupportUI in Frameworks */ = {isa = PBXBuildFile; productRef = C9A2B00000000000000000C2 /* CmuxAppKitSupportUI */; };
 		5EDB6027B346C46521A93C74 /* CMUXAuthCore in Frameworks */ = {isa = PBXBuildFile; productRef = 29813FE5A6CBC1019289A251 /* CMUXAuthCore */; };
+		A99940010000000000000001 /* CMUXAuthCore in Frameworks */ = {isa = PBXBuildFile; productRef = 29813FE5A6CBC1019289A251 /* CMUXAuthCore */; };
 		53750003A0B1C2D3E4F50003 /* CmuxAuthRuntime in Frameworks */ = {isa = PBXBuildFile; productRef = 53750002A0B1C2D3E4F50002 /* CmuxAuthRuntime */; };
+		A99940020000000000000001 /* CmuxAuthRuntime in Frameworks */ = {isa = PBXBuildFile; productRef = 53750002A0B1C2D3E4F50002 /* CmuxAuthRuntime */; };
 		D7032A060000000000000001 /* CmuxBrowser in Frameworks */ = {isa = PBXBuildFile; productRef = D7032A060000000000000002 /* CmuxBrowser */; };
 		E3B7A30000000000000000C3 /* CmuxBrowser in Frameworks */ = {isa = PBXBuildFile; productRef = E3B7A30000000000000000C2 /* CmuxBrowser */; };
 		947194719471947194719472 /* CmuxBundledBinPathIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 947194719471947194719471 /* CmuxBundledBinPathIntegrationTests.swift */; };
@@ -5761,6 +5763,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			files = (
 				B057B0017E57B0017E57B001 /* Bonsplit in Frameworks */,
 				C9A2B00000000000000000C3 /* CmuxAppKitSupportUI in Frameworks */,
+				A99940010000000000000001 /* CMUXAuthCore in Frameworks */,
+				A99940020000000000000001 /* CmuxAuthRuntime in Frameworks */,
 				D7032A060000000000000001 /* CmuxBrowser in Frameworks */,
 				CA52A007CA52A007CA52A007 /* CmuxCanvas in Frameworks */,
 				5E55500000000000000000E4 /* CmuxCommandPalette in Frameworks */,
@@ -8799,6 +8803,8 @@ C0DE71B10000000000000002 /* AppDelegate+AgentChatNotifications.swift */ = {isa =
 			packageProductDependencies = (
 				A5B00002A1B2C3D4E5F60718 /* CMUXAgentLaunch */,
 				A77A0002A1B2C3D4E5F60001 /* CmuxAgentJournal */,
+				29813FE5A6CBC1019289A251 /* CMUXAuthCore */,
+				53750002A0B1C2D3E4F50002 /* CmuxAuthRuntime */,
 				C750100000000000000000A2 /* CmuxControlSocket */,
 				1A0B0C0D0E0F101112132012 /* CmuxIrohTransport */,
 				C1A072000000000000000002 /* CmuxMobileRPC */,
