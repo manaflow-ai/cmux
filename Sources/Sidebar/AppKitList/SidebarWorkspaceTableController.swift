@@ -156,7 +156,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         // deallocation is the ownership boundary that proves no native source
         // can still arrive for this request, so release the retained table now
         // instead of waiting for an unrelated future mouse-down.
-        discardAbandonedProvisionalWorkspaceDrag()
+        discardAbandonedProvisionalWorkspaceDrag(force: true)
     }
     func makeContainerView() -> SidebarWorkspaceTableContainerView {
         let container = SidebarWorkspaceTableContainerView()
@@ -1359,9 +1359,11 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     /// abandoned, there is no native `endedAt` callback to perform that
     /// teardown; the next mouse-down is the first authoritative boundary at
     /// which we can safely discard it without racing a live session.
-    private func discardAbandonedProvisionalWorkspaceDrag() {
+    private func discardAbandonedProvisionalWorkspaceDrag(force: Bool = false) {
+        let hasProvisionalWriter = workspaceDragWriterOwnership.hasPendingTokens
+            || pendingWorkspaceDragWriter != nil
         guard !isWorkspaceDragSourceActive,
-              !workspaceDragSourceCompletionReceived else { return }
+              force || !workspaceDragSourceCompletionReceived || hasProvisionalWriter else { return }
         guard workspaceDragWriterOwnership.hasPendingTokens
             || pendingWorkspaceDragWriter != nil
             || activeWorkspaceDragContainerView != nil

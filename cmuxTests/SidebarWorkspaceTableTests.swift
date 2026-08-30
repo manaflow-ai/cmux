@@ -87,6 +87,40 @@ struct SidebarWorkspaceTableTests {
 
     @Test
     @MainActor
+    func repeatedProvisionalReconstructionRetainsEveryContainerForTeardown() async throws {
+        let controller = SidebarWorkspaceTableController()
+        let firstContainer = controller.makeContainerView()
+        let row = makeRowConfiguration()
+        controller.apply(
+            rows: [row],
+            actions: makeTableActions(),
+            workspaceIds: [row.workspaceId],
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+        let writer = try #require(
+            controller.tableView(firstContainer.tableView, pasteboardWriterForRow: 0)
+        )
+
+        controller.dismantleContainerView(firstContainer)
+        let secondContainer = controller.makeContainerView()
+        controller.dismantleContainerView(secondContainer)
+        let thirdContainer = controller.makeContainerView()
+        controller.dismantleContainerView(thirdContainer)
+
+        controller.prepareForMouseDown()
+        #expect(firstContainer.tableView.dataSource == nil)
+        #expect(firstContainer.tableView.delegate == nil)
+        #expect(secondContainer.tableView.dataSource == nil)
+        #expect(secondContainer.tableView.delegate == nil)
+        #expect(thirdContainer.tableView.dataSource == nil)
+        #expect(thirdContainer.tableView.delegate == nil)
+        _ = writer
+    }
+
+    @Test
+    @MainActor
     func workspaceWriterMaterializesThroughPasteboardWriteObjects() async throws {
         let controller = SidebarWorkspaceTableController()
         let container = controller.makeContainerView()
@@ -210,6 +244,39 @@ struct SidebarWorkspaceTableTests {
         #expect(container.tableView.dataSource == nil)
         #expect(container.tableView.delegate == nil)
         writer = nil
+    }
+
+    @Test
+    @MainActor
+    func abandonedWorkspaceWriterAfterCompletedDragStillReleasesTeardown() async throws {
+        let controller = SidebarWorkspaceTableController()
+        let container = controller.makeContainerView()
+        let row = makeRowConfiguration()
+
+        // Establish the completed-session state that used to make the
+        // provisional recovery guard sticky.
+        controller.workspaceDragSessionDidBegin()
+        controller.workspaceDragSessionDidEnd()
+        controller.apply(
+            rows: [row],
+            actions: makeTableActions(),
+            workspaceIds: [row.workspaceId],
+            selectedWorkspaceId: nil,
+            selectedScrollTargetWorkspaceId: nil
+        )
+        await flushStagedTableMutations()
+
+        var writer: (any NSPasteboardWriting)? = controller.tableView(
+            container.tableView,
+            pasteboardWriterForRow: 0
+        )
+        controller.dismantleContainerView(container)
+        writer = nil
+        await flushStagedTableMutations()
+
+        #expect(container.tableView.activeWorkspaceDragController == nil)
+        #expect(container.tableView.dataSource == nil)
+        #expect(container.tableView.delegate == nil)
     }
 
     @Test
