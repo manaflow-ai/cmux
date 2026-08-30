@@ -28,7 +28,7 @@ use tokio_util::sync::CancellationToken;
 use crate::control::{CONTROL_TIMEOUT_MS, ControlHandle, connect_control};
 use crate::pty::{
     CmuxTui, DataSink, EnsureDaemon, ExitSink, OpenPermit, PtyControl, PtyDeps, PtyHandle,
-    SpawnSpec, session_name_ok, spawn_blocking_with_open_permit,
+    PtyOutput, SpawnSpec, session_name_ok, spawn_blocking_with_open_permit,
 };
 
 const DAEMON_SOCKET_WAIT_MS: u64 = 5_000;

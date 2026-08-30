@@ -1293,15 +1293,16 @@ impl Inner {
         let Some(attachment) = self.attachment(pty_id) else {
             return;
         };
-        let _operation = attachment.operation_gate.lock().expect("attachment operation lock");
-        // The state lock is only the authorization linearization point. Do
-        // not keep it while backpressure or the send callback runs.
+        // The gate protects the authorization snapshot only. Never hold it
+        // while backpressure or the send callback runs: PTY input can block
+        // until the child drains, while the reader needs this same path to
+        // publish output.
         let authorized = {
+            let _operation = attachment.operation_gate.lock().expect("attachment operation lock");
             let _state = self.tunnel_state.lock().expect("tunnel state lock");
             self.attachment_is_authorized(pty_id, &attachment, &auth, context)
         };
         if !authorized {
-            drop(_operation);
             self.handle_authorization_failure(pty_id, &attachment, &auth, context, "output");
             return;
         }
@@ -1315,7 +1316,6 @@ impl Inner {
         // frame exactly at the cap, but must reject one that would push the
         // buffered amount over the cap.
         if buffered.saturating_add(chunk.len() as u64) > self.output_cap {
-            drop(_operation);
             self.retire_if_current(pty_id, &attachment);
             send_pty_error(
                 context,
@@ -1326,6 +1326,12 @@ impl Inner {
                     self.output_cap
                 ),
             );
+            return;
+        }
+        // Closing can race the snapshot once the gate is released. Do not
+        // publish a frame for an attachment that has already been retired or
+        // replaced under the same pty id.
+        if !self.attachment_snapshot_is_current(pty_id, &attachment) {
             return;
         }
         (auth.send)(json!({
@@ -1416,26 +1422,41 @@ impl Inner {
         true
     }
 
-    fn with_authorized<F>(&self, pty_id: &str, context: &FrameContext, action: &str, operation: F)
+    fn with_authorized<F>(
+        &self,
+        pty_id: &str,
+        context: &FrameContext,
+        action: &str,
+        operation: F,
+    ) -> bool
     where
         F: FnOnce(&Attachment),
     {
-        let Some(auth) = self.auth_for_transport(context) else { return };
-        let Some(attachment) = self.attachment(pty_id) else { return };
-        let operation_gate = Arc::clone(&attachment.operation_gate);
-        let _operation = operation_gate.lock().expect("attachment operation lock");
-        // The state lock is only the authorization linearization point. The
-        // control operation can block on a child that does not read stdin.
+        let Some(auth) = self.auth_for_transport(context) else { return false };
+        let Some(attachment) = self.attachment(pty_id) else { return false };
+        // The gate and state lock form the authorization linearization point.
+        // Snapshot that decision, then release both before entering platform
+        // I/O. A child that does not read stdin must not block its output
+        // callback or a close on this attachment.
         let authorized = {
+            let _operation = attachment.operation_gate.lock().expect("attachment operation lock");
             let _state = self.tunnel_state.lock().expect("tunnel state lock");
             self.attachment_is_authorized(pty_id, &attachment, &auth, context)
         };
         if !authorized {
-            drop(_operation);
             self.handle_authorization_failure(pty_id, &attachment, &auth, context, action);
-            return;
+            return false;
+        }
+        // A close may have won immediately after the state snapshot. Avoid
+        // starting a new control call once the attachment is retired.
+        if !self.attachment_snapshot_is_current(pty_id, &attachment) {
+            return false;
         }
         operation(&attachment);
+        // The operation was admitted at the snapshot boundary and may finish
+        // concurrently with retirement. Re-read the attachment identity so
+        // callers never treat a replaced or closed generation as current.
+        self.attachment_snapshot_is_current(pty_id, &attachment)
     }
 
     fn auth_for_transport(&self, context: &FrameContext) -> Option<AuthSnapshot> {
@@ -1504,6 +1525,11 @@ impl Inner {
             .expect("attach lock")
             .get(pty_id)
             .is_some_and(|current| Arc::ptr_eq(&current.operation_gate, &attachment.operation_gate))
+    }
+
+    fn attachment_snapshot_is_current(&self, pty_id: &str, attachment: &Attachment) -> bool {
+        !attachment.closing.load(Ordering::Acquire)
+            && self.attachment_is_current(pty_id, attachment)
     }
 
     fn transport_auth_is_current(&self, context: &FrameContext, auth: &AuthSnapshot) -> bool {
