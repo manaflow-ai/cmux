@@ -881,6 +881,13 @@ mod tests {
     }
 
     #[test]
+    fn socket_adapter_name_is_reserved_for_internal_reports() {
+        let error =
+            agent_hook_journal_ingress("socket", "PermissionRequest", None, json!({})).unwrap_err();
+        assert!(error.to_string().contains("reserved for internal socket reports"));
+    }
+
+    #[test]
     fn provider_envelopes_normalize_structural_fields_and_redact_message_data() {
         let native = json!({
             "event": {
