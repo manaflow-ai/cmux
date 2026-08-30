@@ -25,7 +25,10 @@ struct DockSplitContentView: View {
             .onTapGesture { store.bonsplitController.focusPane(paneId) }
         }
         .background {
-            DockPointerInteractionHost(store: store)
+            DockPointerInteractionHost(
+                store: store,
+                isEnabled: store.scope == .global && store.isVisibleInUI
+            )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .allowsHitTesting(false)
         }
@@ -68,10 +71,12 @@ struct DockSplitContentView: View {
 @MainActor
 private struct DockPointerInteractionHost: NSViewRepresentable {
     let store: DockSplitStore
+    let isEnabled: Bool
 
     func makeNSView(context: Context) -> DockPointerInteractionHostView {
         let view = DockPointerInteractionHostView()
         view.store = store
+        view.isEnabled = isEnabled
         return view
     }
 
@@ -80,7 +85,12 @@ private struct DockPointerInteractionHost: NSViewRepresentable {
         context: Context
     ) {
         nsView.store = store
-        nsView.installMonitorIfNeeded()
+        nsView.isEnabled = isEnabled
+        if isEnabled {
+            nsView.installMonitorIfNeeded()
+        } else {
+            nsView.stopMonitoring()
+        }
     }
 
     static func dismantleNSView(
@@ -95,19 +105,19 @@ private struct DockPointerInteractionHost: NSViewRepresentable {
 @MainActor
 private final class DockPointerInteractionHostView: NSView {
     var store: DockSplitStore?
+    var isEnabled = false
     private var eventMonitor: Any?
 
     deinit {
         guard let eventMonitor else { return }
-        if Thread.isMainThread {
+        // ``dismantleNSView`` and ``viewDidMoveToWindow`` clear the monitor on
+        // the MainActor. If a view is released without either lifecycle hook,
+        // treat that as a violated AppKit ownership invariant rather than
+        // crossing a non-Sendable monitor token to an unstructured task.
+        assert(Thread.isMainThread, "Dock pointer monitor released off-main")
+        guard Thread.isMainThread else { return }
+        MainActor.assumeIsolated {
             NSEvent.removeMonitor(eventMonitor)
-        } else {
-            // SwiftUI normally dismantles this view on the MainActor, but an
-            // autorelease-driven final release can occur off-main. Keep the
-            // AppKit removal on its required actor in that backstop case.
-            Task { @MainActor [eventMonitor] in
-                NSEvent.removeMonitor(eventMonitor)
-            }
         }
     }
 
@@ -123,7 +133,7 @@ private final class DockPointerInteractionHostView: NSView {
     }
 
     func installMonitorIfNeeded() {
-        guard window != nil, eventMonitor == nil else { return }
+        guard isEnabled, window != nil, eventMonitor == nil else { return }
         eventMonitor = NSEvent.addLocalMonitorForEvents(
             matching: [.leftMouseDown]
         ) { [weak self] event in
