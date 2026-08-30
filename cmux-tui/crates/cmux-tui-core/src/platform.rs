@@ -195,44 +195,35 @@ pub fn invalid_runtime_dir() -> PathBuf {
 /// ledgers live here across daemon and machine reboots.
 pub fn workspace_state_dir() -> Option<PathBuf> {
     if let Some(path) = env_path("CMUX_TUI_STATE_DIR") {
-        return Some(normalize_filesystem_path(path));
+        return Some(path);
     }
     #[cfg(target_os = "macos")]
     {
         home_dir().map(|home| {
-            normalize_filesystem_path(
-                home.join("Library").join("Application Support").join("cmux-tui").join("sessions"),
-            )
+            home.join("Library").join("Application Support").join("cmux-tui").join("sessions")
         })
     }
     #[cfg(target_os = "linux")]
     {
-        env_path("XDG_STATE_HOME")
-            .map(|state| normalize_filesystem_path(state.join("cmux-tui").join("sessions")))
-            .or_else(|| {
-                home_dir().map(|home| {
-                    normalize_filesystem_path(
-                        home.join(".local").join("state").join("cmux-tui").join("sessions"),
-                    )
-                })
-            })
+        env_path("XDG_STATE_HOME").map(|state| state.join("cmux-tui").join("sessions")).or_else(
+            || {
+                home_dir()
+                    .map(|home| home.join(".local").join("state").join("cmux-tui").join("sessions"))
+            },
+        )
     }
     #[cfg(windows)]
     {
-        return env_path("LOCALAPPDATA")
-            .map(|dir| normalize_filesystem_path(dir.join("cmux-tui").join("sessions")));
+        return env_path("LOCALAPPDATA").map(|dir| dir.join("cmux-tui").join("sessions"));
     }
     #[cfg(all(not(target_os = "macos"), not(target_os = "linux"), not(windows)))]
     {
-        env_path("XDG_STATE_HOME")
-            .map(|state| normalize_filesystem_path(state.join("cmux-tui").join("sessions")))
-            .or_else(|| {
-                home_dir().map(|home| {
-                    normalize_filesystem_path(
-                        home.join(".local").join("state").join("cmux-tui").join("sessions"),
-                    )
-                })
-            })
+        env_path("XDG_STATE_HOME").map(|state| state.join("cmux-tui").join("sessions")).or_else(
+            || {
+                home_dir()
+                    .map(|home| home.join(".local").join("state").join("cmux-tui").join("sessions"))
+            },
+        )
     }
 }
 
