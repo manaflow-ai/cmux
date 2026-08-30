@@ -60,6 +60,12 @@ final class SessionDragSessionSource: NSObject, NSDraggingSource {
         self.sourceView = sourceView
     }
 
+    /// Completes a superseded source after a later native pointer boundary
+    /// proves that AppKit has left this source's drag loop.
+    func finishAfterNativeBoundary() {
+        finishDrag()
+    }
+
     func finishDrag() {
         guard case .active = phase else { return }
         phase = .finished

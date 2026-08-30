@@ -53,6 +53,14 @@ final class SessionDragCoordinator {
         frame: NSRect,
         image: NSImage
     ) -> Bool {
+        if case .dragging(_, let source) = sessionPhase {
+            // Reaching this new threshold-crossing event proves AppKit has
+            // left the previous native drag loop, even if its source omitted
+            // `endedAt`. Retire only that superseded source before admitting
+            // the next generation.
+            source.finishAfterNativeBoundary()
+            sessionPhase = .idle
+        }
         guard case .idle = sessionPhase,
               frame.width > 0,
               frame.height > 0 else {

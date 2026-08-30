@@ -52,6 +52,9 @@ public final class SidebarWorkspaceDragRegistry: SidebarWorkspaceDragSessionRegi
 
     /// Begins a tokenized session, superseding any prior workspace drag.
     public func beginSession(workspaceId: UUID) -> SidebarWorkspaceDragSession {
+        // A new session is an authoritative pointer boundary: AppKit cannot
+        // start it while an older native source is still in its drag loop.
+        reclaimSupersededNativeSources()
         endCurrentSession()
         let session = SidebarWorkspaceDragSession(workspaceId: workspaceId)
         currentSession = session
@@ -110,6 +113,18 @@ public final class SidebarWorkspaceDragRegistry: SidebarWorkspaceDragSessionRegi
         source.bind(sourceView: sourceView)
         dragSession.animatesToStartingPositionsOnCancelOrFail = false
         return true
+    }
+
+    /// Releases source holds superseded by a new pointer/native-session
+    /// boundary. A real new drag cannot be delivered while an older AppKit
+    /// session is still active, so this is the bounded recovery for an OS path
+    /// that omitted the older source's `endedAt` callback.
+    public func reclaimSupersededNativeSources() {
+        let supersededSources = nativeDragSources.values
+        nativeDragSources.removeAll(keepingCapacity: false)
+        for source in supersededSources {
+            source.finishAfterNativeBoundary()
+        }
     }
 
     /// Handles the terminal callback from a native source or table controller.

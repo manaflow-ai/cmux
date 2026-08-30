@@ -230,7 +230,7 @@ struct VaultNativeDragSourceTests {
         #expect(startedEntry == entry)
     }
 
-    @Test("A completed native drag releases ownership before the next duplicate drag")
+    @Test("Repeated native drags reclaim superseded duplicate ownership")
     func completedDragReleasesOwnershipForNextDuplicate() throws {
         let registry = SessionDragRegistry()
         let tabDragTransferRegistry = TabDragTransferRegistry()
@@ -250,7 +250,13 @@ struct VaultNativeDragSourceTests {
         let frame = sourceView.bounds
         let image = NSImage(size: frame.size)
 
+        var previousSource: SessionDragSessionSource?
         for expectedStartCount in 1...3 {
+            if let previousSource {
+                // The new threshold-crossing event is the native boundary for
+                // the previous source, even when its endedAt callback was lost.
+                #expect(registry.entry(id: previousSource.dragID) == nil)
+            }
             #expect(coordinator.beginSessionDrag(
                 entry,
                 registry: registry,
@@ -266,19 +272,10 @@ struct VaultNativeDragSourceTests {
             let dragID = source.dragID
             #expect(registry.entry(id: dragID) == entry)
             #expect(source.dragID == dragID)
-            #expect(!coordinator.beginSessionDrag(
-                entry,
-                registry: registry,
-                tabDragTransferRegistry: tabDragTransferRegistry,
-                from: sourceView,
-                event: event,
-                frame: frame,
-                image: image
-            ))
-
-            source.finishDrag()
-            #expect(registry.entry(id: dragID) == nil)
+            previousSource = source
         }
+        previousSource?.finishDrag()
+        #expect(previousSource.flatMap { registry.entry(id: $0.dragID) } == nil)
     }
 
     @Test("A new native drag reclaims a source whose endedAt callback was lost")

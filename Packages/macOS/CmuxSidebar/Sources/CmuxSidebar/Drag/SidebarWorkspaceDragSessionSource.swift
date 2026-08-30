@@ -43,6 +43,12 @@ final class SidebarWorkspaceDragSessionSource: NSObject, NSDraggingSource {
         self.sourceView = sourceView
     }
 
+    /// Completes this source after a later native pointer boundary proves that
+    /// AppKit has left the older drag loop, even if `endedAt` was omitted.
+    func finishAfterNativeBoundary() {
+        finishDrag()
+    }
+
     private func finishDrag() {
         guard !didFinish else { return }
         didFinish = true

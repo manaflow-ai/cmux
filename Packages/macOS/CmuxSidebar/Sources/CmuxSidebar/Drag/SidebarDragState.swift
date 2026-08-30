@@ -168,6 +168,16 @@ public final class SidebarDragState {
         return true
     }
 
+    /// Reclaims superseded native source holds after a real pointer boundary.
+    ///
+    /// This is intentionally separate from ``finishDrag()``: ordinary
+    /// presentation teardown may clear logical state while AppKit still owns a
+    /// live source, whereas a new pointer boundary proves that older native
+    /// sessions are no longer in their event loop.
+    public func reclaimSupersededNativeSources() {
+        sessionRegistry?.reclaimSupersededNativeSources()
+    }
+
     /// Mirrors the coordinator's current session into a destination window.
     @discardableResult
     public func mirrorDragging(tabId: UUID) -> Bool {

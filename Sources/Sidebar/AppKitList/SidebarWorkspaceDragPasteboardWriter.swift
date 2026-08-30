@@ -15,7 +15,7 @@ final class SidebarWorkspaceDragPasteboardWriter: NSObject, @preconcurrency NSPa
     private static let pasteboardType = NSPasteboard.PasteboardType(
         SidebarWorkspaceDragSession.pasteboardTypeIdentifier
     )
-    private let workspaceId: UUID
+    private var workspaceId: UUID
     private var sessionId: UUID?
 
     // These are intentionally strong. AppKit retains the writer while it
@@ -48,9 +48,18 @@ final class SidebarWorkspaceDragPasteboardWriter: NSObject, @preconcurrency NSPa
     /// representation is necessarily legacy-shaped. Updating the writer as
     /// soon as the session exists keeps a later lazy pasteboard materialization
     /// from replacing the live token with that provisional value.
-    func bind(to sessionId: UUID) {
+    /// Rebinds the row identity when AppKit materializes a writer after a
+    /// representable reconstruction. The native callback's row is authoritative
+    /// even when an older provisional writer is still retained by AppKit.
+    func bind(to sessionId: UUID, workspaceId: UUID? = nil) {
         self.sessionId = sessionId
+        if let workspaceId {
+            self.workspaceId = workspaceId
+        }
     }
+
+    /// Workspace identity captured for this exact writer request.
+    var workspaceIdForDrag: UUID { workspaceId }
 
     /// The source view that AppKit will use for the native session.
     ///

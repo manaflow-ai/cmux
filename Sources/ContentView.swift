@@ -12134,6 +12134,9 @@ struct VerticalTabsSidebar: View, Equatable {
                         capabilityValue: capabilityValue
                     )
                     dragAutoScrollController.stop()
+                },
+                reclaimSupersededNativeSources: {
+                    dragState.reclaimSupersededNativeSources()
                 }
             )
         )

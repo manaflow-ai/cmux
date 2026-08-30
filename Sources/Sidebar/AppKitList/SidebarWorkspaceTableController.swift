@@ -978,16 +978,15 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             rowConfiguration.id,
             rowConfiguration.workspaceId
         ) ?? rowConfiguration.workspaceId
-        if pendingWorkspaceDragWorkspaceId == nil {
-            // AppKit asks for the writer before it creates an NSDraggingSession.
-            // Keep only the row identity here; the live coordinator session is
-            // created in `willBeginAt`, so a writer that is abandoned during a
-            // reconstruction cannot leave a dead registry entry behind.
+        // AppKit asks for the writer before it creates an NSDraggingSession.
+        // Keep the latest requested row as the provisional identity while no
+        // native session is active; an older writer may still be retained while
+        // a failed gesture is unwinding, but it must never change this payload.
+        if !isWorkspaceDragSourceActive {
             pendingWorkspaceDragWorkspaceId = workspaceId
         }
-        let payloadWorkspaceId = pendingWorkspaceDragWorkspaceId ?? workspaceId
         let writer = SidebarWorkspaceDragPasteboardWriter(
-            workspaceId: payloadWorkspaceId,
+            workspaceId: workspaceId,
             sessionId: pendingWorkspaceDragSessionId,
             sourceView: tableView,
             controller: self
@@ -1020,15 +1019,22 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     ) {
         _ = screenPoint
         let draggedRows = Array(rowIndexes)
+        let provisionalWriter = pendingWorkspaceDragWriter
+        if let provisionalWriter,
+           provisionalWriter.sourceViewForDrag !== tableView {
+            // A callback for an older writer cannot promote or replace the
+            // newer row's native generation.
+            return
+        }
         let sourceWorkspaceId: UUID? = {
             guard let sourceRow = draggedRows.first else {
-                return pendingWorkspaceDragWorkspaceId
+                return provisionalWriter?.workspaceIdForDrag ?? pendingWorkspaceDragWorkspaceId
             }
             guard rows.indices.contains(sourceRow) else {
                 // A representable may have been dismantled after AppKit asked
                 // for the writer. The writer's identity is still authoritative
                 // until this callback establishes the native session.
-                return pendingWorkspaceDragWorkspaceId
+                return provisionalWriter?.workspaceIdForDrag ?? pendingWorkspaceDragWorkspaceId
             }
             let rowConfiguration = rows[sourceRow]
             return actions?.workspaceIdForDrag?(
@@ -1085,7 +1091,10 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
                     capabilityValue,
                     forType: NSPasteboard.PasteboardType(SidebarTabDragPayload.typeIdentifier)
                 )
-                pendingWorkspaceDragWriter?.bind(to: activeWorkspaceDragSessionId)
+                pendingWorkspaceDragWriter?.bind(
+                    to: activeWorkspaceDragSessionId,
+                    workspaceId: payloadWorkspaceId
+                )
             }
         }
         pendingWorkspaceDragWriter = nil
@@ -1224,7 +1233,18 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     /// writer can be requested before AppKit creates a native session; if that
     /// gesture is abandoned, the next press must not reuse its workspace id.
     func prepareForMouseDown() {
-        guard !isWorkspaceDragSourceActive else { return }
+        if isWorkspaceDragSourceActive {
+            // AppKit cannot deliver a new source mouse-down while the older
+            // native drag loop is live. This boundary therefore proves that a
+            // missing endedAt callback left only stale local state; complete
+            // that generation before accepting the new row.
+            let reclaimSupersededNativeSources = actions?
+                .nativeWorkspaceDragLifecycle?
+                .reclaimSupersededNativeSources
+            let activeSession = activeWorkspaceDraggingSession
+            workspaceDragSessionDidEnd(session: activeSession)
+            reclaimSupersededNativeSources?()
+        }
         if pendingWorkspaceDragWriter == nil,
            activeWorkspaceDragContainerView != nil,
            !workspaceDragSourceCompletionReceived {
@@ -1289,6 +1309,14 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     /// The no-argument form remains available for deterministic tests and for
     /// compatibility callers that already know they own the active session.
     func workspaceDragSessionDidEnd(session: NSDraggingSession? = nil) {
+        if let session,
+           let activeWorkspaceDraggingSession,
+           activeWorkspaceDraggingSession !== session {
+            // A callback from an older native object must not release the
+            // source retained for the current session, even if the OS reused
+            // a sequence number.
+            return
+        }
         if let session,
            let activeWorkspaceDragSequenceNumber,
            session.draggingSequenceNumber != activeWorkspaceDragSequenceNumber {

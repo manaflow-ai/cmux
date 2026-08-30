@@ -7,7 +7,8 @@ import Foundation
 /// Native source identity and completion callbacks carried as one capability.
 typealias SidebarWorkspaceTableNativeDragLifecycle = (
     currentSessionId: () -> UUID?,
-    finish: (UUID, String) -> Void
+    finish: (UUID, String) -> Void,
+    reclaimSupersededNativeSources: () -> Void
 )
 
 /// Accepted reorder plan for the pointer's current position. The AppKit table
