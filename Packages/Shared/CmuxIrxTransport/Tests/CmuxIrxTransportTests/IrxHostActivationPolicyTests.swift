@@ -200,4 +200,23 @@ struct IrxHostActivationPolicyTests {
         #expect(policyDelay == 8)
         #expect(delay == 300)
     }
+
+    @Test("a missing revoke target does not enter the transient ladder")
+    func revokeNotFoundStops() {
+        let failure = IrxBrokerFailure(
+            operation: .revoke,
+            error: CmxIrohTrustBrokerClientError.rejected(
+                statusCode: 404,
+                code: "not_found"
+            )
+        )
+        #expect(failure.kind == .rejected)
+        #expect(
+            policy.decision(
+                for: failure,
+                failureCount: 0,
+                jitterUnitInterval: 0
+            ) == .stopped
+        )
+    }
 }

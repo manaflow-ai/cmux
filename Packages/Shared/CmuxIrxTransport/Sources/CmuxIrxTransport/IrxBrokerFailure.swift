@@ -105,7 +105,11 @@ public struct IrxBrokerFailure: Error, Codable, Equatable, Sendable {
                 errorCode = code ?? "rate_limited"
                 retryAfterSeconds = retryAfter
             case let .rejected(status, code):
-                kind = Self.kind(forStatusCode: status, code: code)
+                kind = Self.kind(
+                    forStatusCode: status,
+                    code: code,
+                    operation: operation
+                )
                 statusCode = status
                 errorCode = code ?? "http_\(status)"
                 retryAfterSeconds = nil
@@ -184,7 +188,8 @@ public struct IrxBrokerFailure: Error, Codable, Equatable, Sendable {
 
     private static func kind(
         forStatusCode statusCode: Int,
-        code: String?
+        code: String?,
+        operation: IrxBrokerOperation
     ) -> IrxBrokerFailureKind {
         switch statusCode {
         case 401:
@@ -204,6 +209,8 @@ public struct IrxBrokerFailure: Error, Codable, Equatable, Sendable {
             "account_mismatch"
         ].contains(code?.lowercased() ?? ""):
             .authenticationRequired
+        case 404 where operation == .revoke:
+            .rejected
         case 404, 408, 425, 429, 500 ... 599:
             .transient
         default:

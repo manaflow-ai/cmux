@@ -176,15 +176,13 @@ extension MobileHostIrxRuntime: CmxIrohSettingsControlling {
                     accountID: accountID,
                     token: token
                 )
-            } else {
-                publishIrxSettingsUpdate()
+                return
             }
         } catch {
             guard generationToken == token,
                   activeAccountID == accountID,
                   brokerService === broker else { return }
             hadLiveDiscovery = false
-            publishIrxSettingsUpdate()
         }
         publishIrxSettingsUpdate()
     }

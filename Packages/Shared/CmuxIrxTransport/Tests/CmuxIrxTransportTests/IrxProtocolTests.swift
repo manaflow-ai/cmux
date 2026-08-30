@@ -111,6 +111,18 @@ struct IrxRelayCredentialPolicyTests {
         #expect(delay == 300)
     }
 
+    @Test("expired credentials retain the urgent retry floor")
+    func boundedRetryDelayAcceleratesExpiredCredentials() {
+        let now = Date(timeIntervalSince1970: 2_000_000)
+        let delay = IrxRelayCredentialPolicy.boundedRetryDelay(
+            expiresAt: now.addingTimeInterval(-1),
+            now: now,
+            policyDelay: 30,
+            retryAfterSeconds: nil
+        )
+        #expect(delay == 1)
+    }
+
     @Test("expiry acceleration remains within the lifecycle cap without a floor")
     func boundedRetryDelayHonorsPolicyCap() {
         let now = Date(timeIntervalSince1970: 2_000_000)

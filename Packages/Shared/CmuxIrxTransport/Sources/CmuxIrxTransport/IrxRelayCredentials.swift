@@ -56,7 +56,9 @@ public enum IrxRelayCredentialPolicy {
     /// The policy delay is bounded by the caller's retry schedule. A validated
     /// server floor may exceed that local cap, and is applied after expiry
     /// acceleration so a nearly expired credential cannot cause a
-    /// rate-limited broker to be contacted early.
+    /// rate-limited broker to be contacted early. Already-expired credentials
+    /// use the one-second policy floor; only a validated server directive can
+    /// lengthen that urgent retry.
     public static func boundedRetryDelay(
         expiresAt: Date?,
         now: Date,
@@ -64,8 +66,7 @@ public enum IrxRelayCredentialPolicy {
         retryAfterSeconds: Int?
     ) -> TimeInterval {
         let boundedPolicyDelay = max(0, policyDelay)
-        let expiryDelay = expiresAt.flatMap { expiryDate -> TimeInterval? in
-            guard expiryDate.timeIntervalSince(now) > 2 else { return nil }
+        let expiryDelay = expiresAt.map { expiryDate -> TimeInterval in
             let duration = retryDelay(expiresAt: expiryDate, now: now)
             let components = duration.components
             return TimeInterval(components.seconds)
