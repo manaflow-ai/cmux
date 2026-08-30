@@ -1431,6 +1431,9 @@ mod tests {
         let drive_relative = PathBuf::from(r"C:state");
         assert_eq!(normalize_filesystem_path(drive_relative.clone()), drive_relative);
 
+        let relative = PathBuf::from("state");
+        assert_eq!(normalize_filesystem_path(relative.clone()), relative);
+
         for rooted in [PathBuf::from(r"C:\state"), PathBuf::from(r"\\server\share\state")] {
             assert_eq!(normalize_filesystem_path(rooted.clone()), rooted);
         }
@@ -1438,7 +1441,18 @@ mod tests {
 
     #[test]
     fn windows_verbatim_component_guard_rejects_win32_semantic_changes() {
-        for component in ["state.", "state ", "CON", "nul.txt", "Com9.log", "LPT¹"] {
+        for component in [
+            "state.",
+            "state ",
+            "CON",
+            "nul.txt",
+            "Com9.log",
+            "LPT¹",
+            "CONIN$",
+            "CONOUT$",
+            "conin$.log",
+            "ConOut$.log",
+        ] {
             let wide = component.encode_utf16().collect::<Vec<_>>();
             assert!(!windows_component_is_verbatim_safe(&wide), "{component}");
         }
